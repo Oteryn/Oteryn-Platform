@@ -433,6 +433,9 @@ impl Sessions {
             .authority
             .use_native(&mut tx, &auth, family, purpose)
             .await?;
+        // The ticket lifetime is bounded from its issuance, which may fall in a later
+        // second than the rotation clock read above.
+        let issued = clock(&mut tx).await?;
         let mut payload = credential.payload()?;
         match (purpose, native) {
             (Purpose::Characters, NativeResult::Characters(characters))
@@ -457,7 +460,7 @@ impl Sessions {
                 && ticket.len() <= 256
                 && (1..=60).contains(&expires_in)
                 && expires_at > at
-                && expires_at <= at + 60 =>
+                && expires_at <= issued + 60 =>
             {
                 payload["ticket"] = ticket.into();
                 payload["expires_in"] = expires_in.into();

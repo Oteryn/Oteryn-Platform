@@ -9,6 +9,16 @@ struct Authority {
     auth: Authorization,
     token: String,
     fail: bool,
+    ticket: TicketMode,
+}
+/// How the test issuer stamps a ticket's expiry.
+#[derive(Clone, Copy)]
+enum TicketMode {
+    Normal,
+    /// Issues after the database second advances, with the full 60-second lifetime.
+    AfterSecond,
+    /// Issues with a lifetime beyond the 60-second bound.
+    TooLong,
 }
 impl NativeAuthority for Authority {
     fn enroll<'a>(
@@ -58,10 +68,30 @@ impl NativeAuthority for Authority {
                     name: "Player".into(),
                     availability: "AVAILABLE".into(),
                 }]),
-                Purpose::Ticket => NativeResult::Ticket {
-                    ticket: "test-native-ticket".into(),
-                    expires_in: 30,
-                    expires_at: clock(db).await? + 30,
+                Purpose::Ticket => match self.ticket {
+                    TicketMode::Normal => NativeResult::Ticket {
+                        ticket: "test-native-ticket".into(),
+                        expires_in: 30,
+                        expires_at: clock(db).await? + 30,
+                    },
+                    TicketMode::AfterSecond => {
+                        let entered = clock(db).await?;
+                        let mut issued = entered;
+                        while issued == entered {
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                            issued = clock(db).await?;
+                        }
+                        NativeResult::Ticket {
+                            ticket: "test-native-ticket".into(),
+                            expires_in: 60,
+                            expires_at: issued + 60,
+                        }
+                    }
+                    TicketMode::TooLong => NativeResult::Ticket {
+                        ticket: "test-native-ticket".into(),
+                        expires_in: 60,
+                        expires_at: clock(db).await? + 120,
+                    },
                 },
             })
         })
@@ -106,6 +136,7 @@ async fn setup()
         auth: auth.clone(),
         token: Uuid::now_v7().to_string(),
         fail: false,
+        ticket: TicketMode::Normal,
     };
     Ok(Some((
         Sessions::new(
@@ -246,6 +277,7 @@ async fn database_callback_failure_rolls_back()
         auth: a.clone(),
         token: String::new(),
         fail: true,
+        ticket: TicketMode::Normal,
     });
     assert_eq!(
         s.rotate(c.secret(), a.client_id, Purpose::Ticket).await,
@@ -257,6 +289,40 @@ async fn database_callback_failure_rolls_back()
             .await
             .is_ok()
     );
+    Ok(())
+}
+#[tokio::test]
+async fn database_ticket_expiry_is_bounded_from_issuance()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some((mut s, a)) = setup().await? else {
+        return Ok(());
+    };
+    let c = s.enroll_test("valid", true).await.unwrap();
+    let original = s.authority.clone();
+    // A lifetime beyond 60 seconds is refused and the presented credential stays usable.
+    s.authority = Arc::new(Authority {
+        auth: a.clone(),
+        token: String::new(),
+        fail: false,
+        ticket: TicketMode::TooLong,
+    });
+    assert_eq!(
+        s.rotate(c.secret(), a.client_id, Purpose::Ticket).await,
+        Err(Failure::Unavailable)
+    );
+    // Issuance in a later second than the rotation clock still carries the full lifetime.
+    s.authority = Arc::new(Authority {
+        auth: a.clone(),
+        token: String::new(),
+        fail: false,
+        ticket: TicketMode::AfterSecond,
+    });
+    let response = s
+        .rotate(c.secret(), a.client_id, Purpose::Ticket)
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(response["expires_in"], 60);
+    s.authority = original;
     Ok(())
 }
 #[tokio::test]
