@@ -25,7 +25,7 @@ retry contract, so they are triaged separately.
 
 - [x] A held account row lock sheds a profile preference save as Unavailable within the mutation budget (test red without the change, green with it)
 - [x] Lock order (account before feed) and the bounded retry unchanged
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -49,10 +49,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T05:11:18Z
-head: c69b998f8a1d471626e0a993d873ee9c1d6a5acf
+head: fba3b7aaef6d116c44a9492dbe7c6d7184073926
 branch: claude/happy-davinci-ijz3wy-classb-characters
 pr: 1906
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-classb-characters.md
@@ -86,5 +86,13 @@ validation:
     evidence: exit 0
 blockers:
   - none
-next_action: "wait for Portal RS CI on PR 1906, then squash auto-merge"
+next_action: none; delivered by PR 1906 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1906 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1906 merged as fba3b7aaef6d116c44a9492dbe7c6d7184073926
 ```
