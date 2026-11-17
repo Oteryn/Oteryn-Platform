@@ -563,6 +563,41 @@ async fn verification_query_is_removed_before_request_tracing() -> Result {
 }
 
 #[tokio::test]
+async fn verification_keeps_pending_referral_code_in_fresh_session() -> Result {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let app = db.app();
+    let (cookie, csrf, _) = credentials(&app).await?;
+    let registered = submit(&app, &cookie, &csrf, &[]).await?;
+    assert_eq!(registered.status(), StatusCode::SEE_OTHER);
+    let cookie = session_cookie(&registered)?;
+    let (registration_id, _, registration_csrf) = session_row(&db, cookie)
+        .await?
+        .ok_or("missing registration session")?;
+    sqlx::query("UPDATE web_sessions SET data=data||jsonb_build_object('referral.code','invite-code') WHERE session_id=$1")
+        .bind(registration_id)
+        .execute(&db.pool)
+        .await?;
+    let raw = token(&db).await?;
+    let response = app
+        .oneshot(
+            Request::get(format!("/en/verify-email?token={raw}"))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_anonymous_rotation(&db, cookie, &registration_csrf, &response).await?;
+    let carried: Vec<Option<String>> =
+        sqlx::query_scalar("SELECT data->>'referral.code' FROM web_sessions WHERE session_id<>$1")
+            .bind(registration_id)
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(carried, [Some("invite-code".to_owned())]);
+    db.close().await
+}
+#[tokio::test]
 async fn verification_from_registration_session_rotates_revoked_session() -> Result {
     let Some(db) = Database::new().await? else {
         return Ok(());
