@@ -29,6 +29,9 @@ const assert = require('node:assert/strict');
     await page.getByLabel('Marker label (1–80 characters)').fill('Browser marker');
     await page.getByRole('button',{name:'Save marker at map centre'}).click();
     await page.getByRole('link',{name:'Browser marker',exact:true}).waitFor();
+    // Hold the spawns load behind the report refusal: a late load must not erase the refusal.
+    let release; const held=new Promise(resolve=>{release=resolve;});
+    await page.route('**/atlas/spawns?*',async route=>{await held; await route.continue();});
     await page.reload();
     await page.getByRole('link',{name:'Browser marker',exact:true}).waitFor();
     await page.getByRole('button',{name:'Delete marker'}).click();
@@ -38,7 +41,11 @@ const assert = require('node:assert/strict');
     // The fixture has already reached its five-report limit: the UI must surface refusal.
     await page.getByLabel('Describe the error (10–2000 characters)').fill('The map floor is incorrect.');
     await page.getByRole('button',{name:'Send report'}).click();
-    await page.getByText('Unavailable or invalid input. Please try again.',{exact:true}).waitFor();
+    const refusal=page.getByText('Unavailable or invalid input. Please try again.',{exact:true});
+    await refusal.waitFor();
+    release(); await page.unroute('**/atlas/spawns?*');
+    await page.waitForFunction(()=>document.querySelector('.spawn-panel>p')?.textContent.includes(': 2;'));
+    await refusal.waitFor();
     assert.deepEqual(errors,[]);
     console.log('Browser: 360 px, PL/EN, grouping, viewport counts, place link, keyboard, private marker persistence/deletion, CSRF and report refusal passed');
   } finally { await browser.close(); }
