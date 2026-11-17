@@ -88,10 +88,14 @@ pub(super) fn binding(intent: &Intent) -> Value {
             account_id,
             world_id,
             name,
+            sex,
+            vocation,
         } => object(vec![
             ("account_id", text(account_id)),
             ("target_world_id", text(world_id)),
             ("requested_name", text(name)),
+            ("requested_sex", text(sex.wire())),
+            ("requested_vocation", text(vocation.wire())),
         ]),
         Intent::Transfer {
             character_id,
@@ -115,8 +119,10 @@ pub(super) fn intent(
     issued: i64,
     expires: i64,
 ) -> Result<String, Error> {
+    // Only the create family moved to v2 (#1937); transfer keeps v1 bytes.
+    let version = if command == CREATE { 2 } else { 1 };
     let mut fields = vec![
-        ("contract_version".into(), Value::Unsigned(1)),
+        ("contract_version".into(), Value::Unsigned(version)),
         ("command".into(), text(command)),
         (
             "variant".into(),
@@ -144,6 +150,56 @@ pub(super) fn intent(
         return Err(Error::BadInput);
     }
     Ok(raw)
+}
+/// Create intent v2 members, in wire order (Game `CreateWire`, deny unknown fields).
+pub(super) const CREATE_V2_MEMBERS: [&str; 15] = [
+    "contract_version",
+    "command",
+    "variant",
+    "issuer_authority",
+    "issuer_decision_id",
+    "source_revision",
+    "operation_id",
+    "account_id",
+    "target_world_id",
+    "requested_name",
+    "requested_sex",
+    "requested_vocation",
+    "issued_at_source",
+    "expires_at_source",
+    "audience",
+];
+/// Validate a create intent v2: canonical, exact ordered members, closed value sets.
+/// A v1 create (no sex or vocation) is refused: it is retired and never served.
+pub(super) fn create_intent(raw: &[u8]) -> Result<Value, Error> {
+    let v = decode(raw, 4096)?;
+    exact(&v, &CREATE_V2_MEMBERS)?;
+    if v.get("contract_version") != Some(&Value::Unsigned(2))
+        || get(&v, "command")? != CREATE
+        || get(&v, "variant")? != "PLATFORM_USER_CREATE"
+        || get(&v, "issuer_authority")? != ISSUER
+        || get(&v, "audience")? != "OTERYN_GAME_CHARACTER_AUTHORITY"
+    {
+        return Err(Error::BadInput);
+    }
+    for key in [
+        "issuer_decision_id",
+        "operation_id",
+        "account_id",
+        "target_world_id",
+    ] {
+        uuid(get(&v, key)?)?;
+    }
+    counter(get(&v, "source_revision")?, false)?;
+    name(get(&v, "requested_name")?)?;
+    Sex::parse(get(&v, "requested_sex")?)?;
+    Vocation::parse(get(&v, "requested_vocation")?)?;
+    if counter(get(&v, "expires_at_source")?, false)?
+        <= counter(get(&v, "issued_at_source")?, false)?
+    {
+        return Err(Error::BadInput);
+    }
+    Ok(v)
 }
 pub(super) fn head(v: &Value, operation: &str) -> Result<(), Error> {
     if v.get("contract_version") != Some(&Value::Unsigned(1)) || get(v, "operation")? != operation {

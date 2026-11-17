@@ -77,6 +77,8 @@ A consumer or producer must not silently reinterpret the same command version wi
 
 Transport/API versioning and command semantic versioning may evolve independently.
 
+Versions are per command family. Create is at version 2 (`CreateCharacter` intent `contract_version` 2, see *1. Create character*); create v1 is retired. Every other command family keeps its versions and bytes unchanged: `TransferCharacterOwnership` intents stay v1, and the deletion and rename services keep their own intent and receipt versions on their own path. On the create/transfer route, the pending and read envelopes and the receipts, including the create receipt, remain v1.
+
 ### Canonical subject identity
 
 Native command identity uses accepted canonical identifiers:
@@ -312,6 +314,38 @@ Oteryn-v2 revalidates account/game creation eligibility and game-owned naming/ch
 Duplicate retry of the same operation cannot create a second character.
 
 Public/account projections update from authoritative result/source projections; a Platform placeholder ID must never become CharacterId.
+
+#### Create intent v2 (Issue #1937)
+
+In Newhaven the vocation is chosen at character creation. No path may create a character without one.
+
+The create intent is canonical JSON with these members, in this order:
+
+```text
+contract_version     2 (unsigned integer)
+command              "CreateCharacter"
+variant              "PLATFORM_USER_CREATE"
+issuer_authority
+issuer_decision_id
+source_revision
+operation_id
+account_id
+target_world_id
+requested_name
+requested_sex        "Female" | "Male"
+requested_vocation   "Knight" | "Paladin" | "Sorcerer" | "Druid" | "Monk"
+issued_at_source
+expires_at_source
+audience
+```
+
+These are the v1 members, with `requested_sex` and then `requested_vocation` inserted right after `requested_name`. Both values are case-sensitive strings from the closed sets above. They have no default and no numeric form. A body with a missing, extra, reordered or differently cased member is invalid. The consumer decodes it with unknown fields denied, and its canonical re-encoding must equal the body.
+
+- Platform produces only v2. Both values are part of the immutable intent binding, so a retry of the same submission with another sex or vocation is an identity conflict.
+- Create v1 is retired. A v1 create intent that Platform stored before this change and that is still pending fails closed. `pending` does not list it, and `read` answers 404 for it, so Game never receives a v1 create after this change. The row stays pending until it is reconciled. A v1 receipt for it is still accepted, because Game may have read it before the change.
+- The receipt is unchanged: `PublishCharacterCommandReceiptV1`. It does not echo sex or vocation.
+- Game consumer agreement (Game server lane, 2026-11-17): at `Oteryn/Oteryn-Game@e2152d050038cecdb3728c222af2ac184e1cac5a`, the consumer `crates/gameplay/durability/src/durability/character_command.rs` (`CreateWire`, lines 60-78, `deny_unknown_fields`, strict member order) pins create v1 at line 124. It moves to v2 in its own change. Until that change is deployed, the Game consumer does not accept a v2 create, so the Platform create flags stay off.
+- Vectors: `docs/contracts/fixtures/character-create-v2/`, checked byte for byte by `portal-rs/crates/characters/src/commands/create_v2_tests.rs`.
 
 ### 2. Rename character
 

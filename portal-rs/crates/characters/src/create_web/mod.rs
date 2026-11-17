@@ -1,7 +1,8 @@
 //! Account creation UX. Requires the public router's session and CSRF middleware.
 //! T44 can replace the narrow eligibility seam; uncertain account state always denies.
-//! Only name and world cross the accepted command boundary. Profession and sex are
-//! not offered until Game accepts these fields in the creation intent.
+//! Name, world, sex and vocation cross the command boundary as create intent v2
+//! (#1937). In Newhaven the vocation is chosen at creation: the form requires one
+//! sex and one vocation, with no default, and refuses the submission otherwise.
 mod http;
 mod names;
 mod page;

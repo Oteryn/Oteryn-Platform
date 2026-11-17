@@ -47,16 +47,23 @@ Governing references:
   `NativeAccountOverviewReadModel` and `CharacterCreationOutcome`
 - [Game wire contract, sections 4.2, 4.3, 6.1 and 7](https://github.com/Oteryn/Oteryn-Game/blob/857f15f376907c592bb28d854fccff18a15cdf87/docs/contracts/OTERYN_GAME_CHARACTER_AUTHORITY_COMMANDS_V1.md)
 
-The pinned wire explicitly excludes sex, outfit and profession inputs. The form
-explains the standard starting appearance and profession instead of collecting choices
-that would be discarded.
+In Newhaven the vocation is chosen at character creation, and no path creates a
+character without one (#1937). The form offers two required, server-rendered radio
+groups: sex (`Female`, `Male`) and vocation (`Knight`, `Paladin`, `Sorcerer`,
+`Druid`, `Monk`). Option values are the exact case-sensitive wire names; only the
+labels are localized. A missing, empty or unknown value takes the same path as a bad
+name: HTTP 302 back to the form with the input preserved and no command stored. Both
+values go into the immutable command binding, so a retry of the same submission with
+another sex or vocation conflicts. They travel as create intent v2
+(`docs/contracts/fixtures/character-create-v2/`); outfit is not collected.
 The module reuses existing T22 golden fixtures without copying them.
 
 Focused tests: `cargo test --locked -p oteryn-characters create_web -- --nocapture`.
-Five PostgreSQL tests use isolated schemas and read `PORTAL_TEST_DATABASE_URL`;
+Nine PostgreSQL tests use isolated schemas and read `PORTAL_TEST_DATABASE_URL`;
 unset configuration prints a skip notice. They cover duplicate/concurrent submission,
 changed-input conflict, unknown/ineligible accounts, bad worlds, expiring reservations,
-shared limits, browser feedback, owner isolation and actual receipt publication.
+shared limits, browser feedback, owner isolation, actual receipt publication, every
+vocation reaching the stored intent and refused sex/vocation input.
 
 Local qualification used the mounted public router with real browser sessions and
 PostgreSQL 18.6. At 360 px, PL/EN pages had no horizontal overflow; labels, keyboard
@@ -64,6 +71,8 @@ focus, world filtering, reserved-name feedback, suggestions, creation, exact rep
 CSRF refusal and independent Origin refusal passed. The input contrast measured
 16.24:1 in the light theme; the existing design-system tests validate both themes.
 A repeated browser submission left exactly one command row.
+The sex and vocation choice (#1937) is covered by router and PostgreSQL tests; it
+has not been qualified in a browser.
 
 The standard binary has a pre-existing startup collision: its redirect router also
 mounts `GET /register`, already registered by the web router. It panics during router

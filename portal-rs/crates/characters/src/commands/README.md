@@ -26,6 +26,22 @@ and atomically make it terminal. Exact byte replay succeeds without a write;
 changed bytes conflict. `status` is an internal saga API: callers must authorize
 access before displaying its private intent or receipt.
 
+Create is produced only as create intent v2 (#1937): the v1 members plus
+`requested_sex` (`Female`, `Male`) and `requested_vocation` (`Knight`, `Paladin`,
+`Sorcerer`, `Druid`, `Monk`), inserted right after `requested_name`. Values are
+case-sensitive with no default; `Intent::Create` cannot be built without both. Both
+are part of the binding, so a retry that changes either conflicts. Transfer intents
+and the pending, read and receipt envelopes of this route stay v1, the create
+receipt does not echo sex or vocation, and the v2 service commands are unchanged. A create intent v1 that is still stored as pending is
+retired and fails closed: `pending` lists only create rows whose stored intent starts
+with `contract_version` 2, and `read` answers 404 for a create whose stored intent is
+not a valid v2. Such a row stays `PENDING` (it still counts toward the backlog and
+its owner sees a pending status); a receipt for it is still accepted, because Game
+may have read it before this change. Restore reopening a v1 create does not serve it
+again either. No migration: sex and vocation live only in `binding_json` and
+`intent_json`. Vectors and their digest test: `docs/contracts/fixtures/character-create-v2/`
+and `create_v2_tests.rs`.
+
 Restore notice/reopening integration belongs to T23. This core does not infer
 restoration from a receipt or update LCFA projections from command results. Player
 forms, notifications, Bazaar settlement and feature activation are separate tasks.

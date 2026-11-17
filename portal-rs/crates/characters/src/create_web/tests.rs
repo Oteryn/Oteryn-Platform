@@ -92,6 +92,8 @@ async fn pages_escape_input_localize_and_use_accessible_components() -> TestResu
                 world: String::new(),
                 submission: Uuid::now_v7().to_string(),
                 error: "reserved".into(),
+                sex: "Female".into(),
+                vocation: "<Monk>".into(),
             }),
             vec![World {
                 id: Uuid::now_v7(),
@@ -103,6 +105,13 @@ async fn pages_escape_input_localize_and_use_accessible_components() -> TestResu
         ))
         .await?;
         assert!(body.contains(title));
+        let (female, knight) = if lang == "en" {
+            ("Female", "Knight")
+        } else {
+            ("Kobieta", "Rycerz")
+        };
+        assert!(body.contains(&format!("> {female}</label>")), "{female}");
+        assert!(body.contains(&format!("> {knight}</label>")), "{knight}");
         assert!(body.contains("script"));
         assert!(!body.contains("<world>"));
         assert!(!body.contains("<script>"));
@@ -116,9 +125,19 @@ async fn pages_escape_input_localize_and_use_accessible_components() -> TestResu
             "role=\"status\"",
             "tokens.css",
             "components.css",
+            "<legend>",
+            "name=\"sex\" value=\"Female\" checked required",
+            "name=\"sex\" value=\"Male\" required",
         ] {
             assert!(body.contains(marker), "{marker}");
         }
+        for vocation in ["Knight", "Paladin", "Sorcerer", "Druid", "Monk"] {
+            let radio = format!("name=\"vocation\" value=\"{vocation}\" required");
+            assert!(body.contains(&radio), "{radio}");
+        }
+        // Only the preserved valid sex is checked; the invalid vocation is not.
+        assert_eq!(body.matches(" checked").count(), 1);
+        assert!(!body.contains("<Monk>"));
         assert!(!body.contains("style="));
     }
     Ok(())
@@ -148,9 +167,13 @@ fn app(pool: PgPool, settings: Settings, account: Option<Uuid>) -> (Router, Sess
     (app, session)
 }
 fn post(name: &str, world: Uuid, submission: Uuid, csrf: &str) -> Request<Body> {
-    let mut request = Request::new(Body::from(format!(
-        "name={name}&world={world}&submission={submission}&_csrf={csrf}"
-    )));
+    post_with(
+        &format!("name={name}&world={world}&submission={submission}&_csrf={csrf}"),
+        "&sex=Male&vocation=Knight",
+    )
+}
+fn post_with(base: &str, choice: &str) -> Request<Body> {
+    let mut request = Request::new(Body::from(format!("{base}{choice}")));
     *request.method_mut() = axum::http::Method::POST;
     *request.uri_mut() = axum::http::Uri::from_static("/en/account/characters/new");
     request.headers_mut().insert(
@@ -268,6 +291,8 @@ fn input(world: Uuid) -> Submission {
         id: Uuid::now_v7(),
         world,
         name: " aLDRIC   Stone ".into(),
+        sex: crate::commands::Sex::Female,
+        vocation: crate::commands::Vocation::Druid,
     }
 }
 #[tokio::test]
@@ -302,12 +327,18 @@ async fn db_success_concurrent_replay_and_changed_intent_conflict() -> TestResul
         .execute(&db.pool)
         .await?;
     assert_eq!(service.submit(account, input.clone()).await?, operation);
+    let mut vocation = input.clone();
+    vocation.vocation = crate::commands::Vocation::Monk;
+    let mut sex = input.clone();
+    sex.sex = crate::commands::Sex::Male;
     let mut changed = input;
     changed.name = "Another Name".into();
-    assert!(matches!(
-        service.submit(account, changed).await,
-        Err(Error::Invalid)
-    ));
+    for changed in [changed, vocation, sex] {
+        assert!(matches!(
+            service.submit(account, changed).await,
+            Err(Error::Invalid)
+        ));
+    }
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM character_commands")
         .fetch_one(&db.pool)
         .await?;
@@ -662,4 +693,124 @@ async fn audit_a210_db_browser_rejected_attempts_consume_admission_budget() -> T
         started.elapsed()
     );
     Ok(())
+}
+
+/// #1937: every vocation chosen in the form reaches the stored create intent v2.
+#[tokio::test]
+async fn db_each_vocation_through_web_form_lands_in_create_intent_v2() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let world = db.world().await?;
+    for (vocation, sex) in [
+        ("Knight", "Male"),
+        ("Paladin", "Female"),
+        ("Sorcerer", "Male"),
+        ("Druid", "Female"),
+        ("Monk", "Male"),
+    ] {
+        let account = db.account("active").await?;
+        let (app, _) = app(db.pool.clone(), settings(), Some(account));
+        let response = app
+            .clone()
+            .oneshot(post_with(
+                &format!(
+                    "name=Aldric&world={world}&submission={}&_csrf={CSRF}",
+                    Uuid::now_v7()
+                ),
+                &format!("&sex={sex}&vocation={vocation}"),
+            ))
+            .await?;
+        assert_eq!(response.status(), StatusCode::FOUND, "{vocation}");
+        let location = response.headers()["location"].to_str()?.to_owned();
+        let operation = location
+            .strip_prefix("/en/account/characters/requests/")
+            .ok_or("operation location")?;
+        let raw: String =
+            sqlx::query_scalar("SELECT intent_json FROM character_commands WHERE id=$1::uuid")
+                .bind(operation)
+                .fetch_one(&db.pool)
+                .await?;
+        let intent: serde_json::Value = serde_json::from_str(&raw)?;
+        assert_eq!(intent["contract_version"], 2, "{raw}");
+        assert_eq!(intent["requested_sex"], sex, "{raw}");
+        assert_eq!(intent["requested_vocation"], vocation, "{raw}");
+        assert_eq!(intent["account_id"], account.to_string(), "{raw}");
+        assert!(
+            raw.contains(&format!(
+                "\"requested_name\":\"Aldric\",\"requested_sex\":\"{sex}\",\"requested_vocation\":\"{vocation}\",\"issued_at_source\""
+            )),
+            "{raw}"
+        );
+        let binding: String =
+            sqlx::query_scalar("SELECT binding_json FROM character_commands WHERE id=$1::uuid")
+                .bind(operation)
+                .fetch_one(&db.pool)
+                .await?;
+        assert!(binding.ends_with(&format!(
+            "\"requested_sex\":\"{sex}\",\"requested_vocation\":\"{vocation}\"}}"
+        )));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM character_commands")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 5);
+    db.close().await
+}
+/// #1937: a missing or invalid sex or vocation takes the bad-name path: a
+/// redirect back to the form with the input preserved, and no command.
+#[tokio::test]
+async fn db_missing_or_invalid_sex_or_vocation_is_refused_without_command() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let world = db.world().await?;
+    let account = db.account("active").await?;
+    let (app, _) = app(db.pool.clone(), settings(), Some(account));
+    for (choice, kept) in [
+        ("&sex=Male", "value=\"Male\" checked"),
+        ("&sex=Male&vocation=", "value=\"Male\" checked"),
+        ("&sex=Male&vocation=knight", "value=\"Male\" checked"),
+        ("&sex=Male&vocation=Mage", "value=\"Male\" checked"),
+        ("&vocation=Druid", "value=\"Druid\" checked"),
+        ("&sex=&vocation=Druid", "value=\"Druid\" checked"),
+        ("&sex=female&vocation=Druid", "value=\"Druid\" checked"),
+        ("&sex=1&vocation=Druid", "value=\"Druid\" checked"),
+        ("", "value=\"Belric\""),
+    ] {
+        let submission = Uuid::now_v7();
+        let response = app
+            .clone()
+            .oneshot(post_with(
+                &format!("name=Belric&world={world}&submission={submission}&_csrf={CSRF}"),
+                choice,
+            ))
+            .await?;
+        assert_eq!(response.status(), StatusCode::FOUND, "{choice}");
+        assert_eq!(
+            response.headers()["location"],
+            "/en/account/characters/new",
+            "{choice}"
+        );
+        let body = html(
+            app.clone()
+                .oneshot(Request::get("/en/account/characters/new").body(Body::empty())?)
+                .await?,
+        )
+        .await?;
+        assert!(
+            body.contains("choose a valid world, sex and vocation"),
+            "{choice}"
+        );
+        assert!(body.contains("value=\"Belric\""), "{choice}");
+        assert!(body.contains(&submission.to_string()), "{choice}");
+        assert!(body.contains(kept), "{choice}: {kept}");
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM character_commands")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    db.close().await
 }
