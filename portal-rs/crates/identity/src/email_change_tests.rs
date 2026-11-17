@@ -843,3 +843,18 @@ async fn r5_no_chained_primary_change_inside_the_revert_window() -> TestResult {
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn primary_revert_removes_new_backup() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    s.request(id, input(true, false)).await?;
+    let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirm).await?, Outcome::Changed);
+    sqlx::query("INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,'later@example.test',now())").bind(id).execute(&db.pool).await?;
+    assert_eq!(s.revert(&revert).await?, Outcome::Reverted);
+    let verified: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM account_backup_emails WHERE account_id=$1 AND verified_at IS NOT NULL)").bind(id).fetch_one(&db.pool).await?;
+    assert!(!verified, "later backup remains verified");
+    db.close().await
+}

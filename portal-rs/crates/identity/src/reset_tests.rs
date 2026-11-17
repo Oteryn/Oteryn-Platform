@@ -476,3 +476,55 @@ async fn audit02_backup_recovery_refuses_legacy_cross_account_address_collision(
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn removed_backup_ineligible_after_lock_wait() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(());
+    };
+    let pool = &db.pool;
+    let id = account(pool).await?;
+    let backup = "later@example.test";
+    sqlx::query(
+        "INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,$2,now())",
+    )
+    .bind(id)
+    .bind(backup)
+    .execute(pool)
+    .await?;
+    let mut tx = pool.begin().await?;
+    let pid: i32 =
+        sqlx::query_scalar("SELECT pg_backend_pid() FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+    sqlx::query("DELETE FROM account_backup_emails WHERE account_id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    let client = pool.clone();
+    let requester = tokio::spawn(async move { request(&client, backup, &key()).await });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(pool)
+            .await?;
+            if waiting {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    tx.commit().await?;
+    requester.await??;
+    let queued: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT FROM outbox WHERE kind='email.password-reset')")
+            .fetch_one(pool)
+            .await?;
+    assert!(!queued, "queued reset for removed backup");
+    db.close().await
+}

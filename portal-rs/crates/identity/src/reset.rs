@@ -82,17 +82,47 @@ pub async fn request(pool: &PgPool, email: &str, key: &DeliveryKey) -> Result<()
         audit(&mut tx, None, "identity.password_reset_bad_input").await?;
         return tx.commit().await;
     }
-    let id: Option<AccountId> = sqlx::query_scalar("SELECT a.id FROM accounts a WHERE (lower(a.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=a.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp())) AND NOT EXISTS(SELECT 1 FROM accounts other WHERE other.id<>a.id AND (lower(other.email)=$1 OR EXISTS(SELECT 1 FROM account_backup_emails b WHERE b.account_id=other.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp()))) AND a.status IN ('active','pending_verification') FOR UPDATE OF a")
-        .bind(normalize_email(email)).fetch_optional(&mut *tx).await?;
-    if let Some(id) = id {
-        let recent: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_password_resets WHERE account_id=$1 AND created_at>now()-interval '60 seconds')")
-            .bind(id).fetch_one(&mut *tx).await?;
-        if !recent {
-            let mut random = [0; 32];
-            getrandom::fill(&mut random).map_err(|_| unavailable())?;
-            let token: String = random.iter().map(|b| format!("{b:02x}")).collect();
-            sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at,recovery_email,backup_verified_at) VALUES ($1,$2,clock_timestamp()+interval '60 minutes',$3,(SELECT verified_at FROM account_backup_emails WHERE account_id=$1 AND lower(email)=$3)) ON CONFLICT(account_id) DO UPDATE SET token_hash=$2,expires_at=clock_timestamp()+interval '60 minutes',recovery_email=$3,backup_verified_at=EXCLUDED.backup_verified_at,used_at=NULL,created_at=clock_timestamp(),updated_at=clock_timestamp()")
-                .bind(id).bind(token_hash(&token)).bind(normalize_email(email)).execute(&mut *tx).await?;
+    let email = normalize_email(email);
+    // A backup can be removed while this statement waits for the account lock.
+    let candidate: Option<AccountId> = sqlx::query_scalar(
+        "SELECT a.id FROM accounts a WHERE lower(a.email)=$1 OR EXISTS (
+            SELECT FROM account_backup_emails b WHERE b.account_id=a.id AND lower(b.email)=$1 AND b.verified_at<=clock_timestamp()
+        ) ORDER BY a.id LIMIT 1 FOR UPDATE OF a",
+    )
+    .bind(&email)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let mut actor = None;
+    if let Some(id) = candidate {
+        let mut random = [0; 32];
+        getrandom::fill(&mut random).map_err(|_| unavailable())?;
+        let token: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        // Use one post-lock snapshot for both eligibility and the delivery witness.
+        let issued: Option<bool> = sqlx::query_scalar(
+            "WITH owners AS (
+                SELECT a.id,a.status,b.verified_at FROM accounts a
+                LEFT JOIN account_backup_emails b ON b.account_id=a.id AND lower(b.email)=$3
+                    AND b.verified_at<=clock_timestamp()
+                WHERE lower(a.email)=$3 OR b.account_id IS NOT NULL
+            ), eligible AS (
+                SELECT id,verified_at FROM owners WHERE id=$1 AND status IN ('active','pending_verification')
+                    AND NOT EXISTS(SELECT FROM owners WHERE id<>$1)
+            ), issued AS (
+                INSERT INTO account_password_resets(account_id,token_hash,expires_at,recovery_email,backup_verified_at)
+                SELECT id,$2,clock_timestamp()+interval '60 minutes',$3,verified_at FROM eligible
+                WHERE NOT EXISTS(SELECT FROM account_password_resets WHERE account_id=$1 AND created_at>now()-interval '60 seconds')
+                ON CONFLICT(account_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,
+                    recovery_email=EXCLUDED.recovery_email,backup_verified_at=EXCLUDED.backup_verified_at,
+                    used_at=NULL,created_at=clock_timestamp(),updated_at=clock_timestamp() RETURNING account_id
+            ) SELECT EXISTS(SELECT FROM issued) FROM eligible",
+        )
+        .bind(id)
+        .bind(token_hash(&token))
+        .bind(&email)
+        .fetch_optional(&mut *tx)
+        .await?;
+        actor = issued.map(|_| id);
+        if issued == Some(true) {
             let payload =
                 serde_json::json!({"account_id": id,"ciphertext": key.seal(&token)?}).to_string();
             oteryn_db::outbox::enqueue(
@@ -106,7 +136,7 @@ pub async fn request(pool: &PgPool, email: &str, key: &DeliveryKey) -> Result<()
             .await?;
         }
     }
-    audit(&mut tx, id, "identity.password_reset_requested").await?;
+    audit(&mut tx, actor, "identity.password_reset_requested").await?;
     tx.commit().await
 }
 pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> {

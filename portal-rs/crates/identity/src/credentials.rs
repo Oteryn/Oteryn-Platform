@@ -98,6 +98,7 @@ impl Credentials {
             .map_err(sqlx::Error::Protocol)?;
         // Revocation and the witness must succeed before any credential update commits.
         self.revoker.revoke(&mut tx, account).await?;
+        crate::email_change::cancel_pending(&mut tx, account).await?;
         sqlx::query("UPDATE accounts SET password_hash=$2,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
             .bind(account).bind(hash).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
