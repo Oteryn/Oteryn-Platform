@@ -24,6 +24,7 @@
     "phase7-production-like-validation.yml",
     "platform-db-outage-validation.yml",
     "portal-rs-ci.yml",
+    "portal-rs-e2e.yml",
     "synology-diagnostics.yml",
     "terminal-branch-lifecycle-read-reusable.yml",
     "terminal-branch-lifecycle-reusable.yml",
