@@ -95,6 +95,10 @@ pub async fn address_available(
     owner: Option<AccountId>,
     email: &str,
 ) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM accounts WHERE lower(email)=lower($2) AND id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_backup_emails WHERE lower(email)=lower($2) AND account_id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE lower(new_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE kind='primary' AND lower(old_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NOT NULL AND reverted_at IS NULL AND revert_until>clock_timestamp())")
+    // Closed-account tombstones have no domain and cannot be claimed.
+    if !email.contains('@') {
+        return Ok(false);
+    }
+    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM accounts WHERE lower(email)=lower($2) AND id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_backup_emails b JOIN accounts a ON a.id=b.account_id WHERE a.status<>'closed' AND lower(b.email)=lower($2) AND b.account_id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE lower(new_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE kind='primary' AND lower(old_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NOT NULL AND reverted_at IS NULL AND revert_until>clock_timestamp())")
         .bind(owner).bind(email).fetch_one(conn).await
 }
