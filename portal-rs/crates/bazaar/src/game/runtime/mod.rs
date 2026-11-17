@@ -5,6 +5,7 @@ pub(crate) mod characters;
 mod config;
 pub(crate) mod gold;
 mod gold_worker;
+mod invalidation;
 mod tls;
 mod transport;
 pub(crate) mod worker;
