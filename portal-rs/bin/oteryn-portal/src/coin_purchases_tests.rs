@@ -2585,3 +2585,95 @@ async fn lock_order_coin_webhook_prepares_account_before_intent() -> TestResult 
     outcome?;
     Ok(())
 }
+
+/// Round 4 `coin_store.rs:535`: a create that passed eligibility and waits on
+/// the payer claim must still see a hold that an insufficient-balance reversal
+/// committed meanwhile; it is refused before any order or provider intent.
+#[tokio::test]
+async fn create_waiting_on_the_payer_claim_sees_a_reversal_hold() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (_, intent, _) = paid_order(&db, &service, payer).await?;
+    let host = Host {
+        pool: db.pool.clone(),
+        oauth: db.config.clone(),
+        projection: lcfa::Projection::new(
+            db.pool.clone(),
+            lcfa::Settings::default(),
+            Arc::new(lcfa::DenyAccounts),
+        ),
+    };
+    host.ledger().reserve(Uuid::now_v7(), payer, 100).await?;
+    // The catalogue takes the payer claim too: quote before holding it.
+    let quote = quote(db.app(&service), &token).await;
+    let request = CoinOrderRequest::decode(order_body(Uuid::now_v7(), &quote, None).as_bytes())
+        .ok_or("order body")?;
+    let orders_before = db
+        .count("SELECT count(*) FROM coin_purchase_orders")
+        .await?;
+    let intents_before = db.count("SELECT count(*) FROM payment_intents").await?;
+
+    let mut claim = db.pool.begin().await?;
+    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *claim)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90105))")
+        .bind(payer)
+        .execute(&mut *claim)
+        .await?;
+    let create = tokio::spawn({
+        let service = service.clone();
+        async move { service.create_order(payer, &request).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(holder)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            assert!(!create.is_finished(), "create finished without the claim");
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    // Eligibility passed; the reversal of unavailable coins commits a hold.
+    let refund = coin_event(
+        intent,
+        &format!("provider:{intent}:refund"),
+        EventState::Refunded,
+    );
+    assert_eq!(deliver(&service, &refund).await?, WebhookOutcome::Applied);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM coin_purchase_holds WHERE account_id=$1"
+        )
+        .bind(payer)
+        .fetch_one(&db.pool)
+        .await?,
+        1
+    );
+    claim.commit().await?;
+
+    assert_eq!(create.await?, Err(CoinError::Conflict));
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_orders")
+            .await?,
+        orders_before
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM payment_intents").await?,
+        intents_before
+    );
+    db.close().await
+}
