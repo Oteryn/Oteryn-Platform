@@ -3759,6 +3759,37 @@ async fn postgres_refused_character_settlement_bind_returns_and_releases_gold_on
         started.elapsed()
     );
 }
+/// Game replaces the escrow lock only on a refusal recorded in the current
+/// recovery generation; after recovery moves the fence on, a refusal from the
+/// older generation is no evidence and must never drive the return leg.
+#[tokio::test]
+async fn postgres_older_generation_settlement_bind_refusal_never_returns_the_character() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = settling_character_fixture("coins").await;
+    db.runtime.tick().await.unwrap();
+    let settlement = newest_intent(&db, uid("30"), Command::Bind).await;
+    reject(&db, &settlement, "CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE").await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let current = db.runtime.authority();
+    assert!(
+        current
+            .settlement_bind_refused(&mut tx, uid("30"))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let mut recovered = current.clone();
+    recovered.fence.recovery_generation = 4;
+    assert!(
+        recovered
+            .settlement_bind_refused(&mut tx, uid("30"))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
 #[tokio::test]
 async fn postgres_expired_character_settlement_bind_still_retries_both_currencies() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
