@@ -56,10 +56,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-16T23:40:00Z
-head: 2d661a7d7f79c559df00afef9018aa3642f69c34
+head: 477a744462a6bf41c963ab3cbaa5acd607bffa2e
 branch: claude/happy-davinci-ijz3wy-r4classB-impl
 pr: 1894
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/db/
@@ -111,13 +111,13 @@ validation:
     evidence: exit 0 (db and store); cargo clippy --locked --all-targets -D warnings on the whole workspace and cargo fmt --all --check also exit 0
 blockers:
   - none
-next_action: PR CI on the exact head, merge, then archive this packet
+next_action: none; delivered by PR 1894 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1894 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1894 merged as 477a744462a6bf41c963ab3cbaa5acd607bffa2e
 ```
