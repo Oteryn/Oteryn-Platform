@@ -35,8 +35,8 @@ impl Runtime {
             ])
             .map_err(|_| Error::Invalid)?,
         );
-        let commands = oteryn_characters::commands::Commands::new(
-            self.pool.clone(),
+        let legacy = oteryn_characters::restore::router(
+            oteryn_characters::restore::Restore::new(self.pool.clone(), Default::default()),
             oteryn_characters::commands::Settings {
                 enabled: true,
                 create_enabled: false,
@@ -44,8 +44,8 @@ impl Runtime {
                 source_authority: self.config.authority.config.receipt_authority.clone(),
                 ..Default::default()
             },
+            identities.clone(),
         );
-        let legacy = oteryn_characters::commands::router(commands, identities.clone());
         let receipts = super::super::authority_http::extend_receipt_facility(
             legacy,
             self.authority().clone(),
@@ -145,4 +145,75 @@ async fn event(
         axum::http::HeaderValue::from_static("no-store, private"),
     );
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::{AuthorityConfig, RecoveryFence};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn v1_transfer_receipt_requires_restore_lock_row()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+            eprintln!("SKIPPED receipt restore lock: PORTAL_TEST_DATABASE_URL unset");
+            return Ok(());
+        };
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await?;
+        // Session-local tables shadow production data, including the singleton lock.
+        sqlx::raw_sql("CREATE TEMP TABLE character_restore_locks(id smallint);
+            CREATE TEMP TABLE character_restore_notices(new_recovery_generation text);
+            CREATE TEMP TABLE character_commands(id uuid,command text,binding_json text,receipt_json text)")
+            .execute(&pool).await?;
+        let authority = Authority {
+            config: AuthorityConfig {
+                receipt_authority: "oteryn:character-authority:primary".into(),
+                ..Default::default()
+            },
+            fence: RecoveryFence {
+                projection_epoch: 1,
+                recovery_generation: 3,
+            },
+        };
+        let directory = std::env::temp_dir().join(format!("bazaar-transport-{}", Uuid::now_v7()));
+        std::fs::create_dir(&directory)?;
+        let config = Config::fixture(authority, &directory);
+        std::fs::remove_dir_all(directory)?;
+        let peer = guard::VerifiedClient::from_verified_tls13_http11(Identity::spki_sha256(
+            config.receipt_spki,
+        ));
+        let router = Runtime {
+            pool: pool.clone(),
+            config: Arc::new(config),
+        }
+        .private_router()?;
+        let request = || {
+            Request::post("/internal/v1/game-auth/character-commands/receipt")
+                .header(header::CONTENT_TYPE, "application/json")
+                .extension(peer.clone())
+                .body(axum::body::Body::from(
+                    include_str!(
+                        "../../../../characters/src/commands/fixtures/transfer-receipt.json"
+                    )
+                    .trim(),
+                ))
+        };
+        assert_eq!(
+            router.clone().oneshot(request()?).await?.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "missing restore lock must fence v1 receipts"
+        );
+        sqlx::query("INSERT INTO character_restore_locks VALUES(1)")
+            .execute(&pool)
+            .await?;
+        assert_eq!(
+            router.oneshot(request()?).await?.status(),
+            StatusCode::NOT_FOUND
+        );
+        Ok(())
+    }
 }
