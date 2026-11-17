@@ -108,13 +108,14 @@ async fn consume(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             None => false,
         };
-        if session
-            .account_id()
-            .await
-            .is_none_or(|account| account == id)
-            || stale
-        {
+        let current = session.account_id().await;
+        if current == Some(id) || stale {
             crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        } else if current.is_none() {
+            // Keep anonymous pending state (a referral code) under a fresh identifier.
+            crate::session::rotate(&session, crate::session::PrivilegeChange::Reissue)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }

@@ -16,6 +16,7 @@ test('character submission persists pending; another account cannot read the req
   const world=await owner.page.locator('select[name=world] option').evaluateAll(options=>options.find(o=>o.value)?.value);
   expect(world,'registration/harness must provide an available world').toBeTruthy();
   await owner.page.locator('select[name=world]').selectOption(world);
+  await owner.page.locator('main form[method=post] input[name=sex]').first().check();await owner.page.locator('main form[method=post] input[name=vocation]').first().check();
   await submit(owner.page,'main form[method=post]',{name});
   await expect(owner.page,'valid character form must create a request').toHaveURL(/\/characters\/requests\/[a-f0-9-]+$/);
   const target=new URL(owner.page.url()).pathname,operation=target.split('/').at(-1);
