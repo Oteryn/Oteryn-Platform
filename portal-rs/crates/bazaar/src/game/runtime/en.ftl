@@ -58,3 +58,4 @@ charges = Charges
 attack = Attack
 defense = Defense
 armor = Armor
+finalizing = Finalizing the sale. Waiting for character unlock confirmation.

@@ -56,7 +56,14 @@ impl Runtime {
                     ("buyer_account_id", string(buyer)),
                     ("buyer_character_id", string(character)),
                     ("offer_id", string(offer)),
-                    ("hold_purpose", string("RESERVE")),
+                    (
+                        "hold_purpose",
+                        string(if l.form == Form::Auction {
+                            "OFFER"
+                        } else {
+                            "RESERVE"
+                        }),
+                    ),
                     ("amount", string(maximum)),
                     ("expected_hold_revision", string(expected_revision)),
                 ],
@@ -296,6 +303,12 @@ impl Runtime {
                 if pending {
                     return Ok(());
                 }
+                // The worker selected this candidate before acquiring the listing row lock.
+                let due: bool = sqlx::query_scalar("SELECT $2::timestamptz <= clock_timestamp() OR cancel_requested FROM bazaar_authority_assets WHERE listing_id=$1")
+                    .bind(l.id).bind(l.ends_at).fetch_one(&mut **tx).await?;
+                if !due {
+                    return Ok(());
+                }
                 let Some(buyer) = l.leader else {
                     return self.return_unsold(tx, l).await;
                 };
@@ -456,4 +469,39 @@ pub(super) async fn gold_batch(pool: &PgPool) -> Result<Vec<Uuid>, Error> {
         crate::scheduling::advance(pool, "gold-bids", *last).await?;
     }
     Ok(requests)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::game::authority_tests::BrowserFixture;
+    #[tokio::test]
+    async fn r7_gold_worker_respects_extended_deadline() -> Result<(), Box<dyn std::error::Error>> {
+        let _guard = oteryn_db::test_support::global_lock_guard().await?;
+        let db = BrowserFixture::new().await;
+        sqlx::query(
+            "UPDATE bazaar_listings SET currency='gold', ends_at=now()-interval '1 second'",
+        )
+        .execute(&db.pool)
+        .await?;
+        let selected = super::super::worker::listing_batch(&db.pool, 3).await?;
+        assert_eq!(selected.len(), 1);
+        sqlx::query("UPDATE bazaar_listings SET ends_at=now()+interval '5 minutes' WHERE id=$1")
+            .bind(selected[0])
+            .execute(&db.pool)
+            .await?;
+        let mut tx = db.pool.begin().await?;
+        let listing = sqlx::query_as("SELECT * FROM bazaar_listings FOR UPDATE")
+            .fetch_one(&mut *tx)
+            .await?;
+        db.runtime.advance_gold(&mut tx, &listing).await?;
+        let returns: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM bazaar_game_outbox WHERE command='ReturnBazaarItem'",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        assert_eq!(returns, 0, "unexpired listing returned");
+        tx.rollback().await?;
+        db.end().await;
+        Ok(())
+    }
 }

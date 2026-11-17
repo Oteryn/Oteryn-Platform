@@ -23,7 +23,7 @@ fn vector(name: &str) -> String {
         .unwrap()
         .into()
 }
-fn uid(s: &str) -> Uuid {
+pub(super) fn uid(s: &str) -> Uuid {
     Uuid::parse_str(&format!("0192a000-0000-7000-8000-{s:0>12}")).unwrap()
 }
 fn key() -> ed25519_dalek::VerifyingKey {
@@ -2196,15 +2196,15 @@ async fn bzb_receipt_admission_precedes_oversized_version_selection() {
     }
 }
 
-struct BrowserFixture {
-    pool: sqlx::PgPool,
+pub(super) struct BrowserFixture {
+    pub(super) pool: sqlx::PgPool,
     admin: sqlx::PgPool,
     schema: String,
     directory: std::path::PathBuf,
-    runtime: runtime::Runtime,
+    pub(super) runtime: runtime::Runtime,
 }
 impl BrowserFixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
         let admin = PgPoolOptions::new()
             .max_connections(2)
@@ -2348,7 +2348,7 @@ impl BrowserFixture {
             runtime,
         }
     }
-    async fn end(self) {
+    pub(super) async fn end(self) {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -4692,4 +4692,79 @@ async fn a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff() {
         "PG a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff {:.3}s",
         started.elapsed().as_secs_f64()
     );
+}
+
+#[tokio::test]
+async fn r7_auction_maximum_uses_offer_hold() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    sqlx::query("UPDATE bazaar_listings SET currency='gold'")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime
+        .bid(uid("13"), uid("20"), 10000, uid("14"), Uuid::now_v7())
+        .await
+        .unwrap();
+    let intent = newest_intent(&db, uid("20"), Command::Hold).await;
+    assert_eq!(text(&intent.value, "hold_purpose").unwrap(), "OFFER");
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_gold_delivery_requires_fresh_watermark() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let hold = Uuid::now_v7();
+    let sale = Uuid::now_v7();
+    gold_fact(&mut tx, Command::Hold, 10, uid("20"), hold, (0, 1, 10000)).await;
+    sqlx::query("INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision) VALUES($1,$2,$3,$4,10000,250,9750,$5,1)").bind(sale).bind(uid("20")).bind(uid("13")).bind(uid("11")).bind(hold).execute(&mut *tx).await.unwrap();
+    let intent = decode(
+        serde_json::to_string(&serde_json::json!({
+            "listing_id":uid("20"),"sale_id":sale,"seller_account_id":uid("11"),
+            "funding":{"reservation_id":hold,"hold_revision":"1","gross_amount":"10000"}
+        }))
+        .unwrap()
+        .as_bytes(),
+        4096,
+    )
+    .unwrap();
+    let a = db.runtime.authority();
+    runtime::gold::funded(a, &mut tx, &intent, uid("13"), None)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM bazaar_game_projections WHERE kind='WATERMARK'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let watermark = format!(
+        r#"{{"contract_version":2,"operation":"PublishBazaarWatermarkV1","source_authority":"oteryn:game:primary","projection_epoch":"3","complete_through":"{}","observed_at":"{now}"}}"#,
+        now - 60
+    );
+    Outbox {
+        settings: Settings {
+            preparation_enabled: true,
+            game_enabled: false,
+        },
+    }
+    .ingest(
+        &mut tx,
+        &a.config.projection_authority,
+        watermark.as_bytes(),
+        now,
+    )
+    .await
+    .unwrap();
+    assert!(!a.fresh(&mut tx).await.unwrap());
+    assert!(
+        matches!(
+            runtime::gold::funded(a, &mut tx, &intent, uid("13"), None).await,
+            Err(Error::Unavailable)
+        ),
+        "gold funding accepted without a fresh watermark"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
 }

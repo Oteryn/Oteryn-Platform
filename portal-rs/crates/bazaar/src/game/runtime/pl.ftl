@@ -58,3 +58,4 @@ charges = Ładunki
 attack = Atak
 defense = Obrona
 armor = Pancerz
+finalizing = Finalizowanie sprzedaży. Oczekiwanie na potwierdzenie odblokowania postaci.
