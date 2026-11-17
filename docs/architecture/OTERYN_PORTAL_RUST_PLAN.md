@@ -215,7 +215,7 @@ Wszystkie trasy poza `native-admissions` (token usługi gatewaya): TLS 1.3, HTTP
 | game-auth | `native-evidence`, `native-runtime-status`, `native-scope-assignments`, `native-scope-revocations` | Gra | Bez wpisu w locku |
 | game-auth | `native-account-characters`, `native-account-characters/watermark` (LCFA push) | Gra | Accepted rev2; snapshot `{contract_version:1, operation, source_authority, account_id, projection_epoch, projection_revision, source_observed_at, characters[0..64, posortowane]}`, watermark `{complete_through, observed_at}`; producent gotowy, wyłączony; konsumenta w Platform brak |
 | game-auth | `character-commands/{pending, read, receipt}` | Gra | GAME-CHAR-CMD-0 Accepted (D1004/D1007); CreateCharacter, TransferCharacterOwnership, kody CHAR_CMD_* |
-| game-auth | `character-bootstrap-intents/read` | Gra | Kontrakt v3 (`requested_sex`, binding tag 3); v1 i v2 odrzucane |
+| game-auth | `character-bootstrap-intents/read` | Gra | Kontrakt v4 (`requested_sex`, `requested_vocation`); v1–v3 odrzucane |
 | game-auth | `game-restore/notice` | Gra | V2_GAME_RESTORE_RECONCILIATION; domyślnie wyłączony |
 | products-entitlements | `premium-snapshots/read` (≤256 B) | Gra | Kandydat (jedyna z tych tras w locku) |
 | products-entitlements | `loyalty-snapshots/read` | Gra | Gra używa (read model lojalności po stronie Platform, Game `0406`); domyślnie wyłączony |
@@ -761,7 +761,7 @@ Każde zadanie to jedna mechanika i effort medium. Ma dozwolone ścieżki, kryte
 | T20 | Scope assignments i revocations | T19 | `crates/gameauth/src/scopes*` |
 | T21 | Sesje urządzeń (enroll, characters, tickets, revoke); kontrakt po stronie Platform | T17 | `crates/gameauth/src/devices*` |
 | T22 | `character-commands/{pending, read, receipt}` (CreateCharacter, TransferCharacterOwnership) | T18 | `crates/characters/src/commands*` |
-| T22b | `character-bootstrap-intents/read` (v3) | T18 | `crates/characters/src/bootstrap*` |
+| T22b | `character-bootstrap-intents/read` (v4) | T18 | `crates/characters/src/bootstrap*` |
 | T22c | Tworzenie postaci z konta: formularz, reguły nazw i lista zastrzeżonych, sugestia nazwy, status operacji | T22, T44 | `crates/characters/src/create_web*` |
 | T23 | `/internal/v1/game-auth/game-restore/notice` i rekoncyliacja | T22 | `crates/characters/src/restore*` |
 | T24 | Ingest projekcji publicznych: wspólny handler rodzin, watermark, migawki | T15 | `crates/community/src/ingest*` |
