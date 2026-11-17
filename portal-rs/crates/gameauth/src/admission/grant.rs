@@ -505,6 +505,15 @@ pub(super) struct Route {
     pub endpoint: Endpoint,
     pub revision: String,
 }
+impl Route {
+    fn endpoint_key(&self) -> (String, u16) {
+        let host = &self.endpoint.host;
+        let canonical = host
+            .parse::<std::net::IpAddr>()
+            .map_or_else(|_| host.to_ascii_lowercase(), |ip| ip.to_string());
+        (canonical, self.endpoint.port)
+    }
+}
 /// A stored record that is incomplete, malformed or whose revision differs from
 /// the one recomputed from its descriptor routes nowhere (§17 mode 34a).
 fn record(world: Uuid, row: &sqlx::postgres::PgRow) -> Result<Option<Route>, Error> {
@@ -644,20 +653,14 @@ pub(super) async fn candidates(
     let mut endpoints = std::collections::HashSet::new();
     let mut collisions = std::collections::HashSet::new();
     for (route, _, _) in &records {
-        let endpoint = (
-            route.endpoint.host.to_ascii_lowercase(),
-            route.endpoint.port,
-        );
+        let endpoint = route.endpoint_key();
         if !endpoints.insert(endpoint.clone()) {
             collisions.insert(endpoint);
         }
     }
     let mut found = Vec::new();
     for (route, enabled, key) in &records {
-        let shared = collisions.contains(&(
-            route.endpoint.host.to_ascii_lowercase(),
-            route.endpoint.port,
-        ));
+        let shared = collisions.contains(&route.endpoint_key());
         let Some(key) = key.as_ref().filter(|k| super::wire::channel_key_valid(k)) else {
             continue;
         };
@@ -713,12 +716,7 @@ pub(super) async fn unshared(
         .await
         .map_err(|_| Error::Unavailable)?;
     for row in &rows {
-        if record(world, row)?.is_some_and(|other| {
-            other
-                .endpoint
-                .host
-                .eq_ignore_ascii_case(&route.endpoint.host)
-        }) {
+        if record(world, row)?.is_some_and(|other| other.endpoint_key() == route.endpoint_key()) {
             return Err(Error::RouteUnavailable);
         }
     }

@@ -204,9 +204,9 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         Ok(decoded) => decoded,
         Err(error) => return refusal_for(error, attempt.as_deref(), protocol, &[]),
     };
-    match tokio::time::timeout_at(
+    match store::finish_attempt(
         deadline,
-        store::admit(
+        store::prepare_admission(
             &app.db,
             &decoded,
             app.accounts.as_ref(),
@@ -216,7 +216,6 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         ),
     )
     .await
-    .unwrap_or_else(|_| Err(Error::Unavailable.into()))
     {
         Ok(body) => response(StatusCode::OK, body),
         Err(refused) => refusal_for(
@@ -322,9 +321,9 @@ async fn recover(State(app): State<App>, request: Request) -> Response {
     if binding && !devices {
         return recovery_refusal(RecoveryError::HandleRejected, attempt.as_deref(), 3, None);
     }
-    match tokio::time::timeout_at(
+    match store::finish_attempt(
         deadline,
-        recovery::recover(
+        recovery::prepare_recovery(
             &app.db,
             &decoded,
             app.accounts.as_ref(),
@@ -333,7 +332,6 @@ async fn recover(State(app): State<App>, request: Request) -> Response {
         ),
     )
     .await
-    .unwrap_or_else(|_| Err(RecoveryError::Unavailable.into()))
     {
         Ok(body) => response(StatusCode::OK, body),
         Err(refused) => recovery_refusal(refused.error, attempt.as_deref(), 3, refused.retry_after),

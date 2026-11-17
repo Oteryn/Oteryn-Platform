@@ -628,6 +628,7 @@ async fn target(
 
 /// §19.4 in one transaction. Lock order: attempt (advisory, shared with fresh
 /// admissions), epoch, then `authenticate`'s order.
+#[cfg(test)]
 pub(super) async fn recover(
     pool: &PgPool,
     request: &RecoveryRequest,
@@ -635,20 +636,19 @@ pub(super) async fn recover(
     issuer: &RecoveryIssuer,
     runtime: &runtime::Settings,
 ) -> Result<Vec<u8>, Refusal> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        recover_inner(pool, request, accounts, issuer, runtime),
+    store::finish_attempt(
+        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+        prepare_recovery(pool, request, accounts, issuer, runtime),
     )
     .await
-    .map_err(|_| Refusal::from(Error::Unavailable))?
 }
-async fn recover_inner(
+pub(super) async fn prepare_recovery(
     pool: &PgPool,
     request: &RecoveryRequest,
     accounts: &dyn AccountStateLookup,
     issuer: &RecoveryIssuer,
     runtime: &runtime::Settings,
-) -> Result<Vec<u8>, Refusal> {
+) -> Result<store::PreparedAttempt, Refusal> {
     let signer = issuer.signer()?;
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     sqlx::query("SET LOCAL lock_timeout = '2s'")
@@ -727,7 +727,10 @@ async fn recover_inner(
         let response = encode(&success)?;
         let response = store::PreparedResponse::new(&response, expires, at, None)?;
         tx.commit().await.map_err(|_| Error::Unavailable)?;
-        return response.finish().map_err(Into::into);
+        return Ok(store::PreparedAttempt {
+            commit: None,
+            response,
+        });
     }
     let bound = authenticate(&mut tx, request, accounts, now).await?;
     // §19.9: at most 20 committed recovery attempts per account per hour.
@@ -825,10 +828,10 @@ async fn recover_inner(
         .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     let response =
         store::PreparedResponse::new(&response, expires_ms, store::now(&mut tx).await?, None)?;
-    tx.commit()
-        .await
-        .map_err(|_| RecoveryError::ReconciliationRequired)?;
-    response.finish().map_err(Into::into)
+    Ok(store::PreparedAttempt {
+        commit: Some(tx),
+        response,
+    })
 }
 
 /// §19.7: revokes only that handle, idempotently; unknown, dead and live

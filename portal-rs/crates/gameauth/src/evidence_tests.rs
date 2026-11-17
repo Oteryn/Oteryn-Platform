@@ -672,3 +672,27 @@ async fn regression_witness_precedes_commit() -> TestResult {
     assert_eq!(text(&retry, "source_revision")?, "1");
     db.close().await
 }
+
+#[tokio::test]
+async fn evidence_content_type_line_limit() -> TestResult {
+    let directory = Directory::new()?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?;
+    let app: Router = router(pool, settings(&directory), support::identities()?);
+    let mut req = support::request(
+        "/internal/v1/game-auth/native-evidence",
+        Some("evidence"),
+        b"{}".to_vec(),
+    )?;
+    req.headers_mut().insert(
+        header::CONTENT_TYPE,
+        format!("application/json; x={}", "a".repeat(2048))
+            .parse()
+            .map_err(|_| "header")?,
+    );
+    assert_eq!(
+        app.oneshot(req).await?.status(),
+        StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE
+    );
+    Ok(())
+}

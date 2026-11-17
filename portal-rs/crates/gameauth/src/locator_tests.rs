@@ -242,8 +242,8 @@ async fn route_is_off_by_default_and_keeps_identities_apart() {
     // A report over 1024 bytes.
     let large = report().replacen('{', &format!("{{\"pad\":\"{}\",", "a".repeat(700)), 1);
     assert_eq!(
-        send(&app, "node", &large).await.0,
-        StatusCode::PAYLOAD_TOO_LARGE
+        send(&app, "node", &large).await,
+        (StatusCode::BAD_REQUEST, refusal_fixture("malformed"))
     );
     // Each switch is required; preproduction allows it, production never.
     for (key, value) in [
@@ -563,4 +563,16 @@ async fn locator_refusal_envelopes_are_frozen() {
             (status, refusal_fixture(fixture))
         );
     }
+}
+
+#[tokio::test]
+async fn oversized_locator_refusal() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://portal@127.0.0.1:1/unreachable")
+        .unwrap();
+    let app = router(pool, settings(), identities());
+    assert_eq!(
+        send(&app, "node", &" ".repeat(1025)).await,
+        (StatusCode::BAD_REQUEST, refusal_fixture("malformed"))
+    );
 }
