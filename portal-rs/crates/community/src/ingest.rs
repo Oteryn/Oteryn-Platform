@@ -210,6 +210,11 @@ impl From<sqlx::Error> for ApplyError {
     }
 }
 async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, ApplyError> {
+    let family = if p.family == "guild" {
+        "guild_v1"
+    } else {
+        &p.family
+    };
     let mut tx = db.begin().await?;
     let highest: Option<String> = sqlx::query_scalar(
         "SELECT highest_epoch::text FROM public_projection_state WHERE id=1 FOR UPDATE",
@@ -228,13 +233,13 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, ApplyError>
         .await?;
     if p.watermark
         && sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted($1)")
-            .bind(&p.family)
+            .bind(family)
             .fetch_one(&mut *tx)
             .await?
     {
         return Err(ApplyError::Conflict);
     }
-    let current = sqlx::query("SELECT version::text, epoch::text, watermark, payload FROM public_snapshots WHERE family=$1 AND subject=$2 AND is_watermark=$3").bind(&p.family).bind(&p.subject).bind(p.watermark).fetch_optional(&mut *tx).await?;
+    let current = sqlx::query("SELECT version::text, epoch::text, watermark, payload FROM public_snapshots WHERE family=$1 AND subject=$2 AND is_watermark=$3").bind(family).bind(&p.subject).bind(p.watermark).fetch_optional(&mut *tx).await?;
     if let Some(row) = current {
         let epoch: String = row.try_get("epoch")?;
         let version: String = row.try_get("version")?;
@@ -253,7 +258,7 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, ApplyError>
                 return if payload == p.payload {
                     Ok("accepted")
                 } else {
-                    conflict(&mut tx, &p.family, &p.subject, &p.epoch, &p.revision).await?;
+                    conflict(&mut tx, family, &p.subject, &p.epoch, &p.revision).await?;
                     tx.commit().await?;
                     Err(ApplyError::Conflict)
                 };
@@ -261,7 +266,7 @@ async fn apply(db: &PgPool, p: &Publication) -> Result<&'static str, ApplyError>
         }
     }
     sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ($1,$2,$3,$4::numeric,$5::numeric,$6,$7) ON CONFLICT (family,subject,is_watermark) DO UPDATE SET previous_snapshot=jsonb_build_object('epoch',public_snapshots.epoch::text,'version',public_snapshots.version::text,'watermark',public_snapshots.watermark,'payload',public_snapshots.payload),epoch=EXCLUDED.epoch,version=EXCLUDED.version,watermark=EXCLUDED.watermark,payload=EXCLUDED.payload")
- .bind(&p.family).bind(&p.subject).bind(p.watermark).bind(&p.epoch).bind(&p.revision).bind(p.observed).bind(&p.payload).execute(&mut *tx).await?;
+ .bind(family).bind(&p.subject).bind(p.watermark).bind(&p.epoch).bind(&p.revision).bind(p.observed).bind(&p.payload).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok("accepted")
 }
@@ -275,6 +280,21 @@ pub async fn latest(
     family: &str,
     subject: &str,
 ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    // Legacy callers address either generation as "guild". Prefer V2 when
+    // both exist, and check its fence before exposing the selected payload.
+    if family == "guild" {
+        return sqlx::query_scalar(
+            "SELECT payload FROM (
+                SELECT family, subject, payload FROM public_snapshots
+                WHERE family IN ('guild', 'guild_v1') AND subject=$1 AND NOT is_watermark
+                  AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)
+                ORDER BY (family='guild') DESC LIMIT 1
+             ) selected WHERE NOT public_projection_conflicted(family,subject)",
+        )
+        .bind(subject)
+        .fetch_optional(db)
+        .await;
+    }
     sqlx::query_scalar("SELECT payload FROM public_snapshots WHERE family=$1 AND subject=$2 AND NOT public_projection_conflicted(family,subject) AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").bind(family).bind(subject).fetch_optional(db).await
 }
 #[cfg(test)]
