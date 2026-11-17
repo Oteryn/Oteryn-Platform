@@ -858,9 +858,11 @@ impl Store {
         for authority in authorities {
             lock(&mut tx, &authority).await?;
         }
+        sqlx::query("UPDATE pd_streams SET history_coverage_ms=NULL WHERE account_id=$1 AND history_coverage_ms IS NOT NULL AND split_part(stream_key,'|',4)='36:'||$2")
+            .bind(account).bind(character).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT r.stream_key FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND r.character_id=$2)").bind(account).bind(character).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$3 WHERE character_id=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(character).bind(now.saturating_add(TOMBSTONE_MS-31*86400000) as i64).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=GREATEST(purged_at,$3) WHERE account_id=$1::uuid AND character_id=$2::uuid").bind(account).bind(character).bind((now/1000) as i64).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,expires_at=0,purged_at=GREATEST(purged_at,$3) WHERE account_id=$1::uuid AND character_id=$2::uuid").bind(account).bind(character).bind((now/1000) as i64).execute(&mut *tx).await?;
         tombstone(&mut tx, account, Some(character), now, closed_revision).await?;
         tx.commit().await?;
         Ok(())
@@ -868,6 +870,19 @@ impl Store {
     /// Account lifecycle adapter calls this under its account erasure fence. Digest
     /// and sequence metadata remain to refuse resurrection by queued replay.
     pub async fn erase_account(&self, account: &str, time: TrustedTime) -> Result<()> {
+        self.erase_account_batch(account, time, None, time.now(true)? as i64)
+            .await?;
+        Ok(())
+    }
+
+    /// A full batch leaves the durable job pending for another transaction.
+    pub(crate) async fn erase_account_batch(
+        &self,
+        account: &str,
+        time: TrustedTime,
+        limit: Option<i64>,
+        requested_ms: i64,
+    ) -> Result<bool> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, account).await?;
@@ -882,23 +897,29 @@ impl Store {
             lock(&mut tx, &authority).await?;
         }
         sqlx::query(
-            "UPDATE pd_streams SET erased=true,baseline_complete=false,observed_ms=0,erased_ms=COALESCE(erased_ms,$2) WHERE account_id=$1",
+            "UPDATE pd_streams SET history_coverage_ms=NULL,erased=true,baseline_complete=false,observed_ms=0,erased_ms=COALESCE(erased_ms,$2) WHERE account_id=$1 AND NOT erased",
         )
         .bind(account)
         .bind(now as i64)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$2 WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(now as i64).execute(&mut *tx).await?;
+        let records = sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,bank_event_id=NULL,bank_operation_id=NULL,expires_ms=$2
+            WHERE ctid IN (SELECT r.ctid FROM pd_records r JOIN pd_streams s USING(stream_key)
+                WHERE s.account_id=$1 AND (r.scope_key<>'' OR r.entity_key<>'' OR r.payload IS NOT NULL OR r.character_id IS NOT NULL)
+                LIMIT $3 FOR UPDATE OF r)").bind(account).bind(now as i64).bind(limit).execute(&mut *tx).await?.rows_affected();
         sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_bank_continuations WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_g9_streams SET blocked=true WHERE account_id=$1::uuid")
             .bind(account)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=GREATEST(purged_at,$2) WHERE account_id=$1::uuid").bind(account).bind((now/1000) as i64).execute(&mut *tx).await?;
+        let segments = sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,expires_at=0,purged_at=GREATEST(purged_at,$2)
+            WHERE ctid IN (SELECT ctid FROM pd_g9_records WHERE account_id=$1::uuid
+                AND (purged_at IS NULL OR purged_at<$4 OR expires_at<>0 OR canonical_bytes IS NOT NULL OR record IS NOT NULL)
+                LIMIT $3 FOR UPDATE)").bind(account).bind((now/1000) as i64).bind(limit).bind(requested_ms/1000).execute(&mut *tx).await?.rows_affected();
         tombstone(&mut tx, account, None, now, None).await?;
         tx.commit().await?;
-        Ok(())
+        Ok(limit.is_none_or(|cap| records < cap as u64 && segments < cap as u64))
     }
     /// Advance replay floors before removing digests; ownership fences survive.
     pub async fn expire(&self, time: TrustedTime) -> Result<u64> {
@@ -944,6 +965,30 @@ impl Store {
         key: &str,
     ) -> Result<()> {
         if r.scope.family == "BANK" {
+            let event = playerdata::text(playerdata::get(&r.payload, "event_id")?)?;
+            let operation =
+                playerdata::text(playerdata::get(&r.payload, "operation_occurrence_id")?)?;
+            // A pre-upgrade replay record may have lost its payload before
+            // these identities could be captured. Its replay fence expires normally.
+            let missing_identity: Option<bool> = sqlx::query_scalar(
+                "SELECT r.bank_event_id IS NULL
+                FROM pd_records r JOIN pd_streams s USING(stream_key)
+                WHERE r.authority=$1 AND s.account_id=$2 AND s.family='BANK'
+                AND (r.bank_event_id=$3 OR r.bank_operation_id=$4 OR
+                     (r.kind='BANK_ENTRY' AND r.entity_key<>'' AND r.bank_event_id IS NULL))
+                ORDER BY (r.bank_event_id IS NULL) LIMIT 1",
+            )
+            .bind(&r.scope.authority)
+            .bind(&r.scope.account)
+            .bind(event)
+            .bind(operation)
+            .fetch_optional(&mut **tx)
+            .await?;
+            match missing_identity {
+                Some(true) => return Err(Error::Unavailable),
+                Some(false) => return Err(Error::Conflict),
+                None => {}
+            }
             let last = sqlx::query("SELECT entry_id,balance_after,coverage_ms FROM pd_bank_continuations WHERE stream_key=$1")
                 .bind(key).fetch_optional(&mut **tx).await?;
             if let Some(last) = last {
@@ -969,9 +1014,9 @@ impl Store {
                 }
             }
         } else {
-            let coverage: Option<i64> = sqlx::query_scalar("SELECT coverage_ms FROM pd_records WHERE stream_key=$1 ORDER BY source_revision DESC LIMIT 1")
-                .bind(key).fetch_optional(&mut **tx).await?;
-            if coverage.is_some_and(|v| v != r.coverage_ms as i64) {
+            let valid: Option<bool> = sqlx::query_scalar("SELECT CASE WHEN stored_through=0 THEN true ELSE history_coverage_ms=$2 END FROM pd_streams WHERE stream_key=$1")
+                .bind(key).bind(r.coverage_ms as i64).fetch_one(&mut **tx).await?;
+            if !valid.ok_or(Error::Unavailable)? {
                 return Err(Error::Conflict);
             }
         }

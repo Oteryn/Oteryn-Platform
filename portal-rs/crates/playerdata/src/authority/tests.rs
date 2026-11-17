@@ -2428,3 +2428,67 @@ async fn r8_drop_retention() {
     assert_eq!(db.count("SELECT count(record) FROM pd_g9_records").await, 0);
     db.close().await;
 }
+
+#[tokio::test]
+async fn r9_g9_expiry_scrubs_timestamp() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let (app, segment) = session_fixture(&db, 9).await;
+    assert_eq!(publish_segment(&app, &segment).await, StatusCode::OK);
+    db.exec("UPDATE pd_g9_records SET expires_at=1234567890", &[])
+        .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_g9_records WHERE record IS NULL AND expires_at=0")
+            .await,
+        1,
+        "timestamp-free fence"
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r9_login_remove_preserves_other_subject() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    db.account(SELLER, "1", "12").await;
+    for character in [CHARACTER, KEPT] {
+        db.character(SELLER, character, WORLD).await;
+        db.create(
+            SELLER,
+            character,
+            WORLD,
+            ["9", "12", &(now / 1000 - 100).to_string()],
+        )
+        .await;
+    }
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let event = Uuid::now_v7();
+    let first = login_record(SELLER, CHARACTER, ["12", "9"], 1, event, now - 1000);
+    assert_eq!(record(&app, &first).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 1).await;
+    for (rev, subject, remaining) in [(2, KEPT, 1), (3, CHARACTER, 0)] {
+        let raw = login_record(SELLER, subject, ["12", "9"], rev, event, now - 1000);
+        let prefix = raw
+            .split_once("\"payload\":")
+            .unwrap()
+            .0
+            .replace("UPSERT", "REMOVE");
+        assert_eq!(
+            record(&app, &format!("{prefix}\"payload\":null}}")).await.0,
+            StatusCode::OK
+        );
+        login_watermark(&app, &db, SELLER, rev).await;
+        assert_eq!(
+            db.count("SELECT count(*) FROM pd_game_logins").await,
+            remaining,
+            "subject-scoped removal"
+        );
+    }
+    db.close().await;
+}

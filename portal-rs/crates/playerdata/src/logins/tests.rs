@@ -326,9 +326,14 @@ async fn postgres_retention_removal_and_unknown_authority() {
     assert_eq!(service.purge_expired().await.unwrap(), 1);
     let mut tx = db.pool.begin().await.unwrap();
     service.apply(&mut tx, &record).await.unwrap();
-    Logins::remove(&mut tx, record.account, record.login.login_event_id)
-        .await
-        .unwrap();
+    Logins::remove(
+        &mut tx,
+        record.account,
+        record.character,
+        record.login.login_event_id,
+    )
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
     assert!(service.history(record.account).await.unwrap().is_empty());
     db.close().await;
@@ -583,4 +588,26 @@ async fn postgres_visible_login_behind_sold_character_candidates() {
         "PG postgres_visible_login_behind_sold_character_candidates {:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn r9_login_retention_batch() {
+    use oteryn_db::outbox::Cleanup;
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = account(&db.pool).await;
+    sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,projection_epoch,recovery_generation,source_revision,entered_at) SELECT $1,uuidv7(),1,1,i,0 FROM generate_series(1,513) i").bind(owner).execute(&db.pool).await.unwrap();
+    for expected in [1_i64, 0] {
+        Retention(db.pool.clone()).clean().await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pd_game_logins")
+                .fetch_one(&db.pool)
+                .await
+                .unwrap(),
+            expected,
+            "bounded login cleanup"
+        );
+    }
+    db.close().await;
 }

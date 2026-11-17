@@ -446,3 +446,25 @@ fn exact_daily_delay_boundary_and_distinct_sessions() {
     sessions[9] = sessions[0].clone();
     assert!(super::store::aggregate(&sessions, now).is_empty());
 }
+
+#[tokio::test]
+async fn r9_places_retention_batch() {
+    let Some(pool) = database().await else { return };
+    sqlx::query("WITH closed AS (INSERT INTO accounts(id,email,password_hash,status,locale) SELECT uuidv7(),i::text||'@example.invalid','fixture','closed','en' FROM generate_series(1,513) i RETURNING id) INSERT INTO pd_places_preferences(account_id,participating) SELECT id,true FROM closed").execute(&pool).await.unwrap();
+    for expected in [1_i64, 0] {
+        super::retention::PlacesRetention { pool: pool.clone() }
+            .purge()
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM pd_places_preferences WHERE participating"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            expected,
+            "bounded participation cleanup"
+        );
+    }
+}
