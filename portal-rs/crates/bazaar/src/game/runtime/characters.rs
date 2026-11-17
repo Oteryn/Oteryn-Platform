@@ -60,9 +60,11 @@ pub(crate) async fn staged(
 ) -> Result<Value, Error> {
     let row=sqlx::query("SELECT intent,intent_digest,projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_all_transfers WHERE operation_id=$1").bind(operation).fetch_optional(&mut *db).await?.ok_or(Error::Unavailable)?;
     let raw: String = row.try_get("intent")?;
+    // Staging records when the immutable intent was created. Replayed receipts
+    // and projections carry their own current recovery fences.
     if digest(raw.as_bytes()) != row.try_get::<String, _>("intent_digest")?
-        || decimal(row.try_get("epoch")?, false, u64::MAX)? != a.fence.projection_epoch
-        || decimal(row.try_get("generation")?, false, u64::MAX)? != a.fence.recovery_generation
+        || decimal(row.try_get("epoch")?, false, u64::MAX)? > a.fence.projection_epoch
+        || decimal(row.try_get("generation")?, false, u64::MAX)? > a.fence.recovery_generation
     {
         return Err(Error::Denied);
     }
