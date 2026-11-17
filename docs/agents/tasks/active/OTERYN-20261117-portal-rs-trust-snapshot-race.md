@@ -35,6 +35,8 @@ No product code or guard change.
 owned_paths:
   - portal-rs/crates/gameauth/src/admission/audit05_tests.rs
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
 modules:
   - gameauth
 dependencies:
@@ -58,6 +60,8 @@ context_routes: []
 owned_paths:
   - portal-rs/crates/gameauth/src/admission/audit05_tests.rs
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
 proven:
   - All .activate( sites in portal-rs enumerated on origin/main; only the five audit05 sites read the clock before the snapshot
   - Product signing paths refresh trust before reading the clock
@@ -73,6 +77,8 @@ rejected_hypotheses:
 changed_paths:
   - portal-rs/crates/gameauth/src/admission/audit05_tests.rs
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-trust-snapshot-race.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
 validation:
   - command: cargo test --locked -p oteryn-gameauth --lib (PostgreSQL 18)
     result: PASS
