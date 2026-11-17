@@ -29,15 +29,15 @@ pub async fn issue(
     .await?;
     Ok(())
 }
-pub async fn consume(pool: &PgPool, token: &str) -> Result<bool, sqlx::Error> {
+pub async fn consume(pool: &PgPool, token: &str) -> Result<Option<AccountId>, sqlx::Error> {
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Ok(false);
+        return Ok(None);
     }
     let hash = token_hash(token);
     let mut tx = pool.begin().await?;
     let id:Option<AccountId>=sqlx::query_scalar("SELECT account_id FROM account_email_tokens WHERE token_hash=$1 AND purpose='verify_email'").bind(&hash).fetch_optional(&mut *tx).await?;
     let Some(id) = id else {
-        return Ok(false);
+        return Ok(None);
     };
     // Same lock order as resend. The token is checked again after acquiring the lock.
     sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
@@ -46,10 +46,10 @@ pub async fn consume(pool: &PgPool, token: &str) -> Result<bool, sqlx::Error> {
         .await?;
     let used=sqlx::query("UPDATE account_email_tokens SET used_at=now(),updated_at=now() WHERE token_hash=$1 AND used_at IS NULL AND expires_at>clock_timestamp() AND purpose='verify_email'").bind(hash).execute(&mut *tx).await?.rows_affected();
     if used != 1 || !Accounts::mark_verified(&mut tx, id).await? {
-        return Ok(false);
+        return Ok(None);
     }
     tx.commit().await?;
-    Ok(true)
+    Ok(Some(id))
 }
 pub async fn resend(
     pool: &PgPool,
