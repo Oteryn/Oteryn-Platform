@@ -384,6 +384,16 @@ impl CharacterEvidence for Authority {
         let get = |key: &str| -> Result<u64, crate::Error> {
             decimal(text(s, key).map_err(to_core)?, true, u64::MAX).map_err(to_core)
         };
+        let Some(Value::Array(blessings)) = s.get("blessings") else {
+            return Err(crate::Error::Denied);
+        };
+        let blessings = blessings
+            .iter()
+            .map(|value| match value {
+                Value::String(name) => Ok(name.clone()),
+                _ => Err(crate::Error::Denied),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let Some(Value::Array(skills)) = s.get("skills") else {
             return Err(crate::Error::Denied);
         };
@@ -423,7 +433,7 @@ impl CharacterEvidence for Authority {
             } else {
                 Some(get("created_at")?)
             },
-            blessings: vec![],
+            blessings,
             world_transfer_eligible: match s.get("world_transfer_eligible") {
                 Some(Value::Bool(v)) => Some(*v),
                 _ => None,

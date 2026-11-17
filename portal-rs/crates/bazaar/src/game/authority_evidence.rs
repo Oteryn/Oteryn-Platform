@@ -53,6 +53,11 @@ impl Authority {
             if !worlds.contains(&world) {
                 return Err(Error::Unavailable);
             }
+            if status.get("last_operation_id") == Some(&Value::Null)
+                && matches!(text(&status, "state")?, "locked" | "ESCROWED" | "INVALID")
+            {
+                continue;
+            }
             let operation = id(text(&status, "last_operation_id")?)?;
             if self.retained(db, operation).await?.is_none() {
                 // The existing CC1 ownership leg is not a v2 Bazaar receipt.
@@ -282,8 +287,13 @@ impl Authority {
             };
             return Ok(Some((s, intent, receipt)));
         }
-        let operation = id(text(&s, "last_operation_id")?)?;
-        let Some((i, r)) = self.retained(db, operation).await? else {
+        let record = if state == "ESCROWED" && s.get("last_operation_id") == Some(&Value::Null) {
+            super::runtime::gold::record(self, db, listing.id, Command::Escrow).await?
+        } else {
+            self.retained(db, id(text(&s, "last_operation_id")?)?)
+                .await?
+        };
+        let Some((i, r)) = record else {
             return Ok(None);
         };
         if !r.committed || id(text(&i.value, "listing_id")?)? != listing.id {

@@ -370,12 +370,12 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
 #[tokio::test]
 async fn postgres_suspended_delivered_settlement_captures_once() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(false, true).await;
+    item_wallet_scenario(false, true, ItemScenario::Wallet).await;
 }
 #[tokio::test]
 async fn postgres_suspended_compensation_refunds_once() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(true, true).await;
+    item_wallet_scenario(true, true, ItemScenario::Wallet).await;
 }
 #[test]
 fn all_nine_exact_result_schemas_reject_unknown_and_reordered_fields() {
@@ -660,20 +660,36 @@ async fn store_intent_at(
 #[tokio::test]
 async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(false, false).await;
+    item_wallet_scenario(false, false, ItemScenario::Wallet).await;
 }
 #[tokio::test]
 async fn postgres_delivery_refusal_allows_return_and_refunds_fenced_coins() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
-    item_wallet_scenario(true, false).await;
+    item_wallet_scenario(true, false, ItemScenario::Wallet).await;
     eprintln!(
         "postgres_delivery_refusal_allows_return_and_refunds_fenced_coins: {:?}",
         started.elapsed()
     );
 }
-async fn item_wallet_scenario(compensate: bool, suspended: bool) {
+#[tokio::test]
+async fn initial_null_operation_resync() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    item_wallet_scenario(false, false, ItemScenario::NullResync).await;
+}
+#[tokio::test]
+async fn initial_null_operation_escrow_ready() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    item_wallet_scenario(false, false, ItemScenario::NullEscrow).await;
+}
+#[derive(PartialEq)]
+enum ItemScenario {
+    Wallet,
+    NullResync,
+    NullEscrow,
+}
+async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemScenario) {
     let started = std::time::Instant::now();
     use crate::{Currency, Evidence, Listing, Reservation, Reservations, Settlement};
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
@@ -749,6 +765,15 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
         .replace("DELIVERED", "ESCROWED")
         .replace("\"custody_revision\":\"2\"", "\"custody_revision\":\"1\"")
         .replace("000000000004", "000000000002");
+    let status = if scenario != ItemScenario::Wallet {
+        status.replace(&format!("\"{}\"", uid("2")), "null")
+    } else {
+        status
+    };
+    if scenario == ItemScenario::NullResync {
+        sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$4,7,$5,1,true,'resync-test')")
+            .bind(listing.id).bind(uid("12")).bind(uid("21")).bind(uid("22")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+    }
     outbox
         .ingest(
             &mut tx,
@@ -784,7 +809,14 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
         .await
         .unwrap();
     a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    if scenario == ItemScenario::NullResync {
+        assert!(a.fresh(&mut tx).await.unwrap());
+        return;
+    }
     assert!(a.escrow_ready(&mut tx, &listing).await.unwrap());
+    if scenario != ItemScenario::Wallet {
+        return;
+    }
     sqlx::query("SAVEPOINT moderation_hold")
         .execute(&mut *tx)
         .await
@@ -2842,15 +2874,20 @@ async fn committed_fact(
 }
 #[tokio::test]
 async fn postgres_browser_verified_character_snapshot_facts() {
-    character_snapshot_browser_scenario(false).await;
+    character_snapshot_browser_scenario(false, &[]).await;
 }
 
 #[tokio::test]
 async fn postgres_browser_zero_magic_skill_snapshot() {
-    character_snapshot_browser_scenario(true).await;
+    character_snapshot_browser_scenario(true, &[]).await;
 }
 
-async fn character_snapshot_browser_scenario(zero_magic: bool) {
+#[tokio::test]
+async fn postgres_browser_preserves_signed_character_blessings() {
+    character_snapshot_browser_scenario(false, &["blessing:earth", "blessing:fire"]).await;
+}
+
+async fn character_snapshot_browser_scenario(zero_magic: bool, blessings: &[&str]) {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let mut db = BrowserFixture::new().await;
@@ -2859,7 +2896,7 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
         .config
         .escrow_account_id = Some(uid("40"));
     let mut signed_snapshot = vector("locked_character_snapshot");
-    if zero_magic {
+    if zero_magic || !blessings.is_empty() {
         use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         use ed25519_dalek::Signer;
         let signing = ed25519_dalek::SigningKey::from_bytes(&[9; 32]);
@@ -2871,10 +2908,15 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
         let payload =
             String::from_utf8(canonical::encode(original.get("snapshot").unwrap()).unwrap())
                 .unwrap();
-        let payload = payload.replace(
-            "\"progress_bps\":5000}]",
-            "\"progress_bps\":5000},{\"key\":\"magic\",\"level\":\"0\",\"progress_bps\":0}]",
-        );
+        let payload = if zero_magic {
+            payload.replace(
+                "\"progress_bps\":5000}]",
+                "\"progress_bps\":5000},{\"key\":\"magic\",\"level\":\"0\",\"progress_bps\":0}]",
+            )
+        } else {
+            let blessings = serde_json::to_string(blessings).unwrap();
+            payload.replace("\"blessings\":[]", &format!("\"blessings\":{blessings}"))
+        };
         let message = format!(
             "oteryn-v2-bazaar-character-snapshot-v1.{}",
             URL_SAFE_NO_PAD.encode(payload.as_bytes())
@@ -2888,26 +2930,27 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
     let a = db.runtime.authority();
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
+    let verified = verify_snapshot(
+        signed_snapshot.as_bytes(),
+        &SnapshotBinding {
+            source_authority: &a.config.projection_authority,
+            listing: uid("30"),
+            seller: uid("11"),
+            character: uid("31"),
+            world: uid("12"),
+            lock: uid("32"),
+            lock_revision: 1,
+            character_revision: 7,
+            eligibility_revision: 4,
+            projection_epoch: 3,
+            now,
+        },
+        "fixture-example-1",
+        &a.config.snapshot_keys[0].1,
+    );
     assert!(
-        verify_snapshot(
-            signed_snapshot.as_bytes(),
-            &SnapshotBinding {
-                source_authority: &a.config.projection_authority,
-                listing: uid("30"),
-                seller: uid("11"),
-                character: uid("31"),
-                world: uid("12"),
-                lock: uid("32"),
-                lock_revision: 1,
-                character_revision: 7,
-                eligibility_revision: 4,
-                projection_epoch: 3,
-                now,
-            },
-            "fixture-example-1",
-            &a.config.snapshot_keys[0].1,
-        )
-        .is_ok()
+        verified.is_ok(),
+        "signed character snapshot must be accepted: {verified:?}"
     );
     let listing = uid("30");
     sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction','coins',100,false,'active',now()+interval '1 day')").bind(listing).bind(uid("11")).execute(&mut *tx).await.unwrap();
@@ -3024,7 +3067,7 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
     )
     .await
     .unwrap();
-    if zero_magic {
+    if zero_magic || !blessings.is_empty() {
         use crate::characters::CharacterEvidence;
         let row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
             .bind(listing)
@@ -3034,19 +3077,22 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
         let approved = a.approved(&mut tx, &row).await;
         assert!(
             approved.is_ok(),
-            "zero magic skill must be approved: {approved:?}"
+            "signed character snapshot must be approved: {approved:?}"
         );
-        assert_eq!(
-            approved
-                .unwrap()
-                .unwrap()
-                .skills
-                .iter()
-                .find(|s| s.key == "magic")
-                .unwrap()
-                .level,
-            0
-        );
+        let approved = approved.unwrap().unwrap();
+        if zero_magic {
+            assert_eq!(
+                approved
+                    .skills
+                    .iter()
+                    .find(|s| s.key == "magic")
+                    .unwrap()
+                    .level,
+                0
+            );
+        } else {
+            assert_eq!(approved.blessings, blessings);
+        }
     }
     tx.commit().await.unwrap();
     let (status, catalogue) = db.get("/en/bazaar").await;
