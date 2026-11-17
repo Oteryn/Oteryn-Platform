@@ -49,9 +49,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T15:00:00Z
-head: 5510ab0a840a009eecdab01fd988823a258d1f30
+head: 4e00941ba44a25a1f0a776d9ba46a8b5f6f59cd9
 branch: claude/happy-davinci-ijz3wy-client-directory
-pr: none
+pr: 1935
 status: validating
 terminal_pr_policy: archive_pending
 context_routes: []
