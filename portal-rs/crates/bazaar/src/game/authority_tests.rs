@@ -3196,6 +3196,9 @@ async fn l6_04_suspended_leader_can_be_outbid_and_exact_hold_released() {
 }
 
 async fn returned_character_fixture(currency: &str) -> BrowserFixture {
+    returned_character_in_state(currency, "active").await
+}
+async fn returned_character_in_state(currency: &str, state: &str) -> BrowserFixture {
     let mut db = BrowserFixture::new().await;
     std::sync::Arc::make_mut(&mut db.runtime.config)
         .authority
@@ -3205,7 +3208,7 @@ async fn returned_character_fixture(currency: &str) -> BrowserFixture {
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
     let listing = uid("30");
-    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,'active',now()-interval '1 second')").bind(listing).bind(uid("11")).bind(currency).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,$4::text::bazaar_state,now()-interval '1 second')").bind(listing).bind(uid("11")).bind(currency).bind(state).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-browser')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
     let strval = |value: Uuid| Value::String(value.to_string());
     let lock = character_intent(
@@ -4692,4 +4695,205 @@ async fn a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff() {
         "PG a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff {:.3}s",
         started.elapsed().as_secs_f64()
     );
+}
+
+#[tokio::test]
+async fn r7_returned_draft_unlocks() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = returned_character_in_state("coins", "draft").await;
+    sqlx::query("UPDATE bazaar_authority_assets SET cancel_requested=true WHERE listing_id=$1")
+        .bind(uid("30"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(listing_state(&db).await, crate::State::Cancelled);
+    assert_eq!(outbox_count(&db, Command::Unlock).await, 1);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_stale_batch_keeps_open_auction() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=100")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime.advance(uid("20")).await.unwrap();
+    let returns: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_game_outbox WHERE command='ReturnBazaarItem'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(returns, 0, "open auction dispatched a return");
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_refused_draft_quota() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = returned_character_in_state("coins", "draft").await;
+    sqlx::query("UPDATE bazaar_authority_assets SET refusal_code='REFUSED' WHERE listing_id=$1")
+        .bind(uid("30"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    assert_eq!(
+        runtime::listing_count(&mut tx, uid("11")).await.unwrap(),
+        1,
+        "only the active item consumes quota"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+async fn expired_item_with_bid(seller_balance: i64) -> BrowserFixture {
+    let db = BrowserFixture::new().await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=100")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for (account, amount) in [(uid("11"), seller_balance), (uid("13"), 10000)] {
+        let mut tx = db.pool.begin().await.unwrap();
+        let funds = CoinReservations {
+            authority: db.runtime.authority().clone(),
+        };
+        use crate::Reservations;
+        funds.lock_accounts(&mut tx, &[account]).await.unwrap();
+        let op = Uuid::now_v7();
+        sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,$3)").bind(op).bind(account).bind(amount).execute(&mut *tx).await.unwrap();
+        oteryn_wallet::credit_in(&mut tx, op, account, amount)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+    assert_eq!(db.bid(10000).await, axum::http::StatusCode::SEE_OTHER);
+    sqlx::query("UPDATE bazaar_listings SET ends_at=now()-interval '1 second' WHERE id=$1")
+        .bind(uid("20"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db
+}
+
+#[tokio::test]
+async fn r7_hold_blocks_handoff() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,'staff suspended sale')").bind(uid("20")).bind(uid("11")).execute(&db.pool).await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let deliveries: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_game_outbox WHERE command='DeliverBazaarItem'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(deliveries, 0, "held sale dispatched a delivery");
+    let held: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
+    )
+    .bind(uid("20"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(held);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_overflow_refunds_and_returns() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(oteryn_wallet::MAX_BALANCE).await;
+    db.runtime.tick().await.unwrap();
+    let holds: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_coin_holds WHERE account_id=$1 AND amount>0",
+    )
+    .bind(uid("13"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(holds, 0, "buyer reservation survived payout refusal");
+    db.runtime.tick().await.unwrap();
+    let returns: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_game_outbox WHERE command='ReturnBazaarItem'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(returns, 1);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_held_delivery_captures() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let delivery = newest_intent(&db, uid("20"), Command::Deliver).await;
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,'staff suspended sale')").bind(uid("20")).bind(uid("11")).execute(&db.pool).await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let receipt = vector("delivery_receipt")
+        .replace(
+            &uid("4").to_string(),
+            text(&delivery.value, "operation_id").unwrap(),
+        )
+        .replace("1790000002", &now.to_string());
+    let authority = db.runtime.authority();
+    authority
+        .receive(
+            &mut tx,
+            &authority.config.receipt_authority,
+            receipt.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        audit(authority, &mut tx, &delivery, &receipt, now).await,
+        ReceiptResult::Stored
+    );
+    let status = vector("delivered_status")
+        .replace(
+            &uid("4").to_string(),
+            text(&delivery.value, "operation_id").unwrap(),
+        )
+        .replace("1790000002", &now.to_string());
+    Outbox {
+        settings: Settings {
+            preparation_enabled: true,
+            game_enabled: false,
+        },
+    }
+    .ingest(
+        &mut tx,
+        &db.runtime.authority().config.projection_authority,
+        status.as_bytes(),
+        now,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let state: crate::State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(uid("20"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(state, crate::State::Completed);
+    db.runtime.tick().await.unwrap();
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(uid("11"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(balance, 9001);
+    db.end().await;
 }

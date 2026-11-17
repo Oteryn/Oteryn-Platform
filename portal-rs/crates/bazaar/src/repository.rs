@@ -545,8 +545,19 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         validate_key(key)?;
         let mut tx = self.pool.begin().await?;
-        crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
+        let result = self.settle_locked(&mut tx, &listing, key).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+
+    pub(crate) async fn settle_locked(
+        &self,
+        tx: &mut PgConnection,
+        listing: &Listing,
+        key: &str,
+    ) -> Result<Settlement, Error> {
+        let id = listing.id;
         self.currency(listing.currency)?;
         let existing: Option<(String,)> = sqlx::query_as(
             "SELECT idempotency_key FROM bazaar_settlements WHERE listing_id=$1 FOR UPDATE",
@@ -558,12 +569,10 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             if old_key != key {
                 return Err(Error::IdempotencyConflict);
             }
-            return settlement(&mut tx, id).await;
+            return settlement(tx, id).await;
         }
         let eligible = match listing.form {
-            Form::Auction => {
-                listing.state == State::Active && listing.ends_at <= clock(&mut tx).await?
-            }
+            Form::Auction => listing.state == State::Active && listing.ends_at <= clock(tx).await?,
             _ => listing.state == State::Matched,
         };
         if !eligible {
@@ -587,9 +596,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         let mut actors = vec![buyer, seller];
         actors.sort_unstable();
         for actor in &actors {
-            self.authorize(&mut tx, *actor, false).await?;
+            self.authorize(tx, *actor, false).await?;
         }
-        self.funds_lock(&mut tx, actors).await?;
+        self.funds_lock(tx, actors).await?;
         let commission = listing.currency.commission(listing.price)?;
         let result = Settlement {
             id: oteryn_core::new_id(),
@@ -602,13 +611,12 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             seller_net: listing.price - commission,
             reservation: listing.reservation.ok_or(Error::IllegalTransition)?,
         };
-        self.reservations.settle(&mut tx, &result).await?;
+        self.reservations.settle(tx, &result).await?;
         sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
             .bind(result.id).bind(id).bind(buyer).bind(seller).bind(result.currency).bind(result.amount)
             .bind(commission).bind(result.seller_net).bind(result.reservation).bind(key).execute(&mut *tx).await?;
-        set_state(&mut tx, id, State::AwaitingDelivery).await?;
-        tx.commit().await?;
+        set_state(tx, id, State::AwaitingDelivery).await?;
         Ok(result)
     }
 
@@ -617,30 +625,40 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         let mut tx = self.pool.begin().await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing = locked(&mut tx, id).await?;
+        self.complete_delivery_in(&mut tx, &listing).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub(crate) async fn complete_delivery_in(
+        &self,
+        db: &mut PgConnection,
+        listing: &Listing,
+    ) -> Result<(), Error> {
+        let id = listing.id;
         self.currency(listing.currency)?;
         if listing.state == State::Completed {
             return Ok(());
         }
         listing.state.transition(State::Completed)?;
-        let result = settlement(&mut tx, id).await?;
+        let result = settlement(db, id).await?;
         self.accounts
-            .prepare(&mut tx, &[result.buyer, result.seller])
+            .prepare(db, &[result.buyer, result.seller])
             .await?;
         for actor in [result.buyer, result.seller] {
-            if !self.accounts.safe_return(&mut tx, actor).await? {
+            if !self.accounts.safe_return(db, actor).await? {
                 return Err(Error::Denied);
             }
         }
-        if !self.evidence.delivered(&mut tx, &result).await? {
+        if !self.evidence.delivered(db, &result).await? {
             return Err(Error::Denied);
         }
-        self.funds_lock(&mut tx, vec![result.buyer, result.seller])
+        self.funds_lock(db, vec![result.buyer, result.seller])
             .await?;
-        self.reservations.complete(&mut tx, &result).await?;
+        self.reservations.complete(db, &result).await?;
         sqlx::query("UPDATE bazaar_settlements SET completed_at=clock_timestamp(),updated_at=clock_timestamp() WHERE listing_id=$1")
-            .bind(id).execute(&mut *tx).await?;
-        set_state(&mut tx, id, State::Completed).await?;
-        tx.commit().await?;
+            .bind(id).execute(&mut *db).await?;
+        set_state(db, id, State::Completed).await?;
         Ok(())
     }
 }

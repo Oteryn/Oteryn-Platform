@@ -297,7 +297,7 @@ impl Runtime {
         if duplicate {
             return Err(Error::Conflict);
         }
-        let count:i64=sqlx::query_scalar("SELECT count(*) FROM bazaar_listings WHERE owner=$1 AND state NOT IN ('completed','cancelled','expired')").bind(actor).fetch_one(&mut *tx).await?;
+        let count = listing_count(&mut tx, actor).await?;
         if count >= 24 {
             return Err(Error::Backlog);
         }
@@ -452,6 +452,10 @@ impl NewAuction {
 pub(super) fn string(v: impl ToString) -> Value {
     Value::String(v.to_string())
 }
+pub(super) async fn listing_count(db: &mut PgConnection, actor: Uuid) -> Result<i64, Error> {
+    Ok(sqlx::query_scalar("SELECT count(*) FROM bazaar_listings l WHERE owner=$1 AND state NOT IN ('completed','cancelled','expired') AND NOT (state='draft' AND EXISTS(SELECT 1 FROM bazaar_authority_assets a WHERE a.listing_id=l.id AND a.refusal_code IS NOT NULL))").bind(actor).fetch_one(db).await?)
+}
+
 pub(super) fn core_error(e: crate::Error) -> Error {
     match e {
         crate::Error::Database(e) => Error::Database(e),
