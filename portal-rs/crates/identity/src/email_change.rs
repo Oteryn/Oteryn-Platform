@@ -151,6 +151,7 @@ struct Change {
     id: Uuid,
     account_id: Uuid,
     kind: String,
+    created_at: OffsetDateTime,
     old_email: String,
     new_email: String,
     confirmed_at: Option<OffsetDateTime>,
@@ -371,11 +372,16 @@ impl Service {
             .await?;
         if revert {
             // The swap itself and mark_applied share the transaction timestamp.
-            sqlx::query("DELETE FROM account_backup_emails WHERE account_id=$1 AND verified_at>$2")
-                .bind(c.account_id)
-                .bind(c.applied_at)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query(
+                "DELETE FROM account_backup_emails WHERE account_id=$1 AND verified_at>$2
+                 AND NOT (email=$3 AND verified_at IS NOT DISTINCT FROM $4)",
+            )
+            .bind(c.account_id)
+            .bind(c.created_at)
+            .bind(&c.old_email)
+            .bind(c.applied_at)
+            .execute(&mut **tx)
+            .await?;
         }
         // Swapping with a verified backup preserves the previous primary as backup.
         sqlx::query("UPDATE account_backup_emails SET email=$3,verified_at=now(),updated_at=now() WHERE account_id=$1 AND email=$2").bind(c.account_id).bind(email).bind(if revert { &c.new_email } else { &c.old_email }).execute(&mut **tx).await?;
