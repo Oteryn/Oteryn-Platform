@@ -50,7 +50,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T09:30:00Z
 head: eb881d55af6fdc010ec520afd48871f15ac60fab
 branch: claude/happy-davinci-ijz3wy-test-webhook-503
-pr: none
+pr: 1924
 status: ready
 context_routes: []
 owned_paths:
