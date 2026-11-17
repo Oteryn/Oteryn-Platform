@@ -136,6 +136,11 @@ impl Database {
         .execute(&pool)
         .await?;
         sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261105220221_t08_sessions.sql"
+        ))
+        .execute(&pool)
+        .await?;
+        sqlx::raw_sql(include_str!(
             "../../../../migrations/20261105220234_t33c_reports.sql"
         ))
         .execute(&pool)

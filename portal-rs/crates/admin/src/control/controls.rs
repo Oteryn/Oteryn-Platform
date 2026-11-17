@@ -427,11 +427,7 @@ impl<A: Authority, T: TotpVerifier> Controls<A, T> {
         )
         .await?;
         tx.commit().await?;
-        let until =
-            time::OffsetDateTime::from_unix_timestamp(self.now().await?.saturating_add(300))
-                .map_err(|_| Refusal::Unavailable)?;
-        oteryn_web::session::rotate(session, oteryn_web::session::PrivilegeChange::Sudo(until))
-            .await?;
+        oteryn_web::session::rotate(session, oteryn_web::session::PrivilegeChange::Reissue).await?;
         session
             .set(
                 STEP_UP,

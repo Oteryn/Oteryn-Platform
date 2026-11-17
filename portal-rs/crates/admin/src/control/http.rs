@@ -82,6 +82,8 @@ impl AgentIdentities {
 pub struct AgentBinding {
     pub agent_id: String,
     pub identity: Identity,
+    pub allowed_worlds: Vec<String>,
+    pub allowed_nodes: Vec<String>,
     pub result_key: Option<(ed25519_dalek::VerifyingKey, signer::Validity)>,
 }
 #[derive(Clone)]
@@ -281,6 +283,17 @@ async fn hello(
 ) -> Result<Json<Value>, HttpError> {
     let h: Hello = body(raw)?;
     check(&ctx, &h.agent_id, h.owner_epoch)?;
+    if !h
+        .served_worlds
+        .iter()
+        .all(|id| ctx.binding.allowed_worlds.contains(id))
+        || !h
+            .served_nodes
+            .iter()
+            .all(|id| ctx.binding.allowed_nodes.contains(id))
+    {
+        return Err(HttpError::forbidden());
+    }
     time::OffsetDateTime::parse(&h.clock, &time::format_description::well_known::Rfc3339)
         .map_err(|_| HttpError::invalid())?;
     let digest = URL_SAFE_NO_PAD
@@ -586,6 +599,9 @@ pub(crate) fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::er
     let bindings = bindings
         .into_iter()
         .map(|b| {
+            if b.allowed_worlds.is_empty() && b.allowed_nodes.is_empty() {
+                return Err(guard::ConfigError);
+            }
             let peer = VerifiedAgent::from_verified_certificate_cn(&b.cn)
                 .map_err(|_| guard::ConfigError)?;
             let identity = match b.identity {
@@ -621,6 +637,8 @@ pub(crate) fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::er
                 .transpose()?;
             Ok(AgentBinding {
                 agent_id: peer.0,
+                allowed_worlds: b.allowed_worlds,
+                allowed_nodes: b.allowed_nodes,
                 identity,
                 result_key,
             })
@@ -633,6 +651,8 @@ pub(crate) fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::er
 struct ConfiguredAgent {
     cn: String,
     identity: ConfiguredIdentity,
+    allowed_worlds: Vec<String>,
+    allowed_nodes: Vec<String>,
     result_key: Option<ConfiguredKey>,
 }
 #[derive(Deserialize)]

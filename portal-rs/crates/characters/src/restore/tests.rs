@@ -222,8 +222,10 @@ async fn guards_refuse_wrong_identity_bad_schema_source_and_disabled() {
         (StatusCode::SERVICE_UNAVAILABLE, String::new())
     );
 }
-const MIGRATION: &str =
-    include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql");
+const MIGRATIONS: &str = concat!(
+    include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql"),
+    include_str!("../../../../migrations/20261117200005_r7_chr.sql"),
+);
 async fn database() -> Option<(PgPool, PgPool, String)> {
     database_at(true).await
 }
@@ -271,7 +273,7 @@ async fn database_with_connections(
     .await
     .unwrap();
     if apply_restore {
-        sqlx::raw_sql(MIGRATION).execute(&pool).await.unwrap();
+        sqlx::raw_sql(MIGRATIONS).execute(&pool).await.unwrap();
     }
     Some((pool, admin, schema))
 }
@@ -461,6 +463,13 @@ async fn db_chained_restores_carry_original_receipt_until_new_decision() {
             .0,
         StatusCode::OK
     );
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM character_restore_notices WHERE acknowledged_at IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pending, 0, "resolved notices still pending");
     for raw in &notices {
         let event = wire::decode(raw.as_bytes()).unwrap().id;
         assert_eq!(
@@ -726,7 +735,7 @@ async fn db_migration_preserves_existing_receipts_and_reopens_them() {
         response(legacy, RECEIPT_PATH, &receipt(3), Some(2)).await.0,
         StatusCode::OK
     );
-    sqlx::raw_sql(MIGRATION).execute(&pool).await.unwrap();
+    sqlx::raw_sql(MIGRATIONS).execute(&pool).await.unwrap();
     let app = app(pool.clone());
     assert_eq!(
         response(app.clone(), PATH, NOTICE, Some(1)).await.1,
@@ -758,7 +767,7 @@ async fn db_invalid_legacy_generation_is_queued_instead_of_guessed() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::raw_sql(MIGRATION).execute(&pool).await.unwrap();
+    sqlx::raw_sql(MIGRATIONS).execute(&pool).await.unwrap();
     let restore = Restore::new(pool.clone(), settings());
     assert!(matches!(
         restore.notice(NOTICE.as_bytes()).await,

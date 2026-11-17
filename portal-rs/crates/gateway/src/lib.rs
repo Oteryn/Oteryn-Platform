@@ -314,32 +314,17 @@ async fn recovery(s: &StateData, source: &str, body: &[u8]) -> Response {
 async fn recovery_at(s: &StateData, source: &str, body: &[u8], now: Duration) -> Response {
     let echo = wire::attempt_echo(body);
     let result = match prepare_recovery(s, source, body, now) {
-        Ok(request) => {
+        Ok((request, mut reservation)) => {
             let result = s.issuer.recover(&request).await;
-            let key = attempt_key(
-                &request.attempt_ref,
-                &Sha256::digest(request.recovery_handle.as_bytes()),
-            );
             if let Ok(mut limits) = s.recovery.attempts.lock() {
-                limits.finish(
-                    &key,
-                    now,
-                    result.is_ok()
-                        || result.as_ref().err().is_some_and(|r| {
-                            matches!(
-                                r.code,
-                                RecoverCode::AttemptPending
-                                    | RecoverCode::CharacterConflict
-                                    | RecoverCode::WorldStale
-                                    | RecoverCode::RouteUnavailable
-                                    | RecoverCode::GrantExpired
-                            )
-                        }),
-                    result
-                        .as_ref()
-                        .err()
-                        .is_some_and(|r| r.code == RecoverCode::AuthenticationRequired),
-                );
+                let outcome = match result.as_ref().err().map(|r| r.code) {
+                    Some(RecoverCode::RateLimited | RecoverCode::Unavailable) => {
+                        AttemptOutcome::Transient
+                    }
+                    Some(RecoverCode::AuthenticationRequired) => AttemptOutcome::Rejected,
+                    _ => AttemptOutcome::Counted,
+                };
+                limits.finish(&mut reservation, outcome);
             }
             result
         }
@@ -365,15 +350,15 @@ fn prepare_recovery(
     source: &str,
     body: &[u8],
     now: Duration,
-) -> Result<recover::RecoverRequest, RecoverRefusal> {
+) -> Result<(recover::RecoverRequest, Reservation), RecoverRefusal> {
     allow(&s.recovery.sources, source.as_bytes(), now).map_err(recover_limit)?;
     let request = recover::parse_request(body)?;
     let key = attempt_key(
         &request.attempt_ref,
         &Sha256::digest(request.recovery_handle.as_bytes()),
     );
-    reserve(&s.recovery.attempts, &key, now).map_err(recover_limit)?;
-    Ok(request)
+    let reservation = reserve(&s.recovery.attempts, key, now).map_err(recover_limit)?;
+    Ok((request, reservation))
 }
 fn recover_limit(r: Refusal) -> RecoverRefusal {
     RecoverRefusal {
@@ -446,15 +431,14 @@ async fn native(s: &StateData, source: &str, body: &[u8]) -> Response {
 }
 async fn native_at(s: &StateData, source: &str, body: &[u8], now: Duration) -> Response {
     let echo = wire::attempt_echo(body);
-    let request = match prepare(s, source, body, now) {
-        Ok(request) => request,
+    let (request, mut reservation) = match prepare(s, source, body, now) {
+        Ok(prepared) => prepared,
         Err(r) => return refuse(r, echo.as_deref()),
     };
     let result = s.issuer.admit(&request).await;
     finish(
         &s.attempts,
-        &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
-        now,
+        &mut reservation,
         result.as_ref().err().map(|r| r.code),
     );
     match result {
@@ -475,12 +459,11 @@ async fn native3(s: &StateData, source: &str, body: &[u8]) -> Response {
 async fn native3_at(s: &StateData, source: &str, body: &[u8], now: Duration) -> Response {
     let echo = wire::attempt_echo(body);
     let result = match prepare_with(s, source, body, now, v3::parse_request) {
-        Ok(request) => {
+        Ok((request, mut reservation)) => {
             let result = s.issuer.admit3(&request).await;
             finish(
                 &s.attempts,
-                &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
-                now,
+                &mut reservation,
                 result.as_ref().err().map(|r| r.refusal.code),
             );
             result.map(|ok| (request, ok))
@@ -521,7 +504,7 @@ fn prepare(
     source: &str,
     body: &[u8],
     now: Duration,
-) -> Result<wire::Request, Refusal> {
+) -> Result<(wire::Request, Reservation), Refusal> {
     prepare_with(s, source, body, now, wire::parse_request)
 }
 fn prepare_with(
@@ -530,15 +513,15 @@ fn prepare_with(
     body: &[u8],
     now: Duration,
     parse: fn(&[u8]) -> Result<wire::Request, Code>,
-) -> Result<wire::Request, Refusal> {
+) -> Result<(wire::Request, Reservation), Refusal> {
     allow(&s.sources, source.as_bytes(), now)?;
     let request = parse(body).map_err(Refusal::from)?;
-    reserve(
+    let reservation = reserve(
         &s.attempts,
-        &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
+        attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
         now,
     )?;
-    Ok(request)
+    Ok((request, reservation))
 }
 
 fn refuse(r: Refusal, echo: Option<&str>) -> Response {
@@ -615,17 +598,48 @@ struct PendingAttempt {
     count: usize,
     in_flight: usize,
 }
+// A successful admission owns one completion. Taking the key makes finishing
+// the same reservation again a no-op, even after the window was promoted.
+struct Reservation {
+    key: Option<Vec<u8>>,
+    now: Duration,
+}
+
+enum AttemptOutcome {
+    Counted,
+    Rejected,
+    Transient,
+}
+
 #[derive(Debug)]
 struct AttemptLimits {
     confirmed: WindowLimiter,
+    // Reusable charges in live confirmed windows after a transient issuer refusal.
+    refunds: std::collections::HashMap<Vec<u8>, usize>,
     unverified: std::collections::HashMap<Vec<u8>, PendingAttempt>,
     reservation_window: Duration,
 }
 impl AttemptLimits {
+    fn reserve(&mut self, key: Vec<u8>, now: Duration) -> Result<Reservation, u64> {
+        self.allow(&key, now)?;
+        Ok(Reservation {
+            key: Some(key),
+            now,
+        })
+    }
+
     fn allow(&mut self, key: &[u8], now: Duration) -> Result<(), u64> {
         if self.confirmed.contains(key, now) {
+            if let Some(credit) = self.refunds.get_mut(key) {
+                *credit -= 1;
+                if *credit == 0 {
+                    self.refunds.remove(key);
+                }
+                return Ok(());
+            }
             return self.confirmed.allow(key, now);
         }
+        self.refunds.remove(key);
         if let Some(pending) = self.unverified.get_mut(key)
             && now.saturating_sub(pending.start) < self.reservation_window
         {
@@ -645,6 +659,8 @@ impl AttemptLimits {
         // the memory bound so promotion always has a reserved slot.
         if self.confirmed.len() + self.unverified.len() >= 100_000 {
             self.confirmed.prune(now);
+            self.refunds
+                .retain(|key, _| self.confirmed.contains(key, now));
             self.unverified
                 .retain(|_, pending| now.saturating_sub(pending.start) < self.reservation_window);
             if self.confirmed.len() + self.unverified.len() >= 100_000 {
@@ -661,13 +677,51 @@ impl AttemptLimits {
         );
         Ok(())
     }
-    fn finish(&mut self, key: &[u8], now: Duration, authenticated: bool, rejected: bool) {
-        if authenticated || !rejected {
+    fn refund(&mut self, key: &[u8], now: Duration) {
+        if self.confirmed.contains(key, now) {
+            // The request's timestamp predates this window if the window will
+            // still be live a full reservation lifetime after dispatch.
+            if self
+                .confirmed
+                .contains(key, now.saturating_add(self.reservation_window))
+            {
+                return;
+            }
+            *self.refunds.entry(key.to_vec()).or_default() += 1;
+        } else if let Some(pending) = self.unverified.get_mut(key)
+            && now >= pending.start
+        {
+            pending.count -= 1;
+            pending.in_flight -= 1;
+            if pending.in_flight == 0 {
+                self.unverified.remove(key);
+            }
+        }
+    }
+    fn finish(&mut self, reservation: &mut Reservation, outcome: AttemptOutcome) {
+        let Some(key) = reservation.key.take() else {
+            return;
+        };
+        let key = key.as_slice();
+        let now = reservation.now;
+        if matches!(outcome, AttemptOutcome::Transient) {
+            self.refund(key, now);
+            return;
+        }
+        if self
+            .unverified
+            .get(key)
+            .is_some_and(|pending| now < pending.start)
+        {
+            return;
+        }
+        if matches!(outcome, AttemptOutcome::Counted) {
             if let Some(pending) = self.unverified.remove(key)
                 && !self.confirmed.contains(key, now)
             {
                 // Count all concurrent reservations conservatively. A rejected
                 // exchange cannot erase another exchange's pending reservation.
+                self.refunds.remove(key);
                 self.confirmed.insert(key, pending.start, pending.count);
             }
         } else if let Some(pending) = self.unverified.get_mut(key) {
@@ -680,6 +734,7 @@ impl AttemptLimits {
 }
 fn attempt_limiter() -> AttemptLimits {
     AttemptLimits {
+        refunds: Default::default(),
         confirmed: WindowLimiter::new(6, Duration::from_secs(12 * 60 * 60), 100_000),
         unverified: std::collections::HashMap::new(),
         reservation_window: Duration::from_secs(12 * 60 * 60),
@@ -692,32 +747,23 @@ fn attempt_key(attempt: &str, credential: &[u8]) -> Vec<u8> {
     digest.update(credential);
     digest.finalize().to_vec()
 }
-fn reserve(l: &Mutex<AttemptLimits>, key: &[u8], now: Duration) -> Result<(), Refusal> {
+fn reserve(l: &Mutex<AttemptLimits>, key: Vec<u8>, now: Duration) -> Result<Reservation, Refusal> {
     l.lock()
         .map_err(|_| Refusal::from(Code::Unavailable))?
-        .allow(key, now)
+        .reserve(key, now)
         .map_err(|retry_after| Refusal {
             code: Code::RateLimited,
             retry_after,
         })
 }
-fn finish(l: &Mutex<AttemptLimits>, key: &[u8], now: Duration, code: Option<Code>) {
+fn finish(l: &Mutex<AttemptLimits>, reservation: &mut Reservation, code: Option<Code>) {
     if let Ok(mut limits) = l.lock() {
-        limits.finish(
-            key,
-            now,
-            code.is_none()
-                || matches!(
-                    code,
-                    Some(
-                        Code::CharacterConflict
-                            | Code::RouteUnavailable
-                            | Code::GrantExpired
-                            | Code::ChannelUnavailable
-                    )
-                ),
-            code == Some(Code::AuthenticationRequired),
-        );
+        let outcome = match code {
+            Some(Code::RateLimited | Code::Unavailable) => AttemptOutcome::Transient,
+            Some(Code::AuthenticationRequired) => AttemptOutcome::Rejected,
+            _ => AttemptOutcome::Counted,
+        };
+        limits.finish(reservation, outcome);
     }
 }
 
@@ -726,8 +772,85 @@ mod attempt_budget_tests {
     use super::*;
 
     #[test]
-    fn login_total_budget_survives_old_window() {
-        check_total_budget(attempt_limiter());
+    fn refund_cannot_credit_the_same_reservation_twice() -> Result<(), &'static str> {
+        let mut limits = attempt_limiter();
+        let key = b"credential";
+        let mut counted = admit(&mut limits, key, Duration::ZERO)?;
+        limits.finish(&mut counted, AttemptOutcome::Counted);
+        let mut transient = admit(&mut limits, key, Duration::ZERO)?;
+        limits.finish(&mut transient, AttemptOutcome::Transient);
+        limits.finish(&mut transient, AttemptOutcome::Transient);
+        for _ in 0..5 {
+            assert!(limits.allow(key, Duration::ZERO).is_ok());
+        }
+        assert!(
+            limits.allow(key, Duration::ZERO).is_err(),
+            "duplicate completion credited an extra attempt"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn refund_cannot_credit_a_non_counted_attempt() -> Result<(), &'static str> {
+        let mut limits = attempt_limiter();
+        let key = b"credential";
+        let mut rejected = admit(&mut limits, key, Duration::ZERO)?;
+        limits.finish(&mut rejected, AttemptOutcome::Rejected);
+        let mut counted = admit(&mut limits, key, Duration::ZERO)?;
+        limits.finish(&mut counted, AttemptOutcome::Counted);
+        limits.finish(&mut rejected, AttemptOutcome::Transient);
+        for _ in 0..5 {
+            assert!(limits.allow(key, Duration::ZERO).is_ok());
+        }
+        assert!(
+            limits.allow(key, Duration::ZERO).is_err(),
+            "non-counted attempt credited a confirmed window"
+        );
+        Ok(())
+    }
+
+    fn admit(
+        limits: &mut AttemptLimits,
+        key: &[u8],
+        now: Duration,
+    ) -> Result<Reservation, &'static str> {
+        limits
+            .reserve(key.to_vec(), now)
+            .map_err(|_| "attempt refused")
+    }
+
+    #[test]
+    fn transient_issuer_errors_release_attempt_budget() -> Result<(), &'static str> {
+        for code in [Code::RateLimited, Code::Unavailable] {
+            let limiter = Mutex::new(attempt_limiter());
+            let key = b"credential";
+            let mut request =
+                reserve(&limiter, key.to_vec(), Duration::ZERO).map_err(|_| "attempt refused")?;
+            finish(&limiter, &mut request, Some(code));
+            assert!(
+                limiter
+                    .lock()
+                    .is_ok_and(|l| l.confirmed.is_empty() && l.unverified.is_empty()),
+                "transient refusal retained a slot"
+            );
+            // A successful overlapping exchange can promote the pending reservation.
+            let mut counted =
+                reserve(&limiter, key.to_vec(), Duration::ZERO).map_err(|_| "attempt refused")?;
+            let mut transient =
+                reserve(&limiter, key.to_vec(), Duration::ZERO).map_err(|_| "attempt refused")?;
+            finish(&limiter, &mut counted, None);
+            finish(&limiter, &mut transient, Some(code));
+            for _ in 0..5 {
+                assert!(reserve(&limiter, key.to_vec(), Duration::ZERO).is_ok());
+            }
+            assert!(reserve(&limiter, key.to_vec(), Duration::ZERO).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn login_total_budget_survives_old_window() -> Result<(), &'static str> {
+        check_total_budget(attempt_limiter())
     }
 
     #[test]
@@ -737,7 +860,7 @@ mod attempt_budget_tests {
                 .attempts
                 .into_inner()
                 .map_err(|_| "poisoned limiter")?,
-        );
+        )?;
         Ok(())
     }
 
@@ -764,22 +887,22 @@ mod attempt_budget_tests {
             "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/recover-request.json"
         );
         let mut issuer_dispatches = 0;
+        let mut reservation = None;
         for _ in 0..6 {
-            if prepare_recovery(&state, "127.0.0.1", body, Duration::ZERO).is_ok() {
+            if let Ok((_, admitted)) = prepare_recovery(&state, "127.0.0.1", body, Duration::ZERO) {
                 issuer_dispatches += 1;
+                reservation = Some(admitted);
             }
         }
-        let request = recover::parse_request(body).map_err(|_| "invalid test request")?;
-        let key = attempt_key(
-            &request.attempt_ref,
-            &Sha256::digest(request.recovery_handle.as_bytes()),
-        );
         state
             .recovery
             .attempts
             .lock()
             .map_err(|_| "poisoned")?
-            .finish(&key, Duration::ZERO, true, false);
+            .finish(
+                &mut reservation.ok_or("recovery admission")?,
+                AttemptOutcome::Counted,
+            );
         let result = prepare_recovery(&state, "127.0.0.1", body, Duration::from_secs(121));
         assert!(result.is_err());
         let refusal = result.err().ok_or("exhausted total budget")?;
@@ -816,16 +939,15 @@ mod attempt_budget_tests {
         );
         let mut dispatches = [0, 0];
         for _ in 0..6 {
-            let request =
+            let (_, mut reservation) =
                 prepare(&state, "client", login, Duration::ZERO).map_err(|_| "login admission")?;
             dispatches[0] += 1;
             finish(
                 &state.attempts,
-                &attempt_key(&request.attempt_ref, request.game_login_ticket.as_bytes()),
-                Duration::ZERO,
+                &mut reservation,
                 Some(Code::ReconciliationRequired),
             );
-            let request = prepare_recovery(&state, "client", recovery, Duration::ZERO)
+            let (_, mut reservation) = prepare_recovery(&state, "client", recovery, Duration::ZERO)
                 .map_err(|_| "recovery admission")?;
             dispatches[1] += 1;
             state
@@ -833,15 +955,7 @@ mod attempt_budget_tests {
                 .attempts
                 .lock()
                 .map_err(|_| "poisoned")?
-                .finish(
-                    &attempt_key(
-                        &request.attempt_ref,
-                        &Sha256::digest(request.recovery_handle.as_bytes()),
-                    ),
-                    Duration::ZERO,
-                    false,
-                    false,
-                );
+                .finish(&mut reservation, AttemptOutcome::Counted);
         }
         let login = prepare(&state, "client", login, Duration::from_secs(61))
             .err()
@@ -856,12 +970,12 @@ mod attempt_budget_tests {
     }
 
     #[test]
-    fn rejected_exchange_cannot_erase_concurrent_confirmation() {
+    fn rejected_exchange_cannot_erase_concurrent_confirmation() -> Result<(), &'static str> {
         let mut limits = attempt_limiter();
-        assert!(limits.allow(b"same-credential", Duration::ZERO).is_ok());
-        assert!(limits.allow(b"same-credential", Duration::ZERO).is_ok());
-        limits.finish(b"same-credential", Duration::ZERO, false, true);
-        limits.finish(b"same-credential", Duration::ZERO, true, false);
+        let mut rejected = admit(&mut limits, b"same-credential", Duration::ZERO)?;
+        let mut counted = admit(&mut limits, b"same-credential", Duration::ZERO)?;
+        limits.finish(&mut rejected, AttemptOutcome::Rejected);
+        limits.finish(&mut counted, AttemptOutcome::Counted);
         for _ in 0..4 {
             assert!(
                 limits
@@ -874,20 +988,22 @@ mod attempt_budget_tests {
                 .allow(b"same-credential", Duration::from_secs(121))
                 .is_err()
         );
+        Ok(())
     }
 
     #[test]
-    fn uncertain_capacity_flood_never_evicts_a_live_budget() {
+    fn uncertain_capacity_flood_never_evicts_a_live_budget() -> Result<(), &'static str> {
         let mut limits = attempt_limiter();
-        for _ in 0..6 {
+        for _ in 0..5 {
             assert!(limits.allow(b"confirmed", Duration::ZERO).is_ok());
         }
-        limits.finish(b"confirmed", Duration::ZERO, true, false);
+        let mut confirmed = admit(&mut limits, b"confirmed", Duration::ZERO)?;
+        limits.finish(&mut confirmed, AttemptOutcome::Counted);
         for i in 0u64..99_999 {
             let now = Duration::from_secs(i / 150 * 60);
             let key = i.to_be_bytes();
-            assert!(limits.allow(&key, now).is_ok());
-            limits.finish(&key, now, false, false);
+            let mut uncertain = admit(&mut limits, &key, now)?;
+            limits.finish(&mut uncertain, AttemptOutcome::Counted);
         }
         assert_eq!(limits.confirmed.len(), 100_000);
         assert!(
@@ -897,14 +1013,15 @@ mod attempt_budget_tests {
         );
         assert!(limits.allow(b"fresh", Duration::from_secs(40020)).is_err());
         assert!(limits.allow(b"fresh", Duration::from_secs(43200)).is_ok());
+        Ok(())
     }
 
     #[test]
-    fn uncertain_credentials_reserve_lifetime_capacity() {
+    fn uncertain_credentials_reserve_lifetime_capacity() -> Result<(), &'static str> {
         let mut limits = attempt_limiter();
         for _ in 0..6 {
-            assert!(limits.allow(b"uncertain", Duration::ZERO).is_ok());
-            limits.finish(b"uncertain", Duration::ZERO, false, false);
+            let mut uncertain = admit(&mut limits, b"uncertain", Duration::ZERO)?;
+            limits.finish(&mut uncertain, AttemptOutcome::Counted);
         }
         for seconds in [61, 121, 3600, 43199] {
             assert!(
@@ -918,13 +1035,15 @@ mod attempt_budget_tests {
                 .allow(b"uncertain", Duration::from_secs(43200))
                 .is_ok()
         );
+        Ok(())
     }
 
-    fn check_total_budget(mut limiter: AttemptLimits) {
-        for _ in 0..6 {
+    fn check_total_budget(mut limiter: AttemptLimits) -> Result<(), &'static str> {
+        for _ in 0..5 {
             assert!(limiter.allow(b"attempt-and-handle", Duration::ZERO).is_ok());
         }
-        limiter.finish(b"attempt-and-handle", Duration::ZERO, true, false);
+        let mut counted = admit(&mut limiter, b"attempt-and-handle", Duration::ZERO)?;
+        limiter.finish(&mut counted, AttemptOutcome::Counted);
         for seconds in [121, 3600, 43199] {
             assert!(
                 limiter
@@ -932,6 +1051,7 @@ mod attempt_budget_tests {
                     .is_err()
             );
         }
+        Ok(())
     }
 }
 

@@ -2,6 +2,8 @@ use super::*;
 use oteryn_admin::audit::{self, AuditContext, Entry};
 use serde_json::json;
 
+pub(super) const REPORT_BATCH_SIZE: usize = 50;
+
 #[derive(Debug)]
 pub(super) struct Listing {
     pub id: Uuid,
@@ -15,6 +17,8 @@ pub(super) struct Listing {
     pub starts: String,
     pub expires: String,
     pub reports: String,
+    pub report_ids: String,
+    pub more_reports: i64,
 }
 impl Board {
     /// Expiry is enforced by reads and mutations even if the worker is stopped.
@@ -26,11 +30,9 @@ impl Board {
         if !filter.valid() {
             return Err(Error::Invalid);
         }
-        let rows = sqlx::query("SELECT *, starts_at::text AS starts, expires_at::text AS expires FROM pd_party_posts WHERE status='active' AND expires_at>clock_timestamp() AND ($1::uuid IS NULL OR world_id=$1) AND ($2::text IS NULL OR purpose=$2) AND ($3::int IS NULL OR $3 BETWEEN min_level AND max_level) AND ($4::text IS NULL OR profession='any' OR profession=$4) ORDER BY starts_at,id LIMIT 100")
+        let rows = sqlx::query("SELECT *, starts_at::text AS starts, expires_at::text AS expires FROM pd_party_posts p WHERE status='active' AND expires_at>clock_timestamp() AND EXISTS (SELECT 1 FROM account_characters c WHERE c.account_id=p.account_id AND c.character_id=p.character_id AND c.world_id=p.world_id AND c.availability='AVAILABLE') AND ($1::uuid IS NULL OR world_id=$1) AND ($2::text IS NULL OR purpose=$2) AND ($3::int IS NULL OR $3 BETWEEN min_level AND max_level) AND ($4::text IS NULL OR profession='any' OR profession=$4) ORDER BY starts_at,id LIMIT 100")
             .bind(filter.world).bind(&filter.purpose).bind(filter.level).bind(&filter.profession).fetch_all(&self.db).await?;
-        rows.into_iter()
-            .map(|row| listing(row, String::new()))
-            .collect()
+        rows.into_iter().map(listing).collect()
     }
     pub async fn create(&self, owner: Uuid, draft: Draft) -> Result<Uuid, Error> {
         if owner.is_nil() {
@@ -174,11 +176,42 @@ impl Board {
         Ok(())
     }
     pub(super) async fn reports(&self) -> Result<Vec<Listing>, Error> {
-        let rows = sqlx::query("SELECT p.*,p.starts_at::text AS starts,p.expires_at::text AS expires, (SELECT string_agg(recent.reason, ' | ') FROM (SELECT r.reason FROM pd_party_reports r WHERE r.post_id=p.id AND r.status='open' ORDER BY r.created_at LIMIT 50) recent) AS reasons FROM pd_party_posts p WHERE EXISTS(SELECT 1 FROM pd_party_reports r WHERE r.post_id=p.id AND r.status='open') ORDER BY p.created_at,p.id LIMIT 100").fetch_all(&self.db).await?;
+        let rows = sqlx::query(
+            "SELECT p.*, p.starts_at::text AS starts, p.expires_at::text AS expires,
+                    batch.reasons, batch.report_ids, batch.more_reports
+             FROM (
+                 SELECT p.* FROM pd_party_posts p
+                 WHERE EXISTS (
+                     SELECT 1 FROM pd_party_reports r WHERE r.post_id=p.id AND r.status='open'
+                 )
+                 ORDER BY p.created_at, p.id LIMIT 100
+             ) p
+             CROSS JOIN LATERAL (
+                 SELECT string_agg(reason, ' | ' ORDER BY created_at, id) AS reasons,
+                        string_agg(id::text, ',' ORDER BY created_at, id) AS report_ids,
+                        (SELECT count(*) FROM pd_party_reports r
+                         WHERE r.post_id=p.id AND r.status='open') - count(*) AS more_reports
+                 FROM (
+                     SELECT r.id, r.reason, r.created_at
+                     FROM pd_party_reports r
+                     WHERE r.post_id=p.id AND r.status='open'
+                     ORDER BY r.created_at, r.id
+                     LIMIT $1
+                 ) shown
+             ) batch
+             ORDER BY p.created_at, p.id",
+        )
+        .bind(REPORT_BATCH_SIZE as i64)
+        .fetch_all(&self.db)
+        .await?;
         rows.into_iter()
             .map(|row| {
-                let reasons: String = row.try_get("reasons")?;
-                listing(row, reasons)
+                Ok(Listing {
+                    reports: row.try_get("reasons")?,
+                    report_ids: row.try_get("report_ids")?,
+                    more_reports: row.try_get("more_reports")?,
+                    ..listing(row)?
+                })
             })
             .collect()
     }
@@ -189,13 +222,17 @@ impl Board {
         id: Uuid,
         action: &str,
         reason: &str,
+        report_ids: &[Uuid],
     ) -> Result<(), Error> {
         let actor = context.account;
         if actor.is_nil() || id.is_nil() || !context.require_staff_mfa || !context.mfa_verified {
             return Err(Error::Denied);
         }
         self.authority.active(actor).await.ok_or(Error::Denied)?;
-        if !matches!(action, "remove" | "dismiss") || !text(reason, 1, 500) {
+        if !matches!(action, "remove" | "dismiss")
+            || !text(reason, 1, 500)
+            || report_ids.len() > REPORT_BATCH_SIZE
+        {
             return Err(Error::Invalid);
         }
         let mut tx = self.db.begin().await?;
@@ -234,7 +271,8 @@ impl Board {
             .bind(after)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE pd_party_reports SET status='resolved',updated_at=now() WHERE post_id=$1 AND status='open'").bind(id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE pd_party_reports SET status='resolved',updated_at=now() WHERE post_id=$1 AND status='open' AND id=ANY($2)")
+            .bind(id).bind(report_ids).execute(&mut *tx).await?;
         audit::append(
             &mut tx,
             Entry {
@@ -262,7 +300,7 @@ impl Board {
         Ok(())
     }
 }
-fn listing(row: sqlx::postgres::PgRow, reports: String) -> Result<Listing, Error> {
+fn listing(row: sqlx::postgres::PgRow) -> Result<Listing, Error> {
     Ok(Listing {
         id: row.try_get("id")?,
         name: row.try_get("character_name")?,
@@ -274,6 +312,8 @@ fn listing(row: sqlx::postgres::PgRow, reports: String) -> Result<Listing, Error
         note: row.try_get("note")?,
         starts: row.try_get("starts")?,
         expires: row.try_get("expires")?,
-        reports,
+        reports: String::new(),
+        report_ids: String::new(),
+        more_reports: 0,
     })
 }

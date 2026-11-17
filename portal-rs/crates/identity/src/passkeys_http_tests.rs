@@ -41,6 +41,20 @@ async fn postgres_browser_csrf_peer_input_and_limiter_refusals() {
         return;
     };
     let app = app(&db, None).await;
+    for _ in 0..4 {
+        let response = app
+            .clone()
+            .oneshot(request("authenticate/start", "{}", "", true))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='passkey.http_refused'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 0, "anonymous passkeys audit rows");
     assert_eq!(
         app.clone()
             .oneshot(request("authenticate/start", "{}", "wrong", true))
@@ -121,6 +135,12 @@ async fn postgres_browser_csrf_peer_input_and_limiter_refusals() {
         }
     }
     assert!(limited);
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='passkey.http_refused'")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
     db.close().await.unwrap();
 }
 #[tokio::test]
@@ -145,6 +165,14 @@ async fn postgres_password_confirmation_and_localized_page() {
             StatusCode::FORBIDDEN
         );
     }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='passkey.refused' AND actor=$1",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 3);
     let response = app
         .clone()
         .oneshot(request(

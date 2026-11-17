@@ -55,18 +55,27 @@ impl Reader {
         }
         wire::uuid(operation).map_err(|_| Error::BadInput)?;
         // One statement observes both the immutable row and its authority consistently.
-        let row = sqlx::query("SELECT i.*, a.last_source_revision, a.last_issuer_decision_id FROM character_bootstrap_intents i LEFT JOIN character_bootstrap_intent_authority a ON a.id = 1 WHERE i.operation_id = $1")
+        let row = sqlx::query("SELECT i.*, a.last_source_revision, a.last_issuer_decision_id,
+            top.source_revision AS top_revision, top.issuer_decision_id AS top_decision
+            FROM character_bootstrap_intents i LEFT JOIN character_bootstrap_intent_authority a ON a.id = 1
+            CROSS JOIN (SELECT source_revision, issuer_decision_id FROM character_bootstrap_intents
+                        ORDER BY length(source_revision) DESC, source_revision DESC LIMIT 1) top
+            WHERE i.operation_id = $1")
             .bind(operation).fetch_optional(&self.pool).await?.ok_or(Error::NotFound)?;
         let raw: String = row.try_get("intent_json")?;
         let payload = wire::stored(&row, raw.as_bytes())?;
-        let revision = wire::decimal(wire::string(&payload, "source_revision")?, 1)?;
         let high = wire::decimal(&row.try_get::<String, _>("last_source_revision")?, 0)?;
-        if high < revision
-            || (high == revision
-                && row.try_get::<String, _>("last_issuer_decision_id")?
-                    != wire::string(&payload, "issuer_decision_id")?)
-        {
-            return Err(Error::Unavailable);
+        let last_decision: Option<String> = row.try_get("last_issuer_decision_id")?;
+        for (revision, decision) in [
+            ("source_revision", "issuer_decision_id"),
+            ("top_revision", "top_decision"),
+        ] {
+            let revision = wire::decimal(row.try_get(revision)?, 1)?;
+            if revision > high
+                || (revision == high && last_decision.as_deref() != Some(row.try_get(decision)?))
+            {
+                return Err(Error::Unavailable);
+            }
         }
         let issued = wire::decimal(wire::string(&payload, "issued_at_source")?, 0)?;
         let expires = wire::decimal(wire::string(&payload, "expires_at_source")?, 0)?;

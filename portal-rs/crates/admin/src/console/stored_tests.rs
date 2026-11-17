@@ -87,6 +87,7 @@ async fn browser_get(
         .clone()
         .oneshot(
             Request::get(path)
+                .header("sec-fetch-site", "same-origin")
                 .header("host", "staff.test")
                 .header("cookie", cookie)
                 .body(Body::empty())?,
@@ -244,6 +245,8 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         not_after: i64::MAX,
     };
     let binding = crate::control_http::AgentBinding {
+        allowed_worlds: vec!["world-a".into()],
+        allowed_nodes: vec![],
         agent_id: "agent-a".into(),
         identity: oteryn_internal_api::guard::Identity::san("agent-a.internal")?,
         result_key: Some((agent_key.verifying_key(), validity)),
@@ -258,7 +261,13 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         pool: pool.clone(),
         store: control::Store::new(pool.clone(), control::Config { enabled: true }),
         signer: Some((Arc::new(ring), "platform-admin-signer-1".into())),
-        bindings: vec![binding.clone()],
+        bindings: vec![
+            binding.clone(),
+            crate::control_http::AgentBinding {
+                agent_id: "agent-b".into(),
+                ..binding.clone()
+            },
+        ],
     };
     let advertised: Vec<_> = [
         "world.list",
@@ -490,6 +499,20 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         }
         sqlx::query("UPDATE admin_control_requests SET operation='world.list',status='succeeded',expires_at=clock_timestamp()+interval '60 seconds' WHERE request_id=$1").bind(request.request_id).execute(&pool).await?;
     }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/console/worlds")
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={csrf}&agent=agent-a&operation=world.list&lang=en"
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
     sqlx::query("UPDATE admin_control_agents SET owner_epoch=2 WHERE agent_id='agent-a'")
         .execute(&pool)
         .await?;
@@ -505,6 +528,62 @@ async fn stored_console_browser_query_verified_result_and_ownership(
             .await?
             .result
             .is_none()
+    );
+    sqlx::query("INSERT INTO admin_control_agents(agent_id, build, catalog_digest, advertised_operations, served_worlds, served_nodes, owner_epoch) SELECT 'agent-b',build,catalog_digest,advertised_operations,served_worlds,served_nodes,3 FROM admin_control_agents WHERE agent_id='agent-a'").execute(&pool).await?;
+    sqlx::query("UPDATE admin_control_requests SET status='expired' WHERE request_id=$1")
+        .bind(request.request_id)
+        .execute(&pool)
+        .await?;
+    let moved = channel
+        .read(
+            actor,
+            "agent-b",
+            Operation::Worlds,
+            None,
+            Some(request.request_id),
+        )
+        .await?;
+    assert_eq!(moved.status.key(), "expired");
+    let claimed = channel.store.claim_pending("agent-b", 3, 32).await?;
+    let handoff = claimed
+        .iter()
+        .find(|r| r.operation == "world.list")
+        .ok_or_else(missing)?;
+    result.request_id = handoff.request_id;
+    result.admin_operation_id = handoff.admin_operation_id;
+    result.agent_id = "agent-b".into();
+    result.completed_at = Some(OffsetDateTime::now_utc().format(&Rfc3339)?);
+    result.signature = URL_SAFE_NO_PAD.encode(
+        agent_key
+            .sign(&signer::adm_x1_signing_bytes(&result)?)
+            .to_bytes(),
+    );
+    channel
+        .store
+        .record_result(
+            &control::NewResult {
+                request_id: handoff.request_id,
+                agent_id: result.agent_id.clone(),
+                status: control::Status::Succeeded,
+                game_ledger_id: None,
+                error_code: None,
+                payload: serde_json::to_value(result)?,
+            },
+            3,
+        )
+        .await?;
+    let moved = channel
+        .read(
+            actor,
+            "agent-b",
+            Operation::Worlds,
+            None,
+            Some(handoff.request_id),
+        )
+        .await?;
+    assert_eq!(
+        moved.result.ok_or_else(missing)?.request_id,
+        handoff.request_id
     );
     pool.close().await;
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))

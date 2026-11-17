@@ -743,15 +743,21 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
         return;
     };
     let (p, e) = db.projection();
+    // Browser rotation now retains the real identity resource before sessions.
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105155256_t03_accounts.sql"
+    ))
+    .execute(&db.pool)
+    .await
+    .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261105144852_t02_web_sessions.sql"
     ))
     .execute(&db.pool)
     .await
     .unwrap();
-    // Browser rotation now retains the real identity resource before sessions.
     sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105155256_t03_accounts.sql"
+        "../../../../migrations/20261105220221_t08_sessions.sql"
     ))
     .execute(&db.pool)
     .await

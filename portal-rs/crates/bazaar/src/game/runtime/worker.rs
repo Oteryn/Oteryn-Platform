@@ -1,6 +1,7 @@
 use super::characters::{lock_record, proof, staged};
 use super::*;
-use crate::{Evidence, Settlement, State};
+use crate::{Evidence, Reservations, Settlement, State};
+use sqlx::Acquire;
 use std::{future::Future, pin::Pin};
 impl oteryn_db::outbox::Cleanup for Runtime {
     fn clean(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
@@ -36,6 +37,7 @@ impl Runtime {
                 .await?;
         }
         reconciliation.commit().await?;
+        self.tick_invalidations().await?;
         self.tick_gold_bids().await?;
         let ids = listing_batch(&self.pool, self.config.fence.recovery_generation).await?;
         for listing in ids {
@@ -144,13 +146,18 @@ impl Runtime {
         }
         Ok(())
     }
-    async fn advance(&self, id: Uuid) -> Result<(), Error> {
+    pub(in crate::game) async fn advance(&self, id: Uuid) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         crate::locking::listing_gate(&mut tx).await?;
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
+        if matches!(l.state, State::Draft | State::Active)
+            && super::invalidation::approved(&mut tx, id).await?
+        {
+            return Ok(());
+        }
         let mut parties = vec![l.owner];
         parties.extend(l.leader);
         crate::locking::accounts(&mut tx, &parties).await?;
@@ -161,6 +168,15 @@ impl Runtime {
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
+        let cancelling = row.try_get::<bool, _>("cancel_requested")?;
+        if l.state == State::Active && !cancelling {
+            let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+                .fetch_one(&mut *tx)
+                .await?;
+            if l.ends_at > now {
+                return Ok(());
+            }
+        }
         let hash: [u8; 32] = row
             .try_get::<Vec<u8>, _>("session_hash")?
             .try_into()
@@ -211,6 +227,35 @@ impl Runtime {
             tx.commit().await?;
             return Ok(());
         }
+        if l.state == State::AwaitingDelivery {
+            // Retire a hold only with proof of an irreversible handoff. The row
+            // lock serializes staff suspension, and failure rolls back the deletion.
+            let held = sqlx::query("DELETE FROM bazaar_moderation_holds WHERE listing_id=$1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
+                != 0;
+            if held {
+                if l.currency == Currency::Coins {
+                    self.core(None)
+                        .complete_delivery_in(&mut tx, &l)
+                        .await
+                        .map_err(core_error)?;
+                    tx.commit().await?;
+                    return Ok(());
+                }
+                let sale = super::gold::sale(&mut tx, id).await?;
+                if !self
+                    .authority()
+                    .delivered(&mut tx, &sale)
+                    .await
+                    .map_err(core_error)?
+                {
+                    return Ok(());
+                }
+            }
+        }
         if l.currency == Currency::Gold && l.state != State::Draft {
             self.advance_gold(&mut tx, &l).await?;
             tx.commit().await?;
@@ -218,6 +263,17 @@ impl Runtime {
         }
         match l.state {
             State::Draft => {
+                if cancelling
+                    && self
+                        .authority()
+                        .cancellation_ready(&mut tx, &l)
+                        .await
+                        .map_err(core_error)?
+                {
+                    self.finish_cancellation(&mut tx, &l).await?;
+                    tx.commit().await?;
+                    return Ok(());
+                }
                 if l.kind == Kind::Character {
                     if lock_record(self.authority(), &mut tx, id).await?.is_none() {
                         return Ok(());
@@ -234,7 +290,7 @@ impl Runtime {
                     tx.commit().await?;
                     return Ok(());
                 }
-                if row.try_get::<bool, _>("cancel_requested")? {
+                if cancelling {
                     self.return_unsold(&mut tx, &l).await?;
                     tx.commit().await?;
                     return Ok(());
@@ -252,16 +308,34 @@ impl Runtime {
                 tx.commit().await?;
             }
             State::Active => {
-                if row.try_get::<bool, _>("cancel_requested")? || l.leader.is_none() {
+                if cancelling || l.leader.is_none() {
                     self.return_unsold(&mut tx, &l).await?;
                     tx.commit().await?;
                     return Ok(());
                 }
-                tx.commit().await?;
-                self.core(None)
-                    .settle(id, &format!("close:{id}"))
+                let mut settlement = tx.begin().await?;
+                match self
+                    .core(None)
+                    .settle_locked(&mut settlement, &l, &format!("close:{id}"))
                     .await
-                    .map_err(core_error)?;
+                {
+                    Ok(_) => settlement.commit().await?,
+                    Err(crate::Error::Overflow) => {
+                        settlement.rollback().await?;
+                        let buyer = l.leader.ok_or(Error::Invalid)?;
+                        let reservation = l.reservation.ok_or(Error::Invalid)?;
+                        CoinReservations {
+                            authority: self.authority().clone(),
+                        }
+                        .release(&mut tx, reservation, buyer)
+                        .await
+                        .map_err(core_error)?;
+                        sqlx::query("UPDATE bazaar_authority_assets SET cancel_requested=true,refusal_code='SELLER_BALANCE_OVERFLOW' WHERE listing_id=$1").bind(id).execute(&mut *tx).await?;
+                        sqlx::query("UPDATE bazaar_listings SET leader=NULL,leader_max=NULL,reservation=NULL,updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
+                    }
+                    Err(e) => return Err(core_error(e)),
+                }
+                tx.commit().await?;
             }
             State::AwaitingDelivery => {
                 let sale: Settlement =
@@ -437,6 +511,13 @@ impl Runtime {
         purpose: &str,
         sale: Option<&Settlement>,
     ) -> Result<(), Error> {
+        if purpose == "BAZAAR_LISTING_ESCROW" {
+            let unlocking: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND command='UnlockBazaarCharacter')")
+                .bind(l.id).fetch_one(&mut **tx).await?;
+            if unlocking {
+                return Err(Error::Denied);
+            }
+        }
         let existing =
             super::characters::reconcile_transfer(self.authority(), tx, l.id, purpose).await?;
         let operation = if let Some(operation) = existing {
@@ -659,6 +740,22 @@ impl Runtime {
         if l.leader.is_some() {
             return Err(Error::Denied);
         }
+        self.stage_return(tx, l).await?;
+        if self
+            .authority()
+            .cancellation_ready(tx, l)
+            .await
+            .map_err(core_error)?
+        {
+            self.finish_cancellation(tx, l).await?;
+        }
+        Ok(())
+    }
+    pub(super) async fn stage_return(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        l: &Listing,
+    ) -> Result<(), Error> {
         if l.kind == Kind::Character {
             self.transfer(tx, l, "BAZAAR_ESCROW_RETURN", None).await?;
         } else {
@@ -691,22 +788,21 @@ impl Runtime {
             )
             .await?;
         }
-        if self
-            .authority()
-            .cancellation_ready(tx, l)
-            .await
-            .map_err(core_error)?
-        {
-            if l.kind == Kind::Character {
-                self.unlock(tx, l).await?;
-            }
-            sqlx::query(
-                "UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1",
-            )
+        Ok(())
+    }
+
+    async fn finish_cancellation(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        l: &Listing,
+    ) -> Result<(), Error> {
+        if l.kind == Kind::Character {
+            self.unlock(tx, l).await?;
+        }
+        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1")
             .bind(l.id)
             .execute(&mut **tx)
             .await?;
-        }
         Ok(())
     }
 }
@@ -721,7 +817,7 @@ fn funding(s: &Settlement) -> Value {
 
 pub(crate) async fn listing_batch(pool: &PgPool, generation: u64) -> Result<Vec<Uuid>, Error> {
     let cursor = crate::scheduling::cursor(pool, "listings").await?;
-    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR l.state='awaiting_delivery' OR EXISTS(SELECT 1 FROM bazaar_game_outbox cleanup WHERE cleanup.listing_id=l.id AND cleanup.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold'))) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state IN ('completed','cancelled') AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR (l.state='active' AND a.cancel_requested) OR l.state='awaiting_delivery' OR EXISTS(SELECT 1 FROM bazaar_game_outbox cleanup WHERE cleanup.listing_id=l.id AND cleanup.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold'))) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state IN ('completed','cancelled') AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
     if let Some(last) = ids.last() {
         crate::scheduling::advance(pool, "listings", *last).await?;
     }

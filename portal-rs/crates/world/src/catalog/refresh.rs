@@ -57,6 +57,14 @@ impl RetryPolicy {
     }
 }
 pub(super) async fn read_source(db: &PgPool, source: &Source, publish: bool) -> Result<String> {
+    read_observed(db, source, publish, None).await
+}
+async fn read_observed(
+    db: &PgPool,
+    source: &Source,
+    publish: bool,
+    observed: Option<&Option<String>>,
+) -> Result<String> {
     // A persisted publication is already verified source evidence. All six fences
     // and the independently configured byte SHA must match; no producer I/O here.
     if publish
@@ -70,7 +78,7 @@ pub(super) async fn read_source(db: &PgPool, source: &Source, publish: bool) -> 
     let candidate = source.fetch().await?;
     candidate.persist_inactive(db).await?;
     if publish {
-        candidate.publish(db).await?;
+        candidate.publish_if_current(db, observed).await?;
     }
     Ok(candidate.snapshot_id().into())
 }
@@ -81,14 +89,16 @@ pub(super) async fn run(
     policy: RetryPolicy,
     ready: &AtomicBool,
 ) -> Result<String> {
-    let mut reserved = false;
+    // Keep the initial publication fence across retries. A concurrent verified
+    // replacement wins over this in-flight fetch.
+    let mut observed = None;
     for attempt in 0..policy.max_attempts {
         let result = tokio::time::timeout(Duration::from_secs(60), async {
-            if publish && !reserved {
-                source.reserve_publication(db).await?;
-                reserved = true;
+            if publish && observed.is_none() {
+                observed = Some(sqlx::query_scalar("SELECT COALESCE(configured_snapshot_id,snapshot_id) FROM world_catalog_publication WHERE singleton")
+                    .fetch_one(db).await.map_err(|_| Error::Unavailable)?);
             }
-            read_source(db, source, publish).await
+            read_observed(db, source, publish, observed.as_ref()).await
         })
         .await
         .unwrap_or(Err(Error::Unavailable));

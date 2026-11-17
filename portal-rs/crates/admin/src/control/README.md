@@ -6,7 +6,10 @@ agent requests; it never connects to Game. No operation is emulated.
 
 `PORTAL_ADMIN_CONTROL_ENABLED` defaults to false (all six routes return 404).
 When enabled, `PORTAL_ADMIN_CONTROL_AGENTS_JSON` must be a nonempty array of
-closed objects: `cn`, `identity`, optional `result_key`. CN has the form
+closed objects: `cn`, `identity`, `allowed_worlds`, `allowed_nodes`, optional `result_key`.
+Both scope arrays are required, with at least one identifier between them.
+Each contains exact identifiers the peer can
+claim in hello, for example `"allowed_worlds":["world-a"],"allowed_nodes":[]`. CN has the form
 `oteryn-admin-agent/<agent_id>`. Identity is exactly one of
 `{"san":"exact verified SAN"}` or `{"spki":"base64url SHA-256"}`. A result
 key has `public_key` (base64url Ed25519), `not_before`, `not_after` (Unix seconds).
@@ -116,7 +119,9 @@ refuses queries. No private material is included in browser responses.
 Admission rechecks staff permissions and the browser's durable MFA grant, live
 agent scope and query capability, and the four-query per-actor limit. The signed
 request has a 60-second expiry. Admission and its audit commit together, including
-the owning agent epoch. Results are correlated to actor, request, operation,
-parameters, scope and that epoch, and verified again before presentation. Only
+the admitting agent and its epoch. A new owner can complete a queued request.
+The console finds its admission by actor and request ID, then checks the
+operation, parameters, scope, result owner and signature before presentation.
+New result transitions also record the completing owner’s epoch. Only
 bounded, named presentation fields reach templates. Ambiguous targets refuse;
 list operations need an unambiguous served node or world when none was selected.

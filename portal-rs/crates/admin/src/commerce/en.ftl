@@ -4,6 +4,7 @@ request = Request identifier
 reason = Reason (10–500 characters)
 days = Premium days (1–366)
 amount = Balance correction (coins)
+refund-amount = Refund amount
 grant = Grant premium
 revoke = Revoke premium
 adjust = Correct balance

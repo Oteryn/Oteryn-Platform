@@ -259,7 +259,7 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
-    let stream=sqlx::query("SELECT admitted,blocked,conflicted,retention_floor::text,recovery_generation::text AS recovery,stored_through::text FROM pd_g9_streams WHERE source_authority=$1 AND account_id=$2 AND stream_generation=$3 FOR UPDATE")
+    let stream=sqlx::query("SELECT admitted,(blocked OR retention_floor>applied_through) AS blocked,conflicted,retention_floor::text,recovery_generation::text AS recovery,stored_through::text FROM pd_g9_streams WHERE source_authority=$1 AND account_id=$2 AND stream_generation=$3 FOR UPDATE")
  .bind(&r.authority).bind(account).bind(generation).fetch_optional(&mut *tx).await.map_err(unavailable)?.ok_or(StatusCode::CONFLICT)?;
     if stream.try_get::<bool, _>("blocked").map_err(unavailable)? {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
@@ -298,14 +298,15 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         return Err(StatusCode::CONFLICT);
     }
     if let Some(prior) = prior {
-        if prior.try_get::<Vec<u8>, _>("digest").map_err(unavailable)? == digest
-            && prior
+        if prior.try_get::<Vec<u8>, _>("digest").map_err(unavailable)? == digest {
+            match prior
                 .try_get::<Option<Vec<u8>>, _>("canonical_bytes")
                 .map_err(unavailable)?
-                .as_deref()
-                == Some(&r.bytes)
-        {
-            return Ok(());
+            {
+                Some(bytes) if bytes == r.bytes => return Ok(()),
+                None => return Err(StatusCode::CONFLICT),
+                Some(_) => {}
+            }
         }
         sqlx::query("UPDATE pd_g9_streams SET conflicted=true WHERE source_authority=$1 AND account_id=$2 AND stream_generation=$3").bind(&r.authority).bind(account).bind(generation).execute(&mut *tx).await.map_err(unavailable)?;
         conflict_alarm(

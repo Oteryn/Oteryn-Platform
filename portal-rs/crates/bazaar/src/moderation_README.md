@@ -37,19 +37,20 @@ trusting request headers or form-supplied actor identities.
 
 `OTERYN_BAZAAR_MODERATION`, `OTERYN_BAZAAR_PROFILES` and
 `OTERYN_BAZAAR_PROMOTIONS` require the exact value `true`; all default off.
-The first gates local moderation/reporting; the others independently gate
-public profiles and paid featuring. Game dispatch has no implementation here.
-The immutable moderation outbox can be populated while Game command flags are
-off, but is never registered with a dispatcher.
+The first gates local moderation/reporting. The others independently gate
+public profiles and paid featuring. Approval can be recorded while the Game
+runtime is disabled. The immutable moderation outbox contains Platform work
+requests and is never dispatched to Game as a wire command.
 
 Suspension retains custody, reservations and proceeds. Database triggers fence
-existing trading writes, including offer acceptance and settlement, without
-changing the T57 API. Invalidation approval requires a different currently
-permitted, MFA-verified staff member and an unchanged hold revision. It records
-only `reconcile_invalidation`; it never cancels the core state, refunds money,
-unlocks custody or reverses a committed transfer. Pending/started settlement
-states refuse invalidation. A future T58 worker must prove safe compensation
-using current-generation authoritative receipts before doing anything further.
+trading writes, including offer acceptance and settlement. Invalidation approval
+requires a different currently permitted, MFA-verified staff member and an
+unchanged hold revision. Approval records a reconciliation request. The Game
+runtime processes requests in bounded batches, rechecks the hold and refuses any
+listing with a started settlement. It uses current-generation receipts for Game
+custody and gold compensation. In the terminal transaction it releases remaining
+coin reservations, retires the approved hold, cancels the listing and expires
+pending offers. The approval and outbox remain available for audit.
 
 ## Ambiguities resolved by denial
 
@@ -64,5 +65,5 @@ using current-generation authoritative receipts before doing anything further.
   Staff cannot override these economics. The configurable positive featuring
   price does not enable featuring. Gold rounding and payout stay with T58 and
   the accepted Game contract; this module does not change settlement arithmetic.
-- There is no accepted hold-release/resumption proof here. No endpoint removes
-  a hold, and a changed hold revision cannot reuse an older approval.
+- There is no staff endpoint for resuming a suspended listing. A changed hold
+  revision cannot reuse an older approval.

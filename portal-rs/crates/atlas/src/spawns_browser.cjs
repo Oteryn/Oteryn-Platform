@@ -46,6 +46,18 @@ const assert = require('node:assert/strict');
     release(); // the route stays: a later spawns load passes straight through it
     await page.waitForFunction(()=>document.querySelector('.spawn-panel>p')?.textContent.includes(': 2;'));
     await refusal.waitFor();
+    await page.route('**/atlas/spawns?*', async route => {
+      const response = await route.fetch();
+      const points = await response.json();
+      await route.fulfill({response, json: points.map(point => ({...point, respawn_ms: null}))});
+    });
+    for (const [lang, label] of [['en', 'No ordinary respawn'], ['pl', 'Brak zwykłego odrodzenia']]) {
+      await page.goto(`${origin}/${lang}/atlas?x=100&y=200&z=7&zoom=0`);
+      const details = page.locator('.spawn-panel>ul details').first();
+      await details.locator('summary').click();
+      assert.ok((await details.locator('p').first().textContent()).includes(label),
+        `fixed-at-reset spawn must show "${label}"`);
+    }
     assert.deepEqual(errors,[]);
     console.log('Browser: 360 px, PL/EN, grouping, viewport counts, place link, keyboard, private marker persistence/deletion, CSRF and report refusal passed');
   } finally { await browser.close(); }

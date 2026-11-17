@@ -80,6 +80,22 @@ async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error:
         )
         .fetch_one(&db.pool)
     };
+    for _ in 0..4 {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::post("/en/login")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(axum::body::Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='mfa.http_refused'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(count, 0, "anonymous mfa audit rows");
     let refused = app.clone().oneshot(request("bad")?).await?;
     assert_eq!(refused.status(), StatusCode::FORBIDDEN);
     let response = app.clone().oneshot(request(csrf)?).await?;
@@ -145,6 +161,13 @@ async fn browser_flow(db: &database::Database) -> Result<(), Box<dyn std::error:
     let refused = app.clone().oneshot(challenge_request("bad")?).await?;
     assert_eq!(refused.status(), StatusCode::FOUND);
     assert_eq!(stored().await?.as_deref(), Some(target));
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='mfa.refused'",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(audited, 1);
     let accepted = app.clone().oneshot(challenge_request(&codes[0])?).await?;
     assert_eq!(accepted.status(), StatusCode::FOUND);
     assert_eq!(
@@ -384,6 +407,63 @@ async fn postgres_password_browser_rotation_releases_account_lock()
         .await?,
         1
     );
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_mfa_http_refusal_records_only_the_session_account()
+-> Result<(), Box<dyn std::error::Error>> {
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let app = compose(
+        Router::new(),
+        db.pool.clone(),
+        Mfa::new(db.pool.clone(), [7; 32]),
+        SessionLayer::new(db.pool.clone()),
+    );
+    let post = || {
+        axum::http::Request::post("/en/mfa/devices")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+    };
+    for _ in 0..3 {
+        let response = app
+            .clone()
+            .oneshot(post().body(axum::body::Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    let rows = || {
+        sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+            "SELECT actor FROM audit_log WHERE action='mfa.http_refused'",
+        )
+        .fetch_all(&db.pool)
+    };
+    assert!(rows().await?.is_empty());
+
+    // The session is signed in and has valid CSRF, but lacks the MFA grant for device removal.
+    let account: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts(email,password_hash,status,locale) VALUES('audit@example.test','unused','active','en') RETURNING id",
+    ).fetch_one(&db.pool).await?;
+    let cookie = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    sqlx::query(
+        "INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at)
+         VALUES (sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')",
+    ).bind(cookie.as_bytes()).bind(account).bind(&csrf).execute(&db.pool).await?;
+    let response = app
+        .oneshot(
+            post()
+                .header(header::COOKIE, format!("{}={cookie}", session::COOKIE_NAME))
+                .extension(ConnectInfo("127.0.0.1:4321".parse::<SocketAddr>()?))
+                .body(axum::body::Body::from(format!("_csrf={csrf}")))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let actors = rows().await?;
+    assert_eq!(actors.len(), 1, "account-bound MFA HTTP refusal rows");
+    assert_eq!(actors[0], Some(account));
     db.close().await?;
     Ok(())
 }

@@ -340,6 +340,8 @@ const AGENT_CN: &str = "oteryn-admin-agent/agent-a";
 
 fn agent_bindings() -> Result<Vec<oteryn_admin::control_http::AgentBinding>, guard::ConfigError> {
     Ok(vec![oteryn_admin::control_http::AgentBinding {
+        allowed_worlds: vec!["world-a".into()],
+        allowed_nodes: vec![],
         agent_id: "agent-a".into(),
         identity: Identity::san(AGENT_SAN)?,
         result_key: None,
@@ -483,6 +485,8 @@ async fn spki_bound_admin_agent_is_refused_on_the_san_only_listener() -> TestRes
     // An agent configured by SPKI is never matched here: the listener proves
     // peers by SAN only, so its CN must not select it (fail closed).
     let bindings = vec![oteryn_admin::control_http::AgentBinding {
+        allowed_worlds: vec!["world-a".into()],
+        allowed_nodes: vec![],
         agent_id: "agent-spki".into(),
         identity: Identity::spki_sha256([7; 32]),
         result_key: None,

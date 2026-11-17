@@ -188,10 +188,21 @@ impl Db {
     /// A committed `CreateCharacter` receipt at epoch 1, recovery 3:
     /// (character revision, projection revision, decided at seconds).
     async fn create(&self, account: &str, character: &str, world: &str, cut: [&str; 3]) {
+        self.create_at_generation(account, character, world, cut, "3")
+            .await;
+    }
+    async fn create_at_generation(
+        &self,
+        account: &str,
+        character: &str,
+        world: &str,
+        cut: [&str; 3],
+        generation: &str,
+    ) {
         let id = Uuid::now_v7();
         let [cr, pr, at] = cut;
         let receipt = format!(
-            r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"test","command":"CreateCharacter","operation_id":"{id}","outcome":"COMMITTED","result_code":"CHAR_CMD_OK","character_id":"{character}","account_id":"{account}","world_id":"{world}","name":"Hero","character_revision":"{cr}","projection_epoch":"1","projection_revision":"{pr}","recovery_generation":"3","decided_at":"{at}"}}"#
+            r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"test","command":"CreateCharacter","operation_id":"{id}","outcome":"COMMITTED","result_code":"CHAR_CMD_OK","character_id":"{character}","account_id":"{account}","world_id":"{world}","name":"Hero","character_revision":"{cr}","projection_epoch":"1","projection_revision":"{pr}","recovery_generation":"{generation}","decided_at":"{at}"}}"#
         );
         self.exec(
             "INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,binding_json,intent_json,receipt_json,state) VALUES($1::uuid,$1::uuid,$1,'CreateCharacter',$2::uuid,'{}','',$3,'TERMINAL')",
@@ -1202,41 +1213,56 @@ async fn postgres_account_stream_recovery_never_regresses() {
     );
     assert_eq!(record(&app, &lower_record).await.0, StatusCode::CONFLICT);
     assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
-    // A higher accepted record also fences subsequent watermarks.
+    // The first watermark fixes this epoch's generation for both delivery paths.
     let higher_record = value.replace(
-        "\"recovery_generation\":\"3\"",
-        "\"recovery_generation\":\"4\"",
+        r#""recovery_generation":"3""#,
+        r#""recovery_generation":"4""#,
     );
-    assert_eq!(record(&app, &higher_record).await.0, StatusCode::OK);
+    assert_eq!(record(&app, &higher_record).await.0, StatusCode::CONFLICT);
+    let higher_watermark = w.replace(
+        r#""recovery_generation":"3""#,
+        r#""recovery_generation":"4""#,
+    );
     assert_eq!(
-        post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &w)
-            .await
-            .0,
+        post(
+            &app,
+            PROGRESS_SAN,
+            http::PROGRESS_WATERMARK_PATH,
+            &higher_watermark
+        )
+        .await
+        .0,
         StatusCode::CONFLICT
     );
-    let conflict_record = value.replace(
-        "\"recovery_generation\":\"3\"",
-        "\"recovery_generation\":\"5\"",
-    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    assert_eq!(record(&app, &value).await.0, StatusCode::OK);
+    let conflict_record = value.replace("805b-3b1122334403", "805b-3b11223344b3");
     assert_eq!(record(&app, &conflict_record).await.0, StatusCode::CONFLICT);
+    assert_eq!(db.count("SELECT count(*) FROM pd_conflicts").await, 1);
     let high: String = sqlx::query_scalar("SELECT recovery_high_water::text FROM pd_streams")
         .fetch_one(&db.pool)
         .await
         .unwrap();
     assert_eq!(
-        high, "4",
+        high, "3",
         "a committed conflict alarm is not accepted recovery evidence"
     );
-    let current = w.replace(
-        "\"recovery_generation\":\"3\"",
-        "\"recovery_generation\":\"4\"",
-    );
     assert_eq!(
-        post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &current)
+        post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &w)
             .await
             .0,
         StatusCode::OK
     );
+    db.exec("UPDATE account_character_feed SET highest_epoch='2',watermark_epoch='2',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1", &[]).await;
+    db.exec(
+        "UPDATE account_character_snapshots SET projection_epoch='2' WHERE account_id=$1::uuid",
+        &[SELLER],
+    )
+    .await;
+    let next_epoch = higher_record
+        .replace(r#""projection_epoch":"1""#, r#""projection_epoch":"2""#)
+        .replace("805b-3b1122334403", "805b-3b11223344b3");
+    assert_eq!(record(&app, &next_epoch).await.0, StatusCode::OK);
     db.close().await;
     eprintln!(
         "postgres_account_stream_recovery_never_regresses duration={:?}",
@@ -1938,6 +1964,47 @@ async fn postgres_g9_returned_owner_honors_transfer_tombstone_cutoff() {
         .expire_batch()
         .await
         .unwrap();
+    let (app, body) = session_fixture(&db, 11).await;
+    let send = |body: String| {
+        let app = app.clone();
+        async move {
+            post(
+                &app,
+                "sessions.oteryn.internal",
+                crate::sessions::RECORDS,
+                &body,
+            )
+            .await
+            .0
+        }
+    };
+    assert_eq!(
+        send(body.clone()).await,
+        StatusCode::OK,
+        "returned owner must ingest beyond the transfer tombstone cutoff"
+    );
+    for revision in ["9", "10"] {
+        assert_eq!(
+            send(body.replace(
+                r#""character_revision":"11""#,
+                &format!(r#""character_revision":"{revision}""#)
+            ))
+            .await,
+            StatusCode::CONFLICT
+        );
+    }
+    sqlx::query(
+        "INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms) VALUES($1,0,9223372036854775807)",
+    )
+    .bind(crate::store::scope_digest(SELLER, None))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(send(body).await, StatusCode::CONFLICT);
+    db.close().await;
+}
+
+async fn session_fixture(db: &Db, revision: u64) -> (axum::Router, String) {
     let generation = "019a5000-0000-7000-8000-000000000001";
     db.exec("INSERT INTO pd_g9_streams(source_authority,account_id,stream_generation,admitted,recovery_generation) VALUES('game.test',$1::uuid,$2::uuid,true,3)", &[SELLER, generation]).await;
     for key in ["vocation:knight", "place:cave", "item:ruby"] {
@@ -1982,45 +2049,245 @@ async fn postgres_g9_returned_owner_honors_transfer_tombstone_cutoff() {
         .replace("019a5000-0000-7000-8000-000000000006", WORLD)
         .replace(
             r#""character_revision":"1""#,
-            r#""character_revision":"11""#,
+            &format!(r#""character_revision":"{revision}""#),
         )
         .replace("1793836800", &(now - 60).to_string())
         .replace("1793836860", &now.to_string());
-    let send = |body: String| {
-        let app = app.clone();
-        async move {
-            post(
-                &app,
-                "sessions.oteryn.internal",
-                crate::sessions::RECORDS,
-                &body,
-            )
-            .await
-            .0
-        }
-    };
-    assert_eq!(
-        send(body.clone()).await,
-        StatusCode::OK,
-        "returned owner must ingest beyond the transfer tombstone cutoff"
-    );
-    for revision in ["9", "10"] {
-        assert_eq!(
-            send(body.replace(
-                r#""character_revision":"11""#,
-                &format!(r#""character_revision":"{revision}""#)
-            ))
-            .await,
-            StatusCode::CONFLICT
-        );
-    }
-    sqlx::query(
-        "INSERT INTO pd_deleted_scopes(scope_digest,deleted_ms,expires_ms) VALUES($1,0,9223372036854775807)",
+    (app, body)
+}
+
+async fn publish_segment(app: &axum::Router, body: &str) -> StatusCode {
+    post(
+        app,
+        "sessions.oteryn.internal",
+        crate::sessions::RECORDS,
+        body,
     )
-    .bind(crate::store::scope_digest(SELLER, None))
-    .execute(&db.pool)
     .await
-    .unwrap();
-    assert_eq!(send(body).await, StatusCode::CONFLICT);
+    .0
+}
+
+fn next_segment(body: &str) -> String {
+    body.replace(r#""source_revision":"1""#, r#""source_revision":"2""#)
+        .replace(
+            "019a5000-0000-7000-8000-000000000003",
+            &Uuid::now_v7().to_string(),
+        )
+        .replace(
+            "019a5000-0000-7000-8000-000000000004",
+            &Uuid::now_v7().to_string(),
+        )
+        .replace(r#""rare_drop_count":1"#, r#""rare_drop_count":0"#)
+}
+
+#[tokio::test]
+async fn retention_unapplied_floor_blocks_next_segment() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let (app, body) = session_fixture(&db, 9).await;
+    assert_eq!(publish_segment(&app, &body).await, StatusCode::OK);
+    db.exec("UPDATE pd_g9_records SET expires_at=0,purged_at=0", &[])
+        .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(
+        publish_segment(&app, &next_segment(&body)).await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let applied: String = sqlx::query_scalar("SELECT applied_through::text FROM pd_g9_streams")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(applied, "0");
+    db.close().await;
+}
+
+#[tokio::test]
+async fn retention_digest_retry_preserves_stream() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let (app, body) = session_fixture(&db, 9).await;
+    assert_eq!(publish_segment(&app, &body).await, StatusCode::OK);
+    db.exec("UPDATE pd_g9_records SET expires_at=0", &[]).await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(publish_segment(&app, &body).await, StatusCode::CONFLICT);
+    assert_eq!(
+        publish_segment(&app, &next_segment(&body)).await,
+        StatusCode::OK
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_items_recovery_matches_cut() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let (account, world, character) = (
+        "019a0000-0000-7000-8000-000000000001",
+        "019a0000-0000-7000-8000-000000000002",
+        "019a0000-0000-7000-8000-000000000003",
+    );
+    db.account(account, "1", "1").await;
+    db.character(account, character, world).await;
+    let app = app(&db, Arc::new(FixedClock(ITEMS_NOW)), true);
+    let begin = items("record-items-begin.valid.json");
+    db.create_at_generation(account, character, world, ["1", "1", "1789999000"], "1")
+        .await;
+    let newer = begin.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"2""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &newer).await.0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_generation_requires_restore() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    db.exec("INSERT INTO character_restore_notices(restore_event_id,notice_json,new_recovery_generation,acknowledged_at) VALUES(gen_random_uuid(),'{}','00000000000000000003',now())",&[]).await;
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(
+            &app,
+            &progress("record-stamina.valid.json").replace(
+                r#""recovery_generation":"3""#,
+                r#""recovery_generation":"4""#
+            )
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
+    assert_eq!(
+        record(&app, &progress("record-stamina.valid.json")).await.0,
+        StatusCode::OK
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_invalid_seller_snapshot() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+    db.exec(
+        "UPDATE account_character_snapshots SET invalid=true WHERE account_id=$1::uuid",
+        &[SELLER],
+    )
+    .await;
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(&app, &buyer_stamina()).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_returned_owner_pending_purge() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+    db.transfer(CHARACTER, BUYER, SELLER, ["11", "13", "14", "1789999001"])
+        .await;
+    assert!(db.count("SELECT count(*) FROM pd_erasure_jobs").await > 0);
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(
+        record(&app, &progress("record-stamina.valid.json")).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_same_epoch_rejects_new_generation_without_restore() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    assert_eq!(
+        db.count("SELECT count(*) FROM character_restore_notices")
+            .await,
+        0
+    );
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    assert_eq!(record(&app, &stamina_at("1", "03")).await.0, StatusCode::OK);
+    let next = stamina_at("2", "b3");
+    let newer = next.replace(
+        r#""recovery_generation":"3""#,
+        r#""recovery_generation":"4""#,
+    );
+    assert_eq!(record(&app, &newer).await.0, StatusCode::CONFLICT);
+    assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 1);
+    assert_eq!(
+        db.count("SELECT recovery_high_water::bigint FROM pd_streams")
+            .await,
+        3
+    );
+    assert_eq!(record(&app, &next).await.0, StatusCode::OK);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r7_deleted_character_absent_from_projection() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    db.exec("INSERT INTO character_service_states(account_id,character_id,epoch,revision,character_revision,snapshot_json) VALUES($1::uuid,$2::uuid,1,1,'10','{\"lifecycle\":\"DELETED\"}')", &[SELLER, CHARACTER]).await;
+    db.exec(
+        "DELETE FROM account_characters WHERE character_id=$1::uuid",
+        &[CHARACTER],
+    )
+    .await;
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_erasure_jobs WHERE closed_revision IS NULL")
+            .await,
+        1
+    );
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    let refused = progress("response-character-scope-deleted.json");
+    let delivery = record(&app, &stamina_at("1", "03")).await;
+    assert_eq!(delivery.0, StatusCode::OK);
+    assert_eq!(delivery.1, refused);
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(db.count("SELECT count(*) FROM pd_erasure_jobs").await, 0);
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_deleted_scopes WHERE closed_revision IS NULL")
+            .await,
+        1
+    );
+    let (status, body) = record(&app, &stamina_at("2", "b3")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("CHARACTER_SCOPE_DELETED"), "{body}");
+    assert_eq!(
+        db.count("SELECT stored_through::bigint FROM pd_streams")
+            .await,
+        2
+    );
     db.close().await;
 }

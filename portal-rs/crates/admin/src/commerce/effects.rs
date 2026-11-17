@@ -273,7 +273,7 @@ impl TestPaymentAdapter {
             return Err(Error::Conflict);
         }
         match intent.state {
-            IntentState::Succeeded => {}
+            IntentState::Succeeded => ensure_uncredited(&mut tx, intent.id).await?,
             IntentState::Refunded => {
                 record_dispatch(
                     &mut tx,
@@ -338,6 +338,19 @@ async fn release_refund(pool: &PgPool, operation: Uuid, attempt: Uuid) -> Result
     tx.commit().await?;
     Ok(())
 }
+// The caller holds the payment intent lock, which wallet delivery also acquires.
+async fn ensure_uncredited(connection: &mut sqlx::PgConnection, intent: Uuid) -> Result<(), Error> {
+    let credited: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM wallet_operations WHERE id=$1 AND kind='top_up')",
+    )
+    .bind(intent)
+    .fetch_one(connection)
+    .await?;
+    if credited {
+        return Err(Error::Conflict);
+    }
+    Ok(())
+}
 impl PaymentActions for TestPaymentAdapter {
     async fn inspect(
         &self,
@@ -352,8 +365,11 @@ impl PaymentActions for TestPaymentAdapter {
             .intent_in(connection, request.target)
             .await
             .map_err(payment_error)?;
-        if matches!(request.command, Command::Refund) && intent.state != IntentState::Succeeded {
-            return Err(Error::Conflict);
+        if matches!(request.command, Command::Refund) {
+            if intent.state != IntentState::Succeeded {
+                return Err(Error::Conflict);
+            }
+            ensure_uncredited(connection, intent.id).await?;
         }
         Ok(
             json!({"account":intent.account_id,"amount":intent.amount.minor_units,"currency":intent.amount.currency,"state":intent.state}),
@@ -380,6 +396,7 @@ impl PaymentActions for TestPaymentAdapter {
                 if intent.state != IntentState::Succeeded {
                     return Err(Error::Conflict);
                 }
+                ensure_uncredited(tx, intent.id).await?;
                 let inserted = sqlx::query("INSERT INTO commerce_refunds(operation_id,intent_id,account_id,amount,currency,provider) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
                     .bind(request.request_id).bind(intent.id).bind(intent.account_id).bind(intent.amount.minor_units).bind(&intent.amount.currency).bind(self.provider.name()).execute(&mut **tx).await?.rows_affected();
                 if inserted != 1 {

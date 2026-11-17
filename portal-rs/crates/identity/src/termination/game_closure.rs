@@ -455,12 +455,12 @@ impl GameBoundary {
             generation
         };
         // Serialize issuance/backlog across accounts; resolution and close use the
-        // same bounded CC queue. No expiry is treated as a terminal receipt.
+        // same CC queue. Cancellation must remain possible at capacity.
         sqlx::query("SELECT id FROM plat3_closure_feed WHERE id=1 FOR UPDATE")
             .execute(&mut **tx)
             .await?;
         let pending:i64=sqlx::query_scalar("SELECT count(*) FROM plat3_closure_commands c WHERE NOT EXISTS(SELECT 1 FROM plat3_closure_receipts r WHERE r.operation_id=c.operation_id)").fetch_one(&mut **tx).await?;
-        if pending >= self.limits.max_pending {
+        if decision != Some("CANCEL") && pending >= self.limits.max_pending {
             return Err(Error::UnknownState);
         }
         let mut intent = Intent::new(termination, operation, next, recovery, now, close, decision)?;

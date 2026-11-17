@@ -1844,3 +1844,39 @@ async fn l6_05_minigame_wallet_bridges_have_readable_store_history() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn purchase_observes_review_committed_while_waiting_for_delivery_lock() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::new().await.expect("PostgreSQL required");
+    db.fund(ACCOUNT, 1000).await;
+    let service = db.service(settings());
+    let raw = request(&db.revision);
+    service.purchase(&raw).await.unwrap();
+    let entries = db.count("wallet_entries").await;
+    let mut receipt = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
+        .execute(&mut *receipt)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE store_fulfilment_units SET state='MANUAL_REVIEW'")
+        .execute(&mut *receipt)
+        .await
+        .unwrap();
+    let task = tokio::spawn(async move { service.purchase(&unique(&raw)).await.unwrap() });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=29 AND objid=1 AND pg_backend_pid()=ANY(pg_blocking_pids(pid)) AND NOT granted)")
+                .fetch_one(&mut *receipt).await.unwrap();
+            if waiting { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("purchase waiting on receipt");
+    receipt.commit().await.unwrap();
+    assert_eq!(
+        string(&value(&task.await.unwrap()), "result"),
+        "ACCOUNT_RESTRICTED"
+    );
+    assert_eq!(db.count("wallet_entries").await, entries);
+    db.finish().await;
+}

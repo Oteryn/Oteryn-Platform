@@ -23,7 +23,7 @@ fn vector(name: &str) -> String {
         .unwrap()
         .into()
 }
-fn uid(s: &str) -> Uuid {
+pub(super) fn uid(s: &str) -> Uuid {
     Uuid::parse_str(&format!("0192a000-0000-7000-8000-{s:0>12}")).unwrap()
 }
 fn key() -> ed25519_dalek::VerifyingKey {
@@ -370,12 +370,12 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
 #[tokio::test]
 async fn postgres_suspended_delivered_settlement_captures_once() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(false, true).await;
+    item_wallet_scenario(false, true, ItemScenario::Wallet).await;
 }
 #[tokio::test]
 async fn postgres_suspended_compensation_refunds_once() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(true, true).await;
+    item_wallet_scenario(true, true, ItemScenario::Wallet).await;
 }
 #[test]
 fn all_nine_exact_result_schemas_reject_unknown_and_reordered_fields() {
@@ -660,20 +660,36 @@ async fn store_intent_at(
 #[tokio::test]
 async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(false, false).await;
+    item_wallet_scenario(false, false, ItemScenario::Wallet).await;
 }
 #[tokio::test]
 async fn postgres_delivery_refusal_allows_return_and_refunds_fenced_coins() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
-    item_wallet_scenario(true, false).await;
+    item_wallet_scenario(true, false, ItemScenario::Wallet).await;
     eprintln!(
         "postgres_delivery_refusal_allows_return_and_refunds_fenced_coins: {:?}",
         started.elapsed()
     );
 }
-async fn item_wallet_scenario(compensate: bool, suspended: bool) {
+#[tokio::test]
+async fn initial_null_operation_resync() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    item_wallet_scenario(false, false, ItemScenario::NullResync).await;
+}
+#[tokio::test]
+async fn initial_null_operation_escrow_ready() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    item_wallet_scenario(false, false, ItemScenario::NullEscrow).await;
+}
+#[derive(PartialEq)]
+enum ItemScenario {
+    Wallet,
+    NullResync,
+    NullEscrow,
+}
+async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemScenario) {
     let started = std::time::Instant::now();
     use crate::{Currency, Evidence, Listing, Reservation, Reservations, Settlement};
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
@@ -749,6 +765,15 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
         .replace("DELIVERED", "ESCROWED")
         .replace("\"custody_revision\":\"2\"", "\"custody_revision\":\"1\"")
         .replace("000000000004", "000000000002");
+    let status = if scenario != ItemScenario::Wallet {
+        status.replace(&format!("\"{}\"", uid("2")), "null")
+    } else {
+        status
+    };
+    if scenario == ItemScenario::NullResync {
+        sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$4,7,$5,1,true,'resync-test')")
+            .bind(listing.id).bind(uid("12")).bind(uid("21")).bind(uid("22")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+    }
     outbox
         .ingest(
             &mut tx,
@@ -784,7 +809,14 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
         .await
         .unwrap();
     a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    if scenario == ItemScenario::NullResync {
+        assert!(a.fresh(&mut tx).await.unwrap());
+        return;
+    }
     assert!(a.escrow_ready(&mut tx, &listing).await.unwrap());
+    if scenario != ItemScenario::Wallet {
+        return;
+    }
     sqlx::query("SAVEPOINT moderation_hold")
         .execute(&mut *tx)
         .await
@@ -2196,15 +2228,15 @@ async fn bzb_receipt_admission_precedes_oversized_version_selection() {
     }
 }
 
-struct BrowserFixture {
-    pool: sqlx::PgPool,
+pub(super) struct BrowserFixture {
+    pub(super) pool: sqlx::PgPool,
     admin: sqlx::PgPool,
     schema: String,
     directory: std::path::PathBuf,
-    runtime: runtime::Runtime,
+    pub(super) runtime: runtime::Runtime,
 }
 impl BrowserFixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
         let admin = PgPoolOptions::new()
             .max_connections(2)
@@ -2348,7 +2380,7 @@ impl BrowserFixture {
             runtime,
         }
     }
-    async fn end(self) {
+    pub(super) async fn end(self) {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -2842,15 +2874,20 @@ async fn committed_fact(
 }
 #[tokio::test]
 async fn postgres_browser_verified_character_snapshot_facts() {
-    character_snapshot_browser_scenario(false).await;
+    character_snapshot_browser_scenario(false, &[]).await;
 }
 
 #[tokio::test]
 async fn postgres_browser_zero_magic_skill_snapshot() {
-    character_snapshot_browser_scenario(true).await;
+    character_snapshot_browser_scenario(true, &[]).await;
 }
 
-async fn character_snapshot_browser_scenario(zero_magic: bool) {
+#[tokio::test]
+async fn postgres_browser_preserves_signed_character_blessings() {
+    character_snapshot_browser_scenario(false, &["blessing:earth", "blessing:fire"]).await;
+}
+
+async fn character_snapshot_browser_scenario(zero_magic: bool, blessings: &[&str]) {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let mut db = BrowserFixture::new().await;
@@ -2859,7 +2896,7 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
         .config
         .escrow_account_id = Some(uid("40"));
     let mut signed_snapshot = vector("locked_character_snapshot");
-    if zero_magic {
+    if zero_magic || !blessings.is_empty() {
         use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         use ed25519_dalek::Signer;
         let signing = ed25519_dalek::SigningKey::from_bytes(&[9; 32]);
@@ -2871,10 +2908,15 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
         let payload =
             String::from_utf8(canonical::encode(original.get("snapshot").unwrap()).unwrap())
                 .unwrap();
-        let payload = payload.replace(
-            "\"progress_bps\":5000}]",
-            "\"progress_bps\":5000},{\"key\":\"magic\",\"level\":\"0\",\"progress_bps\":0}]",
-        );
+        let payload = if zero_magic {
+            payload.replace(
+                "\"progress_bps\":5000}]",
+                "\"progress_bps\":5000},{\"key\":\"magic\",\"level\":\"0\",\"progress_bps\":0}]",
+            )
+        } else {
+            let blessings = serde_json::to_string(blessings).unwrap();
+            payload.replace("\"blessings\":[]", &format!("\"blessings\":{blessings}"))
+        };
         let message = format!(
             "oteryn-v2-bazaar-character-snapshot-v1.{}",
             URL_SAFE_NO_PAD.encode(payload.as_bytes())
@@ -2888,26 +2930,27 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
     let a = db.runtime.authority();
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
+    let verified = verify_snapshot(
+        signed_snapshot.as_bytes(),
+        &SnapshotBinding {
+            source_authority: &a.config.projection_authority,
+            listing: uid("30"),
+            seller: uid("11"),
+            character: uid("31"),
+            world: uid("12"),
+            lock: uid("32"),
+            lock_revision: 1,
+            character_revision: 7,
+            eligibility_revision: 4,
+            projection_epoch: 3,
+            now,
+        },
+        "fixture-example-1",
+        &a.config.snapshot_keys[0].1,
+    );
     assert!(
-        verify_snapshot(
-            signed_snapshot.as_bytes(),
-            &SnapshotBinding {
-                source_authority: &a.config.projection_authority,
-                listing: uid("30"),
-                seller: uid("11"),
-                character: uid("31"),
-                world: uid("12"),
-                lock: uid("32"),
-                lock_revision: 1,
-                character_revision: 7,
-                eligibility_revision: 4,
-                projection_epoch: 3,
-                now,
-            },
-            "fixture-example-1",
-            &a.config.snapshot_keys[0].1,
-        )
-        .is_ok()
+        verified.is_ok(),
+        "signed character snapshot must be accepted: {verified:?}"
     );
     let listing = uid("30");
     sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction','coins',100,false,'active',now()+interval '1 day')").bind(listing).bind(uid("11")).execute(&mut *tx).await.unwrap();
@@ -3024,7 +3067,7 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
     )
     .await
     .unwrap();
-    if zero_magic {
+    if zero_magic || !blessings.is_empty() {
         use crate::characters::CharacterEvidence;
         let row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
             .bind(listing)
@@ -3034,19 +3077,22 @@ async fn character_snapshot_browser_scenario(zero_magic: bool) {
         let approved = a.approved(&mut tx, &row).await;
         assert!(
             approved.is_ok(),
-            "zero magic skill must be approved: {approved:?}"
+            "signed character snapshot must be approved: {approved:?}"
         );
-        assert_eq!(
-            approved
-                .unwrap()
-                .unwrap()
-                .skills
-                .iter()
-                .find(|s| s.key == "magic")
-                .unwrap()
-                .level,
-            0
-        );
+        let approved = approved.unwrap().unwrap();
+        if zero_magic {
+            assert_eq!(
+                approved
+                    .skills
+                    .iter()
+                    .find(|s| s.key == "magic")
+                    .unwrap()
+                    .level,
+                0
+            );
+        } else {
+            assert_eq!(approved.blessings, blessings);
+        }
     }
     tx.commit().await.unwrap();
     let (status, catalogue) = db.get("/en/bazaar").await;
@@ -3196,6 +3242,9 @@ async fn l6_04_suspended_leader_can_be_outbid_and_exact_hold_released() {
 }
 
 async fn returned_character_fixture(currency: &str) -> BrowserFixture {
+    returned_character_in_state(currency, "active").await
+}
+async fn returned_character_in_state(currency: &str, state: &str) -> BrowserFixture {
     let mut db = BrowserFixture::new().await;
     std::sync::Arc::make_mut(&mut db.runtime.config)
         .authority
@@ -3205,7 +3254,7 @@ async fn returned_character_fixture(currency: &str) -> BrowserFixture {
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
     let listing = uid("30");
-    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,'active',now()-interval '1 second')").bind(listing).bind(uid("11")).bind(currency).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,$4::text::bazaar_state,now()-interval '1 second')").bind(listing).bind(uid("11")).bind(currency).bind(state).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-browser')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
     let strval = |value: Uuid| Value::String(value.to_string());
     let lock = character_intent(
@@ -3498,6 +3547,70 @@ async fn character_transfer_receipt(
 }
 /// A sold Character in escrow (uid 40) awaiting its settlement leg, funded in
 /// `currency` by buyer uid 13 for 100 under sale uid 33.
+async fn escrow_character(
+    db: &BrowserFixture,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing: Uuid,
+    now: u64,
+) {
+    let a = db.runtime.authority();
+    let strval = |value: Uuid| Value::String(value.to_string());
+    let revision: i64 = sqlx::query_scalar(
+        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .unwrap();
+    let operation = Uuid::now_v7();
+    let Value::Object(mut fields) = transfer_fixture(operation, revision, now) else {
+        panic!("transfer")
+    };
+    for (name, value) in &mut fields {
+        *value = match name.as_str() {
+            "expected_from_account_id" => strval(uid("11")),
+            "to_account_id" => strval(uid("40")),
+            "purpose" => Value::String("BAZAAR_LISTING_ESCROW".into()),
+            _ => value.clone(),
+        };
+    }
+    let transfer = Value::Object(fields);
+    stage_transfer_fixture(tx, listing, &transfer).await;
+    let raw = canonical::encode(&transfer).unwrap();
+    runtime::worker::publish_transfer(
+        tx,
+        listing,
+        "BAZAAR_LISTING_ESCROW",
+        operation,
+        &transfer,
+        &raw,
+    )
+    .await
+    .unwrap();
+    character_transfer_receipt(tx, operation, (uid("11"), uid("40")), now).await;
+    let bind = character_intent(
+        Command::Bind,
+        103,
+        now,
+        vec![
+            ("character_id", strval(uid("31"))),
+            ("lock_id", strval(uid("32"))),
+            ("expected_lock_revision", Value::String("1".into())),
+            ("transfer_operation_id", strval(operation)),
+            ("transfer_binding_digest", Value::String(digest(&raw))),
+            ("purpose", Value::String("BAZAAR_LISTING_ESCROW".into())),
+            ("sale_id", Value::Null),
+            ("funding", Value::Null),
+        ],
+    );
+    let data = format!(
+        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"2\",\"transfer_operation_id\":\"{operation}\",\"transfer_binding_digest\":\"{}\"}}",
+        uid("31"),
+        uid("32"),
+        digest(&raw)
+    );
+    committed_fact(a, tx, &bind, &data, now).await;
+    character_status(db, tx, "locked", operation, ("2", "2"), now).await;
+}
 async fn settling_character_fixture(currency: &str) -> BrowserFixture {
     use crate::{Currency, Reservation, Reservations, Settlement};
     let mut db = BrowserFixture::new().await;
@@ -3534,61 +3647,7 @@ async fn settling_character_fixture(currency: &str) -> BrowserFixture {
         vector("locked_character_snapshot")
     );
     committed_fact(a, &mut tx, &lock, &data, now).await;
-    let revision: i64 = sqlx::query_scalar(
-        "SELECT nextval(pg_get_serial_sequence('character_commands','source_revision'))",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
-    let operation = Uuid::now_v7();
-    let Value::Object(mut fields) = transfer_fixture(operation, revision, now) else {
-        panic!("transfer")
-    };
-    for (name, value) in &mut fields {
-        *value = match name.as_str() {
-            "expected_from_account_id" => strval(uid("11")),
-            "to_account_id" => strval(uid("40")),
-            "purpose" => Value::String("BAZAAR_LISTING_ESCROW".into()),
-            _ => value.clone(),
-        };
-    }
-    let transfer = Value::Object(fields);
-    stage_transfer_fixture(&mut tx, listing, &transfer).await;
-    let raw = canonical::encode(&transfer).unwrap();
-    runtime::worker::publish_transfer(
-        &mut tx,
-        listing,
-        "BAZAAR_LISTING_ESCROW",
-        operation,
-        &transfer,
-        &raw,
-    )
-    .await
-    .unwrap();
-    character_transfer_receipt(&mut tx, operation, (uid("11"), uid("40")), now).await;
-    let bind = character_intent(
-        Command::Bind,
-        103,
-        now,
-        vec![
-            ("character_id", strval(uid("31"))),
-            ("lock_id", strval(uid("32"))),
-            ("expected_lock_revision", Value::String("1".into())),
-            ("transfer_operation_id", strval(operation)),
-            ("transfer_binding_digest", Value::String(digest(&raw))),
-            ("purpose", Value::String("BAZAAR_LISTING_ESCROW".into())),
-            ("sale_id", Value::Null),
-            ("funding", Value::Null),
-        ],
-    );
-    let data = format!(
-        "{{\"character_id\":\"{}\",\"lock_id\":\"{}\",\"lock_revision\":\"2\",\"transfer_operation_id\":\"{operation}\",\"transfer_binding_digest\":\"{}\"}}",
-        uid("31"),
-        uid("32"),
-        digest(&raw)
-    );
-    committed_fact(a, &mut tx, &bind, &data, now).await;
-    character_status(&db, &mut tx, "locked", operation, ("2", "2"), now).await;
+    escrow_character(&db, &mut tx, listing, now).await;
     let funds = CoinReservations {
         authority: a.clone(),
     };
@@ -4693,3 +4752,282 @@ async fn a3_l6_01_coin_payout_capacity_precedes_item_and_character_handoff() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn r7_returned_draft_unlocks() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = returned_character_in_state("coins", "draft").await;
+    sqlx::query("UPDATE bazaar_authority_assets SET cancel_requested=true WHERE listing_id=$1")
+        .bind(uid("30"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(listing_state(&db).await, crate::State::Cancelled);
+    assert_eq!(outbox_count(&db, Command::Unlock).await, 1);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_stale_batch_keeps_open_auction() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=100")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime.advance(uid("20")).await.unwrap();
+    let returns: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_game_outbox WHERE command='ReturnBazaarItem'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(returns, 0, "open auction dispatched a return");
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_refused_draft_quota() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = returned_character_in_state("coins", "draft").await;
+    sqlx::query("UPDATE bazaar_authority_assets SET refusal_code='REFUSED' WHERE listing_id=$1")
+        .bind(uid("30"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    assert_eq!(
+        runtime::listing_count(&mut tx, uid("11")).await.unwrap(),
+        1,
+        "only the active item consumes quota"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+async fn expired_item_with_bid(seller_balance: i64) -> BrowserFixture {
+    let db = BrowserFixture::new().await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=100")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for (account, amount) in [(uid("11"), seller_balance), (uid("13"), 10000)] {
+        let mut tx = db.pool.begin().await.unwrap();
+        let funds = CoinReservations {
+            authority: db.runtime.authority().clone(),
+        };
+        use crate::Reservations;
+        funds.lock_accounts(&mut tx, &[account]).await.unwrap();
+        let op = Uuid::now_v7();
+        sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,$3)").bind(op).bind(account).bind(amount).execute(&mut *tx).await.unwrap();
+        oteryn_wallet::credit_in(&mut tx, op, account, amount)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+    assert_eq!(db.bid(10000).await, axum::http::StatusCode::SEE_OTHER);
+    sqlx::query("UPDATE bazaar_listings SET ends_at=now()-interval '1 second' WHERE id=$1")
+        .bind(uid("20"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db
+}
+
+#[tokio::test]
+async fn r7_hold_blocks_handoff() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,'staff suspended sale')").bind(uid("20")).bind(uid("11")).execute(&db.pool).await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let deliveries: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_game_outbox WHERE command='DeliverBazaarItem'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(deliveries, 0, "held sale dispatched a delivery");
+    let held: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
+    )
+    .bind(uid("20"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(held);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_overflow_refunds_and_returns() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(oteryn_wallet::MAX_BALANCE).await;
+    db.runtime.tick().await.unwrap();
+    let holds: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_coin_holds WHERE account_id=$1 AND amount>0",
+    )
+    .bind(uid("13"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(holds, 0, "buyer reservation survived payout refusal");
+    db.runtime.tick().await.unwrap();
+    let returns: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_game_outbox WHERE command='ReturnBazaarItem'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(returns, 1);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_held_delivery_captures() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let delivery = newest_intent(&db, uid("20"), Command::Deliver).await;
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,'staff suspended sale')").bind(uid("20")).bind(uid("11")).execute(&db.pool).await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let receipt = vector("delivery_receipt")
+        .replace(
+            &uid("4").to_string(),
+            text(&delivery.value, "operation_id").unwrap(),
+        )
+        .replace("1790000002", &now.to_string());
+    let authority = db.runtime.authority();
+    authority
+        .receive(
+            &mut tx,
+            &authority.config.receipt_authority,
+            receipt.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        audit(authority, &mut tx, &delivery, &receipt, now).await,
+        ReceiptResult::Stored
+    );
+    let status = vector("delivered_status")
+        .replace(
+            &uid("4").to_string(),
+            text(&delivery.value, "operation_id").unwrap(),
+        )
+        .replace("1790000002", &now.to_string());
+    Outbox {
+        settings: Settings {
+            preparation_enabled: true,
+            game_enabled: false,
+        },
+    }
+    .ingest(
+        &mut tx,
+        &db.runtime.authority().config.projection_authority,
+        status.as_bytes(),
+        now,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let state: crate::State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(uid("20"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(state, crate::State::Completed);
+    db.runtime.tick().await.unwrap();
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT sum(available_delta)::bigint FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(uid("11"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(balance, 9001);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_auction_maximum_uses_offer_hold() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    sqlx::query("UPDATE bazaar_listings SET currency='gold'")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime
+        .bid(uid("13"), uid("20"), 10000, uid("14"), Uuid::now_v7())
+        .await
+        .unwrap();
+    let intent = newest_intent(&db, uid("20"), Command::Hold).await;
+    assert_eq!(text(&intent.value, "hold_purpose").unwrap(), "OFFER");
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r7_gold_delivery_requires_fresh_watermark() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let hold = Uuid::now_v7();
+    let sale = Uuid::now_v7();
+    gold_fact(&mut tx, Command::Hold, 10, uid("20"), hold, (0, 1, 10000)).await;
+    sqlx::query("INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision) VALUES($1,$2,$3,$4,10000,250,9750,$5,1)").bind(sale).bind(uid("20")).bind(uid("13")).bind(uid("11")).bind(hold).execute(&mut *tx).await.unwrap();
+    let intent = decode(
+        serde_json::to_string(&serde_json::json!({
+            "listing_id":uid("20"),"sale_id":sale,"seller_account_id":uid("11"),
+            "funding":{"reservation_id":hold,"hold_revision":"1","gross_amount":"10000"}
+        }))
+        .unwrap()
+        .as_bytes(),
+        4096,
+    )
+    .unwrap();
+    let a = db.runtime.authority();
+    runtime::gold::funded(a, &mut tx, &intent, uid("13"), None)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM bazaar_game_projections WHERE kind='WATERMARK'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let watermark = format!(
+        r#"{{"contract_version":2,"operation":"PublishBazaarWatermarkV1","source_authority":"oteryn:game:primary","projection_epoch":"3","complete_through":"{}","observed_at":"{now}"}}"#,
+        now - 60
+    );
+    Outbox {
+        settings: Settings {
+            preparation_enabled: true,
+            game_enabled: false,
+        },
+    }
+    .ingest(
+        &mut tx,
+        &a.config.projection_authority,
+        watermark.as_bytes(),
+        now,
+    )
+    .await
+    .unwrap();
+    assert!(!a.fresh(&mut tx).await.unwrap());
+    assert!(
+        matches!(
+            runtime::gold::funded(a, &mut tx, &intent, uid("13"), None).await,
+            Err(Error::Unavailable)
+        ),
+        "gold funding accepted without a fresh watermark"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[path = "invalidation_tests.rs"]
+mod invalidation_tests;

@@ -265,11 +265,19 @@ async fn integrated_change(
             .map_err(|e| e.to_string())?,
         }),
     };
+    sqlx::query("INSERT INTO account_email_changes(account_id,kind,old_email,new_email,confirmation_hash,revert_hash,immediate,confirmed_at,apply_after,expires_at,revert_until) SELECT id,'primary',email,'pending@example.test',$2,$3,false,now(),now()+interval '7 days',now()+interval '8 days',now()+interval '30 days' FROM accounts WHERE id=$1").bind(id).bind(vec![1u8;32]).bind(vec![2u8;32]).execute(&pool).await?;
     let changed = expected == Outcome::Changed;
     assert_eq!(
         service.change(&[1; 32], input(current, new)).await?,
         expected
     );
+    let cancelled: bool = sqlx::query_scalar(
+        "SELECT cancelled_at IS NOT NULL FROM account_email_changes WHERE account_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(cancelled, changed, "pending email change cancellation");
     for (account, revoked, sessions, generation) in [
         (
             id,

@@ -93,12 +93,7 @@ pub async fn start_listener(
         game.clone(),
         &runtime.config.key_id,
         identities,
-        oteryn_characters::lcfa::Settings {
-            enabled: std::env::var("OTERYN_LCFA_ENABLED").as_deref() == Ok("true"),
-            environment: oteryn_core::Config::from_env()?.environment,
-            source_authority: runtime.config.authority.clone(),
-            ..Default::default()
-        },
+        closure_projection(oteryn_core::Config::from_env()?.environment),
     );
     let bind =
         std::env::var("PORTAL_ACCOUNT_CLOSURE_BIND").unwrap_or_else(|_| "127.0.0.1:8092".into());
@@ -110,6 +105,32 @@ pub async fn start_listener(
         [command_pin, lcfa_pin],
         [character, portfolio],
     )))
+}
+
+fn closure_projection(environment: oteryn_core::Environment) -> oteryn_characters::lcfa::Settings {
+    oteryn_characters::lcfa::Settings {
+        environment,
+        ..oteryn_characters::overview::configured_projection()
+    }
+}
+#[test]
+fn r7_closure_uses_feed_authority() -> Result<(), Box<dyn std::error::Error>> {
+    const TEST: &str = "account_closure::r7_closure_uses_feed_authority";
+    if std::env::var_os("R7_CLOSURE_TEST_CHILD").is_some() {
+        assert_eq!(
+            closure_projection(oteryn_core::Environment::Testing).source_authority,
+            "main-feed"
+        );
+    } else {
+        let status = std::process::Command::new(std::env::current_exe()?)
+            .args(["--exact", TEST])
+            .env("R7_CLOSURE_TEST_CHILD", "1")
+            .env("OTERYN_LCFA_SOURCE_AUTHORITY", "main-feed")
+            .env("PORTAL_ACCOUNT_CLOSURE_SOURCE_AUTHORITY", "closure-only")
+            .status()?;
+        assert!(status.success());
+    }
+    Ok(())
 }
 
 fn tls_config(

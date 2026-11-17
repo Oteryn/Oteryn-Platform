@@ -20,7 +20,7 @@ async fn flags_deny_and_locales_are_complete() -> TestResult {
         let Json(text) = texts(Path(lang.into()))
             .await
             .map_err(|s| format!("translation status {s}"))?;
-        assert_eq!(text.len(), 17);
+        assert_eq!(text.len(), 18);
         assert!(text.values().all(|value| !value.is_empty()));
     }
     assert!(texts(Path("unknown".into())).await.is_err());
@@ -350,6 +350,30 @@ async fn postgres_spawns_private_markers_and_reports() -> TestResult {
     .execute(&pool)
     .await?;
     browser_check(&pool, &app, &token).await?;
+    for (age, expected) in [
+        (23, StatusCode::TOO_MANY_REQUESTS),
+        (25, StatusCode::CREATED),
+    ] {
+        sqlx::query("UPDATE atlas_map_reports SET created_at=now()-make_interval(hours => $2) WHERE account_id=$1")
+            .bind(first)
+            .bind(age)
+            .execute(&pool)
+            .await?;
+        let response = call(
+            &app,
+            "POST",
+            "/atlas/map-reports",
+            Some(&token),
+            Some(&csrf),
+            report,
+        )
+        .await?;
+        assert_eq!(
+            response.status(),
+            expected,
+            "pending reports aged {age} hours"
+        );
+    }
     sqlx::query("UPDATE atlas_map_reports SET status='rejected' WHERE account_id=$1")
         .bind(first)
         .execute(&pool)
@@ -381,6 +405,40 @@ async fn postgres_spawns_private_markers_and_reports() -> TestResult {
         .status(),
         StatusCode::CONFLICT
     );
+    let fixed_at_reset = serde_json::json!([{
+        "cell": {"x": 102, "y": 200, "floor": 7},
+        "creature": "visible",
+        "boss_policy": {"at_reset": {"chance": {"numerator": 1, "denominator": 50}}}
+    }]);
+    sqlx::query(
+        "UPDATE world_entities SET data=jsonb_set(data, '{declaration,points}', (data #> '{declaration,points}') || $1) WHERE kind='Spawn.Source' AND key='public'",
+    )
+    .bind(fixed_at_reset)
+    .execute(&pool)
+    .await?;
+
+    let ordinary = call(&app, "GET", &path, None, None, "").await?;
+    assert_eq!(
+        ordinary.status(),
+        StatusCode::OK,
+        "fixed-at-reset point outside the viewport must leave ordinary spawns available"
+    );
+    assert_eq!(json(ordinary).await?, points);
+    let boss_path = path
+        .replace("min_x=100", "min_x=102")
+        .replace("max_x=101", "max_x=102");
+    let boss = call(&app, "GET", &boss_path, None, None, "").await?;
+    assert_eq!(boss.status(), StatusCode::OK);
+    assert_eq!(
+        json(boss).await?,
+        serde_json::json!([{
+            "spawn": "public",
+            "cell": {"x": 102, "y": 200, "floor": 7},
+            "creature": "visible",
+            "respawn_ms": null
+        }])
+    );
+
     let stale = path.replace(&"a".repeat(40), &"b".repeat(40));
     assert_eq!(
         call(&app, "GET", &stale, None, None, "").await?.status(),

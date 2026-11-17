@@ -116,11 +116,12 @@ async fn database() -> Result<Option<Database>, Box<dyn std::error::Error>> {
         .await?;
     // Exercise the storage contracts without the unrelated duplicate migration versions.
     for migration in [
-        include_str!("../../../migrations/20261105144852_t02_web_sessions.sql"),
-        include_str!("../../../migrations/20261105153000_t31_payments.sql"),
-        include_str!("../../../migrations/20261105160000_t27_premium_ledger.sql"),
         // Browser rotation retains the real identity resource before sessions.
         include_str!("../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!("../../../migrations/20261105144852_t02_web_sessions.sql"),
+        include_str!("../../../migrations/20261105220221_t08_sessions.sql"),
+        include_str!("../../../migrations/20261105153000_t31_payments.sql"),
+        include_str!("../../../migrations/20261105160000_t27_premium_ledger.sql"),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await?;
     }

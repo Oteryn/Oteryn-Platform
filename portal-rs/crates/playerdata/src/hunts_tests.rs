@@ -364,7 +364,17 @@ async fn postgres_http_owner_details_comparison_and_bad_query()
         return Ok(());
     };
     sqlx::raw_sql(include_str!(
+        "../../../migrations/20261105155256_t03_accounts.sql"
+    ))
+    .execute(&pool)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../migrations/20261105144852_t02_web_sessions.sql"
+    ))
+    .execute(&pool)
+    .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261105220221_t08_sessions.sql"
     ))
     .execute(&pool)
     .await?;

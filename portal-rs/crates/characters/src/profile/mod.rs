@@ -246,6 +246,19 @@ impl Service {
         value: Preferences,
         now: i64,
     ) -> Result<(), Error> {
+        let account_hide = Some(value.hide_all_characters);
+        self.update_with_account_hide(account, name, value, account_hide, now)
+            .await
+    }
+
+    async fn update_with_account_hide(
+        &self,
+        account: Uuid,
+        name: &str,
+        value: Preferences,
+        account_hide: Option<bool>,
+        now: i64,
+    ) -> Result<(), Error> {
         if value.comment.chars().count() > 500
             || value.comment.chars().any(|c| c.is_control() && c != '\n')
         {
@@ -253,7 +266,10 @@ impl Service {
         }
         // Retry only rolled-back serialization/deadlock failures, with bounded attempts.
         for attempt in 0..3 {
-            match self.save(account, name, value.clone(), now).await {
+            match self
+                .save(account, name, value.clone(), account_hide, now)
+                .await
+            {
                 Err(SaveError::Sql(e))
                     if attempt < 2
                         && e.as_database_error().is_some_and(|e| {
@@ -274,6 +290,7 @@ impl Service {
         account: Uuid,
         name: &str,
         value: Preferences,
+        account_hide: Option<bool>,
         now: i64,
     ) -> Result<(), SaveError> {
         let mut tx = self.begin().await.map_err(SaveError::Domain)?;
@@ -302,7 +319,7 @@ impl Service {
         if attempts >= 30 {
             return Err(SaveError::Domain(Error::RateLimited));
         }
-        sqlx::query("UPDATE accounts SET character_profiles_hidden=$2,privacy_revision=privacy_revision+1 WHERE id=$1").bind(account).bind(value.hide_all_characters).execute(&mut *tx).await?;
+        sqlx::query("UPDATE accounts SET character_profiles_hidden=coalesce($2,character_profiles_hidden),privacy_revision=privacy_revision+1 WHERE id=$1").bind(account).bind(account_hide).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO character_profiles(account_id,character_id,show_guild,is_main_character,hidden,comment,show_account,show_status,show_house,show_skills,show_deaths,show_kills,show_online_time) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(account_id,character_id) DO UPDATE SET show_guild=$3,is_main_character=$4,hidden=$5,comment=$6,show_account=$7,show_status=$8,show_house=$9,show_skills=$10,show_deaths=$11,show_kills=$12,show_online_time=$13,updated_at=now()")
             .bind(account).bind(id).bind(value.show_guild).bind(value.is_main_character).bind(value.hidden).bind(value.comment).bind(value.show_account).bind(value.show_status).bind(value.show_house).bind(value.show_skills).bind(value.show_deaths).bind(value.show_kills).bind(value.show_online_time).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO character_profile_events(account_id,event_type) VALUES($1,'character.profile_preferences_updated')").bind(account).execute(&mut *tx).await?;

@@ -711,3 +711,148 @@ async fn postgres_raw_trading_waits_before_rows_and_observes_committed_restricti
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
+    use crate::game::{
+        Authority, AuthorityConfig, CoinReservations, PINNED_CONTRACT_SHA256, RecoveryFence,
+        runtime::{Config, Runtime},
+    };
+    use crate::{Reservation, Reservations};
+
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let authority = Authority {
+        config: AuthorityConfig {
+            enabled: true,
+            contract_sha256: Some(PINNED_CONTRACT_SHA256),
+            v2_receipts_accepted: true,
+            eligibility_and_escrow_accepted: true,
+            inbox_and_item_classes_accepted: true,
+            gold_fee_and_headroom_accepted: true,
+            common_recovery_scope_qualified: true,
+            signing_and_retention_accepted: true,
+            receipt_authority: "test:receipt".into(),
+            projection_authority: "test:projection".into(),
+            snapshot_keys: vec![(
+                "test-key".into(),
+                ed25519_dalek::SigningKey::from_bytes(&[9; 32]).verifying_key(),
+            )],
+            ..Default::default()
+        },
+        fence: RecoveryFence {
+            projection_epoch: 3,
+            recovery_generation: 3,
+        },
+    };
+    let directory = std::env::temp_dir().join(format!("bazaar-invalidation-{}", Uuid::now_v7()));
+    std::fs::create_dir(&directory)?;
+    let runtime = Runtime {
+        pool: db.pool.clone(),
+        config: Arc::new(Config::fixture(authority.clone(), &directory)),
+    };
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=3,recovery_generation=3")
+        .execute(&db.pool)
+        .await?;
+    let listing = db.listing(Uuid::now_v7()).await;
+    let bidders = [Uuid::now_v7(), Uuid::now_v7()];
+    let funds = CoinReservations { authority };
+    let mut tx = db.pool.begin().await?;
+    for bidder in bidders {
+        let seed = Uuid::now_v7();
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',now(),'en')").bind(bidder).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+            .bind(bidder)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,200)")
+            .bind(seed).bind(bidder).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,200,0)")
+            .bind(Uuid::now_v7()).bind(seed).bind(bidder).execute(&mut *tx).await?;
+        funds
+            .reserve(
+                &mut tx,
+                Reservation {
+                    id: listing,
+                    account: bidder,
+                    amount: 150,
+                    currency: crate::Currency::Coins,
+                },
+            )
+            .await?;
+    }
+    sqlx::query("UPDATE bazaar_listings SET leader=$2,leader_max=150,reservation=id WHERE id=$1")
+        .bind(listing)
+        .bind(bidders[0])
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let requester = Uuid::now_v7();
+    let approval = Uuid::now_v7();
+    db.staff(requester, suspend(listing)).await?;
+    db.staff(
+        requester,
+        StaffCommand::RequestInvalidation {
+            id: approval,
+            listing,
+            reason: "Confirmed policy violation".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        Uuid::now_v7(),
+        StaffCommand::ApproveInvalidation { id: approval },
+    )
+    .await?;
+
+    // A later suspension invalidates an already-approved request for another listing.
+    let stale = db.listing(Uuid::now_v7()).await;
+    let stale_request = Uuid::now_v7();
+    db.staff(requester, suspend(stale)).await?;
+    db.staff(
+        requester,
+        StaffCommand::RequestInvalidation {
+            id: stale_request,
+            listing: stale,
+            reason: "Confirmed policy violation".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        Uuid::now_v7(),
+        StaffCommand::ApproveInvalidation { id: stale_request },
+    )
+    .await?;
+    db.staff(requester, suspend(stale)).await?;
+
+    runtime.tick().await?;
+    runtime.tick().await?;
+    let state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(listing)
+        .fetch_one(&db.pool)
+        .await?;
+    let stale_state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(stale)
+        .fetch_one(&db.pool)
+        .await?;
+    let balances: Vec<(i64,i64)> = sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=ANY($1) GROUP BY account_id").bind(&bidders[..]).fetch_all(&db.pool).await?;
+    let releases: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM wallet_operations WHERE kind='release' AND reference_id=$1",
+    )
+    .bind(listing)
+    .fetch_one(&db.pool)
+    .await?;
+    std::fs::remove_dir_all(directory)?;
+    db.end().await;
+    assert_eq!(
+        state,
+        State::Cancelled,
+        "approved invalidation must end the listing"
+    );
+    assert_eq!(stale_state, State::Active);
+    assert_eq!(balances, [(200, 0), (200, 0)]);
+    assert_eq!(releases, 2);
+    Ok(())
+}

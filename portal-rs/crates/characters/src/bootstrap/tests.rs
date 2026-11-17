@@ -536,3 +536,29 @@ fn v4_fixtures_match_the_serializer_and_validator() -> TestResult {
     assert_eq!(accepted, wire::VOCATIONS, "one valid intent per vocation");
     Ok(())
 }
+
+#[tokio::test]
+async fn r7_read_below_retained_revision() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    db.seed(GOLDEN).await?;
+    let older = GOLDEN
+        .replace(OP, "01890f4e-7c00-7000-8000-000000000005")
+        .replace("000000000002", "000000000006")
+        .replace("\"42\"", "\"41\"");
+    let op = "01890f4e-7c00-7000-8000-000000000005";
+    sqlx::query("INSERT INTO character_bootstrap_intents(operation_id,issuer_decision_id,source_revision,account_id,target_world_id,requested_name,requested_sex,requested_vocation,profile_revision,ruleset_revision,content_revision,starter_template_revision,issued_at_source,expires_at_source,intent_json,intent_sha256) SELECT $1,'01890f4e-7c00-7000-8000-000000000006','41',account_id,target_world_id,requested_name,requested_sex,requested_vocation,profile_revision,ruleset_revision,content_revision,starter_template_revision,issued_at_source,expires_at_source,$2,$3 FROM character_bootstrap_intents").bind(op).bind(&older).bind(format!("{:x}",Sha256::digest(&older))).execute(&db.pool).await?;
+    sqlx::query("UPDATE character_bootstrap_intent_authority SET last_source_revision='41', last_issuer_decision_id='01890f4e-7c00-7000-8000-000000000006'").execute(&db.pool).await?;
+    assert!(
+        matches!(
+            reader(db.pool.clone(), AccountState::Active)
+                .current(op, 1790000001)
+                .await,
+            Err(Error::Unavailable)
+        ),
+        "rolled-back authority served revision 41"
+    );
+    db.close().await
+}

@@ -154,7 +154,33 @@ const TICKETS: &str = "/api/v1/game-auth/tickets";
 const CHARACTERS: &str = "/api/v1/game-auth/native-characters";
 
 #[tokio::test]
-async fn postgres_ticket_consumes_once_and_stores_only_digest() -> TestResult {
+async fn invalid_ticket_versions_exhaust_budget() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let app = router(db.api());
+    for expected in [StatusCode::UNPROCESSABLE_ENTITY; 5]
+        .into_iter()
+        .chain([StatusCode::TOO_MANY_REQUESTS])
+    {
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                TICKETS,
+                r#"{"protocol_version":2}"#,
+                true
+            )
+            .await
+            .status(),
+            expected
+        );
+    }
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_invalid_ticket_bodies_return_422() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -173,6 +199,15 @@ async fn postgres_ticket_consumes_once_and_stores_only_digest() -> TestResult {
             StatusCode::UNPROCESSABLE_ENTITY
         );
     }
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_ticket_consumes_once_and_stores_only_digest() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let app = router(db.api());
     let response = call(
         app.clone(),
         "POST",

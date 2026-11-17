@@ -59,9 +59,8 @@ fn router(service: Passkeys, sessions: SessionLayer) -> Router {
             oteryn_web::ratelimit::supply,
         ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(32 * 1024))
-        .with_state(service.clone());
-    oteryn_web::ratelimit::finish_routes(routes)
-        .layer(axum::middleware::from_fn_with_state(service, headers))
+        .with_state(service);
+    oteryn_web::ratelimit::finish_routes(routes).layer(axum::middleware::from_fn(headers))
 }
 fn language(lang: &str) -> Result<Language, StatusCode> {
     match lang {
@@ -194,10 +193,11 @@ async fn refused(
             response
         }
         Err(error) => {
-            if service
-                .audit(session.account_id().await, "passkey.refused")
-                .await
-                .is_err()
+            if let Some(account) = session.account_id().await
+                && service
+                    .audit(Some(account), "passkey.refused")
+                    .await
+                    .is_err()
             {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
@@ -342,17 +342,8 @@ endpoint!(authenticate_start, begin_authenticate, Empty);
 endpoint!(authenticate_finish, end_authenticate, Completion);
 endpoint!(remove, delete_key, Password);
 
-async fn headers(
-    State(service): State<Passkeys>,
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Response {
+async fn headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;
-    if matches!(response.status().as_u16(), 400 | 403 | 413 | 422 | 429)
-        && service.audit(None, "passkey.http_refused").await.is_err()
-    {
-        response = StatusCode::SERVICE_UNAVAILABLE.into_response();
-    }
     for (name, value) in [
         (
             "content-security-policy",

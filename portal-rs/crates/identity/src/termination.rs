@@ -314,9 +314,13 @@ impl Terminations {
         }
         self.boundary.check_blockers(&mut tx, account).await?;
         self.boundary.revoke(&mut tx, account, true).await?;
+        sqlx::query("DELETE FROM account_backup_emails WHERE account_id=$1")
+            .bind(account)
+            .execute(&mut *tx)
+            .await?;
         // Closed status and a non-PHC password prevent credential use even after a retry.
         sqlx::query("UPDATE accounts SET email=$2,password_hash='!closed',status='closed',email_verified_at=NULL,public_account_association=false,public_status_visible=false,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
-            .bind(account).bind(format!("terminated+{account}@invalid.oteryn")).execute(&mut *tx).await?;
+            .bind(account).bind(format!("terminated+{account}")).execute(&mut *tx).await?;
         sqlx::query(
             "UPDATE account_terminations SET finalized_at=now(),updated_at=now() WHERE id=$1",
         )
@@ -343,7 +347,9 @@ impl Terminations {
             match self.finalize(account).await {
                 Ok(true) => result.finalized += 1,
                 Ok(false) => {}
-                Err(Error::Database(error)) => return Err(Error::Database(error)),
+                Err(Error::Database(error)) if !matches!(error, sqlx::Error::Database(_)) => {
+                    return Err(Error::Database(error));
+                }
                 Err(_) => {
                     result.blocked += 1;
                     // Rotate refused work so a full blocked batch cannot starve later rows.

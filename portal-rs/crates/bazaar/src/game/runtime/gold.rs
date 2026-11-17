@@ -98,6 +98,9 @@ pub(crate) async fn funded(
     buyer: Uuid,
     exclude: Option<Uuid>,
 ) -> Result<(), Error> {
+    if !a.fresh(db).await? {
+        return Err(Error::Unavailable);
+    }
     let f = i.get("funding").ok_or(Error::Invalid)?;
     let row=sqlx::query("SELECT hold_id,hold_revision::text AS revision,gross_amount,seller,buyer FROM bazaar_authority_gold_sales WHERE id=$1 AND listing_id=$2 AND completed_at IS NULL").bind(id(text(i,"sale_id")?)?).bind(id(text(i,"listing_id")?)?).fetch_optional(&mut *db).await?.ok_or(Error::Unavailable)?;
     if row.try_get::<Uuid, _>("buyer")? != buyer

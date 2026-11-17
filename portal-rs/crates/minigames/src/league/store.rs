@@ -63,7 +63,7 @@ impl<A: Authority> League<A> {
                     .is_ok_and(|t| t <= now.saturating_add(1).saturating_mul(1000)),
         )?;
         if (d.occurred_at_unix_ms as u64 / 1000).saturating_add(90 * 86400) <= now {
-            return Err(Error::Unavailable);
+            return Err(Error::Expired);
         }
         let s = Snapshot::decode(d.wire, d.event_type == 11, now)?;
         check_payload(&d, &s)?;
@@ -127,7 +127,7 @@ impl<A: Authority> League<A> {
                     t <= i64::try_from(now.saturating_sub(90 * 86400)).unwrap_or(i64::MAX)
                 })
             {
-                return Err(Error::Unavailable);
+                return Err(Error::Expired);
             }
             if old.try_get::<bool, _>("quarantined")? {
                 return Err(Error::Unavailable);
@@ -317,6 +317,13 @@ pub(super) fn check_payload(d: &Delivery<'_>, s: &Snapshot) -> Result<()> {
         }
     }
 }
+pub(super) fn nonterminal_transition(previous: &str, next: &schema::Event) -> bool {
+    matches!(
+        (previous, next.state.as_str()),
+        ("SCHEDULED", "LOCKED" | "VOID") | ("LOCKED", "SETTLED" | "VOID")
+    ) && next.correction_of.is_empty()
+}
+
 pub(super) fn transition(old: &Snapshot, new: &Snapshot) -> Result<()> {
     match (old, new) {
         (Snapshot::Event(a), Snapshot::Event(b)) => {
@@ -350,12 +357,7 @@ pub(super) fn transition(old: &Snapshot, new: &Snapshot) -> Result<()> {
                         && a.evidence_sha256 != b.evidence_sha256,
                 )
             } else {
-                schema::ensure(
-                    matches!(
-                        (a.state.as_str(), b.state.as_str()),
-                        ("SCHEDULED", "LOCKED" | "VOID") | ("LOCKED", "SETTLED" | "VOID")
-                    ) && b.correction_of.is_empty(),
-                )
+                schema::ensure(nonterminal_transition(&a.state, b))
             }
         }
         (Snapshot::Season(a), Snapshot::Season(b)) => {

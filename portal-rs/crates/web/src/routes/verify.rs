@@ -1,4 +1,4 @@
-//! Verification and authenticated resend endpoints.
+//! Verification and resend endpoints.
 use crate::{
     AppState, Language,
     session::{BrowserSession, SessionKey},
@@ -14,6 +14,8 @@ use axum::{
 use oteryn_identity::verify;
 use serde::Deserialize;
 const FLASH: SessionKey<String> = SessionKey::new("identity.verification_flash");
+/// Pending referral code set by the community referral link (anonymous browsers).
+const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/verify-email", get(consume))
@@ -96,8 +98,8 @@ async fn consume(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if let Some(id) = valid {
-        // Verification revokes the verified account's sessions. Preserve an
-        // unrelated browser identity, but discard any already-revoked record.
+        // Start a fresh anonymous session after verification, including when
+        // registration left this browser anonymous. Preserve other live identities.
         let stale = match session.identity_hash().await {
             Some(hash) => !sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1)",
@@ -108,10 +110,26 @@ async fn consume(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             None => false,
         };
-        if session.account_id().await == Some(id) || stale {
+        if session
+            .account_id()
+            .await
+            .is_none_or(|account| account == id)
+            || stale
+        {
+            // The fresh anonymous session keeps only a pending referral code.
+            let referral = session
+                .get(REFERRAL)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             crate::session::rotate(&session, crate::session::PrivilegeChange::Logout)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            if let Some(code) = referral {
+                session
+                    .set(REFERRAL, &code)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            }
         }
         session
             .set(FLASH, &language.text("verify-success"))
@@ -128,10 +146,48 @@ async fn consume(
         .await
     }
 }
+#[derive(Template)]
+#[template(
+    ext = "html",
+    source = r#"{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("verify-resend") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("verify-resend") }}</h1>
+<form method="post" action="/{{ lang }}/verify-email/resend">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<label>{{ self.text("register-email") }} <input type="email" name="email" autocomplete="email" maxlength="254" required></label>
+<button type="submit">{{ self.text("verify-resend") }}</button>
+</form>
+{% endblock %}"#
+)]
+struct ResendPage {
+    lang: &'static str,
+    language: Language,
+    csrf: String,
+}
+impl ResendPage {
+    fn text(&self, key: &str) -> String {
+        self.language.text(key)
+    }
+}
+#[derive(Deserialize)]
+struct ResendForm {
+    email: String,
+}
 async fn resend_form(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_none() {
+        return Ok(crate::render(&ResendPage {
+            lang: language.code(),
+            language,
+            csrf: session
+                .csrf_token()
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        }));
+    }
     message(language, &session, "verify-resend", StatusCode::OK).await
 }
 async fn resend(
@@ -141,8 +197,8 @@ async fn resend(
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
     headers: axum::http::HeaderMap,
+    form: Result<axum::Form<ResendForm>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
-    let id = session.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     let Some(Extension(axum::extract::ConnectInfo(peer))) = peer else {
         return Ok(crate::ratelimit::Denial::Unavailable.response(language, false));
     };
@@ -151,27 +207,49 @@ async fn resend(
         Err(error) => return Ok(error.response(language, false)),
     };
     let mut keys = crate::ratelimit::Keys::source(source);
-    keys.account = Some(id.to_string());
-    for policy in [
-        crate::ratelimit::NamedPolicy::IdentityRegistration,
-        crate::ratelimit::NamedPolicy::IdentitySecurityMutation,
-    ] {
-        if let Err(error) = limiter.check(policy, &[keys.clone()]).await {
+    if let Err(error) = limiter
+        .check(
+            crate::ratelimit::NamedPolicy::IdentityRegistration,
+            std::slice::from_ref(&keys),
+        )
+        .await
+    {
+        return Ok(error.response(language, false));
+    }
+    let actor = if let Some(id) = session.account_id().await {
+        keys.account = Some(id.to_string());
+        if let Err(error) = limiter
+            .check(
+                crate::ratelimit::NamedPolicy::IdentitySecurityMutation,
+                &[keys],
+            )
+            .await
+        {
             return Ok(error.response(language, false));
         }
-    }
-    verify::resend(
-        &state.db,
-        oteryn_identity::mutation_actor::MutationActor::browser(
+        Some(oteryn_identity::mutation_actor::MutationActor::browser(
             id,
             session
                 .csrf_token()
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-        ),
-    )
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        ))
+    } else {
+        let axum::Form(form) = form.map_err(|_| StatusCode::BAD_REQUEST)?;
+        sqlx::query_scalar::<_, oteryn_identity::AccountId>(
+            "SELECT id FROM accounts WHERE lower(email)=$1 AND status='pending_verification'",
+        )
+        .bind(oteryn_identity::accounts::normalize_email(&form.email))
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(Into::into)
+    };
+    if let Some(actor) = actor {
+        verify::resend(&state.db, actor)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
     Ok(Redirect::to(&format!("/{}/register/check-inbox", language.code())).into_response())
 }
 

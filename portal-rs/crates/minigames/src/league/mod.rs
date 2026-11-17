@@ -18,6 +18,8 @@ use uuid::Uuid;
 pub enum Error {
     #[error("league authority unavailable")]
     Unavailable,
+    #[error("league retention period expired")]
+    Expired,
     #[error("invalid league evidence")]
     Invalid,
     #[error("league publication superseded by the recovery fence")]

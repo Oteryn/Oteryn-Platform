@@ -607,3 +607,22 @@ async fn non_rfc_v7_keys_never_write_wallet_state() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn reserved_offer_fill_waits_for_seller_debt() {
+    let db = Database::open().await.expect("PostgreSQL required");
+    let ledger = db.ledger();
+    let (seller, buyer, offer, trade) = (id(), id(), id(), id());
+    grant(&ledger, seller, 20).await;
+    ledger.reserve_offer(offer, seller, 20, 100).await.unwrap();
+    db.debt(seller, 5, 1).await;
+    refused(
+        ledger.settle(trade, offer, buyer, 20).await,
+        Refusal::DebtOutstanding,
+    );
+    assert_eq!(db.available(buyer).await, 0);
+    grant(&ledger, seller, 5).await;
+    ledger.settle(trade, offer, buyer, 20).await.unwrap();
+    assert_eq!(db.available(buyer).await, 20);
+    db.close().await;
+}

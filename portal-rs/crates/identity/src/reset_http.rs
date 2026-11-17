@@ -15,7 +15,12 @@ use oteryn_web::{
 };
 use serde::Deserialize;
 use sqlx::PgPool;
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::sync::Mutex;
 
 pub fn configured_router(pool: PgPool) -> Router {
     if !std::env::var("OTERYN_ACCOUNT_PASSWORD_RESET").is_ok_and(|v| v == "true") {
@@ -72,7 +77,10 @@ fn router(pool: PgPool, key: DeliveryKey, sessions: SessionLayer) -> Router {
             ))
             .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
             .layer(axum::middleware::from_fn_with_state(
-                pool.clone(),
+                RefusalAudit {
+                    pool: pool.clone(),
+                    last_sample: Arc::default(),
+                },
                 audit_refusals,
             ))
             .with_state(pool),
@@ -260,7 +268,7 @@ async fn submit_forgot(
     )
     .await
     {
-        return denied(&pool, e, language).await;
+        return Ok(e.response(language, false));
     }
     if let Some(id) = session.account_id().await {
         let mut tx = pool.begin().await.map_err(unavailable)?;
@@ -291,7 +299,7 @@ async fn submit_reset(
 ) -> Result<Response, StatusCode> {
     let input = form.ok().map(|Form(i)| i).unwrap_or_default();
     if let Err(e) = charge(&limiter, peer, &headers, Some(&input.email), true).await {
-        return denied(&pool, e, language).await;
+        return Ok(e.response(language, false));
     }
     if let Some(id) = session.account_id().await {
         let mut tx = pool.begin().await.map_err(unavailable)?;
@@ -319,20 +327,18 @@ async fn submit_reset(
     session.set(FAILED, &true).await.map_err(unavailable)?;
     Ok(redirect(language, &retry))
 }
-async fn denied(pool: &PgPool, denial: Denial, language: Language) -> Result<Response, StatusCode> {
-    let mut tx = pool.begin().await.map_err(unavailable)?;
-    reset::audit(&mut tx, None, "identity.password_reset_rate_denied")
-        .await
-        .map_err(unavailable)?;
-    tx.commit().await.map_err(unavailable)?;
-    Ok(denial.response(language, false))
-}
 #[cfg(test)]
 #[path = "reset_http_tests.rs"]
 pub(crate) mod tests;
 
+#[derive(Clone)]
+struct RefusalAudit {
+    pool: PgPool,
+    last_sample: Arc<Mutex<Option<Instant>>>,
+}
+
 async fn audit_refusals(
-    State(pool): State<PgPool>,
+    State(audit): State<RefusalAudit>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -344,8 +350,16 @@ async fn audit_refusals(
             | StatusCode::PAYLOAD_TOO_LARGE
             | StatusCode::UNSUPPORTED_MEDIA_TYPE
     ) {
+        // Share a single sample window across sources and router clones.
+        {
+            let mut last = audit.last_sample.lock().await;
+            if last.is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+                return response;
+            }
+            *last = Some(Instant::now());
+        }
         let result = async {
-            let mut tx = pool.begin().await?;
+            let mut tx = audit.pool.begin().await?;
             reset::audit(&mut tx, None, "identity.password_reset_browser_refused").await?;
             tx.commit().await
         }

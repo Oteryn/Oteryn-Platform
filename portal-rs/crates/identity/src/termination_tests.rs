@@ -240,7 +240,7 @@ async fn postgres_request_cancel_reschedule_and_finalize() -> TestResult {
     .await?
     .ok_or("missing account")?;
     assert_eq!(closed.status, "closed");
-    assert_eq!(closed.email, format!("terminated+{account}@invalid.oteryn"));
+    assert_eq!(closed.email, format!("terminated+{account}"));
     assert!(!password::verify(
         "termination test password",
         &closed.password_hash
@@ -529,5 +529,103 @@ async fn postgres_held_account_lock_sheds_request_and_cancel_within_mutation_bud
             .await?;
     assert!(!cancelled_at);
     assert_eq!(events(&db).await?, 1);
+    db.close().await
+}
+
+#[tokio::test]
+async fn r7_legacy_tombstone_collision() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let account = db.account().await?;
+    db.due(request(&s, account).await?.id).await?;
+    sqlx::query("INSERT INTO accounts(email,password_hash,locale) VALUES($1,'pending','en')")
+        .bind(format!("terminated+{account}@invalid.oteryn"))
+        .execute(&db.pool)
+        .await?;
+    assert!(
+        matches!(s.run_worker(1).await, Ok(WorkerResult { finalized: 1, .. })),
+        "legacy address blocked finalization"
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn r7_closed_backup_available() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let account = db.account().await?;
+    sqlx::query("INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,'backup@example.test',now())").bind(account).execute(&db.pool).await?;
+    db.due(request(&s, account).await?.id).await?;
+    assert!(s.finalize(account).await?);
+    assert!(
+        crate::accounts::address_available(
+            &mut *db.pool.acquire().await?,
+            None,
+            "backup@example.test"
+        )
+        .await?,
+        "closed backup still reserved"
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn r7_worker_rotates_failed_row() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let blocked = db.account().await?;
+    db.due(request(&s, blocked).await?.id).await?;
+    let healthy = db.account().await?;
+    db.due(request(&s, healthy).await?.id).await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "ALTER TABLE accounts ADD CHECK (id <> '{blocked}' OR status <> 'closed')"
+    )))
+    .execute(&db.pool)
+    .await?;
+    assert!(
+        matches!(s.run_worker(1).await, Ok(WorkerResult { blocked: 1, .. })),
+        "row error aborted sweep"
+    );
+    assert_eq!(s.run_worker(1).await?.finalized, 1);
+    db.close().await
+}
+
+#[tokio::test]
+async fn reclaimed_backup_receives_password_reset_for_new_owner() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let old = db.account().await?;
+    let email = "reclaimed@example.test";
+    sqlx::query(
+        "INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,$2,now())",
+    )
+    .bind(old)
+    .bind(email)
+    .execute(&db.pool)
+    .await?;
+    db.due(request(&s, old).await?.id).await?;
+    assert!(s.finalize(old).await?);
+    let mut tx = db.pool.begin().await?;
+    let new = crate::accounts::Accounts::create(&mut tx, email, "unusable", "en")
+        .await?
+        .ok_or("registration refused")?;
+    tx.commit().await?;
+    let key = crate::reset::DeliveryKey::parse(&"11".repeat(32)).ok_or("invalid test key")?;
+    crate::reset::request(&db.pool, email, &key).await?;
+    let delivery: Option<(AccountId,String)> = sqlx::query_as("SELECT r.account_id,r.recovery_email FROM outbox o JOIN account_password_resets r ON r.account_id=(o.payload->>'account_id')::uuid WHERE o.kind='email.password-reset'")
+        .fetch_optional(&db.pool).await?;
+    assert_eq!(
+        delivery,
+        Some((new.id, email.to_owned())),
+        "reset delivery missing for new owner"
+    );
     db.close().await
 }

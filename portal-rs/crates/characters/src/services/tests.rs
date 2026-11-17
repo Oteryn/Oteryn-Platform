@@ -1500,3 +1500,52 @@ async fn lock_order_service_issuance_waits_for_publication_before_recovery_credi
     );
     outcome.unwrap();
 }
+
+#[tokio::test]
+async fn r7_committed_transfer_denies_seller() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let s = Services::new(db.pool.clone(), settings());
+    let raw = include_str!("../commands/fixtures/transfer-receipt.json");
+    let receipt: serde_json::Value = serde_json::from_str(raw).unwrap();
+    let id = |field: &str| Uuid::parse_str(receipt[field].as_str().unwrap()).unwrap();
+    let a = id("from_account_id");
+    let c = id("character_id");
+    seed(&s, a, c, 100).await;
+    sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$2,'transfer','TransferCharacterOwnership',$3,$4,'{}',$5,$6,'TERMINAL')").bind(id("operation_id")).bind(Uuid::now_v7()).bind(a).bind(id("to_account_id")).bind(include_str!("../commands/fixtures/transfer-intent.json")).bind(raw).execute(&db.pool).await.unwrap();
+    assert!(
+        matches!(
+            s.request(a, rename(c)).await,
+            Err(Error::Unavailable | Error::Denied)
+        ),
+        "seller service accepted after transfer"
+    );
+    sqlx::query(
+        "UPDATE account_character_snapshots SET projection_revision=$2 WHERE account_id=$1",
+    )
+    .bind(a)
+    .bind(receipt["from_projection_revision"].as_str().unwrap())
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    // Isolate the revision fence: at equality the association in LCFA decides.
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(
+        s.owner_state(&mut tx, a, c).await.is_ok(),
+        "receipt overrode the association at the same projection revision"
+    );
+    sqlx::query("DELETE FROM account_characters WHERE account_id=$1 AND character_id=$2")
+        .bind(a)
+        .bind(c)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(matches!(
+        s.owner_state(&mut tx, a, c).await,
+        Err(Error::Unavailable)
+    ));
+    tx.rollback().await.unwrap();
+    db.close().await;
+}

@@ -174,6 +174,10 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
                 .bind(account).execute(&mut *tx).await?;
         }
         let restricted = self.accounts.state(&mut tx, account).await? != AccountState::Active;
+        // Serialize the review decision and capacity reservation with delivery receipts.
+        sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
+            .execute(&mut *tx)
+            .await?;
         let review: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM store_fulfilment_units WHERE account_id=$1 AND state IN ('MANUAL_REVIEW','REVERSAL_PARTIAL'))").bind(account).fetch_one(&mut *tx).await?;
         if restricted || review {
             return finish(tx, request, raw, "ACCOUNT_RESTRICTED", vec![]).await;
@@ -240,10 +244,6 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             }
             unit.quantity = quantity as u16;
         }
-        // Serialize capacity reservations across accounts before charging anything.
-        sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
-            .execute(&mut *tx)
-            .await?;
         let pending: i64=sqlx::query_scalar("SELECT COUNT(*) FROM store_operations WHERE operation_kind='DELIVER' AND state IN ('PENDING','REOPENED')").fetch_one(&mut *tx).await?;
         if pending + units.len() as i64 > i64::from(self.settings.max_pending_operations) {
             return Err(Error::Unavailable.into());

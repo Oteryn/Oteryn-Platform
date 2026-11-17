@@ -1,5 +1,6 @@
 use super::{
     Error,
+    authority_wire::key as valid_key,
     game_wire::{decimal, digest, id, ordered, text},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -178,8 +179,18 @@ pub fn verify_snapshot(
     let Some(Value::Array(blessings)) = s.get("blessings") else {
         return Err(Error::Invalid);
     };
-    if !blessings.is_empty() {
-        return Err(Error::Unavailable);
+    if blessings.len() > 32 {
+        return Err(Error::Invalid);
+    }
+    let mut previous = "";
+    for blessing in blessings {
+        let Value::String(name) = blessing else {
+            return Err(Error::Invalid);
+        };
+        if !valid_key(name) || name.as_str() <= previous {
+            return Err(Error::Invalid);
+        }
+        previous = name;
     }
     let Some(Value::Array(skills)) = s.get("skills") else {
         return Err(Error::Invalid);

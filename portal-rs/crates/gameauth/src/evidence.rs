@@ -222,6 +222,11 @@ pub struct Witness {
     namespace: String,
     _lock: File,
 }
+struct WitnessFloor {
+    revision: i64,
+    pending: bool,
+}
+
 /// Why a retained witness operation failed. Internal detail for signing-trust
 /// refusal causes; every public path still answers `Failure` (503).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,14 +293,25 @@ impl Witness {
         self.floor_detailed(namespace).map_err(|_| unavailable())
     }
     pub(crate) fn floor_detailed(&self, namespace: &str) -> Result<Option<i64>, WitnessFault> {
+        Ok(self.read_floor(namespace)?.map(|floor| floor.revision))
+    }
+    fn read_floor(&self, namespace: &str) -> Result<Option<WitnessFloor>, WitnessFault> {
         valid_namespace(namespace)?;
         if namespace != self.namespace {
             return Err(WitnessFault::Integrity);
         }
         read_small(&self.path(namespace))?
             .map(|s| {
-                let n = decimal(s.trim(), true).map_err(|_| WitnessFault::Integrity)?;
-                n.try_into().map_err(|_| WitnessFault::Integrity)
+                let value = s.trim();
+                let pending = value.strip_suffix(" pending");
+                let revision = decimal(pending.unwrap_or(value), true)
+                    .map_err(|_| WitnessFault::Integrity)?
+                    .try_into()
+                    .map_err(|_| WitnessFault::Integrity)?;
+                Ok(WitnessFloor {
+                    revision,
+                    pending: pending.is_some(),
+                })
             })
             .transpose()
     }
@@ -309,6 +325,14 @@ impl Witness {
         namespace: &str,
         revision: i64,
     ) -> Result<(), WitnessFault> {
+        self.write_floor(namespace, revision, false)
+    }
+    fn write_floor(
+        &self,
+        namespace: &str,
+        revision: i64,
+        pending: bool,
+    ) -> Result<(), WitnessFault> {
         valid_namespace(namespace)?;
         if namespace != self.namespace {
             return Err(WitnessFault::Integrity);
@@ -320,7 +344,11 @@ impl Witness {
         {
             return Err(WitnessFault::Integrity);
         }
-        durable_write(&self.path(namespace), format!("{revision}\n").as_bytes())
+        let suffix = if pending { " pending" } else { "" };
+        durable_write(
+            &self.path(namespace),
+            format!("{revision}{suffix}\n").as_bytes(),
+        )
     }
     async fn provenance(&self, pool: &PgPool) -> Result<(), Failure> {
         let store_path = self.directory.join("witness-store.id");
@@ -526,6 +554,22 @@ impl AsyncWitness {
             .await
             .map_err(|()| WitnessFault::Blocking)?
     }
+    async fn read_floor(&self, namespace: &str) -> Result<Option<WitnessFloor>, Failure> {
+        let witness = self.0.clone();
+        let namespace = namespace.to_owned();
+        crate::blocking::run(move || witness.read_floor(&namespace))
+            .await
+            .map_err(|_| unavailable())?
+            .map_err(|_| unavailable())
+    }
+    async fn prepare(&self, namespace: &str, revision: i64) -> Result<(), Failure> {
+        let witness = self.0.clone();
+        let namespace = namespace.to_owned();
+        crate::blocking::run(move || witness.write_floor(&namespace, revision, true))
+            .await
+            .map_err(|_| unavailable())?
+            .map_err(|_| unavailable())
+    }
     async fn provenance(&self, pool: &PgPool) -> Result<(), Failure> {
         self.0.provenance(pool).await
     }
@@ -657,10 +701,13 @@ async fn observe_inner(
     let state = AsyncWitness::lock(&settings.witness_directory, &request.state_namespace).await?;
     let mut tx = pool.begin().await.map_err(|_| unavailable())?;
     let high: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(source_revision),0)::bigint FROM native_evidence WHERE namespace_hash=$1").bind(&request.namespace).fetch_one(&mut *tx).await.map_err(|_| unavailable())?;
-    match witness.floor(&request.namespace).await? {
+    let next = high.checked_add(1).ok_or_else(unavailable)?;
+    match witness.read_floor(&request.namespace).await? {
         None if high == 0 => {}
-        Some(floor) if floor <= high => {
-            if floor < high {
+        // A pending revision can be retried because it has never been returned.
+        Some(floor) if floor.pending && floor.revision == next => {}
+        Some(floor) if floor.revision <= high => {
+            if floor.revision < high {
                 witness.advance(&request.namespace, high).await?;
             }
         }
@@ -669,7 +716,6 @@ async fn observe_inner(
     let Some(facts) = source(&mut tx, request, &state, high).await? else {
         return Ok(request.failure("not_found"));
     };
-    let next = high.checked_add(1).ok_or_else(unavailable)?;
     let mut fields = vec![
         ("version", Value::Unsigned(request.version)),
         ("operation", string(&request.operation)),
@@ -691,6 +737,7 @@ async fn observe_inner(
     }
     let wire = String::from_utf8(bytes).map_err(|_| unavailable())?;
     sqlx::query("INSERT INTO native_evidence(namespace_hash,source_revision,response_json) VALUES ($1,$2,$3)").bind(&request.namespace).bind(next).bind(wire).execute(&mut *tx).await.map_err(|_| unavailable())?;
+    witness.prepare(&request.namespace, next).await?;
     tx.commit().await.map_err(|_| unavailable())?;
     witness.advance(&request.namespace, next).await?;
     Ok(response)

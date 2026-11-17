@@ -241,6 +241,11 @@ async fn audit_a210_postgres_overview_main_selection_and_removed_ownership()
     ))
     .execute(&pool)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105220221_t08_sessions.sql"
+    ))
+    .execute(&pool)
+    .await?;
     let token = "d".repeat(64);
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES ($1,$2,$3,'test',now()+interval '30 minutes',now()+interval '1 day')")
         .bind(Sha256::digest(token.as_bytes()).to_vec()).bind(account).bind("e".repeat(64)).execute(&pool).await?;

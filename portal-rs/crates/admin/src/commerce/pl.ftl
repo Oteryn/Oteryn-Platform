@@ -4,6 +4,7 @@ request = Identyfikator żądania
 reason = Powód (10–500 znaków)
 days = Dni premium (1–366)
 amount = Korekta salda (coiny)
+refund-amount = Kwota zwrotu
 grant = Nadaj premium
 revoke = Odbierz premium
 adjust = Skoryguj saldo

@@ -279,6 +279,7 @@ struct Edit<'a> {
     values: Vec<Translation>,
     csrf: String,
     existing: bool,
+    entity_key: String,
 }
 impl Edit<'_> {
     fn t(&self, key: &str) -> String {
@@ -317,6 +318,7 @@ async fn create_form<A: AccountStateReader>(
             values: vec![blank("pl"), blank("en")],
             csrf,
             existing: false,
+            entity_key: String::new(),
         }),
         Err(e) => failure(e.into(), lang),
     }
@@ -329,6 +331,13 @@ async fn edit_form<A: AccountStateReader>(
     headers: HeaderMap,
 ) -> Response {
     let lang = language(&headers);
+    if let Err(e) = s
+        .repository
+        .authorize(context, Permission::ManageWikiArticles)
+        .await
+    {
+        return failure(e, lang);
+    }
     match s.repository.get(context, id).await {
         Ok((guide, mut values)) => {
             for locale in ["pl", "en"] {
@@ -345,6 +354,7 @@ async fn edit_form<A: AccountStateReader>(
                     values,
                     csrf,
                     existing: true,
+                    entity_key: guide.entity_key.unwrap_or_default(),
                 }),
                 Err(e) => failure(e.into(), lang),
             }
@@ -366,6 +376,7 @@ struct Write {
     note: String,
     #[serde(default)]
     lock_version: i64,
+    entity_key: Option<String>,
 }
 impl Write {
     fn values(&self) -> Vec<Translation> {
@@ -419,12 +430,13 @@ async fn edit<A: AccountStateReader>(
     };
     changed(
         s.repository
-            .edit(
+            .edit_with_entity(
                 context,
                 id,
                 input.lock_version,
                 &input.values(),
                 &input.note,
+                input.entity_key.as_deref(),
             )
             .await,
         id,

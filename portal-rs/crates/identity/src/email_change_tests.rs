@@ -843,3 +843,65 @@ async fn r5_no_chained_primary_change_inside_the_revert_window() -> TestResult {
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn primary_revert_removes_new_backup() -> TestResult {
+    let Some((db, s, id)) = setup().await? else {
+        return Ok(());
+    };
+    s.request(id, input(true, false)).await?;
+    let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(s.confirm(&confirm).await?, Outcome::Changed);
+    sqlx::query("INSERT INTO account_backup_emails(account_id,email,verified_at) VALUES($1,'later@example.test',now())").bind(id).execute(&db.pool).await?;
+    assert_eq!(s.revert(&revert).await?, Outcome::Reverted);
+    let verified: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM account_backup_emails WHERE account_id=$1 AND verified_at IS NOT NULL)").bind(id).fetch_one(&db.pool).await?;
+    assert!(!verified, "later backup remains verified");
+    db.close().await
+}
+
+#[tokio::test]
+async fn delayed_primary_revert_removes_backup_confirmed_during_wait() -> TestResult {
+    for (backup, expected) in [
+        ("later@example.test", None),
+        ("new@example.invalid", Some("new@example.invalid")),
+    ] {
+        let Some((db, s, id)) = setup().await? else {
+            return Ok(());
+        };
+        assert_eq!(
+            s.request(id, input(false, false)).await?,
+            Outcome::Requested
+        );
+        let (confirm, revert) = tokens(&db.pool).await?;
+        assert_eq!(s.confirm(&confirm).await?, Outcome::Confirmed);
+        sqlx::query("DELETE FROM account_email_change_mail")
+            .execute(&db.pool)
+            .await?;
+
+        let mut request = input(false, true);
+        request.email = backup.into();
+        request.email_confirmation = backup.into();
+        assert_eq!(s.request(id, request).await?, Outcome::Requested);
+        let (confirm, _) = tokens(&db.pool).await?;
+        assert_eq!(s.confirm(&confirm).await?, Outcome::Changed);
+        assert_eq!(s.apply_due().await?, 0);
+        sqlx::query("UPDATE account_email_changes SET apply_after=now()-interval '1 second' WHERE account_id=$1 AND kind='primary'")
+            .bind(id)
+            .execute(&db.pool)
+            .await?;
+        assert_eq!(s.apply_due().await?, 1);
+        assert_eq!(s.revert(&revert).await?, Outcome::Reverted);
+        let remaining: Option<String> =
+            sqlx::query_scalar("SELECT email FROM account_backup_emails WHERE account_id=$1")
+                .bind(id)
+                .fetch_optional(&db.pool)
+                .await?;
+        assert_eq!(
+            remaining.as_deref(),
+            expected,
+            "backup after reverting delayed primary change"
+        );
+        db.close().await?;
+    }
+    Ok(())
+}

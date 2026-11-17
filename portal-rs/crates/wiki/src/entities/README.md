@@ -25,13 +25,14 @@ fail as unavailable rather than silently truncate a type beyond 100,000 scanned
 rows. This is a bounded fallback until the public world API offers indexed
 search. No query reads the world's tables directly.
 
-T13 descriptions bind using `wiki_guides.entity_key = "{kind}:{key}"`. Editors
-use the existing trusted repository create/review/publish API. Only the current
-published revision in the requested locale is rendered, through T13's Markdown
-sanitizer. Missing prose is explicit; multiple published bindings are ambiguous
-and refuse the response. World updates never rewrite prose. The existing T13
-staff form does not create entity bindings; adding that editor control is outside
-this task's permitted paths.
+T13 descriptions bind using `wiki_guides.entity_key = "{kind}:{key}"`. On the
+staff article edit form, enter the exact kind and key from the entity route in
+the Entity binding field (for example, `creatures:dragon`). Save the draft and
+use the normal review and publish workflow. To remove the binding, clear the
+field, save, and publish again. Only the current published revision in the
+requested locale is rendered, through T13's Markdown sanitizer. Missing prose
+is explicit. Multiple published bindings are ambiguous and refuse the response.
+World updates never rewrite prose.
 
 The projection recognizes the pinned native source's definition/declaration,
 spell bundle, known item presentation and creature authoring profile shapes.

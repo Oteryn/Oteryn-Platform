@@ -2,6 +2,7 @@ spawns = Spawny potworów
 monsters = Potwory
 sites = Spawny
 respawn = Odrodzenie (sekundy)
+no-ordinary-respawn = Brak zwykłego odrodzenia
 place = Link do tego miejsca
 fullscreen = Pełny ekran
 private = Prywatne znaczniki

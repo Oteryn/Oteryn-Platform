@@ -162,9 +162,9 @@ impl Mfa {
             grant: None,
         }))
     }
-    pub async fn record_http_refusal(&self) -> Result<(), sqlx::Error> {
+    pub async fn record_http_refusal(&self, account: AccountId) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
-        Self::audit(&mut tx, None, "mfa.http_refused").await?;
+        Self::audit(&mut tx, Some(account), "mfa.http_refused").await?;
         tx.commit().await
     }
     pub async fn enrolled(&self, id: AccountId) -> Result<bool, sqlx::Error> {

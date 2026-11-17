@@ -17,6 +17,7 @@ done
 docker network inspect oteryn-oracle_private >/dev/null
 compose=(docker compose --env-file "$ROOT/platform.env" -f "$SOURCE/deploy/oracle/public-platform.compose.yml")
 "${compose[@]}" config --quiet
+"${compose[@]}" stop platform worker
 "${compose[@]}" run --rm -T --no-deps migrate
 "${compose[@]}" up -d --no-deps platform worker gateway
 "${compose[@]}" ps

@@ -29,3 +29,4 @@ sorcerer = Sorcerer
 druid = Druid
 monk = Monk
 unavailable = Posting is unavailable until your account and character ownership can be verified.
+more-reports = more

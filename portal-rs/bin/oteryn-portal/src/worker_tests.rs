@@ -549,6 +549,7 @@ async fn topup_refusals_are_audited_and_dead_lettered_without_credit() -> TestRe
         "intent_amount",
         "intent_currency",
         "intent_account",
+        "dispatched_refund",
         "checkout_amount",
         "checkout_currency",
         "checkout_account",
@@ -577,6 +578,11 @@ async fn topup_refusals_are_audited_and_dead_lettered_without_credit() -> TestRe
             currency: "PLN".into(),
         };
         match case {
+            "dispatched_refund" => {
+                let op = Uuid::now_v7();
+                query("INSERT INTO commerce_operations(id,actor_id,target_id,command,reason_sha256,requires_approval) VALUES($1,$2,$3,'{}',repeat('0',64),false)").bind(op).bind(account).bind(intent).execute(&db.pool).await?;
+                query("INSERT INTO commerce_refunds(operation_id,intent_id,account_id,amount,currency,provider,state,provider_reference) VALUES($1,$2,$3,250,'PLN','test','done','accepted')").bind(op).bind(intent).bind(account).execute(&db.pool).await?;
+            }
             "amount" => payload.amount = 251,
             "currency" => payload.currency = "EUR".into(),
             "account" => payload.account_id = Uuid::now_v7(),
@@ -695,12 +701,12 @@ async fn topup_refusals_are_audited_and_dead_lettered_without_credit() -> TestRe
             sqlx::raw_sql("DROP TRIGGER test_topup_credit_audit ON audit_log; DROP FUNCTION reject_test_topup_credit()") .execute(&db.pool).await?;
         }
     }
-    assert_eq!(outbox::counts(&db.pool).await?.dead, 21);
+    assert_eq!(outbox::counts(&db.pool).await?.dead, 22);
     let audit: i64 =
         query_scalar("SELECT count(*) FROM audit_log WHERE action='wallet.top_up.denied'")
             .fetch_one(&db.pool)
             .await?;
-    assert_eq!(audit, 21);
+    assert_eq!(audit, 22);
     db.close().await
 }
 
