@@ -103,9 +103,10 @@ async function atlasSpawns(view, redraw, install) {
   const controls=element('nav'); controls.append(toggleLabel, place, button('fullscreen',async () => {
     try { if(document.fullscreenElement) await document.exitFullscreen(); else await view.requestFullscreen(); } catch { notice.textContent=text.failed; }
   }));
-  const count=element('p'), notice=element('p'), list=element('ul');
-  notice.setAttribute('role','status'); count.setAttribute('role','status');
-  panel.append(controls,count,notice,list);
+  // Spawn loading owns `notice`; marker and report outcomes own `outcome`, so a late spawn load cannot erase them.
+  const count=element('p'), notice=element('p'), outcome=element('p'), list=element('ul');
+  notice.setAttribute('role','status'); count.setAttribute('role','status'); outcome.setAttribute('role','status');
+  panel.append(controls,count,notice,outcome,list);
   let state, points=[], privateMarkers=[], csrf=null, timer, controller, requestKey='', loadedKey='';
   toggle.onchange=redraw;
   function link(cell, label) {
@@ -179,7 +180,8 @@ async function atlasSpawns(view, redraw, install) {
     privateList.replaceChildren();
     for(const marker of privateMarkers) {
       const item=element('li'); item.append(link(marker,marker.label),button('remove',async()=>{
-        try { await mutate(`/atlas/private-markers/${marker.id}`,'DELETE'); await loadPrivate(); notice.textContent=text.saved; } catch { notice.textContent=text.failed; }
+        outcome.textContent='';
+        try { await mutate(`/atlas/private-markers/${marker.id}`,'DELETE'); await loadPrivate(); outcome.textContent=text.saved; } catch { outcome.textContent=text.failed; }
       })); privateList.append(item);
     }
     redraw();
@@ -199,11 +201,11 @@ async function atlasSpawns(view, redraw, install) {
     input.required=true; input.minLength=min; input.maxLength=max; label.append(input);
     const send=element('button',text[submit]); send.type='submit'; form.append(label,send);
     form.onsubmit=async event=>{
-      event.preventDefault(); send.disabled=true;
+      event.preventDefault(); send.disabled=true; outcome.textContent='';
       try {
         await mutate(url,'POST',{x:state.x,y:state.y,floor:state.z,text:input.value});
-        input.value=''; notice.textContent=text.saved; await loadPrivate();
-      } catch { notice.textContent=text.failed; } finally { send.disabled=false; }
+        input.value=''; outcome.textContent=text.saved; await loadPrivate();
+      } catch { outcome.textContent=text.failed; } finally { send.disabled=false; }
     }; panel.append(form);
   }
   form('label','save',1,80,'/atlas/private-markers');
