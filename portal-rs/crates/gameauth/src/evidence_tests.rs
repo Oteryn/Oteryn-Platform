@@ -664,5 +664,11 @@ async fn regression_witness_precedes_commit() -> TestResult {
         Witness::lock(&directory.0, &req.namespace)?.floor(&req.namespace)?,
         Some(1)
     );
+    sqlx::query("DROP TRIGGER reject_commit ON native_evidence")
+        .execute(&db.pool)
+        .await?;
+    let retry = observe(&db.pool, &options, &req).await;
+    assert_eq!(text(&retry, "result")?, "observed");
+    assert_eq!(text(&retry, "source_revision")?, "1");
     db.close().await
 }
