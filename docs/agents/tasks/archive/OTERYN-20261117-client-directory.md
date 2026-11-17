@@ -23,7 +23,7 @@ a separate task.
 - [x] Fixtures anonymous, owner, rejected-route-key, unknown-pvp_type with manifest and README
 - [x] Manifest digests checked (`native_client_fixture_manifests_match_their_files`)
 - [x] Each vector matches its declared client outcome (`client_directory_vectors_match_their_declared_outcome`)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -48,11 +48,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-17T15:00:00Z
-head: 4e00941ba44a25a1f0a776d9ba46a8b5f6f59cd9
+updated_at: 2026-11-17T15:25:00Z
+head: 269f2ae00086936f30ac2f672763a7a147010c15
 branch: claude/happy-davinci-ijz3wy-client-directory
 pr: 1935
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -97,13 +97,13 @@ validation:
     evidence: contract and fixtures only; no route, handler or flag changes
 blockers:
   - none
-next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: none; delivered by PR 1935 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1935 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1935 merged as 269f2ae00086936f30ac2f672763a7a147010c15
 ```

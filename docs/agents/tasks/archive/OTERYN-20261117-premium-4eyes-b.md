@@ -26,7 +26,7 @@ Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1928
 
 - [x] A replayed grant submit after the target turns ineligible reports the recorded pending state and writes no `commerce.denied` row (`postgres_grant_replay_after_target_turns_ineligible_reports_recorded_state`; red on the D2 tree)
 - [x] An audit failure on grant approval rolls back the entitlement and completion, and a later approval succeeds (`postgres_grant_approval_audit_failure_rolls_back_entitlement`)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-17T14:37:00Z
-head: 5510ab0a840a009eecdab01fd988823a258d1f30
+updated_at: 2026-11-17T15:25:00Z
+head: 941472feb402b62a7ba117d969022e9bea09164f
 branch: claude/happy-davinci-ijz3wy-premium-4eyes-b
 pr: 1934
-status: ready
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -91,13 +91,13 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: none; delivered by PR 1934 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1934 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1934 merged as 941472feb402b62a7ba117d969022e9bea09164f
 ```
