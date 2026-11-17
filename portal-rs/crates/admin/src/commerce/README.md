@@ -39,7 +39,9 @@ outside any transaction, and a second short transaction records the reference
 only while that attempt still owns the claim. A live claim makes other workers
 retry later; one older than `REFUND_CLAIM_STALE_AFTER` is re-claimed, and a
 provider error releases it, so a crash can retry the provider's idempotent
-request. The binary registers
+request. A failure on the job's last attempt (`REFUND_MAX_ATTEMPTS`) logs at
+error level with the row's state and attempt id; reconciling such rows is issue
+#1922. The binary registers
 `Registry::commerce_refunds` when commerce and refunds are enabled and a provider
 is configured. No provider is installed by default. The dispatch receipt is separate
 from settlement: only T31's verified webhook may mark a payment refunded. This

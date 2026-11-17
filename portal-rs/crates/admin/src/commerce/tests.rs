@@ -1291,6 +1291,10 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         _: &oteryn_payments::Amount,
     ) -> Result<String, oteryn_payments::Error> {
         self.keys.lock().unwrap().push(intent_id);
+        if self.hold {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
         let failing = self
             .failures
             .fetch_update(
@@ -1312,10 +1316,6 @@ impl oteryn_payments::PaymentProvider for RefundStub {
             .is_ok()
         {
             return Ok("refund:\nforged".into());
-        }
-        if self.hold {
-            self.entered.notify_one();
-            self.release.notified().await;
         }
         Ok(format!("refund:{intent_id}"))
     }
@@ -1503,6 +1503,135 @@ async fn postgres_refund_provider_error_releases_claim_for_retry() {
     assert_eq!(state, "done");
     assert_eq!(reference, Some(format!("refund:{payment}")));
     assert_eq!(dispatched_audits(&h).await, 1);
+    h.close().await;
+}
+/// Runs a stale attempt and a re-claimed attempt at once and finishes the
+/// stale one first, while the re-claimed attempt still holds the claim. The
+/// stale attempt either records a reference or fails, by `stale_fails`.
+async fn stale_attempt_finishes_under_a_live_reclaim(stale_fails: bool) {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (operation, payment) = queued_refund(&h).await;
+    let adapter = h.effects().payments;
+    let stale = RefundStub::holding();
+    if stale_fails {
+        stale.failures.store(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    let fresh = RefundStub::holding();
+    let fresh_go = tokio::sync::Notify::new();
+    let stale_done = tokio::sync::Notify::new();
+    let stale_run = async {
+        let result = adapter
+            .deliver_refund_with(&stale, &h.pool, operation)
+            .await;
+        stale_done.notify_one();
+        result
+    };
+    let fresh_run = async {
+        fresh_go.notified().await;
+        adapter
+            .deliver_refund_with(&fresh, &h.pool, operation)
+            .await
+    };
+    let driver = async {
+        stale.entered.notified().await;
+        let (_, stale_attempt, _) = refund_row(&h, operation).await;
+        sqlx::query("UPDATE commerce_refunds SET claimed_at=claimed_at - make_interval(secs => $2) - interval '1 second' WHERE operation_id=$1")
+            .bind(operation)
+            .bind(REFUND_CLAIM_STALE_AFTER.as_secs_f64())
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        fresh_go.notify_one();
+        fresh.entered.notified().await;
+        let (_, fresh_attempt, _) = refund_row(&h, operation).await;
+        assert!(stale_attempt.is_some());
+        assert_ne!(fresh_attempt, stale_attempt);
+        stale.release.notify_one();
+        stale_done.notified().await;
+        // The stale attempt finished, but the re-claimed attempt still owns
+        // the row: nothing was recorded and the claim was not released.
+        assert_eq!(
+            refund_row(&h, operation).await,
+            ("refunding".into(), fresh_attempt, None)
+        );
+        assert_eq!(dispatched_audits(&h).await, 0);
+        fresh.release.notify_one();
+        fresh_attempt
+    };
+    let (late, settled, fresh_attempt) = tokio::join!(stale_run, fresh_run, driver);
+    assert!(matches!(late, Err(Error::Unavailable)));
+    settled.unwrap();
+    assert_eq!(
+        refund_row(&h, operation).await,
+        (
+            "done".into(),
+            fresh_attempt,
+            Some(format!("refund:{payment}"))
+        )
+    );
+    assert_eq!(dispatched_audits(&h).await, 1);
+    assert_eq!(stale.keys(), vec![payment]);
+    assert_eq!(fresh.keys(), vec![payment]);
+    h.close().await;
+}
+/// A stale attempt whose provider call succeeds after a re-claim cannot
+/// record its reference over the live claim (fenced by attempt id).
+#[tokio::test]
+async fn postgres_refund_stale_finalize_cannot_overwrite_a_live_reclaim() {
+    stale_attempt_finishes_under_a_live_reclaim(false).await;
+}
+/// A stale attempt whose provider call fails after a re-claim cannot
+/// release the live claim back to pending (fenced by attempt id).
+#[tokio::test]
+async fn postgres_refund_stale_failure_cannot_release_a_live_reclaim() {
+    stale_attempt_finishes_under_a_live_reclaim(true).await;
+}
+/// Only the last outbox attempt of an unsettled refund is reported for
+/// operator reconciliation, with the row's state and attempt id.
+#[tokio::test]
+async fn postgres_refund_exhaustion_reports_only_the_last_unsettled_attempt() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let (operation, _) = queued_refund(&h).await;
+    assert_eq!(
+        effects::exhausted_refund(&h.pool, REFUND_MAX_ATTEMPTS - 1, operation).await,
+        None
+    );
+    assert_eq!(
+        effects::exhausted_refund(&h.pool, REFUND_MAX_ATTEMPTS, operation).await,
+        Some(("pending".into(), None))
+    );
+    let attempt = Uuid::now_v7();
+    sqlx::query("UPDATE commerce_refunds SET state='refunding',attempt_id=$2,claimed_at=now() WHERE operation_id=$1")
+        .bind(operation)
+        .bind(attempt)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        effects::exhausted_refund(&h.pool, REFUND_MAX_ATTEMPTS, operation).await,
+        Some(("refunding".into(), Some(attempt)))
+    );
+    let adapter = h.effects().payments;
+    sqlx::query("UPDATE commerce_refunds SET claimed_at=claimed_at - make_interval(secs => $2) - interval '1 second' WHERE operation_id=$1")
+        .bind(operation)
+        .bind(REFUND_CLAIM_STALE_AFTER.as_secs_f64())
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    adapter
+        .deliver_refund_with(&RefundStub::default(), &h.pool, operation)
+        .await
+        .unwrap();
+    assert_eq!(
+        effects::exhausted_refund(&h.pool, REFUND_MAX_ATTEMPTS, operation).await,
+        None
+    );
     h.close().await;
 }
 /// A malformed provider reference is not recorded: the claim is released and

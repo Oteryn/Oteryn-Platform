@@ -140,6 +140,8 @@ impl<
 /// times the worker's 30 s execution budget, so a call still running in a live
 /// worker is never re-claimed, and short enough that a crashed attempt is
 /// re-claimed well before the job's ten outbox attempts are spent.
+/// Outbox attempts for one refund job; after the last one the job is dead.
+pub const REFUND_MAX_ATTEMPTS: i32 = 10;
 pub const REFUND_CLAIM_STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(120);
 /// T31 has no reconciliation writer or transactional refund API. This narrow
 /// adapter uses its public intent reader and provider interface. Review only
@@ -366,7 +368,7 @@ impl PaymentActions for TestPaymentAdapter {
                     &json!({"operation":request.request_id}).to_string(),
                     &intent.id.to_string(),
                     oteryn_db::outbox::OffsetDateTime::now_utc(),
-                    10,
+                    REFUND_MAX_ATTEMPTS,
                 )
                 .await?;
                 Ok(
@@ -456,8 +458,41 @@ impl RefundDelivery {
         if payload.operation.get_version_num() != 7 {
             return Err(Error::Invalid);
         }
-        self.adapter
+        let result = self
+            .adapter
             .deliver_refund(&self.pool, payload.operation)
-            .await
+            .await;
+        if let Err(error) = &result
+            && let Some((state, attempt)) =
+                exhausted_refund(&self.pool, job.attempts, payload.operation).await
+        {
+            tracing::error!(
+                operation = %payload.operation,
+                state,
+                attempt_id = ?attempt,
+                ?error,
+                "commerce refund retries exhausted; the refund row needs operator reconciliation"
+            );
+        }
+        result
     }
+}
+/// On the job's last attempt, the state and attempt id of a refund that is
+/// still unsettled; `None` before the last attempt or once settled. A failed
+/// read reports `unreadable` so the caller still logs and keeps its error.
+pub(super) async fn exhausted_refund(
+    pool: &PgPool,
+    attempts: i32,
+    operation: Uuid,
+) -> Option<(String, Option<Uuid>)> {
+    if attempts < REFUND_MAX_ATTEMPTS {
+        return None;
+    }
+    sqlx::query_as::<_, (String, Option<Uuid>)>(
+        "SELECT state,attempt_id FROM commerce_refunds WHERE operation_id=$1 AND provider_reference IS NULL",
+    )
+    .bind(operation)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or_else(|_| Some(("unreadable".into(), None)))
 }

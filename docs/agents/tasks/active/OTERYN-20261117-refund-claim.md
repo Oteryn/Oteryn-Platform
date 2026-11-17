@@ -37,6 +37,8 @@ leaves the crate begin guard's exempt list.
 - [x] A provider error or a malformed reference releases the claim; the retry succeeds with one dispatch audit
 - [x] A recorded reference or a ledger-refunded intent settles without a provider call
 - [x] Crate guard passes with the `commerce/effects.rs` exempt entry removed
+- [x] A stale attempt finishing under a live re-claim neither records its reference nor releases the claim (red with the attempt-id fence removed from finalize and release)
+- [x] The last failed outbox attempt of an unsettled refund logs at error level with operation, state and attempt id (decision tested on PostgreSQL); the reconciler is a separate task, issue #1922
 - [ ] Portal RS CI green on the PR head (no PR yet)
 
 ## Ownership
@@ -44,6 +46,8 @@ leaves the crate begin guard's exempt list.
 ```yaml
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-refund-claim.md
+  - portal-rs/Cargo.lock
+  - portal-rs/crates/admin/Cargo.toml
   - portal-rs/crates/admin/src/begin_guard_tests.rs
   - portal-rs/crates/admin/src/commerce/README.md
   - portal-rs/crates/admin/src/commerce/effects.rs
@@ -63,7 +67,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-17T08:45:06Z
+updated_at: 2026-11-17T09:30:00Z
 head: 83c0255669c088c639b6e24234fadde5d65da337
 branch: claude/happy-davinci-ijz3wy-refund-claim
 pr: none
@@ -71,6 +75,8 @@ status: ready
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-refund-claim.md
+  - portal-rs/Cargo.lock
+  - portal-rs/crates/admin/Cargo.toml
   - portal-rs/crates/admin/src/begin_guard_tests.rs
   - portal-rs/crates/admin/src/commerce/README.md
   - portal-rs/crates/admin/src/commerce/effects.rs
@@ -80,7 +86,9 @@ proven:
   - Migration is additive; existing rows with provider_reference read as done and others as pending (scratch schema check on PostgreSQL 18)
   - No CHECK ties state to provider_reference writes of the previous binary; provider_reference IS NOT NULL stays the first settled check
   - Provider idempotency key is the intent id (crates/payments/src/provider.rs refund signature and contract comment); unchanged
-  - No contract, fixture, flag, workflow or dependency change; worker.rs and crates/payments unchanged
+  - No contract, fixture, flag or workflow change; worker.rs and crates/payments unchanged
+  - Only dependency change is tracing 0.1.44 in crates/admin (already in the workspace lockfile; Cargo.lock gains one line)
+  - A crash or deadline drop on the last attempt is marked dead by the outbox claim query without running the handler; only outbox.state and last_error record it (outbox::counts has no exporter); recorded in issue #1922
 derived:
   - Outbox retry backoff (2^attempts x 0.5-1 s, ten attempts) leaves several attempts after a crashed claim goes stale at 120 s
 unknown:
@@ -94,6 +102,8 @@ rejected_hypotheses:
   - none
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20261117-refund-claim.md
+  - portal-rs/Cargo.lock
+  - portal-rs/crates/admin/Cargo.toml
   - portal-rs/crates/admin/src/begin_guard_tests.rs
   - portal-rs/crates/admin/src/commerce/README.md
   - portal-rs/crates/admin/src/commerce/effects.rs
@@ -115,15 +125,18 @@ validation:
   - command: cargo test --locked -p oteryn-db --test migrations; cargo check --locked -p oteryn-portal; cargo fmt --all -- --check; cargo clippy --locked -p oteryn-admin --all-targets -- -D warnings
     result: PASS
     evidence: migrations 3 passed; worker binary compiles (Send bound on RefundDelivery::run holds); fmt and clippy exit 0
+  - command: cargo test --locked -p oteryn-admin --lib postgres_refund (PostgreSQL 18), with the new fence and exhaustion tests
+    result: PASS
+    evidence: 9 passed; with the attempt-id clauses removed from record_dispatch and release_refund, both stale-attempt tests fail (red) and the stale re-claim test still passes
 blockers:
   - none
-next_action: coordinator review, commit and PR
+next_action: push after PR 1921 merges and main is merged in, then open the PR
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: Uncommitted worker change for coordinator review; no commit, push or PR requested
-source_branch_evidence: Coordinator records the publication SHA when it commits
+source_branch_reason: Task branch for the refund claim PR; retained until merge
+source_branch_evidence: The PR records the published head
 ```
