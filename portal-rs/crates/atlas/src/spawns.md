@@ -15,10 +15,11 @@ Laravel support ownership and pending-report limits inform the local seam.
 
 `GET /atlas/spawns` requires `version` (full source commit), `floor` and inclusive
 `min_x,min_y,max_x,max_y`. It returns one `{spawn,cell,creature,respawn_ms}` per
-visible monster point. Missing or mismatched world state is unavailable, malformed
-queries are 400. The viewer groups points in a screen-space grid when zoomed out,
+visible monster point. A point without an ordinary respawn timer returns
+`respawn_ms: null`. Missing or mismatched world state is unavailable, and
+malformed queries are 400. The viewer groups points in a screen-space grid when zoomed out,
 counts distinct source spawns separately from monsters, and exposes floor,
-coordinates, respawn seconds and creature links in a keyboard-accessible list.
+coordinates, respawn information and creature links in a keyboard-accessible list.
 No creature artwork is invented when a thumbnail-serving API is unavailable;
 the numbered map symbol identifies points and groups.
 
