@@ -58,7 +58,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T07:20:00Z
 head: 8633994271bcca625c2c7a9b1186918553e2770a
 branch: claude/happy-davinci-ijz3wy-stats-fence
-pr: none
+pr: 1911
 status: validating
 context_routes: []
 owned_paths:
