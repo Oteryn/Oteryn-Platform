@@ -50,6 +50,7 @@ async fn all_auth_routes_separate_forwarded_clients_only_for_trusted_peers()
                     .clone()
                     .oneshot(
                         Request::post(path)
+                            .header("content-type", "application/json")
                             .header("x-forwarded-for", forwarded)
                             .extension(ConnectInfo(proxy))
                             .body(Body::from(body))?,

@@ -230,6 +230,12 @@ async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
         return response;
     };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
+    let mut types = req.headers().get_all("content-type").iter();
+    let json = types.next().and_then(|v| v.to_str().ok()).is_some_and(|v| {
+        v.split(';')
+            .next()
+            .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"))
+    }) && types.next().is_none();
     let mut response = if query {
         invalid()
     } else {
@@ -239,14 +245,23 @@ async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
                 Err(_) => return request_timeout(),
             };
         match body {
-            Ok(b) if s.enabled && wire::is_native(&b) => native(&s, &source, &b).await,
-            // §19.1: with the protocol 3 switch off every protocol 3 request is
-            // NATIVE_LOGIN_UNSUPPORTED_VERSION, in the protocol 2 body.
-            Ok(b) if s.enabled && v3::is_v3(&b) && !s.protocol3 => refuse(
-                Code::UnsupportedVersion.into(),
-                wire::attempt_echo(&b).as_deref(),
-            ),
-            Ok(b) if s.protocol3 && v3::is_v3(&b) => native3(&s, &source, &b).await,
+            Ok(b) if s.enabled => match wire::login_version(&b) {
+                Some(2) if json => native(&s, &source, &b).await,
+                Some(2) => refuse(
+                    Code::RequestMalformed.into(),
+                    wire::attempt_echo(&b).as_deref(),
+                ),
+                Some(3) if s.protocol3 && json => native3(&s, &source, &b).await,
+                Some(3) if s.protocol3 => refuse3(
+                    &Code::RequestMalformed.into(),
+                    wire::attempt_echo(&b).as_deref(),
+                ),
+                None | Some(1) => invalid(),
+                Some(_) => refuse(
+                    Code::UnsupportedVersion.into(),
+                    wire::attempt_echo(&b).as_deref(),
+                ),
+            },
             _ => invalid(),
         }
     };
@@ -275,12 +290,12 @@ async fn recovery_front(
     s: &StateData,
     req: Request,
     echo_of: fn(&[u8]) -> Option<String>,
-) -> Result<(String, Vec<u8>), Response> {
+) -> Result<(String, Vec<u8>), Box<Response>> {
     if !s.enabled {
-        return Err(StatusCode::NOT_FOUND.into_response());
+        return Err(Box::new(StatusCode::NOT_FOUND.into_response()));
     }
     let Ok(source) = source_of(&req, &s.trusted_proxies) else {
-        return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        return Err(Box::new(StatusCode::SERVICE_UNAVAILABLE.into_response()));
     };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
     let body = tokio::time::timeout(BODY_DEADLINE, to_bytes(req.into_body(), 16 * 1024))
@@ -290,20 +305,23 @@ async fn recovery_front(
         .unwrap_or_default();
     let echo = echo_of(&body);
     if !s.protocol3 {
-        return Err(refuse(Code::UnsupportedVersion.into(), echo.as_deref()));
+        return Err(Box::new(refuse(
+            Code::UnsupportedVersion.into(),
+            echo.as_deref(),
+        )));
     }
     if query {
-        return Err(refuse_recovery(
+        return Err(Box::new(refuse_recovery(
             RecoverCode::Malformed.into(),
             echo.as_deref(),
-        ));
+        )));
     }
     Ok((source, body))
 }
 async fn recover_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
     let mut response = match recovery_front(&s, req, wire::attempt_echo).await {
         Ok((source, body)) => recovery(&s, &source, &body).await,
-        Err(refused) => refused,
+        Err(refused) => *refused,
     };
     no_store(&mut response);
     response
@@ -369,7 +387,7 @@ fn recover_limit(r: Refusal) -> RecoverRefusal {
 async fn revoke_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
     let mut response = match recovery_front(&s, req, |_| None).await {
         Ok((source, body)) => revocation(&s, &source, &body).await,
-        Err(refused) => refused,
+        Err(refused) => *refused,
     };
     no_store(&mut response);
     response
@@ -1238,6 +1256,7 @@ mod proxy_budget_tests {
             |peer: &str, forwarded: &str| -> Result<Request, Box<dyn std::error::Error>> {
                 Ok(Request::builder()
                     .extension(ConnectInfo(peer.parse::<SocketAddr>()?))
+                    .header("content-type", "application/json")
                     .header("x-forwarded-for", forwarded)
                     .body(Body::empty())?)
             };

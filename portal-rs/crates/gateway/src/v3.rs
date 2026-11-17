@@ -3,7 +3,7 @@
 //! channel selection, the candidate list and the recovery handle; the channel
 //! refusal adds `channels`. Protocol 2 types and bodies are untouched.
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, value::RawValue};
+use serde_json::Value;
 use std::fmt;
 
 use crate::{
@@ -17,10 +17,7 @@ const MAX_CHANNELS: usize = 16;
 
 /// The raw `protocol_version` is the literal `3`.
 pub fn is_v3(body: &[u8]) -> bool {
-    serde_json::from_slice::<std::collections::HashMap<String, Box<RawValue>>>(body)
-        .ok()
-        .and_then(|mut m| m.remove("protocol_version"))
-        .is_some_and(|v| v.get() == "3")
+    crate::wire::login_version(body) == Some(3)
 }
 pub fn parse_request(body: &[u8]) -> Result<Request, Code> {
     wire::parse_versioned(body, 3)

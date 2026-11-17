@@ -242,3 +242,31 @@ fn protocol3_wire_rules() {
         "otr1.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh9"
     ));
 }
+
+#[tokio::test]
+async fn login_refuses_plain_text() {
+    let app = router_with(client("http://127.0.0.1:1"), options(true, true));
+    let response = app
+        .oneshot(
+            Request::post("/v1/login")
+                .header("content-type", "text/plain")
+                .body(Body::from(include_str!(
+                    "fixtures/game_client_native_login/request.json"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn login_refuses_future_version() {
+    let app = router_with(client("http://127.0.0.1:1"), options(true, true));
+    let request = REQUEST.replace("\"protocol_version\":3", "\"protocol_version\":4");
+    assert_ne!(request, REQUEST);
+    assert_eq!(
+        login(app, &request).await,
+        (StatusCode::BAD_REQUEST, format!("{UNSUPPORTED}\n"))
+    );
+}
