@@ -1,0 +1,146 @@
+---
+task_id: OTERYN-20261116-r4-identity-d1-d2-d3
+governing_issue: 530
+required_reads: []
+search_first: []
+optional_reads: []
+---
+
+# OTERYN-20261116-r4-identity-d1-d2-d3
+
+## Goal
+
+Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/530.
+
+Round 4 review claims D1, D2 and D3 on main a6b1b05e, each reproduced with a
+red test and fixed:
+
+- D1: a pending email change survived a password reset or a recovery-key
+  recovery, so a confirmation link issued before the owner recovered the
+  account still installed the requested address.
+- D2: duplicate registration returned no new session cookie, while a new
+  registration did, revealing whether the address exists.
+- D3: a passkey ceremony consumed while valid was accepted after it expired
+  during the account lock wait, for authentication and registration.
+
+## Acceptance criteria
+
+- [x] Password reset and recovery-key recovery cancel every unapplied email change in the same transaction, with the account row locked
+- [x] Duplicate and new registration both issue a fresh session cookie; the duplicate session stays anonymous
+- [x] Passkey authentication and registration refuse a ceremony that expired during the account lock wait
+- [x] Each case has a test that was red on a6b1b05e and is green with the fix
+
+Closeout of merged PR #1892: its packet `OTERYN-20261116-portal-rs-ci-shards` is archived as completed.
+
+## Ownership
+
+```yaml
+owned_paths:
+  - portal-rs/crates/identity/src/email_change.rs
+  - portal-rs/crates/identity/src/email_change_tests.rs
+  - portal-rs/crates/identity/src/passkeys.rs
+  - portal-rs/crates/identity/src/passkeys_tests.rs
+  - portal-rs/crates/identity/src/recovery_key.rs
+  - portal-rs/crates/identity/src/reset.rs
+  - portal-rs/crates/identity/tests/registration.rs
+  - portal-rs/crates/web/src/routes/register.rs
+  - portal-rs/crates/web/src/session.rs
+  - docs/agents/tasks/active/OTERYN-20261116-r4-identity-d1-d2-d3.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-ci-shards.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-ci-shards.md
+modules:
+  - identity
+  - web
+dependencies:
+  - none
+blockers:
+  - none
+cross_repository_tasks:
+  - none
+```
+
+## Context checkpoint
+
+```yaml
+checkpoint_version: 1
+updated_at: 2026-11-16T23:25:00Z
+head: 8e16fc6da3eb9ea8caf11707a62b7c9bc4fc5b8d
+branch: claude/happy-davinci-ijz3wy-r4fix
+pr: 1893
+status: completed
+context_routes: []
+owned_paths:
+  - portal-rs/crates/identity/
+  - portal-rs/crates/web/src/routes/register.rs
+  - portal-rs/crates/web/src/session.rs
+  - docs/agents/tasks/active/OTERYN-20261116-r4-identity-d1-d2-d3.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-ci-shards.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-ci-shards.md
+proven:
+  - Branched from a6b1b05e and merged with main e9b0bcaaacf61d29593e38454fd77977d86335d2, which adds only the CI workflow split
+  - No migration, contract, fixture, flag or wire byte change
+  - No Game repository, production service or production data accessed
+  - Without the product change the five new or extended tests fail with the asserted refusal missing
+  - With the product change the full identity and web crate suites pass on PostgreSQL 18
+derived:
+  - Confirmation locks the account before the change row, as reset and recovery now do, so no new lock order
+unknown:
+  - Coordinator Jira synchronization
+conflicts: []
+first_failure:
+  marker: none
+  evidence: none
+rejected_hypotheses:
+  - Cancelling in revoke_authorizations was rejected because sign-out-all, password change and email-change revert also call it
+changed_paths:
+  - portal-rs/crates/identity/src/email_change.rs
+  - portal-rs/crates/identity/src/email_change_tests.rs
+  - portal-rs/crates/identity/src/passkeys.rs
+  - portal-rs/crates/identity/src/passkeys_tests.rs
+  - portal-rs/crates/identity/src/recovery_key.rs
+  - portal-rs/crates/identity/src/reset.rs
+  - portal-rs/crates/identity/tests/registration.rs
+  - portal-rs/crates/web/src/routes/register.rs
+  - portal-rs/crates/web/src/session.rs
+  - docs/agents/tasks/active/OTERYN-20261116-r4-identity-d1-d2-d3.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-ci-shards.md
+validation:
+  - command: cargo test --locked -p oteryn-identity --lib -- d1_ d3_ (product files reverted)
+    result: PASS
+    evidence: expected red, 0 passed 4 failed at the refusal assertions
+  - command: cargo test --locked -p oteryn-identity --test registration duplicate_email_has_same_response (product files reverted)
+    result: PASS
+    evidence: expected red, cookie issuance differs between new and duplicate registration
+  - command: cargo test --locked -p oteryn-identity --no-fail-fast
+    result: PASS
+    evidence: lib 162 passed, registration 13 passed, 0 failed, PostgreSQL 18 enabled, no SKIPPED line
+  - command: cargo test --locked -p oteryn-web --no-fail-fast
+    result: PASS
+    evidence: 42 plus 5 plus 14 passed, 0 failed, 1 ignored browser test unchanged
+  - command: cargo test --locked -p oteryn-identity --lib -- d1_ (cancel_pending calls removed)
+    result: PASS
+    evidence: expected red, 3 failed including d1_recovery_cancels_confirmed_change_waiting_for_worker with (1, new address) applied by the worker
+  - command: 10 runs of the identity lib test binary filtered to d3_ while the full identity lib suite ran concurrently
+    result: PASS
+    evidence: 10 of 10 exit 0, 2 passed each, PostgreSQL enabled; concurrent suite 163 passed
+  - command: cargo test --locked -p oteryn-portal --bin oteryn-portal audit_l9
+    result: PASS
+    evidence: 8 passed including production_registration_account_exists and production_proxy_budgets, which post /register
+  - command: cargo fmt --all --check
+    result: PASS
+    evidence: exit 0
+  - command: cargo clippy --locked --all-targets -- -D warnings
+    result: PASS
+    evidence: exit 0 on the whole workspace
+blockers:
+  - none
+next_action: none; delivered by PR 1893 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1893 squash-merged; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1893 merged as 8e16fc6da3eb9ea8caf11707a62b7c9bc4fc5b8d
+```
