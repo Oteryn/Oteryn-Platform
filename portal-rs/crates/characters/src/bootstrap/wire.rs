@@ -17,6 +17,7 @@ const FIELDS: &[&str] = &[
     "target_world_id",
     "requested_name",
     "requested_sex",
+    "requested_vocation",
     "interpretation_context",
     "issued_at_source",
     "expires_at_source",
@@ -84,7 +85,7 @@ pub(super) fn revision(value: &str) -> bool {
 pub(super) fn request(value: &Value) -> Result<&str, Error> {
     let parse = || {
         keys(value, &["contract_version", "operation_id"])?;
-        if value.get("contract_version") != Some(&Value::Unsigned(3)) {
+        if value.get("contract_version") != Some(&Value::Unsigned(4)) {
             return Err(Error::Unavailable);
         }
         let operation = string(value, "operation_id")?;
@@ -93,15 +94,53 @@ pub(super) fn request(value: &Value) -> Result<&str, Error> {
     };
     parse().map_err(|_| Error::BadInput)
 }
+/// The five Game vocations, case-sensitive (contract v4); no numeric form, no `None`.
+pub(super) const VOCATIONS: [&str; 5] = ["Knight", "Paladin", "Sorcerer", "Druid", "Monk"];
+pub(super) fn vocation(value: &str) -> bool {
+    VOCATIONS.contains(&value)
+}
+/// Verifies a stored intent against its row: digest, the intent itself, then the
+/// binding columns, which must equal the hashed JSON exactly.
 pub(super) fn stored(row: &PgRow, raw: &[u8]) -> Result<Value, Error> {
     let digest = format!("{:x}", Sha256::digest(raw));
     let stored: String = row.try_get("intent_sha256")?;
     if !bool::from(digest.as_bytes().ct_eq(stored.as_bytes())) {
         return Err(Error::Unavailable);
     }
+    let value = intent(raw)?;
+    for key in [
+        "operation_id",
+        "issuer_decision_id",
+        "account_id",
+        "target_world_id",
+        "requested_name",
+        "requested_sex",
+        "requested_vocation",
+        "source_revision",
+        "issued_at_source",
+        "expires_at_source",
+    ] {
+        if row.try_get::<String, _>(key)? != string(&value, key)? {
+            return Err(Error::Unavailable);
+        }
+    }
+    let context = value
+        .get("interpretation_context")
+        .ok_or(Error::Unavailable)?;
+    for key in CONTEXT {
+        if row.try_get::<String, _>(*key)? != string(context, key)? {
+            return Err(Error::Unavailable);
+        }
+    }
+    Ok(value)
+}
+/// Verifies one current intent body without storage: exact members, constants,
+/// field syntax, expiry bounds and the canonical compact encoding.
+pub(super) fn intent(raw: &[u8]) -> Result<Value, Error> {
     let value = canonical::decode(raw, 4096, 3).map_err(|_| Error::Unavailable)?;
     keys(&value, FIELDS)?;
-    if value.get("contract_version") != Some(&Value::Unsigned(3)) {
+    // Versions 1-3 are retired: their stored intents are not current.
+    if value.get("contract_version") != Some(&Value::Unsigned(4)) {
         return Err(Error::Unavailable);
     }
     for (key, expected) in [
@@ -124,28 +163,15 @@ pub(super) fn stored(row: &PgRow, raw: &[u8]) -> Result<Value, Error> {
     if !matches!(string(&value, "requested_sex")?, "Female" | "Male") {
         return Err(Error::Unavailable);
     }
-    for key in [
-        "operation_id",
-        "issuer_decision_id",
-        "account_id",
-        "target_world_id",
-        "requested_name",
-        "requested_sex",
-        "source_revision",
-        "issued_at_source",
-        "expires_at_source",
-    ] {
-        if row.try_get::<String, _>(key)? != string(&value, key)? {
-            return Err(Error::Unavailable);
-        }
+    if !vocation(string(&value, "requested_vocation")?) {
+        return Err(Error::Unavailable);
     }
     let context = value
         .get("interpretation_context")
         .ok_or(Error::Unavailable)?;
     keys(context, CONTEXT)?;
     for key in CONTEXT {
-        let given = string(context, key)?;
-        if !revision(given) || row.try_get::<String, _>(*key)? != given {
+        if !revision(string(context, key)?) {
             return Err(Error::Unavailable);
         }
     }

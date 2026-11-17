@@ -340,6 +340,7 @@ async fn bootstrap_intent_is_issued_once_and_readable() -> TestResult {
     let input = json!({
         "accountId": account, "operationId": operation, "targetWorldId": WORLD,
         "requestedName": "Aldric Vale", "requestedSex": "Female",
+        "requestedVocation": "Druid",
         "profileRevision": "profile:1", "rulesetRevision": "ruleset:1",
         "contentRevision": "content:1", "starterTemplateRevision": "starter:1",
     });
@@ -371,6 +372,10 @@ async fn bootstrap_intent_is_issued_once_and_readable() -> TestResult {
         stored.get("requested_sex"),
         Some(&Wire::String("Female".into()))
     );
+    assert_eq!(
+        stored.get("requested_vocation"),
+        Some(&Wire::String("Druid".into()))
+    );
 
     // A second operation advances the issuer revision.
     let mut next = input.clone();
@@ -379,11 +384,27 @@ async fn bootstrap_intent_is_issued_once_and_readable() -> TestResult {
     let second = db.seed("bootstrap-intent", next).await?;
     assert_eq!(second["sourceRevision"], "2");
 
-    let mut changed = input.clone();
-    changed["requestedName"] = json!("Other Name");
-    assert!(is_conflict(db.seed("bootstrap-intent", changed).await));
+    for (key, value) in [
+        ("requestedName", json!("Other Name")),
+        ("requestedVocation", json!("Monk")),
+    ] {
+        let mut changed = input.clone();
+        changed[key] = value;
+        assert!(
+            is_conflict(db.seed("bootstrap-intent", changed).await),
+            "{key}"
+        );
+    }
+    let mut missing = input.clone();
+    missing["operationId"] = json!("019a0000-0000-7000-8000-0000000b0003");
+    missing.as_object_mut().unwrap().remove("requestedVocation");
+    assert!(is_bad(db.seed("bootstrap-intent", missing).await));
     for (key, value) in [
         ("requestedSex", json!("female")),
+        ("requestedVocation", json!("knight")),
+        ("requestedVocation", json!("None")),
+        ("requestedVocation", json!("")),
+        ("requestedVocation", json!(1)),
         ("requestedName", json!("Al1")),
         ("requestedName", json!("A")),
         ("requestedName", json!("Two  Spaces")),
