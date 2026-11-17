@@ -36,7 +36,7 @@ chained email change after the 72 h block (partially covered by item 1).
 - [x] Registering the old address during the revert window is refused and the revert succeeds; after the window closes the address is free (`r5_old_address_stays_reserved_through_the_revert_window`)
 - [x] A V1 receipt for a V2 service command is refused and the command stays pending (`db_v1_receipt_refuses_v2_service_commands`)
 - [x] A pending account cannot generate a recovery key; a key made after verification survives a later verification bump (`r5_recovery_key_requires_a_verified_owner`)
-- [ ] Portal RS CI green on the PR head (no PR yet)
+- [x] Portal RS CI green on the PR head (no PR yet)
 
 ## Ownership
 
@@ -66,10 +66,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T12:00:00Z
-head: bc2fe67d
+head: 8d253418f6ec92af1294b03e9927321b2160bda7
 branch: claude/happy-davinci-ijz3wy-review5-fixes
 pr: 1927
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-review5-fixes.md
@@ -112,13 +112,13 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: Portal RS CI on the PR
+next_action: none; delivered by PR 1927 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for the review 5 fixes; retained until merge
-source_branch_evidence: The branch records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1927 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1927 merged as 8d253418f6ec92af1294b03e9927321b2160bda7
 ```
