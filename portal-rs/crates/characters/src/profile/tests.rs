@@ -288,6 +288,11 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
             .ok_or("missing policy")?
             .show_deaths
     );
+    let (_, stale_form) = service
+        .edit(account, "Belric", 1000)
+        .await
+        .map_err(|error| format!("edit Belric: {error:?}"))?;
+    assert!(!stale_form.hide_all_characters);
     switches.hide_all_characters = true;
     assert_eq!(
         service
@@ -302,6 +307,36 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
             .ok_or("missing second policy")?
             .hidden
     );
+    let body = format!(
+        "rendered_hide_all_characters={}&comment=Saved+from+an+older+form",
+        u8::from(stale_form.hide_all_characters)
+    );
+    http::save_form(&service, account, "Belric", body.as_bytes(), 1000)
+        .await
+        .map_err(|error| format!("save Belric form: {error:?}"))?;
+    let (_, saved) = service
+        .edit(account, "Belric", 1000)
+        .await
+        .map_err(|error| format!("edit Belric: {error:?}"))?;
+    assert_eq!(saved.comment, "Saved from an older form");
+    assert!(
+        saved.hide_all_characters,
+        "stale character save cleared the account-wide hide"
+    );
+    for (body, expected) in [
+        ("comment=Legacy+form", true),
+        ("rendered_hide_all_characters=1", false),
+        ("rendered_hide_all_characters=0&hide_all_characters=1", true),
+    ] {
+        http::save_form(&service, account, "Belric", body.as_bytes(), 1000)
+            .await
+            .map_err(|error| format!("save Belric form: {error:?}"))?;
+        let (_, saved) = service
+            .edit(account, "Belric", 1000)
+            .await
+            .map_err(|error| format!("edit Belric: {error:?}"))?;
+        assert_eq!(saved.hide_all_characters, expected);
+    }
     switches.comment = "a".repeat(501);
     assert_eq!(
         service
@@ -415,7 +450,11 @@ async fn postgres_profile_takes_account_before_feed_like_termination()
                         is_main_character: true,
                         ..Preferences::default()
                     };
-                    service.save(account, "Aldric", value, 1000).await.is_ok()
+                    let account_hide = Some(value.hide_all_characters);
+                    service
+                        .save(account, "Aldric", value, account_hide, 1000)
+                        .await
+                        .is_ok()
                 }
                 "main" => service.main_character(account, 1000).await == Some(character),
                 _ => service.public_preferences(character, 1000).await.is_some(),
