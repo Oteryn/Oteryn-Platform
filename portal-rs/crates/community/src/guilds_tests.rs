@@ -180,6 +180,22 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     let (status, body) = page_body(pages(), "/en/guilds").await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Visible members: 1"));
+    // Ingest holds the projection row FOR UPDATE; the page's read fence sheds
+    // as unavailable within its budget instead of waiting for the ingest.
+    let mut ingest = db.begin().await?;
+    sqlx::query("SELECT 1 FROM public_projection_state WHERE id=1 FOR UPDATE")
+        .execute(&mut *ingest)
+        .await?;
+    let started = std::time::Instant::now();
+    let (status, _) = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        page_body(pages(), "/en/guilds"),
+    )
+    // An elapsed timeout fails the test: the page waited on the held lock.
+    .await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    ingest.rollback().await?;
     if let Ok(dir) = std::env::var("PORTAL_TEST_ARTIFACT_DIR") {
         std::fs::create_dir_all(&dir)?;
         std::fs::write(std::path::Path::new(&dir).join("guilds.html"), &body)?;

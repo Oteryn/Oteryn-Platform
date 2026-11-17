@@ -251,6 +251,7 @@ impl<P: Policy, A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Refe
         valid(invitee)?;
         valid(invitation)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let row = sqlx::query(
             "SELECT * FROM referral_invitations WHERE id=$1 AND invitee_id=$2 FOR UPDATE",
         )

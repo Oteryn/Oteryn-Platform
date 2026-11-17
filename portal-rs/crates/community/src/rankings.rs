@@ -502,7 +502,9 @@ async fn eligible(
     payload: &serde_json::Value,
     privacy_cut: &crate::privacy::Cut,
 ) -> Result<bool, VisibilityUnavailable> {
-    let mut tx = db.begin().await.map_err(|_| VisibilityUnavailable)?;
+    let mut tx = crate::privacy::read_fence(db)
+        .await
+        .map_err(|_| VisibilityUnavailable)?;
     sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
         .execute(&mut *tx)
         .await

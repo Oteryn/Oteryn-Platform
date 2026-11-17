@@ -311,7 +311,9 @@ async fn load(
             extras,
         });
     }
-    let mut fence = state.db.begin().await.map_err(|_| unavailable)?;
+    let mut fence = crate::privacy::read_fence(&state.db)
+        .await
+        .map_err(|_| unavailable)?;
     sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
         .fetch_one(&mut *fence)
         .await

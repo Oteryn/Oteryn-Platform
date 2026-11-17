@@ -310,7 +310,9 @@ async fn load(state: &Profiles, name: &str) -> Result<Option<Character>, Unavail
     }
     // External readers may await I/O. Recheck source eligibility at serving time,
     // so an epoch raise or expired watermark during those waits cannot disclose facts.
-    let mut final_cut = state.db.begin().await.map_err(|_| Unavailable)?;
+    let mut final_cut = crate::privacy::read_fence(&state.db)
+        .await
+        .map_err(|_| Unavailable)?;
     sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
         .execute(&mut *final_cut)
         .await
