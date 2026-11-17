@@ -674,7 +674,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             }),
             &self.auth,
             context,
-            &[Permission::Access, Permission::ManageRoles],
+            &[Permission::Access, Permission::ManageRoles, Permission::ManageSupportTickets],
         )
         .await?;
         let row: Option<(Uuid,Uuid)> = sqlx::query_as("SELECT requested_by,evidence FROM player_mfa_reset_requests WHERE id=$1 AND account_id=$2 AND approved_by IS NULL AND expires_at>clock_timestamp() FOR UPDATE").bind(request).bind(id).fetch_optional(&mut *tx).await?;
