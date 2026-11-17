@@ -153,6 +153,11 @@ async fn database_families_ordering_rollback_and_watermarks() -> TestResult {
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261117200006_r7_com_a.sql"
+    ))
+    .execute(&db)
+    .await?;
     for f in FAMILIES {
         let raw = FIXTURES.iter().find(|(name, _)| *name == f.name).unwrap().1;
         let response = send(app(db.clone(), true), f.path, raw, "projection-test").await;
@@ -245,3 +250,65 @@ const FIXTURES: &[(&str, &str)] = &[
         r#"{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"oteryn:game:primary","family":"world_online","projection_epoch":"1","complete_through":"1790000000","observed_at":"1790000003"}"#,
     ),
 ];
+
+#[tokio::test]
+async fn guild_versions_accept_same_revision() -> TestResult {
+    let fixture = crate::audit06_test_db::Database::new().await?;
+    let raw = FIXTURES
+        .iter()
+        .find(|(name, _)| *name == "guild")
+        .unwrap()
+        .1;
+    let v1 = app(fixture.db.clone(), true);
+    let ids = IdentityMap::new(vec![Binding {
+        identity: Identity::san("projection-test")?,
+        group: "game-public".into(),
+    }])?;
+    let v2 = crate::guilds::ingest_router(
+        fixture.db.clone(),
+        Arc::new(ids),
+        crate::guilds::IngestConfig {
+            enabled: true,
+            source_authority: "oteryn:game:primary".into(),
+        },
+    );
+    // Preserve the canonical wire field order of the signed-off V1 vector.
+    let body = raw
+        .replace("PublishGuildV1", "PublishGuildV2")
+        .replace(r#""contract_version":1"#, r#""contract_version":2"#)
+        .replace(
+            r#""name":"Aldric""#,
+            r#""character_id":"01934f10-7c04-7001-805b-3b1122334401","name":"Aldric""#,
+        );
+    let publication: serde_json::Value = serde_json::from_str(&body)?;
+    for _ in 0..2 {
+        assert_eq!(
+            send(v1.clone(), "guild", raw, "projection-test")
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        let response = v2
+            .clone()
+            .oneshot(
+                Request::post("/internal/v2/game-public/guild")
+                    .header("content-type", "application/json")
+                    .extension(VerifiedClient::from_verified_tls13_http11(Identity::san(
+                        "projection-test",
+                    )?))
+                    .body(Body::from(body.clone()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    let id = publication["guild_id"].as_str().unwrap();
+    let legacy = latest(&fixture.db, "guild_v1", id).await?.unwrap();
+    let current = latest(&fixture.db, "guild", id).await?.unwrap();
+    assert_eq!(current["guild"], publication["guild"]);
+    assert!(
+        legacy["guild"][0]["members"][0]
+            .get("character_id")
+            .is_none()
+    );
+    fixture.close().await
+}

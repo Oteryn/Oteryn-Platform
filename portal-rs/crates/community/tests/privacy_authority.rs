@@ -517,3 +517,53 @@ async fn w3_c06_006_ranking_name_handoff() -> Result {
 
     fixture.finish().await
 }
+
+async fn stale_profile_page(online_page: bool) -> Result {
+    let fixture = RankingFixture::new().await?;
+    let db = &fixture.db;
+    let authority = Arc::new(Authority::new(
+        db.clone(),
+        ProfileAuthority {
+            service: fixture.service.clone(),
+        },
+    ));
+    let (app, path) = if online_page {
+        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT 'world_online',payload->>'world_id',1,1,watermark,jsonb_build_object('world_id',payload->>'world_id','characters',jsonb_build_array(jsonb_build_object('name','Aldric','level','100','vocation',1))) FROM public_snapshots WHERE family='highscores'").execute(db).await?;
+        (
+            online::router(
+                db.clone(),
+                authority,
+                online::Config {
+                    enabled: true,
+                    ..Default::default()
+                },
+            ),
+            "/en/online",
+        )
+    } else {
+        (
+            oteryn_community::rankings::router(db.clone(), true, authority),
+            "/en/rankings/level",
+        )
+    };
+    let request = || Request::get(path).body(Body::empty());
+    assert_eq!(
+        app.clone().oneshot(request()?).await?.status(),
+        StatusCode::OK
+    );
+    sqlx::query("UPDATE public_snapshots SET watermark=watermark-60 WHERE family='character_profile' AND is_watermark").execute(db).await?;
+    let status = app.oneshot(request()?).await?.status();
+    fixture.finish().await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_profile_online_returns_503() -> Result {
+    stale_profile_page(true).await
+}
+
+#[tokio::test]
+async fn stale_profile_rankings_returns_503() -> Result {
+    stale_profile_page(false).await
+}
