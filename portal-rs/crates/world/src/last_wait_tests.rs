@@ -156,3 +156,62 @@ async fn postgres_last_wait_grant_expiry_rolls_back_world() -> TestResult {
     );
     db.close().await
 }
+
+// A denied staff request records its denial in the audit log. A held audit
+// table lock must make it answer unavailable within the mutation budget.
+#[tokio::test]
+async fn postgres_denied_audit_answers_unavailable_under_a_held_audit_lock() -> TestResult {
+    use sqlx::Connection;
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = TestDb::open().await?;
+    let outsider = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'fixture-password','active','en',now())").bind(outsider).bind(format!("{outsider}@example.invalid")).execute(&db.pool).await?;
+    let context = CheckContext {
+        account: outsider,
+        require_staff_mfa: true,
+        mfa_verified: true,
+        session_proof: Some(crate::test_staff::proof(&db.pool, outsider).await?),
+    };
+    let mut blocker =
+        sqlx::PgConnection::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    sqlx::query("BEGIN").execute(&mut blocker).await?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "LOCK TABLE {schema}.audit_log IN SHARE MODE"
+    )))
+    .execute(&mut blocker)
+    .await?;
+    let panel = super::Panel {
+        auth: std::sync::Arc::new(Authorizer::new(
+            db.pool.clone(),
+            oteryn_admin::web::PortalIdentity::configured(db.pool.clone()),
+        )),
+        pool: db.pool.clone(),
+        enabled: true,
+    };
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        super::authorize(
+            &panel,
+            context,
+            oteryn_admin::rbac::Permission::ViewGameCatalogSnapshots,
+        ),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    sqlx::query("ROLLBACK").execute(&mut blocker).await?;
+    blocker.close().await?;
+    let result = result.map_err(|_| "denied audit waited past 10 s on a held audit lock")?;
+    assert_eq!(result, Err(axum::http::StatusCode::SERVICE_UNAVAILABLE));
+    assert!(elapsed < std::time::Duration::from_secs(4), "{elapsed:?}");
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
+}

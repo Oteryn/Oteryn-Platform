@@ -315,6 +315,9 @@ async fn mutate<A: AccountStateReader>(
         return Err(StatusCode::NOT_FOUND);
     }
     let mut tx = s.pool.begin().await.map_err(unavailable)?;
+    oteryn_db::mutation_budget(&mut tx)
+        .await
+        .map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
         &[context.account],
@@ -519,6 +522,9 @@ async fn authorize<A: AccountStateReader>(
         Err(oteryn_admin::rbac::Error::Storage(_)) => Err(StatusCode::SERVICE_UNAVAILABLE),
         Err(_) => {
             let mut tx = s.pool.begin().await.map_err(unavailable)?;
+            oteryn_db::mutation_budget(&mut tx)
+                .await
+                .map_err(unavailable)?;
             audit::append(
                 &mut tx,
                 Entry {
