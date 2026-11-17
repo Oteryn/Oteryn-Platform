@@ -30,7 +30,7 @@ Claims pdsessions and lockref were checked and are not real; no change.
 
 ## Acceptance criteria
 
-- [x] Each fix has a test that fails without it and passes with it
+- [x] Each fix has a test that fails without it (worker report) and passes with it (rerun here)
 - [x] Focused crate tests pass on the integrated tree
 - [ ] Portal RS CI green on the PR head
 
@@ -94,6 +94,7 @@ proven:
   - Fix branches lockemail 1608e7a1, grantroute f6ae89a4, coinrev 76ff3f71, lockcmd 83e380ff, profdeadlock 8db4aae3 merged into origin/main 477a7444 without conflicts
 derived:
   - grantroute leaves a window between the last check and commit; the portal has no route writer
+  - Lock order checked across the workspace: claim_lock callers take the address before any account row; coin create (payer fence, wallet share, quote) is compatible with reversal (order, wallet, hold); command receipts take restore, fence, command like service receipts; feed publishers lock no account after the feed
 unknown:
   - Coordinator Jira synchronization
 conflicts: []
@@ -120,7 +121,7 @@ changed_paths:
 validation:
   - command: red-then-green per fix (r4_address_claim_wait_retains_no_account_row, r4_protocol3_refuses_an_endpoint_shared_after_selection, create_waiting_on_the_payer_claim_sees_a_reversal_hold, db_receipt_publication_waits_for_shared_issuance_fence, postgres_profile_takes_account_before_feed_like_termination)
     result: PASS
-    evidence: each failed on its own assertion without the fix and passed with it
+    evidence: red side reported by the round-4 worker on each fix branch; green side rerun here on the integrated tree (row below)
   - command: cargo test --locked -p oteryn-identity / -p oteryn-gameauth / -p oteryn-payments / -p oteryn-characters, -p oteryn-portal coin_purchases (PostgreSQL 18)
     result: PASS
     evidence: identity 164+13, gameauth 166, payments 12 (1 ignored, unchanged)+15+18, characters 1+97, portal coin_purchases 25 passed, 0 failed
