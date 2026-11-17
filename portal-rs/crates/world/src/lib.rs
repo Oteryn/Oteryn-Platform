@@ -17,6 +17,9 @@ pub mod admin;
 pub mod catalog;
 
 #[cfg(test)]
+mod begin_guard_tests;
+
+#[cfg(test)]
 #[path = "../tests/support/catalog.rs"]
 mod catalog_fixture;
 
