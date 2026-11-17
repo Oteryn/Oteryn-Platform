@@ -19,7 +19,7 @@ guard admits any staff member; every handler keeps its own permission check.
 ## Acceptance criteria
 
 - [x] Support staff keep the full view; a kick-only moderator gets only the kick form, a `players.kick.view` audit entry, 403 on search and notes, and can kick (`postgres_http_kick_only_moderator_sees_only_the_kick_view`)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -45,10 +45,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T14:00:00Z
-head: 149b24b6
+head: 052dfdb53f73aabb586348f99e89f4e8ddb42f66
 branch: claude/happy-davinci-ijz3wy-kick-view
 pr: 1932
-status: ready
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -84,13 +84,13 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: none; delivered by PR 1932 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for the kick-only view; retained until merge
-source_branch_evidence: The branch records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1932 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1932 merged as 052dfdb53f73aabb586348f99e89f4e8ddb42f66
 ```

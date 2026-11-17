@@ -5,6 +5,14 @@ use sqlx::{PgConnection, PgPool, Row};
 use std::sync::Arc;
 use time::OffsetDateTime;
 
+/// A [`Mutation`] whose reason is already reduced to SHA-256 of its trimmed text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DigestMutation {
+    pub account: Uuid,
+    pub request: Uuid,
+    pub change: Change,
+    pub reason_sha256: [u8; 32],
+}
 #[derive(Debug, Clone)]
 pub struct Ledger {
     pool: PgPool,
@@ -146,6 +154,23 @@ impl Ledger {
         }
         self.authorized_in(tx, operator.actor, mutation).await
     }
+    /// [`Self::mutate_in`] for a caller that keeps only SHA-256 of the trimmed
+    /// reason, such as a staff request approved later. The ledger records the
+    /// same digest the plaintext entry records for that reason.
+    pub async fn mutate_digest_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        operator: &Operator,
+        mutation: &DigestMutation,
+    ) -> Result<Entitlement, Error> {
+        if !self.enabled {
+            return Err(Error::Disabled);
+        }
+        if !operator.confirmed_mfa || operator.permission != "products.premium.manage" {
+            return Err(Error::Denied);
+        }
+        self.digest_in(tx, operator.actor, mutation).await
+    }
     /// A durable campaign award is the authority for this server-side grant.
     /// No browser or staff privilege can supply an arbitrary duration here.
     pub async fn grant_referral_in(
@@ -182,15 +207,35 @@ impl Ledger {
         mutation: &Mutation,
     ) -> Result<Entitlement, Error> {
         let reason = mutation.reason.trim();
-        if !(10..=500).contains(&reason.chars().count())
-            || mutation.request.is_nil()
+        if !(10..=500).contains(&reason.chars().count()) {
+            return Err(Error::Invalid);
+        }
+        self.digest_in(
+            tx,
+            actor,
+            &DigestMutation {
+                account: mutation.account,
+                request: mutation.request,
+                change: mutation.change,
+                reason_sha256: Sha256::digest(reason.as_bytes()).into(),
+            },
+        )
+        .await
+    }
+    async fn digest_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        actor: Uuid,
+        mutation: &DigestMutation,
+    ) -> Result<Entitlement, Error> {
+        if mutation.request.is_nil()
             || actor.get_version_num() != 7
             || actor.get_variant() != uuid::Variant::RFC4122
             || matches!(mutation.change, Change::Grant(days) if !(1..=366).contains(&days))
         {
             return Err(Error::Invalid);
         }
-        let hash = Sha256::digest(reason.as_bytes()).to_vec();
+        let hash = mutation.reason_sha256.as_slice();
         let (kind, days) = match mutation.change {
             Change::Grant(days) => ("GRANT", Some(i32::from(days))),
             Change::Revoke => ("REVOKE", None),

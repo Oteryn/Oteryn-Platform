@@ -81,20 +81,21 @@ impl<
                     Command::Grant { days } => premium::Change::Grant(days),
                     _ => premium::Change::Revoke,
                 };
+                // An approved grant has no plaintext reason left, only its digest.
                 let result = self
                     .premium
-                    .mutate_in(
+                    .mutate_digest_in(
                         tx,
                         &premium::Operator {
                             actor,
                             confirmed_mfa: true,
                             permission: rbac::Permission::ManagePremiumTime.as_str().to_owned(),
                         },
-                        &premium::Mutation {
+                        &premium::repository::DigestMutation {
                             account: request.target,
                             request: request.request_id,
                             change,
-                            reason: request.reason.clone(),
+                            reason_sha256: reason_digest(reason_hash)?,
                         },
                     )
                     .await
@@ -135,6 +136,28 @@ impl<
             Command::Reconcile | Command::Refund => self.payments.apply(tx, request).await,
         }
     }
+}
+/// Decodes the stored lowercase or uppercase hex SHA-256 of a request reason.
+pub(super) fn reason_digest(hex: &str) -> Result<[u8; 32], Error> {
+    fn nibble(byte: u8) -> Result<u8, Error> {
+        match byte {
+            b'0'..=b'9' => Ok(byte - b'0'),
+            b'a'..=b'f' => Ok(byte - b'a' + 10),
+            b'A'..=b'F' => Ok(byte - b'A' + 10),
+            _ => Err(Error::Invalid),
+        }
+    }
+    let bytes = hex.as_bytes();
+    if bytes.len() != 64 {
+        return Err(Error::Invalid);
+    }
+    let mut digest = [0; 32];
+    for (slot, pair) in digest.iter_mut().zip(bytes.chunks_exact(2)) {
+        if let [high, low] = pair {
+            *slot = (nibble(*high)? << 4) | nibble(*low)?;
+        }
+    }
+    Ok(digest)
 }
 /// A `refunding` claim younger than this belongs to a live attempt. It is four
 /// times the worker's 30 s execution budget, so a call still running in a live

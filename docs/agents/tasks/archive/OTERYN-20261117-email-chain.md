@@ -19,7 +19,7 @@ of changes (`email_change::request`).
 ## Acceptance criteria
 
 - [x] X to Y applied; a request for Z inside Y's revert window is refused; the revert restores X; after the revert a new change is accepted (`r5_no_chained_primary_change_inside_the_revert_window`)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -43,10 +43,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T13:00:00Z
-head: 149b24b6
+head: fd06db14437a1893dd75d654bc50059db88dbc28
 branch: claude/happy-davinci-ijz3wy-email-chain
 pr: 1929
-status: ready
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -78,13 +78,13 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
+next_action: none; delivered by PR 1929 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for the chained email change fix; retained until merge
-source_branch_evidence: The branch records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1929 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1929 merged as fd06db14437a1893dd75d654bc50059db88dbc28
 ```

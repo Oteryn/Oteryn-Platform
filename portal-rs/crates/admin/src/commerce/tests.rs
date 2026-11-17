@@ -259,7 +259,18 @@ async fn postgres_premium_success_replay_refusal_and_bad_input() {
         Err(Error::Denied)
     ));
     let req = request(h.target, Command::Grant { days: 30 });
-    assert!(!service.submit(ctx, req.clone()).await.unwrap().pending);
+    // Four eyes: the grant waits for a second staff member before any ledger row.
+    assert!(service.submit(ctx, req.clone()).await.unwrap().pending);
+    let replay = service.submit(ctx, req.clone()).await.unwrap();
+    assert!(replay.replayed && replay.pending);
+    assert_eq!(h.count("premium_ledger").await, 0);
+    assert!(
+        !service
+            .approve(context(&h.pool, h.second).await, req.request_id)
+            .await
+            .unwrap()
+            .pending
+    );
     assert!(service.submit(ctx, req.clone()).await.unwrap().replayed);
     assert_eq!(h.count("premium_ledger").await, 1);
     let mut conflict = req.clone();
@@ -798,11 +809,33 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
         .next()
         .unwrap();
     let response = second_app
+        .clone()
         .oneshot(
             HttpRequest::post(format!("/admin/commerce/approvals/{adjustment_id}"))
                 .header("host", "staff.test")
                 .header("origin", "https://staff.test")
-                .header("cookie", second_cookie)
+                .header("cookie", &second_cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM premium_ledger WHERE request_id=$1")
+        .bind(grant_id)
+        .fetch_one(&h.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "a staff grant waits for a second staff member");
+    assert!(html.contains(&format!("/admin/commerce/approvals/{grant_id}")));
+    let response = second_app
+        .clone()
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/approvals/{grant_id}"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &second_cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!("_csrf={csrf}")))
                 .unwrap(),
@@ -1978,4 +2011,182 @@ async fn postgres_staff_never_grant_premium_or_balance_to_themselves() {
             .unwrap();
     assert_eq!(denied, 2);
     h.close().await;
+}
+async fn grant_entitlements(h: &Harness, request: Uuid) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM premium_ledger WHERE request_id=$1 AND event_type='GRANT'",
+    )
+    .bind(request)
+    .fetch_one(&h.pool)
+    .await
+    .unwrap()
+}
+#[tokio::test]
+async fn postgres_grant_submit_is_pending_without_entitlement() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let service = h.service();
+    let req = request(h.target, Command::Grant { days: 30 });
+    let outcome = service
+        .submit(context(&h.pool, h.actor).await, req.clone())
+        .await
+        .unwrap();
+    assert!(outcome.pending);
+    assert!(!outcome.replayed);
+    assert_eq!(grant_entitlements(&h, req.request_id).await, 0);
+    assert_eq!(h.count("premium_ledger").await, 0);
+    assert_eq!(h.count("premium_authority").await, 0);
+    h.close().await;
+}
+#[tokio::test]
+async fn postgres_grant_proposer_cannot_approve_own_grant() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let service = h.service();
+    let ctx = context(&h.pool, h.actor).await;
+    let req = request(h.target, Command::Grant { days: 30 });
+    assert!(service.submit(ctx, req.clone()).await.unwrap().pending);
+    assert!(matches!(
+        service.approve(ctx, req.request_id).await,
+        Err(Error::Denied)
+    ));
+    assert_eq!(h.count("premium_ledger").await, 0);
+    let open: bool =
+        sqlx::query_scalar("SELECT result IS NULL FROM commerce_operations WHERE id=$1")
+            .bind(req.request_id)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert!(open);
+    h.close().await;
+}
+#[tokio::test]
+async fn postgres_grant_second_staff_approval_records_reason_digest() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let service = h.service();
+    let req = request(h.target, Command::Grant { days: 30 });
+    assert!(
+        service
+            .submit(context(&h.pool, h.actor).await, req.clone())
+            .await
+            .unwrap()
+            .pending
+    );
+    let outcome = service
+        .approve(context(&h.pool, h.second).await, req.request_id)
+        .await
+        .unwrap();
+    assert!(!outcome.pending);
+    assert!(!outcome.replayed);
+    assert_eq!(grant_entitlements(&h, req.request_id).await, 1);
+    let (actor, days, digest): (Uuid, Option<i32>, Vec<u8>) = sqlx::query_as(
+        "SELECT actor_id,duration_days,reason_sha256 FROM premium_ledger WHERE request_id=$1",
+    )
+    .bind(req.request_id)
+    .fetch_one(&h.pool)
+    .await
+    .unwrap();
+    assert_eq!(actor, h.actor);
+    assert_eq!(days, Some(30));
+    assert_eq!(digest, Sha256::digest(req.reason.as_bytes()).to_vec());
+    let approved_by: Option<Uuid> =
+        sqlx::query_scalar("SELECT approved_by FROM commerce_operations WHERE id=$1")
+            .bind(req.request_id)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(approved_by, Some(h.second));
+    h.close().await;
+}
+#[tokio::test]
+async fn postgres_grant_approval_replay_is_idempotent() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let service = h.service();
+    let approver = context(&h.pool, h.second).await;
+    let req = request(h.target, Command::Grant { days: 7 });
+    assert!(
+        service
+            .submit(context(&h.pool, h.actor).await, req.clone())
+            .await
+            .unwrap()
+            .pending
+    );
+    assert!(
+        !service
+            .approve(approver, req.request_id)
+            .await
+            .unwrap()
+            .replayed
+    );
+    let replay = service.approve(approver, req.request_id).await.unwrap();
+    assert!(replay.replayed);
+    assert!(!replay.pending);
+    assert_eq!(grant_entitlements(&h, req.request_id).await, 1);
+    assert_eq!(h.count("premium_ledger").await, 1);
+    h.close().await;
+}
+#[tokio::test]
+async fn postgres_grant_to_value_ineligible_account_refused_at_submit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    sqlx::query(
+        "UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1",
+    )
+    .bind(h.target)
+    .execute(&h.pool)
+    .await
+    .unwrap();
+    let req = request(h.target, Command::Grant { days: 30 });
+    assert!(matches!(
+        h.service()
+            .submit(context(&h.pool, h.actor).await, req.clone())
+            .await,
+        Err(Error::Denied)
+    ));
+    assert_eq!(h.count("commerce_operations").await, 0);
+    assert_eq!(h.count("premium_ledger").await, 0);
+    let denied: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='commerce.denied' AND request_id=$1",
+    )
+    .bind(req.request_id)
+    .fetch_one(&h.pool)
+    .await
+    .unwrap();
+    assert_eq!(denied, 1);
+    h.close().await;
+}
+#[test]
+fn reason_digest_decodes_only_a_full_hex_sha256() {
+    let hash = format!("{:x}", Sha256::digest(b"Reviewed support request"));
+    assert_eq!(
+        effects::reason_digest(&hash).ok(),
+        Some(<[u8; 32]>::from(Sha256::digest(
+            b"Reviewed support request"
+        )))
+    );
+    for bad in [
+        String::new(),
+        hash[..62].to_owned(),
+        format!("{hash}00"),
+        format!("+{}", &hash[1..]),
+        format!("{}g", &hash[..63]),
+        format!("{}é", &hash[..62]),
+    ] {
+        assert!(
+            matches!(effects::reason_digest(&bad), Err(Error::Invalid)),
+            "{bad}"
+        );
+    }
 }

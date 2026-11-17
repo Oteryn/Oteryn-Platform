@@ -211,8 +211,8 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         }
     }
     // Apply permission predicates in SQL before exposing any queue entries.
-    let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ($3::uuid IS NULL OR (created_at,id)>(SELECT created_at,id FROM commerce_operations WHERE id=$3)) AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2)) ORDER BY created_at,id LIMIT 101")
-        .bind(actions.iter().any(|a| a.key=="adjust")).bind(actions.iter().any(|a| a.key=="refund")).bind(filter.after).fetch_all(&s.pool).await;
+    let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ($3::uuid IS NULL OR (created_at,id)>(SELECT created_at,id FROM commerce_operations WHERE id=$3)) AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2) OR (command->>'kind'='grant' AND $4)) ORDER BY created_at,id LIMIT 101")
+        .bind(actions.iter().any(|a| a.key=="adjust")).bind(actions.iter().any(|a| a.key=="refund")).bind(filter.after).bind(actions.iter().any(|a| a.key=="grant")).fetch_all(&s.pool).await;
     let mut pending = match rows.and_then(|rows| {
         rows.into_iter()
             .map(|r| {
@@ -221,7 +221,11 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
                     .get("kind")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                let label = if let Some(amount) = command.get("amount").and_then(Value::as_i64) {
+                let label = if let Some(amount) = command
+                    .get("amount")
+                    .or_else(|| command.get("days"))
+                    .and_then(Value::as_i64)
+                {
                     format!("{}: {amount}", locale.text(kind))
                 } else {
                     locale.text(kind)
