@@ -545,7 +545,8 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.enabled()?;
         validate_key(key)?;
         let mut tx = self.pool.begin().await?;
-        let listing = locked(&mut tx, id).await?;
+        crate::locking::listing_gate(&mut tx).await?;
+        let listing = lock_listing_row(&mut tx, id).await?;
         let result = self.settle_locked(&mut tx, &listing, key).await?;
         tx.commit().await?;
         Ok(result)
@@ -670,6 +671,10 @@ async fn clock(db: &mut PgConnection) -> Result<OffsetDateTime, Error> {
 }
 async fn locked(db: &mut PgConnection, id: Uuid) -> Result<Listing, Error> {
     crate::locking::listing_gate(db).await?;
+    lock_listing_row(db, id).await
+}
+
+async fn lock_listing_row(db: &mut PgConnection, id: Uuid) -> Result<Listing, Error> {
     sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
         .bind(id)
         .fetch_optional(db)
