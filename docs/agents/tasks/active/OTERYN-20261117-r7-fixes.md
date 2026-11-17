@@ -230,7 +230,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T21:07:36Z
 head: fa74b18390e0760d8556bd661975ad15cb274956
 branch: claude/happy-davinci-ijz3wy-r7-fixes
-pr: 0
+pr: 1943
 status: validating
 terminal_pr_policy: archive_pending
 context_routes: []
