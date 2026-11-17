@@ -248,7 +248,16 @@ impl Services {
             return Err(Error::Denied);
         }
         // Independent LCFA freshness and ownership association also have to agree.
-        let lcfa:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters c JOIN account_character_snapshots s USING(account_id) CROSS JOIN account_character_feed f WHERE c.account_id=$1 AND c.character_id=$2 AND NOT s.invalid AND s.projection_epoch=f.highest_epoch AND f.watermark_epoch=f.highest_epoch AND f.complete_through IS NOT NULL AND f.observed_at<=$3 AND f.complete_through>=$4)")
+        let lcfa:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters c JOIN account_character_snapshots s USING(account_id) CROSS JOIN account_character_feed f WHERE c.account_id=$1 AND c.character_id=$2 AND NOT s.invalid AND s.projection_epoch=f.highest_epoch AND f.watermark_epoch=f.highest_epoch AND f.complete_through IS NOT NULL AND f.observed_at<=$3 AND f.complete_through>=$4
+            AND NOT EXISTS (
+                SELECT 1 FROM character_commands t
+                WHERE t.command='TransferCharacterOwnership' AND t.state='TERMINAL'
+                  AND t.account_id=c.account_id AND t.receipt_json::jsonb->>'character_id'=c.character_id::text
+                  AND t.receipt_json::jsonb->>'outcome'='COMMITTED'
+                  AND ((t.receipt_json::jsonb->>'projection_epoch')::numeric,
+                       (t.receipt_json::jsonb->>'from_projection_revision')::numeric)
+                      > (s.projection_epoch::numeric,s.projection_revision::numeric)
+            ))")
             .bind(account).bind(character).bind(i64::try_from(current.saturating_add(uncertainty)).map_err(|_|Error::Unavailable)?).bind(i64::try_from(current.saturating_sub(freshness.saturating_sub(uncertainty))).map_err(|_|Error::Unavailable)?).fetch_one(&mut **tx).await?;
         if !lcfa {
             return Err(Error::Unavailable);
