@@ -29,7 +29,7 @@ coordinator decision; the catalog cache reads are lock-free.
 
 - [x] A held audit table lock makes the denied staff request answer unavailable within the budget (red without the change)
 - [x] Crate guard: every begin() is budgeted or listed with a reason (red without the change)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -56,10 +56,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T12:00:00Z
-head: a022cf41c48a4ab328a5b9f3b36a4183177264e1
+head: a20b2e81bd6163ca14d751613c329c12ad2ca268
 branch: claude/happy-davinci-ijz3wy-world-fence
 pr: 1914
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-world-fence.md
@@ -103,13 +103,13 @@ validation:
     evidence: lib 45, catalog 1, catalog_refresh 11, import_validation 1, postgres 10 pass, no SKIPPED; fmt and clippy exit 0
 blockers:
   - none
-next_action: coordinator commits, pushes and opens the PR
+next_action: none; delivered by PR 1914 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: to be squash-merged through the merge queue; GitHub deletes the head branch after merge
-source_branch_evidence: pending PR
+source_branch_reason: PR 1914 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1914 merged as a20b2e81bd6163ca14d751613c329c12ad2ca268
 ```
