@@ -35,6 +35,7 @@ current one is left; audit02 and
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-audit02-window.md
   - docs/agents/tasks/archive/OTERYN-20261117-classb-identity.md
+  - docs/agents/tasks/archive/OTERYN-20261117-classb-characters.md
   - portal-rs/crates/identity/src/recovery_key_tests.rs
 modules:
   - identity
@@ -53,12 +54,13 @@ checkpoint_version: 1
 updated_at: 2026-11-17T05:55:00Z
 head: 32890246deff80a1f6bec79e55ff08ce397c5ba2
 branch: claude/happy-davinci-ijz3wy-audit02-window
-pr: none
+pr: 1908
 status: validating
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-audit02-window.md
   - docs/agents/tasks/archive/OTERYN-20261117-classb-identity.md
+  - docs/agents/tasks/archive/OTERYN-20261117-classb-characters.md
   - portal-rs/crates/identity/src/recovery_key_tests.rs
 proven:
   - The CI failure line is at 05:00:02.93Z, seconds after the hourly window rolled over
@@ -75,6 +77,7 @@ rejected_hypotheses: []
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20261117-audit02-window.md
   - docs/agents/tasks/archive/OTERYN-20261117-classb-identity.md
+  - docs/agents/tasks/archive/OTERYN-20261117-classb-characters.md
   - portal-rs/crates/identity/src/recovery_key_tests.rs
 validation:
   - command: cargo test --locked -p oteryn-identity --lib audit02_varied_email (PostgreSQL 18), without the wait and with window_start shifted back an hour mid-loop, then with the change
