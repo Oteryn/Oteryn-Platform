@@ -2365,3 +2365,86 @@ async fn provider_refusal_is_terminal() {
     assert_eq!(retries, 1);
     h.close().await;
 }
+
+#[tokio::test]
+async fn reconcile_loads_charged_back_intent() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let app = router(
+        h.pool.clone(),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Session(h.actor, h.pool.clone()),
+        Authority(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::get("/admin/commerce")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let token = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let payment = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','chargeback')").bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
+    let op = Uuid::now_v7();
+    let response = app
+        .oneshot(
+            HttpRequest::post("/admin/commerce/reconcile")
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={token}&request_id={op}&target={payment}&reason=Reviewed+support+request"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::SEE_OTHER,
+        "chargeback reconciliation"
+    );
+    let state: String =
+        sqlx::query_scalar("SELECT result->>'state' FROM commerce_operations WHERE id=$1")
+            .bind(op)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(state, "chargeback");
+    h.close().await;
+}

@@ -213,6 +213,17 @@ async fn postgres_payment_intent_replay_conflict_and_interrupted_claim() -> Test
                     .status,
                 "checkout-credited"
             );
+            sqlx::query("UPDATE payment_intents SET state='chargeback' WHERE id=$1")
+                .bind(id)
+                .execute(&pool)
+                .await?;
+            let reversed = topups
+                .checkout(account, id, None)
+                .await
+                .map_err(|e| format!("{e:?}"))?
+                .ok_or("missing charged-back checkout")?;
+            assert!(!reversed.pending);
+            assert_eq!(reversed.status, "checkout-refunded");
         }
     }
     sqlx::query(
