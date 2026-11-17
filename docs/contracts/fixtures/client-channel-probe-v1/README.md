@@ -2,7 +2,7 @@
 
 Byte-exact vectors for `GET /v1/client/channel-probes` (the probe list on the
 portal) and `GET /v1/probe` (the latency target on a regional edge). Contract:
-`docs/contracts/OTERYN_V2_CLIENT_CHANNEL_PROBE_CONTRACT.md` (PROPOSED). A
+`docs/contracts/OTERYN_V2_CLIENT_CHANNEL_PROBE_CONTRACT.md` (ACCEPTED). A
 change to any file here is a contract change.
 
 - Consumer: the Game client session (channel picker), pending its

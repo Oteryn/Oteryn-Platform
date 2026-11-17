@@ -1,6 +1,7 @@
 # Client channel probe v1
 
-Status: **PROPOSED** — pending the Game client's confirmation. The owner
+Status: **ACCEPTED** — the Game client session confirmed v1 on 2026-11-17
+with the measurement and timeout rules below. The owner
 decided on 2026-11-17 that the channel picker shows a ping per channel,
 because channels can sit in different regions. This contract claims no
 Platform handler, no edge implementation and no client conformance; the
@@ -84,11 +85,16 @@ Platform emits every member listed above and no other member.
 - The response never reveals load, version or a host name (no `Server`
   version, no host or instance header, no body).
 
-The client times the round trip itself. Per picker opening it sends at most 3
-probes per distinct `probe_url` (so never more than 3 per channel), shows the
-median for every channel that uses that URL, and shows "—" for a URL that
-failed, timed out or answered 429; it honours `Retry-After` before the next
-opening probes that URL again.
+The client times the round trip itself. Per refresh it opens one kept-alive
+connection to each distinct `probe_url`, sends one untimed warm-up request
+(which absorbs the TLS handshake) and then at most 3 timed `HEAD /v1/probe`
+requests on that connection, so at most 4 requests per edge per refresh. It
+refreshes at most once per 30 seconds while the picker is open, which is at
+most 8 requests per minute per edge and stays within the per-IP budget. It
+shows the median of the timed requests for every channel that uses that URL.
+Each request times out after 2 seconds; a URL that timed out, failed,
+redirected or answered 429 shows "—", and the client honours `Retry-After`
+before it probes that URL again.
 
 ## No route discovery
 

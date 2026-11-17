@@ -12,19 +12,19 @@ optional_reads: []
 
 Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1473.
 The owner decided on 2026-11-17 that the channel picker shows a ping per
-channel. A PROPOSED v1 contract, separate from the client directory, for the
+channel. A v1 contract (ACCEPTED by the client on 2026-11-17), separate from the client directory, for the
 probe list `GET /v1/client/channel-probes` on the portal and the latency
 target `GET /v1/probe` on each regional edge, plus byte-exact fixtures. No
 handler, route, migration or flag; the list route is a follow-up to T36b.
 
 ## Acceptance criteria
 
-- [x] Contract `OTERYN_V2_CLIENT_CHANNEL_PROBE_CONTRACT.md` v1 PROPOSED (probe list, probe target, no route keys, security notes)
+- [x] Contract `OTERYN_V2_CLIENT_CHANNEL_PROBE_CONTRACT.md` v1 ACCEPTED (probe list, probe target, no route keys, security notes)
 - [x] Fixtures probes-ok, rejected-route-key, rejected-http-url, rejected-query and probe-target-204 with manifest and README
 - [x] Manifest digests checked (`native_client_fixture_manifests_match_their_files`)
 - [x] Each vector matches its declared client outcome (`client_channel_probe_vectors_match_their_declared_outcome`)
 - [ ] Portal RS CI green on the PR head
-- [ ] Game client session confirms the contract (status PROPOSED until then)
+- [x] Game client session confirmed the contract (warm-up plus 3 timed HEAD, 2 s timeout)
 
 ## Ownership
 
