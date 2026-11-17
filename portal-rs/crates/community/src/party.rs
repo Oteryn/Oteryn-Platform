@@ -146,7 +146,9 @@ impl Authority for ProductionAuthority {
                 .ok()?;
             let rejected: i64 = sqlx::query_scalar("SELECT count(*) FROM player_reports WHERE reporter_account_id=$1 AND rejected_at>=clock_timestamp()-interval '30 days'")
                 .bind(account).fetch_one(&mut *tx).await.ok()?;
-            (rejected < 3).then_some(())
+            let limit = std::env::var("OTERYN_REPORTS_UNJUSTIFIED_LIMIT")
+                .map_or(3_u8, |value| value.parse().unwrap_or(0));
+            (rejected < i64::from(limit)).then_some(())
         })
     }
     fn character_in<'a>(
