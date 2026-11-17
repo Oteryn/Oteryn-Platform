@@ -406,11 +406,11 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                                 account,
                                 csrf,
                                 notice,
-                                flash: std::sync::Arc::new(move |key| {
+                                flash: std::sync::Arc::new(move |key, recovered| {
                                     let session = session.clone();
                                     let flash_key = flash_key.clone();
                                     Box::pin(async move {
-                                        if key == "recovered" {
+                                        if recovered.is_some() && (account.is_none() || account == recovered) {
                                             session::rotate(
                                                 &session,
                                                 session::PrivilegeChange::Logout,

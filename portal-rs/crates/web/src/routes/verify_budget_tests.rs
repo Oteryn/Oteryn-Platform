@@ -70,6 +70,16 @@ async fn audit02_resend_locales_share_source_budget_and_cooldown()
 #[tokio::test]
 async fn verification_preserves_unrelated_session_and_logs_out_own_account()
 -> Result<(), Box<dyn std::error::Error>> {
+    verify_session_ownership(false).await
+}
+
+#[tokio::test]
+async fn verification_preserves_rotated_unrelated_session() -> Result<(), Box<dyn std::error::Error>>
+{
+    verify_session_ownership(true).await
+}
+
+async fn verify_session_ownership(rotated: bool) -> Result<(), Box<dyn std::error::Error>> {
     let db = database::Database::open()
         .await?
         .ok_or("PostgreSQL required")?;
@@ -87,17 +97,36 @@ async fn verification_preserves_unrelated_session_and_logs_out_own_account()
     .layer(Extension(ConnectInfo(
         "192.0.2.81:1234".parse::<std::net::SocketAddr>()?,
     )));
+    if rotated {
+        // Model the committed state of a concurrent rotation at the verification boundary.
+        sqlx::query("CREATE FUNCTION rotate_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE web_sessions SET id_hash=decode(repeat('12',32),'hex'),sudo_until=now()+interval '1 minute'; RETURN NEW; END $$").execute(&db.pool).await?;
+        sqlx::query("CREATE TRIGGER rotate_fixture AFTER UPDATE OF email_verified_at ON accounts FOR EACH ROW EXECUTE FUNCTION rotate_fixture()").execute(&db.pool).await?;
+    }
     for (id, token) in [(b, "e".repeat(64)), (a, "f".repeat(64))] {
         sqlx::query("INSERT INTO account_email_tokens(account_id,token_hash,purpose,expires_at) VALUES($1,$2,'verify_email',now()+interval '1 hour')").bind(id).bind(verify::token_hash(&token)).execute(&db.pool).await?;
         let response = app
             .clone()
             .oneshot(
-                Request::get(format!("/en/verify-email?token={token}"))
+                Request::post(format!("/en/verify-email?token={token}"))
+                    .header("x-csrf-token", "d".repeat(64))
                     .header("cookie", format!("{}={raw}", crate::session::COOKIE_NAME))
                     .body(Body::empty())?,
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
+        if rotated {
+            let alive: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT FROM web_sessions WHERE account_id=$1 AND sudo_until>now())",
+            )
+            .bind(a)
+            .fetch_one(&db.pool)
+            .await?;
+            assert!(
+                alive,
+                "verification must preserve the rotated unrelated session"
+            );
+            break;
+        }
         let verified: bool = sqlx::query_scalar(
             "SELECT email_verified_at IS NOT NULL AND status='active' FROM accounts WHERE id=$1",
         )
