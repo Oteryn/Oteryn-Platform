@@ -329,6 +329,13 @@ async fn edit_form<A: AccountStateReader>(
     headers: HeaderMap,
 ) -> Response {
     let lang = language(&headers);
+    if let Err(e) = s
+        .repository
+        .authorize(context, Permission::ManageWikiArticles)
+        .await
+    {
+        return failure(e, lang);
+    }
     match s.repository.get(context, id).await {
         Ok((guide, mut values)) => {
             for locale in ["pl", "en"] {

@@ -980,3 +980,37 @@ async fn postgres_a3_wiki_edit_and_restore_wait_before_fence() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn edit_form_requires_manage_wiki_articles() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(mut db) = Database::open().await else {
+        return;
+    };
+    let id = db
+        .repo()
+        .create(db.context(), &input(), None, "")
+        .await
+        .unwrap();
+    db.identity.actor = Uuid::now_v7();
+    let role: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES('wiki_reader_test') RETURNING id")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.access'),($1,'wiki.access')")
+        .bind(role).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(db.identity.actor)
+        .bind(role)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        get(db.app(), "/admin/wiki/articles").await.status(),
+        StatusCode::OK
+    );
+    let response = get(db.app(), &format!("/admin/wiki/articles/{id}/edit")).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    db.close().await;
+}
