@@ -36,6 +36,8 @@ existing unicode overrides. No product code, timeout or test changes.
 owned_paths:
   - portal-rs/Cargo.toml
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
 modules:
   - ci
 dependencies:
@@ -59,6 +61,8 @@ context_routes: []
 owned_paths:
   - portal-rs/Cargo.toml
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
 proven:
   - Base is origin/main bb2f6c07; CI test shards run plain cargo test (dev profile)
   - The test takes the global test lock and its own schema, so the fence is contended only by its joined duplicate ingest
@@ -76,6 +80,8 @@ rejected_hypotheses:
 changed_paths:
   - portal-rs/Cargo.toml
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
 validation:
   - command: cargo test --locked -p oteryn-minigames --lib (PostgreSQL 18), three runs
     result: PASS
