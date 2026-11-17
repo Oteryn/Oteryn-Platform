@@ -1452,3 +1452,58 @@ async fn r7_cancel_at_capacity() -> TestResult {
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn r9_receipt_retry_after_recovery_advances() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
+    let s = service(&db, b.clone());
+    let (_, intent) = issue(&db, &s, db.account().await?).await;
+    let (raw, _) = publish(&db, &b, &intent, true).await;
+    recovery.0.store(4, Ordering::SeqCst);
+    let retry = b
+        .ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await;
+    assert!(retry.is_ok(), "exact receipt retry returned {retry:?}");
+    db.close().await
+}
+
+#[tokio::test]
+async fn r9_audit_cleanup_commits_one_batch() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let s = service(&db, b.clone());
+    let (t, intent) = issue(&db, &s, db.account().await?).await;
+    publish(&db, &b, &intent, true).await;
+    // Keep the original audit copy live alongside 101 expired copies.
+    sqlx::query(
+        "WITH commands AS (
+            INSERT INTO plat3_closure_commands(operation_id,termination_id,source_revision,command,intent,intent_sha256)
+            SELECT gen_random_uuid(),termination_id,nextval('plat3_closure_source_revision'),command,intent,intent_sha256
+            FROM plat3_closure_commands CROSS JOIN generate_series(1,101) WHERE termination_id=$1
+            RETURNING operation_id
+        ), receipts AS (
+            INSERT INTO plat3_closure_receipts(operation_id,receipt,signature,receipt_sha256,recovery_generation)
+            SELECT c.operation_id,r.receipt,r.signature,r.receipt_sha256,r.recovery_generation
+            FROM commands c CROSS JOIN plat3_closure_receipts r RETURNING operation_id
+        )
+        INSERT INTO plat3_closure_audit_outbox(operation_id,payload,expires_at)
+        SELECT r.operation_id,a.payload,now() FROM receipts r CROSS JOIN plat3_closure_audit_outbox a"
+    ).bind(t.id).execute(&db.pool).await?;
+    let retention = AuditRetention(db.pool.clone());
+    for expected in [2_i64, 1] {
+        oteryn_db::outbox::Cleanup::clean(&retention)
+            .await
+            .map_err(std::io::Error::other)?;
+        let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM plat3_closure_audit_outbox")
+            .fetch_one(&db.pool)
+            .await?;
+        assert_eq!(remaining, expected, "audit rows remaining after cleanup");
+    }
+    db.close().await
+}
