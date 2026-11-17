@@ -7,9 +7,11 @@
 pub mod configured;
 mod effects;
 mod http;
+mod reconcile;
 pub use configured::*;
 pub use effects::*;
 pub use http::{configured_router, router};
+pub use reconcile::*;
 
 use crate::{audit, rbac};
 use serde::{Deserialize, Serialize};

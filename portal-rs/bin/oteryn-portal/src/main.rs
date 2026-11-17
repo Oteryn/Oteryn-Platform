@@ -47,6 +47,9 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("catalog") {
         return catalog_cli::main().await;
     }
+    if std::env::args().nth(1).as_deref() == Some("commerce-refunds-reconcile") {
+        return refund_reconcile_cli::main().await;
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -600,6 +603,7 @@ mod account_closure;
 
 mod catalog_cli;
 mod code_routes;
+mod refund_reconcile_cli;
 
 #[cfg(test)]
 mod browser_configuration_tests {
