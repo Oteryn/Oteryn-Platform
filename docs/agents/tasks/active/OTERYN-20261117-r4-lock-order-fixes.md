@@ -38,7 +38,8 @@ Claims pdsessions and lockref were checked and are not real; no change.
 
 ```yaml
 owned_paths:
-  - docs/agents/tasks/archive/OTERYN-20261116-r4-classb-budget-tx.md
+  - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
   - portal-rs/bin/oteryn-portal/src/coin_purchases_tests.rs
   - portal-rs/crates/characters/src/commands/storage.rs
   - portal-rs/crates/characters/src/commands/tests.rs
@@ -50,7 +51,6 @@ owned_paths:
   - portal-rs/crates/identity/src/email_change.rs
   - portal-rs/crates/identity/src/email_change_tests.rs
   - portal-rs/crates/payments/src/coin_store.rs
-  - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
 modules:
   - identity
   - gameauth
@@ -68,14 +68,15 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-17T01:30:00Z
-head: 477a744462a6bf41c963ab3cbaa5acd607bffa2e
+updated_at: 2026-11-17T02:40:00Z
+head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
 branch: claude/happy-davinci-ijz3wy-r4-fixes
 pr: pending
 status: validating
 context_routes: []
 owned_paths:
-  - docs/agents/tasks/archive/OTERYN-20261116-r4-classb-budget-tx.md
+  - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
   - portal-rs/bin/oteryn-portal/src/coin_purchases_tests.rs
   - portal-rs/crates/characters/src/commands/storage.rs
   - portal-rs/crates/characters/src/commands/tests.rs
@@ -87,14 +88,14 @@ owned_paths:
   - portal-rs/crates/identity/src/email_change.rs
   - portal-rs/crates/identity/src/email_change_tests.rs
   - portal-rs/crates/payments/src/coin_store.rs
-  - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
 proven:
   - No migration, contract, fixture, flag or wire byte change
   - No Game repository, production service or production data accessed
   - Fix branches lockemail 1608e7a1, grantroute f6ae89a4, coinrev 76ff3f71, lockcmd 83e380ff, profdeadlock 8db4aae3 merged into origin/main 477a7444 without conflicts
 derived:
   - grantroute leaves a window between the last check and commit; the portal has no route writer
-  - Lock order checked across the workspace: claim_lock callers take the address before any account row; coin create (payer fence, wallet share, quote) is compatible with reversal (order, wallet, hold); command receipts take restore, fence, command like service receipts; feed publishers lock no account after the feed
+  - Lock order checked at every site of the changed locks: all claim_lock callers take the address before any account row; coin create (payer fence, wallet share, quote) is compatible with reversal (order, wallet, hold); every 22005160000 fence site takes no row lock before the fence; feed publishers and the lcfa reader lock no account after the feed
+  - Email change requests are rate-limited (identity-email-change, 3 per hour per account), bounding how long a wrong-password request can hold another address claim
 unknown:
   - Coordinator Jira synchronization
 conflicts: []
@@ -105,7 +106,8 @@ rejected_hypotheses:
   - pdsessions (sessions survive a sensitive change) not real
   - lockref (lock order inversion in payments, wallet, store) not real
 changed_paths:
-  - docs/agents/tasks/archive/OTERYN-20261116-r4-classb-budget-tx.md
+  - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
+  - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
   - portal-rs/bin/oteryn-portal/src/coin_purchases_tests.rs
   - portal-rs/crates/characters/src/commands/storage.rs
   - portal-rs/crates/characters/src/commands/tests.rs
@@ -117,7 +119,6 @@ changed_paths:
   - portal-rs/crates/identity/src/email_change.rs
   - portal-rs/crates/identity/src/email_change_tests.rs
   - portal-rs/crates/payments/src/coin_store.rs
-  - docs/agents/tasks/active/OTERYN-20261117-r4-lock-order-fixes.md
 validation:
   - command: red-then-green per fix (r4_address_claim_wait_retains_no_account_row, r4_protocol3_refuses_an_endpoint_shared_after_selection, create_waiting_on_the_payer_claim_sees_a_reversal_hold, db_receipt_publication_waits_for_shared_issuance_fence, postgres_profile_takes_account_before_feed_like_termination)
     result: PASS
@@ -128,7 +129,10 @@ validation:
   - command: cargo fmt --all --check; cargo clippy --locked (five crates) --all-targets -- -D warnings
     result: PASS
     evidence: exit 0
+  - command: per-crate cargo test --locked -p <crate> --no-fail-fast over all 28 workspace crates (PostgreSQL 18)
+    result: PASS
+    evidence: 28 of 28 rc=0 on the tree with main 08b3dace (PR 1895) merged; the later main merge of PR 1896 changed no Rust file
 blockers:
   - none
-next_action: push, open PR, wait for Portal RS CI
+next_action: open PR, wait for Portal RS CI
 ```
