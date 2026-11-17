@@ -344,6 +344,31 @@ async fn pg_digest_mismatch_refused() -> TestResult {
     db.close().await
 }
 #[tokio::test]
+async fn pg_control_step_up_does_not_grant_account_sudo() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::open().await?.ok_or("PostgreSQL required")?;
+    let account = Uuid::now_v7();
+    let (session, _) = session_for_account(&db.pool, 301, account).await?;
+    let service = controls(&db);
+    service.step_up(&session, "123456").await?;
+    let now = service.now().await?;
+    assert!(
+        session
+            .get(STEP_UP)
+            .await?
+            .is_some_and(|step| step.account == account && recent(step.step_up_at, now, 300))
+    );
+    let sudo_absent: bool =
+        sqlx::query_scalar("SELECT sudo_until IS NULL FROM web_sessions WHERE account_id=$1")
+            .bind(account)
+            .fetch_one(&db.pool)
+            .await?;
+    db.close().await?;
+    assert!(sudo_absent, "control TOTP granted account sudo");
+    Ok(())
+}
+
+#[tokio::test]
 async fn pg_happy_r3() -> TestResult {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {
