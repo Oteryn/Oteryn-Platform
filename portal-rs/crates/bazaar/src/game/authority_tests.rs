@@ -370,12 +370,12 @@ async fn postgres_exact_receipt_replay_conflict_audit_rollback_and_nonrollback_f
 #[tokio::test]
 async fn postgres_suspended_delivered_settlement_captures_once() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(false, true).await;
+    item_wallet_scenario(false, true, ItemScenario::Wallet).await;
 }
 #[tokio::test]
 async fn postgres_suspended_compensation_refunds_once() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(true, true).await;
+    item_wallet_scenario(true, true, ItemScenario::Wallet).await;
 }
 #[test]
 fn all_nine_exact_result_schemas_reject_unknown_and_reordered_fields() {
@@ -660,20 +660,36 @@ async fn store_intent_at(
 #[tokio::test]
 async fn postgres_item_receipt_to_verified_delivery_to_wallet_completion() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    item_wallet_scenario(false, false).await;
+    item_wallet_scenario(false, false, ItemScenario::Wallet).await;
 }
 #[tokio::test]
 async fn postgres_delivery_refusal_allows_return_and_refunds_fenced_coins() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
-    item_wallet_scenario(true, false).await;
+    item_wallet_scenario(true, false, ItemScenario::Wallet).await;
     eprintln!(
         "postgres_delivery_refusal_allows_return_and_refunds_fenced_coins: {:?}",
         started.elapsed()
     );
 }
-async fn item_wallet_scenario(compensate: bool, suspended: bool) {
+#[tokio::test]
+async fn initial_null_operation_resync() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    item_wallet_scenario(false, false, ItemScenario::NullResync).await;
+}
+#[tokio::test]
+async fn initial_null_operation_escrow_ready() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    item_wallet_scenario(false, false, ItemScenario::NullEscrow).await;
+}
+#[derive(PartialEq)]
+enum ItemScenario {
+    Wallet,
+    NullResync,
+    NullEscrow,
+}
+async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemScenario) {
     let started = std::time::Instant::now();
     use crate::{Currency, Evidence, Listing, Reservation, Reservations, Settlement};
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
@@ -749,6 +765,15 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
         .replace("DELIVERED", "ESCROWED")
         .replace("\"custody_revision\":\"2\"", "\"custody_revision\":\"1\"")
         .replace("000000000004", "000000000002");
+    let status = if scenario != ItemScenario::Wallet {
+        status.replace(&format!("\"{}\"", uid("2")), "null")
+    } else {
+        status
+    };
+    if scenario == ItemScenario::NullResync {
+        sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$4,7,$5,1,true,'resync-test')")
+            .bind(listing.id).bind(uid("12")).bind(uid("21")).bind(uid("22")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+    }
     outbox
         .ingest(
             &mut tx,
@@ -784,7 +809,14 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool) {
         .await
         .unwrap();
     a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    if scenario == ItemScenario::NullResync {
+        assert!(a.fresh(&mut tx).await.unwrap());
+        return;
+    }
     assert!(a.escrow_ready(&mut tx, &listing).await.unwrap());
+    if scenario != ItemScenario::Wallet {
+        return;
+    }
     sqlx::query("SAVEPOINT moderation_hold")
         .execute(&mut *tx)
         .await
