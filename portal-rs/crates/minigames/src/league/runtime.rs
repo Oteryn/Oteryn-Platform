@@ -197,14 +197,20 @@ async fn question(pool: &PgPool, s: &schema::Snapshot, c: &Config, m: &Meta) -> 
         .await?;
     context(&mut tx, c, m).await?;
     registered_world(&mut tx, s.world()).await?;
-    let prior:Option<String>=sqlx::query_scalar("SELECT question_hash FROM league_event_questions WHERE authority=$1 AND world_id=$2 AND subject_id=$3 FOR UPDATE").bind(s.authority()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&mut *tx).await?;
-    if prior.is_some_and(|h| h != digest) {
-        return Err(Error::Conflict);
-    }
-    if nonterminal(s) {
+    let prior:Option<(String,String)>=sqlx::query_as("SELECT question_hash,last_nonterminal FROM league_event_questions WHERE authority=$1 AND world_id=$2 AND subject_id=$3 FOR UPDATE").bind(s.authority()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&mut *tx).await?;
+    let phase = match prior {
+        Some((hash, _)) if hash != digest => return Err(Error::Conflict),
+        Some((_, phase)) => phase,
+        None => String::new(),
+    };
+    if nonterminal(s) || !phase.is_empty() {
         let terminal: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM league_subjects WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4)").bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_one(&mut *tx).await?;
-        let phase: Option<String> = sqlx::query_scalar("SELECT last_nonterminal FROM league_event_questions WHERE authority=$1 AND world_id=$2 AND subject_id=$3").bind(s.authority()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&mut *tx).await?;
-        if terminal || (phase.as_deref() == Some("LOCKED") && record.state == "SCHEDULED") {
+        if terminal && nonterminal(s)
+            || !terminal
+                && !phase.is_empty()
+                && phase != record.state
+                && !super::store::nonterminal_transition(&phase, record)
+        {
             return Err(Error::Conflict);
         }
     }
@@ -456,7 +462,7 @@ impl FeedJob {
             }
             .await;
             match result {
-                Ok(()) | Err(Error::Superseded) => {
+                Ok(()) | Err(Error::Superseded | Error::Expired) => {
                     sqlx::query("WITH updated AS (UPDATE league_feed_inbox SET state='done' WHERE request_id=$1 RETURNING request_id) UPDATE league_feed_requests SET state='done' WHERE request_id IN (SELECT request_id FROM updated)")
                         .bind(id)
                         .execute(&self.pool)

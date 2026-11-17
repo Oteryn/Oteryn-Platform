@@ -1437,3 +1437,72 @@ async fn postgres_independent_schemas_do_not_share_league_fences() -> TestResult
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn expired_subject_allows_next_publication() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+
+    let season = String::from_utf8(wire("tied_guilds_frozen")?)?;
+    let first = publication(&c, admission::SEASON, season.clone().into_bytes())?;
+    enqueue_publication(&db, &c, &first).await?;
+    job.run_config(c.clone()).await?;
+    sqlx::query("UPDATE league_subjects SET finalized_at=1")
+        .execute(&db.pool)
+        .await?;
+    let later = season.replace(
+        r#""projection_revision":"2""#,
+        r#""projection_revision":"3""#,
+    );
+    for p in [
+        publication(&c, admission::SEASON, later.into_bytes())?,
+        publication(&c, admission::EVENT, wire("settlement")?)?,
+    ] {
+        enqueue_publication(&db, &c, &p).await?;
+    }
+    job.run_config(c).await?;
+    let done: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM league_feed_requests WHERE state='done'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(done, 3);
+    db.close().await
+}
+
+#[tokio::test]
+async fn locked_cannot_close_without_settlement() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+
+    let locked = String::from_utf8(wire("advance_schedule")?)?.replace("SCHEDULED", "LOCKED");
+    let closed = String::from_utf8(wire("settlement")?)?
+        .replace("SETTLED", "CLOSED")
+        .replace("NATIVE_RESULT", "FINAL_FREEZE");
+    for raw in [locked, closed] {
+        let p = publication(&c, admission::EVENT, raw.into_bytes())?;
+        enqueue_publication(&db, &c, &p).await?;
+    }
+    let _result = job.run_config(c).await;
+    let refused: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM league_feed_requests WHERE state='refused'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(refused, 1);
+    db.close().await
+}

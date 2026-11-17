@@ -605,6 +605,7 @@ async fn postgres_browser_flow_localization_csrf_bad_input_and_replay() -> TestR
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
         assert_eq!(
             response.headers()[header::CACHE_CONTROL],
             "private, no-store"
