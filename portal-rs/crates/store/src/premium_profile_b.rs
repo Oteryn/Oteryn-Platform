@@ -176,6 +176,7 @@ impl Authority {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Decided before any revision is allocated (§8.3).
         match self.accounts.state(account, &mut tx).await? {
             AccountState::Known => (),

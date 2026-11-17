@@ -157,6 +157,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
     ) -> Result<Generated, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         authorization.authorize(&mut tx, actor).await?;
         if batch.kind == Kind::ItemGrant {
             return Err(Error::Disabled);
@@ -239,6 +240,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
     pub async fn redeem_player(&self, request: &Redemption) -> Result<Receipt, Error> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let active: Option<bool> = sqlx::query_scalar(
             "SELECT status='active' AND email_verified_at IS NOT NULL FROM accounts WHERE id=$1",
         )
@@ -269,6 +271,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
             self.attempts.check(request.account).await?;
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let result = self.redeem_in(&mut tx, request, false).await?;
         tx.commit().await?;
         Ok(result)

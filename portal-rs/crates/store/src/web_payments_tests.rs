@@ -834,3 +834,43 @@ async fn l6_01_refund_retains_identity_rules_while_acquisition_is_restricted() -
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_payment_account_state_held_lock_sheds_within_read_budget() -> TestResult {
+    use sqlx::Connection;
+    use std::time::{Duration, Instant};
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'held@example.invalid',now(),'unused-test-hash','active','en')").bind(account).execute(&pool).await?;
+    let mut blocker =
+        sqlx::PgConnection::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    sqlx::query("BEGIN").execute(&mut blocker).await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {schema}.accounts WHERE id=$1 FOR UPDATE"
+    )))
+    .bind(account)
+    .execute(&mut blocker)
+    .await?;
+
+    let accounts = Accounts(pool.clone());
+    let started = Instant::now();
+    let observed = tokio::time::timeout(Duration::from_secs(10), accounts.state(account)).await;
+    let elapsed = started.elapsed();
+    sqlx::query("ROLLBACK").execute(&mut blocker).await?;
+    blocker.close().await?;
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+
+    let observed = observed.map_err(|_| "account state still waiting at 10 s on a held lock")?;
+    assert!(observed.is_err(), "{observed:?}");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+    Ok(())
+}

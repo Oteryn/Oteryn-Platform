@@ -63,14 +63,14 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         Ok(())
     }
 
+    /// Only a read `Active` admits; a read non-active state denies. A failed read
+    /// (timeout, storage error) is `Unavailable`: retryable, never a denial.
     async fn eligible(&self, account_id: Uuid) -> Result<(), Error> {
-        if !matches!(
-            self.accounts.state(account_id).await,
-            Ok(AccountState::Active)
-        ) {
-            return Err(Error::AccountDenied);
+        match self.accounts.state(account_id).await {
+            Ok(AccountState::Active) => Ok(()),
+            Ok(_) => Err(Error::AccountDenied),
+            Err(_) => Err(Error::Unavailable),
         }
-        Ok(())
     }
 
     pub async fn create_intent(&self, account_id: Uuid, amount: Amount) -> Result<Intent, Error> {
@@ -269,8 +269,10 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         } else {
             self.accounts.state_in(&mut tx, account_id).await
         };
-        if !matches!(state, Ok(AccountState::Active)) {
-            return Err(Error::AccountDenied);
+        match state {
+            Ok(AccountState::Active) => {}
+            Ok(_) => return Err(Error::AccountDenied),
+            Err(_) => return Err(Error::Unavailable),
         }
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)

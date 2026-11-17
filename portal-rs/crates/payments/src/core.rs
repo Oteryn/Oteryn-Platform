@@ -15,6 +15,9 @@ pub enum Error {
     IllegalTransition,
     #[error("payment not found")]
     NotFound,
+    /// Account authority could not be read (timeout, storage error); retryable, never a denial.
+    #[error("account state unavailable")]
+    Unavailable,
     #[error("database operation failed")]
     Database(#[from] sqlx::Error),
 }

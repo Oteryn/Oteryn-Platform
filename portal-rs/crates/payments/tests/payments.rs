@@ -26,6 +26,22 @@ impl AccountReader for Accounts {
     }
 }
 
+/// Answers `Active` except on the `fail_on`-th call (1-based), which fails as a
+/// timed-out account read does.
+#[derive(Debug, Clone)]
+struct FlakyAccounts {
+    calls: Arc<AtomicU8>,
+    fail_on: u8,
+}
+impl AccountReader for FlakyAccounts {
+    async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.fail_on {
+            return Err(Error::Database(sqlx::Error::PoolTimedOut));
+        }
+        Ok(AccountState::Active)
+    }
+}
+
 struct Harness {
     pool: PgPool,
     admin: PgPool,
@@ -249,15 +265,18 @@ async fn disabled_and_ineligible_accounts_deny() -> TestResult {
     ));
     for state in 1..=4 {
         h.accounts.0.store(state, Ordering::SeqCst);
-        assert!(matches!(h.create().await, Err(Error::AccountDenied)));
-        assert!(matches!(
-            h.service(true).intent(intent.id).await,
-            Err(Error::AccountDenied)
-        ));
-        assert!(matches!(
-            h.service(true).webhook(&body, &signature).await,
-            Err(Error::AccountDenied)
-        ));
+        // State 4 is a failed account read: still refused, but as retryable Unavailable.
+        let refused = |e: &Result<Intent, Error>| match state {
+            4 => matches!(e, Err(Error::Unavailable)),
+            _ => matches!(e, Err(Error::AccountDenied)),
+        };
+        assert!(refused(&h.create().await));
+        assert!(refused(&h.service(true).intent(intent.id).await));
+        let webhook = h.service(true).webhook(&body, &signature).await;
+        assert!(match state {
+            4 => matches!(webhook, Err(Error::Unavailable)),
+            _ => matches!(webhook, Err(Error::AccountDenied)),
+        });
     }
     assert_eq!(h.count("payment_events").await?, 0);
     assert_eq!(h.count("outbox").await?, 0);
@@ -573,4 +592,127 @@ async fn l6_03_undelivered_browser_checkout_can_still_be_refunded() -> TestResul
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn account_state_read_failure_is_unavailable_not_denied() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = h.create().await?;
+    for state in 1..=3 {
+        h.accounts.0.store(state, Ordering::SeqCst);
+        assert!(matches!(h.create().await, Err(Error::AccountDenied)));
+        assert!(matches!(
+            h.service(true).intent(intent.id).await,
+            Err(Error::AccountDenied)
+        ));
+    }
+    h.accounts.0.store(4, Ordering::SeqCst);
+    assert!(matches!(h.create().await, Err(Error::Unavailable)));
+    assert!(matches!(
+        h.service(true).intent(intent.id).await,
+        Err(Error::Unavailable)
+    ));
+    assert!(matches!(
+        h.service(true)
+            .ensure_intent(Uuid::now_v7(), Uuid::now_v7(), amount())
+            .await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(h.count("payment_intents").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn ensure_intent_reread_failure_is_unavailable_and_replay_returns_same_intent() -> TestResult
+{
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    // Call 1 is the eligibility check before the provider; call 2 is the re-read
+    // after commit, which fails.
+    let flaky = FlakyAccounts {
+        calls: Arc::new(AtomicU8::new(0)),
+        fail_on: 2,
+    };
+    let service = Payments::new(
+        h.pool.clone(),
+        h.provider.clone(),
+        flaky.clone(),
+        PaymentFlags { enabled: true },
+    );
+    let (id, account) = (Uuid::now_v7(), Uuid::now_v7());
+    assert!(matches!(
+        service.ensure_intent(id, account, amount()).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(flaky.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(h.count("payment_intents").await?, 1);
+    let replay = service.ensure_intent(id, account, amount()).await?;
+    assert_eq!(replay.id, id);
+    assert_eq!(replay.account_id, account);
+    assert_eq!(replay.state, IntentState::Pending);
+    assert_eq!(h.count("payment_intents").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn webhook_account_read_failure_is_unavailable_and_redelivery_applies_once() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = h.create().await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'test-package',25,$3,$4,$1)").bind(intent.id).bind(intent.account_id).bind(intent.amount.minor_units).bind(&intent.amount.currency).execute(&h.pool).await?;
+    let service = h.service(true);
+    let (paid, paid_sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    let (refund, refund_sig) = h.signed(&h.event(&intent, IntentState::Refunded))?;
+    // A failed account read on a settlement: retryable, and nothing is written.
+    h.accounts.0.store(4, Ordering::SeqCst);
+    assert!(matches!(
+        service.webhook(&paid, &paid_sig).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(h.count("payment_events").await?, 0);
+    assert_eq!(h.count("invoices").await?, 0);
+    assert_eq!(h.count("outbox").await?, 0);
+    h.accounts.0.store(0, Ordering::SeqCst);
+    assert_eq!(service.intent(intent.id).await?.state, IntentState::Pending);
+    assert_eq!(
+        service.webhook(&paid, &paid_sig).await?,
+        WebhookOutcome::Applied
+    );
+    assert_eq!(
+        service.webhook(&paid, &paid_sig).await?,
+        WebhookOutcome::Replay
+    );
+    assert_eq!(h.count("invoices").await?, 1);
+    assert_eq!(h.count("outbox").await?, 1);
+    // The same on a refund, which reads through refund_state_in.
+    h.accounts.0.store(4, Ordering::SeqCst);
+    assert!(matches!(
+        service.webhook(&refund, &refund_sig).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(h.count("payment_events").await?, 1);
+    h.accounts.0.store(0, Ordering::SeqCst);
+    assert_eq!(
+        service.intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    assert_eq!(
+        service.webhook(&refund, &refund_sig).await?,
+        WebhookOutcome::Applied
+    );
+    assert_eq!(
+        service.webhook(&refund, &refund_sig).await?,
+        WebhookOutcome::Replay
+    );
+    assert_eq!(
+        service.intent(intent.id).await?.state,
+        IntentState::Refunded
+    );
+    assert_eq!(h.count("payment_events").await?, 2);
+    assert_eq!(h.count("outbox").await?, 1);
+    h.finish().await
 }

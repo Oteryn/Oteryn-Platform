@@ -1,7 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! OTERYN_PAYMENT_PROVIDER_WEBHOOK_V1 through the real route, the real coin
 //! purchase service and PostgreSQL. Only the wallet host is a test double.
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, Ordering},
+};
 
 use axum::{
     Router,
@@ -30,9 +33,17 @@ const PREVIOUS: &str = "provider-webhook-previous-secret-0123456789ab";
 const PACKAGE: &str = "01934f10-7c02-7001-805b-3b1122334402";
 
 /// Coins kept as keyed deltas in a test table; reversal never goes below zero.
+/// `fail` makes host calls fail as a storage timeout does: bit 1
+/// `restriction_in`, bit 2 `credit_in`, bit 4 `reverse_in`.
 #[derive(Debug)]
 struct Host {
     pool: PgPool,
+    fail: Arc<AtomicU8>,
+}
+impl Host {
+    fn failing(&self, bit: u8) -> bool {
+        self.fail.load(Ordering::SeqCst) & bit != 0
+    }
 }
 impl CoinHost for Host {
     fn payer<'a>(&'a self, _: &'a str) -> HostFuture<'a, Result<Uuid, CoinError>> {
@@ -46,7 +57,13 @@ impl CoinHost for Host {
         _: &'a mut PgConnection,
         _: Uuid,
     ) -> HostFuture<'a, Result<Option<String>, CoinError>> {
-        Box::pin(async { Ok(None) })
+        let failed = self.failing(1);
+        Box::pin(async move {
+            if failed {
+                return Err(CoinError::Unavailable);
+            }
+            Ok(None)
+        })
     }
     fn credit_in<'a>(
         &'a self,
@@ -56,6 +73,9 @@ impl CoinHost for Host {
         coins: i64,
     ) -> HostFuture<'a, Result<(), CoinError>> {
         Box::pin(async move {
+            if self.failing(2) {
+                return Err(CoinError::Unavailable);
+            }
             sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90101))")
                 .bind(payer)
                 .execute(&mut **tx)
@@ -86,6 +106,9 @@ impl CoinHost for Host {
         coins: i64,
     ) -> HostFuture<'a, Result<Debit, CoinError>> {
         Box::pin(async move {
+            if self.failing(4) {
+                return Err(CoinError::Unavailable);
+            }
             sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1::text))")
                 .bind(payer)
                 .execute(&mut **tx)
@@ -184,12 +207,16 @@ impl Harness {
         }
     }
     fn coins(&self, enabled: bool) -> Arc<CoinPurchases> {
+        self.coins_failing(enabled, 0)
+    }
+    fn coins_failing(&self, enabled: bool, fail: u8) -> Arc<CoinPurchases> {
         Arc::new(CoinPurchases::new(
             self.pool.clone(),
             self.settings(enabled),
             self.provider.clone(),
             Arc::new(Host {
                 pool: self.pool.clone(),
+                fail: Arc::new(AtomicU8::new(fail)),
             }),
         ))
     }
@@ -902,6 +929,7 @@ async fn audit_09_01_ceiling_settlement_is_held_and_balance_readable() -> TestRe
         h.provider.clone(),
         Arc::new(Host {
             pool: h.pool.clone(),
+            fail: Arc::default(),
         }),
     );
     sqlx::query("INSERT INTO test_coins(key,payer,delta) VALUES ($1,$2,$3)")
@@ -1008,6 +1036,7 @@ async fn audit_09_05_catalogue_reuses_caps_and_prunes_quotes() -> TestResult {
         h.provider.clone(),
         Arc::new(Host {
             pool: h.pool.clone(),
+            fail: Arc::default(),
         }),
     );
     assert_eq!(
@@ -1067,4 +1096,93 @@ async fn audit_09_05_catalogue_reuses_caps_and_prunes_quotes() -> TestResult {
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// A coin event signed for `CoinPurchases::webhook` (the sandbox event shape).
+fn coin_event(h: &Harness, intent: Uuid, reference: &str, state: &str) -> (Vec<u8>, Vec<u8>) {
+    let body = serde_json::to_vec(&json!({
+        "event_id": format!("coin-test:{intent}:{state}"),
+        "intent_id": intent,
+        "provider_reference": reference,
+        "amount": {"minor_units": 499, "currency": "EUR"},
+        "state": state,
+    }))
+    .unwrap();
+    let signature = h.provider.sign(&body).unwrap();
+    (body, signature)
+}
+
+#[tokio::test]
+async fn host_storage_failure_in_a_coin_event_is_unavailable_and_a_retry_applies_once() -> TestResult
+{
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    // An unpaid order with its intent: create it, open the checkout.
+    let coins = h.coins(true);
+    let payer = Uuid::now_v7();
+    let catalogue = coins.catalogue(payer, None).await.unwrap();
+    let package = &catalogue.packages[0];
+    let request = Uuid::now_v7();
+    let order = coins
+        .create_order(
+            payer,
+            &CoinOrderRequest {
+                request_id: request,
+                package_id: package.id,
+                quote_id: package.quote_id,
+                character_id: None,
+            },
+        )
+        .await
+        .unwrap();
+    coins.checkout(payer, order.order_id).await.unwrap();
+    let (intent, reference): (Uuid, String) = sqlx::query_as("SELECT i.id, i.provider_reference FROM payment_intents i JOIN coin_purchase_orders o ON o.payment_intent_id=i.id WHERE o.id=$1")
+        .bind(order.order_id)
+        .fetch_one(&h.pool)
+        .await?;
+    let (paid, paid_sig) = coin_event(&h, intent, &reference, "succeeded");
+    // The payer's restriction read, then the credit, fail: retryable, nothing kept.
+    for fail in [1, 2] {
+        assert!(matches!(
+            h.coins_failing(true, fail).webhook(&paid, &paid_sig).await,
+            Err(oteryn_payments::Error::Unavailable)
+        ));
+        assert_eq!(h.state(payer, request).await, OrderState::AwaitingPayment);
+        assert_eq!(h.balance(payer).await, 0);
+    }
+    assert_eq!(
+        coins.webhook(&paid, &paid_sig).await?,
+        oteryn_payments::WebhookOutcome::Applied
+    );
+    assert_eq!(
+        coins.webhook(&paid, &paid_sig).await?,
+        oteryn_payments::WebhookOutcome::Replay
+    );
+    assert_eq!(h.state(payer, request).await, OrderState::Paid);
+    assert_eq!(h.balance(payer).await, 500);
+    // The reversal debit fails: retryable, the credit stays, nothing recorded.
+    let (refund, refund_sig) = coin_event(&h, intent, &reference, "refunded");
+    assert!(matches!(
+        h.coins_failing(true, 4).webhook(&refund, &refund_sig).await,
+        Err(oteryn_payments::Error::Unavailable)
+    ));
+    assert_eq!(h.state(payer, request).await, OrderState::Paid);
+    assert_eq!(h.balance(payer).await, 500);
+    assert_eq!(
+        h.count("SELECT count(*) FROM coin_purchase_reversals")
+            .await,
+        0
+    );
+    assert_eq!(
+        coins.webhook(&refund, &refund_sig).await?,
+        oteryn_payments::WebhookOutcome::Applied
+    );
+    assert_eq!(
+        coins.webhook(&refund, &refund_sig).await?,
+        oteryn_payments::WebhookOutcome::Replay
+    );
+    assert_eq!(h.state(payer, request).await, OrderState::Refunded);
+    assert_eq!(h.balance(payer).await, 0);
+    h.finish().await
 }

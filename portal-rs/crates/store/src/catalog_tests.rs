@@ -555,3 +555,113 @@ async fn lk_catalog_account_before_pointer() {
         started.elapsed()
     );
 }
+
+/// Takes the actor's account row as the production adapter does, without
+/// arming a budget of its own: the catalog transaction must bound the wait.
+struct SharedAccountAccess;
+impl CatalogAccess for SharedAccountAccess {
+    async fn account_state(
+        &self,
+        actor: Uuid,
+        db: &mut PgConnection,
+    ) -> Result<AccountState, Error> {
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(actor)
+            .execute(db)
+            .await?;
+        Ok(AccountState::Active)
+    }
+    async fn permitted(&self, _: Uuid, _: Action, _: &mut PgConnection) -> Result<bool, Error> {
+        Ok(true)
+    }
+}
+
+/// Holds the actor's account row `FOR UPDATE` on a separate connection.
+async fn held_account(db: &Database, actor: Uuid) -> sqlx::PgConnection {
+    use sqlx::Connection;
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO accounts VALUES($1)")
+        .bind(actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let mut blocker = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut blocker).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {schema}.accounts WHERE id=$1 FOR UPDATE"
+    )))
+    .bind(actor)
+    .execute(&mut blocker)
+    .await
+    .unwrap();
+    blocker
+}
+
+async fn release(mut blocker: sqlx::PgConnection) {
+    use sqlx::Connection;
+    sqlx::query("ROLLBACK").execute(&mut blocker).await.unwrap();
+    blocker.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn postgres_import_held_account_lock_sheds_within_mutation_budget() {
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let actor = Uuid::now_v7();
+    let blocker = held_account(&db, actor).await;
+    let store = db.store();
+    let started = Instant::now();
+    let observed = tokio::time::timeout(
+        Duration::from_secs(10),
+        store.import(VALID, actor, &SharedAccountAccess),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    release(blocker).await;
+    db.finish().await;
+    let observed = observed.expect("import still waiting at 10 s on a held account lock");
+    assert!(matches!(observed, Err(Error::Database(_))), "{observed:?}");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn postgres_activate_held_account_lock_sheds_within_mutation_budget() {
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let actor = Uuid::now_v7();
+    let revision = db.store().import(VALID, actor, &access()).await.unwrap();
+    let blocker = held_account(&db, actor).await;
+    let store = db.store();
+    let started = Instant::now();
+    let observed = tokio::time::timeout(
+        Duration::from_secs(10),
+        store.activate(&revision, actor, &SharedAccountAccess),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    release(blocker).await;
+    db.finish().await;
+    let observed = observed.expect("activate still waiting at 10 s on a held account lock");
+    assert!(matches!(observed, Err(Error::Database(_))), "{observed:?}");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+}

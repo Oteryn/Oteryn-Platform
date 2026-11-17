@@ -522,3 +522,62 @@ async fn malformed_authenticated_snapshot_requests_consume_budget_before_validat
         }
     }
 }
+
+#[tokio::test]
+async fn db_snapshot_held_account_lock_sheds_within_mutation_budget() {
+    use sqlx::Connection;
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let account = known();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'held@example.invalid','test','active','en')")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let mut blocker = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut blocker).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {schema}.accounts WHERE id=$1 FOR UPDATE"
+    )))
+    .bind(account)
+    .execute(&mut blocker)
+    .await
+    .unwrap();
+
+    // The snapshot's first statement takes this row in referral preparation.
+    let ledger = Ledger::new(
+        db.pool.clone(),
+        std::sync::Arc::new(crate::loyalty::stream::http::DatabaseAccounts),
+        true,
+    );
+    let started = Instant::now();
+    let observed = tokio::time::timeout(
+        Duration::from_secs(10),
+        ledger.snapshot(account, NONCE, BUILD),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    sqlx::query("ROLLBACK").execute(&mut blocker).await.unwrap();
+    blocker.close().await.unwrap();
+    let issued: i64 = sqlx::query_scalar("SELECT count(*) FROM premium_authority")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    db.close().await;
+
+    let observed = observed.expect("snapshot still waiting at 10 s on a held account lock");
+    assert_eq!(observed, Err(Error::Unavailable));
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+    assert_eq!(issued, 0);
+}
