@@ -1,0 +1,121 @@
+{
+  "contract_id": "client-channel-probe-v1",
+  "base_commit": "1bb15ad3af64a975dd01da79f5d210f5806d6077",
+  "game_consumer": {
+    "repository": "Oteryn/Oteryn-Game",
+    "consumer": "Game client session (channel picker)",
+    "status": "pending confirmation; no client parser yet"
+  },
+  "directory_vector": "client-directory-v1/directory-anonymous.json",
+  "files": [
+    {
+      "file": "probes-ok.json",
+      "bytes": 244,
+      "sha256": "8c7bebaa2565b411d78a5e89da9a00af9c27dbe9adfc7f62af81e73d555fc9a5"
+    },
+    {
+      "file": "probes-rejected-route-key.json",
+      "bytes": 288,
+      "sha256": "6412e6aef920f2892310c7e6c681482ceabbea24d002450663de769c4d3093fc"
+    },
+    {
+      "file": "probes-rejected-http-url.json",
+      "bytes": 243,
+      "sha256": "b7783824b9da5284fa049cfb0a8766b5dd1322731de891909031c65eef0ba0eb"
+    },
+    {
+      "file": "probes-rejected-query.json",
+      "bytes": 257,
+      "sha256": "9550d26784256733ef31481efcd26617d4cf98a92bcbec2fc090edec1a566b2e"
+    },
+    {
+      "file": "probe-target-204.body",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "cases": [
+    {
+      "case": "probes-ok",
+      "setup": "two channels of directory-anonymous on two regional edges",
+      "method": "GET",
+      "path": "/v1/client/channel-probes",
+      "headers": {},
+      "request": null,
+      "status": 200,
+      "response_headers": {
+        "cache-control": "no-store, private",
+        "pragma": "no-cache",
+        "content-type": "application/json",
+        "vary": "authorization"
+      },
+      "response": "probes-ok.json",
+      "client_outcome": "accept"
+    },
+    {
+      "case": "probes-rejected-route-key",
+      "setup": "non-conforming producer: a probe entry carries the forbidden key endpoint",
+      "method": "GET",
+      "path": "/v1/client/channel-probes",
+      "headers": {},
+      "request": null,
+      "status": 200,
+      "response_headers": {
+        "cache-control": "no-store, private",
+        "pragma": "no-cache",
+        "content-type": "application/json",
+        "vary": "authorization"
+      },
+      "response": "probes-rejected-route-key.json",
+      "client_outcome": "reject:ForbiddenGameplayField"
+    },
+    {
+      "case": "probes-rejected-http-url",
+      "setup": "non-conforming producer: a probe_url uses http://",
+      "method": "GET",
+      "path": "/v1/client/channel-probes",
+      "headers": {},
+      "request": null,
+      "status": 200,
+      "response_headers": {
+        "cache-control": "no-store, private",
+        "pragma": "no-cache",
+        "content-type": "application/json",
+        "vary": "authorization"
+      },
+      "response": "probes-rejected-http-url.json",
+      "client_outcome": "reject:InvalidPayload"
+    },
+    {
+      "case": "probes-rejected-query",
+      "setup": "non-conforming producer: a probe_url carries a query",
+      "method": "GET",
+      "path": "/v1/client/channel-probes",
+      "headers": {},
+      "request": null,
+      "status": 200,
+      "response_headers": {
+        "cache-control": "no-store, private",
+        "pragma": "no-cache",
+        "content-type": "application/json",
+        "vary": "authorization"
+      },
+      "response": "probes-rejected-query.json",
+      "client_outcome": "reject:InvalidPayload"
+    },
+    {
+      "case": "probe-target-204",
+      "setup": "regional edge; no credential, no cookie, under the per-IP budget",
+      "method": "GET",
+      "path": "/v1/probe",
+      "headers": {},
+      "request": null,
+      "status": 204,
+      "response_headers": {
+        "cache-control": "no-store"
+      },
+      "response": "probe-target-204.body",
+      "client_outcome": "accept"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Byte-exact proof of `docs/contracts/fixtures/native-oauth-ticket-v1` (token
 //! cases) through the real `/oauth/token` router, plus the manifest digests of
-//! native client fixture directories, and the client directory vectors
-//! against their declared consumer outcome.
+//! native client fixture directories, and the client directory and channel
+//! probe vectors against their declared consumer outcome.
 use super::*;
 use axum::{
     Router,
@@ -45,6 +45,7 @@ fn native_client_fixture_manifests_match_their_files() {
         "native-oauth-ticket-v1",
         "native-characters-v1",
         "client-directory-v1",
+        "client-channel-probe-v1",
     ] {
         let manifest = manifest(dir);
         let mut listed = BTreeSet::new();
@@ -185,6 +186,119 @@ fn client_directory_vectors_match_their_declared_outcome() {
         text(&case(&m, "directory-owner")["headers"], "authorization"),
         format!("Bearer {}", text(&m, "synthetic_access_token"))
     );
+}
+/// The v1 consumer rules of `OTERYN_V2_CLIENT_CHANNEL_PROBE_CONTRACT.md`,
+/// applied to each probe list vector of `client-channel-probe-v1`.
+fn probe_list_outcome(bytes: &[u8]) -> &'static str {
+    const FORBIDDEN: [&str; 12] = [
+        "host",
+        "port",
+        "endpoint",
+        "endpoint_uri",
+        "protocol",
+        "protocol_profile",
+        "ticket",
+        "credential",
+        "game_session",
+        "admission",
+        "route",
+        "address",
+    ];
+    fn forbidden(v: &serde_json::Value) -> bool {
+        match v {
+            serde_json::Value::Object(o) => o
+                .iter()
+                .any(|(k, c)| FORBIDDEN.contains(&k.as_str()) || forbidden(c)),
+            serde_json::Value::Array(a) => a.iter().any(forbidden),
+            _ => false,
+        }
+    }
+    fn probe_url(url: &str) -> bool {
+        let Some(rest) = url.strip_prefix("https://") else {
+            return false;
+        };
+        let Some((authority, path)) = rest.split_once('/') else {
+            return false;
+        };
+        url.len() <= 256
+            && !url.contains(['?', '#'])
+            && !url.chars().any(|c| c.is_control() || c.is_whitespace())
+            && !authority.is_empty()
+            && !authority.contains(['@', ':'])
+            && path == "v1/probe"
+    }
+    let valid = |root: &serde_json::Value| -> bool {
+        let mut seen = BTreeSet::new();
+        root["epoch"].is_u64()
+            && root["probes"]
+                .as_array()
+                .filter(|a| a.len() <= 256 * 128)
+                .is_some_and(|probes| {
+                    probes.iter().all(|p| {
+                        p["channel_id"].as_str().is_some_and(|id| {
+                            !id.is_empty()
+                                && id.len() <= 96
+                                && !id.chars().any(char::is_control)
+                                && seen.insert(id)
+                        }) && p["probe_url"].as_str().is_some_and(probe_url)
+                    })
+                })
+    };
+    match serde_json::from_slice::<serde_json::Value>(bytes) {
+        _ if bytes.len() > 262_144 => "reject:ResponseTooLarge",
+        Err(_) => "reject:InvalidPayload",
+        Ok(v) if forbidden(&v) => "reject:ForbiddenGameplayField",
+        Ok(v) if valid(&v) => "accept",
+        Ok(_) => "reject:InvalidPayload",
+    }
+}
+
+#[test]
+fn client_channel_probe_vectors_match_their_declared_outcome() {
+    const DIR: &str = "client-channel-probe-v1";
+    let m = manifest(DIR);
+    let cases = m["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 5);
+    for c in cases {
+        let name = text(c, "case");
+        let body = file(DIR, text(c, "response"));
+        match text(c, "path") {
+            "/v1/client/channel-probes" => {
+                assert_eq!(c["status"], 200, "{name}");
+                assert_eq!(
+                    probe_list_outcome(&body),
+                    text(c, "client_outcome"),
+                    "{name}"
+                );
+            }
+            "/v1/probe" => {
+                assert_eq!(c["status"], 204, "{name}");
+                assert!(body.is_empty(), "{name}: a probe answers with no body");
+                assert_eq!(
+                    c["response_headers"],
+                    serde_json::json!({"cache-control": "no-store"}),
+                    "{name}: no-store and no Access-Control-Allow-Origin"
+                );
+                assert_eq!(text(c, "client_outcome"), "accept", "{name}");
+            }
+            other => panic!("{name}: unexpected path {other}"),
+        }
+    }
+    let directory: serde_json::Value =
+        serde_json::from_slice(&file("client-directory-v1", "directory-anonymous.json")).unwrap();
+    let channels: BTreeSet<&str> = directory["worlds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|w| w["channels"].as_array().unwrap())
+        .map(|c| text(c, "id"))
+        .collect();
+    let ok: serde_json::Value = serde_json::from_slice(&file(DIR, "probes-ok.json")).unwrap();
+    let probes = ok["probes"].as_array().unwrap();
+    let ids: BTreeSet<&str> = probes.iter().map(|p| text(p, "channel_id")).collect();
+    let urls: BTreeSet<&str> = probes.iter().map(|p| text(p, "probe_url")).collect();
+    assert_eq!(ids, channels, "probes-ok covers the directory's channels");
+    assert_eq!(urls.len(), 2, "probes-ok uses two regional edges");
 }
 fn hash_bytes(bytes: &[u8]) -> Vec<u8> {
     Sha256::digest(bytes).to_vec()
