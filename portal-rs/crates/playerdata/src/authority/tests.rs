@@ -2056,7 +2056,8 @@ fn next_segment(body: &str) -> String {
 
 #[tokio::test]
 async fn retention_unapplied_floor_blocks_next_segment() {
-    let db = Db::open().await.unwrap();
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
     seller(&db).await;
     let (app, body) = session_fixture(&db, 9).await;
     assert_eq!(publish_segment(&app, &body).await, StatusCode::OK);
@@ -2080,7 +2081,8 @@ async fn retention_unapplied_floor_blocks_next_segment() {
 
 #[tokio::test]
 async fn retention_digest_retry_preserves_stream() {
-    let db = Db::open().await.unwrap();
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
     seller(&db).await;
     let (app, body) = session_fixture(&db, 9).await;
     assert_eq!(publish_segment(&app, &body).await, StatusCode::OK);

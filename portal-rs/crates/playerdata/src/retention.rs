@@ -22,19 +22,6 @@ impl Retention {
         sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$1) WHERE ctid IN (SELECT ctid FROM pd_g9_records WHERE expires_at<=$1 AND canonical_bytes IS NOT NULL LIMIT 512 FOR UPDATE SKIP LOCKED)").bind(now/1000).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_records SET payload=NULL WHERE ctid IN (SELECT ctid FROM pd_records WHERE payload IS NOT NULL AND expires_ms<=$1 ORDER BY expires_ms LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now).execute(&mut *tx).await?;
-        // The continuation has the economic lifetime of its own ledger entry.
-        // Missing replay metadata also expires balances left by older cleanup runs.
-        sqlx::query(
-            "DELETE FROM pd_bank_continuations WHERE ctid IN (
-                SELECT b.ctid FROM pd_bank_continuations b
-                WHERE NOT EXISTS (SELECT 1 FROM pd_records r
-                    WHERE r.stream_key=b.stream_key AND r.entity_key=b.entry_id
-                    AND r.kind='BANK_ENTRY' AND r.expires_ms>$1)
-                LIMIT 512 FOR UPDATE OF b SKIP LOCKED)",
-        )
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
         sqlx::query("UPDATE pd_t76_streams SET snapshot=NULL,snapshot_at=NULL WHERE ctid IN (SELECT ctid FROM pd_t76_streams WHERE snapshot IS NOT NULL AND snapshot_at<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now/1000-30*86400).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_t76_records SET canonical_bytes=NULL WHERE ctid IN (SELECT r.ctid FROM pd_t76_records r WHERE canonical_bytes IS NOT NULL AND (occurred_at<=$1 OR EXISTS(SELECT 1 FROM pd_t76_streams s WHERE s.stream_key=r.stream_key AND s.staging_at<=$2)) LIMIT 512 FOR UPDATE OF r SKIP LOCKED)")

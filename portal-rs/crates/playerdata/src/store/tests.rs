@@ -1681,7 +1681,7 @@ async fn postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata()
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(floor, "1");
-    assert_eq!(store.ingest(r, time).await, Err(Error::Conflict));
+    assert_eq!(store.ingest(r.clone(), time).await, Err(Error::Conflict));
     let identity = Identity::san("journal-test")?;
     let identities = Arc::new(IdentityMap::new(vec![Binding {
         identity: identity.clone(),
@@ -1705,6 +1705,20 @@ async fn postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata()
     .fetch_one(&db.pool)
     .await?;
     assert_eq!(count, 0);
+    // A fresh entry must still chain to the last balance after production cleanup.
+    let next = String::from_utf8(bank(2, Some(&r.entity), 100, 100))?
+        .replace(
+            &format!(r#""occurred_at":"{}""#, NOW / 1000),
+            &format!(r#""occurred_at":"{}""#, time.unix_ms / 1000),
+        )
+        .replace(
+            &format!(r#""coverage_start_at":"{}""#, NOW / 1000),
+            &format!(r#""coverage_start_at":"{}""#, old / 1000),
+        );
+    let result = store
+        .ingest(playerdata::items(next.as_bytes())?, time)
+        .await;
+    assert!(result.is_ok(), "BANK append after retention: {result:?}");
     db.close().await?;
     eprintln!(
         "postgres_pd2_03_production_cleanup_prunes_bank_replay_metadata duration={:?}",
@@ -2076,30 +2090,6 @@ async fn postgres_retention_keeps_live_login_digest_after_payload_expiry()
             .await?,
         0
     );
-    db.close().await?;
-    Ok(())
-}
-
-#[tokio::test]
-async fn retention_expires_last_bank_balance() -> std::result::Result<(), Box<dyn std::error::Error>>
-{
-    let Some(db) = Db::open().await? else {
-        return Ok(());
-    };
-    let r = playerdata::items(&bank(1, None, 0, 100))?;
-    let a = TestAuthority::default();
-    a.allow(r.scope.clone()).await;
-    db.store(&a).ingest(r, clock()).await?;
-    sqlx::query("UPDATE pd_records SET expires_ms=0")
-        .execute(&db.pool)
-        .await?;
-    crate::retention::Retention(db.pool.clone())
-        .expire_batch()
-        .await?;
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_bank_continuations")
-        .fetch_one(&db.pool)
-        .await?;
-    assert_eq!(count, 0);
     db.close().await?;
     Ok(())
 }
