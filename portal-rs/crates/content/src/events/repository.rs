@@ -110,6 +110,7 @@ impl Events {
             .await?;
         draft.validate()?;
         let id = existing.map_or_else(Uuid::now_v7, |v| v.0);
+        let mut permissions = vec![Permission::Access, Permission::ManageEvents];
         let before = if let Some((_, version)) = existing {
             let row: (String, i64) =
                 sqlx::query_as("SELECT status,lock_version FROM events WHERE id=$1 FOR UPDATE")
@@ -119,6 +120,11 @@ impl Events {
                     .ok_or(Error::NotFound)?;
             if version < 1 || row.1 != version || Status::parse(&row.0).is_none() {
                 return Err(Error::Conflict);
+            }
+            if row.0 != Status::Draft.as_str() {
+                auth.check_in(&mut tx, context, Permission::PublishEvents)
+                    .await?;
+                permissions.push(Permission::PublishEvents);
             }
             sqlx::query("UPDATE events SET status='draft',starts_at=$2,ends_at=$3,featured=$4,updated_by=$5,published_by=NULL,lock_version=lock_version+1,updated_at=now() WHERE id=$1")
                 .bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).execute(&mut *tx).await?;
@@ -154,13 +160,7 @@ impl Events {
             },
         )
         .await?;
-        crate::revalidate(
-            auth,
-            &mut tx,
-            context,
-            &[Permission::Access, Permission::ManageEvents],
-        )
-        .await?;
+        crate::revalidate(auth, &mut tx, context, &permissions).await?;
         tx.commit().await?;
         Ok(id)
     }
