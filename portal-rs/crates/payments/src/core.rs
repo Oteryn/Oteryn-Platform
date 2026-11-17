@@ -66,6 +66,7 @@ pub enum IntentState {
     Succeeded,
     Failed,
     Refunded,
+    Chargeback,
 }
 
 impl IntentState {
@@ -73,7 +74,8 @@ impl IntentState {
         match (self, next) {
             (Self::Created, Self::Pending | Self::Succeeded | Self::Failed)
             | (Self::Pending, Self::Succeeded | Self::Failed)
-            | (Self::Succeeded, Self::Refunded) => Ok(next),
+            | (Self::Succeeded, Self::Refunded | Self::Chargeback)
+            | (Self::Refunded, Self::Chargeback) => Ok(next),
             _ => Err(Error::IllegalTransition),
         }
     }
@@ -85,6 +87,7 @@ impl IntentState {
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Refunded => "refunded",
+            Self::Chargeback => "chargeback",
         }
     }
 
@@ -95,6 +98,7 @@ impl IntentState {
             "succeeded" => Ok(Self::Succeeded),
             "failed" => Ok(Self::Failed),
             "refunded" => Ok(Self::Refunded),
+            "chargeback" => Ok(Self::Chargeback),
             _ => Err(Error::IllegalTransition),
         }
     }

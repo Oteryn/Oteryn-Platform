@@ -148,7 +148,7 @@ impl TopUps for PaymentTopUps {
                     IntentState::Succeeded if credited => "checkout-credited",
                     IntentState::Succeeded => "checkout-succeeded",
                     IntentState::Failed => "checkout-failed",
-                    IntentState::Refunded => "checkout-refunded",
+                    IntentState::Refunded | IntentState::Chargeback => "checkout-refunded",
                 }
                 .into(),
             }))

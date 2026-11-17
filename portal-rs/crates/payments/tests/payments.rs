@@ -372,6 +372,7 @@ fn state_machine_exhaustive() {
         IntentState::Succeeded,
         IntentState::Failed,
         IntentState::Refunded,
+        IntentState::Chargeback,
     ];
     for from in states {
         for to in states {
@@ -383,7 +384,10 @@ fn state_machine_exhaustive() {
                 ) | (
                     IntentState::Pending,
                     IntentState::Succeeded | IntentState::Failed
-                ) | (IntentState::Succeeded, IntentState::Refunded)
+                ) | (
+                    IntentState::Succeeded,
+                    IntentState::Refunded | IntentState::Chargeback
+                ) | (IntentState::Refunded, IntentState::Chargeback)
             );
             assert_eq!(from.transition(to).is_ok(), legal);
         }
