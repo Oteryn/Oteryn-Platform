@@ -25,6 +25,26 @@ pub enum Change<'a> {
     },
 }
 
+impl Change<'_> {
+    pub(crate) async fn revoke_browser_credentials(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: CheckContext,
+    ) -> Result<(), Error> {
+        let (account, role) = match self {
+            Self::CreateRole { .. } => return Ok(()),
+            Self::SetPermissions { role, .. } => (None, Some(*role)),
+            Self::Grant { account, .. } | Self::Revoke { account, .. } => (Some(*account), None),
+        };
+        let expiry = super::SessionExpiry::capture(connection, context).await?;
+        sqlx::query("WITH affected AS (SELECT $1::uuid AS id WHERE $1 IS NOT NULL UNION ALL SELECT account_id FROM account_roles WHERE role_id=$2),
+            revoked_sessions AS (DELETE FROM web_sessions WHERE account_id IN (SELECT id FROM affected))
+            DELETE FROM account_mfa_tokens WHERE account_id IN (SELECT id FROM affected)")
+            .bind(account).bind(role).execute(&mut *connection).await?;
+        expiry.check(connection).await
+    }
+}
+
 impl<A: AccountStateReader> Authorizer<A> {
     /// Commits the role change and its audit together. A no-op writes no audit entry.
     /// All role writers serialize, including the authorization check, preventing a
@@ -242,6 +262,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         if panel {
             self.check_in(&mut tx, context, Permission::Access).await?;
         }
+        change.revoke_browser_credentials(&mut tx, context).await?;
         tx.commit().await?;
         Ok(Some(result))
     }

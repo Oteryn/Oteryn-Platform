@@ -68,6 +68,7 @@ pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    headers: axum::http::HeaderMap,
     Query(filter): Query<Filter>,
 ) -> Result<Response, Error> {
     state.check(actor, "audit.view").await?;
@@ -95,7 +96,7 @@ pub(crate) async fn page<B: Backend>(
     {
         state
             .backend
-            .for_session(session)
+            .for_navigation(session, &headers)
             .ledger(actor, &filter)
             .await?
     } else {

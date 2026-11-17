@@ -143,6 +143,22 @@ async fn exercise_reads(
         web::PortalIdentity::configured(pool.clone()),
         backend,
     );
+    for path in ["/admin/console/audit", "/admin/console/access"] {
+        reads
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header("host", "staff.test")
+                    .header("cookie", cookie)
+                    .header("sec-fetch-site", "cross-site")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert!(
+            poll(internal).await?.is_empty(),
+            "{path} queued a cross-site query"
+        );
+    }
     let path = "/admin/console/players?lang=en&character=c-1";
     browser_get(&reads, cookie, path).await?;
     let requests = poll(internal).await?;

@@ -1161,3 +1161,37 @@ async fn db_role_managers_never_grant_or_widen_their_own_roles() {
     assert!(held.is_empty());
     db.close().await;
 }
+
+#[tokio::test]
+async fn r8_grant_invalidates_existing_staff_session() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'recipient@example.invalid','fixture','active','en',now())").bind(account).execute(&db.pool).await.unwrap();
+    let mut target = verified(account);
+    target.session_proof = Some(crate::test_staff::proof(&db.pool, account).await.unwrap());
+    let auth = db.auth();
+    auth.change_from_panel(
+        db.manager().await,
+        Uuid::now_v7(),
+        Change::Grant {
+            account,
+            role: db.role("support").await,
+        },
+    )
+    .await
+    .unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(
+        matches!(
+            auth.check_in(&mut tx, target, Permission::ManageSupportTickets)
+                .await,
+            Err(Error::Denied)
+        ),
+        "old session authorized new permission"
+    );
+    let remaining:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM web_sessions WHERE account_id=$1),(SELECT count(*) FROM account_mfa_tokens WHERE account_id=$1 AND purpose='grant')").bind(account).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(remaining, (0, 0));
+    tx.rollback().await.unwrap();
+    db.close().await;
+}

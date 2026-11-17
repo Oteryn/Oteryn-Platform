@@ -38,6 +38,14 @@ use std::{
 };
 use uuid::Uuid;
 
+fn trusted_navigation(headers: &HeaderMap) -> bool {
+    let mut sites = headers.get_all("sec-fetch-site").iter();
+    matches!(
+        sites.next().map(|site| site.as_bytes()),
+        Some(b"same-origin" | b"none")
+    ) && sites.next().is_none()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum Operation {
     #[serde(rename = "ops.overview.get")]
