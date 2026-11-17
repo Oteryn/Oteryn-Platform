@@ -49,10 +49,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-16T23:59:00Z
-head: b230750c4ba848a7177910d170b77c03839ff67b
+head: 08b3dace01d08b96f4b62472b48a8ea3a7f97e73
 branch: claude/happy-davinci-ijz3wy-r4rp-lockctl
 pr: 1895
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/admin/src/control/http.rs
@@ -90,13 +90,13 @@ validation:
     evidence: exit 0
 blockers:
   - none
-next_action: PR CI on the exact head, merge, then archive this packet
+next_action: none; delivered by PR 1895 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1895 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1895 merged as 08b3dace01d08b96f4b62472b48a8ea3a7f97e73
 ```
