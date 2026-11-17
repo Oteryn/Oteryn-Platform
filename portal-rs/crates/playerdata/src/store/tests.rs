@@ -2114,4 +2114,3 @@ async fn r7_snapshot_revisions_cross_ten() -> std::result::Result<(), Box<dyn st
     db.close().await?;
     Ok(())
 }
-
