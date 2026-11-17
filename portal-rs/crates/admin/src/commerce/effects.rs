@@ -136,6 +136,11 @@ impl<
         }
     }
 }
+/// A `refunding` claim younger than this belongs to a live attempt. It is four
+/// times the worker's 30 s execution budget, so a call still running in a live
+/// worker is never re-claimed, and short enough that a crashed attempt is
+/// re-claimed well before the job's ten outbox attempts are spent.
+pub const REFUND_CLAIM_STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(120);
 /// T31 has no reconciliation writer or transactional refund API. This narrow
 /// adapter uses its public intent reader and provider interface. Review only
 /// records staff evidence; refund dispatch never manufactures webhook truth.
@@ -161,19 +166,74 @@ impl TestPaymentAdapter {
     /// idempotency key per intent, so a crash after the call can safely retry.
     /// A signed T31 webhook remains the only authority for payment state.
     pub async fn deliver_refund(&self, pool: &PgPool, operation: Uuid) -> Result<(), Error> {
+        self.deliver_refund_with(&self.provider, pool, operation)
+            .await
+    }
+    /// Claim, call, finalize: the provider call runs outside any transaction
+    /// and holds no row lock. Its idempotency key is the intent id (one refund
+    /// per intent), so a re-claimed attempt repeats the same remote refund.
+    pub(super) async fn deliver_refund_with<R: PaymentProvider>(
+        &self,
+        provider: &R,
+        pool: &PgPool,
+        operation: Uuid,
+    ) -> Result<(), Error> {
         if !self.enabled {
             return Err(Error::Disabled);
         }
+        let Some((attempt, intent)) = self.claim_refund(provider, pool, operation).await? else {
+            return Ok(());
+        };
+        let reference = match provider.refund(intent.id, &intent.amount).await {
+            Ok(reference)
+                if !reference.is_empty()
+                    && reference.len() <= 128
+                    && !reference.chars().any(char::is_control) =>
+            {
+                reference
+            }
+            outcome => {
+                // A failed release leaves the claim to go stale and be re-claimed;
+                // the caller still sees the provider outcome.
+                let _ = release_refund(pool, operation, attempt).await;
+                return Err(outcome.map_or_else(payment_error, |_| Error::Unavailable));
+            }
+        };
         let mut tx = pool.begin().await?;
-        let row = sqlx::query("SELECT r.intent_id,r.account_id,r.amount,r.currency,r.provider,r.provider_reference FROM commerce_refunds r JOIN commerce_operations o ON o.id=r.operation_id WHERE r.operation_id=$1 AND o.approved_by IS NOT NULL AND o.result IS NOT NULL FOR UPDATE OF r")
-            .bind(operation).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
+        rbac::mutation_budget(&mut tx).await?;
+        if record_dispatch(&mut tx, operation, intent.id, &reference, Some(attempt)).await? {
+            tx.commit().await?;
+            return Ok(());
+        }
+        // Another attempt re-claimed the row; only its outcome may be recorded.
+        let settled: Option<String> = sqlx::query_scalar(
+            "SELECT provider_reference FROM commerce_refunds WHERE operation_id=$1",
+        )
+        .bind(operation)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        settled.map(|_| ()).ok_or(Error::Unavailable)
+    }
+    /// Short transaction: validate the approved refund and move it to
+    /// `refunding` under a fresh attempt id. `None` means already settled.
+    async fn claim_refund<R: PaymentProvider>(
+        &self,
+        provider: &R,
+        pool: &PgPool,
+        operation: Uuid,
+    ) -> Result<Option<(Uuid, oteryn_payments::Intent)>, Error> {
+        let mut tx = pool.begin().await?;
+        rbac::mutation_budget(&mut tx).await?;
+        let row = sqlx::query("SELECT r.intent_id,r.account_id,r.amount,r.currency,r.provider,r.provider_reference,r.state='refunding' AND r.claimed_at > now() - make_interval(secs => $2) AS claim_live FROM commerce_refunds r JOIN commerce_operations o ON o.id=r.operation_id WHERE r.operation_id=$1 AND o.approved_by IS NOT NULL AND o.result IS NOT NULL FOR UPDATE OF r")
+            .bind(operation).bind(REFUND_CLAIM_STALE_AFTER.as_secs_f64()).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
         if row
             .try_get::<Option<String>, _>("provider_reference")?
             .is_some()
         {
-            return Ok(());
+            return Ok(None);
         }
-        if row.try_get::<String, _>("provider")? != self.provider.name() {
+        if row.try_get::<String, _>("provider")? != provider.name() {
             return Err(Error::Denied);
         }
         let intent = self
@@ -187,37 +247,71 @@ impl TestPaymentAdapter {
         {
             return Err(Error::Conflict);
         }
-        let reference = match intent.state {
-            IntentState::Succeeded => self
-                .provider
-                .refund(intent.id, &intent.amount)
-                .await
-                .map_err(payment_error)?,
-            IntentState::Refunded => "verified-by-payment-ledger".to_owned(),
+        match intent.state {
+            IntentState::Succeeded => {}
+            IntentState::Refunded => {
+                record_dispatch(
+                    &mut tx,
+                    operation,
+                    intent.id,
+                    "verified-by-payment-ledger",
+                    None,
+                )
+                .await?;
+                tx.commit().await?;
+                return Ok(None);
+            }
             _ => return Err(Error::Conflict),
-        };
-        if reference.is_empty() || reference.len() > 128 || reference.chars().any(char::is_control)
-        {
+        }
+        if row.try_get::<Option<bool>, _>("claim_live")? == Some(true) {
             return Err(Error::Unavailable);
         }
-        sqlx::query("UPDATE commerce_refunds SET provider_reference=$2,updated_at=now() WHERE operation_id=$1").bind(operation).bind(reference).execute(&mut *tx).await?;
-        audit::append(
-            &mut tx,
-            audit::Entry {
-                context: audit::AuditContext {
-                    actor: None,
-                    request_id: operation,
-                },
-                action: "commerce.refund.dispatched",
-                target: &intent.id.to_string(),
-                before: json!(null),
-                after: json!({"operation":operation,"awaiting_verified_settlement":true}),
-            },
-        )
-        .await?;
+        let attempt = Uuid::now_v7();
+        sqlx::query("UPDATE commerce_refunds SET state='refunding',attempt_id=$2,claimed_at=now(),updated_at=now() WHERE operation_id=$1")
+            .bind(operation).bind(attempt).execute(&mut *tx).await?;
         tx.commit().await?;
-        Ok(())
+        Ok(Some((attempt, intent)))
     }
+}
+/// Records the provider reference once. With an attempt id it applies only
+/// while that attempt still owns the `refunding` claim. Returns whether it wrote.
+async fn record_dispatch(
+    tx: &mut Transaction<'_, Postgres>,
+    operation: Uuid,
+    intent: Uuid,
+    reference: &str,
+    attempt: Option<Uuid>,
+) -> Result<bool, Error> {
+    let written = sqlx::query("UPDATE commerce_refunds SET provider_reference=$2,state='done',updated_at=now() WHERE operation_id=$1 AND provider_reference IS NULL AND ($3::uuid IS NULL OR (attempt_id=$3 AND state='refunding'))")
+        .bind(operation).bind(reference).bind(attempt).execute(&mut **tx).await?.rows_affected();
+    if written != 1 {
+        return Ok(false);
+    }
+    audit::append(
+        tx,
+        audit::Entry {
+            context: audit::AuditContext {
+                actor: None,
+                request_id: operation,
+            },
+            action: "commerce.refund.dispatched",
+            target: &intent.to_string(),
+            before: json!(null),
+            after: json!({"operation":operation,"awaiting_verified_settlement":true}),
+        },
+    )
+    .await?;
+    Ok(true)
+}
+/// Returns a failed attempt's claim to `pending` so the outbox retry can
+/// dispatch again at once; a re-claimed or settled row is left untouched.
+async fn release_refund(pool: &PgPool, operation: Uuid, attempt: Uuid) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
+    sqlx::query("UPDATE commerce_refunds SET state='pending',attempt_id=NULL,claimed_at=NULL,updated_at=now() WHERE operation_id=$1 AND attempt_id=$2 AND state='refunding' AND provider_reference IS NULL")
+        .bind(operation).bind(attempt).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
 }
 impl PaymentActions for TestPaymentAdapter {
     async fn inspect(
