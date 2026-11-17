@@ -59,7 +59,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T09:10:00Z
 head: eb881d55af6fdc010ec520afd48871f15ac60fab
 branch: claude/happy-davinci-ijz3wy-payments-webhook-unavailable
-pr: none
+pr: 1921
 status: ready
 context_routes: []
 owned_paths:
