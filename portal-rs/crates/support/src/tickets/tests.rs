@@ -1209,6 +1209,21 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
     for n in 0..51 {
         sqlx::query("INSERT INTO ticket_messages(id,ticket_id,author_account_id,author_kind,body,internal) VALUES($1,$2,$3,$4,$5,false)").bind(Uuid::now_v7()).bind(id).bind(if n==50 {staff} else {owner}).bind(if n==50 {"staff"} else {"user"}).bind(format!("Message {n}")).execute(&db.pool).await?;
     }
+    let (cookie, _) = db.cookie(owner).await?;
+    let cursor: Uuid = sqlx::query_scalar(
+        "SELECT id FROM ticket_messages WHERE ticket_id=$1 ORDER BY id OFFSET 49 LIMIT 1",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await?;
+    let response = router(tickets.clone(), "http://localhost:3000")
+        .oneshot(
+            Request::head(format!("/en/support/tickets/{id}?after={cursor}"))
+                .header("cookie", cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
     let (_, first) = tickets.show(owner, false, id).await?;
     let unread = || {
         sqlx::query_scalar::<_, bool>("SELECT unread_reply FROM tickets WHERE id=$1")
@@ -1345,6 +1360,15 @@ async fn audit_w3_02_changed_payload_draft_recovers_on_postgres() -> TestResult 
     let response = post(key, "Edited", "Edited+message").await?;
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(response.headers()["location"], "/en/support/tickets/create");
+    let head = app
+        .clone()
+        .oneshot(
+            Request::head("/en/support/tickets/create")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(head.status(), StatusCode::OK);
     let response = app
         .clone()
         .oneshot(
