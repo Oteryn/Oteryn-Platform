@@ -3663,6 +3663,7 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
     let db = returned_character_fixture("coins").await;
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
+    tx.commit().await.unwrap();
     let mut chains = Vec::new();
     for (command_index, command) in [
         Command::Return,
@@ -3719,7 +3720,11 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
         let mut step = root;
         let mut previous = root;
         let mut tail = root;
+        // Setup mirrors production: authority_http.rs receives one receipt per
+        // request transaction, so every step commits on its own and each receive
+        // gets its own three-second mutation budget.
         for n in 0..128 {
+            let mut tx = db.pool.begin().await.unwrap();
             let intent = character_intent(
                 command,
                 104 + command_index as u64 * 129 + n,
@@ -3734,16 +3739,6 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
             )
             .await;
             sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(tail).execute(&mut *tx).await.unwrap();
-            // Setup mirrors production: authority_http.rs receives one receipt per
-            // request transaction, each with its own three-second mutation budget.
-            // This setup stores 512 receipts in one transaction, so it starts a fresh
-            // budget before each receive instead of letting the first deadline expire
-            // on a loaded runner. The 3 s budget and every assertion stay unchanged;
-            // issue() below runs in its own transaction with no reset.
-            sqlx::query("SELECT set_config('oteryn.mutation_deadline','',true)")
-                .execute(&mut *tx)
-                .await
-                .unwrap();
             let receipt = format!(
                 r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"{}","operation_id":"{tail}","outcome":"REJECTED","result_code":"CHAR_CMD_INTENT_EXPIRED","result_data":null,"recovery_generation":"3","decided_at":"{now}"}}"#,
                 command.wire()
@@ -3762,9 +3757,11 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
                 audit(db.runtime.authority(), &mut tx, &intent, &receipt, now).await,
                 ReceiptResult::Stored
             );
+            tx.commit().await.unwrap();
             previous = step;
             step = tail;
         }
+        let mut tx = db.pool.begin().await.unwrap();
         // A persisted pointer from 127 successful retries must skip their history.
         sqlx::query("INSERT INTO bazaar_cleanup_attempts(listing_id,command,root_step,current_step) VALUES($1,$2,$3,$4)")
             .bind(uid("30")).bind(command.wire()).bind(root).bind(previous).execute(&mut *tx).await.unwrap();
@@ -3781,15 +3778,24 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
             &format!("bazaar:{}:{}:{tail}:1", uid("30"), command.wire()),
         )
         .await;
+        tx.commit().await.unwrap();
         chains.push((command, root, tail, pending_id, extra));
     }
-    tx.commit().await.unwrap();
     sqlx::query("ANALYZE bazaar_game_outbox, bazaar_authority_receipts, bazaar_authority_decisions, bazaar_disposition_fences, bazaar_command_receipt_heads, bazaar_cleanup_attempts").execute(&db.pool).await.unwrap();
     for (command, root, tail, pending, extra) in chains {
         let mut tx = db.pool.begin().await.unwrap();
         let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
             .bind(uid("30"))
             .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        // The bound counts tuples on the plan PostgreSQL uses at scale. On these
+        // few-page fixture tables the planner may prefer reading the whole heap
+        // over one primary-key probe (issue #1919: 3 pages, 256 tuples). Seq scans
+        // stay possible where no index path exists, so an unindexed lookup still
+        // fails the bound.
+        sqlx::query("SET LOCAL enable_seqscan=off")
+            .execute(&mut *tx)
             .await
             .unwrap();
         let before:i64=sqlx::query_scalar("SELECT coalesce(sum(seq_tup_read+idx_tup_fetch),0)::bigint FROM pg_stat_xact_user_tables").fetch_one(&mut *tx).await.unwrap();
