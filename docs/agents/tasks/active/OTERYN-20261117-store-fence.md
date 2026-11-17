@@ -79,7 +79,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T12:00:00Z
 head: a022cf41c48a4ab328a5b9f3b36a4183177264e1
 branch: claude/happy-davinci-ijz3wy-store-fence
-pr: none
+pr: 1917
 status: ready
 context_routes: []
 owned_paths:
