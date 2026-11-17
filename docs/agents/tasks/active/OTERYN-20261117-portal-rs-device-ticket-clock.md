@@ -58,7 +58,7 @@ checkpoint_version: 1
 updated_at: 2026-11-17T03:50:00Z
 head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
 branch: claude/happy-davinci-ijz3wy-devclock
-pr: none
+pr: 1901
 status: validating
 context_routes: []
 owned_paths:
@@ -96,5 +96,5 @@ validation:
     evidence: fmt clean; clippy finished with no warnings
 blockers:
   - none
-next_action: open PR and wait for Portal RS CI
+next_action: wait for Portal RS CI on PR 1901
 ```
