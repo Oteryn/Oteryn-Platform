@@ -10,7 +10,7 @@ type Result<T> = std::result::Result<T, sqlx::Error>;
 pub struct Snapshot {
     pub character_ref: Uuid,
     pub day: Date,
-    pub level: i64,
+    pub level: u64,
     pub experience: Option<String>,
     pub skills: Option<Value>,
     pub achievement_points: Option<i64>,
@@ -43,7 +43,7 @@ pub struct Permissions {
 #[derive(Debug)]
 pub struct Daily {
     pub day: Date,
-    pub level: i64,
+    pub level: u64,
     pub experience: Option<String>,
     pub skills: Option<Value>,
     pub achievement_points: Option<i64>,
@@ -68,6 +68,11 @@ pub struct Growth {
 fn invalid() -> sqlx::Error {
     sqlx::Error::Protocol("invalid statistics input".into())
 }
+pub(crate) fn read_level(row: &sqlx::postgres::PgRow, column: &str) -> Result<u64> {
+    row.try_get::<&str, _>(column)?
+        .parse()
+        .map_err(|err| sqlx::Error::Decode(Box::new(err)))
+}
 fn range(start: Date, end: Date) -> Result<()> {
     if start > end { Err(invalid()) } else { Ok(()) }
 }
@@ -85,7 +90,7 @@ pub async fn partitions(tx: &mut Transaction<'_, Postgres>, day: Date) -> Result
 }
 /// Callers serialize writes with the same advisory transaction lock as the worker.
 pub async fn snapshot(tx: &mut Transaction<'_, Postgres>, s: &Snapshot) -> Result<()> {
-    if s.level <= 0
+    if s.level == 0
         || s.name.is_empty()
         || s.observed_at < 0
         || s.experience
@@ -97,8 +102,8 @@ pub async fn snapshot(tx: &mut Transaction<'_, Postgres>, s: &Snapshot) -> Resul
     {
         return Err(invalid());
     }
-    let updated = sqlx::query("INSERT INTO stats_character_daily (character_ref,day,level,experience,skills,achievement_points,minutes_online,name,world,guild,observed_at) VALUES ($1,$2,$3,$4::text::numeric,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (character_ref,day) DO UPDATE SET level=EXCLUDED.level,experience=EXCLUDED.experience,skills=EXCLUDED.skills,achievement_points=EXCLUDED.achievement_points,minutes_online=EXCLUDED.minutes_online,name=EXCLUDED.name,world=EXCLUDED.world,guild=EXCLUDED.guild,observed_at=EXCLUDED.observed_at WHERE stats_character_daily.observed_at <= EXCLUDED.observed_at AND stats_character_daily IS DISTINCT FROM EXCLUDED")
-        .bind(s.character_ref).bind(s.day).bind(s.level).bind(&s.experience).bind(&s.skills).bind(s.achievement_points).bind(s.minutes_online).bind(&s.name).bind(s.world).bind(s.guild).bind(s.observed_at).execute(&mut **tx).await?;
+    let updated = sqlx::query("INSERT INTO stats_character_daily (character_ref,day,level,experience,skills,achievement_points,minutes_online,name,world,guild,observed_at) VALUES ($1,$2,$3::text::numeric,$4::text::numeric,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (character_ref,day) DO UPDATE SET level=EXCLUDED.level,experience=EXCLUDED.experience,skills=EXCLUDED.skills,achievement_points=EXCLUDED.achievement_points,minutes_online=EXCLUDED.minutes_online,name=EXCLUDED.name,world=EXCLUDED.world,guild=EXCLUDED.guild,observed_at=EXCLUDED.observed_at WHERE stats_character_daily.observed_at <= EXCLUDED.observed_at AND stats_character_daily IS DISTINCT FROM EXCLUDED")
+        .bind(s.character_ref).bind(s.day).bind(s.level.to_string()).bind(&s.experience).bind(&s.skills).bind(s.achievement_points).bind(s.minutes_online).bind(&s.name).bind(s.world).bind(s.guild).bind(s.observed_at).execute(&mut **tx).await?;
     if updated.rows_affected() == 0 {
         return Ok(());
     }
@@ -109,17 +114,17 @@ pub async fn snapshot(tx: &mut Transaction<'_, Postgres>, s: &Snapshot) -> Resul
     for day in days {
         sqlx::query("DELETE FROM stats_character_events WHERE character_ref=$1 AND day=$2 AND kind IN ('name_change','world_change','guild_leave','guild_join','level_up')")
             .bind(s.character_ref).bind(day).execute(&mut **tx).await?;
-        let pair = sqlx::query("SELECT c.name,c.world,c.guild,c.level,p.name AS old_name,p.world AS old_world,p.guild AS old_guild,p.level AS old_level FROM stats_character_daily c JOIN LATERAL (SELECT * FROM stats_character_daily WHERE character_ref=c.character_ref AND day<c.day ORDER BY day DESC LIMIT 1) p ON true WHERE c.character_ref=$1 AND c.day=$2")
+        let pair = sqlx::query("SELECT c.name,c.world,c.guild,c.level::text,p.name AS old_name,p.world AS old_world,p.guild AS old_guild,p.level::text AS old_level FROM stats_character_daily c JOIN LATERAL (SELECT * FROM stats_character_daily WHERE character_ref=c.character_ref AND day<c.day ORDER BY day DESC LIMIT 1) p ON true WHERE c.character_ref=$1 AND c.day=$2")
             .bind(s.character_ref).bind(day).fetch_optional(&mut **tx).await?;
         if let Some(p) = pair {
             let name: String = p.try_get("name")?;
             let world: Uuid = p.try_get("world")?;
             let guild: Option<Uuid> = p.try_get("guild")?;
-            let level: i64 = p.try_get("level")?;
+            let level = read_level(&p, "level")?;
             let old_name: String = p.try_get("old_name")?;
             let old_world: Uuid = p.try_get("old_world")?;
             let old_guild: Option<Uuid> = p.try_get("old_guild")?;
-            let old_level: i64 = p.try_get("old_level")?;
+            let old_level = read_level(&p, "old_level")?;
             for (kind, changed, details) in [
                 (
                     "name_change",
@@ -209,9 +214,9 @@ pub async fn history(
     if !p.visible {
         return Ok(result);
     }
-    for row in sqlx::query("SELECT day,level,experience::text,skills,achievement_points,minutes_online FROM stats_character_daily WHERE character_ref=$1 AND day BETWEEN $2 AND $3 ORDER BY day LIMIT 366")
+    for row in sqlx::query("SELECT day,level::text,experience::text,skills,achievement_points,minutes_online FROM stats_character_daily WHERE character_ref=$1 AND day BETWEEN $2 AND $3 ORDER BY day LIMIT 366")
         .bind(character).bind(start).bind(end).fetch_all(db).await? {
-        result.daily.push(Daily { day: row.try_get("day")?, level: row.try_get("level")?, experience: row.try_get("experience")?, skills: if p.skills {row.try_get("skills")?} else {None}, achievement_points: row.try_get("achievement_points")?, minutes_online: if p.online {row.try_get("minutes_online")?} else {None} });
+        result.daily.push(Daily { day: row.try_get("day")?, level: read_level(&row, "level")?, experience: row.try_get("experience")?, skills: if p.skills {row.try_get("skills")?} else {None}, achievement_points: row.try_get("achievement_points")?, minutes_online: if p.online {row.try_get("minutes_online")?} else {None} });
     }
     for row in sqlx::query("SELECT day,kind,details FROM stats_character_events WHERE character_ref=$1 AND day BETWEEN $2 AND $3 AND ($4 OR kind NOT LIKE 'guild_%') AND ($5 OR kind<>'death') AND (kind<>'death' OR NOT public_projection_conflicted('character_deaths')) ORDER BY day,kind,event_key LIMIT 1001")
         .bind(character).bind(start).bind(end).bind(p.guild).bind(p.deaths).fetch_all(db).await? {
