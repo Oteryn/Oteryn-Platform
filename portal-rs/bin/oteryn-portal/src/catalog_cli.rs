@@ -5,13 +5,11 @@ use oteryn_store::catalog::{
 };
 use serde_json::json;
 use sqlx::{PgConnection, PgPool};
-use std::{process::ExitCode, sync::Mutex};
+use std::process::ExitCode;
 use uuid::Uuid;
 
-#[derive(Debug, Default)]
-pub struct Access {
-    transaction_id: Mutex<Option<String>>,
-}
+#[derive(Debug)]
+pub struct Access;
 impl CatalogAccess for Access {
     async fn account_state(
         &self,
@@ -41,14 +39,6 @@ impl CatalogAccess for Access {
         // Serialize permission reads with role writers for the full library
         // transaction, including waits on the active-catalog pointer/import.
         oteryn_admin::rbac::lock_accounts_and_mutation(connection, &[actor]).await?;
-        // Capture the library transaction identity. Only history inserted by
-        // this call may produce an audit row, including when older history has
-        // no audit entry. PostgreSQL row xmin stores the low 32 bits of the XID.
-        let transaction_id: String =
-            sqlx::query_scalar("SELECT (pg_current_xact_id()::text::numeric % 4294967296)::text")
-                .fetch_one(&mut *connection)
-                .await?;
-        *self.transaction_id.lock().map_err(|_| Error::Denied)? = Some(transaction_id);
         let permission = match action {
             Action::Import => Permission::ImportStoreCatalog,
             Action::Activate => Permission::ActivateStoreCatalog,
@@ -101,64 +91,24 @@ fn parse_args(args: &[String]) -> Result<Command, &'static str> {
     })
 }
 
-async fn audit(
-    pool: &PgPool,
-    revision: &str,
-    action: Action,
-    transaction_id: &str,
-) -> Result<(), Error> {
-    // CatalogStore owns and commits its transactions and exposes no transaction
-    // parameter or change outcome. Audit immediately after success. Immutable
-    // source history supplies the original actor and previous revision. Serialize
-    // audit writers and identify source events so retries never duplicate rows.
-    // xmin restricts auditing to history inserted by this successful call.
-    // A process crash between these commits can leave an audit gap.
-    let mut tx = pool.begin().await?;
-    oteryn_db::mutation_budget(&mut tx).await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(281510004)")
-        .execute(&mut *tx)
-        .await?;
-    match action {
-        Action::Import => {
-            sqlx::query("INSERT INTO audit_log (actor,action,target,before,after,request_id) SELECT i.imported_by,'store.catalog.imported',i.catalog_revision,'{}'::jsonb,jsonb_build_object('catalog_revision',i.catalog_revision,'offers',(SELECT count(*) FROM store_offers o WHERE o.catalog_revision=i.catalog_revision)),$2 FROM store_price_list_imports i WHERE i.catalog_revision=$1 AND i.xmin::text=$3 AND NOT EXISTS(SELECT 1 FROM audit_log a WHERE a.action='store.catalog.imported' AND a.target=i.catalog_revision)")
-                .bind(revision).bind(Uuid::now_v7()).bind(transaction_id).execute(&mut *tx).await?;
-        }
-        Action::Activate => {
-            sqlx::query("INSERT INTO audit_log (actor,action,target,before,after,request_id) SELECT h.actor_id,'store.catalog.activated',h.catalog_revision,'{}'::jsonb,jsonb_build_object('catalog_revision',h.catalog_revision,'previous_revision',h.previous_revision),h.activation_id FROM store_catalog_activations h WHERE h.catalog_revision=$1 AND h.xmin::text=$2 AND NOT EXISTS(SELECT 1 FROM audit_log a WHERE a.action='store.catalog.activated' AND a.request_id=h.activation_id) ORDER BY h.activation_sequence")
-                .bind(revision).bind(transaction_id).execute(&mut *tx).await?;
-        }
-    }
-    tx.commit().await?;
-    Ok(())
-}
-
 pub async fn execute(pool: &PgPool, command: &Command) -> Result<String, &'static str> {
-    let store = CatalogStore::new(pool.clone(), CatalogFlags { enabled: true });
-    let access = Access::default();
+    let store = CatalogStore::new(pool.clone(), CatalogFlags { enabled: true }).with_audit_log();
     let revision = match command.action {
         Action::Import => {
             let raw = std::fs::read(&command.value).map_err(|_| "ReadFile")?;
             store
-                .import(&raw, command.actor, &access)
+                .import(&raw, command.actor, &Access)
                 .await
                 .map_err(|e| error_code(&e))?
         }
         Action::Activate => {
             store
-                .activate(&command.value, command.actor, &access)
+                .activate(&command.value, command.actor, &Access)
                 .await
                 .map_err(|e| error_code(&e))?;
             command.value.clone()
         }
     };
-    let transaction_id = access
-        .transaction_id
-        .into_inner()
-        .map_err(|_| "Denied")?
-        .ok_or("Denied")?;
-    audit(pool, &revision, command.action, &transaction_id)
-        .await
-        .map_err(|e| error_code(&e))?;
     Ok(revision)
 }
 
