@@ -41,7 +41,9 @@ pub(crate) fn configured_router_from(
             )),
         },
     ));
-    web::configured_guard_from(routes, pool, Permission::ManageSupportTickets, lookup)
+    // Every handler checks its own permission; the guard admits any staff member
+    // so a kick-only moderator reaches the kick view.
+    web::configured_guard_from(routes, pool, Permission::Access, lookup)
 }
 pub fn router<A, I, S>(
     pool: PgPool,
@@ -57,14 +59,7 @@ where
     S: StaffSession,
 {
     let routes = routes(Players::new(pool.clone(), flags, staff.clone(), accounts));
-    web::guarded(
-        routes,
-        pool,
-        panel,
-        identity,
-        staff,
-        Permission::ManageSupportTickets,
-    )
+    web::guarded(routes, pool, panel, identity, staff, Permission::Access)
 }
 fn routes<A: AccountStateReader + 'static, I: Accounts>(players: Players<A, I>) -> Router {
     Router::new()
@@ -144,6 +139,8 @@ struct Page {
     coin_debt_label: String,
     /// `Some` when the viewer may release coin purchase holds.
     coin_hold: Option<CoinHold>,
+    /// `Some(id)` when the viewer may only kick that account.
+    kick_target: Option<String>,
 }
 struct CoinHold {
     id: String,
@@ -224,6 +221,7 @@ impl Page {
             release_coin_hold: text(lang, "coin-hold-release"),
             coin_debt_label: text(lang, "coin-debt"),
             coin_hold: None,
+            kick_target: None,
         }
     }
 }
@@ -256,7 +254,16 @@ async fn detail<A: AccountStateReader, I: Accounts>(
     Query(query): Query<ResultQuery>,
 ) -> Result<Response, Error> {
     let mut page = Page::new(language(&headers));
-    let mut account = s.account(context, id).await?;
+    let mut account = match s.account(context, id).await {
+        Ok(account) => account,
+        Err(Error::Authorization(crate::rbac::Error::Denied)) => {
+            s.kick_view(context, id).await?;
+            page.kick_target = Some(id.to_string());
+            page.csrf = session.csrf_token().await?;
+            return Ok(oteryn_web::render(&page));
+        }
+        Err(e) => return Err(e),
+    };
     account.status = text(page.lang, &format!("status-{}", account.status));
     page.account = Some(account);
     page.notes = s.notes(context, id).await?;

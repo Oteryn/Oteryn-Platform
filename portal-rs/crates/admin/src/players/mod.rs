@@ -242,6 +242,13 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.record(context, "players.account.view", id).await?;
         Ok(account)
     }
+    /// The kick view for staff who may only kick: it proves the target exists
+    /// and discloses nothing else about the account or its tickets.
+    pub async fn kick_view(&self, context: CheckContext, id: Uuid) -> Result<(), Error> {
+        self.check(context, Permission::KickAccountSessions).await?;
+        self.target(id).await?;
+        self.record(context, "players.kick.view", id).await
+    }
     pub async fn sessions(&self, context: CheckContext, id: Uuid) -> Result<Vec<Session>, Error> {
         self.check(context, Permission::ManageSupportTickets)
             .await?;
