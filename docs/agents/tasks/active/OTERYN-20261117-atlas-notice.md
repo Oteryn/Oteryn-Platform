@@ -76,7 +76,10 @@ validation:
   - command: PORTAL_ATLAS_BROWSER_NODE=node cargo test -p oteryn-atlas --lib spawns::tests::postgres_spawns_private_markers_and_reports (PostgreSQL 18), without and with the viewer change
     result: PASS
     evidence: red at the post-release refusal wait without the change; three green runs with it
+  - command: same test with PORTAL_ATLAS_PLAYWRIGHT_MODULE=playwright-core 1.63.0 (as CI), after dropping page.unroute
+    result: PASS
+    evidence: CI browser job 133845420228 failed with "route.continue Route is already handled" when unroute raced the released handler; the route now stays and the released handler is the only one to continue the request; five green runs
 blockers:
   - none
-next_action: "open the PR, wait for Portal RS CI, then squash auto-merge"
+next_action: "wait for Portal RS CI on PR 1907, then squash auto-merge"
 ```

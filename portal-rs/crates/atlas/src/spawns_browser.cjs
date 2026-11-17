@@ -43,7 +43,7 @@ const assert = require('node:assert/strict');
     await page.getByRole('button',{name:'Send report'}).click();
     const refusal=page.getByText('Unavailable or invalid input. Please try again.',{exact:true});
     await refusal.waitFor();
-    release(); await page.unroute('**/atlas/spawns?*');
+    release(); // the route stays: a later spawns load passes straight through it
     await page.waitForFunction(()=>document.querySelector('.spawn-panel>p')?.textContent.includes(': 2;'));
     await refusal.waitFor();
     assert.deepEqual(errors,[]);
