@@ -403,6 +403,96 @@ impl StaffSession for Browser {
         })
     }
 }
+#[derive(Clone)]
+struct DeniedCharacters(Backend);
+impl Accounts for DeniedCharacters {
+    async fn search(&self, query: &str) -> Result<Vec<Account>, Error> {
+        self.0.search(query).await
+    }
+    async fn account(&self, id: Uuid) -> Result<Option<Account>, Error> {
+        let mut account = self.0.account(id).await?;
+        if let Some(account) = &mut account {
+            account.status = "closed".into();
+            account.email_verified = false;
+        }
+        Ok(account)
+    }
+    async fn sessions(&self, id: Uuid) -> Result<Vec<Session>, Error> {
+        self.0.sessions(id).await
+    }
+    async fn characters(&self, _: Uuid) -> Result<Vec<Character>, Error> {
+        Err(Error::Denied)
+    }
+    async fn verified(
+        &self,
+        c: &mut PgConnection,
+        id: Uuid,
+        evidence: Uuid,
+    ) -> Result<bool, Error> {
+        self.0.verified(c, id, evidence).await
+    }
+    async fn revoke_all(&self, c: &mut PgConnection, id: Uuid) -> Result<(), Error> {
+        self.0.revoke_all(c, id).await
+    }
+    async fn reset_mfa(&self, c: &mut PgConnection, id: Uuid, evidence: Uuid) -> Result<(), Error> {
+        self.0.reset_mfa(c, id, evidence).await
+    }
+}
+#[tokio::test]
+async fn postgres_http_detail_keeps_account_and_notes_when_characters_denied() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Db::open()
+        .await
+        .expect("PostgreSQL is required for this regression");
+    db.service()
+        .note(
+            context(db.support),
+            db.target,
+            "Support note for closed account",
+        )
+        .await
+        .unwrap();
+    let app = http::router(
+        db.pool.clone(),
+        Flags {
+            players: true,
+            characters: true,
+            coin_holds: false,
+        },
+        PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Browser(db.support),
+        Staff,
+        DeniedCharacters(Backend { id: db.target }),
+    );
+    let response = app
+        .oneshot(
+            Request::get(format!("/admin/players/{}", db.target))
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let target = db.target.to_string();
+    let status = response.status();
+    let body = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    db.close().await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Support note for closed account"));
+    assert!(body.contains(&format!("<h2>{target}</h2>")));
+    assert!(body.contains("<dd>Closed</dd>"));
+    assert!(body.contains("<h2>Characters</h2><p>This information is currently unavailable.</p>"));
+}
 #[tokio::test]
 async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
