@@ -22,12 +22,12 @@ relayed by the coordinator.
 
 ## Acceptance criteria
 
-- [ ] Every project in `playwright.config.mjs` runs unless a dispatch names a subset; an unknown project fails the plan
-- [ ] Each matrix job lists more than zero tests and reports its counts and seconds in the step summary
-- [ ] No test, timeout, retry or expected count in `portal-rs/e2e` changes; `local.mjs` only skips its own build when `PORTAL_E2E_BINARY` is set
-- [ ] The scratch directory (env.json, keys) is never uploaded; log tails redact connection strings
-- [ ] Workflow registered in `CI_WORKFLOW_LIFECYCLE.json` with its review/retirement condition in the workflow header
-- [ ] Every action pinned by full SHA
+- [x] Every project in `playwright.config.mjs` runs unless a dispatch names a subset; an unknown project fails the plan
+- [x] Each matrix job lists more than zero tests and reports its counts and seconds in the step summary
+- [x] No test, timeout, retry or expected count in `portal-rs/e2e` changes; `local.mjs` only skips its own build when `PORTAL_E2E_BINARY` is set
+- [x] The scratch directory (env.json, keys) is never uploaded; log tails redact connection strings
+- [x] Workflow registered in `CI_WORKFLOW_LIFECYCLE.json` with its review/retirement condition in the workflow header
+- [x] Every action pinned by full SHA
 
 ## Ownership
 
@@ -52,10 +52,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T00:55:00Z
-head: 73f0de7a7775d04443c043656a46a13b98323e84
+head: bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
 branch: claude/happy-davinci-ijz3wy-e2e-hosted
 pr: 1896
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - .github/workflows/portal-rs-e2e.yml
@@ -88,13 +88,13 @@ validation:
     evidence: every script exit 0
 blockers:
   - none
-next_action: First run 43980291709 built in 2m22s; e2e jobs failed on ubuntu-latest 26.04 (no Chromium for the pinned Playwright); pinned both jobs to ubuntu-24.04, read per-project times from the next run
+next_action: none; delivered by PR 1896 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: task is still active; branch not yet pushed
-source_branch_evidence: pending
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1896 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1896 merged as bb2f6c07f2aa9d2fa820750753aa7daba376b9e4
 ```
