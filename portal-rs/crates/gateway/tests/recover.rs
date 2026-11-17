@@ -498,8 +498,25 @@ async fn recover_rejects_malformed_issuer_material() {
 }
 
 #[tokio::test]
+async fn transient_recovery_refusals_leave_attempt_budget_available() {
+    for (status, body) in [(429, RATE_LIMITED), (503, UNAVAILABLE)] {
+        let upstream = any_issuer(status, body).await;
+        let app = app(&upstream.url);
+        for _ in 0..7 {
+            let response = post_from(app.clone(), "/v1/recover", REQUEST, [192, 0, 2, 10]).await;
+            assert_eq!(response.status.as_u16(), status);
+        }
+        assert_eq!(
+            upstream.calls.load(Ordering::SeqCst),
+            7,
+            "transient refusal consumed recovery budget"
+        );
+    }
+}
+
+#[tokio::test]
 async fn recover_limits_follow_section_19_9() {
-    let upstream = any_issuer(503, UNAVAILABLE).await;
+    let upstream = any_issuer(503, RECONCILIATION).await;
     let app = app(&upstream.url);
     // (attempt_ref, handle hash): 6 requests in total.
     for _ in 0..6 {
