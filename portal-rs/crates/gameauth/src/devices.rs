@@ -149,15 +149,14 @@ impl Credential {
     pub fn secret(&self) -> &str {
         &self.secret
     }
-    fn payload(&self) -> Result<serde_json::Value> {
-        serde_json::to_value(wire::CredentialResponse {
+    fn payload(&self) -> wire::CredentialResponse {
+        wire::CredentialResponse {
             protocol_version: 1,
             device_credential: self.secret.clone(),
             family_id: self.family_id,
             absolute_expires_at: self.absolute_expires_at,
             idle_expires_at: self.idle_expires_at,
-        })
-        .map_err(|_| Failure::Unavailable)
+        }
     }
 }
 fn secret() -> Result<String> {
@@ -315,7 +314,8 @@ impl Sessions {
         client: Uuid,
         purpose: Purpose,
     ) -> Result<serde_json::Value> {
-        self.operate(secret, client, Some(purpose)).await
+        serde_json::to_value(self.operate(secret, client, Some(purpose)).await?)
+            .map_err(|_| Failure::Unavailable)
     }
     pub async fn revoke(&self, secret: &str, client: Uuid) -> Result<()> {
         self.operate(secret, client, None).await.map(|_| ())
@@ -325,7 +325,7 @@ impl Sessions {
         presented: &str,
         client: Uuid,
         purpose: Option<Purpose>,
-    ) -> Result<serde_json::Value> {
+    ) -> Result<wire::DeviceResponse> {
         // Only server-confirmed transaction aborts are retried. An ambiguous
         // commit or network error never retries a potentially consumed secret.
         for _ in 0..3 {
@@ -341,7 +341,7 @@ impl Sessions {
         presented: &str,
         client: Uuid,
         purpose: Option<Purpose>,
-    ) -> Result<serde_json::Value> {
+    ) -> Result<wire::DeviceResponse> {
         self.settings.check()?;
         self.authority.deployment_ready()?;
         if !valid_secret(presented) {
@@ -401,11 +401,10 @@ impl Sessions {
             sqlx::query("UPDATE device_sessions SET revoked_at=coalesce(revoked_at,$2),updated_at=now() WHERE id=$1").bind(family).bind(at).execute(&mut *tx).await.map_err(unavailable)?;
             tx.commit().await.map_err(unavailable)?;
             return if purpose.is_none() {
-                serde_json::to_value(wire::RevokeResponse {
+                Ok(wire::DeviceResponse::Revoke(wire::RevokeResponse {
                     protocol_version: 1,
                     revoked: true,
-                })
-                .map_err(|_| Failure::Unavailable)
+                }))
             } else {
                 Err(Failure::Denied)
             };
@@ -436,8 +435,8 @@ impl Sessions {
         // The ticket lifetime is bounded from its issuance, which may fall in a later
         // second than the rotation clock read above.
         let issued = clock(&mut tx).await?;
-        let mut payload = credential.payload()?;
-        match (purpose, native) {
+        let credential = credential.payload();
+        let payload = match (purpose, native) {
             (Purpose::Characters, NativeResult::Characters(characters))
                 if characters.len() <= 64
                     && characters.iter().all(|c| {
@@ -446,8 +445,10 @@ impl Sessions {
                             && matches!(c.availability.as_str(), "AVAILABLE" | "UNAVAILABLE")
                     }) =>
             {
-                payload["characters"] =
-                    serde_json::to_value(characters).map_err(|_| Failure::Unavailable)?;
+                wire::DeviceResponse::Characters(wire::CharactersResponse {
+                    credential,
+                    characters,
+                })
             }
             (
                 Purpose::Ticket,
@@ -462,12 +463,15 @@ impl Sessions {
                 && expires_at > at
                 && expires_at <= issued + 60 =>
             {
-                payload["ticket"] = ticket.into();
-                payload["expires_in"] = expires_in.into();
-                payload["expires_at"] = expires_at.into();
+                wire::DeviceResponse::Ticket(wire::TicketResponse {
+                    credential,
+                    ticket,
+                    expires_in,
+                    expires_at,
+                })
             }
             _ => return Err(Failure::Unavailable),
-        }
+        };
         if serde_json::to_vec(&payload)
             .map_err(|_| Failure::Unavailable)?
             .len()
@@ -475,7 +479,6 @@ impl Sessions {
         {
             return Err(Failure::Unavailable);
         }
-        let payload = wire::operation_response(payload, purpose)?;
         tx.commit().await.map_err(unavailable)?;
         Ok(payload)
     }

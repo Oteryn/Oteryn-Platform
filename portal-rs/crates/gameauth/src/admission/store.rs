@@ -386,9 +386,10 @@ async fn refusal_channels(
         None => Ok(Vec::new()),
     }
 }
-pub(super) async fn budget(pool: &PgPool, credential: &[u8], limit: u32) -> Result<(), Error> {
+pub(super) async fn budget(pool: &PgPool, limit: u32) -> Result<(), Error> {
+    use sha2::Digest;
     let count: i64 = sqlx::query_scalar("INSERT INTO native_admission_budgets (credential_hash, window_start, requests) VALUES ($1, clock_timestamp(), 1) ON CONFLICT (credential_hash) DO UPDATE SET requests = CASE WHEN native_admission_budgets.window_start <= clock_timestamp() - interval '60 seconds' THEN 1 ELSE native_admission_budgets.requests + 1 END, window_start = CASE WHEN native_admission_budgets.window_start <= clock_timestamp() - interval '60 seconds' THEN clock_timestamp() ELSE native_admission_budgets.window_start END RETURNING requests")
-        .bind(credential).fetch_one(pool).await.map_err(|_| Error::Unavailable)?;
+        .bind(&sha2::Sha256::digest(b"native-admission-gateway")[..]).fetch_one(pool).await.map_err(|_| Error::Unavailable)?;
     if count > i64::from(limit) {
         Err(Error::RateLimited)
     } else {
