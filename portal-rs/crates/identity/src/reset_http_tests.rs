@@ -15,6 +15,19 @@ async fn browser_forms_csrf_and_limits() -> Result<(), Box<dyn std::error::Error
     .layer(Extension(ConnectInfo(
         "127.0.0.1:1234".parse::<SocketAddr>()?,
     )));
+    for _ in 0..4 {
+        let response = app
+            .clone()
+            .oneshot(post("/en/forgot-password", "", String::new()))
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='identity.password_reset_browser_refused'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(count <= 1, "anonymous reset audit rows: {count}");
     for lang in ["en", "pl"] {
         let r = app
             .clone()
@@ -76,6 +89,12 @@ async fn browser_forms_csrf_and_limits() -> Result<(), Box<dyn std::error::Error
             );
         }
     }
+    let denied: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='identity.password_reset_rate_denied'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(denied, 0);
     db.close().await
 }
 
