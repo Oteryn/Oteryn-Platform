@@ -269,8 +269,10 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
         } else {
             self.accounts.state_in(&mut tx, account_id).await
         };
-        if !matches!(state, Ok(AccountState::Active)) {
-            return Err(Error::AccountDenied);
+        match state {
+            Ok(AccountState::Active) => {}
+            Ok(_) => return Err(Error::AccountDenied),
+            Err(_) => return Err(Error::Unavailable),
         }
         sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1")
             .bind(event.intent_id)

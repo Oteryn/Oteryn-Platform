@@ -272,10 +272,11 @@ async fn disabled_and_ineligible_accounts_deny() -> TestResult {
         };
         assert!(refused(&h.create().await));
         assert!(refused(&h.service(true).intent(intent.id).await));
-        assert!(matches!(
-            h.service(true).webhook(&body, &signature).await,
-            Err(Error::AccountDenied)
-        ));
+        let webhook = h.service(true).webhook(&body, &signature).await;
+        assert!(match state {
+            4 => matches!(webhook, Err(Error::Unavailable)),
+            _ => matches!(webhook, Err(Error::AccountDenied)),
+        });
     }
     assert_eq!(h.count("payment_events").await?, 0);
     assert_eq!(h.count("outbox").await?, 0);
@@ -653,5 +654,65 @@ async fn ensure_intent_reread_failure_is_unavailable_and_replay_returns_same_int
     assert_eq!(replay.account_id, account);
     assert_eq!(replay.state, IntentState::Pending);
     assert_eq!(h.count("payment_intents").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn webhook_account_read_failure_is_unavailable_and_redelivery_applies_once() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = h.create().await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'test-package',25,$3,$4,$1)").bind(intent.id).bind(intent.account_id).bind(intent.amount.minor_units).bind(&intent.amount.currency).execute(&h.pool).await?;
+    let service = h.service(true);
+    let (paid, paid_sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    let (refund, refund_sig) = h.signed(&h.event(&intent, IntentState::Refunded))?;
+    // A failed account read on a settlement: retryable, and nothing is written.
+    h.accounts.0.store(4, Ordering::SeqCst);
+    assert!(matches!(
+        service.webhook(&paid, &paid_sig).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(h.count("payment_events").await?, 0);
+    assert_eq!(h.count("invoices").await?, 0);
+    assert_eq!(h.count("outbox").await?, 0);
+    h.accounts.0.store(0, Ordering::SeqCst);
+    assert_eq!(service.intent(intent.id).await?.state, IntentState::Pending);
+    assert_eq!(
+        service.webhook(&paid, &paid_sig).await?,
+        WebhookOutcome::Applied
+    );
+    assert_eq!(
+        service.webhook(&paid, &paid_sig).await?,
+        WebhookOutcome::Replay
+    );
+    assert_eq!(h.count("invoices").await?, 1);
+    assert_eq!(h.count("outbox").await?, 1);
+    // The same on a refund, which reads through refund_state_in.
+    h.accounts.0.store(4, Ordering::SeqCst);
+    assert!(matches!(
+        service.webhook(&refund, &refund_sig).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(h.count("payment_events").await?, 1);
+    h.accounts.0.store(0, Ordering::SeqCst);
+    assert_eq!(
+        service.intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    assert_eq!(
+        service.webhook(&refund, &refund_sig).await?,
+        WebhookOutcome::Applied
+    );
+    assert_eq!(
+        service.webhook(&refund, &refund_sig).await?,
+        WebhookOutcome::Replay
+    );
+    assert_eq!(
+        service.intent(intent.id).await?.state,
+        IntentState::Refunded
+    );
+    assert_eq!(h.count("payment_events").await?, 2);
+    assert_eq!(h.count("outbox").await?, 1);
     h.finish().await
 }
