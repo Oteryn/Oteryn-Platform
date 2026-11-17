@@ -37,7 +37,7 @@ Operator command: `oteryn-portal commerce-refunds-reconcile [--dry-run]
 - [x] `--dry-run` changes nothing; a non-staff actor is refused
 - [x] A second run revives nothing
 - [x] The command parses `--dry-run`/`--actor` and refuses a missing `--actor`
-- [ ] Portal RS CI green on the PR head (no PR yet)
+- [x] Portal RS CI green on the PR head (no PR yet)
 
 ## Ownership
 
@@ -66,10 +66,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T16:00:00Z
-head: b48ec08
+head: 149b24b654263f477ef33919c5d9e36052f833af
 branch: claude/happy-davinci-ijz3wy-refund-reconcile
 pr: 1926
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-refund-reconcile.md
@@ -121,13 +121,13 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: Portal RS CI on PR 1926
+next_action: none; delivered by PR 1926 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Task branch for the refund reconcile work; retained until merge
-source_branch_evidence: The branch records the published head
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1926 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1926 merged as 149b24b654263f477ef33919c5d9e36052f833af
 ```
