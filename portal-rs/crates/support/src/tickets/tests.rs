@@ -1403,3 +1403,58 @@ async fn audit_w3_02_changed_payload_draft_recovers_on_postgres() -> TestResult 
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_staff_reply_rolls_back_when_grant_expires_during_audit() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let actor = db.account("en").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(actor).execute(&db.pool).await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(owner, Uuid::now_v7(), "account", "Help", "body")
+        .await?;
+    let context = staff(&db.pool, actor).await;
+    // Shorten the fixture grant only once the audit write is reached.
+    sqlx::raw_sql("CREATE FUNCTION expire_during_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE deadline timestamptz := clock_timestamp() + interval '30 milliseconds';
+        BEGIN
+            UPDATE account_mfa_tokens SET expires_at=deadline WHERE purpose='grant';
+            PERFORM pg_sleep_until(deadline);
+            RETURN NEW;
+        END $$;
+        CREATE TRIGGER expire_grant AFTER INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION expire_during_audit()")
+        .execute(&db.pool).await?;
+    let result = tickets
+        .change(
+            actor,
+            context,
+            ticket.id,
+            1,
+            Change::Reply {
+                body: "answer",
+                internal: false,
+            },
+        )
+        .await;
+    assert!(
+        matches!(result, Err(Error::Denied)),
+        "reply result: {:?}",
+        result.map(|ticket| ticket.lock_version)
+    );
+    let (stored, messages) = tickets.show(owner, false, ticket.id).await?;
+    assert_eq!(stored.lock_version, 1);
+    assert_eq!(messages.len(), 1);
+    for table in ["audit_log", "notifications", "email_outbox", "outbox"] {
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(count, 0, "{table}");
+    }
+    db.finish().await
+}

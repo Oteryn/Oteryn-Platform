@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -206,6 +206,7 @@ async fn index(
     page.render().map_err(IntoResponse::into_response)
 }
 async fn create(
+    method: Method,
     State(service): State<Reports>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
@@ -230,10 +231,12 @@ async fn create(
     {
         page.input = flash.input;
         page.error = flash.error;
-        session
-            .set(FLASH, &None::<Flash>)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        if method == Method::GET {
+            session
+                .set(FLASH, &None::<Flash>)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        }
     } else {
         page.input.request_key = oteryn_core::new_id().to_string();
         page.input.report_type = "player".to_owned();
