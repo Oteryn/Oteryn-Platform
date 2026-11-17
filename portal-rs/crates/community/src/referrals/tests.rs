@@ -752,6 +752,12 @@ async fn referrals_http_real_router_session_csrf_locales_and_bad_input() {
             .unwrap();
         }
     }
+    let links: i64 = sqlx::query_scalar("SELECT count(*) FROM referral_links WHERE account_id=$1")
+        .bind(owner)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(links, 0, "viewing referrals created a link");
     let send = |body: String| {
         Request::post("/en/account/referrals")
             .header("cookie", &cookie)
@@ -760,6 +766,35 @@ async fn referrals_http_real_router_session_csrf_locales_and_bad_input() {
             .body(Body::from(body))
             .unwrap()
     };
+    let response = app
+        .clone()
+        .oneshot(send(format!("kind=link&_csrf={csrf}")))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let code: Uuid = sqlx::query_scalar("SELECT code FROM referral_links WHERE account_id=$1")
+        .bind(owner)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/en/account/referrals")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 32768)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(&format!("/en/referrals/{code}")));
     assert_eq!(
         app.clone()
             .oneshot(send("email=a%40example.test&kind=new&_csrf=bad".into()))

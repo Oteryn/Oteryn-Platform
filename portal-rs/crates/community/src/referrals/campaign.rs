@@ -148,6 +148,19 @@ impl<P: Policy> Campaign<P> {
             Err(Error::Denied.into())
         }
     }
+    pub(super) async fn existing_link(&self, actor: Uuid) -> Result<Option<Uuid>, Error> {
+        oteryn_db::retry::transaction(|| async {
+            let mut tx = self.begin(&[actor]).await?;
+            self.actor(&mut tx, actor).await?;
+            let code = sqlx::query_scalar("SELECT code FROM referral_links WHERE account_id=$1")
+                .bind(actor)
+                .fetch_optional(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            Ok(code)
+        })
+        .await
+    }
     pub async fn link(&self, actor: Uuid) -> Result<Uuid, Error> {
         oteryn_db::retry::transaction(|| self.link_attempt(actor)).await
     }

@@ -471,20 +471,15 @@ async fn db_browser_actor_to_command_flash_and_owner_only_status() -> TestResult
         .clone()
         .oneshot(Request::get("/en/account/characters/suggest").body(Body::empty())?)
         .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
-    assert!(
-        canonicalize(
-            &session
-                .0
-                .lock()
-                .await
-                .flash
-                .as_ref()
-                .ok_or("missing suggestion")?
-                .name
-        )
-        .is_ok()
-    );
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = html(response).await?;
+    let suggestion = body
+        .split_once("name=\"name\" value=\"")
+        .and_then(|(_, value)| value.split_once('"'))
+        .map(|(name, _)| name)
+        .ok_or("missing suggestion")?;
+    assert!(canonicalize(suggestion).is_ok());
+    assert!(session.0.lock().await.flash.is_none());
     db.close().await
 }
 #[tokio::test]
@@ -812,5 +807,38 @@ async fn db_missing_or_invalid_sex_or_vocation_is_refused_without_command() -> T
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn suggestion_get_preserves_pending_form() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = db.account("active").await?;
+    let world = db.world().await?;
+    let (app, session) = app(db.pool.clone(), settings(), Some(account));
+    let saved = Flash {
+        name: "Pending Name".into(),
+        world: world.to_string(),
+        submission: Uuid::now_v7().to_string(),
+        error: "reserved".into(),
+        sex: "Female".into(),
+        vocation: "Druid".into(),
+    };
+    session.0.lock().await.flash = Some(saved.clone());
+    let response = app
+        .oneshot(Request::get("/en/account/characters/suggest").body(Body::empty())?)
+        .await?;
+    let actual = session
+        .0
+        .lock()
+        .await
+        .flash
+        .clone()
+        .ok_or("missing saved form")?;
+    assert_eq!(serde_json::to_value(actual)?, serde_json::to_value(saved)?);
+    assert_eq!(response.status(), StatusCode::OK);
     db.close().await
 }

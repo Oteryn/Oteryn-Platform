@@ -29,3 +29,4 @@ accept = Accept invitation
 accept-hint = Continue to registration or sign in, then open your referrals page. Only eligible new accounts can accept a new-player invitation.
 mail-title = You are invited to Oteryn
 mail-body = A player invited you to Oteryn. Open this link in your browser to continue:
+create-link = Create referral link
