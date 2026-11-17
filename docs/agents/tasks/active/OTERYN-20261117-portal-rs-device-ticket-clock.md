@@ -41,6 +41,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-device-ticket-clock.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-league-fence-hold.md
 modules:
   - gameauth
 dependencies:
@@ -67,6 +69,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-device-ticket-clock.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-league-fence-hold.md
 proven:
   - The only other issue_on_connection caller (tickets::issue) has no expiry bound against an earlier clock
 derived: []
@@ -84,6 +88,8 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20261117-portal-rs-device-ticket-clock.md
   - docs/agents/tasks/active/OTERYN-20261116-portal-rs-e2e-hosted.md
   - docs/agents/tasks/archive/OTERYN-20261116-portal-rs-e2e-hosted.md
+  - docs/agents/tasks/active/OTERYN-20261117-portal-rs-league-fence-hold.md
+  - docs/agents/tasks/archive/OTERYN-20261117-portal-rs-league-fence-hold.md
 validation:
   - command: cargo test -p oteryn-gameauth --lib database_native_normal_ticket_consumes_oauth_but_device_continues (temporary second-advance wait after the rotation clock, uncommitted)
     result: PASS
