@@ -406,6 +406,17 @@ impl Tickets {
         id: Uuid,
         after: Option<Uuid>,
     ) -> Result<(Ticket, Vec<Message>)> {
+        self.load_page(account, staff, id, after, true).await
+    }
+
+    async fn load_page(
+        &self,
+        account: Uuid,
+        staff: bool,
+        id: Uuid,
+        after: Option<Uuid>,
+        acknowledge: bool,
+    ) -> Result<(Ticket, Vec<Message>)> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
         let ticket = sqlx::query_as(
@@ -425,7 +436,7 @@ impl Tickets {
         .bind(after)
         .fetch_all(&mut *tx)
         .await?;
-        if !staff {
+        if acknowledge && !staff {
             // The ticket lock fences concurrent replies. A durable message ID
             // identifies the newest public reply; only its displayed page may
             // acknowledge it. Owner mutations establish no viewing boundary.

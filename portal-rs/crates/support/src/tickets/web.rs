@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{OriginalUri, Path, Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -414,6 +414,7 @@ async fn index(
     page.response()
 }
 async fn new_ticket(
+    method: Method,
     State(t): State<Tickets>,
     Path(language): Path<String>,
     Extension(session): Extension<BrowserSession>,
@@ -433,7 +434,7 @@ async fn new_ticket(
             page.subject = draft.subject;
             page.draft_body = draft.body;
             page.selected_category = draft.category;
-            if session.set(DRAFT, &None::<Create>).await.is_err() {
+            if method == Method::GET && session.set(DRAFT, &None::<Create>).await.is_err() {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
         }
@@ -451,6 +452,7 @@ struct MessagePage {
     after: Option<Uuid>,
 }
 async fn show(
+    method: Method,
     State(t): State<Tickets>,
     OriginalUri(uri): OriginalUri,
     Path((language, id)): Path<(String, Uuid)>,
@@ -469,7 +471,13 @@ async fn show(
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
     let (ticket, messages) = match t
-        .show_page(account, staff.is_some(), id, cursor.after)
+        .load_page(
+            account,
+            staff.is_some(),
+            id,
+            cursor.after,
+            method == Method::GET,
+        )
         .await
     {
         Ok(v) => v,
