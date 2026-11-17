@@ -235,6 +235,34 @@ async fn postgres_read_note_and_logout_success_refusal_bad_input() {
     db.close().await;
 }
 #[tokio::test]
+async fn reset_approval_requires_support_permission() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let s = db.service();
+    let request = s
+        .request_reset(context(db.support), db.target, db.evidence, "Verified case")
+        .await
+        .unwrap();
+    let security = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin'").bind(security).execute(&db.pool).await.unwrap();
+    let result = s.approve_reset(context(security), db.target, request).await;
+    let state: (bool, bool, bool) =
+        sqlx::query_as("SELECT reset,revoked,verified FROM test_security WHERE account_id=$1")
+            .bind(db.target)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    db.close().await;
+    assert!(
+        matches!(
+            result,
+            Err(Error::Authorization(crate::rbac::Error::Denied))
+        ),
+        "security-only approver cleared MFA"
+    );
+    assert_eq!(state, (false, false, true));
+}
+#[tokio::test]
 async fn postgres_reset_requires_two_current_staff_and_is_single_use() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {

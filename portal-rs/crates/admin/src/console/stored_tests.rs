@@ -159,6 +159,47 @@ async fn exercise_reads(
             "{path} queued a cross-site query"
         );
     }
+    for method in [axum::http::Method::GET, axum::http::Method::HEAD] {
+        let response = reads
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/admin/console/players?q=Knight")
+                    .header("host", "staff.test")
+                    .header("cookie", cookie)
+                    .header("sec-fetch-site", "same-origin")
+                    .header("sec-purpose", "prefetch")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            poll(internal).await?.is_empty(),
+            "speculative player search queued a request"
+        );
+    }
+    let form = browser_get(&reads, cookie, "/admin/console/players").await?;
+    let csrf = form
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .ok_or_else(missing)?;
+    let response = reads
+        .clone()
+        .oneshot(
+            Request::post("/admin/console/players")
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}&q=Knight&lang=en")))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let submitted = poll(internal).await?;
+    assert_eq!(submitted.len(), 1);
+    assert_eq!(submitted[0].operation, "player.search");
     let path = "/admin/console/players?lang=en&character=c-1";
     browser_get(&reads, cookie, path).await?;
     let requests = poll(internal).await?;
@@ -291,6 +332,7 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         "node.list",
         "db.status",
         "db.migrations.list",
+        "player.search",
         "player.character.get",
         "player.inventory.get",
         "sanction.list",
