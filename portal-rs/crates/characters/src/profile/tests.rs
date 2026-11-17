@@ -350,3 +350,119 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
     );
     Ok(())
 }
+
+/// r4 profdeadlock: termination finalization locks the account row and then the
+/// feed (`game_closure` proof). A profile edit must take the same order, or it
+/// holds the feed share lock while waiting for the account and the two deadlock.
+#[tokio::test]
+async fn postgres_profile_takes_account_before_feed_like_termination()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        eprintln!("Skipping PostgreSQL profile test: PORTAL_TEST_DATABASE_URL is unset");
+        return Ok(());
+    };
+    let admin = sqlx::postgres::PgPoolOptions::new().connect(&url).await?;
+    let schema = format!("profile_test_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&admin)
+        .await?;
+    let path = schema.clone();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(10)
+        .after_connect(move |c, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(c)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    for sql in [
+        include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
+        include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),
+        include_str!("../../../../migrations/20261105220226_t09c_privacy.sql"),
+        include_str!("../../../../migrations/20261107130001_t45_privacy.up.sql"),
+    ] {
+        sqlx::raw_sql(sql).execute(&pool).await?;
+    }
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'test-hash','active','en',now())").bind(account).bind(format!("profile-{account}@example.invalid")).execute(&pool).await?;
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'oteryn:character-authority:primary','1','1',1000,$2)").bind(account).bind(vec![0u8;32]).execute(&pool).await?;
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='oteryn:character-authority:primary',complete_through=1000,observed_at=1000 WHERE id=1").execute(&pool).await?;
+    let character = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(account).bind(character).bind(Uuid::now_v7()).execute(&pool).await?;
+    let settings = Settings {
+        enabled: true,
+        environment: oteryn_core::Environment::Testing,
+        source_authority: "oteryn:character-authority:primary".into(),
+        ..Settings::default()
+    };
+    let service = Service::new(pool.clone(), settings, true);
+
+    sqlx::query("INSERT INTO character_profiles(account_id,character_id,is_main_character) VALUES($1,$2,true)").bind(account).bind(character).execute(&pool).await?;
+    for op in ["edit", "update", "main", "public"] {
+        let run = |service: Service| async move {
+            match op {
+                "edit" => service.edit(account, "Aldric", 1000).await.is_ok(),
+                "update" => {
+                    let value = Preferences {
+                        is_main_character: true,
+                        ..Preferences::default()
+                    };
+                    service.save(account, "Aldric", value, 1000).await.is_ok()
+                }
+                "main" => service.main_character(account, 1000).await == Some(character),
+                _ => service.public_preferences(character, 1000).await.is_some(),
+            }
+        };
+        assert!(run(service.clone()).await, "{op} fails without contention");
+        // Termination order: account row first.
+        let mut closing = pool.begin().await?;
+        let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *closing)
+            .await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(account)
+            .execute(&mut *closing)
+            .await?;
+        let task = tokio::spawn(run(service.clone()));
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(holder)
+                .fetch_one(&admin)
+                .await?;
+                if waiting {
+                    return Ok::<_, sqlx::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .map_err(|_| format!("{op} never waited on the account row"))??;
+        // Then the feed, as game_closure's proof does before finalizing.
+        let feed = sqlx::query("SELECT id FROM account_character_feed WHERE id=1 FOR UPDATE")
+            .execute(&mut *closing)
+            .await;
+        closing.commit().await?;
+        let done = task.await?;
+        assert!(
+            feed.is_ok(),
+            "termination lost its feed lock to {op}: {feed:?}"
+        );
+        assert!(done, "{op} deadlocked against termination");
+    }
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    Ok(())
+}
