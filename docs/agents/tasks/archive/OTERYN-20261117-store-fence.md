@@ -29,7 +29,7 @@ crate's `Delivery::begin` and `Purchases::begin` wrappers, which already set
 
 - [x] Crate guard: every begin() is budgeted or listed with a reason (red without the change)
 - [x] Each newly budgeted site has a PostgreSQL test where a held lock makes the call fail unavailable within 4 s (red without the change, except the two redemptions whose budget `redeem_in` already armed)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Follow-up (not this task)
 
@@ -77,10 +77,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T12:00:00Z
-head: a022cf41c48a4ab328a5b9f3b36a4183177264e1
+head: eb881d55af6fdc010ec520afd48871f15ac60fab
 branch: claude/happy-davinci-ijz3wy-store-fence
 pr: 1917
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-store-fence.md
@@ -155,13 +155,13 @@ validation:
     evidence: all exit 0
 blockers:
   - none
-next_action: coordinator commits, opens the PR and records CI on its head
+next_action: none; delivered by PR 1917 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
-source_branch_reason: not yet committed or pushed; the coordinator opens the PR
-source_branch_evidence: none
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1917 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1917 merged as eb881d55af6fdc010ec520afd48871f15ac60fab
 ```

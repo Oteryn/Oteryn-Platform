@@ -110,6 +110,16 @@ pub trait CoinHost: Send + Sync {
     fn wallet(&self, payer: Uuid) -> HostFuture<'_, Result<WalletSnapshot, CoinError>>;
 }
 
+/// A host storage failure inside a verified event is retryable (the event
+/// rolls back and the provider redelivers it); any other host refusal stays a
+/// denial.
+fn host_error(error: CoinError) -> Error {
+    match error {
+        CoinError::Unavailable => Error::Unavailable,
+        _ => Error::AccountDenied,
+    }
+}
+
 /// Append one `audit_log` row on the caller's connection or transaction.
 async fn audit(
     connection: &mut PgConnection,
@@ -145,6 +155,7 @@ impl AccountReader for HostAccounts {
         Ok(match self.host.restriction_in(connection, id).await {
             Ok(None) => AccountState::Active,
             Ok(Some(_)) => AccountState::Restricted,
+            Err(CoinError::Unavailable) => return Err(Error::Unavailable),
             Err(_) => AccountState::Unknown,
         })
     }
@@ -154,6 +165,7 @@ impl AccountReader for HostAccounts {
             match self.host.restriction_in(&mut connection, account_id).await {
                 Ok(None) => AccountState::Active,
                 Ok(Some(_)) => AccountState::Restricted,
+                Err(CoinError::Unavailable) => return Err(Error::Unavailable),
                 Err(_) => AccountState::Unknown,
             },
         )
@@ -908,7 +920,7 @@ impl CoinPurchases {
             let mut restriction = self
                 .restriction(tx, order.payer)
                 .await
-                .map_err(|_| Error::AccountDenied)?;
+                .map_err(host_error)?;
             if restriction.is_none() {
                 match self
                     .host
@@ -917,7 +929,7 @@ impl CoinPurchases {
                 {
                     Ok(()) => {}
                     Err(CoinError::Conflict) => restriction = Some("balance_ceiling".to_owned()),
-                    Err(_) => return Err(Error::AccountDenied),
+                    Err(error) => return Err(host_error(error)),
                 }
             }
             if let Some(reason) = restriction {
@@ -1028,7 +1040,7 @@ impl CoinPurchases {
                     .host
                     .reverse_in(tx, key, order.payer, order.order.coins)
                     .await
-                    .map_err(|_| Error::AccountDenied)?;
+                    .map_err(host_error)?;
                 let outcome = match debit {
                     Debit::Debited => "debited",
                     Debit::Insufficient => {
