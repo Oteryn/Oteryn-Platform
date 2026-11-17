@@ -841,3 +841,44 @@ fn localized_currency_and_coin_plurals() {
         );
     }
 }
+
+#[tokio::test]
+async fn postgres_value_eligibility_held_account_lock_sheds_within_read_budget() -> TestResult {
+    use sqlx::Connection;
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'held@example.invalid',now(),'unused-test-hash','active','en')").bind(account).execute(&db.pool).await?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await?;
+    let mut blocker =
+        sqlx::PgConnection::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    sqlx::query("BEGIN").execute(&mut blocker).await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {schema}.accounts WHERE id=$1 FOR UPDATE"
+    )))
+    .bind(account)
+    .execute(&mut blocker)
+    .await?;
+
+    let backend = backend::configured(db.pool.clone(), None);
+    let started = Instant::now();
+    let observed = tokio::time::timeout(Duration::from_secs(10), backend.active(account)).await;
+    let elapsed = started.elapsed();
+    sqlx::query("ROLLBACK").execute(&mut blocker).await?;
+    blocker.close().await?;
+    db.close().await?;
+
+    let observed =
+        observed.map_err(|_| "eligibility still waiting at 10 s on a held account lock")?;
+    assert_eq!(observed, Err(Error::Unavailable));
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+    Ok(())
+}
