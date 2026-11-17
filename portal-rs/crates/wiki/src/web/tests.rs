@@ -184,6 +184,7 @@ fn rules_rendering_and_localized_forms() {
             values: input(),
             csrf: "test".into(),
             existing: false,
+            entity_key: String::new(),
         }
         .render()
         .unwrap();
@@ -1012,5 +1013,69 @@ async fn edit_form_requires_manage_wiki_articles() {
     );
     let response = get(db.app(), &format!("/admin/wiki/articles/{id}/edit")).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn edit_form_saves_and_validates_entity_binding() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let repo = db.repo();
+    let context = db.context();
+    let id = repo.create(context, &input(), None, "").await.unwrap();
+    let path = format!("/admin/wiki/articles/{id}");
+    let edit_path = format!("{path}/edit");
+    let app = db.app();
+    let response = get(app.clone(), &edit_path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html = body(response).await;
+    let token = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let form = "pl_title=Poradnik&pl_slug=poradnik&pl_summary=Opis&pl_markdown=Dragon&en_title=Guide&en_slug=guide&en_summary=Summary&en_markdown=Dragon";
+    let binding = "creatures:dragon";
+    let bind = format!("{form}&lock_version=1&entity_key={binding}");
+    assert_eq!(
+        post(app.clone(), &path, &cookie, token, &bind)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let guide = repo.get(context, id).await.unwrap().0;
+    assert_eq!(guide.entity_key.as_deref(), Some(binding));
+    let html = body(get(app.clone(), &edit_path).await).await;
+    assert!(html.contains("name=\"entity_key\""));
+    assert!(html.contains(&format!("value=\"{binding}\"")));
+
+    let invalid = format!("{form}&lock_version=2&entity_key={}", "x".repeat(257));
+    assert_eq!(
+        post(app.clone(), &path, &cookie, token, &invalid)
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let guide = repo.get(context, id).await.unwrap().0;
+    assert_eq!(guide.version, 2);
+    assert_eq!(guide.entity_key.as_deref(), Some(binding));
+
+    let clear = format!("{form}&lock_version=2&entity_key=");
+    assert_eq!(
+        post(app, &path, &cookie, token, &clear).await.status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(repo.get(context, id).await.unwrap().0.entity_key, None);
     db.close().await;
 }

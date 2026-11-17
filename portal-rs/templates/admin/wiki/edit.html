@@ -1,6 +1,13 @@
 {% extends "wiki/layout.html" %}
 {% block content %}<h1>{{ self.t("edit") }}</h1><p>{{ self.t("status") }}: {{ self.t(status.as_str()) }} · {{ self.t("version") }}: {{ version }}</p>
 <form method="post" action="/admin/wiki/articles{% if existing %}/{{ id }}{% endif %}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="lock_version" value="{{ version }}">
+{% if existing %}
+<div class="op-field">
+    <label for="entity_key">{{ self.t("entity-key") }}</label>
+    <input class="op-input" id="entity_key" name="entity_key" maxlength="256" value="{{ entity_key }}" aria-describedby="entity-key-hint">
+    <p id="entity-key-hint">{{ self.t("entity-key-hint") }}</p>
+</div>
+{% endif %}
 {% for value in values %}<fieldset class="op-card op-stack"><legend>{{ value.locale }}</legend>
 <div class="op-field"><label for="{{ value.locale }}_title">{{ self.t("title") }}</label><input class="op-input" id="{{ value.locale }}_title" lang="{{ value.locale }}" name="{{ value.locale }}_title" required maxlength="200" value="{{ value.title }}"></div>
 <div class="op-field"><label for="{{ value.locale }}_slug">{{ self.t("slug") }}</label><input class="op-input" id="{{ value.locale }}_slug" name="{{ value.locale }}_slug" required maxlength="160" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="{{ value.slug }}"></div>
