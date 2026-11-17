@@ -108,11 +108,13 @@ async fn postgres_last_wait_grant_expiry_rolls_back_party() -> TestResult {
     let db = TestDb::open().await?;
     let id = Uuid::now_v7();
     sqlx::query("INSERT INTO pd_party_posts(id,account_id,character_id,character_name,world_id,purpose,min_level,max_level,profession,note,starts_at,expires_at) VALUES($1,$2,$3,'Fixture',$4,'hunt',1,100,'any','Fixture',now(),now()+interval '1 hour')").bind(id).bind(db.context.account).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&db.pool).await?;
-    sqlx::query("INSERT INTO pd_party_reports(post_id,account_id,reason) VALUES($1,$2,'spam')")
-        .bind(id)
-        .bind(db.context.account)
-        .execute(&db.pool)
-        .await?;
+    let report_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO pd_party_reports(post_id,account_id,reason) VALUES($1,$2,'spam') RETURNING id",
+    )
+    .bind(id)
+    .bind(db.context.account)
+    .fetch_one(&db.pool)
+    .await?;
     let pool = db.pool.clone();
     let context = db.context;
     let result = audit_wait(&db.pool, context, async move {
@@ -124,7 +126,7 @@ async fn postgres_last_wait_grant_expiry_rolls_back_party() -> TestResult {
             pool.clone(),
             std::sync::Arc::new(super::ProductionAuthority { db: pool }),
         )
-        .moderate(context, &authority, id, "remove", "spam")
+        .moderate(context, &authority, id, "remove", "spam", &[report_id])
         .await
     })
     .await?;

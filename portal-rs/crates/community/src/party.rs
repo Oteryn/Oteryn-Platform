@@ -479,6 +479,7 @@ async fn moderation(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Decision {
+    report_ids: String,
     action: String,
     reason: String,
     #[serde(rename = "_csrf")]
@@ -492,8 +493,21 @@ async fn moderate(
     Form(input): Form<Decision>,
 ) -> Result<Response, Error> {
     language(&lang)?;
+    let report_ids = input
+        .report_ids
+        .split(',')
+        .map(str::parse::<Uuid>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| Error::Invalid)?;
     board
-        .moderate(context, &authority, id, &input.action, &input.reason)
+        .moderate(
+            context,
+            &authority,
+            id,
+            &input.action,
+            &input.reason,
+            &report_ids,
+        )
         .await?;
     Ok(Redirect::to(&format!("/admin/{lang}/party")).into_response())
 }

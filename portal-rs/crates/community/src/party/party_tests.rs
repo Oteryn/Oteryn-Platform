@@ -147,8 +147,18 @@ impl Database {
         ));
         let mut context = oteryn_admin::rbac::CheckContext::new(actor);
         context.mfa_verified = true;
+        let rows = self.board.reports().await?;
+        let report_ids = rows
+            .iter()
+            .find(|row| row.id == id)
+            .map_or_else(Vec::new, |row| {
+                row.report_ids
+                    .split(',')
+                    .map(|id| id.parse().unwrap())
+                    .collect()
+            });
         self.board
-            .moderate(context, &authority, id, action, reason)
+            .moderate(context, &authority, id, action, reason, &report_ids)
             .await
     }
     async fn draft(&self) -> Draft {
@@ -611,6 +621,7 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
         .execute(&db.pool)
         .await
         .unwrap();
+    let report_ids = &db.board.reports().await.unwrap()[0].report_ids;
     let response = app
         .oneshot(
             Request::post(format!("/admin/en/party/{id}/moderate"))
@@ -621,7 +632,9 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
                 )
                 .header("x-csrf-token", csrf)
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("action=remove&reason=spam"))
+                .body(Body::from(format!(
+                    "action=remove&reason=spam&report_ids={report_ids}"
+                )))
                 .unwrap(),
         )
         .await
@@ -745,6 +758,7 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
         adapter,
         oteryn_admin::web::PortalIdentity::configured(db.pool.clone()),
     );
+    let report_ids = &db.board.reports().await.unwrap()[0].report_ids;
     let response = app
         .oneshot(
             Request::post(format!("/admin/en/party/{id}/moderate"))
@@ -755,7 +769,9 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
                 )
                 .header("x-csrf-token", csrf)
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("action=remove&reason=spam"))
+                .body(Body::from(format!(
+                    "action=remove&reason=spam&report_ids={report_ids}"
+                )))
                 .unwrap(),
         )
         .await
@@ -804,6 +820,7 @@ async fn delta_party_revocation(revoke: &str) {
             adapter.clone(),
             adapter,
         );
+        let report_ids = &db.board.reports().await.unwrap()[0].report_ids;
         let mut blocker = db.pool.begin().await.unwrap();
         let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *blocker)
@@ -823,7 +840,9 @@ async fn delta_party_revocation(revoke: &str) {
             )
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .header("x-csrf-token", csrf)
-            .body(Body::from("action=remove&reason=spam"))
+            .body(Body::from(format!(
+                "action=remove&reason=spam&report_ids={report_ids}"
+            )))
             .unwrap();
         let mutation = tokio::spawn(async move { app.oneshot(request).await });
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -1267,6 +1286,117 @@ async fn r7_queue_shows_all_open_reasons() {
     sqlx::query("INSERT INTO pd_party_reports(post_id, account_id, reason) SELECT $1, uuidv7(), n::text FROM generate_series(1,51) n")
         .bind(id).execute(&db.pool).await.unwrap();
     let rows = db.board.reports().await.unwrap();
+    assert_eq!(rows[0].reports.split(" | ").count(), 50);
+    assert_eq!(rows[0].report_ids.split(',').count(), 50);
+    assert_eq!(rows[0].more_reports, 1);
+    let response = party_view::page("en", "csrf", rows, true, false).unwrap();
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("<p>1 more</p>"));
+
+    db.moderate(db.trusted.staff, id, "dismiss", "reviewed")
+        .await
+        .unwrap();
+    let rows = db.board.reports().await.unwrap();
+    assert_eq!(rows[0].reports.split(" | ").count(), 1);
+    assert_eq!(rows[0].more_reports, 0);
+    db.moderate(db.trusted.staff, id, "dismiss", "reviewed")
+        .await
+        .unwrap();
+    assert!(db.board.reports().await.unwrap().is_empty());
+    let resolved: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pd_party_reports WHERE post_id=$1 AND status='resolved'",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
     db.close().await;
-    assert_eq!(rows[0].reports.split(" | ").count(), 51);
+    assert_eq!(resolved, 51);
+}
+
+#[tokio::test]
+async fn r7_moderation_preserves_reports_filed_after_page_load() {
+    let db = Database::open().await.unwrap();
+    let staff = db.trusted.staff;
+    let id = db
+        .board
+        .create(db.trusted.owner, db.draft().await)
+        .await
+        .unwrap();
+    let shown: Uuid = sqlx::query_scalar("INSERT INTO pd_party_reports(post_id, account_id, reason) VALUES($1,$2,'shown reason') RETURNING id")
+        .bind(id).bind(db.trusted.reporter).fetch_one(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'staff@example.test','test','active','en',now())").bind(staff).execute(&db.pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(staff)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let (token, csrf) = db.staff_session(staff).await;
+    let adapter = StaffAdapter { mfa: true };
+    let app = moderation_router(
+        db.board.clone(),
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.example.test".into(),
+        },
+        adapter.clone(),
+        adapter,
+    );
+    let cookie = format!("{}={token}", oteryn_web::session::COOKIE_NAME);
+    let page = app
+        .clone()
+        .oneshot(
+            Request::get("/admin/en/party")
+                .header(header::HOST, "staff.example.test")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let html =
+        String::from_utf8(to_bytes(page.into_body(), 65536).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("shown reason"));
+    db.board.report(staff, id, "late reason").await.unwrap();
+    let mut form = "action=dismiss&reason=reviewed".to_owned();
+    let rendered_ids = html
+        .split_once("name=\"report_ids\" value=\"")
+        .and_then(|(_, tail)| tail.split_once('"').map(|(ids, _)| ids));
+    if let Some(ids) = rendered_ids {
+        form.push_str("&report_ids=");
+        form.push_str(ids);
+    }
+    let response = app
+        .oneshot(
+            Request::post(format!("/admin/en/party/{id}/moderate"))
+                .header(header::HOST, "staff.example.test")
+                .header(header::COOKIE, cookie)
+                .header("x-csrf-token", csrf)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(form))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let statuses: Vec<(String, String)> = sqlx::query_as(
+        "SELECT reason,status FROM pd_party_reports WHERE post_id=$1 ORDER BY reason",
+    )
+    .bind(id)
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    db.close().await;
+    assert_eq!(statuses[0].1, "open", "late report was closed unseen");
+    assert_eq!(statuses[1].1, "resolved");
+    assert_eq!(rendered_ids, Some(shown.to_string().as_str()));
 }
