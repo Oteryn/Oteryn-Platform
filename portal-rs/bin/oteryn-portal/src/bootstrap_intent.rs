@@ -1,5 +1,5 @@
 //! Operator role `oteryn-portal bootstrap-intent issue --actor <uuidv7> [--input <file>]`
-//! (character bootstrap-intent producer contract v3, *Operator command*).
+//! (character bootstrap-intent producer contract v4, *Operator command*).
 //!
 //! Reads one JSON object from `--input <file>` or stdin, issues the intent through
 //! `oteryn_characters::bootstrap::issue` and prints the stored canonical intent on
@@ -28,12 +28,13 @@ pub const ENABLED: &str = "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_ENABLED";
 pub const TTL_SECONDS: &str = "GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS";
 const MAX_INPUT_BYTES: usize = 16 * 1024;
 const USAGE: &str = "usage: oteryn-portal bootstrap-intent issue --actor <uuidv7> [--input <file>]";
-const FIELDS: [&str; 9] = [
+const FIELDS: [&str; 10] = [
     "identityId",
     "operationId",
     "targetWorldId",
     "requestedName",
     "requestedSex",
+    "requestedVocation",
     "profileRevision",
     "rulesetRevision",
     "contentRevision",
@@ -198,6 +199,7 @@ pub fn parse_input(raw: &[u8], ttl_seconds: i64) -> Result<IssueInput, CliError>
         target_world_id: text("targetWorldId")?,
         requested_name: text("requestedName")?,
         requested_sex: text("requestedSex")?,
+        requested_vocation: text("requestedVocation")?,
         context: Context {
             profile_revision: text("profileRevision")?,
             ruleset_revision: text("rulesetRevision")?,

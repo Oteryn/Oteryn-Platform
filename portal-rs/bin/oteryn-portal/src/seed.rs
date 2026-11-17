@@ -972,7 +972,7 @@ const CONTEXT: [&str; 4] = [
     "starterTemplateRevision",
 ];
 
-/// Issues the v3 intent that `character-bootstrap-intents/read` serves, through
+/// Issues the v4 intent that `character-bootstrap-intents/read` serves, through
 /// the operator issuer (`oteryn_characters::bootstrap::issue`).
 async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
     let mut allowed = vec![
@@ -981,6 +981,7 @@ async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedE
         "targetWorldId",
         "requestedName",
         "requestedSex",
+        "requestedVocation",
         "ttlSeconds",
     ];
     allowed.extend(CONTEXT);
@@ -1002,6 +1003,7 @@ async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedE
         target_world_id: text("targetWorldId")?,
         requested_name: text("requestedName")?,
         requested_sex: text("requestedSex")?,
+        requested_vocation: text("requestedVocation")?,
         context: issue::Context {
             profile_revision: text(CONTEXT[0])?,
             ruleset_revision: text(CONTEXT[1])?,

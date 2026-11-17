@@ -1,4 +1,4 @@
-//! Private v3 reconciliation reads. The read interface never issues or changes an
+//! Private v4 reconciliation reads. The read interface never issues or changes an
 //! intent; operator issuance is the separate [`issue`] module.
 mod http;
 pub mod issue;

@@ -1,4 +1,4 @@
-//! Operator issuance of v3 bootstrap intents (producer contract v3). The stored
+//! Operator issuance of v4 bootstrap intents (producer contract v4). The stored
 //! form is exactly what [`super::Reader`] verifies; issuance never serves a read.
 use super::wire;
 use crate::lcfa::AccountId;
@@ -57,6 +57,7 @@ pub struct IssueInput {
     pub target_world_id: String,
     pub requested_name: String,
     pub requested_sex: String,
+    pub requested_vocation: String,
     pub context: Context,
     pub ttl_seconds: i64,
 }
@@ -109,6 +110,11 @@ fn validate(input: &IssueInput) -> Result<AccountId, IssueError> {
     }
     if !matches!(input.requested_sex.as_str(), "Female" | "Male") {
         return Err(bad("requestedSex must be Female or Male"));
+    }
+    if !wire::vocation(&input.requested_vocation) {
+        return Err(bad(
+            "requestedVocation must be Knight, Paladin, Sorcerer, Druid or Monk",
+        ));
     }
     for (member, value) in input.context.members() {
         if !wire::revision(value) {
@@ -210,7 +216,7 @@ pub async fn issue(pool: &PgPool, input: IssueInput, actor: Actor) -> Result<Iss
             .fetch_optional(&mut *tx)
             .await?
     {
-        // Retired (v1/v2) or corrupt rows are not current: their retries fail closed.
+        // Retired (v1-v3) or corrupt rows are not current: their retries fail closed.
         let raw: String = row.try_get("intent_json")?;
         wire::stored(&row, raw.as_bytes()).map_err(|_| IssueError::Unavailable("stored intent"))?;
         let mut same = row.try_get::<String, _>("account_id")? == account
@@ -219,7 +225,11 @@ pub async fn issue(pool: &PgPool, input: IssueInput, actor: Actor) -> Result<Iss
             && row
                 .try_get::<Option<String>, _>("requested_sex")?
                 .as_deref()
-                == Some(input.requested_sex.as_str());
+                == Some(input.requested_sex.as_str())
+            && row
+                .try_get::<Option<String>, _>("requested_vocation")?
+                .as_deref()
+                == Some(input.requested_vocation.as_str());
         for (column, value) in input.context.members() {
             same &= row.try_get::<String, _>(column)? == value;
         }
@@ -243,45 +253,30 @@ pub async fn issue(pool: &PgPool, input: IssueInput, actor: Actor) -> Result<Iss
         .ok_or(IssueError::Unavailable("clock"))?
         .to_string();
     let now = now.to_string();
-    let s = |value: &str| Wire::String(value.to_owned());
     let context = input.context.members();
-    let intent = Wire::Object(vec![
-        ("contract_version".into(), Wire::Unsigned(3)),
-        ("variant".into(), s("OPERATOR_CONTROL_PLANE_BOOTSTRAP")),
-        (
-            "issuer_authority".into(),
-            s("OTERYN_PLATFORM_CHARACTER_AUTHORITY"),
-        ),
-        ("issuer_decision_id".into(), s(&decision)),
-        ("source_revision".into(), s(&next)),
-        ("operation_id".into(), s(&input.operation_id)),
-        ("operation".into(), s("INITIAL_CHARACTER_BOOTSTRAP")),
-        ("account_id".into(), s(&account)),
-        ("target_world_id".into(), s(&input.target_world_id)),
-        ("requested_name".into(), s(&input.requested_name)),
-        ("requested_sex".into(), s(&input.requested_sex)),
-        (
-            "interpretation_context".into(),
-            Wire::Object(
-                context
-                    .iter()
-                    .map(|(member, value)| ((*member).to_owned(), s(value)))
-                    .collect(),
-            ),
-        ),
-        ("issued_at_source".into(), s(&now)),
-        ("expires_at_source".into(), s(&expires)),
-        ("audience".into(), s("OTERYN_GAME_CHARACTER_AUTHORITY")),
-    ]);
-    let raw = canonical::encode(&intent).map_err(|_| IssueError::Unavailable("encoding"))?;
+    let raw = Intent {
+        issuer_decision_id: &decision,
+        source_revision: &next,
+        operation_id: &input.operation_id,
+        account_id: &account,
+        target_world_id: &input.target_world_id,
+        requested_name: &input.requested_name,
+        requested_sex: &input.requested_sex,
+        requested_vocation: &input.requested_vocation,
+        context: &input.context,
+        issued_at_source: &now,
+        expires_at_source: &expires,
+    }
+    .encode()?;
     if raw.len() > MAX_INTENT_BYTES {
         return Err(bad("intent exceeds 4096 bytes"));
     }
     let digest = format!("{:x}", Sha256::digest(&raw));
     let raw = String::from_utf8(raw).map_err(|_| IssueError::Unavailable("encoding"))?;
-    let row = sqlx::query("INSERT INTO character_bootstrap_intents (operation_id, issuer_decision_id, source_revision, account_id, target_world_id, requested_name, requested_sex, profile_revision, ruleset_revision, content_revision, starter_template_revision, issued_at_source, expires_at_source, intent_json, intent_sha256) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *")
+    let row = sqlx::query("INSERT INTO character_bootstrap_intents (operation_id, issuer_decision_id, source_revision, account_id, target_world_id, requested_name, requested_sex, requested_vocation, profile_revision, ruleset_revision, content_revision, starter_template_revision, issued_at_source, expires_at_source, intent_json, intent_sha256) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *")
         .bind(&input.operation_id).bind(&decision).bind(&next).bind(&account)
         .bind(&input.target_world_id).bind(&input.requested_name).bind(&input.requested_sex)
+        .bind(&input.requested_vocation)
         .bind(context[0].1).bind(context[1].1).bind(context[2].1).bind(context[3].1)
         .bind(&now).bind(&expires).bind(&raw).bind(&digest)
         .fetch_one(&mut *tx).await?;
@@ -309,6 +304,60 @@ pub async fn issue(pool: &PgPool, input: IssueInput, actor: Actor) -> Result<Iss
     }
     tx.commit().await?;
     issued(&row)
+}
+
+/// The variable members of one intent, in wire order. Pure: the issuer supplies
+/// the decision, revision and clock; the contract fixtures supply fixed values.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Intent<'a> {
+    pub(super) issuer_decision_id: &'a str,
+    pub(super) source_revision: &'a str,
+    pub(super) operation_id: &'a str,
+    pub(super) account_id: &'a str,
+    pub(super) target_world_id: &'a str,
+    pub(super) requested_name: &'a str,
+    pub(super) requested_sex: &'a str,
+    pub(super) requested_vocation: &'a str,
+    pub(super) context: &'a Context,
+    pub(super) issued_at_source: &'a str,
+    pub(super) expires_at_source: &'a str,
+}
+impl Intent<'_> {
+    /// The canonical compact intent bytes the reader serves.
+    pub(super) fn encode(&self) -> Result<Vec<u8>, IssueError> {
+        let s = |value: &str| Wire::String(value.to_owned());
+        let intent = Wire::Object(vec![
+            ("contract_version".into(), Wire::Unsigned(4)),
+            ("variant".into(), s("OPERATOR_CONTROL_PLANE_BOOTSTRAP")),
+            (
+                "issuer_authority".into(),
+                s("OTERYN_PLATFORM_CHARACTER_AUTHORITY"),
+            ),
+            ("issuer_decision_id".into(), s(self.issuer_decision_id)),
+            ("source_revision".into(), s(self.source_revision)),
+            ("operation_id".into(), s(self.operation_id)),
+            ("operation".into(), s("INITIAL_CHARACTER_BOOTSTRAP")),
+            ("account_id".into(), s(self.account_id)),
+            ("target_world_id".into(), s(self.target_world_id)),
+            ("requested_name".into(), s(self.requested_name)),
+            ("requested_sex".into(), s(self.requested_sex)),
+            ("requested_vocation".into(), s(self.requested_vocation)),
+            (
+                "interpretation_context".into(),
+                Wire::Object(
+                    self.context
+                        .members()
+                        .iter()
+                        .map(|(member, value)| ((*member).to_owned(), s(value)))
+                        .collect(),
+                ),
+            ),
+            ("issued_at_source".into(), s(self.issued_at_source)),
+            ("expires_at_source".into(), s(self.expires_at_source)),
+            ("audience".into(), s("OTERYN_GAME_CHARACTER_AUTHORITY")),
+        ]);
+        canonical::encode(&intent).map_err(|_| IssueError::Unavailable("encoding"))
+    }
 }
 
 fn issued(row: &PgRow) -> Result<Issued, IssueError> {

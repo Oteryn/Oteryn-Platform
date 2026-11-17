@@ -68,11 +68,12 @@ impl Database {
         )
         .execute(&pool)
         .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../../migrations/20261105220103_t22b_bootstrap_intents.sql"
-        ))
-        .execute(&pool)
-        .await?;
+        for migration in [
+            include_str!("../../../../migrations/20261105220103_t22b_bootstrap_intents.sql"),
+            include_str!("../../../../migrations/20261117160500_bootstrap_intent_v4_vocation.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await?;
+        }
         sqlx::query(
             "INSERT INTO accounts (id, status) VALUES ($1::uuid, 'active'), ($2::uuid, 'closed'), ($3::uuid, 'active')",
         )
@@ -142,6 +143,7 @@ fn input() -> IssueInput {
         target_world_id: WORLD.into(),
         requested_name: "Aldric Vale".into(),
         requested_sex: "Male".into(),
+        requested_vocation: "Knight".into(),
         context: Context {
             profile_revision: "profile:1".into(),
             ruleset_revision: "ruleset:1".into(),
@@ -190,6 +192,30 @@ fn every_field_is_validated_before_any_transaction() {
         ),
         ("sex case", Box::new(|i| i.requested_sex = "male".into())),
         ("sex numeric", Box::new(|i| i.requested_sex = "1".into())),
+        (
+            "vocation case",
+            Box::new(|i| i.requested_vocation = "knight".into()),
+        ),
+        (
+            "vocation upper case",
+            Box::new(|i| i.requested_vocation = "KNIGHT".into()),
+        ),
+        (
+            "vocation none",
+            Box::new(|i| i.requested_vocation = "None".into()),
+        ),
+        (
+            "vocation empty",
+            Box::new(|i| i.requested_vocation = String::new()),
+        ),
+        (
+            "vocation numeric",
+            Box::new(|i| i.requested_vocation = "1".into()),
+        ),
+        (
+            "vocation padded",
+            Box::new(|i| i.requested_vocation = " Knight".into()),
+        ),
         (
             "profile",
             Box::new(|i| i.context.profile_revision = ":leading".into()),
@@ -261,6 +287,7 @@ async fn issues_once_replays_exactly_and_refuses_conflicts() -> TestResult {
         Box::new(|i| i.target_world_id = "019a0000-0000-7000-8000-00000000e002".into()),
         Box::new(|i| i.requested_name = "Other Name".into()),
         Box::new(|i| i.requested_sex = "Female".into()),
+        Box::new(|i| i.requested_vocation = "Paladin".into()),
         Box::new(|i| i.context.profile_revision = "profile:2".into()),
         Box::new(|i| i.context.ruleset_revision = "ruleset:2".into()),
         Box::new(|i| i.context.content_revision = "content:2".into()),
@@ -286,6 +313,123 @@ async fn issues_once_replays_exactly_and_refuses_conflicts() -> TestResult {
     assert_eq!(second.source_revision, "2");
     assert_ne!(second.issuer_decision_id, first.issuer_decision_id);
     assert_eq!(db.count().await?, 2);
+    db.close().await
+}
+
+#[tokio::test]
+async fn every_vocation_is_issued_and_on_the_wire() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let reader = Reader::new(
+        db.pool.clone(),
+        Settings { enabled: true },
+        Arc::new(Active),
+    );
+    for (n, vocation) in ["Knight", "Paladin", "Sorcerer", "Druid", "Monk"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut each = input();
+        each.operation_id = format!("019a0000-0000-7000-8000-0000000b010{n}");
+        each.requested_vocation = vocation.into();
+        let issued = issue(&db.pool, each.clone(), staff()).await?;
+        assert_eq!(issued.source_revision, (n + 1).to_string());
+        let wire = canonical::decode(issued.intent_json.as_bytes(), 4096, 3)?;
+        assert_eq!(wire.get("contract_version"), Some(&Wire::Unsigned(4)));
+        assert_eq!(
+            wire.get("requested_vocation"),
+            Some(&Wire::String(vocation.into()))
+        );
+        // `requested_vocation` sits right after `requested_sex` on the wire.
+        assert!(issued.intent_json.contains(&format!(
+            "\"requested_sex\":\"Male\",\"requested_vocation\":\"{vocation}\",\"interpretation_context\""
+        )));
+        let column: Option<String> = sqlx::query_scalar(
+            "SELECT requested_vocation FROM character_bootstrap_intents WHERE operation_id=$1",
+        )
+        .bind(&each.operation_id)
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(column.as_deref(), Some(vocation));
+        let issued_at: i64 = issued.issued_at_source.parse()?;
+        assert_eq!(
+            reader.current(&each.operation_id, issued_at).await?,
+            issued.intent_json.as_bytes()
+        );
+        // An exact retry with the same vocation returns the stored decision.
+        assert_eq!(issue(&db.pool, each, staff()).await?, issued);
+    }
+    assert_eq!(db.count().await?, 5);
+    db.close().await
+}
+
+#[tokio::test]
+async fn bad_vocation_is_refused_before_any_allocation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    for refused in ["knight", "None", "", "KNIGHT", "Elite Knight", "0"] {
+        let mut bad_input = input();
+        bad_input.requested_vocation = refused.into();
+        assert!(
+            matches!(
+                issue(&db.pool, bad_input, staff()).await,
+                Err(IssueError::BadInput(_))
+            ),
+            "{refused:?}"
+        );
+    }
+    assert_eq!((db.count().await?, db.audits().await?), (0, 0));
+    let authority: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM character_bootstrap_intent_authority")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(authority, 0, "no authority row was even created");
+    // Refusals allocate no source revision.
+    assert_eq!(
+        issue(&db.pool, input(), staff()).await?.source_revision,
+        "1"
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn stored_v3_intent_read_and_retry_fail_closed() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let first = issue(&db.pool, input(), staff()).await?;
+    // Rewrite the row to the retained v3 form: version 3, no vocation member, a
+    // matching digest and no vocation column.
+    let v3 = first
+        .intent_json
+        .replace("\"contract_version\":4", "\"contract_version\":3")
+        .replace(",\"requested_vocation\":\"Knight\"", "");
+    assert_ne!(v3, first.intent_json);
+    sqlx::query("UPDATE character_bootstrap_intents SET intent_json=$1, intent_sha256=$2, requested_vocation=NULL")
+        .bind(&v3)
+        .bind(format!("{:x}", Sha256::digest(v3.as_bytes())))
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        issue(&db.pool, input(), staff()).await,
+        Err(IssueError::Unavailable("stored intent"))
+    );
+    let reader = Reader::new(
+        db.pool.clone(),
+        Settings { enabled: true },
+        Arc::new(Active),
+    );
+    let issued_at: i64 = first.issued_at_source.parse()?;
+    assert_eq!(
+        reader.current(OP, issued_at).await,
+        Err(crate::bootstrap::Error::Unavailable)
+    );
+    assert_eq!((db.count().await?, db.audits().await?), (1, 1));
     db.close().await
 }
 
