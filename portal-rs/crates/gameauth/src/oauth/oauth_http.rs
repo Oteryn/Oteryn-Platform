@@ -118,7 +118,7 @@ struct ConsentPage {
     skip: String,
     request: Authorization,
 }
-fn texts(language: &str) -> Result<[String; 5], Error> {
+fn texts(language: &str, scope: &str) -> Result<[String; 5], Error> {
     let source = if language == "en" {
         include_str!("../../../../templates/oauth/en.ftl")
     } else {
@@ -135,7 +135,11 @@ fn texts(language: &str) -> Result<[String; 5], Error> {
     let mut output = Vec::new();
     for key in [
         "oauth-title",
-        "oauth-description",
+        match scope {
+            TICKET_SCOPE => "oauth-description",
+            ACCOUNT_SERVICES_SCOPE => "oauth-account-services",
+            _ => return Err(Error::InvalidRequest),
+        },
         "oauth-approve",
         "oauth-deny",
         "oauth-skip",
@@ -197,7 +201,11 @@ async fn show(
         }
         event(&mut tx, Some(account), "consent_presented").await?;
         tx.commit().await?;
-        let [title, description, approve, deny, skip] = texts(&browser.language)?;
+        let [title, description, approve, deny, skip] = texts(&browser.language, &request.scope)?;
+        let origin = url::Url::parse(&request.redirect_uri)
+            .map_err(|_| Error::InvalidRequest)?
+            .origin()
+            .ascii_serialization();
         let page = ConsentPage {
             lang: browser.language,
             title,
@@ -208,11 +216,13 @@ async fn show(
             skip,
             request,
         };
-        page.render().map(Some).map_err(|_| Error::Unavailable)
+        let mut response = Html(page.render().map_err(|_| Error::Unavailable)?).into_response();
+        response.extensions_mut().insert(ConsentOrigin(origin));
+        Ok(Some(response))
     }
     .await;
     match result {
-        Ok(Some(html)) => no_store(Html(html).into_response()),
+        Ok(Some(response)) => no_store(response),
         Ok(None) => sign_in(&language),
         Err(e) => refused(&state, Some(account), e).await,
     }
@@ -299,6 +309,9 @@ async fn token(
     }
 }
 
+#[derive(Clone)]
+struct ConsentOrigin(String);
+
 /// OAuth owns its protocol error envelope; the site HTML error renderer must not replace it.
 pub async fn secure_response(
     request: axum::extract::Request,
@@ -318,11 +331,21 @@ pub async fn secure_response(
     } else {
         "no-referrer"
     };
+    let mut form_action = String::from("'self'");
+    if let Some(ConsentOrigin(origin)) = response.extensions_mut().remove::<ConsentOrigin>() {
+        form_action.push(' ');
+        form_action.push_str(&origin);
+    }
+    let policy = format!(
+        "default-src 'none'; style-src 'self'; form-action {form_action}; base-uri 'none'; frame-ancestors 'none'"
+    );
+    let Ok(policy) = header::HeaderValue::from_str(&policy) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    response
+        .headers_mut()
+        .insert(header::CONTENT_SECURITY_POLICY, policy);
     for (name, value) in [
-        (
-            "content-security-policy",
-            "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-        ),
         (
             "strict-transport-security",
             "max-age=63072000; includeSubDomains",

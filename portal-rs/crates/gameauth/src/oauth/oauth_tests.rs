@@ -608,7 +608,10 @@ async fn consent_policy_keeps_form_origin_and_does_not_send_query_referrers() ->
 }
 
 fn authorize_query() -> String {
-    let a = authorization();
+    query_fields(authorization())
+}
+
+fn query_fields(a: Authorization) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     for (k, v) in [
         ("response_type", a.response_type),
@@ -1002,4 +1005,67 @@ async fn postgres_ida_consent_rechecks_live_session_and_mfa_after_revocation() -
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+async fn consent_response(
+    db: &Database,
+    language: &str,
+    scope: &str,
+) -> Result<axum::response::Response, Box<dyn std::error::Error>> {
+    let browser = Browser {
+        account: Some(db.account().await?),
+        csrf: "a".repeat(64),
+        language: language.into(),
+    };
+    let app = browser_routes(db.pool.clone(), config())
+        .layer(Extension(browser))
+        .layer(axum::middleware::from_fn(secure_response));
+    let fields = query_fields(Authorization {
+        scope: scope.into(),
+        ..authorization()
+    });
+    let response = app
+        .oneshot(Request::get(format!("/oauth/authorize?{fields}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(response)
+}
+
+#[tokio::test]
+async fn regression_consent_origin() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let r = consent_response(&db, "en", TICKET_SCOPE).await?;
+    assert!(
+        r.headers()["content-security-policy"]
+            .to_str()?
+            .split(';')
+            .any(|s| s.trim() == "form-action 'self' http://127.0.0.1:43210"),
+        "missing exact callback origin"
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn regression_consent_scopes() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    for language in ["en", "pl"] {
+        for scope in [ACCOUNT_SERVICES_SCOPE, TICKET_SCOPE] {
+            let r = consent_response(&db, language, scope).await?;
+            let html = String::from_utf8(to_bytes(r.into_body(), 16384).await?.to_vec())?;
+            let (_, description) = html.split_once("<p>").ok_or("missing consent paragraph")?;
+            assert!(
+                description
+                    .split("</p>")
+                    .next()
+                    .unwrap_or_default()
+                    .contains(scope),
+                "missing {scope} in {language} consent"
+            );
+        }
+    }
+    db.close().await
 }

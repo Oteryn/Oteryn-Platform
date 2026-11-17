@@ -691,8 +691,8 @@ async fn observe_inner(
     }
     let wire = String::from_utf8(bytes).map_err(|_| unavailable())?;
     sqlx::query("INSERT INTO native_evidence(namespace_hash,source_revision,response_json) VALUES ($1,$2,$3)").bind(&request.namespace).bind(next).bind(wire).execute(&mut *tx).await.map_err(|_| unavailable())?;
-    tx.commit().await.map_err(|_| unavailable())?;
     witness.advance(&request.namespace, next).await?;
+    tx.commit().await.map_err(|_| unavailable())?;
     Ok(response)
 }
 
