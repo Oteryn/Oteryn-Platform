@@ -2167,6 +2167,87 @@ async fn postgres_grant_to_value_ineligible_account_refused_at_submit() {
     assert_eq!(denied, 1);
     h.close().await;
 }
+async fn denied_audits(h: &Harness, request: Uuid) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='commerce.denied' AND request_id=$1",
+    )
+    .bind(request)
+    .fetch_one(&h.pool)
+    .await
+    .unwrap()
+}
+#[tokio::test]
+async fn postgres_grant_replay_after_target_turns_ineligible_reports_recorded_state() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let service = h.service();
+    let req = request(h.target, Command::Grant { days: 30 });
+    assert!(
+        service
+            .submit(context(&h.pool, h.actor).await, req.clone())
+            .await
+            .unwrap()
+            .pending
+    );
+    sqlx::query(
+        "UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1",
+    )
+    .bind(h.target)
+    .execute(&h.pool)
+    .await
+    .unwrap();
+    for _ in 0..2 {
+        let replay = service
+            .submit(context(&h.pool, h.actor).await, req.clone())
+            .await
+            .unwrap();
+        assert!(replay.replayed);
+        assert!(replay.pending);
+    }
+    assert_eq!(denied_audits(&h, req.request_id).await, 0);
+    assert_eq!(h.count("commerce_operations").await, 1);
+    assert_eq!(h.count("premium_ledger").await, 0);
+    h.close().await;
+}
+#[tokio::test]
+async fn postgres_grant_approval_audit_failure_rolls_back_entitlement() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let service = h.service();
+    let approver = context(&h.pool, h.second).await;
+    let req = request(h.target, Command::Grant { days: 30 });
+    assert!(
+        service
+            .submit(context(&h.pool, h.actor).await, req.clone())
+            .await
+            .unwrap()
+            .pending
+    );
+    sqlx::raw_sql("CREATE FUNCTION refuse_grant_approval_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='commerce.approved' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$; CREATE TRIGGER refuse_grant_approval_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION refuse_grant_approval_audit();").execute(&h.pool).await.unwrap();
+    assert!(matches!(
+        service.approve(approver, req.request_id).await,
+        Err(Error::Storage(_))
+    ));
+    assert_eq!(h.count("premium_ledger").await, 0);
+    assert_eq!(h.count("premium_audit").await, 0);
+    let (open, approved_by): (bool, Option<Uuid>) =
+        sqlx::query_as("SELECT result IS NULL,approved_by FROM commerce_operations WHERE id=$1")
+            .bind(req.request_id)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert!(open);
+    assert_eq!(approved_by, None);
+    sqlx::raw_sql("DROP TRIGGER refuse_grant_approval_audit ON audit_log; DROP FUNCTION refuse_grant_approval_audit();").execute(&h.pool).await.unwrap();
+    let outcome = service.approve(approver, req.request_id).await.unwrap();
+    assert!(!outcome.replayed);
+    assert_eq!(grant_entitlements(&h, req.request_id).await, 1);
+    h.close().await;
+}
 #[test]
 fn reason_digest_decodes_only_a_full_hex_sha256() {
     let hash = format!("{:x}", Sha256::digest(b"Reviewed support request"));
