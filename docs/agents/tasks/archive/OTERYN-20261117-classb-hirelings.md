@@ -23,7 +23,7 @@ budgeted transaction; `enqueue` delegates to it unchanged.
 
 - [x] A held sequence row lock sheds the enqueue as a storage refusal within the mutation budget (test red without the change, green with it)
 - [x] Lock order, refusal and replay behaviour unchanged; refusals still roll back
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -51,10 +51,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T04:15:00Z
-head: d2453556bdcb8cc3b66d0c22d5c57e5b45adc8b9
+head: 374859039bc60e5b16d60686f69d741fa24d07a9
 branch: claude/happy-davinci-ijz3wy-classb-small
 pr: 1902
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-classb-hirelings.md
@@ -94,5 +94,13 @@ validation:
     evidence: exit 0
 blockers:
   - none
-next_action: "Portal RS CI on PR #1902, then squash merge"
+next_action: none; delivered by PR 1902 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1902 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1902 merged as 374859039bc60e5b16d60686f69d741fa24d07a9
 ```
