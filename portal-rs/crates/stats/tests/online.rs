@@ -12,7 +12,7 @@ use oteryn_stats::{
         public_online_ranking,
     },
 };
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{Connection, PgPool, postgres::PgPoolOptions};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -565,6 +565,29 @@ async fn postgres_public_world_totals_complete_provisional_zero_and_missing() ->
     assert_eq!(total.monsters_killed, 12345);
     assert_eq!(total.bosses_killed, 12);
     assert!(total.complete);
+    // Ingest holds the projection row FOR UPDATE; the public read must answer
+    // unavailable within its fence budget instead of waiting for the ingest.
+    // The test pool has one connection, so the ingest lock needs its own.
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db)
+        .await?;
+    let mut ingest_conn =
+        sqlx::PgConnection::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    let mut ingest = ingest_conn.begin().await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT id FROM {schema}.public_projection_state WHERE id=1 FOR UPDATE"
+    )))
+    .execute(&mut *ingest)
+    .await?;
+    let started = std::time::Instant::now();
+    let held = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        online::world_total(&db, &config(), world, 1789948800, NOW, &baseline()),
+    )
+    .await?;
+    assert_eq!(held, Err(Error::Unavailable));
+    assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    ingest.rollback().await?;
     let zero = WORLD
         .replace(
             "\"projection_revision\":\"2\"",

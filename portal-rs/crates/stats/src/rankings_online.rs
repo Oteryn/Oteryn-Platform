@@ -67,7 +67,7 @@ pub async fn owner_online_ranking(
             return Err(Error::Unauthorized);
         }
     }
-    let mut tx = db.begin().await?;
+    let mut tx = online::storage::read_fence(db).await?;
     let cut = online::storage::fresh(
         &mut tx,
         config,
