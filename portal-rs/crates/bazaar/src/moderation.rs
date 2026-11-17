@@ -461,6 +461,14 @@ pub async fn execute_staff(
             ) {
                 return Err(Error::IllegalTransition);
             }
+            // A settled item cannot be invalidated. Holding it before dispatch
+            // would prevent the very handoff needed to retire the hold.
+            if state == State::AwaitingDelivery && sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE l.id=$1 AND l.kind='item')
+                 AND NOT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command='DeliverBazaarItem')",
+            ).bind(listing).fetch_one(&mut *tx).await? {
+                return Err(Error::IllegalTransition);
+            }
             sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,$3) ON CONFLICT(listing_id) DO UPDATE SET revision=bazaar_moderation_holds.revision+1,actor=$2,reason=$3,updated_at=clock_timestamp()")
                 .bind(listing).bind(actor).bind(reason).execute(&mut *tx).await?;
         }

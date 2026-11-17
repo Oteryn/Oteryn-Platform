@@ -150,7 +150,6 @@ impl Authority {
                         db,
                         &i.value,
                         id(text(&i.value, "buyer_account_id")?)?,
-                        Some(operation),
                     )
                     .await?;
                     sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
@@ -158,6 +157,9 @@ impl Authority {
                 }
                 if text(f, "currency")? != "COINS" {
                     return Err(Error::Invalid);
+                }
+                if !self.fresh(db).await? {
+                    return Err(Error::Unavailable);
                 }
                 let sale = id(text(&i.value, "sale_id")?)?;
                 let reservation = id(text(f, "reservation_id")?)?;
@@ -306,6 +308,9 @@ impl Authority {
             let row=sqlx::query("SELECT o.command,o.intent FROM bazaar_game_outbox o JOIN bazaar_authority_dispatch d USING(operation_id) WHERE o.operation_id=$1 AND d.projection_epoch<=$2::text::numeric AND d.recovery_generation<=$3::text::numeric").bind(id(text(&v,"operation_id")?)?).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_optional(&mut **db).await?.ok_or(Error::NotFound)?;
             if row.try_get::<String, _>("command")? != text(&v, "command")? {
                 return Err(Error::Conflict);
+            }
+            if text(&v, "command")? == Command::Deliver.wire() && !self.fresh(db).await? {
+                return Err(Error::Unavailable);
             }
             return Ok(row.try_get("intent")?);
         }

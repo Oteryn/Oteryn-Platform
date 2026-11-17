@@ -174,7 +174,7 @@ pub(crate) async fn funded(
 ) -> Result<(), Error> {
     let funding = i.get("funding").ok_or(Error::Invalid)?;
     if text(funding, "currency")? == "GOLD" {
-        return super::gold::funded(a, db, i, buyer, None).await;
+        return super::gold::funded(a, db, i, buyer).await;
     }
     if text(funding, "currency")? != "COINS" {
         return Err(Error::Invalid);

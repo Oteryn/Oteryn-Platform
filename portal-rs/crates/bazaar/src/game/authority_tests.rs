@@ -4991,14 +4991,31 @@ async fn r7_gold_delivery_requires_fresh_watermark() {
     )
     .unwrap();
     let a = db.runtime.authority();
-    runtime::gold::funded(a, &mut tx, &intent, uid("13"), None)
+    runtime::gold::funded(a, &mut tx, &intent, uid("13"))
         .await
         .unwrap();
+    stale_watermark(a, &mut tx).await;
+    assert!(!a.fresh(&mut tx).await.unwrap());
+    assert!(
+        matches!(
+            runtime::gold::funded(a, &mut tx, &intent, uid("13")).await,
+            Err(Error::Unavailable)
+        ),
+        "gold funding accepted without a fresh watermark"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[path = "invalidation_tests.rs"]
+mod invalidation_tests;
+
+async fn stale_watermark(a: &Authority, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) {
     sqlx::query("DELETE FROM bazaar_game_projections WHERE kind='WATERMARK'")
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .unwrap();
-    let now = runtime::now(&mut tx).await.unwrap();
+    let now = runtime::now(tx).await.unwrap();
     let watermark = format!(
         r#"{{"contract_version":2,"operation":"PublishBazaarWatermarkV1","source_authority":"oteryn:game:primary","projection_epoch":"3","complete_through":"{}","observed_at":"{now}"}}"#,
         now - 60
@@ -5010,24 +5027,188 @@ async fn r7_gold_delivery_requires_fresh_watermark() {
         },
     }
     .ingest(
-        &mut tx,
+        tx,
         &a.config.projection_authority,
         watermark.as_bytes(),
         now,
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn r8_stale_coin_handoff() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let a = db.runtime.authority();
+    stale_watermark(a, &mut tx).await;
     assert!(!a.fresh(&mut tx).await.unwrap());
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let deliveries:i64=sqlx::query_scalar("SELECT count(*) FROM bazaar_authority_dispatch JOIN bazaar_game_outbox USING(operation_id) WHERE listing_id=$1 AND command='DeliverBazaarItem'").bind(uid("20")).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(
+        deliveries, 0,
+        "delivery published without current custody watermark"
+    );
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r8_suspend_settled_listing() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let result = crate::moderation::execute_staff(
+        &mut tx,
+        uid("11"),
+        &crate::moderation::StaffCommand::Suspend {
+            listing: uid("20"),
+            reason: "staff suspended sale".into(),
+        },
+    )
+    .await;
     assert!(
-        matches!(
-            runtime::gold::funded(a, &mut tx, &intent, uid("13"), None).await,
-            Err(Error::Unavailable)
-        ),
-        "gold funding accepted without a fresh watermark"
+        matches!(result, Err(crate::Error::IllegalTransition)),
+        "suspension stranded settled sale"
     );
     tx.rollback().await.unwrap();
     db.end().await;
 }
 
-#[path = "invalidation_tests.rs"]
-mod invalidation_tests;
+#[tokio::test]
+async fn r8_reconfirmed_escrow_digest() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let old = vector("escrow_receipt").replace(
+        "\"recovery_generation\":\"3\"",
+        "\"recovery_generation\":\"2\"",
+    );
+    let receipt = Receipt::parse(old.as_bytes()).unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome) SELECT operation_id,2,source_authority,intent_digest,$1,$2,outcome FROM bazaar_authority_receipts WHERE operation_id=$3").bind(receipt.digest()).bind(old).bind(receipt.operation).execute(&mut *tx).await.unwrap();
+    let wire = vector("delivery_intent").replace(
+        &digest(vector("escrow_receipt").as_bytes()),
+        &receipt.digest(),
+    );
+    let delivery = PreparedIntent::parse(&wire).unwrap();
+    store_intent(&mut tx, &delivery).await;
+    let a = db.runtime.authority();
+    let result = a
+        .receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            vector("delivery_receipt").as_bytes(),
+            1790000002,
+        )
+        .await;
+    assert!(
+        matches!(result, Ok(ReceiptResult::Stored)),
+        "reconfirmed escrow unavailable by original digest: {result:?}"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r8_replay_hold_before_release() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let hold = Uuid::now_v7();
+    let op = gold_fact(&mut tx, Command::Hold, 10, uid("20"), hold, (0, 1, 10000)).await;
+    gold_fact(
+        &mut tx,
+        Command::Release,
+        11,
+        uid("20"),
+        hold,
+        (1, 2, 10000),
+    )
+    .await;
+    let mut a = authority();
+    a.fence.recovery_generation = 4;
+    let (intent, receipt) = authority().retained(&mut tx, op).await.unwrap().unwrap();
+    let result =
+        runtime::gold::validate_hold(&a, &mut tx, &intent, receipt.value.get("result_data")).await;
+    assert!(
+        result.is_ok(),
+        "hold replay waited for its later release: {result:?}"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r8_suspended_gold_seller() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let request = Uuid::now_v7();
+    let op = gold_fact(
+        &mut tx,
+        Command::Hold,
+        10,
+        uid("20"),
+        Uuid::now_v7(),
+        (0, 1, 12000),
+    )
+    .await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=10")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bazaar_listings SET currency='gold' WHERE id=$1")
+        .bind(uid("20"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id) VALUES($1,$2,$3,$4,12000,$5)").bind(request).bind(uid("20")).bind(uid("13")).bind(uid("14")).bind(op).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(uid("11"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    db.runtime.tick_gold_bids().await.unwrap();
+    let phase: String =
+        sqlx::query_scalar("SELECT phase FROM bazaar_authority_gold_bids WHERE request_id=$1")
+            .bind(request)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        phase, "releasing",
+        "funded bid on suspended seller must release"
+    );
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r8_stale_coin_pull() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let i = newest_intent(&db, uid("20"), Command::Deliver).await;
+    let op = text(&i.value, "operation_id").unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let a = db.runtime.authority();
+    let peer = &a.config.projection_authority;
+    let request = format!(
+        r#"{{"contract_version":2,"operation":"ReadBazaarCommandIntentV1","source_authority":"{peer}","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","command":"DeliverBazaarItem","operation_id":"{op}"}}"#
+    );
+    assert!(a.exchange(&mut tx, peer, request.as_bytes()).await.is_ok());
+    stale_watermark(a, &mut tx).await;
+    assert!(
+        matches!(
+            a.exchange(&mut tx, peer, request.as_bytes()).await,
+            Err(Error::Unavailable)
+        ),
+        "delivery readable after custody watermark expired"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}

@@ -260,13 +260,26 @@ impl Authority {
         db: &mut PgConnection,
         hash: &str,
     ) -> Result<Receipt, Error> {
-        let raw:Option<String>=sqlx::query_scalar("SELECT receipt FROM bazaar_authority_receipts WHERE receipt_digest=$1 AND recovery_generation=$2::text::numeric AND source_authority=$3").bind(hash).bind(self.fence.recovery_generation.to_string()).bind(&self.config.receipt_authority).fetch_optional(&mut *db).await?;
+        let raw:Option<String>=sqlx::query_scalar("SELECT receipt FROM bazaar_authority_receipts WHERE receipt_digest=$1 AND recovery_generation<=$2::text::numeric AND source_authority=$3").bind(hash).bind(self.fence.recovery_generation.to_string()).bind(&self.config.receipt_authority).fetch_optional(&mut *db).await?;
         let r = Receipt::parse(raw.ok_or(Error::Unavailable)?.as_bytes())?;
         if r.digest() != hash
-            || r.generation != self.fence.recovery_generation
             || text(&r.value, "source_authority")? != self.config.receipt_authority
         {
             return Err(Error::Denied);
+        }
+        if r.generation != self.fence.recovery_generation {
+            let (_, current) = self
+                .retained(db, r.operation)
+                .await?
+                .ok_or(Error::Unavailable)?;
+            if !r.committed
+                || !current.committed
+                || current.command != r.command
+                || current.value.get("result_data") != r.value.get("result_data")
+            {
+                return Err(Error::Denied);
+            }
+            return Ok(current);
         }
         Ok(r)
     }

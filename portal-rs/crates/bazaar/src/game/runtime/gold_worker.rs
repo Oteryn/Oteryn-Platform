@@ -172,6 +172,12 @@ impl Runtime {
         let valid = l.ends_at.unix_timestamp() > now(&mut tx).await? as i64
             && actor.allows_trade()
             && self
+                .accounts(None)
+                .state(&mut tx, l.owner)
+                .await
+                .map_err(core_error)?
+                .is_some_and(|seller| seller.allows_trade())
+            && self
                 .authority()
                 .escrow_ready(&mut tx, &l)
                 .await
