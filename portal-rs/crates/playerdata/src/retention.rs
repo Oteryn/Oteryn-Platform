@@ -22,6 +22,19 @@ impl Retention {
         sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$1) WHERE ctid IN (SELECT ctid FROM pd_g9_records WHERE expires_at<=$1 AND canonical_bytes IS NOT NULL LIMIT 512 FOR UPDATE SKIP LOCKED)").bind(now/1000).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_records SET payload=NULL WHERE ctid IN (SELECT ctid FROM pd_records WHERE payload IS NOT NULL AND expires_ms<=$1 ORDER BY expires_ms LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now).execute(&mut *tx).await?;
+        // The continuation has the economic lifetime of its own ledger entry.
+        // Missing replay metadata also expires balances left by older cleanup runs.
+        sqlx::query(
+            "DELETE FROM pd_bank_continuations WHERE ctid IN (
+                SELECT b.ctid FROM pd_bank_continuations b
+                WHERE NOT EXISTS (SELECT 1 FROM pd_records r
+                    WHERE r.stream_key=b.stream_key AND r.entity_key=b.entry_id
+                    AND r.kind='BANK_ENTRY' AND r.expires_ms>$1)
+                LIMIT 512 FOR UPDATE OF b SKIP LOCKED)",
+        )
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("UPDATE pd_t76_streams SET snapshot=NULL,snapshot_at=NULL WHERE ctid IN (SELECT ctid FROM pd_t76_streams WHERE snapshot IS NOT NULL AND snapshot_at<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now/1000-30*86400).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_t76_records SET canonical_bytes=NULL WHERE ctid IN (SELECT r.ctid FROM pd_t76_records r WHERE canonical_bytes IS NOT NULL AND (occurred_at<=$1 OR EXISTS(SELECT 1 FROM pd_t76_streams s WHERE s.stream_key=r.stream_key AND s.staging_at<=$2)) LIMIT 512 FOR UPDATE OF r SKIP LOCKED)")
@@ -32,7 +45,7 @@ impl Retention {
             .bind(now-crate::deaths::HISTORY_MS as i64).bind(now-7*86400000_i64).execute(&mut *tx).await?;
         // Floors survive digest expiry. If expiry crosses retained evidence or
         // a missing prefix, close the generation instead of claiming completeness.
-        sqlx::query("WITH candidates AS (SELECT source_authority,account_id,stream_generation FROM pd_g9_streams s WHERE EXISTS(SELECT 1 FROM pd_g9_records r WHERE r.source_authority=s.source_authority AND r.account_id=s.account_id AND r.stream_generation=s.stream_generation AND r.purged_at<=$1) ORDER BY source_authority,account_id,stream_generation LIMIT 128 FOR UPDATE SKIP LOCKED), expiry AS (SELECT c.source_authority,c.account_id,c.stream_generation,max(r.source_revision) AS through FROM candidates c JOIN pd_g9_records r USING(source_authority,account_id,stream_generation) WHERE r.purged_at<=$1 GROUP BY c.source_authority,c.account_id,c.stream_generation), cuts AS (SELECT e.*,e.through>s.stored_through OR EXISTS(SELECT 1 FROM pd_g9_records r WHERE r.source_authority=e.source_authority AND r.account_id=e.account_id AND r.stream_generation=e.stream_generation AND r.source_revision<=e.through AND (r.purged_at IS NULL OR r.purged_at>$1)) AS close_generation FROM expiry e JOIN pd_g9_streams s USING(source_authority,account_id,stream_generation)) UPDATE pd_g9_streams s SET retention_floor=GREATEST(s.retention_floor,c.through),blocked=s.blocked OR c.close_generation,admitted=s.admitted AND NOT c.close_generation FROM cuts c WHERE s.source_authority=c.source_authority AND s.account_id=c.account_id AND s.stream_generation=c.stream_generation")
+        sqlx::query("WITH candidates AS (SELECT source_authority,account_id,stream_generation FROM pd_g9_streams s WHERE EXISTS(SELECT 1 FROM pd_g9_records r WHERE r.source_authority=s.source_authority AND r.account_id=s.account_id AND r.stream_generation=s.stream_generation AND r.purged_at<=$1) ORDER BY source_authority,account_id,stream_generation LIMIT 128 FOR UPDATE SKIP LOCKED), expiry AS (SELECT c.source_authority,c.account_id,c.stream_generation,max(r.source_revision) AS through FROM candidates c JOIN pd_g9_records r USING(source_authority,account_id,stream_generation) WHERE r.purged_at<=$1 GROUP BY c.source_authority,c.account_id,c.stream_generation), cuts AS (SELECT e.*,e.through>s.applied_through OR EXISTS(SELECT 1 FROM pd_g9_records r WHERE r.source_authority=e.source_authority AND r.account_id=e.account_id AND r.stream_generation=e.stream_generation AND r.source_revision<=e.through AND (r.purged_at IS NULL OR r.purged_at>$1)) AS close_generation FROM expiry e JOIN pd_g9_streams s USING(source_authority,account_id,stream_generation)) UPDATE pd_g9_streams s SET retention_floor=GREATEST(s.retention_floor,c.through),blocked=s.blocked OR c.close_generation,admitted=s.admitted AND NOT c.close_generation FROM cuts c WHERE s.source_authority=c.source_authority AND s.account_id=c.account_id AND s.stream_generation=c.stream_generation")
             .bind(now/1000-120*86400).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_g9_records WHERE ctid IN (SELECT r.ctid FROM pd_g9_records r JOIN pd_g9_streams s USING(source_authority,account_id,stream_generation) WHERE r.purged_at<=$1 AND r.source_revision<=s.retention_floor LIMIT 512 FOR UPDATE OF r SKIP LOCKED)")
             .bind(now/1000-120*86400).execute(&mut *tx).await?;
