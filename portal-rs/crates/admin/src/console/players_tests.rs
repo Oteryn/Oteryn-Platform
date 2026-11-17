@@ -382,6 +382,26 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
         Accounts,
         fake(true, false),
     );
+    for site in [
+        Some("cross-site"),
+        Some("same-site"),
+        None,
+        Some("same-origin"),
+        Some("none"),
+    ] {
+        let mut request =
+            Request::get("/admin/console/players?q=Knight").header("host", "staff.test");
+        if let Some(site) = site {
+            request = request.header("sec-fetch-site", site);
+        }
+        let response = app.clone().oneshot(request.body(Body::empty())?).await?;
+        let expected = if matches!(site, Some("same-origin" | "none")) {
+            StatusCode::OK
+        } else {
+            StatusCode::FORBIDDEN
+        };
+        assert_eq!(response.status(), expected, "player search with {site:?}");
+    }
     for area in ["players", "audit", "access", "approvals"] {
         let path = format!("/admin/console/{area}?lang=en");
         let response = app
@@ -426,6 +446,7 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
             .oneshot(
                 Request::get(path)
                     .header("host", host)
+                    .header("sec-fetch-site", "same-origin")
                     .body(Body::empty())?,
             )
             .await?;

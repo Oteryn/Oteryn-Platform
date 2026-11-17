@@ -288,8 +288,19 @@ pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    headers: axum::http::HeaderMap,
     Query(input): Query<Input>,
 ) -> Result<Response, Error> {
+    if input.q.is_some() || input.character.is_some() {
+        let mut sites = headers.get_all("sec-fetch-site").iter();
+        if !matches!(
+            sites.next().map(|site| site.as_bytes()),
+            Some(b"same-origin" | b"none")
+        ) || sites.next().is_some()
+        {
+            return Err(Error::Denied);
+        }
+    }
     let scoped = Console {
         pool: state.pool.clone(),
         flags: state.flags,
