@@ -119,10 +119,12 @@ mounts `POST /{lang}/admin/store/codes` on the configured admin host with the
 existing session, CSRF, staff MFA and `admin.access` guards. Issuance also needs
 `store.codes.generate`, rechecked under the RBAC writer fence in the issuance
 transaction. The additive migration grants this permission to built-in
-`platform_admin` roles. Its JSON fields are `kind` (`coins` or `premium_days`),
+`platform_admin` roles. The guarded GET form generates a fresh UUIDv7 `request_id`. Form and JSON submissions require it.
+The other issuance fields are `kind` (`coins` or `premium_days`),
 `amount`, `count`, `max_per_code`, `max_per_account`, `valid_from`, `valid_until`
 (Unix seconds), and `note`. The response returns the batch ID and the plaintext
-codes once; issuance is audited without their plaintext.
+codes once. A matching retry returns the same batch ID and an empty code list. Reuse by
+another actor or with changed terms returns a conflict. Issuance is audited once without plaintext.
 
 `POST /{lang}/shop/codes/redeem` accepts JSON `code` and UUIDv7 `operation`, with
 the browser session and CSRF header. The acting account comes from the session

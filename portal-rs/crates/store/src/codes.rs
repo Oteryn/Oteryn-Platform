@@ -66,6 +66,8 @@ impl Kind {
 }
 #[derive(Debug, Clone)]
 pub struct Batch {
+    /// Per-issuance UUIDv7, used as the unique batch primary key.
+    pub request_id: Uuid,
     pub kind: Kind,
     pub amount: i64,
     pub max_per_code: i32,
@@ -165,8 +167,10 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
         let result = self
             .generate_in(&mut tx, &AuthorizedStaff { actor }, batch, count)
             .await?;
-        sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,'store.codes.generated',$2,'{}'::jsonb,jsonb_build_object('count',$3::bigint),$4)")
+        if !result.codes.is_empty() {
+            sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,'store.codes.generated',$2,'{}'::jsonb,jsonb_build_object('count',$3::bigint),$4)")
             .bind(actor).bind(result.batch_id.to_string()).bind(count as i64).bind(result.batch_id).execute(&mut *tx).await?;
+        }
         tx.commit().await?;
         Ok(result)
     }
@@ -190,7 +194,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
         count: usize,
     ) -> Result<Generated, Error> {
         self.enabled()?;
-        if !valid_id(staff.actor)
+        if !valid_id(batch.request_id)
+            || !valid_id(staff.actor)
             || !(1..=10000).contains(&count)
             || batch.amount <= 0
             || (batch.kind == Kind::PremiumDays && batch.amount > 366)
@@ -201,10 +206,40 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, R: AttemptHook>
         {
             return Err(Error::Invalid);
         }
-        let batch_id = Uuid::now_v7();
-        sqlx::query("INSERT INTO code_batches(id,kind,amount,max_per_code,max_per_account,valid_from,valid_until,created_by,note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        let batch_id = batch.request_id;
+        let inserted = sqlx::query("INSERT INTO code_batches(id,kind,amount,max_per_code,max_per_account,valid_from,valid_until,created_by,note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING")
             .bind(batch_id).bind(batch.kind.name()).bind(batch.amount).bind(batch.max_per_code).bind(batch.max_per_account)
             .bind(batch.valid_from).bind(batch.valid_until).bind(staff.actor).bind(&batch.note).execute(&mut **tx).await?;
+        if inserted.rows_affected() == 0 {
+            // A conflicting insert waits for the winning transaction. This new
+            // statement sees its committed batch and all of its code rows.
+            let matches: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM code_batches
+                 WHERE id=$1 AND created_by=$2 AND kind=$3 AND amount=$4
+                   AND max_per_code=$5 AND max_per_account=$6 AND valid_from=$7
+                   AND valid_until=$8 AND note=$9
+                   AND (SELECT count(*) FROM gift_codes WHERE batch_id=$1)=$10)",
+            )
+            .bind(batch_id)
+            .bind(staff.actor)
+            .bind(batch.kind.name())
+            .bind(batch.amount)
+            .bind(batch.max_per_code)
+            .bind(batch.max_per_account)
+            .bind(batch.valid_from)
+            .bind(batch.valid_until)
+            .bind(&batch.note)
+            .bind(count as i64)
+            .fetch_one(&mut **tx)
+            .await?;
+            if !matches {
+                return Err(Error::Conflict);
+            }
+            return Ok(Generated {
+                batch_id,
+                codes: Vec::new(),
+            });
+        }
         let mut codes = Vec::with_capacity(count);
         for _ in 0..count {
             let mut random = [0u8; 16];

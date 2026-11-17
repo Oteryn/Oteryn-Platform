@@ -11,9 +11,8 @@ test('single-use gift code credits once and refuses both repeat and foreign rede
  try {
   const admin=await staff.newPage();await admin.goto('/admin/commerce');
   const csrf=await admin.locator('[name="_csrf"]').first().inputValue();
-  // code_routes.rs exposes JSON only; no code-generation/redeem template exists.
   const action=`/${lang}/admin/store/codes`;
-  const data={kind:'coins',amount:37,count:1,max_per_code:1,max_per_account:1,valid_from:Math.floor(Date.now()/1000)-60,valid_until:Math.floor(Date.now()/1000)+3600,note:`Browser ${crypto.randomUUID()}`};
+  const data={request_id:uuid7(),kind:'coins',amount:37,count:1,max_per_code:1,max_per_account:1,valid_from:Math.floor(Date.now()/1000)-60,valid_until:Math.floor(Date.now()/1000)+3600,note:`Browser ${crypto.randomUUID()}`};
   await csrfRejected(admin,action);
   const generated=await admin.request.post(action,{data,headers:{'x-csrf-token':csrf}});
   expect(generated.status(),'staff generates gift code').toBe(200);
