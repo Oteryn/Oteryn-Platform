@@ -718,3 +718,38 @@ async fn publication_reservation_row_lock_obeys_attempt_deadline()
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn r7_failed_verification_preserves_publication() -> Result<(), Box<dyn std::error::Error>> {
+    let db = Database::open().await?.ok_or("PostgreSQL required")?;
+    let fixture = catalog_fixture::supported();
+    let original = source(&fixture);
+    let candidate =
+        oteryn_world::catalog::verify(&fixture.bytes, &fixture.sidecar, &original.fence)?;
+    candidate.persist_inactive(&db.pool).await?;
+    candidate.publish(&db.pool).await?;
+    let store = CatalogStore::new(db.pool.clone(), Some(original.clone()));
+    let mut replacement = original;
+    replacement.fence.snapshot_id = format!("sha256:{}", "0".repeat(64));
+    let bad = producer(b"corrupt".to_vec(), 0).await?;
+    replacement.file = PathBuf::new();
+    replacement.url = Some(bad.url.clone());
+    assert_eq!(
+        refresh_source_in_background(
+            db.pool.clone(),
+            replacement,
+            true,
+            RetryPolicy::new(1, 1, 1)?,
+            Arc::new(AtomicBool::new(false))
+        )
+        .await?,
+        Err(Error::IntegrityMismatch)
+    );
+    let active = store.active_version_id().await?;
+    db.close().await?;
+    assert!(
+        active.is_some(),
+        "failed verification hid active publication"
+    );
+    Ok(())
+}

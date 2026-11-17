@@ -70,39 +70,18 @@ fn jsonb_compatible(value: &serde_json::Value) -> bool {
         _ => true,
     }
 }
-impl Source {
-    /// The explicitly pinned configuration is the authority transition evidence.
-    /// Reserve it before producer I/O so an older in-flight refresh cannot win.
-    pub(super) async fn reserve_publication(&self, db: &PgPool) -> Result<()> {
-        let mut tx = db.begin().await.map_err(|_| Error::Unavailable)?;
-        let (epoch, snapshot): (Option<String>, Option<String>) = sqlx::query_as("SELECT authority_epoch,COALESCE(configured_snapshot_id,snapshot_id) FROM world_catalog_publication WHERE singleton FOR UPDATE")
-            .fetch_one(&mut *tx).await.map_err(|_| Error::Unavailable)?;
-        let retired: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM world_catalog_retired_epochs WHERE authority_epoch=$1) OR EXISTS(SELECT 1 FROM world_catalog_retired_snapshots WHERE snapshot_id=$2)")
-            .bind(&self.fence.authority_epoch).bind(&self.fence.snapshot_id).fetch_one(&mut *tx).await.map_err(|_| Error::Unavailable)?;
-        if retired {
-            return Err(Error::ProvenanceConflict);
-        }
-        if epoch
-            .as_ref()
-            .is_some_and(|e| e != &self.fence.authority_epoch)
-        {
-            sqlx::query("INSERT INTO world_catalog_retired_epochs(authority_epoch) VALUES($1) ON CONFLICT DO NOTHING").bind(epoch).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
-        }
-        if snapshot
-            .as_ref()
-            .is_some_and(|s| s != &self.fence.snapshot_id)
-        {
-            sqlx::query("INSERT INTO world_catalog_retired_snapshots(snapshot_id) VALUES($1) ON CONFLICT DO NOTHING").bind(snapshot).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
-        }
-        sqlx::query("UPDATE world_catalog_publication SET authority_epoch=$1,configured_snapshot_id=$2 WHERE singleton")
-            .bind(&self.fence.authority_epoch).bind(&self.fence.snapshot_id).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
-        tx.commit().await.map_err(|_| Error::Unavailable)
-    }
-}
 impl Candidate {
     /// Admin-selected source provenance and the publication switch are checked by
     /// the caller. This projects only complete cache categories, never approvals.
     pub async fn publish(&self, db: &PgPool) -> Result<()> {
+        self.publish_if_current(db, None).await
+    }
+
+    pub(super) async fn publish_if_current(
+        &self,
+        db: &PgPool,
+        observed: Option<&Option<String>>,
+    ) -> Result<()> {
         let mut categories = Vec::new();
         let mut entities = Vec::new();
         for (capability, kind) in KINDS {
@@ -133,17 +112,26 @@ impl Candidate {
         }
         let mut tx = db.begin().await.map_err(|_| Error::Unavailable)?;
         // One publication lock orders switches, including unsupported replacements.
-        sqlx::query("SELECT singleton FROM world_catalog_publication WHERE singleton FOR UPDATE")
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|_| Error::Unavailable)?;
-        let configured: Option<String> = sqlx::query_scalar(
-            "SELECT configured_snapshot_id FROM world_catalog_publication WHERE singleton",
+        let (configured, active): (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT configured_snapshot_id,COALESCE(configured_snapshot_id,snapshot_id) FROM world_catalog_publication WHERE singleton FOR UPDATE",
         )
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| Error::Unavailable)?;
-        if configured
+        if let Some(observed) = observed {
+            if &active != observed && active.as_deref() != Some(self.snapshot_id()) {
+                return Err(Error::ProvenanceConflict);
+            }
+            sqlx::query("INSERT INTO world_catalog_retired_snapshots(snapshot_id) SELECT configured_snapshot_id FROM world_catalog_publication WHERE singleton AND configured_snapshot_id<>$1 ON CONFLICT DO NOTHING")
+                .bind(self.snapshot_id()).execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
+            sqlx::query(
+                "UPDATE world_catalog_publication SET configured_snapshot_id=$1 WHERE singleton",
+            )
+            .bind(self.snapshot_id())
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        } else if configured
             .as_deref()
             .is_some_and(|id| id != self.snapshot_id())
         {
