@@ -599,7 +599,8 @@ async fn verification_keeps_pending_referral_code_in_fresh_session() -> Result {
     let raw = token(&db).await?;
     let response = app
         .oneshot(
-            Request::get(format!("/en/verify-email?token={raw}"))
+            Request::post(format!("/en/verify-email?token={raw}"))
+                .header("x-csrf-token", &registration_csrf)
                 .header(header::COOKIE, cookie)
                 .body(Body::empty())?,
         )
