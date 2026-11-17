@@ -242,7 +242,7 @@ Panel działa na osobnym hoście, z obowiązkowym MFA. Uprawnienia odpowiadają 
 | Wydania klienta | Kanały i polityka aktualizatora | T35 |
 | System | Role, audyt, flagi, zdrowie | T10, T10b |
 
-Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwroty, aktywacja cennika, unieważnienie transakcji bazaru, nadanie roli admina, korekta salda powyżej progu i reset MFA.
+Akcje krytyczne wymagają drugiej osoby (zasada czterech oczu): kary stałe, zwroty, aktywacja cennika, unieważnienie transakcji bazaru, nadanie roli admina, nadanie premium, korekta salda powyżej progu i reset MFA.
 
 ### 5.5 Panel gracza
 
