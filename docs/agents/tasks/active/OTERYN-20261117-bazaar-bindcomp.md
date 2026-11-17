@@ -57,6 +57,7 @@ head: 149b24b6
 branch: claude/happy-davinci-ijz3wy-bazaar-bindcomp
 pr: 1931
 status: ready
+terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-bazaar-bindcomp.md
@@ -94,7 +95,7 @@ validation:
     evidence: both exit 0
 blockers:
   - none
-next_action: Lead pushes the branch and opens the PR for Portal RS CI
+next_action: Portal RS CI on the PR head; archive this packet once the PR lands.
 ```
 
 ## Source branch closeout
