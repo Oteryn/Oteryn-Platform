@@ -1906,3 +1906,145 @@ async fn drc_kick_rechecks_grant_after_revocation_counter_wait() {
     assert_eq!(audits, 0);
     db.close().await;
 }
+#[tokio::test]
+async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    kick_fixture(&db).await;
+    let moderator = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator'")
+        .bind(moderator)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let path = format!("/admin/players/{}", db.target);
+    let app = |account: Uuid| {
+        http::router(
+            db.pool.clone(),
+            Flags {
+                players: true,
+                characters: false,
+                coin_holds: false,
+            },
+            PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            KickBrowser { account, mfa: true },
+            Staff,
+            Backend { id: db.target },
+        )
+    };
+    // Support staff still get the full support view.
+    let response = app(db.support)
+        .oneshot(
+            Request::get(&path)
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(body.contains("value=\"note\""));
+    assert!(body.contains("value=\"logout\""));
+    // A kick-only moderator reaches the kick view and nothing else.
+    let response = app(moderator)
+        .oneshot(
+            Request::get(&path)
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body = String::from_utf8(
+        to_bytes(response.into_body(), 100000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(body.contains("value=\"kick\""));
+    for hidden in [
+        "value=\"note\"",
+        "value=\"logout\"",
+        "value=\"verify-identity\"",
+        "value=\"request-reset\"",
+        "value=\"approve-reset\"",
+        "action=\"/admin/players\"",
+        "kick-target@example.invalid",
+    ] {
+        assert!(!body.contains(hidden), "kick view leaks {hidden}");
+    }
+    let csrf = body
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned();
+    // Support data and actions stay refused for the moderator.
+    let search = app(moderator)
+        .oneshot(
+            Request::get("/admin/players?q=kick-target")
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(search.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        kick_post(
+            app(moderator),
+            &path,
+            &cookie,
+            format!("_csrf={csrf}&action=note&body=Note")
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    let views: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='players.kick.view' AND actor=$1",
+    )
+    .bind(moderator)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(views, 1);
+    assert_eq!(
+        kick_post(
+            app(moderator),
+            &path,
+            &cookie,
+            format!("_csrf={csrf}&action=kick&reason=Abusive+session")
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        kick_state(&db).await,
+        (2, "active".into(), "synthetic-hash".into(), 1)
+    );
+    db.close().await;
+}
