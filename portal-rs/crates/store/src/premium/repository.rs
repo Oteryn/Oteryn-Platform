@@ -72,64 +72,64 @@ impl Ledger {
             Change::Grant(days) => ("GRANT", Some(i32::from(days))),
             Change::Revoke => ("REVOKE", None),
         };
-        let mut tx = self.pool.begin().await?;
-        // Identity/authority rows precede request serialization, including when
-        // the staff caller already retains its ordered account set and RBAC.
-        self.lock(&mut tx, mutation.account).await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 27))")
-            .bind(mutation.request.to_string())
-            .execute(&mut *tx)
-            .await?;
-        if let Some(row) = sqlx::query("SELECT * FROM premium_ledger WHERE request_id=$1")
-            .bind(mutation.request)
-            .fetch_optional(&mut *tx)
-            .await?
-        {
-            if row.try_get::<Uuid, _>("account_id")? != mutation.account
-                || row.try_get::<Uuid, _>("actor_id")? != operator.actor
-                || row.try_get::<String, _>("event_type")? != kind
-                || row.try_get::<Option<i32>, _>("duration_days")? != days
-                || row.try_get::<Vec<u8>, _>("reason_sha256")? != hash
+        oteryn_db::transaction::run_transaction(&self.pool, async |tx| {
+            // Identity/authority rows precede request serialization, including when
+            // the staff caller already retains its ordered account set and RBAC.
+            self.lock(tx.connection().await?, mutation.account).await?;
+            let tx = tx.connection().await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 27))")
+                .bind(mutation.request.to_string())
+                .execute(&mut *tx)
+                .await?;
+            if let Some(row) = sqlx::query("SELECT * FROM premium_ledger WHERE request_id=$1")
+                .bind(mutation.request)
+                .fetch_optional(&mut *tx)
+                .await?
             {
-                return Err(Error::Conflict);
+                if row.try_get::<Uuid, _>("account_id")? != mutation.account
+                    || row.try_get::<Uuid, _>("actor_id")? != operator.actor
+                    || row.try_get::<String, _>("event_type")? != kind
+                    || row.try_get::<Option<i32>, _>("duration_days")? != days
+                    || row.try_get::<Vec<u8>, _>("reason_sha256")? != hash
+                {
+                    return Err(Error::Conflict);
+                }
+                return recorded(&row);
             }
-            let result = recorded(&row)?;
-            tx.commit().await?;
-            return Ok(result);
-        }
-        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&mut *tx)
-            .await?;
-        let last: Option<OffsetDateTime> =
-            sqlx::query_scalar("SELECT last_issued_at FROM premium_authority WHERE account_id=$1")
-                .bind(mutation.account)
+            let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
                 .fetch_one(&mut *tx)
                 .await?;
-        if last.is_some_and(|last| last.unix_timestamp() > now.unix_timestamp()) {
-            return Err(Error::Unavailable);
-        }
-        let existing = current(&mut tx, mutation.account).await?;
-        if existing
-            .as_ref()
-            .is_some_and(|value| value.from > now.unix_timestamp())
-        {
-            return Err(Error::Unavailable);
-        }
-        let next = transition(existing.as_ref(), mutation.change, now.unix_timestamp())?;
-        // The sum of deltas is the current interval's duration. Expired or revoked
-        // time is cancelled when restarting; revocation removes the remainder.
-        let previous_duration = existing.as_ref().map_or(0, |e| e.until - e.from);
-        let delta = next.until - next.from - previous_duration;
-        sqlx::query("INSERT INTO premium_ledger(request_id, account_id, actor_id, event_type, duration_days, reason_sha256, entitlement_id, lifecycle_revision, delta_seconds, effective_from, effective_until) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
-            .bind(mutation.request).bind(mutation.account).bind(operator.actor).bind(kind).bind(days).bind(hash)
-            .bind(next.id).bind(next.revision).bind(delta).bind(timestamp(next.from)?).bind(timestamp(next.until)?)
-            .execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO premium_audit(request_id,actor_id,account_id,event_name) VALUES ($1,$2,$3,$4)")
-            .bind(mutation.request).bind(operator.actor).bind(mutation.account)
-            .bind(if kind == "GRANT" { "products.premium_granted" } else { "products.premium_revoked" })
-            .execute(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(next)
+            let last: Option<OffsetDateTime> =
+                sqlx::query_scalar("SELECT last_issued_at FROM premium_authority WHERE account_id=$1")
+                    .bind(mutation.account)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if last.is_some_and(|last| last.unix_timestamp() > now.unix_timestamp()) {
+                return Err(Error::Unavailable);
+            }
+            let existing = current(&mut *tx, mutation.account).await?;
+            if existing
+                .as_ref()
+                .is_some_and(|value| value.from > now.unix_timestamp())
+            {
+                return Err(Error::Unavailable);
+            }
+            let next = transition(existing.as_ref(), mutation.change, now.unix_timestamp())?;
+            // The sum of deltas is the current interval's duration. Expired or revoked
+            // time is cancelled when restarting; revocation removes the remainder.
+            let previous_duration = existing.as_ref().map_or(0, |e| e.until - e.from);
+            let delta = next.until - next.from - previous_duration;
+            sqlx::query("INSERT INTO premium_ledger(request_id, account_id, actor_id, event_type, duration_days, reason_sha256, entitlement_id, lifecycle_revision, delta_seconds, effective_from, effective_until) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+                .bind(mutation.request).bind(mutation.account).bind(operator.actor).bind(kind).bind(days).bind(hash)
+                .bind(next.id).bind(next.revision).bind(delta).bind(timestamp(next.from)?).bind(timestamp(next.until)?)
+                .execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO premium_audit(request_id,actor_id,account_id,event_name) VALUES ($1,$2,$3,$4)")
+                .bind(mutation.request).bind(operator.actor).bind(mutation.account)
+                .bind(if kind == "GRANT" { "products.premium_granted" } else { "products.premium_revoked" })
+                .execute(&mut *tx).await?;
+            Ok(next)
+        })
+        .await
     }
     /// Uses the caller transaction; the caller must roll back on any error.
     pub async fn mutate_in(
@@ -262,36 +262,38 @@ impl Ledger {
         if !self.enabled {
             return Err(Error::Disabled);
         }
-        let mut tx = self.pool.begin().await?;
-        let authority = self.lock(&mut tx, account).await?;
-        if authority == MAX_REVISION {
-            return Err(Error::Unavailable);
-        }
-        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&mut *tx)
-            .await?;
-        let issued = now.unix_timestamp();
-        let last: Option<OffsetDateTime> =
-            sqlx::query_scalar("SELECT last_issued_at FROM premium_authority WHERE account_id=$1")
-                .bind(account)
+        oteryn_db::transaction::run_transaction(&self.pool, async |tx| {
+            let tx = tx.connection().await?;
+            let authority = self.lock(&mut *tx, account).await?;
+            if authority == MAX_REVISION {
+                return Err(Error::Unavailable);
+            }
+            let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
                 .fetch_one(&mut *tx)
                 .await?;
-        if last.is_some_and(|last| last.unix_timestamp() > issued) {
-            return Err(Error::Unavailable);
-        }
-        let entitlement = current(&mut tx, account).await?;
-        let bytes = super::wire::snapshot(
-            entitlement.as_ref(),
-            issued,
-            authority + 1,
-            account,
-            nonce,
-            revision,
-        )?;
-        sqlx::query("UPDATE premium_authority SET authority_revision=$2,last_issued_at=$3,updated_at=clock_timestamp() WHERE account_id=$1")
-            .bind(account).bind(authority+1).bind(timestamp(issued)?).execute(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(bytes)
+            let issued = now.unix_timestamp();
+            let last: Option<OffsetDateTime> =
+                sqlx::query_scalar("SELECT last_issued_at FROM premium_authority WHERE account_id=$1")
+                    .bind(account)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if last.is_some_and(|last| last.unix_timestamp() > issued) {
+                return Err(Error::Unavailable);
+            }
+            let entitlement = current(&mut *tx, account).await?;
+            let bytes = super::wire::snapshot(
+                entitlement.as_ref(),
+                issued,
+                authority + 1,
+                account,
+                nonce,
+                revision,
+            )?;
+            sqlx::query("UPDATE premium_authority SET authority_revision=$2,last_issued_at=$3,updated_at=clock_timestamp() WHERE account_id=$1")
+                .bind(account).bind(authority+1).bind(timestamp(issued)?).execute(&mut *tx).await?;
+            Ok(bytes)
+        })
+        .await
     }
 }
 fn timestamp(value: i64) -> Result<OffsetDateTime, Error> {
