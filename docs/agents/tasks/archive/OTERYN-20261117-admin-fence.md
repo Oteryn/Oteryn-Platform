@@ -28,7 +28,7 @@ changes.
 
 - [x] A held agent row makes `claim_pending` answer unavailable within the budget (red without the change: 10 s bound elapsed)
 - [x] Crate guard: every begin() is budgeted or listed with a reason (red before the change: 34 sites in 15 files)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -62,10 +62,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T08:10:00Z
-head: 6fb8ad647cd773eda152052d2a77585f7cfe3035
+head: f374514c6c9b0b8e2fcf78d57e33c3623af502ca
 branch: claude/happy-davinci-ijz3wy-admin-fence
 pr: 1913
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-admin-fence.md
@@ -123,5 +123,13 @@ validation:
     evidence: lib 182 passed 0 failed; fmt and clippy exit 0
 blockers:
   - none
-next_action: "commit, open the PR, set pr, wait for Portal RS CI"
+next_action: none; delivered by PR 1913 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1913 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1913 merged as f374514c6c9b0b8e2fcf78d57e33c3623af502ca
 ```
