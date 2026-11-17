@@ -3734,6 +3734,16 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
             )
             .await;
             sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(tail).execute(&mut *tx).await.unwrap();
+            // Setup mirrors production: authority_http.rs receives one receipt per
+            // request transaction, each with its own three-second mutation budget.
+            // This setup stores 512 receipts in one transaction, so it starts a fresh
+            // budget before each receive instead of letting the first deadline expire
+            // on a loaded runner. The 3 s budget and every assertion stay unchanged;
+            // issue() below runs in its own transaction with no reset.
+            sqlx::query("SELECT set_config('oteryn.mutation_deadline','',true)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
             let receipt = format!(
                 r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"{}","operation_id":"{tail}","outcome":"REJECTED","result_code":"CHAR_CMD_INTENT_EXPIRED","result_data":null,"recovery_generation":"3","decided_at":"{now}"}}"#,
                 command.wire()
