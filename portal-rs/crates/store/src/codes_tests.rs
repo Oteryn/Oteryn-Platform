@@ -807,3 +807,144 @@ async fn drc_gift_request_budget() {
     ));
     db.close().await;
 }
+
+/// Holds `statement` (schema-qualified by `{schema}`) on a separate connection.
+async fn hold(db: &Database, statement: &str, id: Uuid) -> sqlx::PgConnection {
+    use sqlx::Connection;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let mut blocker = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut blocker).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(statement.replace("{schema}", &schema)))
+        .bind(id)
+        .execute(&mut blocker)
+        .await
+        .unwrap();
+    blocker
+}
+
+async fn release(mut blocker: sqlx::PgConnection) {
+    use sqlx::Connection;
+    sqlx::query("ROLLBACK").execute(&mut blocker).await.unwrap();
+    blocker.close().await.unwrap();
+}
+
+/// Takes the staff account row as the production adapter does, without arming
+/// a budget of its own: the issuance transaction must bound the wait.
+struct SharedAccountAuthorization;
+impl StaffAuthorization for SharedAccountAuthorization {
+    async fn authorize(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        actor: Uuid,
+    ) -> Result<(), Error> {
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(actor)
+            .execute(connection)
+            .await?;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn postgres_generate_staff_held_account_lock_sheds_within_mutation_budget() {
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let actor = account();
+    sqlx::query("INSERT INTO accounts VALUES($1)")
+        .bind(actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let blocker = hold(
+        &db,
+        "SELECT id FROM {schema}.accounts WHERE id=$1 FOR UPDATE",
+        actor,
+    )
+    .await;
+    let service = db.service();
+    let started = Instant::now();
+    let observed = tokio::time::timeout(
+        Duration::from_secs(10),
+        service.generate_staff(actor, &SharedAccountAuthorization, &batch(Kind::Coins), 1),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    release(blocker).await;
+    db.close().await;
+    let observed = observed.expect("generate_staff still waiting at 10 s on a held account lock");
+    assert!(matches!(observed, Err(Error::Unavailable)), "{observed:?}");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "budget exceeded: {elapsed:?}"
+    );
+}
+
+/// `redeem` and `redeem_player` share `redeem_in`, which armed the budget
+/// before this change; the explicit arm at their `begin()` is a no-op, so this
+/// test covers both entry points and is green with or without it.
+#[tokio::test]
+async fn postgres_redemptions_held_code_lock_sheds_within_mutation_budget() {
+    use std::time::{Duration, Instant};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    sqlx::raw_sql("CREATE TABLE accounts(id uuid PRIMARY KEY,status text NOT NULL,email_verified_at timestamptz); CREATE FUNCTION account_value_eligible(uuid) RETURNS boolean LANGUAGE sql AS 'SELECT true'").execute(&db.pool).await.unwrap();
+    let player = account();
+    sqlx::query("INSERT INTO accounts VALUES($1,'active',clock_timestamp())")
+        .bind(player)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let service = db.service();
+    let generated = service
+        .generate(&staff(), &batch(Kind::Coins), 1)
+        .await
+        .unwrap();
+    let blocker = hold(
+        &db,
+        "SELECT id FROM {schema}.gift_codes WHERE batch_id=$1 FOR UPDATE",
+        generated.batch_id,
+    )
+    .await;
+    let redemption = Redemption {
+        account: player,
+        ..request(&generated.codes[0])
+    };
+    let mut observed = Vec::new();
+    for browser in [false, true] {
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            if browser {
+                service.redeem_player(&redemption).await
+            } else {
+                service.redeem(&redemption).await
+            }
+        })
+        .await;
+        observed.push((browser, result, started.elapsed()));
+    }
+    release(blocker).await;
+    let redeemed = db.count("code_redemptions").await;
+    db.close().await;
+    for (browser, result, elapsed) in observed {
+        let result = result.expect("redemption still waiting at 10 s on a held code lock");
+        assert_eq!(result, Err(Error::Unavailable), "browser={browser}");
+        assert!(
+            elapsed < Duration::from_secs(4),
+            "browser={browser}: {elapsed:?}"
+        );
+    }
+    assert_eq!(redeemed, 0);
+}

@@ -272,6 +272,12 @@ impl Access for ReadAccounts {
 }
 async fn active(pool: &PgPool, account: Uuid) -> Result<bool, Error> {
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
+    sqlx::query(
+        "SELECT set_config('lock_timeout','1s',true),set_config('statement_timeout','2500ms',true)",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| Error::Unavailable)?;
     let allowed = oteryn_wallet::value_eligible_in(&mut tx, account)
         .await
         .map_err(|_| Error::Unavailable)?;

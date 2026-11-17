@@ -248,6 +248,7 @@ impl CatalogStore {
         }
         let catalog = Catalog::parse(raw)?;
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         self.authorize(actor, Action::Import, access, &mut tx)
             .await?;
         let inserted = sqlx::query("INSERT INTO store_price_list_imports (catalog_revision, canonical_bytes, imported_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING").bind(catalog.revision()).bind(catalog.canonical_bytes()).bind(actor).execute(&mut *tx).await?.rows_affected();
@@ -289,6 +290,7 @@ impl CatalogStore {
             return Err(Error::InvalidRevision);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         // Purchases lock accounts (including referral participants) before this pointer.
         self.authorize(actor, Action::Activate, access, &mut tx)
             .await?;

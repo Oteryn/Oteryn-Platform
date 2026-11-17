@@ -136,6 +136,7 @@ impl Stream {
         limit: u16,
     ) -> Result<Page, oteryn_db::retry::TransactionError<Error>> {
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let mut head: i64 = sqlx::query_scalar(
             "SELECT position FROM loyalty_stream_head WHERE singleton FOR UPDATE",
         )

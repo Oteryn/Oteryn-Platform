@@ -13,3 +13,6 @@ pub mod web;
 
 /// Shared portal navigation registration.
 pub mod navigation;
+
+#[cfg(test)]
+mod begin_guard_tests;
