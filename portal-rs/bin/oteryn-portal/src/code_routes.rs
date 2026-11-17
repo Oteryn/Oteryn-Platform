@@ -59,7 +59,7 @@ impl wallet::AuditHook for Policy {
         if e.amount <= 0 || e.reason != "Gift code redemption" {
             return false;
         }
-        let permitted = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM code_redemptions r JOIN gift_codes c ON c.id=r.code_id JOIN code_batches b ON b.id=c.batch_id WHERE r.idempotency_key=$1 AND r.account_id=$2 AND b.kind='coins' AND b.amount=$3 AND b.created_by=$4)")
+        let permitted = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM code_redemptions r JOIN gift_codes c ON c.id=r.code_id JOIN code_batches b ON b.id=c.batch_id WHERE r.id=$1 AND r.account_id=$2 AND b.kind='coins' AND b.amount=$3 AND b.created_by=$4)")
             .bind(e.operation_id).bind(e.account_id).bind(e.amount).bind(e.actor_id).fetch_one(&mut *conn).await;
         if !matches!(permitted, Ok(true)) {
             return false;
