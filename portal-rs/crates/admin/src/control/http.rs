@@ -288,6 +288,8 @@ async fn hello(
         .map_err(|_| HttpError::invalid())?;
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    // Control ownership precedes HTTP ownership (crates/admin/src/rbac/README.md).
+    store::ownership_lock(&mut tx, false).await?;
     ingress_lock(&mut tx, false).await?;
     // A competing owner at the same or newer epoch makes this hello ambiguous.
     let conflict:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_agents WHERE agent_id<>$1 AND owner_epoch >= $2 AND (served_worlds && $3 OR served_nodes && $4))")
@@ -396,6 +398,8 @@ async fn results(
             .map_err(|_| HttpError::invalid())?;
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
+    // Control ownership precedes HTTP ownership (crates/admin/src/rbac/README.md).
+    store::ownership_lock(&mut tx, true).await?;
     ingress_lock(&mut tx, true).await?;
     lock_request(&mut tx, e.request_id).await?;
     owns_request(&mut tx, &e.agent_id, p.owner_epoch, e.request_id).await?;

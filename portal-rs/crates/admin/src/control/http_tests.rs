@@ -472,6 +472,80 @@ fn agent_identity_requires_flag_exact_cn_and_bound_san() {
 }
 
 #[tokio::test]
+async fn postgres_hello_waits_for_control_before_http_ownership() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let version: String = sqlx::query_scalar("SHOW server_version")
+        .fetch_one(&db.root)
+        .await
+        .unwrap();
+    assert!(
+        version.starts_with("18."),
+        "PostgreSQL 18 required: {version}"
+    );
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
+    let schema = db.schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(move |connection, _| {
+            let schema = schema.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false),set_config('application_name',$1,false)")
+                    .bind(schema).execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    let mut blocker = db.pool.begin().await.unwrap();
+    store::ownership_lock(&mut blocker, false).await.unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+    let app = app(pool.clone(), true);
+    let hello = tokio::spawn(async move { post(app, "hello", hello_body(1), true).await.status() });
+    // PostgreSQL's wait graph is the barrier: hello has reached the ownership
+    // lock and cannot advance until this transaction releases it.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND $2=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(&db.schema)
+            .bind(blocker_pid)
+            .fetch_one(&db.root)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let http_available: bool = sqlx::query_scalar(
+        "SELECT pg_try_advisory_xact_lock_shared(hashtextextended('admin-control-http',0))",
+    )
+    .fetch_one(&mut *blocker)
+    .await
+    .unwrap();
+    blocker.rollback().await.unwrap();
+    let status = hello.await.unwrap();
+    pool.close().await;
+    db.close().await;
+    assert!(
+        http_available,
+        "hello acquired HTTP ownership while waiting for control ownership"
+    );
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn postgres_hello_uses_one_connection_under_ingress_contention() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
