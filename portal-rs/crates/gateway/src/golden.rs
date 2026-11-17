@@ -148,8 +148,8 @@ async fn all_go_handler_vectors_are_byte_identical() {
                         )),
                         attempts: Mutex::new(AttemptLimits {
                             confirmed: WindowLimiter::new(6, Duration::from_secs(120), 100_000),
-                            unverified: Default::default(),
                             reservation_window: Duration::from_secs(120),
+                            ..attempt_limiter()
                         }),
                         recovery: Default::default(),
                     },

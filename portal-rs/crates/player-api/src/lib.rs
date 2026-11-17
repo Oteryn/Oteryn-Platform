@@ -101,6 +101,9 @@ async fn issue(State(api): State<Api>, headers: HeaderMap, body: Bytes) -> Respo
     if let Err(error) = api.tickets.account(token).await {
         return failure(error, false);
     }
+    if let Err(error) = api.tickets.budget(token, true).await {
+        return failure(error, true);
+    }
     let request = serde_json::from_slice::<TicketRequest>(&body);
     if !matches!(
         request,
@@ -113,9 +116,6 @@ async fn issue(State(api): State<Api>, headers: HeaderMap, body: Bytes) -> Respo
             axum::Json(serde_json::json!({"error":"invalid_request"})),
         )
             .into_response();
-    }
-    if let Err(error) = api.tickets.budget(token, true).await {
-        return failure(error, true);
     }
     match api.tickets.issue(token).await {
         Ok(issued) => axum::Json(issued).into_response(),

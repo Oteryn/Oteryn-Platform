@@ -38,8 +38,9 @@ impl<'de> Deserialize<'de> for Value {
             }
             fn visit_map<M: de::MapAccess<'de>>(self, mut map: M) -> Result<Value, M::Error> {
                 let mut members: Vec<(String, Value)> = Vec::new();
+                let mut keys = std::collections::HashSet::new();
                 while let Some((key, value)) = map.next_entry::<String, Value>()? {
-                    if members.iter().any(|(k, _)| k == &key) {
+                    if !keys.insert(key.clone()) {
                         return Err(de::Error::custom("duplicate JSON member"));
                     }
                     members.push((key, value));
@@ -233,4 +234,29 @@ pub fn encode_canonical(
     let bytes = encode(value)?;
     decode_canonical(&bytes, max_bytes, max_depth, shape)?;
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wide_object_duplicate_check_finishes_promptly() -> Result<(), Box<dyn std::error::Error>> {
+        let mut body = String::from("{");
+        for i in 0..60_000 {
+            use std::fmt::Write;
+            write!(body, r#""{i}":0,"#)?;
+        }
+        body.push_str(r#""0":0}"#);
+        let start = std::time::Instant::now();
+        let error = serde_json::from_str::<Value>(&body)
+            .err()
+            .ok_or("accepted duplicate member")?;
+        assert!(error.to_string().starts_with("duplicate JSON member"));
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(3),
+            "wide object exceeded three seconds"
+        );
+        Ok(())
+    }
 }
