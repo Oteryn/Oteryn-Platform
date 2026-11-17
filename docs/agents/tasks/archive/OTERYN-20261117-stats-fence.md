@@ -27,7 +27,7 @@ to arm a budget or be listed with its reason.
 
 - [x] A held projection lock makes the world total answer unavailable within the budget (red without the change)
 - [x] Crate guard: every begin() is budgeted or listed with a reason (red without the change)
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -56,10 +56,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T07:20:00Z
-head: 8633994271bcca625c2c7a9b1186918553e2770a
+head: 6fb8ad647cd773eda152052d2a77585f7cfe3035
 branch: claude/happy-davinci-ijz3wy-stats-fence
 pr: 1911
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261117-stats-fence.md
@@ -106,5 +106,13 @@ validation:
     evidence: lib 41, online 14 and the other test targets pass; fmt and clippy exit 0
 blockers:
   - none
-next_action: "open the PR, set pr, wait for Portal RS CI, then squash auto-merge"
+next_action: none; delivered by PR 1911 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR 1911 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR 1911 merged as 6fb8ad647cd773eda152052d2a77585f7cfe3035
 ```
