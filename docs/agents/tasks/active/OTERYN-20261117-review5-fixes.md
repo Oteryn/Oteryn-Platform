@@ -1,6 +1,6 @@
 ---
 task_id: OTERYN-20261117-review5-fixes
-governing_issue: 1922
+governing_issue: 1928
 required_reads: []
 search_first: []
 optional_reads: []
@@ -10,7 +10,7 @@ optional_reads: []
 
 ## Goal
 
-Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1922
+Governing GitHub Issue: https://github.com/Oteryn/Oteryn-Platform/issues/1928
 (round 4 follow-ups). Fix the confirmed findings of the fifth wide review
 (subagent slices on main afb4a8fd):
 
