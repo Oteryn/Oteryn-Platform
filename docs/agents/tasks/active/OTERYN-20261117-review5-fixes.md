@@ -66,9 +66,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T12:00:00Z
-head: pending
+head: bc2fe67d
 branch: claude/happy-davinci-ijz3wy-review5-fixes
-pr: none
+pr: 1927
 status: ready
 context_routes: []
 owned_paths:
