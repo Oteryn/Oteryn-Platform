@@ -304,6 +304,10 @@ async fn end_authenticate(
     }
     let proof = service.finish_authorized(binding, input).await?;
     let account = proof.account;
+    session
+        .set(crate::mfa_http::PENDING, &String::new())
+        .await?;
+    session.set(crate::mfa_http::GRANT, &String::new()).await?;
     session::rotate(
         session,
         PrivilegeChange::AuthorizedLogin(account, proof.generation()),
@@ -318,7 +322,11 @@ async fn end_authenticate(
     crate::sessions_http::complete_login(&service.pool(), session, account)
         .await
         .map_err(|_| Error::Refused)?;
-    Ok(serde_json::json!({"ok":true}))
+    let mut result = serde_json::json!({"ok":true});
+    if let Some(target) = crate::login_http::take_return(session).await? {
+        result["location"] = target.into();
+    }
+    Ok(result)
 }
 async fn delete_key(
     service: &Passkeys,
