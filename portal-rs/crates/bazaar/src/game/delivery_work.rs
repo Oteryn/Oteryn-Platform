@@ -27,7 +27,8 @@ pub(super) async fn mark_status(db: &mut PgConnection, listing: Uuid) -> Result<
          SELECT 'delivery-dirty:' || l.id,l.id FROM bazaar_listings l WHERE l.id=$1 AND l.kind='item'
            AND (l.state='completed' OR EXISTS (SELECT 1 FROM bazaar_authority_compensations c
                   WHERE c.listing_id=l.id) OR EXISTS (SELECT 1 FROM bazaar_game_outbox o
-                  WHERE o.listing_id=l.id AND o.command='DeliverBazaarItem'))
+                  WHERE o.listing_id=l.id AND (o.command='DeliverBazaarItem'
+                      OR (l.state='awaiting_delivery' AND o.command='ReturnBazaarItem'))))
          ON CONFLICT DO NOTHING",
     )
     .bind(listing).execute(db).await?;

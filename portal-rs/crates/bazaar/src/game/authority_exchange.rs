@@ -194,6 +194,8 @@ impl Authority {
             super::delivery_work::DELIVERY
                 .mark(db, id(text(&i.value, "listing_id")?)?)
                 .await?;
+        } else if i.command == Command::Return {
+            super::delivery_work::mark_status(db, id(text(&i.value, "listing_id")?)?).await?;
         }
         Ok(())
     }

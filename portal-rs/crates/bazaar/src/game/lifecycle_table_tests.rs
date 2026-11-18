@@ -2160,6 +2160,9 @@ async fn failed_rebuild_with_obsolete_binding(world_set_changed: bool) {
             .await
             .unwrap();
     }
+    let mut tx = second.begin().await.unwrap();
+    assert!(!db.runtime.authority().fresh(&mut tx).await.unwrap());
+    tx.rollback().await.unwrap();
     let _tick = db.runtime.tick().await;
     let mut tx = second.begin().await.unwrap();
     assert!(!db.runtime.authority().fresh(&mut tx).await.unwrap());
@@ -2223,11 +2226,26 @@ async fn bz11_unpublished_alternate_does_not_fence_safe_return() {
 }
 
 async fn bz12_missing_first_page_status_does_not_starve_legacy_sale() {
+    missing_first_page_status(false).await;
+}
+
+async fn legacy_sale_without_authority_asset_is_reconciled() {
+    missing_first_page_status(true).await;
+}
+
+async fn missing_first_page_status(legacy_without_asset: bool) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Completed).await;
     insert_resync_fillers(&db, 23).await;
     let missing = uid("30");
     let later = insert_later_completed_sale(&db).await;
+    if legacy_without_asset {
+        sqlx::query("DELETE FROM bazaar_authority_assets WHERE listing_id=$1")
+            .bind(later)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
     sqlx::query("UPDATE bazaar_listings SET state=$2 WHERE id=$1")
         .bind(missing)
         .bind(State::Active)
@@ -2309,6 +2327,66 @@ struct LifecycleScenario {
     run: fn() -> Pin<Box<dyn Future<Output = ()>>>,
 }
 
+async fn rejected_delivery_return_waits_within_retry_bound() {
+    return_recovery(true, false).await;
+}
+
+async fn pre_delivery_return_waits_within_retry_bound() {
+    return_recovery(false, false).await;
+}
+
+async fn audited_return_rejection_reports_drift() {
+    return_recovery(true, true).await;
+}
+
+async fn return_recovery(deliver_dispatched: bool, return_rejected: bool) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = if deliver_dispatched {
+        let db = pending_item_delivery().await;
+        recovery_tests::item_effect(&db, Command::Deliver, true).await;
+        db
+    } else {
+        let db = expired_item_with_bid(1).await;
+        db.runtime.tick().await.unwrap();
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(uid("13"))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db
+    };
+    db.runtime.tick().await.unwrap();
+    assert_eq!(dispatched(&db, uid("20"), Command::Return).await, 1);
+    let pending = "delivery_evidence_pending";
+    assert_eq!(delivery_reports(&db, uid("20"), pending).await, 0);
+
+    if return_rejected {
+        let intent = newest_intent(&db, uid("20"), Command::Return).await;
+        reject(&db, &intent, "CHAR_CMD_BAZAAR_STALE_REVISION").await;
+    } else {
+        for attempt in 1..=8 {
+            db.runtime.tick().await.unwrap();
+            assert_eq!(delivery_reports(&db, uid("20"), pending).await, attempt);
+        }
+    }
+    for _ in 0..2 {
+        assert!(matches!(db.runtime.tick().await, Err(Error::CustodyDrift)));
+    }
+    assert_eq!(
+        delivery_reports(&db, uid("20"), "delivery_custody_drift").await,
+        1
+    );
+    assert_eq!(item_state(&db).await, State::AwaitingDelivery);
+    assert_eq!(sale_effects(&db).await, (10000, false, false, 0));
+    assert_eq!(dispatched(&db, uid("20"), Command::Return).await, 1);
+    assert_eq!(
+        dispatched(&db, uid("20"), Command::Deliver).await,
+        i64::from(deliver_dispatched)
+    );
+    assert!(!resync_progress(&db).await.0);
+    db.end().await;
+}
+
 macro_rules! lifecycle_scenarios {
     ($($state:literal, $event:literal => $test:path;)*) => {
         const LIFECYCLE_SCENARIOS: &[LifecycleScenario] = &[
@@ -2337,6 +2415,9 @@ lifecycle_scenarios! {
     "AwaitingDelivery/Dispatched", "Audited rejected Deliver and Return status" => lifecycle_awaiting_delivery_refuse_delivery;
     "AwaitingDelivery/Canonical and alternate staged", "Second connection attempts publication" => bz01_alternate_delivery_cannot_win_publication;
     "AwaitingDelivery/Receipt without audit", "BZ-08 Retry bound" => bz08_awaiting_receipt_without_audit_exhausts_recovery_retries;
+    "AwaitingDelivery/Return dispatched after audited Deliver rejection", "Missing Return receipt through retry bound" => rejected_delivery_return_waits_within_retry_bound;
+    "AwaitingDelivery/Return dispatched before Deliver", "Missing Return receipt through retry bound" => pre_delivery_return_waits_within_retry_bound;
+    "AwaitingDelivery/Return dispatched after audited Deliver rejection", "Audited Return rejection" => audited_return_rejection_reports_drift;
     "AwaitingDelivery/Unpublished alternate", "BZ-11 Buyer eligibility changes" => bz11_unpublished_alternate_does_not_fence_safe_return;
     "Completed/Old evidence", "Receipt before audit" => lifecycle_completed_resync_waits_for_current_receipt_and_audit;
     "Completed/Old evidence", "STATUS ESCROWED" => lifecycle_completed_resync_escrow_status;
@@ -2350,6 +2431,7 @@ lifecycle_scenarios! {
     "Rebuild/Old epoch", "Rebuild start" => lifecycle_fence_matching_new_epoch;
     "Rebuild/World absent", "Configured world missing" => bz06_missing_configured_world_does_not_charge_delivery_retries;
     "Rebuild/Early missing STATUS", "BZ-12 Page checkpoint before late legacy sale" => bz12_missing_first_page_status_does_not_starve_legacy_sale;
+    "Rebuild/Completed legacy item without authority asset", "Page finds contradictory Deliver evidence" => legacy_sale_without_authority_asset_is_reconciled;
     "Rebuild/Early Drift", "Later page" => bz05_drift_does_not_starve_a_later_page;
     "Rebuild/Page in flight", "Writer crashes before commit" => lifecycle_crash_before_rebuild_page_commit_replays_page;
     "AwaitingDelivery/Return audited", "Second worker races" => lifecycle_workers_race_to_refund_once;
@@ -2359,6 +2441,7 @@ lifecycle_scenarios! {
 async fn lifecycle_state_table_postgres() {
     listing_writer_table().await;
     sale_status_table().await;
+    delivery_admission_table().await;
     for &(state, event, expected) in LISTING_ROWS {
         eprintln!("listing row: {state:?}, {event:?}");
         listing_event(state, event, expected).await;
@@ -2433,6 +2516,23 @@ fn lifecycle_state_table_covers_state_event_products() {
                     .filter(|&&(s, e, _)| (s, e) == (state, event))
                     .count(),
                 1
+            );
+        }
+    }
+    let admission_rows: Vec<_> = delivery_admission_rows().collect();
+    assert_eq!(
+        admission_rows.len(),
+        ADMISSION_STATES.len() * ADMISSION_INPUTS.len()
+    );
+    for state in ADMISSION_STATES {
+        for event in ADMISSION_INPUTS {
+            assert_eq!(
+                admission_rows
+                    .iter()
+                    .filter(|&&(s, e, ..)| (s, e) == (state, event))
+                    .count(),
+                1,
+                "{state:?}, {event:?}",
             );
         }
     }
@@ -2850,4 +2950,251 @@ async fn sale_status_table() {
         }
         db.end().await;
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeliveryAdmission {
+    Pending,
+    Committed,
+    Rejected,
+    AuditedCommitment,
+    AuditedRejection,
+    Drift,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeliveryInput {
+    Commitment,
+    Rejection,
+    Audit,
+}
+
+const ADMISSION_STATES: [DeliveryAdmission; 6] = {
+    use DeliveryAdmission::*;
+    [
+        Pending,
+        Committed,
+        Rejected,
+        AuditedCommitment,
+        AuditedRejection,
+        Drift,
+    ]
+};
+const ADMISSION_INPUTS: [DeliveryInput; 3] = [
+    DeliveryInput::Commitment,
+    DeliveryInput::Rejection,
+    DeliveryInput::Audit,
+];
+const ADMISSION_ROWS: [[(DeliveryAdmission, Option<ReceiptResult>); 3]; 6] = {
+    use DeliveryAdmission::*;
+    use ReceiptResult::*;
+    [
+        [
+            (Committed, Some(Stored)),
+            (Rejected, Some(Stored)),
+            (Pending, None),
+        ],
+        [
+            (Committed, Some(Duplicate)),
+            (Drift, Some(Quarantined)),
+            (AuditedCommitment, Some(Stored)),
+        ],
+        [
+            (Drift, Some(Quarantined)),
+            (Rejected, Some(Duplicate)),
+            (AuditedRejection, Some(Stored)),
+        ],
+        [
+            (AuditedCommitment, Some(Duplicate)),
+            (Drift, Some(Quarantined)),
+            (AuditedCommitment, Some(Stored)),
+        ],
+        [
+            (Drift, Some(Quarantined)),
+            (AuditedRejection, Some(Duplicate)),
+            (AuditedRejection, Some(Stored)),
+        ],
+        [
+            (Drift, Some(Duplicate)),
+            (Drift, Some(Quarantined)),
+            (Drift, Some(Stored)),
+        ],
+    ]
+};
+
+fn delivery_admission_rows() -> impl Iterator<
+    Item = (
+        DeliveryAdmission,
+        DeliveryInput,
+        DeliveryAdmission,
+        Option<ReceiptResult>,
+    ),
+> {
+    ADMISSION_STATES
+        .into_iter()
+        .zip(ADMISSION_ROWS)
+        .flat_map(|(state, results)| {
+            ADMISSION_INPUTS
+                .into_iter()
+                .zip(results)
+                .map(move |(input, (next, result))| (state, input, next, result))
+        })
+}
+
+async fn delivery_admission_table() {
+    use DeliveryAdmission::*;
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = pending_item_delivery().await;
+    let a = db.runtime.authority();
+    let intent = newest_intent(&db, uid("20"), Command::Deliver).await;
+    let operation = text(&intent.value, "operation_id").unwrap();
+    let operation_id = id(operation).unwrap();
+    let before = sale_effects(&db).await;
+    assert_eq!(before, (10000, false, false, 0));
+    for (state, input, expected, intake) in delivery_admission_rows() {
+        let mut tx = db.pool.begin().await.unwrap();
+        let now = runtime::now(&mut tx).await.unwrap();
+        let committed = vector("delivery_receipt")
+            .replace(&uid("4").to_string(), operation)
+            .replace("1790000002", &now.to_string());
+        let rejected = format!(
+            r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"DeliverBazaarItem","operation_id":"{operation}","outcome":"REJECTED","result_code":"CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE","result_data":null,"recovery_generation":"3","decided_at":"{now}"}}"#,
+        );
+        let prior = if matches!(state, Rejected | AuditedRejection) {
+            &rejected
+        } else {
+            &committed
+        };
+        if state != Pending {
+            assert_eq!(
+                a.receive(&mut tx, &a.config.receipt_authority, prior.as_bytes(), now)
+                    .await
+                    .unwrap(),
+                ReceiptResult::Stored
+            );
+        }
+        if matches!(state, AuditedCommitment | AuditedRejection | Drift) {
+            assert_eq!(
+                audit(a, &mut tx, &intent, prior, now).await,
+                ReceiptResult::Stored
+            );
+        }
+        sqlx::query("UPDATE bazaar_resync_progress SET worlds='obsolete'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        if state == Drift {
+            assert_eq!(
+                a.receive(
+                    &mut tx,
+                    &a.config.receipt_authority,
+                    rejected.as_bytes(),
+                    now
+                )
+                .await
+                .unwrap(),
+                ReceiptResult::Quarantined
+            );
+            assert!(matches!(
+                a.finish_resync(&mut tx, &[uid("12")]).await,
+                Err(Error::CustodyDrift)
+            ));
+        }
+
+        let observed = match input {
+            DeliveryInput::Commitment => {
+                a.receive(
+                    &mut tx,
+                    &a.config.receipt_authority,
+                    committed.as_bytes(),
+                    now,
+                )
+                .await
+            }
+            DeliveryInput::Rejection => {
+                a.receive(
+                    &mut tx,
+                    &a.config.receipt_authority,
+                    rejected.as_bytes(),
+                    now,
+                )
+                .await
+            }
+            DeliveryInput::Audit => audit_result(a, &mut tx, &intent, prior, now).await,
+        };
+        let label = format!("{state:?} × {input:?}");
+        match intake {
+            Some(result) => assert_eq!(observed.unwrap(), result, "{label}"),
+            None => assert!(
+                matches!(observed, Err(Error::Unavailable)),
+                "{label}: {observed:?}"
+            ),
+        }
+
+        let row: (Option<String>, bool, bool) = sqlx::query_as(
+            "SELECT (SELECT outcome FROM bazaar_authority_receipts WHERE operation_id=$1),
+                EXISTS(SELECT 1 FROM bazaar_authority_decisions WHERE operation_id=$1),
+                EXISTS(SELECT 1 FROM bazaar_authority_conflicts WHERE operation_id=$1)",
+        )
+        .bind(operation_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        let actual = match (row.0.as_deref(), row.1, row.2) {
+            (_, _, true) => Drift,
+            (None, false, false) => Pending,
+            (Some("COMMITTED"), false, false) => Committed,
+            (Some("REJECTED"), false, false) => Rejected,
+            (Some("COMMITTED"), true, false) => AuditedCommitment,
+            (Some("REJECTED"), true, false) => AuditedRejection,
+            _ => panic!("{label}: {row:?}"),
+        };
+        assert_eq!(actual, expected, "{label}");
+        let outcome = a.finish_resync(&mut tx, &[uid("12")]).await;
+        match expected {
+            Drift => assert!(
+                matches!(outcome, Err(Error::CustodyDrift)),
+                "{label}: {outcome:?}"
+            ),
+            AuditedRejection => assert!(outcome.is_ok(), "{label}: {outcome:?}"),
+            _ => assert!(
+                matches!(
+                    outcome,
+                    Err(Error::Unavailable | Error::DeliveryEvidencePending)
+                ),
+                "{label}: {outcome:?}"
+            ),
+        }
+        assert_eq!(
+            a.resynced(&mut tx).await.unwrap(),
+            expected == AuditedRejection,
+            "{label}"
+        );
+        assert_eq!(sale_effects_on(&mut tx).await, before, "{label}");
+        let durable: (State, i64, String, i64, i64) = sqlx::query_as(
+            "SELECT l.state,
+                (SELECT count(*) FROM bazaar_game_outbox WHERE listing_id=l.id AND command='DeliverBazaarItem'),
+                (SELECT canonical_body::jsonb->>'state' FROM bazaar_game_projections WHERE kind='STATUS' AND subject=l.id),
+                (SELECT count(*) FROM bazaar_audit WHERE row_id=l.id AND after_row->>'action'='delivery_custody_drift'),
+                (SELECT count(*) FROM bazaar_audit WHERE row_id=l.id AND after_row->>'action'='delivery_evidence_pending')
+             FROM bazaar_listings l WHERE l.id=$1",
+        )
+        .bind(uid("20"))
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(
+            durable,
+            (
+                State::AwaitingDelivery,
+                1,
+                "ESCROWED".to_owned(),
+                i64::from(expected == Drift),
+                i64::from(!matches!(expected, Drift | AuditedRejection))
+            ),
+            "{label}",
+        );
+        tx.rollback().await.unwrap();
+    }
+    db.end().await;
 }

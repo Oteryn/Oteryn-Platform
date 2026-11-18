@@ -48,11 +48,12 @@ requires the current scan version and configured worlds before serving.
 
 ## Executable transition rows
 
-The PostgreSQL acceptance test uses four products and named recovery scenarios.
+The PostgreSQL acceptance test uses five products and named recovery scenarios.
 Each product fixes the orthogonal records in its fixture. The listing writer
 product exercises enum writes in isolation. The listing control product uses
 the browser and staff callers. The projection product uses Game intake.
-The sale product exercises the rebuild writer after Game intake.
+The delivery evidence and sale STATUS products exercise the rebuild writer after
+Game intake.
 
 ### Listing state writer
 
@@ -177,6 +178,37 @@ drift report.
 | INVALID | Replay | INVALID | Preserve and acknowledge duplicate | Allowed |
 | INVALID | Conflict | INVALID | Preserve prior and quarantine subject | Quarantined |
 
+### Deliver receipt and audit admission
+
+Each row starts with an awaiting sale, its canonical dispatched Deliver, held
+buyer funds and an ESCROWED projection. Committed and Rejected here describe the
+stored receipt. The audit event supplies the exact retained receipt digest or,
+if no receipt exists, the expected commitment digest. Receipt inputs after an
+existing receipt either replay its exact bytes or contradict its outcome.
+Every row preserves the funds, escrow and canonical operation. Reconciliation
+reports Drift once and fences an unresolved rebuild.
+
+| Current | Event | Next | Intake effect | Work and report | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| Pending | Commit receipt | Committed | Store receipt | Keep dirty and charge one attempt | Allowed |
+| Pending | Reject receipt | Rejected | Store receipt | Keep dirty and charge one attempt | Allowed |
+| Pending | Decision audit | Pending | No write because receipt is absent | Keep dirty and charge one attempt | Impossible until receipt is admitted |
+| Committed | Commit receipt | Committed | Acknowledge duplicate | Keep dirty and charge one attempt | Allowed |
+| Committed | Reject receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| Committed | Decision audit | Audited commitment | Store audit | Wait for matching DELIVERED and charge one attempt | Allowed |
+| Rejected | Commit receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| Rejected | Reject receipt | Rejected | Acknowledge duplicate | Keep dirty and charge one attempt | Allowed |
+| Rejected | Decision audit | Audited rejection | Store audit | Resolve delivery work and enable certification | Allowed |
+| Audited commitment | Commit receipt | Audited commitment | Acknowledge duplicate | Wait for matching DELIVERED and charge one attempt | Allowed |
+| Audited commitment | Reject receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| Audited commitment | Decision audit | Audited commitment | Store matching attestation | Wait for matching DELIVERED and charge one attempt | Allowed |
+| Audited rejection | Commit receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| Audited rejection | Reject receipt | Audited rejection | Acknowledge duplicate | Resolve delivery work and enable certification | Allowed |
+| Audited rejection | Decision audit | Audited rejection | Store matching attestation | Resolve delivery work and enable certification | Allowed |
+| Drift | Commit receipt | Drift | Acknowledge the retained commitment | Preserve one report and fence certification | Quarantined |
+| Drift | Reject receipt | Drift | Record conflict against retained commitment | Preserve one report and fence certification | Quarantined |
+| Drift | Decision audit | Drift | Store matching attestation | Preserve one report and fence certification | Quarantined |
+
 ### Sale evidence and STATUS during a rebuild
 
 Here **Audited** means a completed sale with a current audited commitment.
@@ -219,7 +251,7 @@ the remaining scans are complete.
 
 These rows seed the linked records needed to exercise a complete lifecycle
 path. A row can include a second input to prove that a later replay or retry
-preserves the first outcome. The PostgreSQL acceptance test runs all 149
+preserves the first outcome. The PostgreSQL acceptance test runs all 171
 database rows in this document. The SQL guard test runs the final row.
 
 | Current | Event | Next | Funds | Custody | Work and report | Disposition |
@@ -239,6 +271,9 @@ database rows in this document. The SQL guard test runs the final row.
 | AwaitingDelivery, dispatched Deliver | Audited rejection and audited Returned status | Cancelled | Refund once | Returned | Record compensation | Allowed |
 | AwaitingDelivery, canonical and alternate staged | Second connection publishes alternate, then canonical publishes | AwaitingDelivery with canonical dispatched | Held | Escrow | Exactly one dispatch | Alternate impossible because its key cannot authorize publication |
 | AwaitingDelivery, receipt without audit | BZ-08 retry bound | Drift, listing unchanged | Held | Quarantine | Queue survives eight retries. Report once and keep custody fenced after late audit | Quarantined |
+| AwaitingDelivery, Return dispatched after audited Deliver rejection | Return receipt remains missing through retry bound | Drift, listing unchanged | Held | Quarantine | Report once. Deliver rejection does not clear unresolved Return work | Quarantined |
+| AwaitingDelivery, Return dispatched before Deliver | Return receipt remains missing through retry bound | Drift, listing unchanged | Held | Quarantine | Report once even without a Deliver operation | Quarantined |
+| AwaitingDelivery, Return dispatched after audited Deliver rejection | Audited Return rejection | Drift, listing unchanged | Held | Quarantine | Report once. Preserve return fence and require operator reconciliation | Quarantined |
 | AwaitingDelivery, unpublished alternate | BZ-11 buyer becomes ineligible | Cancelled after audited Return | Refund once | Returned | Ignore staged alternate. Independently evidenced handoff still fences return | Allowed |
 | Completed, old evidence | Receipt before audit | Completed | Settled | Preserve | Wait for audit, then resolve dirty key and certify | Allowed |
 | Completed, old evidence | STATUS ESCROWED contradicts delivered custody | Drift, listing unchanged | Settled | Quarantine | Report once | Quarantined |
@@ -252,6 +287,7 @@ database rows in this document. The SQL guard test runs the final row.
 | Rebuild, old epoch | Rebuild start | Current after scan | Preserve | Preserve | Old coordinator cannot certify. The correct epoch can finish | Allowed |
 | Rebuild, world absent | Configured world missing | Fenced until corrected | Preserve | Preserve | No sale retry charged for configuration gap | Allowed to defer |
 | Rebuild, early missing STATUS | BZ-12 page checkpoint before contradictory legacy sale | Later sale in Drift | Preserve | Quarantine affected sale | Advance past missing listing and report the later sale once without new intake | Allowed enumeration with later sale quarantined |
+| Rebuild, completed legacy item with no authority asset row | Page finds contradictory Deliver evidence | Drift, listing unchanged | Preserve settlement | Quarantine | Enumerate by the retained sale and command, then report once | Quarantined |
 | Rebuild, early Drift | Later page | Both contradictions in Drift | Preserve | Quarantine affected sales | Report both once and continue past early Drift | Quarantined |
 | Rebuild, page in flight | Writer connection closes before commit | Last committed cursor, then replayed page | Preserve | Preserve | Observer cannot read abandoned checkpoint. Retry commits successor | Allowed |
 | AwaitingDelivery, Return audited | Second worker races to compensate | Cancelled | Refund once | Returned once | One compensation and one Return dispatch | Allowed |

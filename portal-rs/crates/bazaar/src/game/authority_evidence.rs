@@ -9,8 +9,8 @@ use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 const DELIVERY_EVIDENCE_RETRIES: i64 = 8;
-// Earlier scans did not verify returned custody on compensated sales.
-const RESYNC_VERSION: &str = "delivery-sales-v3:";
+// Restart scans that did not enumerate legacy deliveries and in-flight returns.
+const RESYNC_VERSION: &str = "delivery-sales-v4:";
 
 enum ReturnStatus {
     Pending,
@@ -188,13 +188,18 @@ impl Authority {
                            OR NOT EXISTS (SELECT 1 FROM bazaar_authority_receipts r
                                    WHERE r.operation_id=o.operation_id AND r.outcome='REJECTED'
                                      AND r.recovery_generation=$2::text::numeric))),
-                l.kind='item' AND (l.state='completed' OR EXISTS (
-                    SELECT 1 FROM bazaar_authority_compensations c WHERE c.listing_id=l.id
-                ) OR EXISTS (
-                    SELECT 1 FROM bazaar_game_outbox o
-                    WHERE o.listing_id=l.id AND o.command='DeliverBazaarItem'))
-             FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id
-             WHERE l.id>$1 ORDER BY l.id LIMIT 24",
+                l.kind='item' AND (l.state='completed' OR delivery.evidenced)
+             FROM bazaar_listings l LEFT JOIN bazaar_authority_assets a ON a.listing_id=l.id
+             CROSS JOIN LATERAL (
+                 SELECT l.kind='item' AND (
+                     EXISTS (SELECT 1 FROM bazaar_authority_compensations c WHERE c.listing_id=l.id)
+                     OR EXISTS (SELECT 1 FROM bazaar_game_outbox o
+                         WHERE o.listing_id=l.id AND (o.command='DeliverBazaarItem'
+                             OR (l.state='awaiting_delivery' AND o.command='ReturnBazaarItem')))
+                 ) AS evidenced
+             ) delivery
+             WHERE l.id>$1 AND (a.listing_id IS NOT NULL OR delivery.evidenced)
+             ORDER BY l.id LIMIT 24",
         )
         .bind(listing_cursor)
         .bind(self.fence.recovery_generation.to_string())
@@ -427,78 +432,102 @@ impl Authority {
         let status = self.projection(db, "STATUS", listing).await?;
         let evidence = self.delivery_evidence(db, listing, sale).await?;
         let terminal = matches!(state, State::Completed | State::Cancelled);
-        let reason = match (evidence, status.as_ref()) {
-            (DeliveryEvidence::Drift(reason), _) => Some(reason),
-            (DeliveryEvidence::Audited(_, receipt), _)
-                if state == State::Completed && !receipt.committed
-                    || state == State::Cancelled && receipt.committed =>
-            {
-                Some("delivery_outcome_contradicts_sale")
-            }
-            (DeliveryEvidence::Audited(intent, receipt), Some(status)) if receipt.committed => {
-                let world = id(text(status, "world_id")?)?;
-                let delivered = text(status, "state")? == "DELIVERED"
-                    && text(status, "asset_kind")? == "ITEM"
-                    && status.get("last_operation_id") == receipt.value.get("operation_id")
-                    && text(status, "seller_account_id")?
-                        == text(&intent.value, "seller_account_id")?
-                    && text(status, "world_id")? == text(&intent.value, "world_id")?
-                    && item_custody_matches(
-                        status,
-                        receipt.value.get("result_data").ok_or(Error::Invalid)?,
-                    )?;
-                if state == State::AwaitingDelivery && text(status, "state")? == "ESCROWED" {
-                    // The delivery audit and its projection are independent.
-                    // Prior escrow can remain visible while STATUS catches up.
-                    None
-                } else if transition(
-                    Current::Custody {
-                        completed_item: true,
-                    },
-                    Event::ResyncCustody,
-                    Context {
-                        delivered,
-                        ..Context::default()
-                    },
-                )
-                .is_err()
+        let return_status = if state == State::AwaitingDelivery
+            && matches!(
+                &evidence,
+                DeliveryEvidence::Unpublished
+                    | DeliveryEvidence::Audited(
+                        _,
+                        Receipt {
+                            committed: false,
+                            ..
+                        }
+                    )
+            ) {
+            self.published_sale_return(db, listing, status.as_ref(), worlds)
+                .await?
+        } else {
+            None
+        };
+        let reason = match return_status {
+            Some(ReturnStatus::Verified) => return Ok(()),
+            Some(ReturnStatus::Pending) => None,
+            Some(ReturnStatus::Contradictory) => Some("return_failed_or_contradicted"),
+            None => match (evidence, status.as_ref()) {
+                (DeliveryEvidence::Drift(reason), _) => Some(reason),
+                (DeliveryEvidence::Audited(_, receipt), _)
+                    if state == State::Completed && !receipt.committed
+                        || state == State::Cancelled && receipt.committed =>
                 {
-                    Some("status_contradicts_delivery")
-                } else if !worlds.contains(&world) {
-                    return Err(Error::ResyncWorldConfiguration);
-                } else {
-                    return Ok(());
+                    Some("delivery_outcome_contradicts_sale")
                 }
-            }
-            (evidence, Some(status)) if state == State::Cancelled => {
-                match self
-                    .returned_item_status(db, listing, status, worlds)
-                    .await?
-                {
-                    ReturnStatus::Verified if !matches!(evidence, DeliveryEvidence::Pending) => {
+                (DeliveryEvidence::Audited(intent, receipt), Some(status)) if receipt.committed => {
+                    let world = id(text(status, "world_id")?)?;
+                    let delivered = text(status, "state")? == "DELIVERED"
+                        && text(status, "asset_kind")? == "ITEM"
+                        && status.get("last_operation_id") == receipt.value.get("operation_id")
+                        && text(status, "seller_account_id")?
+                            == text(&intent.value, "seller_account_id")?
+                        && text(status, "world_id")? == text(&intent.value, "world_id")?
+                        && item_custody_matches(
+                            status,
+                            receipt.value.get("result_data").ok_or(Error::Invalid)?,
+                        )?;
+                    if state == State::AwaitingDelivery && text(status, "state")? == "ESCROWED" {
+                        // The delivery audit and its projection are independent.
+                        // Prior escrow can remain visible while STATUS catches up.
+                        None
+                    } else if transition(
+                        Current::Custody {
+                            completed_item: true,
+                        },
+                        Event::ResyncCustody,
+                        Context {
+                            delivered,
+                            ..Context::default()
+                        },
+                    )
+                    .is_err()
+                    {
+                        Some("status_contradicts_delivery")
+                    } else if !worlds.contains(&world) {
+                        return Err(Error::ResyncWorldConfiguration);
+                    } else {
                         return Ok(());
                     }
-                    ReturnStatus::Verified | ReturnStatus::Pending => None,
-                    ReturnStatus::Contradictory => Some("status_contradicts_return"),
                 }
-            }
-            (DeliveryEvidence::Audited(_, receipt), Some(status)) if !receipt.committed => {
-                match text(status, "state")? {
-                    "ESCROWED" => return Ok(()),
-                    "RETURNED" => match self
+                (evidence, Some(status)) if state == State::Cancelled => {
+                    match self
                         .returned_item_status(db, listing, status, worlds)
                         .await?
                     {
-                        ReturnStatus::Verified => return Ok(()),
-                        ReturnStatus::Pending => None,
+                        ReturnStatus::Verified
+                            if !matches!(evidence, DeliveryEvidence::Pending) =>
+                        {
+                            return Ok(());
+                        }
+                        ReturnStatus::Verified | ReturnStatus::Pending => None,
                         ReturnStatus::Contradictory => Some("status_contradicts_return"),
-                    },
-                    _ => Some("status_contradicts_rejection"),
+                    }
                 }
-            }
-            (DeliveryEvidence::Pending | DeliveryEvidence::Audited(..), _) => None,
-            _ if !terminal => return Ok(()),
-            _ => None,
+                (DeliveryEvidence::Audited(_, receipt), Some(status)) if !receipt.committed => {
+                    match text(status, "state")? {
+                        "ESCROWED" => return Ok(()),
+                        "RETURNED" => match self
+                            .returned_item_status(db, listing, status, worlds)
+                            .await?
+                        {
+                            ReturnStatus::Verified => return Ok(()),
+                            ReturnStatus::Pending => None,
+                            ReturnStatus::Contradictory => Some("status_contradicts_return"),
+                        },
+                        _ => Some("status_contradicts_rejection"),
+                    }
+                }
+                (DeliveryEvidence::Pending | DeliveryEvidence::Audited(..), _) => None,
+                _ if !terminal => return Ok(()),
+                _ => None,
+            },
         };
         if reason.is_none() {
             let world: Option<Uuid> = sqlx::query_scalar(
@@ -550,6 +579,50 @@ impl Authority {
         )
         .await?;
         Err(Error::CustodyDrift)
+    }
+
+    async fn published_sale_return(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+        status: Option<&Value>,
+        worlds: &[Uuid],
+    ) -> Result<Option<ReturnStatus>, Error> {
+        let operation: Option<Uuid> = sqlx::query_scalar(
+            "SELECT o.operation_id FROM bazaar_game_outbox o
+             WHERE o.issuance_key=$1 AND o.listing_id=$2 AND o.command='ReturnBazaarItem'
+               AND (EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                    OR EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id))",
+        )
+        .bind(super::game_store::issuance_key(listing, Command::Return, listing))
+        .bind(listing)
+        .fetch_optional(&mut *db)
+        .await?;
+        let Some(operation) = operation else {
+            return Ok(None);
+        };
+        let Some((_, receipt, _)) = self.audited_receipt(db, operation, false).await? else {
+            return Ok(Some(ReturnStatus::Pending));
+        };
+        if !receipt.committed {
+            return Ok(Some(ReturnStatus::Contradictory));
+        }
+        let Some(status) = status else {
+            return Ok(Some(ReturnStatus::Pending));
+        };
+        let facts = receipt.value.get("result_data").ok_or(Error::Invalid)?;
+        if text(status, "state")? == "ESCROWED"
+            && number(status, "custody_revision")? < number(facts, "escrow_revision")?
+        {
+            return Ok(Some(ReturnStatus::Pending));
+        }
+        if status.get("last_operation_id") != receipt.value.get("operation_id") {
+            return Ok(Some(ReturnStatus::Contradictory));
+        }
+        Ok(Some(
+            self.returned_item_status(db, listing, status, worlds)
+                .await?,
+        ))
     }
 
     async fn returned_item_status(
@@ -655,6 +728,20 @@ impl Authority {
         listing: Uuid,
         sale: Uuid,
     ) -> Result<DeliveryEvidence, Error> {
+        let conflicted: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_conflicts c USING(operation_id)
+                WHERE o.listing_id=$1 AND o.command IN ('DeliverBazaarItem','ReturnBazaarItem')
+             )",
+        )
+        .bind(listing)
+        .fetch_one(&mut *db)
+        .await?;
+        // Intake has already fenced authenticated conflicting observations.
+        // Waiting for an audit of the retained receipt cannot resolve them.
+        if conflicted {
+            return Ok(DeliveryEvidence::Drift("delivery_reversal_or_conflict"));
+        }
         let operation = self.sale_delivery_operation(db, listing, sale).await?;
         let current = match operation {
             Some(operation) => self.audited_receipt(db, operation, true).await?,
