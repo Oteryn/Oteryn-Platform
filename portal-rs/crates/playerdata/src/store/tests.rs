@@ -317,7 +317,7 @@ async fn postgres_bank_chain_and_retention() -> std::result::Result<(), Box<dyn 
     a.allow(scope.clone()).await;
     let store = db.store(&a);
     store.ingest(r.clone(), clock()).await?;
-    let invalid = playerdata::items(&bank(2, Some(&Uuid::now_v7().to_string()), 100, 100))?;
+    let invalid = playerdata::items(&bank(2, Some(&r.entity), 99, 100))?;
     assert_eq!(store.ingest(invalid, clock()).await, Err(Error::Conflict));
     let second = playerdata::items(&bank(2, Some(&r.entity), 100, 100))?;
     store.ingest(second, clock()).await?;
