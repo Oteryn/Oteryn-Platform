@@ -343,5 +343,8 @@ fn source_prefix_groups_ipv6_and_preserves_ipv4()
         source_prefix("2001:db8:1:3::1".parse()?)
     );
     assert_eq!(source_prefix("192.0.2.1".parse()?), "192.0.2.1");
+    let mapped = source_prefix("::ffff:192.0.2.1".parse()?);
+    assert_eq!(mapped, "192.0.2.1");
+    assert_ne!(mapped, source_prefix("::ffff:192.0.2.2".parse()?));
     Ok(())
 }
