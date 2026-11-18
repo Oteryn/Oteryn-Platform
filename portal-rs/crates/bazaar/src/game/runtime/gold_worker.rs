@@ -473,7 +473,9 @@ impl Runtime {
                 .complete(tx, &s)
                 .await
                 .map_err(core_error)?;
-                crate::lifecycle::complete_gold_sale(tx, s.id).await?;
+                crate::lifecycle::complete_gold_sale(tx, l.id, s.id)
+                    .await
+                    .map_err(core_error)?;
                 crate::lifecycle::write_listing(
                     tx,
                     l.id,

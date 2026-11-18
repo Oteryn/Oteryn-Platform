@@ -244,6 +244,11 @@ impl Harness {
         ))
         .execute(&pool)
         .await?;
+        // The core harness omits the authority outbox; completion queries only
+        // read this table's listing_id (migration 20261115110034).
+        sqlx::query("CREATE TABLE bazaar_authority_compensations(listing_id uuid PRIMARY KEY)")
+            .execute(&pool)
+            .await?;
         sqlx::query("CREATE TABLE test_ledger(id integer PRIMARY KEY, snapshot text NOT NULL)")
             .execute(&pool)
             .await?;
