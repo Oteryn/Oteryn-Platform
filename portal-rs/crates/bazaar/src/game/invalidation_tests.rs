@@ -178,6 +178,62 @@ async fn invalidation_unlocks_never_escrowed_character_once() {
 async fn invalidation_returns_escrowed_character_once() {
     character_invalidation(true).await;
 }
+
+#[tokio::test]
+async fn invalidation_unlocks_character_after_rejected_escrow_bind() {
+    invalidation_after_refused_escrow_bind("CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE").await;
+}
+
+#[tokio::test]
+async fn invalidation_unlocks_character_after_expired_escrow_bind() {
+    invalidation_after_refused_escrow_bind("CHAR_CMD_INTENT_EXPIRED").await;
+}
+
+async fn invalidation_after_refused_escrow_bind(code: &str) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = locked_character_fixture(false).await;
+    let listing = uid("30");
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, listing, Command::Bind).await;
+    approve(&db, listing).await;
+    reject(&db, &bind, code).await;
+    assert_invalidation_unlock(&db, 1).await;
+    db.end().await;
+}
+
+async fn assert_invalidation_unlock(db: &BrowserFixture, lock_revision: u64) {
+    let listing = uid("30");
+    for _ in 0..2 {
+        db.runtime.tick().await.unwrap();
+        assert_eq!(listing_state(db).await, crate::State::Draft);
+        assert_eq!(
+            count(db, listing, Command::Unlock).await,
+            1,
+            "approved invalidation must stage an unlock when escrow cannot commit"
+        );
+        assert_eq!(count(db, listing, Command::Bind).await, 1);
+    }
+    let unlock = newest_intent(db, listing, Command::Unlock).await;
+    assert_eq!(
+        number(&unlock.value, "expected_lock_revision").unwrap(),
+        lock_revision
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let facts = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"{}","current_account_id":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        lock_revision + 1,
+        uid("11")
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &unlock, &facts, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(listing_state(db).await, crate::State::Cancelled);
+    assert_eq!(count(db, listing, Command::Unlock).await, 1);
+}
+
 async fn locked_character_fixture(escrowed: bool) -> BrowserFixture {
     let mut db = BrowserFixture::new().await;
     let config = std::sync::Arc::make_mut(&mut db.runtime.config);
@@ -384,17 +440,7 @@ async fn invalidation_publishes_committed_escrow_bind() {
     let db = locked_character_fixture(false).await;
     db.runtime.tick().await.unwrap();
     let bind = newest_intent(&db, uid("30"), Command::Bind).await;
-    let transfer = id(text(&bind.value, "transfer_operation_id").unwrap()).unwrap();
-    let facts = format!(
-        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"2","transfer_operation_id":"{transfer}","transfer_binding_digest":"{}"}}"#,
-        uid("31"),
-        uid("32"),
-        text(&bind.value, "transfer_binding_digest").unwrap()
-    );
-    let mut tx = db.pool.begin().await.unwrap();
-    let now = runtime::now(&mut tx).await.unwrap();
-    committed_fact(db.runtime.authority(), &mut tx, &bind, &facts, now).await;
-    tx.commit().await.unwrap();
+    let transfer = commit_escrow_bind(&db, &bind).await;
     approve(&db, uid("30")).await;
     db.runtime.tick().await.unwrap();
     assert!(
@@ -407,6 +453,55 @@ async fn invalidation_publishes_committed_escrow_bind() {
         .unwrap()
     );
     db.end().await;
+}
+
+#[tokio::test]
+async fn invalidation_waits_for_then_unlocks_character_after_rejected_escrow_transfer() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = locked_character_fixture(false).await;
+    let listing = uid("30");
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, listing, Command::Bind).await;
+    let transfer = commit_escrow_bind(&db, &bind).await;
+    approve(&db, listing).await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(count(&db, listing, Command::Unlock).await, 0);
+    assert_eq!(listing_state(&db).await, crate::State::Draft);
+
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let receipt = format!(
+        r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"TransferCharacterOwnership","operation_id":"{transfer}","outcome":"REJECTED","result_code":"CHAR_CMD_CHARACTER_IN_SESSION","recovery_generation":"3","decided_at":"{now}"}}"#
+    );
+    let updated =
+        sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1 AND state='PENDING'")
+            .bind(transfer)
+            .bind(receipt)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(updated.rows_affected(), 1);
+    let bind_operation = id(text(&bind.value, "operation_id").unwrap()).unwrap();
+    character_status(&db, &mut tx, "locked", bind_operation, ("2", "2"), now).await;
+    tx.commit().await.unwrap();
+    assert_invalidation_unlock(&db, 2).await;
+    db.end().await;
+}
+
+async fn commit_escrow_bind(db: &BrowserFixture, bind: &PreparedIntent) -> Uuid {
+    let transfer = id(text(&bind.value, "transfer_operation_id").unwrap()).unwrap();
+    let facts = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"2","transfer_operation_id":"{transfer}","transfer_binding_digest":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        text(&bind.value, "transfer_binding_digest").unwrap()
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    committed_fact(db.runtime.authority(), &mut tx, bind, &facts, now).await;
+    tx.commit().await.unwrap();
+    transfer
 }
 
 #[tokio::test]

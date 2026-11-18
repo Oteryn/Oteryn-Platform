@@ -595,7 +595,7 @@ impl Runtime {
         self.retire_refused_bind(tx, bind, transfer).await?;
         self.return_settled(tx, l).await
     }
-    async fn retire_refused_bind(
+    pub(super) async fn retire_refused_bind(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         bind: Uuid,
