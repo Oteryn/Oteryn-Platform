@@ -302,9 +302,6 @@ async fn recover(
     } else {
         input.email.clone()
     };
-    if let Err(response) = (context.rate)("aggregate-recovery-source".into()).await {
-        return Ok(response);
-    }
     if let Err(response) = (context.rate)(email).await {
         return Ok(response);
     }

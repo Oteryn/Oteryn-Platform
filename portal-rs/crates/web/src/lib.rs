@@ -437,14 +437,12 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                                         let mut keys = ratelimit::Keys::source(source);
                                         keys.email = Some(email);
                                         keys.account = account.map(|id| id.to_string());
-                                        let policy = if managing {
-                                            ratelimit::NamedPolicy::IdentityRecoveryKeyManage
+                                        let result = if managing {
+                                            limiter.check(ratelimit::NamedPolicy::IdentityRecoveryKeyManage, &[keys]).await
                                         } else {
-                                            ratelimit::NamedPolicy::IdentityRecoveryKeyUse
+                                            limiter.check_recovery_submission(keys).await
                                         };
-                                        limiter
-                                            .check(policy, &[keys])
-                                            .await
+                                        result
                                             .map_err(|error| error.response(language, false))
                                     })
                                 }),

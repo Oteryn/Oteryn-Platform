@@ -805,3 +805,30 @@ async fn r5_recovery_key_requires_a_verified_owner() -> Result {
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn r10_recovery_charges_shared_source_once() -> Result {
+    use oteryn_web::ratelimit::NamedPolicy;
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let cookie = db.session(None).await?;
+    let form = serde_urlencoded::to_string([
+        ("_csrf", "b".repeat(64)),
+        ("email", "someone@example.test".into()),
+        ("recovery_key", "unknown-key".into()),
+        ("password", NEW.into()),
+        ("password_confirmation", NEW.into()),
+    ])?;
+    let response = db
+        .app()
+        .oneshot(post("/en/recovery-key", &cookie, &form)?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let count: i64 =
+        sqlx::query_scalar("SELECT sum(count)::bigint FROM web_rate_limits WHERE limiter_name=$1")
+            .bind(NamedPolicy::IdentityAnonymousSource.name())
+            .fetch_one(&db.pool)
+            .await?;
+    db.close().await?;
+    assert_eq!(count, 1);
+    Ok(())
+}
