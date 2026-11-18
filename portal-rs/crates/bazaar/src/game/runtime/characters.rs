@@ -11,8 +11,8 @@ pub(crate) async fn lock_record(
     db: &mut PgConnection,
     listing: Uuid,
 ) -> Result<Option<(PreparedIntent, Receipt, Value)>, Error> {
-    let operation:Option<Uuid>=sqlx::query_scalar("SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command='LockBazaarCharacter' ORDER BY source_revision DESC LIMIT 1").bind(listing).fetch_optional(&mut *db).await?;
-    let Some(operation) = operation else {
+    let operation:Option<(Uuid,String)>=sqlx::query_as("SELECT operation_id,projection_epoch::text FROM bazaar_game_outbox WHERE listing_id=$1 AND command='LockBazaarCharacter' ORDER BY source_revision DESC LIMIT 1").bind(listing).fetch_optional(&mut *db).await?;
+    let Some((operation, epoch)) = operation else {
         return Ok(None);
     };
     let Some((i, r)) = a.retained(db, operation).await? else {
@@ -41,7 +41,7 @@ pub(crate) async fn lock_record(
         lock_revision: number(d, "lock_revision")?,
         character_revision: number(&i.value, "expected_character_revision")?,
         eligibility_revision: number(&i.value, "eligibility_revision")?,
-        projection_epoch: a.fence.projection_epoch,
+        projection_epoch: decimal(&epoch, false, u64::MAX)?,
         now: now(db).await?,
     };
     verify_snapshot(
@@ -392,6 +392,9 @@ impl CharacterEvidence for Authority {
         let get = |key: &str| -> Result<u64, crate::Error> {
             decimal(text(s, key).map_err(to_core)?, true, u64::MAX).map_err(to_core)
         };
+        if get("projection_epoch")? != self.fence.projection_epoch {
+            return Ok(None);
+        }
         let Some(Value::Array(blessings)) = s.get("blessings") else {
             return Err(crate::Error::Denied);
         };

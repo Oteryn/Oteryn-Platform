@@ -5541,10 +5541,10 @@ async fn replay_sale_receipts(db: &BrowserFixture, commands: &[Command]) {
 
 async fn delivered_character_sale(currency: &str) -> BrowserFixture {
     let db = settling_character_fixture(currency).await;
-    finish_character_sale(&db).await;
+    finish_character_handoff(&db, uid("13"), "DELIVERED").await;
     db
 }
-async fn finish_character_sale(db: &BrowserFixture) {
+async fn finish_character_handoff(db: &BrowserFixture, recipient: Uuid, status: &str) {
     db.runtime.tick().await.unwrap();
     let bind = newest_intent(db, uid("30"), Command::Bind).await;
     let transfer = id(text(&bind.value, "transfer_operation_id").unwrap()).unwrap();
@@ -5561,8 +5561,8 @@ async fn finish_character_sale(db: &BrowserFixture) {
     db.runtime.tick().await.unwrap();
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
-    character_transfer_receipt(&mut tx, transfer, (uid("40"), uid("13")), now).await;
-    character_status(db, &mut tx, "DELIVERED", transfer, ("3", "3"), now).await;
+    character_transfer_receipt(&mut tx, transfer, (uid("40"), recipient), now).await;
+    character_status(db, &mut tx, status, transfer, ("3", "3"), now).await;
     tx.commit().await.unwrap();
     db.runtime.tick().await.unwrap();
 }
