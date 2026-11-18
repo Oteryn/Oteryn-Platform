@@ -250,16 +250,50 @@ pub async fn financial_obligations_clear(
     tx: &mut Transaction<'_, Postgres>,
     account: Uuid,
 ) -> Result<bool> {
+    // Restore/publication fences precede wallet locks, as in the Game lifecycle read.
+    sqlx::query("SELECT id FROM character_restore_locks WHERE id=1 FOR SHARE")
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or(Error::UnknownState)?;
     sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
         .bind(account)
         .execute(&mut **tx)
         .await?;
     Ok(sqlx::query_scalar("SELECT NOT (
         EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active')
+        OR EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)
+        OR EXISTS(SELECT 1 FROM coin_outstanding_debts WHERE account_id=$1 AND owed>0)
+        OR EXISTS(SELECT 1 FROM wallet_incoming_capacity WHERE account_id=$1)
+        OR EXISTS(SELECT 1 FROM bazaar_coin_holds WHERE account_id=$1 AND amount>0)
         OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery'))
-        OR EXISTS(SELECT 1 FROM payment_intents p WHERE p.account_id=$1 AND p.state='succeeded'
-            AND EXISTS (SELECT 1 FROM store_web_topups t WHERE t.account_id=p.account_id AND COALESCE(t.payment_intent_id,t.intended_payment_intent_id)=p.id)
-            AND NOT EXISTS (SELECT 1 FROM wallet_operations WHERE id=p.id AND account_id=p.account_id AND kind='top_up')
-            AND NOT EXISTS (SELECT 1 FROM commerce_refunds WHERE intent_id=p.id AND state='done'))
+        OR EXISTS(SELECT 1 FROM bazaar_settlements s WHERE (s.buyer=$1 OR s.seller=$1)
+            AND s.completed_at IS NULL AND NOT EXISTS (
+                SELECT 1 FROM bazaar_authority_compensations c JOIN bazaar_listings l ON l.id=c.listing_id
+                WHERE c.listing_id=s.listing_id AND l.state='cancelled'))
+        OR EXISTS(SELECT 1 FROM bazaar_authority_gold_bids WHERE buyer=$1 AND phase IN ('pending','releasing'))
+        OR EXISTS(SELECT 1 FROM bazaar_authority_gold_sales s WHERE (s.buyer=$1 OR s.seller=$1)
+            AND s.completed_at IS NULL AND NOT EXISTS (
+                SELECT 1 FROM bazaar_authority_compensations c JOIN bazaar_listings l ON l.id=c.listing_id
+                WHERE c.listing_id=s.listing_id AND l.state='cancelled'))
+        OR EXISTS(
+            SELECT 1 FROM payment_intents p
+            JOIN LATERAL (
+                SELECT account_id,coins FROM store_web_topups
+                WHERE p.id IN (payment_intent_id,intended_payment_intent_id)
+                UNION ALL
+                SELECT payer_account_id,coins FROM coin_purchase_orders WHERE payment_intent_id=p.id
+            ) checkout ON p.account_id=$1 OR checkout.account_id=$1
+            WHERE p.state IN ('succeeded','refunded','chargeback') AND (
+                checkout.account_id<>p.account_id OR NOT (
+                    EXISTS (SELECT 1 FROM wallet_operations o JOIN wallet_entries e ON e.operation_id=o.id
+                        WHERE o.id=p.id AND o.account_id=p.account_id AND o.kind='top_up'
+                          AND o.amount=checkout.coins AND e.account_id=p.account_id
+                          AND e.available_delta=checkout.coins AND e.reserved_delta=0)
+                    OR (p.state IN ('refunded','chargeback') AND EXISTS (
+                        SELECT 1 FROM payment_events e
+                        WHERE e.intent_id=p.id AND e.provider=p.provider AND e.state=p.state))
+                )
+            )
+        )
     )").bind(account).fetch_one(&mut **tx).await?)
 }

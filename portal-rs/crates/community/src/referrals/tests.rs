@@ -2888,3 +2888,36 @@ async fn stalled_mail_enters_backoff_before_job_deadline() {
     assert!(deferred);
     db.close().await;
 }
+
+#[tokio::test]
+async fn failed_premium_batch_does_not_starve_the_next_award() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let blocked = db.account().await;
+    let eligible = db.account().await;
+    use oteryn_db::outbox::Cleanup;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(blocked)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until)
+                 SELECT uuidv7(),$1,$1,'GRANT',366,decode(repeat('ab',32),'hex'),$2,n,366*86400,date_trunc('second',now()),date_trunc('second',now())+n*interval '366 days'
+                 FROM generate_series(1,10) n")
+        .bind(blocked).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO referral_campaign_rewards(operation_key,account_id,kind,amount,created_at)
+                 SELECT 'blocked-' || n,$1,'premium',5,now()-interval '1 day' FROM generate_series(1,100) n
+                 UNION ALL SELECT 'eligible',$2,'premium',5,now()")
+        .bind(blocked).bind(eligible).execute(&db.pool).await.unwrap();
+    let worker = Worker {
+        premium_enabled: true,
+        campaign: db.campaign.clone(),
+        sender: None,
+    };
+    assert!(worker.clean().await.is_err());
+    worker.clean().await.unwrap();
+    let applied: bool = sqlx::query_scalar("SELECT applied_at IS NOT NULL FROM referral_campaign_rewards WHERE operation_key='eligible'")
+        .fetch_one(&db.pool).await.unwrap();
+    assert!(applied);
+    db.close().await;
+}

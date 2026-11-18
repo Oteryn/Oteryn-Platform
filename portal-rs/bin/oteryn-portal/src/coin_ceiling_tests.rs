@@ -90,7 +90,8 @@ async fn audit_09_01_real_wallet_serializes_ceiling_and_holds_paid_settlement() 
     host.credit_in(&mut tx, Uuid::now_v7(), payer, MAX_COINS - 1)
         .await?;
     tx.commit().await?;
-    host.ledger().reserve(Uuid::now_v7(), payer, 1).await?;
+    let reservation = Uuid::now_v7();
+    host.ledger().reserve(reservation, payer, 1).await?;
     let credit = || async {
         let mut tx = pool.begin().await?;
         let result = host.credit_in(&mut tx, Uuid::now_v7(), payer, 1).await;
@@ -137,7 +138,12 @@ async fn audit_09_01_real_wallet_serializes_ceiling_and_holds_paid_settlement() 
             r#"[{"id":"01934f10-7c02-7001-805b-3b1122334402","title":"One coin","coins":1,"price":{"minor_units":1,"currency":"EUR","exponent":2},"valid_for_seconds":120}]"#,
         ).ok_or("invalid test package")?,
     };
-    let coins = CoinPurchases::new(pool.clone(), settings, TestProvider::new(&[9; 32])?, host);
+    let coins = CoinPurchases::new(
+        pool.clone(),
+        settings,
+        TestProvider::new(&[9; 32])?,
+        host.clone(),
+    );
     let catalogue = coins.catalogue(payer, None).await?;
     let package = &catalogue.packages[0];
     let order = coins
@@ -166,6 +172,46 @@ async fn audit_09_01_real_wallet_serializes_ceiling_and_holds_paid_settlement() 
         )
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
+    host.ledger()
+        .release(Uuid::now_v7(), payer, reservation)
+        .await?;
+    use oteryn_identity::termination::{Error, game_closure::runtime::Config};
+    let closure = crate::account_lifecycle_http::request_test_termination(&pool, payer).await?;
+    let denied = matches!(closure, Err(Error::UnknownState));
+    let termination = match closure {
+        Ok(termination) => termination,
+        Err(Error::UnknownState) => sqlx::query_as("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days') RETURNING *")
+            .bind(payer).fetch_one(&pool).await?,
+        Err(error) => return Err(error.into()),
+    };
+    let boundary = Config::load(|key| match key {
+        "PORTAL_ACCOUNT_CLOSURE_ENABLED" => Some("true".into()),
+        "PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION" => Some("3".into()),
+        _ => None,
+    })?
+    .boundary(
+        Arc::new(crate::account_lifecycle_http::TerminationBoundary),
+        true,
+    )?
+    .ok_or("missing closure boundary")?;
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(payer)
+        .execute(&mut *tx)
+        .await?;
+    oteryn_identity::termination::Boundary::requested(boundary.as_ref(), &mut tx, &termination)
+        .await?;
+    tx.commit().await?;
+    let request = format!(
+        r#"{{"contract_version":2,"operation":"ReadAccountClosureLifecycleV1","source_authority":"oteryn:character-authority:primary","account_id":"{payer}","termination_id":"{}","recovery_generation":"3","audience":"OTERYN_PLATFORM_CHARACTER_AUTHORITY"}}"#,
+        termination.id,
+    );
+    let observation: serde_json::Value =
+        serde_json::from_slice(&boundary.read_lifecycle(&pool, request.as_bytes()).await?)?;
+    assert_eq!(
+        (denied, observation["financial_obligations_clear"].as_bool()),
+        (true, Some(false))
+    );
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)

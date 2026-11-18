@@ -1516,7 +1516,7 @@ async fn reordered_correction_drains_after_predecessor() -> TestResult {
     let dir = tempfile::tempdir()?;
     let c = real_config(dir.path());
     write_recovery(&c, "1")?;
-    for name in ["correction", "settlement"] {
+    for name in ["correction", "settlement", "final_freeze"] {
         enqueue_publication(&db, &c, &publication(&c, admission::EVENT, wire(name)?)?).await?;
     }
     let job = runtime::FeedJob {
@@ -1527,6 +1527,10 @@ async fn reordered_correction_drains_after_predecessor() -> TestResult {
     let done: i64 = sqlx::query_scalar("SELECT count(*) FROM league_feed_inbox WHERE state='done'")
         .fetch_one(&db.pool)
         .await?;
-    assert_eq!(done, 2);
+    assert_eq!(done, 3);
+    let conflicted: bool = sqlx::query_scalar("SELECT conflicted FROM league_feed_state")
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(!conflicted);
     db.close().await
 }

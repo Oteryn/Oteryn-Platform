@@ -78,3 +78,15 @@ fn every_transaction_bounds_its_lock_waits() -> Result<(), Box<dyn std::error::E
     );
     Ok(())
 }
+
+#[test]
+fn death_expiry_has_one_cast_safe_predicate() {
+    let worker = include_str!("worker.rs");
+    assert_eq!(
+        worker.matches("DELETE FROM stats_character_events").count(),
+        2
+    );
+    assert_eq!(worker.matches("details->>'occurred_at'").count(), 3);
+    assert!(worker.contains("purge_death_details(&mut tx, false)"));
+    assert!(worker.contains("purge_death_details(&mut tx, true)"));
+}

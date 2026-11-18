@@ -377,7 +377,9 @@ impl Services {
 }
 fn wallet_error(e: oteryn_wallet::Error) -> Error {
     match e {
-        oteryn_wallet::Error::Refused(oteryn_wallet::Refusal::InsufficientFunds) => Error::Denied,
+        oteryn_wallet::Error::Refused(
+            oteryn_wallet::Refusal::InsufficientFunds | oteryn_wallet::Refusal::DebtOutstanding,
+        ) => Error::Denied,
         _ => Error::Unavailable,
     }
 }

@@ -933,6 +933,8 @@ async fn poll_records_unsigned_profile_levels() -> Result {
     let payload = json!({"character_id":character,"profile":[{"name":"First","vocation":1,"world_id":Uuid::now_v7(),"level":"9223372036854775808","guild":[],"guild_visible":true}]});
     sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('character_profile',$1,false,1,1,$2,$3),('character_profile','',true,1,1,$2,'{}')")
         .bind(character.to_string()).bind(now).bind(payload).execute(&db).await?;
+    sqlx::query(r#"INSERT INTO stats_character_events (character_ref,day,kind,event_key,details) VALUES ($1,CURRENT_DATE-31,'death','malformed','{"occurred_at":"invalid","_statistics_epoch":"1"}')"#)
+        .bind(Uuid::now_v7()).execute(&db).await?;
     let job = StatisticsJob {
         pool: db.clone(),
         enabled: true,
@@ -942,6 +944,12 @@ async fn poll_records_unsigned_profile_levels() -> Result {
         matches!(processed, Ok(1)),
         "poll must accept an unsigned level: {processed:?}"
     );
+    let malformed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM stats_character_events WHERE event_key='malformed'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(malformed, 0);
     assert_eq!(job.run().await?, 0);
     let level: String =
         sqlx::query_scalar("SELECT level::text FROM stats_character_daily WHERE character_ref=$1")

@@ -83,13 +83,11 @@ impl Boundary for BoundaryFixture {
     }
     fn check_blockers<'a>(
         &'a self,
-        tx: &'a mut Transaction<'_, Postgres>,
-        account: AccountId,
+        _: &'a mut Transaction<'_, Postgres>,
+        _: AccountId,
     ) -> BoundaryFuture<'a> {
         Box::pin(async move {
-            if self.blocked.load(Ordering::SeqCst)
-                || !game_closure::runtime::financial_obligations_clear(tx, account).await?
-            {
+            if self.blocked.load(Ordering::SeqCst) {
                 Err(Error::UnknownState)
             } else {
                 Ok(())
@@ -667,6 +665,18 @@ async fn last_admin_cannot_terminate() -> TestResult {
     let other = db.account().await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
         .bind(other).execute(&db.pool).await?;
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        request(&s, account).await,
+        Err(Error::UnknownState)
+    ));
+    sqlx::query("UPDATE accounts SET email_verified_at=now() WHERE id=$1")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
     db.due(request(&s, account).await?.id).await?;
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(other)
@@ -674,23 +684,6 @@ async fn last_admin_cannot_terminate() -> TestResult {
         .await?;
     assert!(matches!(
         s.finalize(account).await,
-        Err(Error::UnknownState)
-    ));
-    db.close().await
-}
-
-#[tokio::test]
-async fn unpaid_browser_credit_blocks_termination() -> TestResult {
-    let Some(db) = Database::new().await? else {
-        return Ok(());
-    };
-    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
-    let account = db.account().await?;
-    let intent = Uuid::now_v7();
-    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($2,$1,'test','checkout',100,'PLN','succeeded')").bind(account).bind(intent).execute(&db.pool).await?;
-    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,intended_payment_intent_id) VALUES(uuidv7(),$1,'test',100,100,'PLN',$2)").bind(account).bind(intent).execute(&db.pool).await?;
-    assert!(matches!(
-        request(&s, account).await,
         Err(Error::UnknownState)
     ));
     db.close().await

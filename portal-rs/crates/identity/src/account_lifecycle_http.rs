@@ -537,6 +537,34 @@ struct Message<'a> {
 }
 
 #[cfg(test)]
+pub(crate) async fn request_test_termination(
+    pool: &PgPool,
+    account: Uuid,
+) -> Result<termination::Result<termination::Termination>, Box<dyn std::error::Error>> {
+    let password = "closure financial fixture password";
+    let hash = oteryn_identity::password::hash(password)?;
+    sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
+        .bind(account)
+        .bind(hash)
+        .execute(pool)
+        .await?;
+    let token = Uuid::now_v7().to_string();
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,sudo_until)
+                 VALUES($1,$2,$3,'closure financial fixture',now()+interval '1 hour',now()+interval '1 day',now()+interval '5 minutes')")
+        .bind(Sha256::digest(token.as_bytes()).to_vec()).bind(account).bind(oteryn_identity::mfa::random_token()?).execute(pool).await?;
+    let service = termination::Terminations::new(
+        pool.clone(),
+        termination::Config {
+            enabled: true,
+            ..Default::default()
+        },
+        Arc::new(TerminationBoundary),
+    )?;
+    Ok(service
+        .request(account, &ActorProof(token), password, "TERMINATE")
+        .await)
+}
+#[cfg(test)]
 mod proof_tests {
     use super::*;
 

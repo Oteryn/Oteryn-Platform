@@ -789,6 +789,42 @@ async fn l6_02_production_value_replays_check_current_transfer_permission() {
         let payload = fixture(&format!("{route}-request.json"));
         let (status, body) = call(router.clone(), &path, Some(payload.clone()), true).await;
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        if route != "settlements" {
+            sqlx::query("WITH quote AS (
+                INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at)
+                VALUES(uuidv7(),$1,uuidv7(),10,100,'EUR',2,'testing',now(),now())
+                RETURNING id,package_id
+            ), purchase AS (
+                INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code,review_required)
+                SELECT uuidv7(),$1,uuidv7(),id,package_id,10,100,'EUR',2,'testing',uuidv7(),'processing','review',true FROM quote
+                RETURNING id
+            ) INSERT INTO coin_purchase_holds(account_id,order_id,reason)
+              SELECT $1,id,'reversal_insufficient_balance' FROM purchase")
+                .bind(a).execute(&db.pool).await.unwrap();
+            let before = money_state(&db).await;
+            let (status, _) = call(router.clone(), &path, Some(payload.clone()), true).await;
+            assert_eq!(status, StatusCode::OK, "{route} replay");
+            let mut fresh = parse(&payload);
+            set(&mut fresh, "operation_id", Value::String(id().to_string()));
+            let (_, response) = call(
+                router.clone(),
+                &path,
+                Some(canonical::encode(&fresh).unwrap()),
+                true,
+            )
+            .await;
+            assert_eq!(
+                member(&parse(&response), "result"),
+                "transfer_blocked",
+                "{route} new debit"
+            );
+            assert_eq!(money_state(&db).await, before);
+            sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+                .bind(a)
+                .execute(&db.pool)
+                .await
+                .unwrap();
+        }
         let before = money_state(&db).await;
         sqlx::query(
             "UPDATE accounts SET email_change_blocked_until=now()+interval '1 day' WHERE id=$1",

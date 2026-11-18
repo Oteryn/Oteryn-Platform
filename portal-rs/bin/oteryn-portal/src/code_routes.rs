@@ -86,7 +86,7 @@ struct Context {
     codes: Arc<Service>,
     limiter: RateLimiter,
 }
-fn context(pool: PgPool, wallet_enabled: bool) -> Context {
+fn context(pool: PgPool, wallet_enabled: bool, premium_enabled: bool) -> Context {
     let limiter = RateLimiter::new(pool.clone());
     Context {
         codes: Arc::new(Codes::new(
@@ -101,7 +101,7 @@ fn context(pool: PgPool, wallet_enabled: bool) -> Context {
                 Policy,
                 Policy,
             ),
-            premium::repository::Ledger::new(pool, Arc::new(Policy), true),
+            premium::repository::Ledger::new(pool, Arc::new(Policy), premium_enabled),
             Attempts(limiter.clone()),
         )),
         limiter,
@@ -120,6 +120,7 @@ fn configured_from(
     let state = context(
         pool.clone(),
         lookup("OTERYN_WALLET_ENABLED").as_deref() == Some("true"),
+        lookup("OTERYN_PREMIUM_ENABLED").as_deref() == Some("true"),
     );
     let staff = Router::new()
         .route(GENERATE, get(issuance_form).post(generate))

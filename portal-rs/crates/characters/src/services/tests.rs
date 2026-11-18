@@ -915,6 +915,43 @@ async fn postgres_restore_reopens_and_grants_lost_rename_for_free() {
 }
 #[tokio::test]
 async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
+    const TEST: &str =
+        "services::tests::postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt";
+    if std::env::var_os("PORTAL_TEST_PAID_RENAME_CHILD").is_none() {
+        if std::env::var_os("PORTAL_TEST_DATABASE_URL").is_none() {
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env("PORTAL_TEST_PAID_RENAME_CHILD", "1")
+            .env("OTERYN_ENV", "testing")
+            .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
+            .env("OTERYN_CHARACTER_SERVICES_ENABLED", "true")
+            .env("OTERYN_CHARACTER_SERVICES_RENAME_ENABLED", "true")
+            .env("OTERYN_CHARACTER_SERVICES_PROJECTION_ENABLED", "true")
+            .env("OTERYN_CHARACTER_SERVICES_EXCHANGE_ENABLED", "true")
+            .env("OTERYN_WALLET_ENABLED", "true")
+            .env(
+                "OTERYN_CHARACTER_SERVICES_COMMAND_AUTHORITY",
+                COMMAND_AUTHORITY,
+            )
+            .env(
+                "OTERYN_CHARACTER_SERVICES_PROJECTION_AUTHORITY",
+                PROJECTION_AUTHORITY,
+            )
+            .env("OTERYN_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS", "0")
+            .env("OTERYN_CHARACTER_RENAME_PRODUCT_ID", "character.rename")
+            .env("OTERYN_CHARACTER_RENAME_PRODUCT_VERSION", "1")
+            .env("OTERYN_CHARACTER_RENAME_PRICE", "70")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::{
         Extension, Form, Router, extract::State, http::HeaderMap, middleware, routing::get,
@@ -1052,8 +1089,68 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
             .status(),
         StatusCode::BAD_REQUEST
     );
+    let public_app = oteryn_web::router(
+        oteryn_web::AppState {
+            db: db.pool.clone(),
+        },
+        "static",
+    );
+    let public_post = || {
+        HttpRequest::post(format!("/en/account/characters/{c}/services"))
+            .header("origin", "https://portal.example.test")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("cookie", format!("__Host-oteryn_session={token}"))
+            .body(Body::from(fields(&csrf)))
+            .unwrap()
+    };
+    oteryn_db::test_support::coin_chargeback_hold(&db.pool, a)
+        .await
+        .unwrap();
     assert_eq!(
-        app.oneshot(post(fields(&csrf))).await.unwrap().status(),
+        public_app
+            .clone()
+            .oneshot(public_post())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+        .bind(a)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_post())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    // The credit pays the debt before making the account whole for the original purchase.
+    let mut tx = db.pool.begin().await.unwrap();
+    let credit = Uuid::now_v7();
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(a)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'top_up',$2,10)",
+    )
+    .bind(credit)
+    .bind(a)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    oteryn_wallet::credit_in(&mut tx, credit, a, 10)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(
+        public_app.oneshot(public_post()).await.unwrap().status(),
         StatusCode::ACCEPTED
     );
     assert_eq!(balance(&s, a).await, (30, 70));

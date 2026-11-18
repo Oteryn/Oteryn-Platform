@@ -827,6 +827,69 @@ async fn db_binary_refuses_restore_with_committed_store_generation_seven() {
         .await,
         1
     );
+    values.insert(
+        "PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED".into(),
+        "true".into(),
+    );
+    let notice = std::str::from_utf8(notice)
+        .unwrap()
+        .replace(
+            r#""restored_generation":"3""#,
+            r#""restored_generation":"7""#,
+        )
+        .replace(
+            r#""new_recovery_generation":"4""#,
+            r#""new_recovery_generation":"8""#,
+        );
+    let app = db.app(&values).await;
+    for _ in 0..2 {
+        let (status, body) = call(
+            &app,
+            "restore.oteryn.internal",
+            restore::PATH,
+            notice.as_bytes(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let observed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(observed["status"], "RECONCILING");
+        assert_eq!(observed["outstanding"], 1);
+    }
+    let (status, _) = call(
+        &app,
+        STORE,
+        delivery::http::RECEIPT_PATH,
+        &canonical::encode(&receipt).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    set(&mut receipt, "recovery_generation", text("8"));
+    let (status, _) = call(
+        &app,
+        STORE,
+        delivery::http::RECEIPT_PATH,
+        &canonical::encode(&receipt).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(
+        &app,
+        "restore.oteryn.internal",
+        restore::PATH,
+        notice.as_bytes(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let observed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(observed["status"], "ACKNOWLEDGED");
+    assert_eq!(observed["outstanding"], 0);
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM character_restore_notices WHERE acknowledged_at IS NOT NULL"
+        )
+        .await,
+        1
+    );
     db.finish().await;
     eprintln!(
         "PG db_binary_refuses_restore_with_committed_store_generation_seven duration={:.3}s",

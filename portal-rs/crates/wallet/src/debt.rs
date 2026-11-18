@@ -105,6 +105,20 @@ pub(crate) async fn settle(
     Ok(total)
 }
 
+/// Refuse a new spend under the caller's wallet account lock. Replays and
+/// existing reservation settlements do not call this check.
+pub async fn check_payer_in(connection: &mut PgConnection, account: Uuid) -> Result<(), Error> {
+    let held: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)")
+            .bind(account)
+            .fetch_one(&mut *connection)
+            .await?;
+    if held {
+        return Err(Refusal::DebtOutstanding.into());
+    }
+    unlocked(connection, account).await
+}
+
 /// For a module that moves coins inside its own transaction (bazaar): the
 /// caller's open transaction, with the wallet account row already locked
 /// `FOR UPDATE`, refuses an outgoing coin effect of `account` while it owes

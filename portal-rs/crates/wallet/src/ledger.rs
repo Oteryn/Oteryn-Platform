@@ -163,7 +163,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             tx.commit().await?;
             return Ok(result);
         }
-        crate::debt::unlocked(&mut tx, sender).await?;
+        crate::debt::check_payer_in(&mut tx, sender).await?;
         entry(&mut tx, key, sender, -amount, 0).await?;
         credit(&mut tx, key, recipient, amount).await?;
         sqlx::query("INSERT INTO wallet_transfers (id, sender_id, recipient_id, amount) VALUES ($1,$2,$3,$4)")
@@ -251,7 +251,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if reason.trim().is_empty() || reason.chars().count() > 1000 {
             return Err(Refusal::InvalidReason.into());
         }
-        if self.adjustment_kind == AdjustmentKind::StorePurchase
+        if self.adjustment_kind.is_purchase()
             && (amount >= 0 || actor != account || reason != format!("store-purchase:{key}"))
         {
             return Err(Refusal::InvalidReason.into());
@@ -275,17 +275,8 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if claim(tx, &operation).await? {
             return receipt(tx, key, true).await;
         }
-        if self.adjustment_kind == AdjustmentKind::StorePurchase {
-            let held: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)",
-            )
-            .bind(account)
-            .fetch_one(&mut **tx)
-            .await?;
-            if held {
-                return Err(Refusal::DebtOutstanding.into());
-            }
-            crate::debt::unlocked(tx, account).await?;
+        if self.adjustment_kind.is_purchase() {
+            crate::debt::check_payer_in(tx, account).await?;
         }
         let before = balance(tx, account).await?;
         credit(tx, key, account, amount).await?;
@@ -686,6 +677,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if claim(tx, &operation).await? {
             return receipt(tx, key, true).await;
         }
+        crate::debt::check_payer_in(tx, account).await?;
         entry(tx, key, account, -amount, amount).await?;
         sqlx::query("INSERT INTO wallet_reservations (id, account_id, amount) VALUES ($1,$2,$3)")
             .bind(key)
@@ -892,7 +884,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         .await?;
         self.allowed(&mut tx, account).await?;
         if !replayed {
-            crate::debt::unlocked(&mut tx, account).await?;
+            crate::debt::check_payer_in(&mut tx, account).await?;
             entry(&mut tx, key, account, -amount, amount).await?;
             sqlx::query("INSERT INTO wallet_reservations (id,account_id,amount) VALUES ($1,$2,$3)")
                 .bind(key)
