@@ -2276,3 +2276,54 @@ async fn r9_account_erasure_batch() -> std::result::Result<(), Box<dyn std::erro
     db.close().await?;
     Ok(())
 }
+
+const SKILL_EVENT: &str = "019a0000-0000-7000-8000-000000000011";
+fn skill_change(revision: u64, after: u32) -> Vec<u8> {
+    let payload = format!(
+        r#"{{"build_occurrence_id":"{SKILL_EVENT}","cause":"training","policy_revision":"v1","skills":[{{"skill":"sword","level_before":10,"progress_before":"0","level_after":{after},"progress_after":"0"}}]}}"#
+    );
+    let raw = family_bytes("skill_history", SKILL_EVENT, &payload, false);
+    String::from_utf8(raw)
+        .unwrap()
+        .replace(
+            r#""source_revision":"1""#,
+            &format!(r#""source_revision":"{revision}""#),
+        )
+        .into_bytes()
+}
+
+#[tokio::test]
+async fn pd2_skill_occurrence_requires_removal()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let authority = TestAuthority::default();
+    let first = playerdata::progress(&skill_change(1, 11))?;
+    authority.allow(first.scope.clone()).await;
+    let store = db.store(&authority);
+    store.ingest(first.clone(), clock()).await?;
+    store.ingest(first, clock()).await?;
+    let next = playerdata::progress(&skill_change(2, 12))?;
+    assert!(
+        matches!(store.ingest(next, clock()).await, Err(Error::Conflict)),
+        "immutable skill occurrence replaced"
+    );
+    let raw = String::from_utf8(skill_change(2, 12))?;
+    let prefix = raw
+        .split_once(r#""payload":"#)
+        .unwrap()
+        .0
+        .replace("UPSERT", "REMOVE");
+    store
+        .ingest(
+            playerdata::progress(format!(r#"{prefix}"payload":null}}"#).as_bytes())?,
+            clock(),
+        )
+        .await?;
+    store
+        .ingest(playerdata::progress(&skill_change(3, 12))?, clock())
+        .await?;
+    db.close().await?;
+    Ok(())
+}

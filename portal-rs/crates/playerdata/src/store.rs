@@ -59,6 +59,8 @@ pub type ConsumerFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + '
 pub enum Admission {
     /// The scope's account is the current authoritative owner at the scope's cut.
     Owner,
+    /// The verified revision at which the character entered this ownership period.
+    CharacterOwner(u64),
     /// The record's character scope carries a deletion tombstone of its account;
     /// the store answers it (revision 4: a lease is not refused for deletion).
     Deleted,
@@ -66,6 +68,11 @@ pub enum Admission {
     /// committed receipt: a fence. A replay gets the fence's 409; a first G-11
     /// delivery is the `CHARACTER_SCOPE_DELETED` terminal refusal (transfer cut).
     Transferred,
+}
+impl Admission {
+    fn is_owner(self) -> bool {
+        matches!(self, Self::Owner | Self::CharacterOwner(_))
+    }
 }
 /// Implementations must hold a fence shared with the authoritative cutoff writer.
 /// A browser or an internal request must never construct an implementation.
@@ -562,6 +569,30 @@ impl Store {
         if expires <= now && !r.progress {
             return Err(Error::Conflict);
         };
+        if r.progress
+            && r.kind == "UPSERT"
+            && matches!(
+                r.scope.family.as_str(),
+                "skill_history" | "death_recap" | "pvp"
+            )
+        {
+            // G-11 business identity is stable across changes to observation
+            // revisions. A REMOVE permits a later explicit correction.
+            let latest: Option<String> = sqlx::query_scalar(
+                "SELECT kind FROM pd_records
+                WHERE stream_key=$1 AND entity_key=$2 AND character_id IS NOT DISTINCT FROM $3
+                AND split_part(scope_key,'|',2)=$4 ORDER BY source_revision DESC LIMIT 1",
+            )
+            .bind(&key)
+            .bind(&r.entity)
+            .bind(&r.scope.character)
+            .bind(tuple(vec![r.scope.world.as_deref()]))
+            .fetch_optional(&mut *tx)
+            .await?;
+            if latest.as_deref() == Some("UPSERT") {
+                return Err(Error::Conflict);
+            }
+        }
         if !r.progress && r.scope.family != "ITEMS" {
             self.validate_history(&mut tx, &r, &key).await?;
         }
@@ -579,8 +610,12 @@ impl Store {
         } else {
             expires
         };
+        let ownership_revision = match admission {
+            Admission::CharacterOwner(revision) => Some(revision.to_string()),
+            _ => r.scope.character_revision.clone(),
+        };
         sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision) VALUES($1,$2::numeric,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)")
-   .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).bind(&r.entity).bind(&r.scope.character).bind(subject_key(&r.scope)).bind(&r.kind).bind(r.occurred_ms as i64).bind(r.coverage_ms as i64).bind(digest).bind(payload).bind(expires as i64).bind(&r.scope.character_revision).execute(&mut *tx).await?;
+   .bind(&key).bind(r.revision.to_string()).bind(&r.scope.authority).bind(if r.progress{""}else{&r.scope.recovery}).bind(&r.id).bind(&r.entity).bind(&r.scope.character).bind(subject_key(&r.scope)).bind(&r.kind).bind(r.occurred_ms as i64).bind(r.coverage_ms as i64).bind(digest).bind(payload).bind(expires as i64).bind(ownership_revision).execute(&mut *tx).await?;
         if r.scope.family == "BANK" {
             sqlx::query("INSERT INTO pd_bank_continuations(stream_key,entry_id,balance_after,coverage_ms) VALUES($1,$2,$3,$4) ON CONFLICT(stream_key) DO UPDATE SET entry_id=EXCLUDED.entry_id,balance_after=EXCLUDED.balance_after,coverage_ms=EXCLUDED.coverage_ms")
                 .bind(&key).bind(&r.entity).bind(playerdata::text(playerdata::get(&r.payload, "balance_after")?)?).bind(r.coverage_ms as i64).execute(&mut *tx).await?;
@@ -611,7 +646,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &s.account).await?;
         shared_authority(&mut tx, &s.authority).await?;
-        if lease.fence(&mut tx, s).await? != Admission::Owner {
+        if !lease.fence(&mut tx, s).await?.is_owner() {
             return Err(Error::Conflict);
         }
         // A G-11 stream is account-wide (its key has no character), so only an
@@ -666,7 +701,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &scope.account).await?;
         shared_authority(&mut tx, &scope.authority).await?;
-        if lease.fence(&mut tx, &scope).await? != Admission::Owner {
+        if !lease.fence(&mut tx, &scope).await?.is_owner() {
             return Err(Error::Conflict);
         }
         // Checked before `stream` so a deleted account never gets a new stream row.
@@ -740,7 +775,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, &s.account).await?;
         shared_authority(&mut tx, &s.authority).await?;
-        if lease.fence(&mut tx, s).await? != Admission::Owner {
+        if !lease.fence(&mut tx, s).await?.is_owner() {
             return Err(Error::Unavailable);
         }
         let key = stream_key(s);

@@ -2492,3 +2492,103 @@ async fn r9_login_remove_preserves_other_subject() {
     }
     db.close().await;
 }
+
+#[tokio::test]
+async fn pd2_bank_generation_requires_admission() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let bank = items("record-bank-entry.valid.json");
+    let mut scope = oteryn_internal_api::playerdata::items(bank.as_bytes())
+        .unwrap()
+        .scope;
+    db.account(&scope.account, "1", "1").await;
+    let app = app(&db, Arc::new(FixedClock(ITEMS_NOW)), true);
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &bank).await.0,
+        StatusCode::OK
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(admit(&mut tx, &scope).await.is_ok());
+    scope.recovery = "2".into();
+    assert_eq!(
+        admit(&mut tx, &scope).await,
+        Err(Error::Conflict),
+        "generation switch without restore"
+    );
+    tx.rollback().await.unwrap();
+    db.close().await;
+}
+
+#[tokio::test]
+async fn pd2_skull_expiry_uses_ownership_cut() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let mut config = settings(true);
+    config.families.insert("skull".into());
+    let app = router_with(
+        db.pool.clone(),
+        Arc::new(DbAuthority),
+        Arc::new(FixedClock(PROGRESS_NOW)),
+        vec![],
+        &config,
+        identities(),
+    );
+    for (revision, suffix, character_revision) in [("1", "03", "9"), ("2", "04", "10")] {
+        let original = stamina_at(revision, suffix);
+        let prefix = original
+            .split_once(r#""payload":"#)
+            .unwrap()
+            .0
+            .replace(r#""stamina""#, r#""skull""#)
+            .replace(
+                r#""character_revision":"9""#,
+                &format!(r#""character_revision":"{character_revision}""#),
+            );
+        let body = format!(
+            r#"{prefix}"payload":{{"skull":"NONE","skull_until_unix_ms":null,"kill_block_until_unix_ms":null}}}}"#
+        );
+        assert_eq!(record(&app, &body).await.0, StatusCode::OK);
+        let mark = progress("watermark-baseline.valid.json")
+            .replace(r#""stamina""#, r#""skull""#)
+            .replace(
+                r#""complete_through":"1""#,
+                &format!(r#""complete_through":"{revision}""#),
+            );
+        assert_eq!(
+            post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &mark)
+                .await
+                .0,
+            StatusCode::OK
+        );
+    }
+    let expires = db
+        .count("SELECT expires_ms FROM pd_records WHERE source_revision=1")
+        .await;
+    assert_eq!(
+        expires as u64,
+        PROGRESS_NOW + 7 * 86400000,
+        "superseded skull expiry"
+    );
+    // Exercise the upgrade on the pre-fix rows, including a previously
+    // published replacement that will receive no further watermarks.
+    db.exec("UPDATE pd_records SET ownership_revision=(8+source_revision)::text,expires_ms=4943600000000",&[]).await;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261117230012_r9_pd2.sql"
+    ))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_records WHERE ownership_revision='9'")
+            .await,
+        2
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records WHERE source_revision=1 AND expires_ms<=(extract(epoch FROM clock_timestamp())*1000)::bigint").await,1);
+    assert_eq!(
+        db.count("SELECT expires_ms FROM pd_records WHERE source_revision=2")
+            .await,
+        4943600000000
+    );
+    db.close().await;
+}
