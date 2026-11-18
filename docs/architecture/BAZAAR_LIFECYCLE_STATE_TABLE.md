@@ -270,7 +270,7 @@ the remaining scans are complete.
 
 These rows seed the linked records needed to exercise a complete lifecycle
 path. A row can include a second input to prove that a later replay or retry
-preserves the first outcome. The PostgreSQL acceptance test runs all 171
+preserves the first outcome. The PostgreSQL acceptance test runs all 173
 database rows in this document. The SQL guard test runs the final row.
 
 | Current | Event | Next | Funds | Custody | Work and report | Disposition |
@@ -307,6 +307,8 @@ database rows in this document. The SQL guard test runs the final row.
 | Rebuild, world absent | Configured world missing | Fenced until corrected | Preserve | Preserve | No sale retry charged for configuration gap | Allowed to defer |
 | Rebuild, early missing STATUS | BZ-12 page checkpoint before contradictory legacy sale | Later sale in Drift | Preserve | Quarantine affected sale | Advance past missing listing and report the later sale once without new intake | Allowed enumeration with later sale quarantined |
 | Rebuild, completed legacy item with no authority asset row | Page finds contradictory Deliver evidence | Drift, listing unchanged | Preserve settlement | Quarantine | Enumerate by the retained sale and command, then report once | Quarantined |
+| Rebuild, Active escrow behind cursor | BZ-14 Conflicting STATUS commits between pages | Active, certification pending | Preserve | Projection quarantined | Commit the listing dirty key with the conflict. The final page leaves certification fenced | Quarantined |
+| Rebuild, completed legacy item with missing configured world | BZ-15 Retry checks without current Deliver evidence | Completed, certification pending until the world and evidence return | Preserve settlement | Preserve | Resolve the world from retained item details. Charge no retries and report no drift while the world is missing | Allowed to defer |
 | Rebuild, early Drift | Later page | Both contradictions in Drift | Preserve | Quarantine affected sales | Report both once and continue past early Drift | Quarantined |
 | Rebuild, page in flight | Writer connection closes before commit | Last committed cursor, then replayed page | Preserve | Preserve | Observer cannot read abandoned checkpoint. Retry commits successor | Allowed |
 | AwaitingDelivery, Return audited | Second worker races to compensate | Cancelled | Refund once | Returned once | One compensation and one Return dispatch | Allowed |

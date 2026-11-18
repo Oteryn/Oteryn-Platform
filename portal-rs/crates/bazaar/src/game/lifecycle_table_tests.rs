@@ -1885,6 +1885,90 @@ async fn bz03_status_committed_after_certification_is_rechecked() {
     dirty_status_rechecked(true).await;
 }
 
+async fn bz14_active_custody_conflict_behind_cursor_fences_certification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Active).await;
+    insert_resync_fillers(&db, 24).await;
+    let next = rebuild_epoch(&db).await;
+    set_resync_fence(
+        &mut db,
+        next.fence.projection_epoch,
+        next.fence.recovery_generation,
+    );
+    let listing = uid("20");
+    let listing_key = format!("resync-listing-dirty:{listing}");
+
+    db.runtime.tick().await.unwrap();
+    assert_eq!(resync_progress(&db).await, (false, true));
+    let cursor: Uuid = sqlx::query_scalar(
+        "SELECT listing_cursor FROM bazaar_resync_progress WHERE projection_epoch=4 AND recovery_generation=3",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(cursor > listing);
+    assert_eq!(dispatched(&db, listing, Command::Deliver).await, 0);
+    let dirty = "SELECT cursor_id FROM bazaar_work_cursors WHERE queue=$1";
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>(dirty)
+            .bind(&listing_key)
+            .fetch_optional(&db.pool)
+            .await
+            .unwrap(),
+        None
+    );
+
+    let mut tx = db.pool.begin().await.unwrap();
+    let status: String = sqlx::query_scalar(
+        "SELECT canonical_body FROM bazaar_game_projections WHERE kind='STATUS' AND subject=$1",
+    )
+    .bind(listing)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let conflicting = status.replace(&uid("22").to_string(), &uid("75").to_string());
+    let now = runtime::now(&mut tx).await.unwrap();
+    assert_eq!(
+        projection_ingest()
+            .ingest(
+                &mut tx,
+                &next.config.projection_authority,
+                conflicting.as_bytes(),
+                now
+            )
+            .await
+            .unwrap(),
+        IngestResult::Quarantined
+    );
+    let queued = sqlx::query_scalar::<_, Uuid>(dirty)
+        .bind(&listing_key)
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(quarantine_count(&db).await, 0);
+    tx.commit().await.unwrap();
+    assert_eq!(quarantine_count(&db).await, 1);
+
+    db.runtime.tick().await.unwrap();
+    let certification = resync_progress(&db).await;
+    let remaining = sqlx::query_scalar::<_, Uuid>(dirty)
+        .bind(&listing_key)
+        .fetch_optional(&db.pool)
+        .await
+        .unwrap();
+    let state = item_state(&db).await;
+    db.end().await;
+
+    assert_eq!(
+        certification,
+        (false, true),
+        "final page certified quarantined custody"
+    );
+    assert_eq!(queued, Some(listing));
+    assert_eq!(remaining, Some(listing));
+    assert_eq!(state, State::Active);
+}
+
 async fn bz05_drift_does_not_starve_a_later_page() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Completed).await;
@@ -1917,34 +2001,7 @@ async fn bz06_missing_configured_world_does_not_charge_delivery_retries() {
         next.fence.projection_epoch,
         next.fence.recovery_generation,
     );
-    let mut tx = db.pool.begin().await.unwrap();
-    let policy: String = sqlx::query_scalar(
-        "SELECT canonical_body FROM bazaar_game_projections WHERE kind='POLICY' AND subject=$1",
-    )
-    .bind(uid("12"))
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
-    let alternate = uid("76");
-    let policy = policy.replace(&uid("12").to_string(), &alternate.to_string());
-    let now = runtime::now(&mut tx).await.unwrap();
-    assert_eq!(
-        projection_ingest()
-            .ingest(
-                &mut tx,
-                &next.config.projection_authority,
-                policy.as_bytes(),
-                now
-            )
-            .await
-            .unwrap(),
-        IngestResult::Applied
-    );
-    tx.commit().await.unwrap();
-    std::sync::Arc::make_mut(&mut db.runtime.config)
-        .authority
-        .config
-        .worlds = vec![alternate];
+    configure_alternate_world(&mut db, uid("76")).await;
     for _ in 0..12 {
         let result = db.runtime.tick().await;
         assert!(
@@ -1965,6 +2022,97 @@ async fn bz06_missing_configured_world_does_not_charge_delivery_retries() {
     db.runtime.tick().await.unwrap();
     assert!(resync_progress(&db).await.0);
     db.end().await;
+}
+
+async fn configure_alternate_world(db: &mut BrowserFixture, alternate: Uuid) {
+    let mut tx = db.pool.begin().await.unwrap();
+    let policy: String = sqlx::query_scalar(
+        "SELECT canonical_body FROM bazaar_game_projections WHERE kind='POLICY' AND subject=$1",
+    )
+    .bind(uid("12"))
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let policy = policy.replace(&uid("12").to_string(), &alternate.to_string());
+    let now = runtime::now(&mut tx).await.unwrap();
+    assert_eq!(
+        projection_ingest()
+            .ingest(
+                &mut tx,
+                &db.runtime.authority().config.projection_authority,
+                policy.as_bytes(),
+                now
+            )
+            .await
+            .unwrap(),
+        IngestResult::Applied
+    );
+    tx.commit().await.unwrap();
+    std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .worlds = vec![alternate];
+}
+
+async fn bz15_missing_legacy_world_preserves_delivery_retry_budget() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    let listing = uid("20");
+    let effects = sale_effects(&db).await;
+    sqlx::query("DELETE FROM bazaar_authority_assets WHERE listing_id=$1")
+        .bind(listing)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let world: Uuid = sqlx::query_scalar("SELECT world_id FROM bazaar_item_details WHERE id=$1")
+        .bind(listing)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(world, uid("12"));
+    set_resync_fence(&mut db, 3, 4);
+    let mut tx = db.pool.begin().await.unwrap();
+    recovery_tests::replay_except(
+        db.runtime.authority(),
+        &mut tx,
+        listing,
+        Some(Command::Deliver),
+    )
+    .await;
+    tx.commit().await.unwrap();
+    configure_alternate_world(&mut db, uid("76")).await;
+
+    let mut missing_world_ticks = 0;
+    for _ in 0..12 {
+        let result = db.runtime.tick().await;
+        assert!(!resync_progress(&db).await.0);
+        if matches!(result, Err(Error::ResyncWorldConfiguration)) {
+            missing_world_ticks += 1;
+        }
+    }
+    let attempts = delivery_reports(&db, listing, "delivery_evidence_pending").await;
+    let reports = delivery_reports(&db, listing, "delivery_custody_drift").await;
+    let quarantined = quarantine_count(&db).await;
+
+    std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .worlds = vec![world];
+    let mut tx = db.pool.begin().await.unwrap();
+    recovery_tests::replay(db.runtime.authority(), &mut tx, listing).await;
+    tx.commit().await.unwrap();
+    let restored = db.runtime.tick().await;
+    let certification = resync_progress(&db).await;
+    let restored_effects = sale_effects(&db).await;
+    let state = item_state(&db).await;
+    db.end().await;
+
+    assert_eq!((attempts, reports, quarantined), (0, 0, 0));
+    assert_eq!(missing_world_ticks, 12);
+    assert!(restored.is_ok(), "{restored:?}");
+    assert_eq!(certification, (true, true));
+    assert_eq!(restored_effects, effects);
+    assert_eq!(state, State::Completed);
 }
 
 async fn insert_later_completed_sale(db: &BrowserFixture) -> Uuid {
@@ -2448,6 +2596,8 @@ lifecycle_scenarios! {
     "Rebuild/World absent", "Configured world missing" => bz06_missing_configured_world_does_not_charge_delivery_retries;
     "Rebuild/Early missing STATUS", "BZ-12 Page checkpoint before late legacy sale" => bz12_missing_first_page_status_does_not_starve_legacy_sale;
     "Rebuild/Completed legacy item without authority asset", "Page finds contradictory Deliver evidence" => legacy_sale_without_authority_asset_is_reconciled;
+    "Rebuild/Active escrow behind cursor", "BZ-14 Conflicting STATUS commits between pages" => bz14_active_custody_conflict_behind_cursor_fences_certification;
+    "Rebuild/Completed legacy item with missing configured world", "BZ-15 Retry checks without current Deliver evidence" => bz15_missing_legacy_world_preserves_delivery_retry_budget;
     "Rebuild/Early Drift", "Later page" => bz05_drift_does_not_starve_a_later_page;
     "Rebuild/Page in flight", "Writer crashes before commit" => lifecycle_crash_before_rebuild_page_commit_replays_page;
     "AwaitingDelivery/Return audited", "Second worker races" => lifecycle_workers_race_to_refund_once;
@@ -2554,7 +2704,9 @@ fn lifecycle_state_table_covers_state_event_products() {
         .map(|row| (row.state, row.event))
         .collect();
     assert_eq!(scenario_keys.len(), LIFECYCLE_SCENARIOS.len());
-    for id in ["BZ-08", "BZ-09", "BZ-10", "BZ-11", "BZ-12"] {
+    for id in [
+        "BZ-08", "BZ-09", "BZ-10", "BZ-11", "BZ-12", "BZ-14", "BZ-15",
+    ] {
         assert_eq!(
             LIFECYCLE_SCENARIOS
                 .iter()
@@ -2582,6 +2734,8 @@ mod review_regressions {
         bz10_failed_rebuild_cannot_serve_obsolete_certification,
         bz11_unpublished_alternate_does_not_fence_safe_return,
         bz12_missing_first_page_status_does_not_starve_legacy_sale,
+        bz14_active_custody_conflict_behind_cursor_fences_certification,
+        bz15_missing_legacy_world_preserves_delivery_retry_budget,
     );
 }
 
