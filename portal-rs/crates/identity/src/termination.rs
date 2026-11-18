@@ -295,7 +295,6 @@ impl Terminations {
     }
     /// Worker-only operation; retries and concurrent cancellation serialize on the account.
     async fn finalize(&self, account: AccountId) -> Result<bool> {
-        self.enabled()?;
         // Persist the immutable close intent independently of proof availability. Network
         // delivery is an outbox concern outside both account-lock transactions.
         {
@@ -361,9 +360,6 @@ impl Terminations {
     pub async fn run_worker(&self, limit: i64) -> Result<WorkerResult> {
         if !(1..=1000).contains(&limit) {
             return Err(Error::InvalidInput);
-        }
-        if !self.config.enabled {
-            return Ok(WorkerResult::default());
         }
         self.boundary.reconcile(&self.pool, limit).await?;
         let accounts: Vec<AccountId> = sqlx::query_scalar("SELECT account_id FROM account_terminations WHERE cancelled_at IS NULL AND finalized_at IS NULL AND scheduled_for<=now() ORDER BY updated_at,account_id LIMIT $1")

@@ -54,6 +54,15 @@ impl Policy for DatabasePolicy {
             return Ok(false);
         }
         if matches!(stage, Stage::Invite) && kind == Kind::Returning {
+            let covered: bool = sqlx::query_scalar(
+                "SELECT COALESCE(covered_since<=clock_timestamp()-interval '12 months',false)
+                 FROM portal_referral_coverage WHERE id FOR SHARE",
+            )
+            .fetch_one(&mut *conn)
+            .await?;
+            if !covered {
+                return Ok(false);
+            }
             return Ok(sqlx::query_scalar("SELECT last_activity<=clock_timestamp()-interval '12 months' AND created_at<=clock_timestamp()-interval '12 months' FROM referral_activity WHERE account_id=$1 FOR UPDATE")
                 .bind(other).fetch_optional(&mut *conn).await? == Some(true));
         }

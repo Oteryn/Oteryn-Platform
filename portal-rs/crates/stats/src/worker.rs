@@ -189,14 +189,39 @@ impl StatisticsJob {
             sqlx::query("INSERT INTO stats_projection_cursors (family,subject,epoch,version,watermark) VALUES ($1,$2,$3::text::numeric,$4::text::numeric,$5) ON CONFLICT (family,subject) DO UPDATE SET epoch=EXCLUDED.epoch,version=EXCLUDED.version,watermark=EXCLUDED.watermark").bind(family).bind(subject).bind(row.try_get::<String,_>("epoch")?).bind(row.try_get::<String,_>("version")?).bind(observed).execute(&mut *tx).await?;
         }
         tx.commit().await?;
-        self.retention().await?;
         Ok(count)
     }
-    /// One transaction per UTC day, including only samples older than 90 days.
+    /// Runs retention directly for callers of an enabled statistics job.
     pub async fn retention(&self) -> Result<usize, sqlx::Error> {
         if !self.enabled {
             return Ok(0);
         }
+        WorldSampleRetention {
+            pool: self.pool.clone(),
+        }
+        .roll_up()
+        .await
+    }
+}
+
+/// Aggregates and deletes expired raw samples independently of polling.
+#[derive(Debug, Clone)]
+pub struct WorldSampleRetention {
+    pub pool: PgPool,
+}
+impl oteryn_db::outbox::Cleanup for WorldSampleRetention {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move {
+            self.roll_up()
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+    }
+}
+impl WorldSampleRetention {
+    /// One transaction per UTC day, including only samples older than 90 days.
+    pub async fn roll_up(&self) -> Result<usize, sqlx::Error> {
         let mut days = 0;
         loop {
             let mut tx = self.pool.begin().await?;

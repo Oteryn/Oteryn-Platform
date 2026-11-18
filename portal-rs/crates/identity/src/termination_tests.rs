@@ -348,7 +348,6 @@ async fn postgres_unknown_dependencies_and_disabled_flag_deny() -> TestResult {
     let ready = service(&db, Arc::new(BoundaryFixture::default()))?;
     let termination = request(&ready, account).await?;
     db.due(termination.id).await?;
-    assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
     assert_eq!(
         unavailable.run_worker(100).await?,
         WorkerResult {
@@ -357,6 +356,8 @@ async fn postgres_unknown_dependencies_and_disabled_flag_deny() -> TestResult {
         }
     );
     assert_eq!(events(&db).await?, 1);
+    assert_eq!(disabled.run_worker(100).await?.finalized, 1);
+    assert_eq!(events(&db).await?, 2);
     db.close().await
 }
 #[tokio::test]
