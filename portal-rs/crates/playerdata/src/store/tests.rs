@@ -2327,3 +2327,27 @@ async fn pd2_skill_occurrence_requires_removal()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn r10_bank_fee_predecessor() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let authority = TestAuthority::default();
+    let deposit = playerdata::items(&bank(1, None, 0, 100))?;
+    authority.allow(deposit.scope.clone()).await;
+    let store = db.store(&authority);
+    store.ingest(deposit, clock()).await?;
+    // The native fee consumed ten gold. Its entry is the withdrawal's
+    // predecessor even though the fee has no G-10 record.
+    let raw = String::from_utf8(bank(2, Some(&Uuid::now_v7().to_string()), 90, 10))?
+        .replace("DEPOSIT", "WITHDRAW")
+        .replace("CREDIT", "DEBIT")
+        .replace(r#""balance_after":"100""#, r#""balance_after":"80""#);
+    let result = store
+        .ingest(playerdata::items(raw.as_bytes())?, clock())
+        .await;
+    assert!(result.is_ok(), "withdraw after fee: {result:?}");
+    db.close().await?;
+    Ok(())
+}

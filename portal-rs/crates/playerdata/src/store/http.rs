@@ -21,7 +21,7 @@ use tokio::sync::Semaphore;
 /// G-10 purpose (`OTERYN_GAME_JOURNAL`): `journal/records` and `journal/cursor`.
 pub const ITEMS_GROUP: &str = "playerdata-journal-items";
 /// G-11 purpose (`OTERYN_GAME_JOURNAL_PROGRESS`): `progress/record` and `progress/watermark`.
-pub const PROGRESS_GROUP: &str = "playerdata-journal-progress";
+pub use oteryn_internal_api::playerdata::PROGRESS_GROUP;
 pub const RECORDS_PATH: &str = "/internal/v1/playerdata/journal/records";
 pub const CURSOR_PATH: &str = "/internal/v1/playerdata/journal/cursor";
 pub const PROGRESS_RECORD_PATH: &str = "/internal/v1/playerdata/progress/record";

@@ -425,9 +425,16 @@ async fn postgres_cancel_before_delivery_and_after_proof_never_issues_finalize()
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
-    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
     let s = service(&db, b.clone());
-    for (proof, terminal_reject) in [(false, false), (true, false), (false, true)] {
+    for (proof, terminal_reject, delayed) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (true, false, true),
+    ] {
+        recovery.0.store(3, Ordering::SeqCst);
         let account = db.account().await?;
         let (t, intent) = issue(&db, &s, account).await;
         if proof {
@@ -504,6 +511,9 @@ async fn postgres_cancel_before_delivery_and_after_proof_never_issues_finalize()
             result.proof_sha256 = wire::hex(&digest(&body));
         }
         let raw = serde_json::to_vec(&receipt)?;
+        if delayed {
+            recovery.0.store(4, Ordering::SeqCst);
+        }
         b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
             .await?;
 

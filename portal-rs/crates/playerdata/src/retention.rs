@@ -102,6 +102,8 @@ impl Retention {
                 unix_ms: job.try_get::<i64, _>("now_ms")? as u64,
                 uncertainty_ms: 0,
             };
+            let limit = Some(512_i64);
+            let requested_ms = job.try_get("job_ms")?;
             let journal_done = if let Some(character) = character.as_deref() {
                 store
                     .erase_character_cut(
@@ -110,12 +112,13 @@ impl Retention {
                         time,
                         job.try_get::<Option<String>, _>("closed_revision")?
                             .as_deref(),
+                        limit,
+                        requested_ms,
                     )
                     .await
-                    .map(|()| true)
             } else {
                 store
-                    .erase_account_batch(&account, time, Some(512), job.try_get("job_ms")?)
+                    .erase_account_batch(&account, time, limit, requested_ms)
                     .await
             }
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
@@ -126,12 +129,22 @@ impl Retention {
                 .map(uuid::Uuid::parse_str)
                 .transpose()
                 .map_err(|_| sqlx::Error::Protocol("invalid erasure character".into()))?;
-            let limit = character_id.is_none().then_some(512_i64);
-            let items_done =
-                crate::items::store::erase_scope(&mut tx, account_id, character_id, limit).await?;
-            let deaths_done =
-                crate::deaths::storage::erase_scope(&mut tx, account_id, character_id, limit)
-                    .await?;
+            let items_done = crate::items::store::erase_scope(
+                &mut tx,
+                account_id,
+                character_id,
+                limit,
+                Some(requested_ms),
+            )
+            .await?;
+            let deaths_done = crate::deaths::storage::erase_scope(
+                &mut tx,
+                account_id,
+                character_id,
+                limit,
+                requested_ms,
+            )
+            .await?;
             let removed = sqlx::query("DELETE FROM pd_game_logins WHERE ctid IN (SELECT ctid FROM pd_game_logins WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2) LIMIT $3 FOR UPDATE)")
                 .bind(account_id).bind(character_id).bind(limit).execute(&mut *tx).await?.rows_affected();
             if journal_done && items_done && deaths_done && limit.is_none_or(|n| removed < n as u64)
