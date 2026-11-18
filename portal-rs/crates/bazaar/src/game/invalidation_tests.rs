@@ -328,3 +328,193 @@ async fn r10_refused_escrow_bind_unlocks() {
     assert_eq!(count(&db, uid("30"), Command::Unlock).await, 1);
     db.end().await;
 }
+
+#[tokio::test]
+async fn suspended_expired_item_stays_in_escrow() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let listing = uid("20");
+    sqlx::query("UPDATE bazaar_listings SET ends_at=now()-interval '1 second' WHERE id=$1")
+        .bind(listing)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,'fixture moderation hold')")
+        .bind(listing).bind(uid("11")).execute(&db.pool).await.unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(count(&db, listing, Command::Return).await, 0);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn cancelled_deposit_returns_without_sale_policy() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::deposited_item(false).await;
+    sqlx::query("UPDATE bazaar_authority_assets SET cancel_requested=true")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM bazaar_game_projections WHERE kind='POLICY'")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(count(&db, uid("20"), Command::Return).await, 1);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn invalidation_publishes_committed_escrow_bind() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = locked_character_fixture(false).await;
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, uid("30"), Command::Bind).await;
+    let transfer = id(text(&bind.value, "transfer_operation_id").unwrap()).unwrap();
+    let facts = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"2","transfer_operation_id":"{transfer}","transfer_binding_digest":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        text(&bind.value, "transfer_binding_digest").unwrap()
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    committed_fact(db.runtime.authority(), &mut tx, &bind, &facts, now).await;
+    tx.commit().await.unwrap();
+    approve(&db, uid("30")).await;
+    db.runtime.tick().await.unwrap();
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM character_commands WHERE id=$1)"
+        )
+        .bind(transfer)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+    );
+    db.end().await;
+}
+
+#[tokio::test]
+async fn stale_return_bind_uses_corrected_revision() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = locked_character_fixture(true).await;
+    sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+        .bind(uid("30"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, uid("30"), Command::Bind).await;
+    assert_eq!(
+        text(&bind.value, "purpose").unwrap(),
+        "BAZAAR_ESCROW_RETURN"
+    );
+    reject(&db, &bind, "CHAR_CMD_BAZAAR_STALE_REVISION").await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let escrow:Uuid=sqlx::query_scalar("SELECT operation_id FROM bazaar_current_transfers WHERE listing_id=$1 AND purpose='BAZAAR_LISTING_ESCROW'").bind(uid("30")).fetch_one(&mut *tx).await.unwrap();
+    character_status(&db, &mut tx, "locked", escrow, ("3", "3"), now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let new = newest_intent(&db, uid("30"), Command::Bind).await;
+    assert_ne!(
+        bind.value.get("operation_id"),
+        new.value.get("operation_id")
+    );
+    assert_eq!(text(&new.value, "expected_lock_revision").unwrap(), "3");
+    db.end().await;
+}
+
+#[tokio::test]
+async fn admitted_lock_survives_key_retirement() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = delivered_character_sale("coins").await;
+    let keys = &mut std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .snapshot_keys;
+    let (kid, key) = keys.pop().unwrap();
+    keys.push((
+        "replacement".into(),
+        ed25519_dalek::SigningKey::from_bytes(&[42; 32]).verifying_key(),
+    ));
+    sqlx::query(
+        "INSERT INTO bazaar_authority_snapshot_keys(kid,public_key,revoked) VALUES($1,$2,true)",
+    )
+    .bind(kid)
+    .bind(key.as_bytes().as_slice())
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(count(&db, uid("30"), Command::Unlock).await, 0);
+    db.runtime.tick().await.unwrap();
+    assert_eq!(count(&db, uid("30"), Command::Unlock).await, 1);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn refused_item_deposit_closes_draft() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let listing = uid("70");
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) SELECT $1,owner,kind,form,currency,price,accept_offers,ends_at FROM bazaar_listings WHERE id=$2").bind(listing).bind(uid("20")).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) SELECT $1,$1,world_id,seller_character_id,$2,expected_revision,session_hash,quantity,publication_consent,'refused' FROM bazaar_authority_assets WHERE listing_id=$3").bind(listing).bind(uid("71")).bind(uid("20")).execute(&db.pool).await.unwrap();
+    let intent = PreparedIntent::parse(
+        &vector("escrow_intent")
+            .replace(&uid("20").to_string(), &listing.to_string())
+            .replace(&uid("22").to_string(), &uid("71").to_string())
+            .replace(&uid("2").to_string(), &uid("72").to_string())
+            .replace("0000000000a1", "0000000000b1")
+            .replace(r#""source_revision":"18""#, r#""source_revision":"110""#),
+    )
+    .unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    store_intent(&mut tx, &intent).await;
+    tx.commit().await.unwrap();
+    reject(&db, &intent, "CHAR_CMD_BAZAAR_STALE_REVISION").await;
+    db.runtime.tick().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, crate::State>("SELECT state FROM bazaar_listings WHERE id=$1")
+            .bind(listing)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        crate::State::Cancelled
+    );
+    db.end().await;
+}
+
+#[tokio::test]
+async fn coin_bid_rejects_foreign_destination() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let account = uid("13");
+    use crate::Reservations;
+    CoinReservations {
+        authority: db.runtime.authority().clone(),
+    }
+    .lock_accounts(&mut tx, &[account])
+    .await
+    .unwrap();
+    let op = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,10000)",
+    )
+    .bind(op)
+    .bind(account)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    oteryn_wallet::credit_in(&mut tx, op, account, 10000)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert!(matches!(
+        db.runtime
+            .bid(account, uid("20"), 10000, uid("21"), Uuid::now_v7())
+            .await,
+        Err(Error::Denied)
+    ));
+    db.end().await;
+}
