@@ -26,7 +26,7 @@ is disabled. Also archives the round 15 packet after PR #1948 merged.
 ## Acceptance criteria
 
 - [x] Each confirmed finding has a fix with a regression test through the real caller
-- [x] Each pushed fix was reviewed read-only before integration
+- [ ] Each pushed fix was reviewed read-only before integration
 - [ ] Portal RS CI green on the PR head
 
 ## Ownership
@@ -116,6 +116,7 @@ checkpoint_version: 1
 updated_at: 2026-11-18T11:00:00Z
 head: pending
 branch: claude/happy-davinci-ijz3wy-fx
+pr: pending
 status: implementing
 terminal_pr_policy: archive_pending
 context_routes: []
@@ -255,7 +256,7 @@ validation:
     evidence: integrated tree
   - command: cargo test per touched crate with PostgreSQL 18
     result: PASS
-    evidence: local PostgreSQL 18 on the integrated tree
+    evidence: local PostgreSQL 18 on the integrated tree - bazaar 214, playerdata 205, characters 121, identity 205, store 144, community 196, support 103, minigames 77, wallet 40, stats 60, db 14, oteryn-portal 251; 0 failed, 0 ignored
   - command: Portal RS CI on the PR head
     result: NOT_RUN
     evidence: full suite runs in CI shards
