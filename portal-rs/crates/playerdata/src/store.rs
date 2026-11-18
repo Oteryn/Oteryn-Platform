@@ -24,6 +24,8 @@ pub mod http;
 #[cfg(test)]
 mod tests;
 
+const ITEMS_FUTURE_ALLOWANCE_MS: u64 = 30_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     Invalid,
@@ -452,7 +454,12 @@ impl Store {
             return Err(Error::Unavailable);
         };
         let now = time.now(r.progress)?;
-        if r.occurred_ms > now {
+        let latest_occurrence = if r.progress {
+            now
+        } else {
+            time.unix_ms + ITEMS_FUTURE_ALLOWANCE_MS
+        };
+        if r.occurred_ms > latest_occurrence {
             return Err(Error::Invalid);
         };
         let lease = self.authority.acquire(&r.scope).await?;
