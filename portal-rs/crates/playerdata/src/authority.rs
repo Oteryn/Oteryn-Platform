@@ -124,21 +124,34 @@ async fn account(tx: &mut PgConnection, account: Uuid) -> Result<()> {
 
 /// The account's current projection epoch, from a valid snapshot only.
 pub async fn account_epoch(tx: &mut PgConnection, account: Uuid) -> Result<u64> {
-    let (highest, source) = live_feed(tx).await?;
+    let feed = live_feed(tx).await?;
+    account_epoch_with_feed(tx, account, &feed).await
+}
+
+async fn account_epoch_with_feed(
+    tx: &mut PgConnection,
+    account: Uuid,
+    feed: &LiveFeed,
+) -> Result<u64> {
     let row = sqlx::query("SELECT projection_epoch,invalid,source_authority FROM account_character_snapshots WHERE account_id=$1 FOR SHARE")
         .bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
     let epoch: String = row.try_get("projection_epoch")?;
     if row.try_get::<bool, _>("invalid")?
-        || epoch != highest
-        || row.try_get::<String, _>("source_authority")? != source
+        || epoch != feed.highest
+        || row.try_get::<String, _>("source_authority")? != feed.source
     {
         return Err(Error::Unavailable);
     }
     counter(&epoch)
 }
 
+struct LiveFeed {
+    highest: String,
+    source: String,
+}
+
 /// Locks the authoritative LCFA feed before any ownership snapshot is read.
-async fn live_feed(tx: &mut PgConnection) -> Result<(String, String)> {
+async fn live_feed(tx: &mut PgConnection) -> Result<LiveFeed> {
     // LCFA serializes epoch changes and snapshot replacement on this singleton.
     // Keep its shared lock before reading any account or character snapshot.
     let feed = sqlx::query("SELECT highest_epoch,watermark_epoch,source_authority,complete_through FROM account_character_feed WHERE id=1 FOR SHARE")
@@ -162,10 +175,10 @@ async fn live_feed(tx: &mut PgConnection) -> Result<(String, String)> {
     {
         return Err(Error::Unavailable);
     }
-    Ok((
-        highest.ok_or(Error::Unavailable)?,
-        source.ok_or(Error::Unavailable)?,
-    ))
+    Ok(LiveFeed {
+        highest: highest.ok_or(Error::Unavailable)?,
+        source: source.ok_or(Error::Unavailable)?,
+    })
 }
 
 /// A committed transfer receipt as (from account, cut); a rejection is `None`.
@@ -251,7 +264,16 @@ async fn initial_cut(tx: &mut PgConnection, character: Uuid) -> Result<Ownership
 /// Proves who owns `character` now. Pending or ambiguous evidence denies
 /// (`Unavailable`). Locks the character's commands and projection rows shared.
 pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) -> Result<Ownership> {
-    let (_, source) = live_feed(tx).await?;
+    let feed = live_feed(tx).await?;
+    ownership_with_feed(tx, account, character, &feed).await
+}
+
+async fn ownership_with_feed(
+    tx: &mut PgConnection,
+    account: Uuid,
+    character: Uuid,
+    feed: &LiveFeed,
+) -> Result<Ownership> {
     let rows = sqlx::query("SELECT state,receipt_json FROM character_commands WHERE command='TransferCharacterOwnership' AND binding_json::jsonb->>'character_id'=$1 ORDER BY source_revision LIMIT $2 FOR SHARE")
         .bind(character.to_string())
         .bind(MAX_TRANSFERS + 1)
@@ -292,7 +314,7 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
         return Err(Error::Unavailable);
     }
     let owner: Uuid = row.try_get("account_id")?;
-    account_epoch(tx, owner).await?;
+    account_epoch_with_feed(tx, owner, feed).await?;
     let world: Uuid = row.try_get("world_id")?;
     let epoch = counter(&row.try_get::<String, _>("projection_epoch")?)?;
     let revision = counter(&row.try_get::<String, _>("projection_revision")?)?;
@@ -319,7 +341,7 @@ pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) ->
              FOR SHARE",
         )
         .bind(seller.account)
-        .bind(source)
+        .bind(&feed.source)
         .bind(row.try_get::<String, _>("projection_epoch")?)
         .fetch_optional(&mut *tx)
         .await?;
@@ -424,10 +446,18 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     {
         return Ok(Admission::Deleted);
     }
+    let cr = opt_counter(scope.character_revision.as_deref()).map_err(|_| Error::Conflict)?;
+    if !items
+        && cr < cut.character_revision
+        && crate::store::character_deleted(tx, &scope.account, character, Some(cr)).await?
+    {
+        // A closed ownership period remains transferred after reacquisition.
+        // First deliveries consume their revision; previously accepted replays conflict.
+        return Ok(Admission::Transferred);
+    }
     if opt_uuid(scope.world.as_deref())? != cut.world {
         return Err(Error::Conflict);
     }
-    let cr = opt_counter(scope.character_revision.as_deref()).map_err(|_| Error::Conflict)?;
     let pr = scope.projection_revision.as_deref();
     let exact = if items {
         cr == cut.character_revision

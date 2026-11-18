@@ -737,6 +737,26 @@ impl Store {
             // Records become visible only under a proven baseline: before it
             // nothing was promoted, so the first baseline promotes from zero.
             if w.baseline {
+                let superseded_expires = now.saturating_add(7 * 86400000) as i64;
+                if !previous_baseline {
+                    let prefix = tuple(vec![Some(&scope.authority), Some(&scope.account)]);
+                    // A completed baseline replaces the older epochs of this family.
+                    // Keep content-free refusal and erasure records on their own clocks.
+                    sqlx::query(
+                        "UPDATE pd_records r SET expires_ms=LEAST(r.expires_ms,$4)
+                         FROM pd_streams s WHERE r.stream_key=s.stream_key AND r.payload IS NOT NULL
+                         AND s.family=$1 AND starts_with(s.stream_key,$2)
+                         AND CASE WHEN s.progress
+                             THEN split_part(split_part(s.stream_key,'|',3),':',2)::numeric < $3::numeric
+                             ELSE false END",
+                    )
+                    .bind(&scope.family)
+                    .bind(format!("{prefix}|"))
+                    .bind(&w.epoch)
+                    .bind(superseded_expires)
+                    .execute(&mut *tx)
+                    .await?;
+                }
                 let after = if previous_baseline {
                     decimal_row(&row, "published_through")?
                 } else {
@@ -752,7 +772,7 @@ impl Store {
                     // Skull and premium_end carry their changing source revision in
                     // scope field 3: match the stable fields and ownership instead.
                     sqlx::query("UPDATE pd_records r SET expires_ms=LEAST(r.expires_ms,$4) WHERE r.stream_key=$1 AND r.scope_key<>'' AND EXISTS(SELECT 1 FROM pd_records n WHERE n.stream_key=r.stream_key AND n.entity_key=r.entity_key AND n.source_revision>r.source_revision AND n.source_revision>$2::numeric AND n.source_revision<=$3::numeric AND ((NOT $5 AND n.scope_key=r.scope_key) OR ($5 AND split_part(n.scope_key,'|',1)=split_part(r.scope_key,'|',1) AND split_part(n.scope_key,'|',2)=split_part(r.scope_key,'|',2) AND split_part(n.scope_key,'|',4)=split_part(r.scope_key,'|',4) AND split_part(n.scope_key,'|',5)=split_part(r.scope_key,'|',5) AND n.ownership_revision IS NOT DISTINCT FROM r.ownership_revision)))")
-                        .bind(&key).bind(after.to_string()).bind(w.through.to_string()).bind(now.saturating_add(7*86400000) as i64).bind(matches!(scope.family.as_str(), "skull" | "premium_end")).execute(&mut *tx).await?;
+                        .bind(&key).bind(after.to_string()).bind(w.through.to_string()).bind(superseded_expires).bind(matches!(scope.family.as_str(), "skull" | "premium_end")).execute(&mut *tx).await?;
                 }
                 for consumer in &self.consumers {
                     consumer

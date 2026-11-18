@@ -113,6 +113,9 @@ pub fn router_with(
 
 /// The login read model fed by an enabled G-11 ingest.
 pub fn login_promoter(pool: PgPool, settings: &Settings) -> LoginPromoter {
+    let authority = JournalLoginAuthority {
+        source: settings.sources.progress.clone(),
+    };
     LoginPromoter {
         logins: Logins {
             pool,
@@ -120,10 +123,9 @@ pub fn login_promoter(pool: PgPool, settings: &Settings) -> LoginPromoter {
                 progress_ingest_enabled: settings.progress_ingest,
                 ..logins::Flags::default()
             },
-            authority: Arc::new(JournalLoginAuthority {
-                source: settings.sources.progress.clone(),
-            }),
+            authority: Arc::new(authority.clone()),
         },
+        authority,
     }
 }
 
