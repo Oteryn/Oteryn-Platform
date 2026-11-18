@@ -105,8 +105,10 @@ with the diff and step 3 as the checklist.
 
 - **Batch review.** One review is one round of parallel lens runs over the
   same head. Each run is told to report every finding, with no cap on lines
-  or count, and every other instance of the same class in the diff.
-- **Read `references/batch-review.md` first.** It covers the lenses, chunking
+  or count, and every other instance of the same class in the diff. A PR
+  that lands several changes together, or a chunked diff, also gets the two
+  holistic whole-diff runs (`whole-integration`, `whole-flows`).
+- **Read `references/batch-review.md` first.** It covers the lenses, holistic runs, chunking
   of big diffs, the prompt, the merge, verify and sweep steps, the single
   batch fix and the stop rule. Read it before you start a review or delegate
   one.

@@ -49,6 +49,23 @@ Choose lenses by diff size and by what the diff touches:
   400–500 lines by file group (one crate or module per chunk). Each chunk
   gets the lenses that fit it. Every chunk still gets the whole diff as
   read-only context, so cross-file defects are not lost.
+- **Holistic runs (owner 2026-11-18):** every PR that lands several changes
+  together, and every diff split into chunks, also gets two runs over the
+  whole diff as one unit in the same round, reporting findings anywhere in
+  it:
+  - `whole-integration`: how the parts interact on the integrated head:
+    shared state, duplicate or conflicting registrations, ordering of
+    handlers and migrations, a migration against another part's code,
+    contracts and fixtures against the code, generated files against their
+    sources.
+  - `whole-flows`: each user or money flow the diff changes, end to end
+    (request, handler, service, PostgreSQL and back, plus the Game boundary
+    where it is touched), with the abuse cases: two requests at once, a
+    retry or replayed request, a crash during a write, values at their
+    limits.
+  Chunk runs alone are not a covered review of such a PR. The delta review
+  reruns `whole-integration` over the fix commits together with the code
+  they touch.
 
 Where the runs come from:
 
