@@ -150,7 +150,7 @@ pub async fn submit(
     actor: Option<Uuid>,
     character: &str,
     lang: &str,
-    recent: bool,
+    recent: Option<SudoProof>,
     fields: Vec<(String, String)>,
 ) -> Response {
     submit_with(
@@ -168,7 +168,7 @@ pub(super) async fn submit_with(
     actor: Option<Uuid>,
     character: &str,
     lang: &str,
-    recent: bool,
+    recent: Option<SudoProof>,
     fields: Vec<(String, String)>,
 ) -> Response {
     if !services.settings.enabled {
@@ -179,11 +179,14 @@ pub(super) async fn submit_with(
     }
     let result = async {
         let actor = actor.ok_or(Error::Denied)?;
-        if !recent {
+        let proof = recent.ok_or(Error::Denied)?;
+        if proof.account != actor {
             return Err(Error::Denied);
         }
         let request = parse_form(character, fields)?;
-        let command = services.request(actor, request).await?;
+        let command = services
+            .request_in_session(actor, request, Some(&proof))
+            .await?;
         Ok(command.operation_id)
     }
     .await;
@@ -241,12 +244,41 @@ fn parse_form(character: &str, fields: Vec<(String, String)>) -> Result<Request,
         action,
     })
 }
+pub struct SudoProof {
+    id_hash: Vec<u8>,
+    account: Uuid,
+}
+
+impl std::fmt::Debug for SudoProof {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SudoProof").finish_non_exhaustive()
+    }
+}
+
+impl SudoProof {
+    pub(super) async fn revalidate(&self, tx: &mut PgConnection) -> Result<(), Error> {
+        sqlx::query(
+            "SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2
+            AND sudo_until>clock_timestamp() AND idle_expires_at>clock_timestamp()
+            AND absolute_expires_at>clock_timestamp() FOR SHARE",
+        )
+        .bind(&self.id_hash)
+        .bind(self.account)
+        .fetch_optional(tx)
+        .await?
+        .ok_or(Error::Denied)?;
+        Ok(())
+    }
+}
+
 /// Checks the live session selected by web, including idle/absolute expiry and
 /// sudo. Duplicate cookies and mismatched account state fail closed.
-pub async fn recent(pool: &PgPool, actor: Option<Uuid>, headers: &axum::http::HeaderMap) -> bool {
-    let Some(actor) = actor else {
-        return false;
-    };
+pub async fn recent(
+    pool: &PgPool,
+    actor: Option<Uuid>,
+    headers: &axum::http::HeaderMap,
+) -> Option<SudoProof> {
+    let actor = actor?;
     let mut cookies = headers
         .get_all(header::COOKIE)
         .iter()
@@ -254,18 +286,29 @@ pub async fn recent(pool: &PgPool, actor: Option<Uuid>, headers: &axum::http::He
         .flat_map(|h| h.split(';'))
         .filter_map(|s| s.trim().split_once('='))
         .filter(|(k, _)| *k == "__Host-oteryn_session");
-    let Some((_, token)) = cookies.next() else {
-        return false;
-    };
+    let (_, token) = cookies.next()?;
     if cookies.next().is_some()
         || token.len() != 64
         || !token
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
-        return false;
+        return None;
     }
-    sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND sudo_until>now() AND idle_expires_at>now() AND absolute_expires_at>now())").bind(Sha256::digest(token.as_bytes()).to_vec()).bind(actor).fetch_one(pool).await.unwrap_or(false)
+    let id_hash = Sha256::digest(token.as_bytes()).to_vec();
+    sqlx::query(
+        "SELECT 1 FROM web_sessions WHERE id_hash=$1 AND account_id=$2
+        AND sudo_until>now() AND idle_expires_at>now() AND absolute_expires_at>now()",
+    )
+    .bind(&id_hash)
+    .bind(actor)
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+    Some(SudoProof {
+        id_hash,
+        account: actor,
+    })
 }
 pub fn configured() -> Settings {
     let yes = |key| std::env::var(key).as_deref() == Ok("true");

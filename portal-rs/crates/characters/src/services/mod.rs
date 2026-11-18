@@ -6,7 +6,7 @@ mod tests;
 mod transport;
 pub use crate::commands::services::{Action, Intent};
 use crate::commands::{self, Error, services as wire};
-pub use browser::{show, submit};
+pub use browser::{SudoProof, show, submit};
 use oteryn_wallet::{AccountStateReader, AuditHook, Ledger, TransferBlockCheck, WalletFlags};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
@@ -124,6 +124,15 @@ impl Services {
         actor: Uuid,
         request: Request,
     ) -> Result<commands::CommandStatus, Error> {
+        self.request_in_session(actor, request, None).await
+    }
+
+    async fn request_in_session(
+        &self,
+        actor: Uuid,
+        request: Request,
+        proof: Option<&SudoProof>,
+    ) -> Result<commands::CommandStatus, Error> {
         if !self.settings.permits(&request.action) {
             return Err(Error::Unavailable);
         }
@@ -156,6 +165,7 @@ impl Services {
         }
         if let Some(row)=sqlx::query("SELECT o.account_id,o.character_id,o.action_json,c.id,c.command,c.intent_json,c.receipt_json FROM character_service_orders o JOIN character_commands c ON c.id=o.operation_id WHERE o.request_id=$1").bind(request.request_id).fetch_optional(&mut *tx).await? {
             if row.try_get::<Uuid,_>("account_id")?!=actor || row.try_get::<Uuid,_>("character_id")?!=request.character_id || row.try_get::<String,_>("action_json")?!=binding { return Err(Error::Conflict); }
+            if let Some(proof) = proof { proof.revalidate(&mut tx).await?; }
             return Ok(commands::CommandStatus{operation_id:row.try_get("id")?,command:row.try_get("command")?,intent_json:row.try_get("intent_json")?,receipt_json:row.try_get("receipt_json")?});
         }
         // Publication precedes existing recovery credits and wallet effects on
@@ -228,6 +238,11 @@ impl Services {
             .bind(command.operation_id).bind(actor).bind(request.character_id).bind(request.request_id).bind(binding).bind(price.as_ref().map(|p|&p.product_id)).bind(price.as_ref().map(|p|p.version)).bind(price.as_ref().map(|p|p.coins)).bind(reservation).bind(Uuid::now_v7()).bind(if reservation.is_some(){"RESERVED"}else{"FREE"}).bind(credit).bind(Sha256::digest(command.intent_json.as_bytes()).to_vec()).execute(&mut *tx).await?;
         if let Some(credit) = credit {
             sqlx::query("UPDATE character_service_orders SET credit_used_by=$2,updated_at=now() WHERE operation_id=$1").bind(credit).bind(command.operation_id).execute(&mut *tx).await?;
+        }
+        // Check after all issuance waits. Revocation rolls back the pending
+        // wallet and command writes, and the session lock lasts through commit.
+        if let Some(proof) = proof {
+            proof.revalidate(&mut tx).await?;
         }
         tx.commit().await?;
         Ok(command)
