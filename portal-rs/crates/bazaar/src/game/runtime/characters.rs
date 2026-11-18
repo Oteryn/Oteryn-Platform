@@ -484,8 +484,15 @@ pub(crate) async fn verify_unlock(
         id(text(&receipt, "to_account_id")?)?
     } else if let Some((_, receipt, _, _)) = proof(a, db, listing, "BAZAAR_ESCROW_RETURN").await? {
         id(text(&receipt, "to_account_id")?)?
-    } else if never_transferred(db, listing).await? {
-        // Only the approved cancellation can publish this unlock. Receipt
+    } else {
+        let refused_escrow = a
+            .bind_refused(db, listing, "BAZAAR_LISTING_ESCROW")
+            .await?
+            .is_some();
+        if !refused_escrow && !never_transferred(db, listing).await? {
+            return Err(Error::Unavailable);
+        }
+        // A refused escrow bind or approved invalidation authorizes cleanup. Receipt
         // admission follows its durable dispatch even if staff revise the hold.
         let authorized = if current.is_some() {
             sqlx::query_scalar(
@@ -495,7 +502,7 @@ pub(crate) async fn verify_unlock(
             .fetch_one(&mut *db)
             .await?
         } else {
-            super::invalidation::approved(db, listing).await?
+            refused_escrow || super::invalidation::approved(db, listing).await?
         };
         if !authorized {
             return Err(Error::Denied);
@@ -510,8 +517,6 @@ pub(crate) async fn verify_unlock(
         same(facts, "lock_id", &i.value, "lock_id")?;
         same(facts, "lock_revision", &i.value, "expected_lock_revision")?;
         id(text(&lock.value, "seller_account_id")?)?
-    } else {
-        return Err(Error::Unavailable);
     };
     if let Some(facts) = current
         && id(text(facts, "current_account_id")?)? != owner

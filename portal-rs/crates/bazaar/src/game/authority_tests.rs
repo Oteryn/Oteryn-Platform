@@ -686,6 +686,7 @@ async fn initial_null_operation_escrow_ready() {
 #[derive(PartialEq)]
 enum ItemScenario {
     Wallet,
+    HeldSale,
     NullResync,
     NullEscrow,
 }
@@ -765,7 +766,10 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemS
         .replace("DELIVERED", "ESCROWED")
         .replace("\"custody_revision\":\"2\"", "\"custody_revision\":\"1\"")
         .replace("000000000004", "000000000002");
-    let status = if scenario != ItemScenario::Wallet {
+    let status = if matches!(
+        scenario,
+        ItemScenario::NullResync | ItemScenario::NullEscrow
+    ) {
         status.replace(&format!("\"{}\"", uid("2")), "null")
     } else {
         status
@@ -814,7 +818,10 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemS
         return;
     }
     assert!(a.escrow_ready(&mut tx, &listing).await.unwrap());
-    if scenario != ItemScenario::Wallet {
+    if matches!(
+        scenario,
+        ItemScenario::NullResync | ItemScenario::NullEscrow
+    ) {
         return;
     }
     sqlx::query("SAVEPOINT moderation_hold")
@@ -906,6 +913,18 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemS
             .execute(&mut *tx)
             .await
             .unwrap();
+        if scenario == ItemScenario::HeldSale {
+            crate::moderation::execute_staff(
+                &mut tx,
+                uid("11"),
+                &crate::moderation::StaffCommand::Suspend {
+                    listing: listing.id,
+                    reason: "staff suspended sale".into(),
+                },
+            )
+            .await
+            .unwrap();
+        }
         let return_wire = include_str!("fixtures/return.json")
             .replace(
                 &"1".repeat(64),
@@ -5368,4 +5387,32 @@ async fn r9_restored_escrow_staging() {
     );
     tx.rollback().await.unwrap();
     db.end().await;
+}
+
+#[tokio::test]
+async fn r10_suspend_settled_character() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = settling_character_fixture("coins").await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let result = crate::moderation::execute_staff(
+        &mut tx,
+        uid("11"),
+        &crate::moderation::StaffCommand::Suspend {
+            listing: uid("30"),
+            reason: "staff suspended sale".into(),
+        },
+    )
+    .await;
+    assert!(
+        matches!(result, Err(crate::Error::IllegalTransition)),
+        "suspension stranded settled sale"
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r10_held_item_refusal_refunds() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    item_wallet_scenario(true, false, ItemScenario::HeldSale).await;
 }
