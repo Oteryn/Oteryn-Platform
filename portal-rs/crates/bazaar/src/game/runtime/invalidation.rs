@@ -18,6 +18,32 @@ pub(super) async fn approved(db: &mut PgConnection, listing: Uuid) -> Result<boo
 }
 
 impl Runtime {
+    pub(super) async fn release_legacy_matched_holds(&self) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        crate::locking::listing_gate(&mut tx).await?;
+        // The hold fence prevents a listing from becoming Matched while held.
+        // These holds predate the refusal of staff suspension on Matched rows.
+        // Retire the hold and audit its exact revision without touching funding.
+        sqlx::query(
+            "WITH matched AS (
+                SELECT l.id,h.revision FROM bazaar_listings l
+                JOIN bazaar_moderation_holds h ON h.listing_id=l.id
+                WHERE l.state='matched' ORDER BY l.id LIMIT 24 FOR UPDATE OF l SKIP LOCKED
+             ), released AS (
+                DELETE FROM bazaar_moderation_holds h USING matched m
+                WHERE h.listing_id=m.id AND h.revision=m.revision
+                RETURNING h.listing_id,to_jsonb(h) AS hold
+             )
+             INSERT INTO bazaar_audit(relation_name,row_id,before_row,after_row)
+             SELECT 'bazaar_moderation_holds',listing_id,hold,
+                    jsonb_build_object('action','release_legacy_matched_hold') FROM released",
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub(super) async fn tick_invalidations(&self) -> Result<(), Error> {
         let queue = "moderation-invalidations";
         let cursor = crate::scheduling::cursor(&self.pool, queue).await?;
@@ -151,13 +177,14 @@ impl Runtime {
         .bind(request)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(
-            "UPDATE bazaar_listings SET state='cancelled',leader=NULL,leader_max=NULL,
-             reservation=NULL,updated_at=now() WHERE id=$1",
+        crate::lifecycle::write_listing_with(
+            &mut tx,
+            id,
+            crate::lifecycle::Event::Listing(State::Cancelled),
+            crate::lifecycle::ListingChange::Invalidate,
         )
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(core_error)?;
         sqlx::query("UPDATE bazaar_offers SET state='expired',updated_at=now() WHERE listing_id=$1 AND state='pending'")
             .bind(id).execute(&mut *tx).await?;
         tx.commit().await?;

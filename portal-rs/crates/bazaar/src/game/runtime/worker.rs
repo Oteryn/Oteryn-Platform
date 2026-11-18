@@ -3,12 +3,23 @@ use super::*;
 use crate::{Evidence, Reservations, Settlement, State};
 use sqlx::Acquire;
 use std::{future::Future, pin::Pin};
+enum RefusedCharacterCustody {
+    RejectedClosed,
+    UnlockedClosed,
+    SellerLock,
+    RejectedBind { bind: Uuid, transfer: Uuid },
+    Escrowed,
+    UnpublishedBind { bind: Uuid, transfer: Uuid },
+    Fenced,
+}
+
 impl oteryn_db::outbox::Cleanup for Runtime {
     fn clean(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(async move {
-            self.tick()
-                .await
-                .map_err(|_| "bazaar authority reconciliation failed".to_owned())
+            self.tick().await.map_err(|error| match error {
+                Error::ResyncEvidenceChanged => error.to_string(),
+                _ => "bazaar authority reconciliation failed".to_owned(),
+            })
         })
     }
 }
@@ -17,15 +28,31 @@ impl Runtime {
         self.config.current()?;
         let mut resync = self.pool.begin().await?;
         crate::locking::listing_gate(&mut resync).await?;
-        match self
+        let resync_problem = match self
             .authority()
-            .finish_resync(&mut resync, &self.config.worlds)
+            .finish_resync(&mut resync, &self.authority().config.worlds)
             .await
         {
-            Ok(()) => resync.commit().await?,
+            // Unavailable can follow a valid listing checkpoint when the
+            // operation scan still needs current evidence.
+            Ok(()) | Err(Error::DeliveryEvidencePending | Error::Unavailable) => {
+                resync.commit().await?;
+                None
+            }
+            Err(
+                problem @ (Error::CustodyDrift
+                | Error::ResyncWorldConfiguration
+                | Error::ResyncEvidenceChanged),
+            ) => {
+                resync.commit().await?;
+                Some(problem)
+            }
             Err(Error::Database(e)) => return Err(Error::Database(e)),
-            Err(_) => resync.rollback().await?,
-        }
+            Err(_) => {
+                resync.rollback().await?;
+                None
+            }
+        };
         // Reconcile legacy dispositions in bounded, independently committed batches.
         let mut reconciliation = self.pool.begin().await?;
         self.authority().lock(&mut reconciliation).await?;
@@ -37,6 +64,7 @@ impl Runtime {
                 .await?;
         }
         reconciliation.commit().await?;
+        self.release_legacy_matched_holds().await?;
         self.tick_invalidations().await?;
         self.tick_gold_bids().await?;
         let ids = listing_batch(&self.pool, self.config.fence.recovery_generation).await?;
@@ -48,7 +76,7 @@ impl Runtime {
                 Err(_) => {}
             }
         }
-        Ok(())
+        resync_problem.map_or(Ok(()), Err)
     }
     pub(super) async fn stage_deposit(
         &self,
@@ -153,13 +181,22 @@ impl Runtime {
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
-        if matches!(l.state, State::Draft | State::Active)
+        let held = matches!(l.state, State::Draft | State::Active)
             && sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
             )
             .bind(id)
             .fetch_one(&mut *tx)
-            .await?
+            .await?;
+        if crate::lifecycle::transition(
+            crate::lifecycle::Current::Listing(l.state),
+            crate::lifecycle::Event::Advance,
+            crate::lifecycle::Context {
+                held,
+                ..Default::default()
+            },
+        )
+        .is_err()
         {
             return Ok(());
         }
@@ -167,12 +204,30 @@ impl Runtime {
         parties.extend(l.leader);
         crate::locking::accounts(&mut tx, &parties).await?;
         self.authority().lock(&mut tx).await?;
+        if l.kind == Kind::Item
+            && l.state == State::AwaitingDelivery
+            && self
+                .authority()
+                .has_delivery_drift(&mut tx, Some(id))
+                .await?
+        {
+            return Err(Error::CustodyDrift);
+        }
         let row = sqlx::query(
             "SELECT session_hash,cancel_requested,refusal_code FROM bazaar_authority_assets WHERE listing_id=$1",
         )
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
+        let refusal: Option<String> = row.try_get("refusal_code")?;
+        if matches!(l.state, State::Draft | State::Cancelled)
+            && l.kind == Kind::Character
+            && refusal.is_some()
+        {
+            self.recover_refused_character(&mut tx, &l).await?;
+            tx.commit().await?;
+            return Ok(());
+        }
         let cancelling = row.try_get::<bool, _>("cancel_requested")?;
         if l.state == State::Active && !cancelling {
             let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
@@ -187,7 +242,17 @@ impl Runtime {
             .try_into()
             .map_err(|_| Error::Invalid)?;
         // A definite refusal is visible as refusal, never guessed from absence/timeout.
-        let refusals:Vec<Uuid>=sqlx::query_scalar("SELECT latest.operation_id FROM (VALUES ('LockBazaarCharacter'),('BindBazaarCharacterTransfer'),('UnlockBazaarCharacter'),('EscrowBazaarItem'),('DeliverBazaarItem'),('ReturnBazaarItem'),('PayoutBazaarGold')) commands(command) CROSS JOIN LATERAL (SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command=commands.command ORDER BY source_revision DESC LIMIT 1) latest").bind(id).fetch_all(&mut *tx).await?;
+        let mut refusals:Vec<Uuid>=sqlx::query_scalar("SELECT latest.operation_id FROM (VALUES ('LockBazaarCharacter'),('BindBazaarCharacterTransfer'),('UnlockBazaarCharacter'),('EscrowBazaarItem'),('ReturnBazaarItem'),('PayoutBazaarGold')) commands(command) CROSS JOIN LATERAL (SELECT o.operation_id FROM bazaar_game_outbox o WHERE o.listing_id=$1 AND o.command=commands.command AND (EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id) OR EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id) OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)) ORDER BY o.source_revision DESC LIMIT 1) latest").bind(id).fetch_all(&mut *tx).await?;
+        if l.kind == Kind::Item
+            && l.state == State::AwaitingDelivery
+            && let Some(sale) = self.authority().delivery_sale_id(&mut tx, id).await?
+            && let Some(operation) = self
+                .authority()
+                .sale_delivery_operation(&mut tx, id, sale)
+                .await?
+        {
+            refusals.push(operation);
+        }
         for operation in refusals {
             if let Some((intent, receipt)) = self.authority().retained(&mut tx, operation).await?
                 && !receipt.committed
@@ -212,16 +277,14 @@ impl Runtime {
                 .bind(text(&receipt.value, "result_code")?)
                 .execute(&mut *tx)
                 .await?;
-                if receipt.command == Command::Escrow
-                    && l.kind == Kind::Item
-                    && l.state == State::Draft
-                {
-                    sqlx::query(
-                        "UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1",
-                    )
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
+                if l.state == State::Draft {
+                    match l.kind {
+                        Kind::Item if receipt.command == Command::Escrow => {
+                            self.cancel_listing(&mut tx, id).await?;
+                        }
+                        Kind::Character => self.recover_refused_character(&mut tx, &l).await?,
+                        Kind::Item => {}
+                    }
                 }
                 if receipt.command == Command::Deliver && l.state == State::AwaitingDelivery {
                     self.compensate_delivery(&mut tx, &l).await?;
@@ -231,25 +294,6 @@ impl Runtime {
                     && l.state == State::AwaitingDelivery
                 {
                     self.compensate_bind(&mut tx, &l).await?;
-                }
-                if receipt.command == Command::Bind
-                    && l.kind == Kind::Character
-                    && l.state == State::Draft
-                    && let Some((bind, transfer)) = self
-                        .authority()
-                        .bind_refused(&mut tx, id, "BAZAAR_LISTING_ESCROW")
-                        .await?
-                {
-                    self.retire_refused_bind(&mut tx, bind, transfer).await?;
-                    if self
-                        .latest(&mut tx, id, Command::Unlock)
-                        .await?
-                        .is_some_and(|(_, receipt)| receipt.committed)
-                    {
-                        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
-                    } else {
-                        self.unlock(&mut tx, &l).await?;
-                    }
                 }
                 tx.commit().await?;
                 return Ok(());
@@ -274,10 +318,7 @@ impl Runtime {
         }
         // A recorded settlement refusal drives only the return leg; the normal
         // path below would otherwise stage a fresh settlement transfer.
-        if l.kind == Kind::Character
-            && l.state == State::AwaitingDelivery
-            && row.try_get::<Option<String>, _>("refusal_code")?.is_some()
-        {
+        if l.kind == Kind::Character && l.state == State::AwaitingDelivery && refusal.is_some() {
             self.compensate_bind(&mut tx, &l).await?;
             tx.commit().await?;
             return Ok(());
@@ -370,7 +411,13 @@ impl Runtime {
                 if !state.allows_listing() {
                     return Err(Error::Denied);
                 }
-                sqlx::query("UPDATE bazaar_listings SET state='active',updated_at=now() WHERE id=$1 AND state='draft'").bind(id).execute(&mut *tx).await?;
+                crate::lifecycle::write_listing(
+                    &mut tx,
+                    id,
+                    crate::lifecycle::Event::Listing(State::Active),
+                )
+                .await
+                .map_err(core_error)?;
                 tx.commit().await?;
             }
             State::Active => {
@@ -557,8 +604,13 @@ impl Runtime {
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
             .execute(&mut **tx)
             .await?;
-        sqlx::query("INSERT INTO bazaar_authority_transfer_retirements(operation_id,evidence_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING")
-            .bind(transfer).bind(bind).bind(self.config.fence.recovery_generation.to_string()).execute(&mut **tx).await?;
+        crate::lifecycle::retire_transfer(
+            tx,
+            transfer,
+            bind,
+            self.authority().fence.recovery_generation,
+        )
+        .await?;
         Ok(())
     }
     /// Release the buyer's funds after a proven compensation. Returns false
@@ -602,9 +654,14 @@ impl Runtime {
         sale: Option<&Settlement>,
     ) -> Result<(), Error> {
         if purpose == "BAZAAR_LISTING_ESCROW" {
-            let unlocking: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND command='UnlockBazaarCharacter')")
-                .bind(l.id).fetch_one(&mut **tx).await?;
-            if unlocking {
+            let closing: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND command='UnlockBazaarCharacter')
+                     OR EXISTS(SELECT 1 FROM bazaar_authority_assets WHERE listing_id=$1 AND refusal_code IS NOT NULL)",
+            )
+            .bind(l.id)
+            .fetch_one(&mut **tx)
+            .await?;
+            if closing {
                 return Err(Error::Denied);
             }
         }
@@ -684,25 +741,21 @@ impl Runtime {
             let binding =
                 String::from_utf8(canonical::encode(&binding).map_err(|_| Error::Invalid)?)
                     .map_err(|_| Error::Invalid)?;
-            let original:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_transfers WHERE listing_id=$1 AND purpose=$2)").bind(l.id).bind(purpose).fetch_one(&mut **tx).await?;
-            let insert = if original {
-                "INSERT INTO bazaar_authority_transfer_retries(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10::text::numeric)"
-            } else {
-                "INSERT INTO bazaar_authority_transfers(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10::text::numeric)"
-            };
-            sqlx::query(insert)
-                .bind(operation)
-                .bind(l.id)
-                .bind(purpose)
-                .bind(decision)
-                .bind(revision)
-                .bind(&intent)
-                .bind(digest(intent.as_bytes()))
-                .bind(binding)
-                .bind(self.config.fence.projection_epoch.to_string())
-                .bind(self.config.fence.recovery_generation.to_string())
-                .execute(&mut **tx)
-                .await?;
+            crate::lifecycle::stage_transfer(
+                tx,
+                crate::lifecycle::TransferStage {
+                    operation,
+                    listing: l.id,
+                    purpose,
+                    decision,
+                    revision,
+                    intent: &intent,
+                    digest: &digest(intent.as_bytes()),
+                    binding: &binding,
+                    fence: self.authority().fence,
+                },
+            )
+            .await?;
             operation
         };
         let transfer = staged(self.authority(), tx, operation).await?;
@@ -881,6 +934,134 @@ impl Runtime {
         Ok(())
     }
 
+    async fn recover_refused_character(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing: &Listing,
+    ) -> Result<(), Error> {
+        match self.refused_character_custody(tx, listing).await? {
+            RefusedCharacterCustody::RejectedClosed | RefusedCharacterCustody::UnlockedClosed => {
+                if listing.state == State::Draft {
+                    self.cancel_listing(tx, listing.id).await?;
+                }
+            }
+            RefusedCharacterCustody::SellerLock => self.unlock(tx, listing).await?,
+            RefusedCharacterCustody::RejectedBind { bind, transfer } => {
+                self.retire_refused_bind(tx, bind, transfer).await?;
+                self.unlock(tx, listing).await?;
+            }
+            RefusedCharacterCustody::Escrowed => self.stage_return(tx, listing).await?,
+            RefusedCharacterCustody::UnpublishedBind { bind, transfer } => {
+                crate::lifecycle::report_refused_unpublished_bind(
+                    tx,
+                    listing.id,
+                    bind,
+                    transfer,
+                    self.authority().fence.recovery_generation,
+                )
+                .await?;
+            }
+            RefusedCharacterCustody::Fenced => {}
+        }
+        Ok(())
+    }
+
+    async fn refused_character_custody(
+        &self,
+        db: &mut PgConnection,
+        listing: &Listing,
+    ) -> Result<RefusedCharacterCustody, Error> {
+        use RefusedCharacterCustody::*;
+        let locks: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT o.operation_id FROM bazaar_game_outbox o
+             WHERE o.listing_id=$1 AND o.command='LockBazaarCharacter'
+               AND (EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                 OR EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id)
+                 OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id))",
+        )
+        .bind(listing.id)
+        .fetch_all(&mut *db)
+        .await?;
+        let mut acquired = None;
+        for operation in locks {
+            let Some((_, receipt)) = self.authority().retained(db, operation).await? else {
+                return Ok(Fenced);
+            };
+            if receipt.committed && acquired.replace(receipt).is_some() {
+                return Ok(Fenced);
+            }
+        }
+        let no_transfer = super::characters::never_transferred(db, listing.id).await?;
+        let Some(lock) = acquired else {
+            return Ok(if no_transfer { RejectedClosed } else { Fenced });
+        };
+        let lock_id = lock
+            .value
+            .get("result_data")
+            .and_then(|data| data.get("lock_id"));
+        if self
+            .latest(db, listing.id, Command::Unlock)
+            .await?
+            .is_some_and(|(_, receipt)| {
+                receipt.committed
+                    && lock_id.is_some()
+                    && receipt
+                        .value
+                        .get("result_data")
+                        .and_then(|data| data.get("lock_id"))
+                        == lock_id
+            })
+        {
+            return Ok(UnlockedClosed);
+        }
+        if no_transfer {
+            return Ok(SellerLock);
+        }
+        if let Some((bind, transfer)) = self
+            .authority()
+            .bind_refused(db, listing.id, "BAZAAR_LISTING_ESCROW")
+            .await?
+        {
+            return Ok(RejectedBind { bind, transfer });
+        }
+        if proof(self.authority(), db, listing.id, "BAZAAR_LISTING_ESCROW")
+            .await?
+            .is_some()
+        {
+            return Ok(
+                if self
+                    .authority()
+                    .cancellation_ready(db, listing)
+                    .await
+                    .map_err(core_error)?
+                {
+                    SellerLock
+                } else {
+                    Escrowed
+                },
+            );
+        }
+        let unpublished: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT o.operation_id,t.operation_id FROM bazaar_all_transfers t
+             JOIN bazaar_game_outbox o ON o.listing_id=t.listing_id AND o.command='BindBazaarCharacterTransfer'
+                  AND o.intent::jsonb->>'transfer_operation_id'=t.operation_id::text
+             WHERE t.listing_id=$1 AND t.purpose='BAZAAR_LISTING_ESCROW'
+               AND NOT EXISTS(SELECT 1 FROM character_commands c WHERE c.id=t.operation_id)
+             ORDER BY o.source_revision DESC",
+        ).bind(listing.id).fetch_all(&mut *db).await?;
+        for (bind, transfer) in unpublished {
+            if self
+                .authority()
+                .retained(db, bind)
+                .await?
+                .is_some_and(|(_, receipt)| receipt.committed)
+            {
+                return Ok(UnpublishedBind { bind, transfer });
+            }
+        }
+        Ok(Fenced)
+    }
+
     async fn finish_cancellation(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -889,11 +1070,17 @@ impl Runtime {
         if l.kind == Kind::Character {
             self.unlock(tx, l).await?;
         }
-        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1")
-            .bind(l.id)
-            .execute(&mut **tx)
-            .await?;
-        Ok(())
+        self.cancel_listing(tx, l.id).await
+    }
+
+    async fn cancel_listing(&self, db: &mut PgConnection, listing: Uuid) -> Result<(), Error> {
+        crate::lifecycle::write_listing(
+            db,
+            listing,
+            crate::lifecycle::Event::Listing(State::Cancelled),
+        )
+        .await
+        .map_err(core_error)
     }
 }
 fn funding(s: &Settlement) -> Value {
@@ -907,7 +1094,63 @@ fn funding(s: &Settlement) -> Value {
 
 pub(crate) async fn listing_batch(pool: &PgPool, generation: u64) -> Result<Vec<Uuid>, Error> {
     let cursor = crate::scheduling::cursor(pool, "listings").await?;
-    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR (l.state='draft' AND l.kind='character' AND EXISTS(SELECT 1 FROM bazaar_game_outbox b WHERE b.listing_id=l.id AND b.command='BindBazaarCharacterTransfer')) OR (l.state='active' AND a.cancel_requested) OR l.state='awaiting_delivery' OR EXISTS(SELECT 1 FROM bazaar_game_outbox cleanup WHERE cleanup.listing_id=l.id AND cleanup.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold'))) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state IN ('completed','cancelled') AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id
+         WHERE l.state='awaiting_delivery'
+            OR (l.state='draft' AND (a.refusal_code IS NULL OR (l.kind='character' AND EXISTS(
+                SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
+                 AND o.command IN ('LockBazaarCharacter','BindBazaarCharacterTransfer')
+            )) OR EXISTS(
+                SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
+                 AND o.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold')
+            )))
+            OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)
+                AND (a.refusal_code IS NULL OR a.cancel_requested OR EXISTS(
+                    SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
+                     AND o.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold')
+                )))
+            OR (l.kind='character' AND l.state IN ('completed','cancelled') AND (
+                ((l.state='completed' OR a.refusal_code IS NULL)
+                 AND (a.refusal_code IS NULL OR EXISTS(
+                    SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
+                     AND o.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold')
+                 ))
+                 AND NOT EXISTS(
+                    SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
+                    WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter'
+                      AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric
+                      AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)
+                      AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d
+                          WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)
+                ))
+                OR (l.state='cancelled' AND a.refusal_code IS NOT NULL AND EXISTS(
+                    SELECT 1 FROM bazaar_game_outbox lock_intent
+                    JOIN bazaar_authority_receipts acquired USING(operation_id)
+                    WHERE lock_intent.listing_id=l.id AND lock_intent.command='LockBazaarCharacter'
+                      AND acquired.outcome='COMMITTED' AND acquired.recovery_generation=$1::text::numeric
+                      AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c
+                          WHERE c.operation_id=lock_intent.operation_id)
+                      AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d
+                          WHERE d.operation_id=lock_intent.operation_id AND d.recovery_generation=acquired.recovery_generation)
+                      AND NOT EXISTS(
+                          SELECT 1 FROM bazaar_game_outbox unlock_intent
+                          JOIN bazaar_authority_receipts released USING(operation_id)
+                          WHERE unlock_intent.listing_id=l.id AND unlock_intent.command='UnlockBazaarCharacter'
+                            AND released.outcome='COMMITTED' AND released.recovery_generation=acquired.recovery_generation
+                            AND released.receipt::jsonb->'result_data'->>'lock_id'=acquired.receipt::jsonb->'result_data'->>'lock_id'
+                            AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c
+                                WHERE c.operation_id=unlock_intent.operation_id)
+                            AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d
+                                WHERE d.operation_id=unlock_intent.operation_id AND d.recovery_generation=released.recovery_generation)
+                      )
+                ))
+            ))
+         ORDER BY (l.id <= $2),l.id LIMIT 24",
+    )
+    .bind(generation.to_string())
+    .bind(cursor)
+    .fetch_all(pool)
+    .await?;
     if let Some(last) = ids.last() {
         crate::scheduling::advance(pool, "listings", *last).await?;
     }
@@ -961,8 +1204,20 @@ pub(crate) async fn publish_transfer(
     .bind(operation)
     .fetch_one(&mut **tx)
     .await?;
-    sqlx::query("INSERT INTO character_commands(id,source_revision,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json) OVERRIDING SYSTEM VALUE VALUES($1,$2,$3,$4,'TransferCharacterOwnership',$5,$6,$7,$8)")
-            .bind(operation).bind(revision as i64).bind(row.try_get::<Uuid,_>("decision_id")?).bind(format!("bazaar-transfer:{listing}:{purpose}:{operation}")).bind(id(text(transfer,"expected_from_account_id")?)?).bind(id(text(transfer,"to_account_id")?)?).bind(row.try_get::<String,_>("binding")?).bind(row.try_get::<String,_>("intent")?).execute(&mut **tx).await?;
+    crate::lifecycle::publish_transfer_intent(
+        tx,
+        crate::lifecycle::TransferPublication {
+            operation,
+            revision: i64::try_from(revision).map_err(|_| Error::Invalid)?,
+            decision: row.try_get("decision_id")?,
+            key: format!("bazaar-transfer:{listing}:{purpose}:{operation}"),
+            from: id(text(transfer, "expected_from_account_id")?)?,
+            to: id(text(transfer, "to_account_id")?)?,
+            binding: row.try_get("binding")?,
+            intent: row.try_get("intent")?,
+        },
+    )
+    .await?;
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 //! Bazaar core. No HTTP or game I/O; all monetary adapters share the SQL transaction.
 
 mod domain;
+mod lifecycle;
 mod ports;
 mod repository;
 
@@ -26,3 +27,6 @@ mod scheduling;
 mod bounded;
 
 mod locking;
+
+#[cfg(test)]
+mod lifecycle_tests;

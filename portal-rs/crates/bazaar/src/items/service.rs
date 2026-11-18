@@ -100,8 +100,20 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
         let end = now + Duration::days(i64::from(input.auction_days.unwrap_or(14)));
         // T57 requires a positive internal floor. A negotiated notice has no public price.
         let total = input.total(input.unit_price.unwrap_or(1))?;
-        sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES ($1,$2,'item',$3,'coins',$4,$5,$6)")
-            .bind(listing).bind(actor).bind(input.mode.form()).bind(total).bind(matches!(input.mode,Mode::Offers|Mode::Buy)).bind(end).execute(&mut *tx).await?;
+        crate::lifecycle::create_listing(
+            &mut tx,
+            listing,
+            &crate::NewListing {
+                owner: actor,
+                kind: crate::Kind::Item,
+                form: input.mode.form(),
+                currency: Currency::Coins,
+                price: total,
+                accept_offers: matches!(input.mode, Mode::Offers | Mode::Buy),
+                ends_at: end,
+            },
+        )
+        .await?;
         sqlx::query("INSERT INTO bazaar_item_details(id,definition_key,definition_revision,world_id,seller_character_id,item_instance_id,quantity,requested_price,buy_now_price,message) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
             .bind(listing).bind(&input.definition_key).bind(&input.definition_revision).bind(input.world_id).bind(input.seller_character_id).bind(input.item_instance_id)
             .bind(i64::from(input.quantity)).bind(input.unit_price).bind(input.buy_now_unit_price).bind(&input.message).execute(&mut *tx).await?;
@@ -136,7 +148,12 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             serde_json::to_string(&projection.attributes).map_err(|_| Error::Denied)?;
         sqlx::query("UPDATE bazaar_item_details SET approved_name=$2,approved_attributes=$3::text::jsonb,escrow_id=$4,escrow_receipt_digest=$5,projection_epoch=$6,recovery_generation=$7,updated_at=clock_timestamp() WHERE id=$1")
             .bind(listing).bind(projection.name).bind(attributes).bind(projection.escrow_id).bind(projection.escrow_receipt_digest).bind(projection.projection_epoch).bind(projection.recovery_generation).execute(&mut *tx).await?;
-        state(&mut tx, listing, State::Active).await?;
+        crate::lifecycle::write_listing(
+            &mut tx,
+            listing,
+            crate::lifecycle::Event::Listing(State::Active),
+        )
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -393,7 +410,17 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
                     )
                     .await?;
                 sqlx::query("UPDATE bazaar_offers SET state='accepted',updated_at=clock_timestamp() WHERE id=$1").bind(selected).execute(&mut *tx).await?;
-                sqlx::query("UPDATE bazaar_listings SET state='matched',leader=$2,leader_max=$3,price=$3,reservation=$4,updated_at=clock_timestamp() WHERE id=$1").bind(listing).bind(chosen.account).bind(chosen.amount).bind(selected).execute(&mut *tx).await?;
+                crate::lifecycle::write_listing_with(
+                    &mut tx,
+                    listing,
+                    crate::lifecycle::Event::Listing(State::Matched),
+                    crate::lifecycle::ListingChange::Match {
+                        buyer: chosen.account,
+                        amount: chosen.amount,
+                        reservation: selected,
+                    },
+                )
+                .await?;
             }
             if row.form != Form::WantToBuy {
                 for offer in &offers {
@@ -505,7 +532,17 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
                 },
             )
             .await?;
-        sqlx::query("UPDATE bazaar_listings SET state='matched',leader=$2,leader_max=$3,price=$3,reservation=id,updated_at=clock_timestamp() WHERE id=$1").bind(listing).bind(actor).bind(amount).execute(&mut *tx).await?;
+        crate::lifecycle::write_listing_with(
+            &mut tx,
+            listing,
+            crate::lifecycle::Event::Listing(State::Matched),
+            crate::lifecycle::ListingChange::Match {
+                buyer: actor,
+                amount,
+                reservation: listing,
+            },
+        )
+        .await?;
         sqlx::query("INSERT INTO bazaar_item_requests(actor,request_id,binding,listing_id) VALUES ($1,$2,'\"buy_now\"'::jsonb,$3)").bind(actor).bind(request).bind(listing).execute(&mut *tx).await?;
         freeze_sale(&mut tx, listing, actor, row.owner, amount).await?;
         enqueue(&mut tx, listing, "delivery", request).await?;
@@ -538,7 +575,12 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
                 },
             )
             .await?;
-        state(&mut tx, listing, State::Matched).await?;
+        crate::lifecycle::write_listing(
+            &mut tx,
+            listing,
+            crate::lifecycle::Event::Listing(State::Matched),
+        )
+        .await?;
         freeze_sale(&mut tx, listing, winner, row.owner, row.price).await?;
         enqueue(&mut tx, listing, "delivery", listing).await?;
         tx.commit().await?;
@@ -571,7 +613,12 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
             tx.commit().await?;
             return Ok(());
         }
-        state(&mut tx, listing, State::Cancelled).await?;
+        crate::lifecycle::write_listing(
+            &mut tx,
+            listing,
+            crate::lifecycle::Event::Listing(State::Cancelled),
+        )
+        .await?;
         if row.form != Form::WantToBuy {
             enqueue(&mut tx, listing, "return", listing).await?;
         }
@@ -654,7 +701,12 @@ impl<A: Accounts, R: Reservations, G: ItemAuthority> Items<A, R, G> {
                 if row.form != Form::WantToBuy {
                     enqueue(&mut tx, listing, "return", listing).await?;
                 }
-                state(&mut tx, listing, State::Expired).await?;
+                crate::lifecycle::write_listing(
+                    &mut tx,
+                    listing,
+                    crate::lifecycle::Event::Listing(State::Expired),
+                )
+                .await?;
             }
             tx.commit().await?;
             if complete {
@@ -722,14 +774,6 @@ async fn clock(db: &mut PgConnection) -> Result<OffsetDateTime, Error> {
 async fn locked(db: &mut PgConnection, id: Uuid) -> Result<Listing, Error> {
     crate::locking::listing_gate(db).await?;
     sqlx::query_as("SELECT l.* FROM bazaar_listings l JOIN bazaar_item_details d ON d.id=l.id WHERE l.id=$1 AND l.kind='item' FOR UPDATE OF l,d").bind(id).fetch_optional(db).await?.ok_or(Error::NotFound)
-}
-async fn state(db: &mut PgConnection, id: Uuid, next: State) -> Result<(), Error> {
-    sqlx::query("UPDATE bazaar_listings SET state=$2,updated_at=clock_timestamp() WHERE id=$1")
-        .bind(id)
-        .bind(next)
-        .execute(db)
-        .await?;
-    Ok(())
 }
 async fn total(db: &mut PgConnection, id: Uuid, unit: i64) -> Result<i64, Error> {
     let quantity: i64 = sqlx::query_scalar("SELECT quantity FROM bazaar_item_details WHERE id=$1")

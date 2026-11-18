@@ -30,6 +30,7 @@ pub struct AuthorityConfig {
     pub signing_and_retention_accepted: bool,
     pub receipt_authority: String,
     pub projection_authority: String,
+    pub worlds: Vec<Uuid>,
     pub snapshot_keys: Vec<(String, VerifyingKey)>,
     pub escrow_account_id: Option<Uuid>,
     pub character_cooldown_seconds: Option<u64>,
@@ -77,6 +78,21 @@ pub enum ReceiptResult {
     Duplicate,
     Quarantined,
 }
+// The database also checks this on evidence and checkpoint writes so that
+// binaries predating this setting are fenced once v5 starts a rebuild.
+pub(super) const WRITER_VERSION: i32 = 5;
+
+pub(super) async fn register_writer(db: &mut PgConnection) -> Result<(), Error> {
+    sqlx::query("SELECT set_config('oteryn.bazaar_writer_version', $1, true)")
+        .bind(WRITER_VERSION.to_string())
+        .execute(&mut *db)
+        .await?;
+    sqlx::query("SELECT bazaar_require_writer(minimum_writer_version) FROM bazaar_game_issuer WHERE singleton")
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 impl Authority {
     pub(super) fn enabled(&self) -> Result<(), Error> {
         if !self.config.available()
@@ -110,7 +126,7 @@ impl Authority {
         {
             return Err(Error::Unavailable);
         }
-        Ok(())
+        register_writer(db).await
     }
     /// Called only by the existing Character receipt facility after its dedicated
     /// peer authentication. No Bazaar receipt route is created. Commit quarantine
@@ -143,6 +159,7 @@ impl Authority {
                 return Ok(ReceiptResult::Duplicate);
             }
             sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(receipt.operation).bind(receipt.digest()).execute(&mut **db).await?;
+            super::delivery_work::mark_operation(db, receipt.operation).await?;
             return Ok(ReceiptResult::Quarantined);
         }
         if receipt.generation != self.fence.recovery_generation {
@@ -170,6 +187,7 @@ impl Authority {
                         .chain(std::iter::once(receipt.operation))
                     {
                         sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(operation).bind(receipt.digest()).execute(&mut **db).await?;
+                        super::delivery_work::mark_operation(db, operation).await?;
                     }
                     return Ok(ReceiptResult::Quarantined);
                 }
@@ -178,8 +196,8 @@ impl Authority {
         let reversed = !receipt.committed && sqlx::query_scalar::<_,bool>(
             "SELECT EXISTS(SELECT 1 FROM bazaar_authority_receipts WHERE operation_id=$1 AND recovery_generation<$2::text::numeric AND outcome='COMMITTED')"
         ).bind(receipt.operation).bind(receipt.generation.to_string()).fetch_one(&mut **db).await?;
-        sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome) VALUES($1,$2::text::numeric,$3,$4,$5,$6,$7)")
-            .bind(receipt.operation).bind(receipt.generation.to_string()).bind(peer).bind(intent.binding_digest()).bind(receipt.digest()).bind(&receipt.raw).bind(if receipt.committed {"COMMITTED"}else{"REJECTED"}).execute(&mut **db).await?;
+        crate::lifecycle::write_receipt(db, peer, &intent, &receipt).await?;
+        super::delivery_work::mark_operation(db, receipt.operation).await?;
         if reversed {
             sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(receipt.operation).bind(receipt.digest()).execute(&mut **db).await?;
             return Ok(ReceiptResult::Quarantined);
@@ -421,10 +439,12 @@ impl Authority {
                 return Ok(ReceiptResult::Duplicate);
             }
             sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'DECISION')").bind(e.operation_id).bind(digest(raw)).execute(&mut **db).await?;
+            super::delivery_work::mark_operation(db, e.operation_id).await?;
             for existing in old_rows {
+                let operation: Uuid = existing.try_get("operation_id")?;
                 sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'DECISION')")
-                    .bind(existing.try_get::<Uuid, _>("operation_id")?)
-                    .bind(digest(raw)).execute(&mut **db).await?;
+                    .bind(operation).bind(digest(raw)).execute(&mut **db).await?;
+                super::delivery_work::mark_operation(db, operation).await?;
             }
             return Ok(ReceiptResult::Quarantined);
         }
@@ -447,6 +467,7 @@ impl Authority {
         }
         sqlx::query("INSERT INTO bazaar_authority_decisions(event_id,transaction_id,ordinal,event_count,operation_id,recovery_generation,source_authority,payload,payload_digest,envelope_semantics) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,$9,$10)")
             .bind(e.event_id).bind(e.transaction_id).bind(e.ordinal as i32).bind(e.count as i32).bind(e.operation_id).bind(self.fence.recovery_generation.to_string()).bind(peer).bind(raw).bind(Sha256::digest(raw).to_vec()).bind(semantics).execute(&mut **db).await?;
+        super::delivery_work::mark_operation(db, e.operation_id).await?;
         // Cache no-effect only after exact receipt and audit verification.
         self.retained(db, e.operation_id).await?;
         Ok(ReceiptResult::Stored)

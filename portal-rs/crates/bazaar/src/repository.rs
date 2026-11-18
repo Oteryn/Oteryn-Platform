@@ -112,20 +112,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             input.ends_at = now + Duration::days(14);
         }
         input.validate(now)?;
-        let row = sqlx::query_as(
-            "INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
-        )
-        .bind(oteryn_core::new_id())
-        .bind(input.owner)
-        .bind(input.kind)
-        .bind(input.form)
-        .bind(input.currency)
-        .bind(input.price)
-        .bind(input.accept_offers)
-        .bind(input.ends_at)
-        .fetch_one(&mut *tx)
-        .await?;
+        let row = crate::lifecycle::create_listing(&mut tx, oteryn_core::new_id(), &input).await?;
         tx.commit().await?;
         Ok(row)
     }
@@ -144,7 +131,12 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         if !self.evidence.escrow_ready(&mut tx, &listing).await? {
             return Err(Error::Denied);
         }
-        set_state(&mut tx, id, State::Active).await?;
+        crate::lifecycle::write_listing(
+            &mut tx,
+            id,
+            crate::lifecycle::Event::Listing(State::Active),
+        )
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -421,7 +413,17 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
                         .await?;
                 }
                 sqlx::query("UPDATE bazaar_offers SET state='accepted',updated_at=clock_timestamp() WHERE id=$1").bind(offer_id).execute(&mut *tx).await?;
-                sqlx::query("UPDATE bazaar_listings SET leader=$2,leader_max=$3,price=$3,reservation=$4,state='matched',updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(selected.account).bind(selected.amount).bind(offer_id).execute(&mut *tx).await?;
+                crate::lifecycle::write_listing_with(
+                    &mut tx,
+                    id,
+                    crate::lifecycle::Event::Listing(State::Matched),
+                    crate::lifecycle::ListingChange::Match {
+                        buyer: selected.account,
+                        amount: selected.amount,
+                        reservation: offer_id,
+                    },
+                )
+                .await?;
             }
             if listing.form == Form::FixedPrice {
                 for offer in &offers {
@@ -494,7 +496,12 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         if !self.evidence.cancellation_ready(&mut tx, &listing).await? {
             return Err(Error::Denied);
         }
-        set_state(&mut tx, id, State::Cancelled).await?;
+        crate::lifecycle::write_listing(
+            &mut tx,
+            id,
+            crate::lifecycle::Event::Listing(State::Cancelled),
+        )
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -531,7 +538,12 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             crate::bounded::finish(&mut tx, &offers, "expired").await?;
             let complete = offers.len() < crate::bounded::OFFER_BATCH;
             if complete {
-                set_state(&mut tx, id, State::Expired).await?;
+                crate::lifecycle::write_listing(
+                    &mut tx,
+                    id,
+                    crate::lifecycle::Event::Listing(State::Expired),
+                )
+                .await?;
             }
             tx.commit().await?;
             if complete {
@@ -613,11 +625,13 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             reservation: listing.reservation.ok_or(Error::IllegalTransition)?,
         };
         self.reservations.settle(tx, &result).await?;
-        sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-            .bind(result.id).bind(id).bind(buyer).bind(seller).bind(result.currency).bind(result.amount)
-            .bind(commission).bind(result.seller_net).bind(result.reservation).bind(key).execute(&mut *tx).await?;
-        set_state(tx, id, State::AwaitingDelivery).await?;
+        crate::lifecycle::write_coin_sale(tx, &result, key).await?;
+        crate::lifecycle::write_listing(
+            tx,
+            id,
+            crate::lifecycle::Event::Listing(State::AwaitingDelivery),
+        )
+        .await?;
         Ok(result)
     }
 
@@ -657,9 +671,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.funds_lock(db, vec![result.buyer, result.seller])
             .await?;
         self.reservations.complete(db, &result).await?;
-        sqlx::query("UPDATE bazaar_settlements SET completed_at=clock_timestamp(),updated_at=clock_timestamp() WHERE listing_id=$1")
-            .bind(id).execute(&mut *db).await?;
-        set_state(db, id, State::Completed).await?;
+        crate::lifecycle::complete_coin_sale(db, id).await?;
+        crate::lifecycle::write_listing(db, id, crate::lifecycle::Event::Listing(State::Completed))
+            .await?;
         Ok(())
     }
 }
@@ -680,14 +694,6 @@ async fn lock_listing_row(db: &mut PgConnection, id: Uuid) -> Result<Listing, Er
         .fetch_optional(db)
         .await?
         .ok_or(Error::NotFound)
-}
-async fn set_state(db: &mut PgConnection, id: Uuid, state: State) -> Result<(), Error> {
-    sqlx::query("UPDATE bazaar_listings SET state=$2,updated_at=clock_timestamp() WHERE id=$1")
-        .bind(id)
-        .bind(state)
-        .execute(db)
-        .await?;
-    Ok(())
 }
 async fn settlement(db: &mut PgConnection, id: Uuid) -> Result<Settlement, Error> {
     sqlx::query_as("SELECT * FROM bazaar_settlements WHERE listing_id=$1 FOR UPDATE")

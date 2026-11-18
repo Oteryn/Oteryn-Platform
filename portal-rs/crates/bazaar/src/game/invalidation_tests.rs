@@ -210,6 +210,9 @@ async fn locked_character_fixture(escrowed: bool) -> BrowserFixture {
     committed_fact(a, &mut tx, &lock, &data, now).await;
 
     let operation = id(text(&lock.value, "operation_id").unwrap()).unwrap();
+    super::super::authority::register_writer(&mut tx)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(operation).execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE bazaar_game_issuer SET source_revision=101")
         .execute(&mut *tx)
@@ -301,11 +304,23 @@ async fn character_invalidation(escrowed: bool) {
 
 #[tokio::test]
 async fn r10_refused_escrow_bind_unlocks() {
+    refused_escrow_bind_unlocks(false).await;
+}
+
+#[tokio::test]
+async fn refused_cancelled_escrow_bind_rejection_unlocks() {
+    refused_escrow_bind_unlocks(true).await;
+}
+
+async fn refused_escrow_bind_unlocks(cancelled: bool) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = locked_character_fixture(false).await;
     db.runtime.tick().await.unwrap();
     let bind = newest_intent(&db, uid("30"), Command::Bind).await;
     reject(&db, &bind, "CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE").await;
+    if cancelled {
+        mark_refused_character(&db, true).await;
+    }
     db.runtime.tick().await.unwrap();
     assert_eq!(
         count(&db, uid("30"), Command::Unlock).await,
@@ -516,5 +531,111 @@ async fn coin_bid_rejects_foreign_destination() {
             .await,
         Err(Error::Denied)
     ));
+    db.end().await;
+}
+
+#[tokio::test]
+async fn refused_draft_with_redecided_unpublished_bind_reports_conflict() {
+    redecided_unpublished_bind(false).await;
+}
+
+#[tokio::test]
+async fn refused_cancelled_with_redecided_unpublished_bind_reports_conflict() {
+    redecided_unpublished_bind(true).await;
+}
+
+async fn redecided_unpublished_bind(cancelled: bool) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = locked_character_fixture(false).await;
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, uid("30"), Command::Bind).await;
+    let refusal = "CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE";
+    reject(&db, &bind, refusal).await;
+    mark_refused_character(&db, cancelled).await;
+    super::lifecycle_table_tests::set_resync_fence(&mut db, 3, 4);
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    recovery_tests::replay(a, &mut tx, uid("20")).await;
+    recovery_tests::replay_except(a, &mut tx, uid("30"), Some(Command::Bind)).await;
+    let now = runtime::now(&mut tx).await.unwrap();
+    let transfer = text(&bind.value, "transfer_operation_id").unwrap();
+    let facts = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"2","transfer_operation_id":"{transfer}","transfer_binding_digest":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        text(&bind.value, "transfer_binding_digest").unwrap()
+    );
+    committed_fact(a, &mut tx, &bind, &facts, now).await;
+    tx.commit().await.unwrap();
+
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let (reports, published): (i64, bool) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM bazaar_audit WHERE row_id=$1
+                 AND after_row->>'action'='refused_unpublished_bind_conflict'
+                 AND after_row->>'transfer_operation_id'=$2),
+                EXISTS(SELECT 1 FROM character_commands WHERE id=$2::uuid)",
+    )
+    .bind(uid("30"))
+    .bind(transfer)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!((reports, published), (1, false));
+    assert_eq!(count(&db, uid("30"), Command::Unlock).await, 0);
+    assert_eq!(
+        listing_state(&db).await,
+        if cancelled {
+            crate::State::Cancelled
+        } else {
+            crate::State::Draft
+        }
+    );
+    db.end().await;
+}
+
+async fn mark_refused_character(db: &BrowserFixture, cancelled: bool) {
+    let refusal = "CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE";
+    sqlx::query("UPDATE bazaar_authority_assets SET refusal_code=$2 WHERE listing_id=$1")
+        .bind(uid("30"))
+        .bind(refusal)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    if cancelled {
+        sqlx::query("UPDATE bazaar_listings SET state='cancelled' WHERE id=$1")
+            .bind(uid("30"))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn refused_draft_with_committed_cc1_stages_return() {
+    refused_with_committed_cc1(false).await;
+}
+
+#[tokio::test]
+async fn refused_cancelled_with_committed_cc1_stages_return() {
+    refused_with_committed_cc1(true).await;
+}
+
+async fn refused_with_committed_cc1(cancelled: bool) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = locked_character_fixture(true).await;
+    mark_refused_character(&db, cancelled).await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let returning = newest_intent(&db, uid("30"), Command::Bind).await;
+    assert_eq!(
+        text(&returning.value, "purpose").unwrap(),
+        "BAZAAR_ESCROW_RETURN"
+    );
+    assert_eq!(count(&db, uid("30"), Command::Unlock).await, 0);
+    let returns: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_ESCROW_RETURN'",
+    ).bind(uid("30")).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(returns, 1);
     db.end().await;
 }
