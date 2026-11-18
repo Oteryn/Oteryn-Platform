@@ -969,11 +969,15 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
         receipt.result_code = "CHAR_CMD_INTENT_EXPIRED".into();
         receipt.result_data = None;
         receipt.decided_at = intent.issued_at_source.clone();
-        if command == "CloseAccount" && expected == StatusCode::BAD_REQUEST {
+        if command == "CloseAccount" {
             let mut result = Receipt::parse(&vectors().remove(1).1)?
                 .result_data
                 .ok_or("committed fixture")?;
-            result.account_id = Uuid::now_v7().to_string();
+            result.account_id = if expected == StatusCode::BAD_REQUEST {
+                Uuid::now_v7().to_string()
+            } else {
+                intent.account_id.clone()
+            };
             result.termination_id = intent.termination_id.clone();
             result.lifecycle_generation = intent.lifecycle_generation.clone();
             let bytes = serde_json::to_vec(&result)?;
