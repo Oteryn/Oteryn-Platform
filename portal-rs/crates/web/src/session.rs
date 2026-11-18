@@ -36,25 +36,7 @@ pub fn configured_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
             "false"
         },
     )]);
-    Ok(pool
-        .options()
-        .clone()
-        .after_connect(|conn, _| {
-            Box::pin(async move {
-                // The migration role can connect before the coverage function exists.
-                sqlx::query(
-                    "DO $$ BEGIN
-                    IF to_regprocedure('referral_note_coverage()') IS NOT NULL THEN
-                        PERFORM referral_note_coverage();
-                    END IF;
-                END $$",
-                )
-                .execute(conn)
-                .await?;
-                Ok(())
-            })
-        })
-        .connect_lazy_with(options))
+    Ok(pool.options().clone().connect_lazy_with(options))
 }
 
 /// Durations in seconds; absolute lifetime is never extended by activity or rotation.

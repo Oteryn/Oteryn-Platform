@@ -1,38 +1,53 @@
 -- All activity writers, including pre-upgrade portal processes, use the
 -- existing triggers with an explicitly enabled connection.
-CREATE FUNCTION referral_deployment_enabled() RETURNS boolean LANGUAGE sql STABLE AS $$
-    SELECT COALESCE(current_setting('oteryn.referrals_enabled',true) = 'true',false)
-$$;
-
--- An activity high-water mark is evidence only within uninterrupted coverage.
--- The singleton records deployment coverage, independently of campaign data.
+-- Only a deployment transition changes the coverage marker. A null generation
+-- allows legacy activity recording before the first managed coverage period.
 CREATE TABLE portal_referral_coverage (
     id boolean PRIMARY KEY DEFAULT true CHECK (id),
+    generation uuid,
     covered_since timestamptz
 );
 INSERT INTO portal_referral_coverage DEFAULT VALUES;
 
-CREATE FUNCTION referral_note_coverage() RETURNS void LANGUAGE sql AS $$
+-- Deployment runs this once per transition, after fencing and draining writers.
+-- The returned generation is supplied to every writer as a startup GUC.
+CREATE FUNCTION referral_transition_coverage(active boolean) RETURNS uuid
+LANGUAGE sql STRICT AS $$
     UPDATE portal_referral_coverage
-    SET covered_since=CASE WHEN referral_deployment_enabled() THEN clock_timestamp() END
-    WHERE id AND ((covered_since IS NOT NULL) <> referral_deployment_enabled())
+    SET generation=uuidv7(), covered_since=CASE WHEN active THEN clock_timestamp() END
+    WHERE id
+    RETURNING generation
 $$;
+REVOKE EXECUTE ON FUNCTION referral_transition_coverage(boolean) FROM PUBLIC;
+
+CREATE FUNCTION referral_deployment_enabled() RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE current_generation uuid; started timestamptz;
+BEGIN
+    IF current_setting('oteryn.referrals_enabled',true) IS DISTINCT FROM 'true' THEN
+        RETURN false;
+    END IF;
+    SELECT generation,covered_since INTO STRICT current_generation,started
+    FROM portal_referral_coverage WHERE id FOR SHARE;
+    RETURN current_generation IS NULL OR
+        (started IS NOT NULL AND
+         current_setting('oteryn.referrals_generation',true) IS NOT DISTINCT FROM current_generation::text);
+END $$;
 
 CREATE FUNCTION referral_record_activity(a uuid, stamp timestamptz)
-RETURNS void LANGUAGE sql STRICT AS $$
+RETURNS void LANGUAGE plpgsql STRICT AS $$
+BEGIN
+    IF NOT referral_deployment_enabled() THEN RETURN; END IF;
     INSERT INTO referral_activity(account_id,last_activity)
-    SELECT id,stamp FROM accounts WHERE id=a AND referral_deployment_enabled()
+    SELECT id,stamp FROM accounts WHERE id=a
     ON CONFLICT(account_id) DO UPDATE
     SET last_activity=GREATEST(referral_activity.last_activity,EXCLUDED.last_activity),
-        updated_at=clock_timestamp()
-$$;
+        updated_at=clock_timestamp();
+END $$;
 
 -- The game-login projector also upserts activity for expired presentation
 -- records. Keep the fence on referral-owned data for that direct write.
 CREATE FUNCTION referral_skip_disabled_activity() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-    -- Expired Game logins can reach this fence without a presentation row.
-    PERFORM referral_note_coverage();
     RETURN NULL;
 END $$;
 
@@ -43,8 +58,8 @@ CREATE TRIGGER referral_activity_deployment_gate BEFORE INSERT ON referral_activ
 CREATE OR REPLACE FUNCTION referral_activity_capture() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE a uuid; stamp timestamptz;
 BEGIN
+    IF NOT referral_deployment_enabled() THEN RETURN NEW; END IF;
     IF TG_TABLE_NAME='accounts' THEN
-        IF NOT referral_deployment_enabled() THEN RETURN NEW; END IF;
         a:=NEW.id; stamp:=NEW.created_at;
     ELSIF TG_TABLE_NAME='web_sessions' THEN a:=NEW.account_id; stamp:=NEW.last_seen_at;
     ELSIF TG_TABLE_NAME='pd_game_logins' THEN a:=NEW.account_id; stamp:=to_timestamp(GREATEST(NEW.entered_at,NEW.left_at)/1000.0);
@@ -53,9 +68,6 @@ BEGIN
         a:=NEW.account_id; stamp:=NEW.created_at;
     END IF;
     IF a IS NOT NULL THEN
-        -- A disabled writer can overlap an enabled process during a rollout.
-        -- Clear coverage on its activity even if that pool was opened earlier.
-        PERFORM referral_note_coverage();
         PERFORM referral_record_activity(a,stamp);
     END IF;
     RETURN NEW;

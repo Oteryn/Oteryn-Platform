@@ -677,6 +677,37 @@ async fn referrals_self_referral_denied() {
     db.close().await;
 }
 #[tokio::test]
+async fn disabled_login_preserves_deployment_coverage() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    db.inactive(account, 13).await;
+    let mut writer = db.pool.acquire().await.unwrap();
+    let coverage = "SELECT covered_since FROM portal_referral_coverage";
+    let before: sqlx::types::time::OffsetDateTime = sqlx::query_scalar(coverage)
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('oteryn.referrals_enabled','false',false)")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO security_events(account_id,kind) VALUES($1,'login_succeeded')")
+        .bind(account)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let after: Option<sqlx::types::time::OffsetDateTime> = sqlx::query_scalar(coverage)
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    assert_eq!(after, Some(before), "disabled activity changed coverage");
+    drop(writer);
+    db.close().await;
+}
+
+#[tokio::test]
 async fn returning_referral_requires_coverage_across_off_login() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::open().await else {
@@ -689,6 +720,10 @@ async fn returning_referral_requires_coverage_across_off_login() {
     db.inactive(uninterrupted, 13).await;
     db.campaign
         .email(owner, &db.email(uninterrupted).await, Kind::Returning)
+        .await
+        .unwrap();
+    sqlx::query("SELECT referral_transition_coverage(false)")
+        .execute(&db.pool)
         .await
         .unwrap();
     let mut off = db.pool.acquire().await.unwrap();
@@ -704,10 +739,32 @@ async fn returning_referral_requires_coverage_across_off_login() {
     let old: bool = sqlx::query_scalar("SELECT last_activity < now()-interval '12 months' FROM referral_activity WHERE account_id=$1")
         .bind(buddy).fetch_one(&mut *off).await.unwrap();
     assert!(old, "disabled login must not update referral_activity");
+    let generation: Uuid = sqlx::query_scalar("SELECT referral_transition_coverage(true)")
+        .fetch_one(&mut *off)
+        .await
+        .unwrap();
     sqlx::query("SELECT set_config('oteryn.referrals_enabled','true',false)")
         .execute(&mut *off)
         .await
         .unwrap();
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT referral_deployment_enabled()")
+            .fetch_one(&mut *off)
+            .await
+            .unwrap(),
+        "a stale enabled connection must stay fenced"
+    );
+    sqlx::query("SELECT set_config('oteryn.referrals_generation',$1,false)")
+        .bind(generation.to_string())
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT referral_deployment_enabled()")
+            .fetch_one(&mut *off)
+            .await
+            .unwrap()
+    );
     drop(off);
     assert_eq!(
         db.campaign

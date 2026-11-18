@@ -55,7 +55,8 @@ impl Policy for DatabasePolicy {
         }
         if matches!(stage, Stage::Invite) && kind == Kind::Returning {
             let covered: bool = sqlx::query_scalar(
-                "SELECT COALESCE(covered_since<=clock_timestamp()-interval '12 months',false)
+                "SELECT referral_deployment_enabled() AND
+                        COALESCE(covered_since<=clock_timestamp()-interval '12 months',false)
                  FROM portal_referral_coverage WHERE id FOR SHARE",
             )
             .fetch_one(&mut *conn)
