@@ -212,6 +212,13 @@ impl Terminations {
             boundary,
         })
     }
+    pub fn accepts_requests(&self) -> bool {
+        self.config.enabled
+    }
+    pub async fn has_pending(&self, account: AccountId) -> Result<bool> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_terminations WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL)")
+            .bind(account).fetch_one(&self.pool).await?)
+    }
     fn enabled(&self) -> Result<()> {
         if !self.config.enabled {
             return Err(Error::Disabled);
@@ -264,7 +271,6 @@ impl Terminations {
         proof: &ActorProof,
         current_password: &str,
     ) -> Result<()> {
-        self.enabled()?;
         let mut tx = self.pool.begin().await?;
         oteryn_db::mutation_budget(&mut tx).await?;
         let locked = lock(&mut tx, account).await?.ok_or(Error::Unavailable)?;

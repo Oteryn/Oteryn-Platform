@@ -406,6 +406,16 @@ mod flag_boundary {
                 tls.path().join("ca.pem"),
             )
             .env("FLAG_BOUNDARY_SCHEMA", &schema);
+        if matches!(
+            test,
+            "referrals_on_records_legacy_session_refresh"
+                | "referrals_on_records_anonymous_login_rotation"
+                | "paused_intake_keeps_authenticated_cancellation"
+                | "disabled_referral_connections_preserve_coverage"
+        ) {
+            command.env("OTERYN_ACCOUNT_LOGIN", "true");
+        }
+
         if test == "flags_off_keep_routes_jobs_and_tables_inert" {
             let route_dir = if route_profile.is_empty() {
                 "disabled"
@@ -601,6 +611,12 @@ mod flag_boundary {
                 return capture_enabled_routes(&pool, &profile).await;
             }
             match test {
+                "paused_intake_keeps_authenticated_cancellation" => {
+                    exercise_cancellation(&pool).await
+                }
+                "disabled_referral_connections_preserve_coverage" => {
+                    exercise_disabled_referral_connections(&pool).await
+                }
                 "referrals_on_records_legacy_session_refresh" => {
                     exercise_legacy_refresh(&pool).await
                 }
@@ -882,126 +898,287 @@ mod flag_boundary {
         run_case("referrals_on_records_anonymous_login_rotation", true)
     }
 
-    async fn exercise_legacy_refresh(pool: &PgPool) -> TestResult {
+    #[test]
+    fn paused_intake_keeps_authenticated_cancellation() -> TestResult {
+        run_case("paused_intake_keeps_authenticated_cancellation", false)
+    }
+
+    async fn browser_request(
+        app: axum::Router,
+        method: &str,
+        path: &str,
+        cookie: &str,
+        form: &str,
+    ) -> TestResult<axum::response::Response> {
+        use axum::{
+            body::Body,
+            extract::{ConnectInfo, Extension},
+            http::Request,
+        };
+        use tower::ServiceExt;
+        let peer = ConnectInfo("127.0.0.1:12345".parse::<SocketAddr>()?);
+        Ok(app
+            .layer(Extension(oteryn_web::Language::En))
+            .layer(Extension(peer))
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("host", "localhost")
+                    .header("origin", "https://localhost")
+                    .header("cookie", cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(form.to_owned()))?,
+            )
+            .await?)
+    }
+
+    async fn exercise_cancellation(pool: &PgPool) -> TestResult {
+        let hash = oteryn_identity::password::hash("boundary test password")?;
         let account: Uuid = sqlx::query_scalar(
-            "INSERT INTO accounts(email,password_hash,status,locale)
-            VALUES('old-refresh@example.test','test-only','active','en') RETURNING id",
+            "INSERT INTO accounts(email,password_hash,status,locale,email_verified_at)
+             VALUES('cancellation@example.test',$1,'active','en',now()) RETURNING id",
         )
+        .bind(hash)
         .fetch_one(pool)
         .await?;
-        let runtime = oteryn_web::session::configured_pool(&std::env::var("OTERYN_DATABASE_URL")?)?;
-        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,last_seen_at,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at)
-            VALUES($1,$2,now()-interval '10 minutes','legacy',$3,now()+interval '1 hour',now()+interval '1 day')")
-            .bind(Sha256::digest(SESSION).to_vec()).bind(account).bind(CSRF).execute(&runtime).await?;
-        let refreshed: time::OffsetDateTime = sqlx::query_scalar(
-            "UPDATE web_sessions SET last_seen_at=now() WHERE account_id=$1 RETURNING last_seen_at",
-        )
-        .bind(account)
-        .fetch_one(&runtime)
-        .await?;
-        sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
-            .bind(account)
-            .execute(&runtime)
+        let (cookie, _, _) = login_browser(pool, "cancellation@example.test").await?;
+        let raw = cookie.split_once('=').ok_or("invalid session cookie")?.1;
+        sqlx::query("UPDATE web_sessions SET sudo_until=now()+interval '5 min' WHERE id_hash=$1")
+            .bind(Sha256::digest(raw).to_vec())
+            .execute(pool)
             .await?;
-        let recorded: Option<time::OffsetDateTime> =
-            sqlx::query_scalar("SELECT last_activity FROM referral_activity WHERE account_id=$1")
-                .bind(account)
-                .fetch_optional(pool)
-                .await?;
-        assert_eq!(
-            recorded,
-            Some(refreshed),
-            "a legacy writer's committed refresh must survive session expiry"
+        let termination: Uuid = sqlx::query_scalar("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days') RETURNING id")
+            .bind(account).fetch_one(pool).await?;
+        let runtime = crate::account_closure::configured(pool.clone())?;
+        let app = crate::account_lifecycle_http::configured_router(
+            pool.clone(),
+            runtime.terminations.clone(),
         );
+        let path = "/en/account/privacy/delete";
+        let response = browser_request(app.clone(), "GET", path, &cookie, "").await?;
+        assert_eq!(response.status(), 200);
+        let body = axum::body::to_bytes(response.into_body(), 100_000).await?;
+        let body = std::str::from_utf8(&body)?;
+        assert!(body.contains("/en/account/privacy/delete/cancel"));
+        let csrf = browser_csrf(body)?;
+        let form =
+            format!("_csrf={csrf}&current_password=boundary+test+password&confirmation=TERMINATE");
+        assert_eq!(
+            browser_request(app.clone(), "POST", path, &cookie, &form)
+                .await?
+                .status(),
+            405
+        );
+        let cancel = "/en/account/privacy/delete/cancel";
+        assert_eq!(
+            browser_request(
+                app.clone(),
+                "POST",
+                cancel,
+                &cookie,
+                "current_password=boundary+test+password"
+            )
+            .await?
+            .status(),
+            403
+        );
+        let response = browser_request(app, "POST", cancel, &cookie, &form).await?;
+        assert_eq!(response.status(), 303);
+        let cancelled: bool = sqlx::query_scalar("SELECT cancelled_at IS NOT NULL AND finalized_at IS NULL FROM account_terminations WHERE id=$1")
+            .bind(termination).fetch_one(pool).await?;
+        assert!(cancelled);
         Ok(())
     }
 
-    async fn exercise_login_rotation(pool: &PgPool) -> TestResult {
-        use axum::{
-            body::Body,
-            extract::Extension,
-            http::{Request, StatusCode, header},
-            routing::get,
-        };
-        use oteryn_web::session::{self, BrowserSession, PrivilegeChange, SessionLayer};
-        use tower::ServiceExt;
+    #[test]
+    fn disabled_referral_connections_preserve_coverage() -> TestResult {
+        run_case("disabled_referral_connections_preserve_coverage", false)
+    }
 
-        let account: Uuid = sqlx::query_scalar(
-            "INSERT INTO accounts(email,password_hash,status,locale)
-            VALUES('rotation@example.test','test-only','active','en') RETURNING id",
-        )
-        .fetch_one(pool)
-        .await?;
-        sqlx::query("DELETE FROM referral_activity WHERE account_id=$1")
-            .bind(account)
-            .execute(pool)
-            .await?;
-        let runtime = session::configured_pool(&std::env::var("OTERYN_DATABASE_URL")?)?;
-        let app = axum::Router::new()
-            .route(
-                "/anonymous",
-                get(|Extension(session): Extension<BrowserSession>| async move {
-                    session
-                        .csrf_token()
-                        .await
-                        .map(|_| StatusCode::OK)
-                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-                }),
-            )
-            .route(
-                "/rotate",
-                get(
-                    move |Extension(session): Extension<BrowserSession>| async move {
-                        session::rotate(&session, PrivilegeChange::Login(account))
-                            .await
-                            .map(|_| StatusCode::OK)
-                            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-                    },
-                ),
-            )
-            .route_layer(axum::middleware::from_fn_with_state(
-                SessionLayer::new(runtime),
-                session::middleware,
-            ));
-        let response = app
-            .clone()
-            .oneshot(Request::get("/anonymous").body(Body::empty())?)
-            .await?;
-        assert_eq!(response.status(), StatusCode::OK);
-        let cookie = response.headers()[header::SET_COOKIE]
-            .to_str()?
-            .split(';')
-            .next()
-            .ok_or("anonymous cookie")?;
-        let anonymous: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id IS NULL")
-                .fetch_one(pool)
-                .await?;
-        assert_eq!(anonymous, 1);
-        let response = app
-            .oneshot(
-                Request::get("/rotate")
-                    .header(header::COOKIE, cookie)
-                    .body(Body::empty())?,
-            )
-            .await?;
-        assert_eq!(response.status(), StatusCode::OK);
-        let (seen, activity): (time::OffsetDateTime, Option<time::OffsetDateTime>) = sqlx::query_as(
-            "SELECT s.last_seen_at,r.last_activity FROM web_sessions s LEFT JOIN referral_activity r USING(account_id)
-             WHERE s.account_id=$1",
-        ).bind(account).fetch_one(pool).await?;
+    async fn exercise_disabled_referral_connections(pool: &PgPool) -> TestResult {
+        let url = std::env::var("OTERYN_DATABASE_URL")?;
+        let coverage: (Uuid, time::OffsetDateTime) = sqlx::query_as(
+            "UPDATE portal_referral_coverage SET generation=uuidv7(), covered_since=now()-interval '13 months'
+             RETURNING generation,covered_since",
+        ).fetch_one(pool).await?;
+        let off = oteryn_web::session::configured_pool(&url)?;
+        let sql = "SELECT generation,covered_since FROM portal_referral_coverage";
         assert_eq!(
-            activity,
-            Some(seen),
-            "rotation must record activity before any authenticated request"
+            sqlx::query_as::<_, (Uuid, time::OffsetDateTime)>(sql)
+                .fetch_one(&off)
+                .await?,
+            coverage
         );
-        let callbacks: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'",
+        let (account, _) = seed_browser_accounts(pool).await?;
+        let legacy = oteryn_db::lazy_pool(&url)?;
+        let cookie = format!("__Host-oteryn_session={SESSION}");
+        let response = browser_request(
+            crate::login_http::configured_router(legacy),
+            "GET",
+            "/en/login",
+            &cookie,
+            "",
+        )
+        .await?;
+        assert_eq!(response.status(), 302);
+        assert_eq!(
+            sqlx::query_as::<_, (Uuid, time::OffsetDateTime)>(sql)
+                .fetch_one(pool)
+                .await?,
+            coverage
+        );
+        let activity: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM referral_activity WHERE account_id=$1)",
         )
         .bind(account)
         .fetch_one(pool)
         .await?;
-        assert_eq!(callbacks, 0);
+        assert!(!activity);
+        Ok(())
+    }
+
+    async fn exercise_legacy_refresh(pool: &PgPool) -> TestResult {
+        let generation: Uuid = sqlx::query_scalar("SELECT referral_transition_coverage(true)")
+            .fetch_one(pool)
+            .await?;
+        let url = std::env::var("OTERYN_DATABASE_URL")?;
+        // A pre-upgrade process uses its ordinary pool with startup options set by deployment.
+        let enabled = format!(
+            "{url}%20-c%20oteryn.referrals_enabled%3Dtrue%20-c%20oteryn.referrals_generation%3D{generation}"
+        );
+        for (email, url, covered) in [
+            ("old-refresh@example.test", enabled, true),
+            ("unconfigured-refresh@example.test", url, false),
+        ] {
+            let account: Uuid = sqlx::query_scalar(
+                "INSERT INTO accounts(email,password_hash,status,locale)
+                 VALUES($1,'test-only','active','en') RETURNING id",
+            )
+            .bind(email)
+            .fetch_one(pool)
+            .await?;
+            let legacy = oteryn_db::lazy_pool(&url)?;
+            let previous: time::OffsetDateTime = sqlx::query_scalar(
+                "INSERT INTO web_sessions(id_hash,account_id,last_seen_at,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at)
+                 VALUES($1,$2,now()-interval '10 minutes','legacy',$3,now()+interval '1 hour',now()+interval '1 day') RETURNING last_seen_at",
+            ).bind(Sha256::digest(SESSION).to_vec()).bind(account).bind(CSRF).fetch_one(pool).await?;
+            let cookie = format!("__Host-oteryn_session={SESSION}");
+            let response = browser_request(
+                crate::login_http::configured_router(legacy),
+                "GET",
+                "/en/login",
+                &cookie,
+                "",
+            )
+            .await?;
+            assert_eq!(response.status(), 302);
+            let refreshed: time::OffsetDateTime =
+                sqlx::query_scalar("SELECT last_seen_at FROM web_sessions WHERE account_id=$1")
+                    .bind(account)
+                    .fetch_one(pool)
+                    .await?;
+            assert!(refreshed > previous);
+            sqlx::query("UPDATE web_sessions SET idle_expires_at=now()-interval '1 hour' WHERE account_id=$1")
+                .bind(account).execute(pool).await?;
+            oteryn_web::session::SessionCleanup { pool: pool.clone() }
+                .clean()
+                .await?;
+            assert!(
+                !sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM web_sessions WHERE account_id=$1)"
+                )
+                .bind(account)
+                .fetch_one(pool)
+                .await?
+            );
+            let recorded: Option<time::OffsetDateTime> = sqlx::query_scalar(
+                "SELECT last_activity FROM referral_activity WHERE account_id=$1",
+            )
+            .bind(account)
+            .fetch_optional(pool)
+            .await?;
+            assert_eq!(
+                recorded,
+                covered.then_some(refreshed),
+                "the refresh must survive session expiry only with the deployment options"
+            );
+        }
+        Ok(())
+    }
+
+    fn browser_csrf(html: &str) -> TestResult<&str> {
+        html.split("name=\"_csrf\" value=\"")
+            .nth(1)
+            .and_then(|value| value.split('"').next())
+            .ok_or_else(|| "missing browser form CSRF".into())
+    }
+
+    async fn login_browser(pool: &PgPool, email: &str) -> TestResult<(String, Uuid, Vec<u8>)> {
+        use axum::http::header::SET_COOKIE;
+        let app = crate::login_http::configured_router(pool.clone());
+        let page = browser_request(app.clone(), "GET", "/en/login", "", "").await?;
+        assert_eq!(page.status(), 200);
+        let cookie = page.headers()[SET_COOKIE]
+            .to_str()?
+            .split(';')
+            .next()
+            .ok_or("anonymous cookie")?
+            .to_owned();
+        let body = axum::body::to_bytes(page.into_body(), 100_000).await?;
+        let token = browser_csrf(std::str::from_utf8(&body)?)?;
+        let raw = cookie.split_once('=').ok_or("invalid anonymous cookie")?.1;
+        let old_hash = Sha256::digest(raw).to_vec();
+        let session_id = sqlx::query_scalar(
+            "SELECT session_id FROM web_sessions WHERE id_hash=$1 AND account_id IS NULL",
+        )
+        .bind(&old_hash)
+        .fetch_one(pool)
+        .await?;
+        let form = format!("_csrf={token}&email={email}&password=boundary+test+password");
+        let response = browser_request(app, "POST", "/en/login", &cookie, &form).await?;
+        assert_eq!(response.status(), 302);
+        let rotated = response.headers()[SET_COOKIE]
+            .to_str()?
+            .split(';')
+            .next()
+            .ok_or("rotated cookie")?
+            .to_owned();
+        Ok((rotated, session_id, old_hash))
+    }
+
+    async fn exercise_login_rotation(pool: &PgPool) -> TestResult {
+        // Keep the real login-success event and suppress only its referral callback.
+        sqlx::query("ALTER TABLE security_events DISABLE TRIGGER referral_activity_security")
+            .execute(pool)
+            .await?;
+        let runtime = oteryn_web::session::configured_pool(&std::env::var("OTERYN_DATABASE_URL")?)?;
+        let hash = oteryn_identity::password::hash("boundary test password")?;
+        for (email, record) in [
+            ("rotation@example.test", true),
+            ("no-recorder@example.test", false),
+        ] {
+            if !record {
+                sqlx::query("ALTER TABLE web_sessions DISABLE TRIGGER referral_activity_web")
+                    .execute(pool)
+                    .await?;
+            }
+            let account: Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id")
+                .bind(email).bind(&hash).fetch_one(pool).await?;
+            let (_, session_id, old_hash) = login_browser(&runtime, email).await?;
+            let (seen, activity): (time::OffsetDateTime, Option<time::OffsetDateTime>) = sqlx::query_as(
+                "SELECT s.last_seen_at,r.last_activity FROM web_sessions s LEFT JOIN referral_activity r USING(account_id)
+                 WHERE s.account_id=$1 AND s.session_id=$2 AND s.id_hash<>$3 AND s.authorization_generation=(SELECT native_security_generation FROM accounts WHERE id=$1)",
+            ).bind(account).bind(session_id).bind(old_hash).fetch_one(pool).await?;
+            assert_eq!(
+                activity,
+                record.then_some(seen),
+                "only the real AuthorizedLogin rotation can supply activity"
+            );
+            let callbacks: i64 = sqlx::query_scalar("SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'")
+                .bind(account).fetch_one(pool).await?;
+            assert_eq!(callbacks, 1);
+        }
         Ok(())
     }
 
@@ -1560,7 +1737,7 @@ mod flag_boundary {
         RoutePrerequisites {
             flags: &["PORTAL_ACCOUNT_TERMINATION_ENABLED"],
             paths: &["/{lang}/account/privacy/delete"],
-            registration_removed: true,
+            registration_removed: false,
             disabled_status: None,
         },
         RoutePrerequisites {
