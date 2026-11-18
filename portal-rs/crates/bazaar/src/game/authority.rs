@@ -176,9 +176,8 @@ impl Authority {
         {
             return Err(Error::Unavailable);
         }
-        let settlement_bind = receipt.command == Command::Bind
-            && text(i, "purpose")? == "BAZAAR_SETTLEMENT"
-            && text(i.get("funding").ok_or(Error::Invalid)?, "currency")? == "COINS";
+        let settlement_bind =
+            receipt.command == Command::Bind && text(i, "purpose")? == "BAZAAR_SETTLEMENT";
         if matches!(receipt.command, Command::Hold | Command::Payout) || settlement_bind {
             // A sale can consume the original funding and delivery preconditions.
             // The immutable admission still identifies the exact committed effect.

@@ -157,11 +157,16 @@ pub(crate) async fn validate_hold(
     if before.as_ref().map_or(0, |h| h.revision) != expected {
         return Err(Error::Denied);
     }
+    let hold_id = match facts {
+        Some(data) => Some(id(text(data, "hold_id")?)?),
+        None => before.as_ref().map(|hold| hold.id),
+    };
     let fenced: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2)",
+        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2 AND ($3::uuid IS NULL OR hold_id=$3))",
     )
     .bind(listing)
     .bind(buyer)
+    .bind(hold_id)
     .fetch_one(&mut *db)
     .await?;
     if fenced {
@@ -198,10 +203,11 @@ pub(crate) async fn validate_release(
         return Err(Error::Denied);
     }
     let fenced: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2)",
+        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_gold_sales WHERE listing_id=$1 AND buyer=$2 AND hold_id=$3)",
     )
     .bind(listing)
     .bind(buyer)
+    .bind(hold.id)
     .fetch_one(&mut *db)
     .await?;
     if fenced {
@@ -210,7 +216,8 @@ pub(crate) async fn validate_release(
             .fetch_one(&mut *db)
             .await?;
         let compensation = text(&i.value, "release_reason")? == "TERMINAL_REFUSAL"
-            && a.compensation_ready(db, &listing_row).await?;
+            && (a.compensation_ready(db, &listing_row).await?
+                || (facts.is_some() && compensated_return(a, db, &listing_row).await?));
         if !compensation {
             let Some((_, payout)) = record(a, db, listing, Command::Payout).await? else {
                 return Err(Error::Unavailable);
@@ -227,6 +234,33 @@ pub(crate) async fn validate_release(
         return Err(Error::Denied);
     }
     Ok(())
+}
+async fn compensated_return(
+    a: &Authority,
+    db: &mut PgConnection,
+    listing: &Listing,
+) -> Result<bool, Error> {
+    let operation: Option<Uuid> = sqlx::query_scalar(
+        "SELECT return_operation_id FROM bazaar_authority_compensations WHERE listing_id=$1",
+    )
+    .bind(listing.id)
+    .fetch_optional(&mut *db)
+    .await?;
+    let Some(operation) = operation else {
+        return Ok(false);
+    };
+    if a.retained(db, operation)
+        .await?
+        .is_some_and(|(_, receipt)| receipt.committed)
+    {
+        return Ok(true);
+    }
+    match listing.kind {
+        Kind::Item => Ok(record(a, db, listing.id, Command::Deliver)
+            .await?
+            .is_some_and(|(_, r)| !r.committed)),
+        Kind::Character => Ok(a.settlement_bind_refused(db, listing.id).await?.is_some()),
+    }
 }
 pub(crate) async fn validate_payout(
     a: &Authority,
@@ -246,7 +280,8 @@ pub(crate) async fn validate_payout(
     {
         return Err(Error::Denied);
     }
-    if !a.delivered(db, &s).await.map_err(core_error)? {
+    let recovering = facts.is_some() && !a.resynced(db).await?;
+    if !recovering && !a.delivered(db, &s).await.map_err(core_error)? {
         return Err(Error::Unavailable);
     }
     let hold = current_hold(
@@ -268,11 +303,47 @@ pub(crate) async fn validate_payout(
         .bind(listing)
         .fetch_one(&mut *db)
         .await?;
-    let (operation, hash) = delivery(a, db, &l).await?;
-    if operation != id(text(&i.value, "delivery_operation_id")?)?
-        || hash != text(&i.value, "delivery_receipt_digest")?
-    {
-        return Err(Error::Denied);
+    let expected_operation = id(text(&i.value, "delivery_operation_id")?)?;
+    let expected_hash = text(&i.value, "delivery_receipt_digest")?;
+    if recovering && l.kind == Kind::Item {
+        let r = a.prerequisite(db, expected_hash).await?;
+        let Some((intent, current)) = a.retained(db, expected_operation).await? else {
+            return Err(Error::Unavailable);
+        };
+        if current.digest() != r.digest()
+            || !current.committed
+            || current.command != Command::Deliver
+            || text(&intent.value, "sale_id")? != s.id.to_string()
+            || text(&intent.value, "listing_id")? != listing.to_string()
+        {
+            return Err(Error::Denied);
+        }
+    } else if recovering {
+        let Some((bind, r)) = record(a, db, listing, Command::Bind).await? else {
+            return Err(Error::Unavailable);
+        };
+        if !r.committed
+            || text(&bind.value, "purpose")? != "BAZAAR_SETTLEMENT"
+            || text(&bind.value, "sale_id")? != s.id.to_string()
+        {
+            return Err(Error::Denied);
+        }
+        let transfer = id(text(&bind.value, "transfer_operation_id")?)?;
+        let raw: String = sqlx::query_scalar(
+            "SELECT receipt_json FROM character_commands WHERE id=$1 AND state='TERMINAL'",
+        )
+        .bind(transfer)
+        .fetch_optional(&mut *db)
+        .await?
+        .ok_or(Error::Unavailable)?;
+        if transfer != expected_operation || digest(raw.as_bytes()) != expected_hash {
+            return Err(Error::Denied);
+        }
+    } else {
+        let (operation, hash) = delivery(a, db, &l).await?;
+        if operation != expected_operation || hash != expected_hash {
+            return Err(Error::Denied);
+        }
     }
     if let Some(facts) = facts
         && decimal(text(facts, "remaining_held")?, true, 999_999_999_999)?
