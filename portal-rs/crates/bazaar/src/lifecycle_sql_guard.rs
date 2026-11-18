@@ -264,26 +264,28 @@ macro_rules! attributes {
 struct SourceGuard<'a> {
     path: &'a Path,
     test_scope: bool,
+    in_macro_args: bool,
     modules: Vec<PathBuf>,
     module_dir: PathBuf,
     physical_dir: PathBuf,
+    source_dir: PathBuf,
     offenders: &'a mut Vec<String>,
 }
 
 impl SourceGuard<'_> {
     fn scoped(&mut self, attrs: &[Attribute], visit: impl FnOnce(&mut Self)) {
         let enclosing = self.test_scope;
-        self.test_scope |= test_only(attrs);
+        // An arbitrary macro can consume attributes without honoring cfg.
+        self.test_scope |= !self.in_macro_args && test_only(attrs);
         visit(self);
         self.test_scope = enclosing;
     }
 
-    fn sql(&mut self, literal: &syn::LitStr) {
-        let sql = literal.value();
-        if !forbidden_state_write(&sql) {
+    fn sql(&mut self, sql: &str) {
+        if !forbidden_state_write(sql) {
             return;
         }
-        let normalized = normalize_sql(&sql);
+        let normalized = normalize_sql(sql);
         if self.test_scope
             && FIXTURE_WRITES
                 .iter()
@@ -295,6 +297,41 @@ impl SourceGuard<'_> {
             .push(format!("{}: {normalized}", self.path.display()));
     }
 
+    fn arguments(
+        mac: &syn::Macro,
+    ) -> syn::Result<syn::punctuated::Punctuated<Expr, syn::Token![,]>> {
+        use syn::parse::Parser;
+        syn::punctuated::Punctuated::<Expr, syn::Token![,]>::parse_terminated
+            .parse2(mac.tokens.clone())
+    }
+
+    fn constant_string(&self, expression: &Expr) -> Option<String> {
+        match expression {
+            Expr::Lit(expr) => match &expr.lit {
+                Lit::Str(value) => Some(value.value()),
+                Lit::Char(value) => Some(value.value().into()),
+                _ => None,
+            },
+            Expr::Macro(expr) => self.assembled_sql(&expr.mac),
+            Expr::Paren(expr) => self.constant_string(&expr.expr),
+            Expr::Group(expr) => self.constant_string(&expr.expr),
+            _ => None,
+        }
+    }
+
+    fn assembled_sql(&self, mac: &syn::Macro) -> Option<String> {
+        let args = Self::arguments(mac).ok()?;
+        let name = &mac.path.segments.last()?.ident;
+        if name == "concat" {
+            args.iter().map(|expr| self.constant_string(expr)).collect()
+        } else if name == "include_str" && args.len() == 1 {
+            let path = self.constant_string(args.first()?)?;
+            std::fs::read_to_string(self.source_dir.join(path)).ok()
+        } else {
+            None
+        }
+    }
+
     fn macro_tokens(&mut self, mut tokens: Cursor<'_>) {
         // Macro arguments are token trees. Exempt only when the Rust AST places
         // the entire macro in test scope.
@@ -304,7 +341,7 @@ impl SourceGuard<'_> {
             } else if let Some((literal, _)) = tokens.literal()
                 && let Ok(sql) = syn::parse_str::<syn::LitStr>(&literal.to_string())
             {
-                self.sql(&sql);
+                self.sql(&sql.value());
             }
             tokens = next;
         }
@@ -364,12 +401,28 @@ impl<'ast> Visit<'ast> for SourceGuard<'_> {
     }
 
     fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
-        self.sql(literal);
+        self.sql(&literal.value());
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        let tokens = TokenBuffer::new2(mac.tokens.clone());
-        self.macro_tokens(tokens.begin());
+        let name = mac.path.segments.last().map(|segment| &segment.ident);
+        if let Some(name) = name.filter(|&name| name == "concat" || name == "include_str") {
+            if let Some(sql) = self.assembled_sql(mac) {
+                self.sql(&sql);
+            } else {
+                self.offenders
+                    .push(format!("{}: cannot inspect {}!", self.path.display(), name,));
+            }
+        } else if let Ok(args) = Self::arguments(mac) {
+            let enclosing = std::mem::replace(&mut self.in_macro_args, true);
+            for expr in &args {
+                self.visit_expr(expr);
+            }
+            self.in_macro_args = enclosing;
+        } else {
+            let tokens = TokenBuffer::new2(mac.tokens.clone());
+            self.macro_tokens(tokens.begin());
+        }
     }
 
     fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
@@ -425,9 +478,11 @@ fn inspect(
     let mut guard = SourceGuard {
         path,
         test_scope: test_only(&file.attrs),
+        in_macro_args: false,
         modules: Vec::new(),
         module_dir: directory,
         physical_dir: parent.to_path_buf(),
+        source_dir: root.join(parent),
         offenders,
     };
     guard.visit_file(file);

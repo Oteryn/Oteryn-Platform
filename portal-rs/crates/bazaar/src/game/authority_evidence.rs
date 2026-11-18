@@ -1,16 +1,19 @@
 use super::authority_wire::{decode, number, same};
 use super::game_wire::{id, text};
-use super::{Authority, Command, Error, PreparedIntent, Receipt};
+use super::{Authority, Command, Error, PreparedIntent, Receipt, delivery_work};
 use crate::lifecycle::{Context, Current, Event, transition};
-use crate::{Currency, Evidence, Kind, Listing, Offer, Settlement};
+use crate::{Currency, Evidence, Kind, Listing, Offer, Settlement, State};
 use oteryn_internal_api::canonical::Value;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 const DELIVERY_EVIDENCE_RETRIES: i64 = 8;
+// Progress from before dirty-key scheduling never checked compensated sales.
+const RESYNC_VERSION: &str = "delivery-sales-v2:";
 
 enum DeliveryEvidence {
     Pending,
+    Unpublished,
     Audited(PreparedIntent, Receipt),
     Drift(&'static str),
 }
@@ -28,106 +31,102 @@ impl Authority {
         if worlds.is_empty() || worlds.len() > 32 || worlds.windows(2).any(|w| w[0] >= w[1]) {
             return Err(Error::Invalid);
         }
-        if self.resynced(db).await? {
-            return Ok(());
-        }
-        let worlds_binding = worlds
-            .iter()
-            .map(Uuid::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let progress=sqlx::query_as::<_, (Uuid, String, String)>("SELECT listing_cursor,operation_cursor::text,worlds FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric FOR UPDATE").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_optional(&mut **db).await?;
+        let mut certified = self.resync_marker(db).await?;
+        let worlds_binding = format!(
+            "{RESYNC_VERSION}{}",
+            worlds
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let progress=sqlx::query_as::<_, (Uuid, String, String)>("SELECT listing_cursor,operation_cursor::text,worlds FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_optional(&mut **db).await?;
         let (listing_cursor, operation_cursor) = match progress {
             Some((listing, operation, worlds)) if worlds == worlds_binding => (listing, operation),
-            Some(_) => return Err(Error::Conflict),
-            None => (Uuid::nil(), "0".to_owned()),
+            progress => {
+                // An empty legacy fence has no delivery history to reconcile.
+                let rebuild = progress.is_some()
+                    || certified && sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE command='DeliverBazaarItem')",
+                    ).fetch_one(&mut **db).await?;
+                if rebuild {
+                    sqlx::query("DELETE FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric")
+                        .bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string())
+                        .execute(&mut **db).await?;
+                    self.revoke_resync_marker(db).await?;
+                    certified = false;
+                }
+                (Uuid::nil(), "0".to_owned())
+            }
         };
+        if certified && !delivery_work::pending(db, false).await? {
+            return Ok(());
+        }
         for world in worlds {
             id(&world.to_string())?;
             self.projection(db, "POLICY", *world)
                 .await?
                 .ok_or(Error::Unavailable)?;
         }
-        // The operation scan below independently verifies the audit for every
-        // deposit. A refused or never-issued deposit has no custody ID for STATUS.
-        let listings: Vec<(Uuid, bool, bool)> = sqlx::query_as(
-            "SELECT l.id, (a.refusal_code IS NOT NULL OR l.state IN ('draft','cancelled'))
-                AND NOT EXISTS (
-                    SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
-                      AND o.command IN ('LockBazaarCharacter','EscrowBazaarItem')
-                      AND (EXISTS (SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
-                           OR EXISTS (SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id))
-                      AND (EXISTS (SELECT 1 FROM bazaar_authority_receipts r
-                                   WHERE r.operation_id=o.operation_id AND r.outcome='COMMITTED')
-                           OR NOT EXISTS (SELECT 1 FROM bazaar_authority_receipts r
-                                   WHERE r.operation_id=o.operation_id AND r.outcome='REJECTED'
-                                     AND r.recovery_generation=$2::text::numeric))),
-                (l.state='completed' AND l.kind='item')
-             FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id
-             WHERE l.id>$1 ORDER BY l.id LIMIT 24",
-        )
-        .bind(listing_cursor)
-        .bind(self.fence.recovery_generation.to_string())
-        .fetch_all(&mut **db)
-        .await?;
-        let next_listing = listings.last().map(|(id, _, _)| *id);
+        let listings = if certified {
+            Vec::new()
+        } else {
+            self.resync_listing_batch(db, listing_cursor).await?
+        };
+        let next_listing = listings.last().map(|(id, ..)| *id);
         let listing_count = listings.len();
-        for (listing, no_deposit_effect, completed_item) in listings {
-            if no_deposit_effect && !completed_item {
-                continue;
+        let mut missing_listing = false;
+        let mut missing_world = false;
+        for (listing, state, no_deposit_effect, delivery) in listings {
+            if delivery {
+                delivery_work::mark(db, listing).await?;
             }
-            let status = self.projection(db, "STATUS", listing).await?;
-            if completed_item {
-                self.resync_completed_delivery(db, listing, status.as_ref(), worlds)
-                    .await?;
-                continue;
-            }
-            let status = status.ok_or(Error::Unavailable)?;
-            let world = id(text(&status, "world_id")?)?;
-            let state = text(&status, "state")?;
-            let operation = if status.get("last_operation_id") == Some(&Value::Null) {
-                None
-            } else {
-                Some(id(text(&status, "last_operation_id")?)?)
-            };
-            if !worlds.contains(&world) {
-                return Err(Error::Unavailable);
-            }
-            if operation.is_none() && matches!(state, "locked" | "ESCROWED" | "INVALID") {
-                continue;
-            }
-            let retained = if let Some(operation) = operation {
-                self.retained(db, operation).await?
-            } else {
-                None
-            };
-            if retained.is_none() {
-                // The existing CC1 ownership leg is not a v2 Bazaar receipt.
-                // Rebuild its proof from the unchanged receipt plus its v2 bind.
-                let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
-                    .bind(listing)
-                    .fetch_one(&mut **db)
-                    .await?;
-                if l.kind != Kind::Character
-                    || super::runtime::characters::custody(
-                        self,
-                        db,
-                        &l,
-                        &status,
-                        text(&status, "state")?,
-                    )
-                    .await?
-                    .is_none()
-                {
-                    return Err(Error::Unavailable);
+            let terminal_delivery =
+                delivery && matches!(state, State::Completed | State::Cancelled);
+            if !no_deposit_effect && !terminal_delivery {
+                match self.resync_listing(db, listing, worlds).await {
+                    Ok(()) => {}
+                    Err(Error::Unavailable) => missing_listing = true,
+                    Err(Error::ResyncWorldConfiguration) => {
+                        missing_world = true;
+                        missing_listing = true;
+                    }
+                    Err(error) => return Err(error),
                 }
             }
+        }
+        let mut pending_evidence = false;
+        for (listing, state) in delivery_work::batch(db).await? {
+            match self.resync_delivery(db, listing, state, worlds).await {
+                Ok(()) | Err(Error::CustodyDrift) => delivery_work::remove(db, listing).await?,
+                Err(Error::DeliveryEvidencePending) => pending_evidence = true,
+                Err(Error::ResyncWorldConfiguration) => missing_world = true,
+                Err(error) => return Err(error),
+            }
+        }
+        let evidence = self
+            .delivery_recheck_result(db, pending_evidence, missing_world)
+            .await;
+        if certified {
+            if matches!(evidence, Err(Error::CustodyDrift)) {
+                self.revoke_resync_marker(db).await?;
+            }
+            return evidence;
+        }
+        if missing_listing && !matches!(evidence, Err(Error::CustodyDrift)) {
+            return evidence.and(Err(Error::Unavailable));
+        }
+        // Checkpoint a full page even when it contains unresolved delivery keys.
+        // The durable dirty queue now owns their retries.
+        if listing_count < 24 && listing_cursor.is_nil() && evidence.is_err() {
+            return evidence;
         }
         sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES($1::text::numeric,$2::text::numeric,$3) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(&worlds_binding).execute(&mut **db).await?;
         if let Some(cursor) = next_listing {
             sqlx::query("UPDATE bazaar_resync_progress SET listing_cursor=$3 WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(cursor).execute(&mut **db).await?;
         }
-        if listing_count == 24 {
+        evidence?;
+        if listing_count == 24 || delivery_work::pending(db, false).await? {
             return Ok(());
         }
         let operations=sqlx::query("SELECT o.operation_id,o.source_revision::text AS revision, EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id) AS dispatched, EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id) AS admitted FROM bazaar_game_outbox o WHERE o.source_revision>$1::text::numeric ORDER BY o.source_revision LIMIT 24").bind(operation_cursor).fetch_all(&mut **db).await?;
@@ -161,6 +160,105 @@ impl Authority {
         sqlx::query("INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation) VALUES($1::text::numeric,$2::text::numeric) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
         Ok(())
     }
+    // The operation scan verifies the audit independently. A refused or
+    // never-issued deposit has no custody ID for STATUS.
+    async fn resync_listing_batch(
+        &self,
+        db: &mut PgConnection,
+        listing_cursor: Uuid,
+    ) -> Result<Vec<(Uuid, State, bool, bool)>, Error> {
+        Ok(sqlx::query_as(
+            "SELECT l.id, l.state, (a.refusal_code IS NOT NULL OR l.state IN ('draft','cancelled'))
+                AND NOT EXISTS (
+                    SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
+                      AND o.command IN ('LockBazaarCharacter','EscrowBazaarItem')
+                      AND (EXISTS (SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                           OR EXISTS (SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id))
+                      AND (EXISTS (SELECT 1 FROM bazaar_authority_receipts r
+                                   WHERE r.operation_id=o.operation_id AND r.outcome='COMMITTED')
+                           OR NOT EXISTS (SELECT 1 FROM bazaar_authority_receipts r
+                                   WHERE r.operation_id=o.operation_id AND r.outcome='REJECTED'
+                                     AND r.recovery_generation=$2::text::numeric))),
+                l.kind='item' AND (l.state='completed' OR EXISTS (
+                    SELECT 1 FROM bazaar_game_outbox o
+                    WHERE o.listing_id=l.id AND o.command='DeliverBazaarItem'))
+             FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id
+             WHERE l.id>$1 ORDER BY l.id LIMIT 24",
+        )
+        .bind(listing_cursor)
+        .bind(self.fence.recovery_generation.to_string())
+        .fetch_all(db)
+        .await?)
+    }
+
+    async fn resync_listing(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+        worlds: &[Uuid],
+    ) -> Result<(), Error> {
+        let status = self
+            .projection(db, "STATUS", listing)
+            .await?
+            .ok_or(Error::Unavailable)?;
+        let world = id(text(&status, "world_id")?)?;
+        let state = text(&status, "state")?;
+        let operation = if status.get("last_operation_id") == Some(&Value::Null) {
+            None
+        } else {
+            Some(id(text(&status, "last_operation_id")?)?)
+        };
+        if !worlds.contains(&world) {
+            return Err(Error::ResyncWorldConfiguration);
+        }
+        if operation.is_none() && matches!(state, "locked" | "ESCROWED" | "INVALID") {
+            return Ok(());
+        }
+        if let Some(operation) = operation
+            && self.retained(db, operation).await?.is_some()
+        {
+            return Ok(());
+        }
+        // The existing CC1 ownership leg uses its unchanged receipt plus the v2 bind.
+        let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
+            .bind(listing)
+            .fetch_one(&mut *db)
+            .await?;
+        if l.kind == Kind::Character
+            && super::runtime::characters::custody(self, db, &l, &status, state)
+                .await?
+                .is_some()
+        {
+            return Ok(());
+        }
+        Err(Error::Unavailable)
+    }
+
+    async fn has_delivery_drift(&self, db: &mut PgConnection) -> Result<bool, Error> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_audit WHERE relation_name='bazaar_delivery_evidence'
+             AND after_row->>'action'='delivery_custody_drift')",
+        )
+        .fetch_one(db).await?)
+    }
+
+    async fn delivery_recheck_result(
+        &self,
+        db: &mut PgConnection,
+        pending: bool,
+        missing_world: bool,
+    ) -> Result<(), Error> {
+        if self.has_delivery_drift(db).await? {
+            Err(Error::CustodyDrift)
+        } else if missing_world {
+            Err(Error::ResyncWorldConfiguration)
+        } else if pending {
+            Err(Error::DeliveryEvidencePending)
+        } else {
+            Ok(())
+        }
+    }
+
     pub(super) async fn projection(
         &self,
         db: &mut PgConnection,
@@ -237,8 +335,23 @@ impl Authority {
         Ok(Some(value))
     }
     pub(super) async fn resynced(&self, db: &mut PgConnection) -> Result<bool, Error> {
+        Ok(self.resync_marker(db).await? && !delivery_work::pending(db, true).await?)
+    }
+    async fn resync_marker(&self, db: &mut PgConnection) -> Result<bool, Error> {
         Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_resync WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric)").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut *db).await?)
     }
+    async fn revoke_resync_marker(&self, db: &mut PgConnection) -> Result<(), Error> {
+        sqlx::query(
+            "DELETE FROM bazaar_authority_resync
+             WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric",
+        )
+        .bind(self.fence.projection_epoch.to_string())
+        .bind(self.fence.recovery_generation.to_string())
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+
     pub(super) async fn fresh(&self, db: &mut PgConnection) -> Result<bool, Error> {
         if self.lock(db).await.is_err() {
             return Ok(false);
@@ -259,11 +372,11 @@ impl Authority {
             && complete <= number(&watermark, "observed_at")?
             && now.saturating_sub(complete).saturating_add(1) <= 30)
     }
-    async fn resync_completed_delivery(
+    async fn resync_delivery(
         &self,
         db: &mut PgConnection,
         listing: Uuid,
-        status: Option<&Value>,
+        state: State,
         worlds: &[Uuid],
     ) -> Result<(), Error> {
         let sale = self
@@ -285,43 +398,85 @@ impl Authority {
             return Err(Error::CustodyDrift);
         }
 
-        let evidence = self.completed_delivery(db, listing, sale).await?;
-        let reason = match (evidence, status) {
+        let status = self.projection(db, "STATUS", listing).await?;
+        let evidence = self.delivery_evidence(db, listing, sale).await?;
+        let terminal = matches!(state, State::Completed | State::Cancelled);
+        let reason = match (evidence, status.as_ref()) {
             (DeliveryEvidence::Drift(reason), _) => Some(reason),
-            (DeliveryEvidence::Audited(intent, receipt), Some(status)) => {
+            (DeliveryEvidence::Audited(_, receipt), _)
+                if state == State::Completed && !receipt.committed
+                    || state == State::Cancelled && receipt.committed =>
+            {
+                Some("delivery_outcome_contradicts_sale")
+            }
+            (DeliveryEvidence::Audited(intent, receipt), Some(status)) if terminal => {
                 let world = id(text(status, "world_id")?)?;
-                let delivered = text(status, "state")? == "DELIVERED"
-                    && text(status, "asset_kind")? == "ITEM"
-                    && status.get("last_operation_id") == receipt.value.get("operation_id")
-                    && text(status, "seller_account_id")?
-                        == text(&intent.value, "seller_account_id")?
-                    && text(status, "world_id")? == text(&intent.value, "world_id")?
-                    && item_custody_matches(
-                        status,
-                        receipt.value.get("result_data").ok_or(Error::Invalid)?,
-                    )?;
-                if transition(
-                    Current::Custody {
-                        completed_item: true,
-                    },
-                    Event::ResyncCustody,
-                    Context {
-                        delivered,
-                        ..Context::default()
-                    },
-                )
-                .is_ok()
-                {
-                    if worlds.contains(&world) {
+                let delivered = text(status, "state")? == "DELIVERED";
+                let consistent = if receipt.committed {
+                    let delivered = delivered
+                        && text(status, "asset_kind")? == "ITEM"
+                        && status.get("last_operation_id") == receipt.value.get("operation_id")
+                        && text(status, "seller_account_id")?
+                            == text(&intent.value, "seller_account_id")?
+                        && text(status, "world_id")? == text(&intent.value, "world_id")?
+                        && item_custody_matches(
+                            status,
+                            receipt.value.get("result_data").ok_or(Error::Invalid)?,
+                        )?;
+                    transition(
+                        Current::Custody {
+                            completed_item: true,
+                        },
+                        Event::ResyncCustody,
+                        Context {
+                            delivered,
+                            ..Context::default()
+                        },
+                    )
+                    .is_ok()
+                } else {
+                    !delivered
+                };
+                if !consistent {
+                    Some("status_contradicts_delivery")
+                } else if !worlds.contains(&world) {
+                    return Err(Error::ResyncWorldConfiguration);
+                } else {
+                    if state == State::Completed {
+                        return Ok(());
+                    }
+                    if self
+                        .cancelled_delivery_has_status(db, listing, worlds)
+                        .await?
+                    {
                         return Ok(());
                     }
                     None
-                } else {
-                    Some("status_contradicts_delivery")
                 }
             }
+            (DeliveryEvidence::Unpublished, _) if state == State::Cancelled => {
+                if self
+                    .cancelled_delivery_has_status(db, listing, worlds)
+                    .await?
+                {
+                    return Ok(());
+                }
+                None
+            }
+            _ if !terminal => return Ok(()),
             _ => None,
         };
+        if reason.is_none() {
+            let world: Option<Uuid> = sqlx::query_scalar(
+                "SELECT world_id FROM bazaar_authority_assets WHERE listing_id=$1",
+            )
+            .bind(listing)
+            .fetch_optional(&mut *db)
+            .await?;
+            if world.is_some_and(|world| !worlds.contains(&world)) {
+                return Err(Error::ResyncWorldConfiguration);
+            }
+        }
         let reason = match reason {
             Some(reason) => reason,
             None if retries >= DELIVERY_EVIDENCE_RETRIES => "evidence_retry_exhausted",
@@ -338,7 +493,7 @@ impl Authority {
                 return Err(Error::DeliveryEvidencePending);
             }
         };
-        let bytes = match status {
+        let bytes = match &status {
             Some(status) => {
                 oteryn_internal_api::canonical::encode(status).map_err(|_| Error::Invalid)?
             }
@@ -361,6 +516,19 @@ impl Authority {
         )
         .await?;
         Err(Error::CustodyDrift)
+    }
+
+    async fn cancelled_delivery_has_status(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+        worlds: &[Uuid],
+    ) -> Result<bool, Error> {
+        match self.resync_listing(db, listing, worlds).await {
+            Ok(()) => Ok(true),
+            Err(Error::Unavailable) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     pub(super) async fn delivery_sale_id(
@@ -401,7 +569,7 @@ impl Authority {
         .await?)
     }
 
-    async fn completed_delivery(
+    async fn delivery_evidence(
         &self,
         db: &mut PgConnection,
         listing: Uuid,
@@ -412,8 +580,9 @@ impl Authority {
             Some(operation) => self.audited_receipt(db, operation, true).await?,
             None => None,
         };
-        if let Some((_, receipt, conflicted)) = &current
-            && (*conflicted || !receipt.committed)
+        if current
+            .as_ref()
+            .is_some_and(|(_, _, conflicted)| *conflicted)
         {
             return Ok(DeliveryEvidence::Drift("delivery_reversal_or_conflict"));
         }
@@ -421,11 +590,12 @@ impl Authority {
         // A second operation can carry the same sale step under another key.
         // An unchanged reattestation of the canonical operation carries the
         // same commitment. Changed facts or a second operation are drift.
-        let commitments: Vec<(Uuid, String)> = sqlx::query_as(
+        let history: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT o.operation_id,r.recovery_generation::text
              FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
              WHERE o.listing_id=$1 AND o.command='DeliverBazaarItem'
-               AND o.intent::jsonb->>'sale_id'=$2 AND r.outcome='COMMITTED'
+               AND o.intent::jsonb->>'sale_id'=$2
+               AND (o.operation_id=$5 OR r.outcome='COMMITTED')
                AND r.source_authority=$3 AND r.recovery_generation<=$4::text::numeric
                AND (o.operation_id IS DISTINCT FROM $5 OR r.recovery_generation<$4::text::numeric)
                AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id
@@ -434,7 +604,8 @@ impl Authority {
         .bind(listing).bind(sale.to_string()).bind(&self.config.receipt_authority)
         .bind(self.fence.recovery_generation.to_string()).bind(operation).bind(&self.config.projection_authority)
         .fetch_all(&mut *db).await?;
-        for (candidate, generation) in commitments {
+        let mut canonical = current.as_ref().map(|(_, receipt, _)| receipt.clone());
+        for (candidate, generation) in history {
             let generation = generation.parse().map_err(|_| Error::Invalid)?;
             let Some((_, receipt, _)) = self
                 .audited_receipt_at(db, candidate, generation, true)
@@ -445,10 +616,17 @@ impl Authority {
             if Some(candidate) != operation {
                 return Ok(DeliveryEvidence::Drift("second_delivery_commitment"));
             }
-            if let Some((_, receipt_now, _)) = &current
-                && receipt.value.get("result_data") != receipt_now.value.get("result_data")
-            {
-                return Ok(DeliveryEvidence::Drift("changed_delivery_commitment"));
+            if let Some(prior) = &canonical {
+                if receipt.committed != prior.committed {
+                    return Ok(DeliveryEvidence::Drift("delivery_reversal_or_conflict"));
+                }
+                if receipt.committed
+                    && receipt.value.get("result_data") != prior.value.get("result_data")
+                {
+                    return Ok(DeliveryEvidence::Drift("changed_delivery_commitment"));
+                }
+            } else {
+                canonical = Some(receipt);
             }
         }
         match current {
@@ -459,7 +637,19 @@ impl Authority {
                 Ok(DeliveryEvidence::Audited(intent, receipt))
             }
             Some(_) => Ok(DeliveryEvidence::Drift("invalid_delivery_binding")),
-            None => Ok(DeliveryEvidence::Pending),
+            None => {
+                let published: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o
+                     WHERE o.listing_id=$1 AND o.command='DeliverBazaarItem'
+                       AND (EXISTS (SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                            OR EXISTS (SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id)))",
+                ).bind(listing).fetch_one(db).await?;
+                if published {
+                    Ok(DeliveryEvidence::Pending)
+                } else {
+                    Ok(DeliveryEvidence::Unpublished)
+                }
+            }
         }
     }
 

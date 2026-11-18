@@ -560,7 +560,9 @@ pub(crate) async fn verify_unlock(
             same(&status, "asset_id", &lock.value, "character_id")?;
             same(&status, "custody_id", facts, "lock_id")?;
             same(&status, "custody_revision", facts, "lock_revision")?;
-            same(&status, "last_operation_id", &lock.value, "operation_id")?;
+            if status.get("last_operation_id") != Some(&Value::Null) {
+                same(&status, "last_operation_id", &lock.value, "operation_id")?;
+            }
         }
         id(text(&lock.value, "seller_account_id")?)?
     };

@@ -343,3 +343,28 @@ fn lifecycle_guard_keeps_adjacent_array_element_in_production() {
     );
     assert_eq!(offenders.len(), 1);
 }
+
+#[test]
+fn bz07_guard_checks_assembled_and_included_sql() -> std::io::Result<()> {
+    let root = std::env::temp_dir().join(format!("bazaar-sql-guard-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir(&root)?;
+    std::fs::write(
+        root.join("write.sql"),
+        "UPDATE bazaar_listings SET state=$1 WHERE id=$2",
+    )?;
+    std::fs::write(
+        root.join("lib.rs"),
+        r#"
+        fn assembled() {
+            sqlx::query(concat!("UPDATE bazaar_listings ", "SET state=$1 WHERE id=$2"));
+        }
+        fn included() {
+            sqlx::query(include_str!("write.sql"));
+        }
+    "#,
+    )?;
+    let result = sql_guard::scan(&root);
+    std::fs::remove_dir_all(root)?;
+    assert_eq!(result?.len(), 2);
+    Ok(())
+}

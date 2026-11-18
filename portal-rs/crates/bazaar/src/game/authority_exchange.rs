@@ -57,6 +57,15 @@ impl Authority {
             }
         }
         self.lock(db).await?;
+        if i.command == Command::Deliver {
+            let listing = id(text(&i.value, "listing_id")?)?;
+            let sale = id(text(&i.value, "sale_id")?)?;
+            if self.delivery_sale_id(db, listing).await? != Some(sale)
+                || self.sale_delivery_operation(db, listing, sale).await? != Some(operation)
+            {
+                return Err(Error::Conflict);
+            }
+        }
         if i.is_sale_handoff()?
             && self
                 .return_started(db, id(text(&i.value, "listing_id")?)?)
@@ -321,6 +330,18 @@ impl Authority {
         listing: &crate::Listing,
     ) -> Result<(), Error> {
         self.lock(db).await?;
+        // A recorded compensation and its cancelled state were written together.
+        // Replaying that result does not depend on the next custody recheck.
+        let compensated: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_authority_compensations c
+             JOIN bazaar_listings l ON l.id=c.listing_id WHERE c.listing_id=$1 AND l.state='cancelled')",
+        )
+        .bind(listing.id)
+        .fetch_one(&mut *db)
+        .await?;
+        if compensated {
+            return Ok(());
+        }
         if !self.compensation_ready(db, listing).await? {
             return Err(Error::Unavailable);
         }

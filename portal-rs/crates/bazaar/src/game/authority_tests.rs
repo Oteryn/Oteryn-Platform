@@ -1030,6 +1030,11 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemS
         .await
         .unwrap();
         assert_eq!(captures, 0);
+        // The terminal sale's evidence must be rechecked before a new action can
+        // use the returned-custody proof. The compensation replay above is a no-op.
+        assert!(!a.resynced(&mut tx).await.unwrap());
+        a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+        assert!(a.resynced(&mut tx).await.unwrap());
         // The same returned-custody proof releases a Gold settlement fence,
         // while ordinary releases remain denied until payout.
         let gold_hold = Uuid::now_v7();
@@ -3553,6 +3558,7 @@ async fn character_status(
             "custody_id" => Value::String(uid("32").to_string()),
             "custody_revision" => Value::String(revisions.1.into()),
             "snapshot_hash" => Value::String(hash.into()),
+            "last_operation_id" if last_operation.is_nil() => Value::Null,
             "last_operation_id" => Value::String(last_operation.to_string()),
             "source_observed_at" => Value::String(now.to_string()),
             _ => value.clone(),

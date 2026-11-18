@@ -152,7 +152,7 @@ rows (`authority_exchange.rs:398–455`).
 | `fence_matching` | `new_epoch` | Current projections advance issuer epoch and reopen prior intents. The old fence is unavailable and the new fence resyncs with retained same-generation receipts (`game_projection.rs:247–261`, `game_store.rs:139–158`, `authority_evidence.rs:45–127`). | CORRECT |
 | `draft` | `refuse_lock` | Records the refusal. Recovery closes the draft on audited no-effect proof or reconciles an acquired lock without starting listing escrow (`runtime/worker.rs`). | CORRECT |
 | `intent_staged` | `resync` | The operation scan keeps the staged bytes and advances without a receipt when no dispatch or admitted receipt exists (`authority_evidence.rs:110–118`, `authority_exchange.rs:428`). | CORRECT |
-| `completed` | `resync_escrow_status` | Checks STATUS against the Deliver issuance key for the sale. The worker records up to eight retries per key for missing receipt, audit, or STATUS. A second audited commitment, an audited reversal, a contradictory STATUS, or retry exhaustion quarantines the listing and appends one custody-drift report to `bazaar_audit`. The completed sale is preserved. A custody or operation change committed behind a saved resync cursor can escape that check. | KNOWN GAP (C2) |
+| Item sale with Deliver | Delivery reconciliation | Dispatch requires the sale’s Deliver issuance key. The worker checks audited delivery outcomes even after compensation. It records up to eight retries for missing terminal evidence. An audited reversal, a second audited commitment, contradictory terminal evidence, or retry exhaustion quarantines the listing and writes one custody-drift report to `bazaar_audit`. Drift blocks certification while the worker keeps checking other sales. A missing configured world leaves the retry count unchanged. | CORRECT |
 
 | State | Event | Classification and reason |
 | --- | --- | --- |
@@ -167,14 +167,16 @@ rows (`authority_exchange.rs:398–455`).
 | Expired | Game worker tick | N/A · legacy expiry is outside the Game listing batch (`runtime/worker.rs:908–914`). |
 
 Receipt events key by operation and projection epoch events key by issuer floor.
-These events use the corresponding authority or projection state in the table.
+STATUS, receipt and audit writes for an item sale schedule its reconciliation
+in the same issuer transaction. Resync drains these keys before certification
+and the worker rechecks changes that arrive after certification.
 
 ### Refused-character recovery
 
 The worker evaluates current audited custody for refused drafts and cancelled
 listings. An audited no-effect Lock closes the listing. If the Lock committed
 and ownership never moved, the worker checks the seller’s STATUS and unlocks
-that exact lock. An audited refused escrow Bind can be retired before unlock.
+that exact lock. The initial STATUS may omit its last operation ID. An audited refused escrow Bind can be retired before unlock.
 A committed CC1 escrow transfer follows the escrow return path.
 
 A committed escrow Bind with an unpublished CC1 transfer has an unresolved
@@ -187,8 +189,8 @@ and generation.
 
 | Review ID | Behavior | Classification |
 | --- | --- | --- |
-| C2 | A commit behind a saved listing or operation cursor can escape an in-progress resync scan. See `resync_escrow_status` above. | KNOWN GAP |
-| C3 | `finish_resync` returns immediately when `resynced()` finds a marker, so evidence changes after certification do not trigger a new scan for that fence (`authority_evidence.rs`). | KNOWN GAP |
+| C2 | Evidence for a listing outside the item delivery reconciliation queue can still commit behind a saved listing or operation cursor. | KNOWN GAP |
+| C3 | Evidence changes outside the item delivery reconciliation queue do not trigger a new scan after certification (`authority_evidence.rs`). | KNOWN GAP |
 | C5 | The review identifies C5 as pre-existing. Its scenario and source location are unspecified in the review summary. | KNOWN GAP |
 | C6 | The staging backlog counts receipt heads outside the configured generation. Dispatched operations without a receipt head and current-generation receipts awaiting audit do not count toward that limit (`game_store.rs`). | KNOWN GAP |
 | C8 | A higher-generation Escrow commitment can follow an earlier rejection. Receipt admission detects the opposite outcome reversal and can still store this late commitment after the listing has been refused (`authority.rs`). | KNOWN GAP |

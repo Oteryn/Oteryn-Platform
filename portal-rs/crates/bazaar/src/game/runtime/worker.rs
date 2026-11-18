@@ -27,23 +27,23 @@ impl Runtime {
         self.config.current()?;
         let mut resync = self.pool.begin().await?;
         crate::locking::listing_gate(&mut resync).await?;
-        let custody_drift = match self
+        let resync_problem = match self
             .authority()
             .finish_resync(&mut resync, &self.config.worlds)
             .await
         {
             Ok(()) | Err(Error::DeliveryEvidencePending) => {
                 resync.commit().await?;
-                false
+                None
             }
-            Err(Error::CustodyDrift) => {
+            Err(problem @ (Error::CustodyDrift | Error::ResyncWorldConfiguration)) => {
                 resync.commit().await?;
-                true
+                Some(problem)
             }
             Err(Error::Database(e)) => return Err(Error::Database(e)),
             Err(_) => {
                 resync.rollback().await?;
-                false
+                None
             }
         };
         // Reconcile legacy dispositions in bounded, independently committed batches.
@@ -69,10 +69,7 @@ impl Runtime {
                 Err(_) => {}
             }
         }
-        if custody_drift {
-            return Err(Error::CustodyDrift);
-        }
-        Ok(())
+        resync_problem.map_or(Ok(()), Err)
     }
     pub(super) async fn stage_deposit(
         &self,

@@ -970,3 +970,67 @@ async fn restored_same_delivery_key_with_changed_commitment_reports_drift() {
     assert_eq!(reports, 1);
     db.end().await;
 }
+
+#[tokio::test]
+async fn bz02_compensated_sale_reversal_is_reported_as_drift() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_sale(false, false).await;
+    let delivery = newest_intent(&db, uid("20"), Command::Deliver).await;
+    item_effect(&db, Command::Deliver, true).await;
+    db.runtime.tick().await.unwrap();
+    item_effect(&db, Command::Return, false).await;
+    db.runtime.tick().await.unwrap();
+    assert_eq!(state(&db).await, crate::State::Cancelled);
+    let refund: bool = sqlx::query_scalar(
+        "SELECT disposition.completed FROM bazaar_coin_dispositions disposition
+         JOIN bazaar_settlements sale ON sale.id=disposition.settlement_id WHERE sale.listing_id=$1",
+    ).bind(uid("20")).fetch_one(&db.pool).await.unwrap();
+    assert!(refund);
+
+    super::lifecycle_table_tests::set_resync_fence(&mut db, 3, 4);
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let (escrow, receipt): (String, String) = sqlx::query_as(
+        "SELECT intent,receipt FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
+         WHERE o.listing_id=$1 AND o.command='EscrowBazaarItem'",
+    ).bind(uid("20")).fetch_one(&mut *tx).await.unwrap();
+    let escrow = PreparedIntent::parse(&escrow).unwrap();
+    let receipt = receipt.replace(
+        r#""recovery_generation":"3""#,
+        r#""recovery_generation":"4""#,
+    );
+    assert_eq!(
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            receipt.as_bytes(),
+            now
+        )
+        .await
+        .unwrap(),
+        ReceiptResult::Stored
+    );
+    assert_eq!(
+        audit(a, &mut tx, &escrow, &receipt, now).await,
+        ReceiptResult::Stored
+    );
+    let wire = decode(vector("delivery_receipt").as_bytes(), 262144).unwrap();
+    let facts =
+        String::from_utf8(canonical::encode(wire.get("result_data").unwrap()).unwrap()).unwrap();
+    committed_fact(a, &mut tx, &delivery, &facts, now).await;
+    tx.commit().await.unwrap();
+
+    let result = db.runtime.tick().await;
+    assert!(matches!(result, Err(Error::CustodyDrift)), "{result:?}");
+    assert_eq!(state(&db).await, crate::State::Cancelled);
+    let reports: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_audit WHERE row_id=$1 AND after_row->>'action'='delivery_custody_drift'",
+    ).bind(uid("20")).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(reports, 1);
+    db.end().await;
+}

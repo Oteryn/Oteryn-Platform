@@ -281,7 +281,7 @@ impl Outbox {
                 .collect(),
         );
         let content_digest = digest(&canonical::encode(&content).map_err(|_| Error::Invalid)?);
-        crate::lifecycle::write_projection(
+        let result = crate::lifecycle::write_projection(
             db,
             authority,
             kind,
@@ -297,6 +297,10 @@ impl Outbox {
                 watermark,
             },
         )
-        .await
+        .await?;
+        if kind == "STATUS" && matches!(result, IngestResult::Applied | IngestResult::Quarantined) {
+            super::delivery_work::mark_status(db, subject).await?;
+        }
+        Ok(result)
     }
 }
