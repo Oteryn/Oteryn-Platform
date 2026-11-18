@@ -63,7 +63,7 @@ checkpoint_version: 1
 updated_at: 2026-11-18T06:30:00Z
 head: pending
 branch: claude/happy-davinci-ijz3wy-r13-fixes
-pr: pending
+pr: 1946
 status: implementing
 terminal_pr_policy: archive_pending
 context_routes: []
