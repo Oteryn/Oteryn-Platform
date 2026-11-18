@@ -22,3 +22,4 @@ pending = Pending
 succeeded = Paid
 failed = Failed
 refunded = Refunded
+chargeback = Chargeback

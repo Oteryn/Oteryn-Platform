@@ -9,16 +9,28 @@ use uuid::Uuid;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+const PURCHASE_RESTRICTED: u8 = 5;
+
 #[derive(Debug, Clone)]
 struct Accounts(Arc<AtomicU8>);
 impl AccountReader for Accounts {
     async fn state_in(&self, _: &mut sqlx::PgConnection, id: Uuid) -> Result<AccountState, Error> {
         self.state(id).await
     }
+    async fn refund_state_in(
+        &self,
+        _: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<AccountState, Error> {
+        if self.0.load(Ordering::SeqCst) == PURCHASE_RESTRICTED {
+            return Ok(AccountState::Active);
+        }
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
         match self.0.load(Ordering::SeqCst) {
             0 => Ok(AccountState::Active),
-            1 => Ok(AccountState::Restricted),
+            1 | PURCHASE_RESTRICTED => Ok(AccountState::Restricted),
             2 => Ok(AccountState::Unknown),
             3 => Ok(AccountState::Ambiguous),
             _ => Err(Error::NotFound),
@@ -784,10 +796,14 @@ async fn credit(h: &Harness, account: Uuid, operation: Uuid, coins: i64) -> Test
 }
 
 async fn held_reversal(h: &Harness, account: Uuid) -> TestResult {
+    held_reversal_for(h, account, 25).await
+}
+
+async fn held_reversal_for(h: &Harness, account: Uuid, coins: i64) -> TestResult {
     let order = Uuid::now_v7();
-    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$1,25,100,'EUR',2,'testing',now(),now())").bind(order).bind(account).execute(&h.pool).await?;
-    sqlx::query("INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code) VALUES ($1,$2,$1,$1,$1,25,100,'EUR',2,'testing',$1,'processing','review')").bind(order).bind(account).execute(&h.pool).await?;
-    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$1,$2,'chargeback','test','reversal',25,0,'held')").bind(order).bind(account).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$1,$3,100,'EUR',2,'testing',now(),now())").bind(order).bind(account).bind(coins).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code) VALUES ($1,$2,$1,$1,$1,$3,100,'EUR',2,'testing',$1,'processing','review')").bind(order).bind(account).bind(coins).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$1,$2,'chargeback','test',$1::uuid::text,$3,0,'held')").bind(order).bind(account).bind(coins).execute(&h.pool).await?;
     sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')").bind(account).bind(order).execute(&h.pool).await?;
     Ok(())
 }
@@ -891,5 +907,80 @@ async fn browser_pending_delivery_capacity() -> TestResult {
         "second checkout must be refused"
     );
     assert_eq!(h.count("invoices").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn restricted_browser_chargeback_before_delivery() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = browser_intent(&h, Uuid::now_v7()).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    h.service(true).webhook(&body, &sig).await?;
+    h.accounts.0.store(PURCHASE_RESTRICTED, Ordering::SeqCst);
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Chargeback))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Ok(WebhookOutcome::Applied)
+        ),
+        "purchase restriction blocked undelivered chargeback"
+    );
+    h.accounts.0.store(0, Ordering::SeqCst);
+    assert_eq!(
+        h.service(true).intent(intent.id).await?.state,
+        IntentState::Chargeback
+    );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn reserved_browser_intent_checks_capacity() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    credit(&h, account, Uuid::now_v7(), oteryn_wallet::MAX_BALANCE).await?;
+    let intent = browser_intent(&h, account).await?;
+    sqlx::query("UPDATE store_web_topups SET intended_payment_intent_id=$1, payment_intent_id=NULL WHERE operation_id=$1").bind(intent.id).execute(&h.pool).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "reserved checkout bypassed wallet ceiling"
+    );
+    assert_eq!(h.count("invoices").await?, 0);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn checkout_respects_debt_settlement_limit() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    for _ in 0..129 {
+        held_reversal_for(&h, account, 1).await?;
+        sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+            .bind(account)
+            .execute(&h.pool)
+            .await?;
+    }
+    let intent = browser_intent(&h, account).await?;
+    sqlx::query("UPDATE store_web_topups SET coins=200 WHERE operation_id=$1")
+        .bind(intent.id)
+        .execute(&h.pool)
+        .await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "checkout exceeded delivery debt-row limit"
+    );
     h.finish().await
 }

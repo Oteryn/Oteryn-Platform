@@ -29,19 +29,12 @@ pub(crate) async fn unlocked(connection: &mut PgConnection, account: Uuid) -> Re
     Ok(())
 }
 
-/// Pay the account's debt from a credit of `coins` that was just entered under
-/// operation `credit`, with the wallet account row already locked. The held
-/// reversals are locked oldest first; each one paid gets a settlement row and
-/// an audit row. One `debt_settlement` operation takes the total back from the
-/// balance, never more than the credit, so the balance cannot go negative.
-/// Returns the coins applied. A credit requiring more than 128 debt rows
-/// refuses atomically; smaller credits can continue repaying the bounded prefix.
-pub(crate) async fn settle(
+/// Oldest debts a single credit can settle under the wallet lock.
+pub(crate) async fn repayable_debts(
     tx: &mut PgConnection,
-    credit: Uuid,
     account: Uuid,
     coins: i64,
-) -> Result<i64, Error> {
+) -> Result<Vec<(Uuid, Uuid, i64)>, Error> {
     // Staff may repeatedly release holds. Bound work even in that case;
     // refusal rolls back the credit and preserves every unsettled debt.
     let mut debts: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
@@ -61,6 +54,23 @@ pub(crate) async fn settle(
         }
         debts.truncate(128);
     }
+    Ok(debts)
+}
+
+/// Pay the account's debt from a credit of `coins` that was just entered under
+/// operation `credit`, with the wallet account row already locked. The held
+/// reversals are locked oldest first; each one paid gets a settlement row and
+/// an audit row. One `debt_settlement` operation takes the total back from the
+/// balance, never more than the credit, so the balance cannot go negative.
+/// Returns the coins applied. A credit requiring more than 128 debt rows
+/// refuses atomically; smaller credits can continue repaying the bounded prefix.
+pub(crate) async fn settle(
+    tx: &mut PgConnection,
+    credit: Uuid,
+    account: Uuid,
+    coins: i64,
+) -> Result<i64, Error> {
+    let debts = repayable_debts(tx, account, coins).await?;
     let reversals: Vec<_> = debts.iter().map(|(reversal, _, _)| *reversal).collect();
     // Fully repaid historical reversals do not consume the credit work budget.
     sqlx::query("SELECT id FROM coin_purchase_reversals WHERE id=ANY($1) ORDER BY created_at,id LIMIT 128 FOR UPDATE")

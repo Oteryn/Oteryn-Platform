@@ -1017,23 +1017,27 @@ pub async fn incoming_capacity_with_topup_in(
     if proposed_coins < 0 {
         return Err(Refusal::InvalidAmount.into());
     }
+    let repayable: i64 = crate::debt::repayable_debts(db, account, proposed_coins)
+        .await?
+        .iter()
+        .map(|(_, _, owed)| owed)
+        .sum();
     Ok(sqlx::query_scalar(
         "WITH packages AS (
             SELECT COALESCE(sum(t.coins), 0) + $2::bigint AS gross
             FROM store_web_topups t
-            JOIN payment_intents i ON i.id=t.payment_intent_id AND i.account_id=t.account_id
+            JOIN payment_intents i ON i.id=COALESCE(t.payment_intent_id,t.intended_payment_intent_id) AND i.account_id=t.account_id
             WHERE t.account_id=$1 AND i.state='succeeded'
               AND NOT EXISTS (SELECT 1 FROM wallet_operations w
                               WHERE w.id=i.id AND w.account_id=t.account_id AND w.kind='top_up')
         )
         SELECT ((SELECT COALESCE(sum(amount), 0) FROM wallet_incoming_capacity WHERE account_id=$1)
-                + CASE WHEN gross > 0 THEN GREATEST(0, gross - (
-                    SELECT COALESCE(sum(owed), 0) FROM coin_outstanding_debts WHERE account_id=$1
-                )) ELSE 0 END)::bigint
+                + CASE WHEN gross > 0 THEN GREATEST(0, gross - $3::bigint) ELSE 0 END)::bigint
         FROM packages",
     )
     .bind(account)
     .bind(proposed_coins)
+    .bind(repayable)
     .fetch_one(db)
     .await?)
 }
