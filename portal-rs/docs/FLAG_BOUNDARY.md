@@ -140,13 +140,17 @@ connection URL or dedicated database writer role. Unconfigured connections
 and every other setting value leave referral activity, invitations, rewards
 and outbox deliveries untouched.
 
-The deployment coverage marker starts empty at migration. An enabled
-connection starts coverage. A disabled portal connection clears it, and any
-activity from an unconfigured or disabled login writer clears it during an
-overlap. Keep the setting consistent across enabled writers. The returning
-invitation rule requires both 12 months of continuous recorded coverage and
-12 months of inactivity. Changes to the marker in
-`portal_referral_coverage` track deployment coverage for this policy.
+The deployment coverage marker starts empty. Before pausing or resuming,
+fence and drain the old portal and Game account-activity writers, including
+legacy connection pools. Keep traffic stopped while the deployment role calls
+`SELECT referral_transition_coverage(false)` to pause or
+`SELECT referral_transition_coverage(true)` to resume. On resume, put the
+returned UUID in the PostgreSQL startup option `oteryn.referrals_generation`
+for every enabled activity writer, then restore traffic. Each transition
+rotates the generation. Old enabled pools cannot publish with a stale
+generation once an operator has set one. Disabled sessions leave the
+coverage marker untouched. Returning invitations require 12 months of
+continuous recorded coverage and 12 months of inactivity.
 
 ## Flag-on checklist
 
