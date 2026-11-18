@@ -1727,14 +1727,14 @@ async fn delivered_checkout_releases_capacity() -> TestResult {
         .bind(existing).bind(account).bind(balance).execute(&mut *tx).await?;
     query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,$4,0)")
         .bind(Uuid::now_v7()).bind(existing).bind(account).bind(balance).execute(&mut *tx).await?;
-    assert_eq!(oteryn_wallet::incoming_capacity_in(&mut tx,account).await?,1234, "pending checkout must reserve its package");
+    assert_eq!(oteryn_wallet::incoming_capacity_with_topup_in(&mut tx,account,0).await?,1234, "pending checkout must reserve its package");
     tx.commit().await?;
     topup_registry(&db)?.batch(&db.pool).await?;
     let mut tx = db.pool.begin().await?;
     let credited: i64 = query_scalar("SELECT available_delta FROM wallet_entries WHERE operation_id=$1")
         .bind(intent).fetch_one(&mut *tx).await?;
     assert_eq!(credited,1234);
-    assert_eq!(oteryn_wallet::incoming_capacity_in(&mut tx,account).await?,0);
+    assert_eq!(oteryn_wallet::incoming_capacity_with_topup_in(&mut tx,account,0).await?,0);
     tx.commit().await?;
     db.close().await
 }
