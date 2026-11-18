@@ -400,4 +400,4 @@ mod http_tests {
 
 #[cfg(test)]
 #[path = "privacy_test_support.rs"]
-mod test_support;
+pub(crate) mod test_support;

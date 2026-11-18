@@ -649,10 +649,6 @@ fn test_game_terminations(
 }
 
 #[cfg(test)]
-#[path = "privacy_test_support.rs"]
-mod privacy_test_support;
-
-#[cfg(test)]
 mod deletion_tests {
     use super::*;
     use axum::{body::Body, http::Request};
@@ -666,9 +662,9 @@ mod deletion_tests {
             return Ok(());
         };
         let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
-        let (pool, admin, schema) = privacy_test_support::database(&url).await?;
+        let (pool, admin, schema) = crate::privacy_web::test_support::database(&url).await?;
         let result = post_delete_with_character(&pool).await;
-        privacy_test_support::close(pool, admin, schema).await?;
+        crate::privacy_web::test_support::close(pool, admin, schema).await?;
         result
     }
 
