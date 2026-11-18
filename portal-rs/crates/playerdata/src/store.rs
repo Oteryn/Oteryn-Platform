@@ -1043,7 +1043,7 @@ impl Store {
                 let balance_continues = before == last.try_get::<String, _>("balance_after")?;
                 if last.try_get::<i64, _>("coverage_ms")? != r.coverage_ms as i64
                     || previous == r.entity
-                    || adjacent != balance_continues
+                    || (adjacent && !balance_continues)
                 {
                     return Err(Error::Conflict);
                 }
