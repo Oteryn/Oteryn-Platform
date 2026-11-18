@@ -117,7 +117,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path',$1,false), set_config('oteryn.referrals_enabled','true',false)")
                         .bind(path)
                         .execute(conn)
                         .await?;
@@ -167,6 +167,8 @@ impl Database {
             .unwrap()
     }
     async fn inactive(&self, account: Uuid, months: i32) {
+        sqlx::query("UPDATE portal_referral_coverage SET covered_since=clock_timestamp()-interval '13 months'")
+            .execute(&self.pool).await.unwrap();
         sqlx::query("UPDATE accounts SET created_at=clock_timestamp()-make_interval(months=>$2+1) WHERE id=$1").bind(account).bind(months).execute(&self.pool).await.unwrap();
         sqlx::query("UPDATE referral_activity SET last_activity=clock_timestamp()-make_interval(months=>$2)-interval '1 minute',created_at=clock_timestamp()-make_interval(months=>$2)-interval '1 minute' WHERE account_id=$1").bind(account).bind(months).execute(&self.pool).await.unwrap();
     }
@@ -674,6 +676,49 @@ async fn referrals_self_referral_denied() {
     assert_eq!(off.link(owner).await, Err(Error::Disabled));
     db.close().await;
 }
+#[tokio::test]
+async fn returning_referral_requires_coverage_across_off_login() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let buddy = db.account().await;
+    let uninterrupted = db.account().await;
+    db.inactive(buddy, 13).await;
+    db.inactive(uninterrupted, 13).await;
+    db.campaign
+        .email(owner, &db.email(uninterrupted).await, Kind::Returning)
+        .await
+        .unwrap();
+    let mut off = db.pool.acquire().await.unwrap();
+    sqlx::query("SELECT set_config('oteryn.referrals_enabled','false',false)")
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO security_events(account_id,kind) VALUES($1,'login_succeeded')")
+        .bind(buddy)
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    let old: bool = sqlx::query_scalar("SELECT last_activity < now()-interval '12 months' FROM referral_activity WHERE account_id=$1")
+        .bind(buddy).fetch_one(&mut *off).await.unwrap();
+    assert!(old, "disabled login must not update referral_activity");
+    sqlx::query("SELECT set_config('oteryn.referrals_enabled','true',false)")
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    drop(off);
+    assert_eq!(
+        db.campaign
+            .email(owner, &db.email(buddy).await, Kind::Returning)
+            .await,
+        Err(Error::Denied),
+        "a stale activity row cannot prove inactivity through a disabled login"
+    );
+    db.close().await;
+}
+
 #[tokio::test]
 async fn referrals_starter_and_first_returning_character_pending_entitlements() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();

@@ -352,13 +352,11 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
             pool.clone(),
         )),
     )?;
-    if closure.termination_enabled {
-        registry.cleanup(
-            "identity.finalize-terminations",
-            closure.worker_interval_seconds(),
-            Arc::new(closure.terminations),
-        )?;
-    }
+    registry.cleanup(
+        "identity.finalize-terminations",
+        closure.worker_interval_seconds(),
+        Arc::new(closure.terminations),
+    )?;
     register_security_notifications(&mut registry, pool.clone())?;
     registry.cleanup(
         "cleanup.deaths",
@@ -413,16 +411,11 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         Arc::new(VerificationTokenCleanup(pool.clone())),
     )?;
     registry.cleanup("cleanup.support", 3600, Arc::new(NoopCleanup))?;
-    if std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true") {
-        registry.cleanup(
-            "cleanup.support-tickets",
-            3600,
-            Arc::new(oteryn_support::tickets::Retention {
-                pool: pool.clone(),
-                enabled: true,
-            }),
-        )?;
-    }
+    registry.cleanup(
+        "cleanup.support-tickets",
+        3600,
+        Arc::new(oteryn_support::tickets::Retention { pool: pool.clone() }),
+    )?;
     if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
         registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
     }
@@ -448,6 +441,11 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         3600,
         Arc::new(oteryn_stats::worker::DeathRetention { pool: pool.clone() }),
     )?;
+    registry.cleanup(
+        "stats.world-sample-retention",
+        3600,
+        Arc::new(oteryn_stats::worker::WorldSampleRetention { pool: pool.clone() }),
+    )?;
     // Known consumers without an enabled handler must keep their queued work.
     // Unknown kinds still reach execute() and are permanently refused.
     for kind in [
@@ -461,8 +459,6 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "league.ingest",
         "identity.email-change",
         "admin.control.expire",
-        "cleanup.support-tickets",
-        "identity.finalize-terminations",
         "referrals.process",
         "stats.poll",
     ] {

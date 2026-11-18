@@ -3,7 +3,7 @@
 The portal follows the zero-target rule from 2026-11-18. With a feature off,
 its routes must be absent or return their documented disabled response, its
 work must stay unclaimed, and its tables must receive no feature writes.
-Retention and privacy jobs may continue to delete or expire existing data.
+The retention and finalization exceptions below continue to enforce their existing duties.
 
 The boundary test consumes the route column below. Methods use G for GET, P
 for POST, U for PUT, and D for DELETE. A numeric suffix records the exact
@@ -73,12 +73,12 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 | `OTERYN_SHOP_ENABLED`, `OTERYN_SHOP_TOP_UPS_ENABLED`, `OTERYN_SHOP_TRANSFERS_ENABLED`, `OTERYN_WALLET_ENABLED` | `GP:/{lang}/shop` `GP:/{lang}/shop/coins` `G:/{lang}/shop/history` `GP:/{lang}/shop/transfer` | wallet.top_up requires payments and wallet | store_orders, store_order_lines, store_operations, store_fulfilment_units, store_purchase_requests, store_wire_limits, wallet_accounts, wallet_entries, wallet_operations, wallet_transfers, payment_intents, outbox |
 | `OTERYN_SHOP_TEST_PAYMENTS_ENABLED`, `OTERYN_PAYMENTS_ENABLED` | `GP:/{lang}/shop/test-checkout/{id}` `P:/__test/payments/webhook` | — | store_web_topups, payment_intents, payment_events, invoices, wallet_accounts, outbox |
 | `OTERYN_STORE_CODES_ENABLED` | `GP:/{lang}/admin/store/codes` `P:/{lang}/shop/codes/redeem` | — | code_batches, code_game_commands, code_redemptions, gift_codes, wallet_entries, audit_log |
-| `OTERYN_SUPPORT_TICKETS` | `GP:/{lang}/support/tickets` `G:/{lang}/support/tickets/create` `G:/{lang}/support/tickets/{id}` `P:/{lang}/support/tickets/{id}/read` `P:/{lang}/support/tickets/{id}/reply` `P:/{lang}/support/tickets/{id}/status` `G:/admin/support/tickets` `GP:/admin/support/tickets/{id}` `G:/{lang}/admin/support/tickets` `G:/{lang}/admin/support/tickets/{id}` `P:/{lang}/admin/support/tickets/{id}/reply` `P:/{lang}/admin/support/tickets/{id}/status` | cleanup.support-tickets | tickets, ticket_messages, notifications, web_sessions, audit_log, outbox |
+| `OTERYN_SUPPORT_TICKETS` | `GP:/{lang}/support/tickets` `G:/{lang}/support/tickets/create` `G:/{lang}/support/tickets/{id}` `P:/{lang}/support/tickets/{id}/read` `P:/{lang}/support/tickets/{id}/reply` `P:/{lang}/support/tickets/{id}/status` `G:/admin/support/tickets` `GP:/admin/support/tickets/{id}` `G:/{lang}/admin/support/tickets` `G:/{lang}/admin/support/tickets/{id}` `P:/{lang}/admin/support/tickets/{id}/reply` `P:/{lang}/admin/support/tickets/{id}/status` | cleanup.support-tickets stays on | tickets, ticket_messages, notifications, web_sessions, audit_log, outbox |
 | `OTERYN_WORLD_ADMIN` | `GP:/admin/world` | — | world_active_version, world_admin_names, world_visibility, audit_log |
 | `OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED` | `G:/{lang}/wiki/items` `G:/{lang}/wiki/items/{name}` | — | world_catalog_publication, world_catalog_retired_epochs, world_catalog_retired_snapshots, world_entities, world_versions. A separately configured source can stage inactive candidates. |
 | `PANEL_PREMIUM_PAYMENTS` | `G:/{lang}/panel/premium` `G:/{lang}/panel/payments` `G:/{lang}/panel/payments/receipts/{id}` | — | Read-only payment and premium views |
 | `PLAYERDATA_G10_ITEMS_ENABLED`, `PLAYERDATA_G10_HISTORY_ENABLED` | `G:/{lang}/panel/items/test/{name}` `G:/{lang}/panel/history/test/bank` `G:/{lang}/panel/history/test/items/{name}` | — | Read-only journal panels |
-| `PORTAL_ACCOUNT_CLOSURE_ENABLED`, `PORTAL_ACCOUNT_TERMINATION_ENABLED` | `GP:/{lang}/account/privacy/delete` `P:/{lang}/account/privacy/delete/cancel` `P:/internal/v1/game-auth/account-closure/lifecycle/read` `P:/internal/v1/game-auth/account-closure` `P:/internal/v1/game-auth/account-closure/watermark` | identity.finalize-terminations requires termination. identity.account-closure-audit stays on. The dedicated closure listener requires closure. | account_terminations, account_termination_events, accounts, tickets, web_sessions, account credential tables, plat3_closure_* |
+| `PORTAL_ACCOUNT_CLOSURE_ENABLED`, `PORTAL_ACCOUNT_TERMINATION_ENABLED` | `GP:/{lang}/account/privacy/delete` `P:/{lang}/account/privacy/delete/cancel` `P:/internal/v1/game-auth/account-closure/lifecycle/read` `P:/internal/v1/game-auth/account-closure` `P:/internal/v1/game-auth/account-closure/watermark` | identity.finalize-terminations and identity.account-closure-audit stay on. The dedicated closure listener requires closure. | account_terminations, account_termination_events, accounts, tickets, web_sessions, account credential tables, plat3_closure_* |
 | `PORTAL_ADMIN_CONTROL_ENABLED` | `P:/internal/v1/admin-control/{agent_op}` | admin.control.expire | admin_control_*, analytics_cache, audit_log |
 | `PORTAL_CALCULATORS_ENABLED` | `G:/{lang}/wiki/calculators` | — | Read-only calculators |
 | `PORTAL_CHARACTER_COMMANDS_ENABLED`, `PORTAL_GAME_RESTORE_NOTICE_ENABLED` | `P503:/internal/v1/game-auth/character-commands/{character_op}` `P503:/internal/v1/game-auth/game-restore/notice` | — | character_commands, character_restore_notices, character_restore_queue, character_restore_reopens |
@@ -104,7 +104,7 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 | `PORTAL_PUBLIC_PROJECTIONS_ENABLED` | `P503:/internal/v1/game-public/{projection}` `P503:/internal/v2/game-public/watermark` | — | public_snapshots, public_projection_state, public_projection_conflicts, community_ingest_budgets |
 | `PORTAL_REFERRALS_ENABLED` | `GP:/{lang}/account/referrals` `GP:/{lang}/referrals/{id}` | referrals.process | referral_activity, referral_links, referral_invitations, referral_campaign_invitations, referral_campaign_rewards, referral_email_invitations, referral_email_attempts, premium_ledger, web_sessions |
 | `PORTAL_SANCTION_EXPORT_ENABLED`, `PORTAL_SECURITY_REVOCATION_EXPORT_ENABLED` | `P503:/internal/v1/support/sanctions/stream/read` `P503:/internal/v1/identity/security-revocations/stream/read` | — | Read-only streams |
-| `PORTAL_STATS_ENABLED` | — | stats.poll requires statistics. stats.death-retention stays on. | stats_character_daily, stats_character_events, stats_world_samples, stats_world_daily, stats_projection_cursors |
+| `PORTAL_STATS_ENABLED` | — | stats.poll requires statistics. stats.death-retention and stats.world-sample-retention stay on. | stats_character_daily, stats_character_events, stats_world_samples, stats_world_daily, stats_projection_cursors |
 | `PORTAL_STATS_ONLINE_INTERVALS_ENABLED`, `PORTAL_STATS_WORLD_TOTALS_ENABLED` | `P503:/internal/v2/game-public/character-online-session` `P503:/internal/v2/game-public/world-daily-kills` `P503:/internal/v2/game-public/watermark` | stats.v2-retention and cleanup.world-kills stay on | stats_v2_subjects, stats_v2_watermarks, stats_world_kills_v2 |
 | `PORTAL_STATS_WATCHES_ENABLED` | `GPD:/api/v1/stats/watches` | — | stats_watches, stats_watch_budgets, stats_watch_deliveries |
 | `PORTAL_WIKI_ENTITIES_ENABLED`, `PORTAL_WIKI_PLACES_ENABLED` | `G:/{prefix}/wiki/{kind}` `G:/{prefix}/wiki/{kind}/{name}` `G503:/{lang}/wiki/places` | — | Read-only wiki entities and places |
@@ -112,6 +112,33 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 | `PRODUCTS_ENTITLEMENTS_PREMIUM_SNAPSHOT_ENABLED`, `PRODUCTS_ENTITLEMENTS_LOYALTY_SNAPSHOT_ENABLED`, `PRODUCTS_ENTITLEMENTS_LOYALTY_STREAM_ENABLED`, `PRODUCTS_ENTITLEMENTS_PROFILE_B_AUTHORITY_ENABLED`, `PRODUCTS_ENTITLEMENTS_PROFILE_B_CHANGES_ENABLED` | `P503:/internal/v1/products-entitlements/premium-snapshots/read` `P503:/internal/v1/products-entitlements/loyalty-snapshots/read` `P503:/internal/v1/products-entitlements/loyalty-snapshots/stream` `P503:/internal/v1/products-entitlements/profile-b/authority/read` `P503:/internal/v1/products-entitlements/profile-b/changes/read` | — | premium_authority, loyalty_state, loyalty_stream_head, loyalty_stream_state, loyalty_stream_events, profile_b_authority |
 | `PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED`, `PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED` | `P503:/internal/v1/products-entitlements/store/balance/read` `P503:/internal/v1/products-entitlements/store/history/read` `P503:/internal/v1/products-entitlements/store/purchases` `P503:/internal/v1/products-entitlements/store/operations/{store_op}` | — | store_purchase_requests, store_orders, store_order_lines, store_operations, store_fulfilment_units, store_receipts, store_reconcile_state, store_delivery_fence, store_wire_limits, wallet_entries, premium_ledger |
 | `GATEWAY_NATIVE_LOGIN_ENABLED`, `GATEWAY_NATIVE_PROTOCOL3_ENABLED` | Native gateway role and native protocol framing | No worker registration | Gateway forwards to the admission authority. Portal writes are covered by the admission and recovery probes above. |
+
+## Retention and finalization exceptions
+
+| Job | Duty while intake or polling is off | Permitted writes |
+| --- | --- | --- |
+| `identity.finalize-terminations` | Drain due requests already accepted. Game proof, recovery fencing and all local blocker checks still apply. Keep the private Game closure listener available when `PORTAL_ACCOUNT_CLOSURE_ENABLED` is on. | Advance already-accepted closure work and audit records. On verified finalization, redact the account and revoke its access, close open tickets, and record finalization. Retry blocked requests. |
+| `cleanup.support-tickets` | Delete up to 1,000 resolved or closed tickets that reached 180 days. | Delete those tickets and their messages by cascade. |
+| `stats.world-sample-retention` | Roll up expired raw world samples after 90 days. | Insert or update the matching UTC daily totals in `stats_world_daily` and delete the raw inputs from `stats_world_samples` in the same transaction. |
+| `stats.death-retention` | Delete copied death details after 30 days. | Delete only expired death events in `stats_character_events`. |
+
+## Referral deployment and activity coverage
+
+Referral triggers and callbacks require the exact PostgreSQL connection
+setting `oteryn.referrals_enabled=true`. Portal pools set this from
+`PORTAL_REFERRALS_ENABLED`. Provision the explicit setting for any enabled
+pre-upgrade or rollback process before applying the migration. Configure its
+connection URL or dedicated database writer role. Unconfigured connections
+and every other setting value leave referral activity, invitations, rewards
+and outbox deliveries untouched.
+
+The deployment coverage marker starts empty at migration. An enabled
+connection starts coverage. A disabled portal connection clears it, and any
+activity from an unconfigured or disabled login writer clears it during an
+overlap. Keep the setting consistent across enabled writers. The returning
+invitation rule requires both 12 months of continuous recorded coverage and
+12 months of inactivity. Changes to the marker in
+`portal_referral_coverage` track deployment coverage for this policy.
 
 ## Flag-on checklist
 
@@ -121,6 +148,6 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 - Check that every disabled route has a probe and that each disabled job stays
   unclaimed. Check the exact refusal status and verify the database boundary
   on PostgreSQL. For each retention exception, show what expires and confirm
-  that the job creates no feature rows.
+  that writes stay within the documented exception.
 - Record the reviewed commit, the flag and its prerequisites, the evidence
   from the round, and the resolution of every finding before enabling it.

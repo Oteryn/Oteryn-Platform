@@ -34,7 +34,19 @@ mod flag_boundary {
     const SESSION: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const STAFF_SESSION: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     const CSRF: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const INVENTORY: &str = include_str!("../../../docs/FLAG_BOUNDARY.md");
+    fn inventory() -> std::io::Result<String> {
+        fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/FLAG_BOUNDARY.md"),
+        )
+    }
+
+    fn inventory_rows(inventory: &str) -> impl Iterator<Item = &str> {
+        inventory
+            .lines()
+            .skip_while(|line| !line.starts_with("| Flag |"))
+            .skip(2)
+            .take_while(|line| line.starts_with("|"))
+    }
 
     fn collect_flags(root: &Path, found: &mut BTreeSet<String>) -> TestResult {
         for entry in fs::read_dir(root)? {
@@ -84,18 +96,20 @@ mod flag_boundary {
                 }
             }
         }
-        let inventory = FLAGS.iter().copied().collect::<BTreeSet<_>>();
+        let declared_flags = FLAGS.iter().copied().collect::<BTreeSet<_>>();
         for flag in &found {
             assert!(
-                inventory.contains(flag.as_str()),
+                declared_flags.contains(flag.as_str()),
                 "undocumented source flag {flag}"
             );
         }
+        let inventory = inventory()?;
         for flag in FLAGS {
             assert!(
-                INVENTORY
-                    .lines()
-                    .any(|line| line.starts_with("| `") && line.contains(&format!("`{flag}`"))),
+                inventory_rows(&inventory).any(|line| line
+                    .split('|')
+                    .nth(1)
+                    .is_some_and(|flags| flags.contains(&format!("`{flag}`")))),
                 "{flag} is missing from FLAG_BOUNDARY.md"
             );
         }
@@ -108,10 +122,11 @@ mod flag_boundary {
     }
 
     /// These jobs stay registered after flags go off so old data still expires.
-    /// The table lists name every relation on which the job may delete or expire rows.
+    /// The table lists name the permitted deletes, updates and inserts.
     type RetentionJob = (
         &'static str,
         &'static str,
+        &'static [&'static str],
         &'static [&'static str],
         &'static [&'static str],
     );
@@ -121,11 +136,13 @@ mod flag_boundary {
             "remove old public death details",
             &[],
             &["public_deaths_v2"],
+            &[],
         ),
         (
             "cleanup.game-logins",
             "remove old game login history",
             &["pd_game_logins"],
+            &[],
             &[],
         ),
         (
@@ -133,11 +150,13 @@ mod flag_boundary {
             "remove old ticket budget windows",
             &["game_ticket_budgets"],
             &[],
+            &[],
         ),
         (
             "cleanup.hunting-places",
             "expire aggregate inputs and replay fences",
             &["pd_places_sessions", "pd_places_replay_fences"],
+            &[],
             &[],
         ),
         (
@@ -162,11 +181,13 @@ mod flag_boundary {
                 "pd_t76_events",
                 "pd_t78_records",
             ],
+            &[],
         ),
         (
             "cleanup.mfa",
             "expire MFA challenges and grants",
             &["account_mfa_tokens"],
+            &[],
             &[],
         ),
         (
@@ -174,11 +195,13 @@ mod flag_boundary {
             "expire authentication challenges",
             &["passkey_ceremonies"],
             &[],
+            &[],
         ),
         (
             "cleanup.rate-limits",
             "expire shared request budgets",
             &["web_rate_limits"],
+            &[],
             &[],
         ),
         (
@@ -186,11 +209,13 @@ mod flag_boundary {
             "expire shared web sessions",
             &["web_sessions"],
             &[],
+            &[],
         ),
         (
             "cleanup.tokens",
             "expire email verification history",
             &["account_email_tokens"],
+            &[],
             &[],
         ),
         (
@@ -198,17 +223,20 @@ mod flag_boundary {
             "retire expired world kills payloads",
             &[],
             &["stats_world_kills_v2"],
+            &[],
         ),
         (
             "community.today.retention",
             "remove expired community snapshots",
             &[],
             &["today_snapshots"],
+            &[],
         ),
         (
             "identity.account-closure-audit",
             "expire closure audit history",
             &["plat3_closure_audit_outbox"],
+            &[],
             &[],
         ),
         (
@@ -216,11 +244,34 @@ mod flag_boundary {
             "expire league audit and feed data",
             &["league_audit", "league_feed_inbox"],
             &["league_subjects", "league_feed_requests"],
+            &[],
+        ),
+        (
+            "cleanup.support-tickets",
+            "purge terminal tickets and messages after 180 days",
+            &["tickets", "ticket_messages"],
+            &[],
+            &[],
+        ),
+        (
+            "identity.finalize-terminations",
+            "drain accepted requests subject to the Game proof and local blockers",
+            &[],
+            &["account_terminations"],
+            &[],
+        ),
+        (
+            "stats.world-sample-retention",
+            "replace raw samples older than 90 days with daily aggregates",
+            &["stats_world_samples"],
+            &["stats_world_daily"],
+            &["stats_world_daily"],
         ),
         (
             "stats.death-retention",
             "enforce the 30-day copied-death retention window",
             &["stats_character_events"],
+            &[],
             &[],
         ),
         (
@@ -228,19 +279,18 @@ mod flag_boundary {
             "erase expired statistics payloads",
             &[],
             &["stats_v2_subjects"],
+            &[],
         ),
     ];
     const CORE_JOBS: &[&str] = &["cleanup.support"];
     const DISABLED_JOBS: &[&str] = &[
         "admin.control.expire",
         "bazaar.authority",
-        "cleanup.support-tickets",
         "commerce.refund",
         "email.account_exists",
         "email.password-reset",
         "email.verify",
         "identity.email-change",
-        "identity.finalize-terminations",
         "league.ingest",
         "referrals.process",
         "stats.poll",
@@ -263,7 +313,8 @@ mod flag_boundary {
                 .enable_all()
                 .build()?
                 .block_on(
-                    tokio::task::LocalSet::new().run_until(exercise_boundary(referrals_enabled)),
+                    tokio::task::LocalSet::new()
+                        .run_until(exercise_boundary(test, referrals_enabled)),
                 );
         }
         let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
@@ -327,10 +378,9 @@ mod flag_boundary {
         let output = command.output()?;
         let stdout = String::from_utf8(output.stdout)?;
         let stderr = String::from_utf8(output.stderr)?;
-        assert!(
-            output.status.success() && stdout.contains("test result: ok. 1 passed"),
-            "{stdout}\n{stderr}"
-        );
+        if !output.status.success() || !stdout.contains("test result: ok. 1 passed") {
+            return Err(format!("{stdout}\n{stderr}").into());
+        }
         eprint!("{stderr}");
         Ok(())
     }
@@ -355,7 +405,7 @@ mod flag_boundary {
         Ok(())
     }
 
-    async fn exercise_boundary(referrals_enabled: bool) -> TestResult {
+    async fn exercise_boundary(test: &str, referrals_enabled: bool) -> TestResult {
         let started = Instant::now();
         let config = oteryn_core::Config::from_env()?;
         let root = PgPoolOptions::new()
@@ -372,10 +422,15 @@ mod flag_boundary {
             .await?;
         let result = async {
             oteryn_db::migrate(&pool).await?;
-            if referrals_enabled {
-                exercise_referrals_on(&pool).await
-            } else {
-                exercise_schema(&pool).await
+            match test {
+                "referrals_on_records_legacy_session_refresh" => {
+                    exercise_legacy_refresh(&pool).await
+                }
+                "referrals_on_records_anonymous_login_rotation" => {
+                    exercise_login_rotation(&pool).await
+                }
+                _ if referrals_enabled => exercise_referrals_on(&pool).await,
+                _ => exercise_schema(&pool).await,
             }
         }
         .await;
@@ -391,7 +446,7 @@ mod flag_boundary {
         Ok(())
     }
 
-    async fn exercise_schema(pool: &PgPool) -> TestResult {
+    async fn seed_browser_accounts(pool: &PgPool) -> TestResult<(Uuid, Uuid)> {
         let account = Uuid::parse_str("019ad000-0000-7000-8000-000000000001")?;
         sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'flag-boundary@example.test','test-only','active','en',now())")
         .bind(account).execute(pool).await?;
@@ -410,8 +465,38 @@ mod flag_boundary {
             &format!("__Host-oteryn_session={STAFF_SESSION}"),
         )
         .await?;
+        Ok((account, staff))
+    }
+
+    async fn exercise_schema(pool: &PgPool) -> TestResult {
+        let (account, staff) = seed_browser_accounts(pool).await?;
         sqlx::query("INSERT INTO stats_character_events(character_ref,day,kind,event_key,details) SELECT $1,current_date-age,'death',age::text,jsonb_build_object('occurred_at',extract(epoch FROM now()-make_interval(days=>age))::bigint) FROM (VALUES (1),(31)) AS ages(age)")
         .bind(account).execute(pool).await?;
+
+        sqlx::raw_sql(
+            "WITH seeded AS (
+                 INSERT INTO tickets(account_id,request_key,category,subject,status,closed_at)
+                 SELECT id,uuidv7(),'other',age::text,'closed',now()-make_interval(days=>age)
+                 FROM accounts CROSS JOIN (VALUES (179),(181)) ages(age)
+                 WHERE email='flag-boundary@example.test' RETURNING id,account_id
+             )
+             INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,body)
+                 SELECT id,account_id,'user','retention fixture' FROM seeded;
+             INSERT INTO stats_world_samples(world,sampled_at,players_online)
+                 SELECT id,now()-make_interval(days=>age),age
+                 FROM accounts CROSS JOIN (VALUES (89),(91)) ages(age)
+                 WHERE email='flag-boundary@example.test';
+             WITH candidate AS (
+                 INSERT INTO accounts(email,password_hash,status,locale,email_verified_at)
+                     VALUES('due-termination@example.test','test-only','active','en',now())
+                     RETURNING id
+             )
+             INSERT INTO account_terminations(account_id,created_at,scheduled_for,updated_at)
+                 SELECT id,now()-interval '8 days',now()-interval '1 day',now()-interval '8 days'
+                 FROM candidate;",
+        )
+        .execute(pool)
+        .await?;
 
         // Leave the database campaign switch on to exercise the deployment
         // gate even when previously enabled campaign data exists.
@@ -483,7 +568,11 @@ mod flag_boundary {
             ));
         }
         failures.extend(exercise_jobs(pool).await?);
+        failures.extend(exercise_retention_outcomes(pool).await?);
         exercise_referral_callbacks_off(pool, staff).await?;
+        if let Err(error) = exercise_unconfigured_referrals(pool, staff).await {
+            failures.push(error.to_string());
+        }
         if !failures.is_empty() {
             return Err(failures.join("\n").into());
         }
@@ -524,6 +613,217 @@ mod flag_boundary {
                 .all(|(relation, _, _)| !relation.starts_with("referral_") && relation != "outbox"),
             "referral callbacks wrote {writes:?}"
         );
+        Ok(())
+    }
+
+    async fn exercise_unconfigured_referrals(pool: &PgPool, buyer: Uuid) -> TestResult {
+        let url = std::env::var("OTERYN_DATABASE_URL")?;
+        let eligible: bool = sqlx::query_scalar(
+            "SELECT account_value_eligible(inviter_id) AND account_value_eligible(invitee_id)
+               FROM referral_campaign_invitations WHERE invitee_id=$1",
+        )
+        .bind(buyer)
+        .fetch_one(pool)
+        .await?;
+        assert!(
+            eligible,
+            "maintenance purchase fixture must be eligible for a reward"
+        );
+        for setting in [None, Some("unknown")] {
+            let mut conn = <sqlx::PgConnection as sqlx::Connection>::connect(&url).await?;
+            if let Some(setting) = setting {
+                sqlx::query("SELECT set_config('oteryn.referrals_enabled',$1,false)")
+                    .bind(setting)
+                    .execute(&mut conn)
+                    .await?;
+            }
+            sqlx::query(
+                "INSERT INTO accounts(email,password_hash,status,locale,email_verified_at)
+                VALUES(uuidv7()::text||'@example.test','test-only','active','en',now())",
+            )
+            .execute(&mut conn)
+            .await?;
+            sqlx::query("SELECT referral_campaign_purchase($1,30,clock_timestamp()), referral_campaign_loyalty($1,12)")
+                .bind(buyer).execute(&mut conn).await?;
+            let writes = take_writes(pool).await?;
+            if writes
+                .iter()
+                .any(|(table, _, _)| table.starts_with("referral_") || table == "outbox")
+            {
+                return Err(format!("maintenance connection {setting:?} wrote {writes:?}").into());
+            }
+        }
+        Ok(())
+    }
+
+    async fn exercise_retention_outcomes(pool: &PgPool) -> TestResult<Vec<String>> {
+        let mut failures = Vec::new();
+        let tickets: Vec<String> = sqlx::query_scalar(
+            "SELECT subject FROM tickets JOIN ticket_messages ON ticket_id=tickets.id ORDER BY subject",
+        ).fetch_all(pool).await?;
+        if tickets != ["179"] {
+            failures.push(format!(
+                "ticket retention kept {tickets:?}; expected only day 179 and its message"
+            ));
+        }
+        let samples: Vec<i32> =
+            sqlx::query_scalar("SELECT players_online FROM stats_world_samples")
+                .fetch_all(pool)
+                .await?;
+        let rollup: Vec<(i64, i64, i32, i32)> = sqlx::query_as(
+            "SELECT samples,players_sum,players_min,players_max FROM stats_world_daily",
+        )
+        .fetch_all(pool)
+        .await?;
+        if samples != [89] || rollup != [(1, 91, 91, 91)] {
+            failures.push(format!(
+                "world retention kept {samples:?} with rollup {rollup:?}"
+            ));
+        }
+        let retried: bool = sqlx::query_scalar(
+            "SELECT finalized_at IS NULL AND updated_at > scheduled_for AND updated_at > created_at
+             AND updated_at > transaction_timestamp()-interval '1 minute'
+             FROM account_terminations",
+        )
+        .fetch_one(pool)
+        .await?;
+        if !retried {
+            failures
+                .push("termination drain did not retry the due request without Game proof".into());
+        }
+        Ok(failures)
+    }
+
+    #[test]
+    fn referrals_on_records_legacy_session_refresh() -> TestResult {
+        run_case("referrals_on_records_legacy_session_refresh", true)
+    }
+
+    #[test]
+    fn referrals_on_records_anonymous_login_rotation() -> TestResult {
+        run_case("referrals_on_records_anonymous_login_rotation", true)
+    }
+
+    async fn exercise_legacy_refresh(pool: &PgPool) -> TestResult {
+        let account: Uuid = sqlx::query_scalar(
+            "INSERT INTO accounts(email,password_hash,status,locale)
+            VALUES('old-refresh@example.test','test-only','active','en') RETURNING id",
+        )
+        .fetch_one(pool)
+        .await?;
+        let runtime = oteryn_web::session::configured_pool(&std::env::var("OTERYN_DATABASE_URL")?)?;
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,last_seen_at,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at)
+            VALUES($1,$2,now()-interval '10 minutes','legacy',$3,now()+interval '1 hour',now()+interval '1 day')")
+            .bind(Sha256::digest(SESSION).to_vec()).bind(account).bind(CSRF).execute(&runtime).await?;
+        let refreshed: time::OffsetDateTime = sqlx::query_scalar(
+            "UPDATE web_sessions SET last_seen_at=now() WHERE account_id=$1 RETURNING last_seen_at",
+        )
+        .bind(account)
+        .fetch_one(&runtime)
+        .await?;
+        sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+            .bind(account)
+            .execute(&runtime)
+            .await?;
+        let recorded: Option<time::OffsetDateTime> =
+            sqlx::query_scalar("SELECT last_activity FROM referral_activity WHERE account_id=$1")
+                .bind(account)
+                .fetch_optional(pool)
+                .await?;
+        assert_eq!(
+            recorded,
+            Some(refreshed),
+            "a legacy writer's committed refresh must survive session expiry"
+        );
+        Ok(())
+    }
+
+    async fn exercise_login_rotation(pool: &PgPool) -> TestResult {
+        use axum::{
+            body::Body,
+            extract::Extension,
+            http::{Request, StatusCode, header},
+            routing::get,
+        };
+        use oteryn_web::session::{self, BrowserSession, PrivilegeChange, SessionLayer};
+        use tower::ServiceExt;
+
+        let account: Uuid = sqlx::query_scalar(
+            "INSERT INTO accounts(email,password_hash,status,locale)
+            VALUES('rotation@example.test','test-only','active','en') RETURNING id",
+        )
+        .fetch_one(pool)
+        .await?;
+        sqlx::query("DELETE FROM referral_activity WHERE account_id=$1")
+            .bind(account)
+            .execute(pool)
+            .await?;
+        let runtime = session::configured_pool(&std::env::var("OTERYN_DATABASE_URL")?)?;
+        let app = axum::Router::new()
+            .route(
+                "/anonymous",
+                get(|Extension(session): Extension<BrowserSession>| async move {
+                    session
+                        .csrf_token()
+                        .await
+                        .map(|_| StatusCode::OK)
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+                }),
+            )
+            .route(
+                "/rotate",
+                get(
+                    move |Extension(session): Extension<BrowserSession>| async move {
+                        session::rotate(&session, PrivilegeChange::Login(account))
+                            .await
+                            .map(|_| StatusCode::OK)
+                            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+                    },
+                ),
+            )
+            .route_layer(axum::middleware::from_fn_with_state(
+                SessionLayer::new(runtime),
+                session::middleware,
+            ));
+        let response = app
+            .clone()
+            .oneshot(Request::get("/anonymous").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response.headers()[header::SET_COOKIE]
+            .to_str()?
+            .split(';')
+            .next()
+            .ok_or("anonymous cookie")?;
+        let anonymous: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id IS NULL")
+                .fetch_one(pool)
+                .await?;
+        assert_eq!(anonymous, 1);
+        let response = app
+            .oneshot(
+                Request::get("/rotate")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let (seen, activity): (time::OffsetDateTime, Option<time::OffsetDateTime>) = sqlx::query_as(
+            "SELECT s.last_seen_at,r.last_activity FROM web_sessions s LEFT JOIN referral_activity r USING(account_id)
+             WHERE s.account_id=$1",
+        ).bind(account).fetch_one(pool).await?;
+        assert_eq!(
+            activity,
+            Some(seen),
+            "rotation must record activity before any authenticated request"
+        );
+        let callbacks: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM security_events WHERE account_id=$1 AND kind='login_succeeded'",
+        )
+        .bind(account)
+        .fetch_one(pool)
+        .await?;
+        assert_eq!(callbacks, 0);
         Ok(())
     }
 
@@ -629,12 +929,14 @@ mod flag_boundary {
                 .map_err(|error| format!("{kind}: {error}"))?;
             let permission = RETENTION.iter().find(|entry| entry.0 == kind);
             for (table, operation, count) in take_writes(pool).await? {
-                let allowed =
-                    permission.is_some_and(|(_, _, deletes, expires)| match operation.as_str() {
+                let allowed = permission.is_some_and(|(_, _, deletes, expires, creates)| {
+                    match operation.as_str() {
                         "DELETE" => deletes.contains(&table.as_str()),
                         "UPDATE" => expires.contains(&table.as_str()),
+                        "INSERT" => creates.contains(&table.as_str()),
                         _ => false,
-                    });
+                    }
+                });
                 if !allowed {
                     let reason = permission.map_or("no feature writes permitted", |job| job.1);
                     failures.push(format!(
@@ -647,13 +949,21 @@ mod flag_boundary {
             .iter()
             .flat_map(|job| job.2.iter().copied())
             .collect::<BTreeSet<_>>();
+        let allowed_inserts = RETENTION
+            .iter()
+            .flat_map(|job| job.4.iter().copied())
+            .collect::<BTreeSet<_>>();
         let after_jobs = row_counts(pool).await?;
         for (table, count) in after_jobs.difference(&before_jobs) {
             let expected_deletion = allowed_deletes.contains(table.as_str())
                 && before_jobs
                     .iter()
                     .any(|(old_table, old_count)| old_table == table && old_count > count);
-            if !expected_deletion {
+            let expected_insertion = allowed_inserts.contains(table.as_str())
+                && before_jobs
+                    .iter()
+                    .any(|(old_table, old_count)| old_table == table && old_count < count);
+            if !expected_deletion && !expected_insertion {
                 failures.push(format!("worker changed row count for {table} to {count}"));
             }
         }
@@ -868,7 +1178,8 @@ mod flag_boundary {
 
     fn route_probes() -> TestResult<BTreeSet<Probe>> {
         let mut probes = BTreeSet::new();
-        for row in INVENTORY.lines().filter(|line| line.starts_with("| `")) {
+        let inventory = inventory()?;
+        for row in inventory_rows(&inventory) {
             let routes = row
                 .split('|')
                 .nth(2)

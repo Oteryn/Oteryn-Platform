@@ -329,6 +329,42 @@ async fn publish(
     (raw, projection)
 }
 #[tokio::test]
+async fn postgres_due_termination_drains_after_intake_disabled() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let enabled = service(&db, b.clone());
+    let account = db.account().await?;
+    let accepted = request(&enabled, account).await;
+    let disabled = Terminations::new(db.pool.clone(), Config::default(), b.clone())?;
+    assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
+    db.due(accepted.id).await?;
+    assert_eq!(
+        disabled.run_worker(100).await?.blocked,
+        1,
+        "Game proof is still required"
+    );
+    let raw: Vec<u8> =
+        sqlx::query_scalar("SELECT intent FROM plat3_closure_commands WHERE termination_id=$1")
+            .bind(accepted.id)
+            .fetch_one(&db.pool)
+            .await?;
+    publish(&db, &b, &Intent::parse(&raw)?, true).await;
+    assert_eq!(disabled.run_worker(100).await?.finalized, 1);
+    assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
+    let closed: bool = sqlx::query_scalar(
+        "SELECT a.status='closed' AND a.password_hash='!closed' AND a.email_verified_at IS NULL
+                AND a.email='terminated+'||a.id::text AND t.finalized_at IS NOT NULL
+         FROM accounts a JOIN account_terminations t ON t.account_id=a.id WHERE t.id=$1",
+    )
+    .bind(accepted.id)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(closed);
+    db.close().await
+}
+#[tokio::test]
 async fn postgres_close_proof_requery_finalize_and_atomic_audit() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());

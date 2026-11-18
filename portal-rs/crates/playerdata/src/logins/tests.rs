@@ -112,7 +112,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path',$1,false), set_config('oteryn.referrals_enabled','true',false)")
                         .bind(path)
                         .execute(conn)
                         .await?;

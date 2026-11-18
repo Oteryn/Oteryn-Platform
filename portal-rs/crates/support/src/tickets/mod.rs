@@ -484,14 +484,10 @@ pub enum Change<'a> {
 #[derive(Debug, Clone)]
 pub struct Retention {
     pub pool: PgPool,
-    pub enabled: bool,
 }
 impl oteryn_db::outbox::Cleanup for Retention {
     fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
         Box::pin(async move {
-            if !self.enabled {
-                return Ok(());
-            }
             sqlx::query("DELETE FROM tickets WHERE id IN (SELECT id FROM tickets WHERE status IN ('resolved','closed') AND closed_at < now()-interval '180 days' LIMIT 1000 FOR UPDATE SKIP LOCKED)").execute(&self.pool).await.map(|_|()).map_err(|e|e.to_string())
         })
     }

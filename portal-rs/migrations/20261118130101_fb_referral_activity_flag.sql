@@ -1,10 +1,21 @@
--- Browser activity is recorded by the explicitly enabled session code.
-DROP TRIGGER referral_activity_web ON web_sessions;
-
--- Configured portal pools always pass an explicit setting. SQL callers outside
--- those pools retain the original behavior, including the campaign setting.
+-- All activity writers, including pre-upgrade portal processes, use the
+-- existing triggers with an explicitly enabled connection.
 CREATE FUNCTION referral_deployment_enabled() RETURNS boolean LANGUAGE sql STABLE AS $$
-    SELECT current_setting('oteryn.referrals_enabled',true) IS DISTINCT FROM 'false'
+    SELECT COALESCE(current_setting('oteryn.referrals_enabled',true) = 'true',false)
+$$;
+
+-- An activity high-water mark is evidence only within uninterrupted coverage.
+-- The singleton records deployment coverage, independently of campaign data.
+CREATE TABLE portal_referral_coverage (
+    id boolean PRIMARY KEY DEFAULT true CHECK (id),
+    covered_since timestamptz
+);
+INSERT INTO portal_referral_coverage DEFAULT VALUES;
+
+CREATE FUNCTION referral_note_coverage() RETURNS void LANGUAGE sql AS $$
+    UPDATE portal_referral_coverage
+    SET covered_since=CASE WHEN referral_deployment_enabled() THEN clock_timestamp() END
+    WHERE id AND ((covered_since IS NOT NULL) <> referral_deployment_enabled())
 $$;
 
 CREATE FUNCTION referral_record_activity(a uuid, stamp timestamptz)
@@ -20,6 +31,8 @@ $$;
 -- records. Keep the fence on referral-owned data for that direct write.
 CREATE FUNCTION referral_skip_disabled_activity() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    -- Expired Game logins can reach this fence without a presentation row.
+    PERFORM referral_note_coverage();
     RETURN NULL;
 END $$;
 
@@ -30,14 +43,21 @@ CREATE TRIGGER referral_activity_deployment_gate BEFORE INSERT ON referral_activ
 CREATE OR REPLACE FUNCTION referral_activity_capture() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE a uuid; stamp timestamptz;
 BEGIN
-    IF NOT referral_deployment_enabled() THEN RETURN NEW; END IF;
-    IF TG_TABLE_NAME='accounts' THEN a:=NEW.id; stamp:=NEW.created_at;
+    IF TG_TABLE_NAME='accounts' THEN
+        IF NOT referral_deployment_enabled() THEN RETURN NEW; END IF;
+        a:=NEW.id; stamp:=NEW.created_at;
+    ELSIF TG_TABLE_NAME='web_sessions' THEN a:=NEW.account_id; stamp:=NEW.last_seen_at;
     ELSIF TG_TABLE_NAME='pd_game_logins' THEN a:=NEW.account_id; stamp:=to_timestamp(GREATEST(NEW.entered_at,NEW.left_at)/1000.0);
     ELSIF TG_TABLE_NAME='security_events' THEN
         IF NEW.kind<>'login_succeeded' THEN RETURN NEW; END IF;
         a:=NEW.account_id; stamp:=NEW.created_at;
     END IF;
-    PERFORM referral_record_activity(a,stamp);
+    IF a IS NOT NULL THEN
+        -- A disabled writer can overlap an enabled process during a rollout.
+        -- Clear coverage on its activity even if that pool was opened earlier.
+        PERFORM referral_note_coverage();
+        PERFORM referral_record_activity(a,stamp);
+    END IF;
     RETURN NEW;
 END $$;
 
