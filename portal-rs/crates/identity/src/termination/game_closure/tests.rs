@@ -329,6 +329,71 @@ async fn publish(
     (raw, projection)
 }
 #[tokio::test]
+async fn postgres_paused_intake_cancels_pending_termination() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let account = db.account().await?;
+    let pending = request(&service(&db, b.clone()), account).await;
+    db.due(pending.id).await?;
+    let paused = Terminations::new(db.pool.clone(), Config::default(), b)?;
+    let proof = ActorProof(account.to_string());
+    assert!(matches!(
+        paused.cancel(account, &proof, "wrong password").await,
+        Err(Error::Unauthorized)
+    ));
+    paused
+        .cancel(account, &proof, "termination test password")
+        .await?;
+    assert_eq!(paused.run_worker(100).await?, WorkerResult::default());
+    let cancelled: bool = sqlx::query_scalar("SELECT cancelled_at IS NOT NULL AND finalized_at IS NULL FROM account_terminations WHERE id=$1")
+        .bind(pending.id).fetch_one(&db.pool).await?;
+    assert!(cancelled);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_projection_requires_work_under_account_lock() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let account = db.account().await?;
+    let unrelated = db.account().await?;
+    let (_, intent) = issue(&db, &service(&db, b.clone()), account).await;
+    let (_, mut projection, _) = publications(&intent, 0, &b.authority);
+    let pending = serde_json::to_vec(&projection)?;
+    projection.account_id = unrelated.to_string();
+    projection.closures.clear();
+    projection.projection_epoch = "4".into();
+    let unrelated = serde_json::to_vec(&projection)?;
+    let before: String =
+        sqlx::query_scalar("SELECT highest_epoch FROM plat3_closure_feed WHERE id=1")
+            .fetch_one(&db.pool)
+            .await?;
+    let refused = b
+        .ingest_projection(&db.pool, &unrelated, &seed().sign(&unrelated).to_bytes())
+        .await;
+    let after: String =
+        sqlx::query_scalar("SELECT highest_epoch FROM plat3_closure_feed WHERE id=1")
+            .fetch_one(&db.pool)
+            .await?;
+    let snapshots: i64 = sqlx::query_scalar("SELECT count(*) FROM plat3_closure_snapshots")
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(
+        matches!(refused, Err(Error::NoPending)),
+        "{refused:?}, epoch {after}, snapshots {snapshots}"
+    );
+    assert_eq!(before, after);
+    assert_eq!(snapshots, 0);
+    b.ingest_projection(&db.pool, &pending, &seed().sign(&pending).to_bytes())
+        .await?;
+    db.close().await
+}
+
+#[tokio::test]
 async fn postgres_due_termination_drains_after_intake_disabled() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());
