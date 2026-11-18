@@ -33,6 +33,8 @@ pub enum Error {
     DeliveryEvidencePending,
     #[error("Bazaar resync world set does not include an observed custody world")]
     ResyncWorldConfiguration,
+    #[error("Bazaar resync evidence changed during enumeration")]
+    ResyncEvidenceChanged,
     #[error("invalid bazaar contract input")]
     Invalid,
     #[error("bazaar authorization denied")]

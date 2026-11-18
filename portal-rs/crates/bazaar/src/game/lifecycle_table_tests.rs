@@ -2332,11 +2332,16 @@ async fn failed_rebuild_with_obsolete_binding(world_set_changed: bool) {
             .config
             .worlds = vec![uid("12"), uid("76")];
     } else {
-        sqlx::query("UPDATE bazaar_resync_progress SET worlds=$1")
-            .bind(format!("delivery-sales-v2:{}", uid("12")))
-            .execute(&db.pool)
+        let mut tx = db.pool.begin().await.unwrap();
+        super::super::authority::register_writer(&mut tx)
             .await
             .unwrap();
+        sqlx::query("UPDATE bazaar_resync_progress SET worlds=$1")
+            .bind(format!("delivery-sales-v2:{}", uid("12")))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
         sqlx::query("DELETE FROM bazaar_game_projections WHERE kind='POLICY'")
             .execute(&db.pool)
             .await
@@ -3104,6 +3109,9 @@ async fn sale_status_table() {
             let mut tx = db.pool.begin().await.unwrap();
             // Seed a restart at this fence. The event is applied by Game's
             // projection writer and consumed by the same rebuild as Runtime.
+            super::super::authority::register_writer(&mut tx)
+                .await
+                .unwrap();
             sqlx::query("UPDATE bazaar_resync_progress SET worlds='obsolete'")
                 .execute(&mut *tx)
                 .await
@@ -3283,6 +3291,9 @@ async fn delivery_admission_table() {
                 ReceiptResult::Stored
             );
         }
+        super::super::authority::register_writer(&mut tx)
+            .await
+            .unwrap();
         sqlx::query("UPDATE bazaar_resync_progress SET worlds='obsolete'")
             .execute(&mut *tx)
             .await

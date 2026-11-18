@@ -1099,6 +1099,7 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemS
         );
         // A late contradictory/ambiguous delivery decision reinstates the fence.
         savepoint(&mut tx, "SAVEPOINT ambiguous_delivery").await;
+        super::authority::register_writer(&mut tx).await.unwrap();
         sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(uid("4")).bind("0".repeat(64)).execute(&mut *tx).await.unwrap();
         assert!(
             runtime::gold::validate_release(&a, &mut tx, &releasing, None)
@@ -1573,6 +1574,7 @@ async fn gold_fact(
         command.wire()
     );
     let r = Receipt::parse(receipt.as_bytes()).unwrap();
+    super::authority::register_writer(tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome) VALUES($1,3,$2,$3,$4,$5,'COMMITTED')").bind(operation).bind(&authority().config.receipt_authority).bind(digest(intent.bytes())).bind(r.digest()).bind(&receipt).execute(&mut **tx).await.unwrap();
     let p = BazaarAuthorityDecisionV1 {
         intent_sha256: Sha256::digest(intent.bytes()).to_vec(),
@@ -2729,6 +2731,7 @@ async fn gold_release_retry_scenario(accepted: bool) {
         &format!("bazaar:{}:ReleaseBazaarGold:{request}:1", listing.id),
     )
     .await;
+    super::authority::register_writer(&mut tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(original).execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE bazaar_game_issuer SET source_revision=11")
         .execute(&mut *tx)
@@ -3520,6 +3523,7 @@ async fn postgres_cancelled_character_unlock_retries_both_currencies() {
             &format!("bazaar:{}:UnlockBazaarCharacter:{}:1", uid("30"), uid("30")),
         )
         .await;
+        super::authority::register_writer(&mut tx).await.unwrap();
         sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)")
             .bind(id(text(&historical.value,"operation_id").unwrap()).unwrap()).execute(&mut *tx).await.unwrap();
         sqlx::query("UPDATE bazaar_game_issuer SET source_revision=104")
@@ -3557,8 +3561,11 @@ async fn postgres_cancelled_character_unlock_retries_both_currencies() {
                 .contains(&uid("30"))
         );
         // An audit conflict revokes completion and puts the listing back in cleanup.
+        let mut tx = db.pool.begin().await.unwrap();
+        super::authority::register_writer(&mut tx).await.unwrap();
         sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')")
-            .bind(id(text(&replacement.value,"operation_id").unwrap()).unwrap()).bind("a".repeat(64)).execute(&db.pool).await.unwrap();
+            .bind(id(text(&replacement.value,"operation_id").unwrap()).unwrap()).bind("a".repeat(64)).execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
         assert!(
             runtime::worker::listing_batch(&db.pool, 3)
                 .await
@@ -4474,6 +4481,7 @@ async fn postgres_cleanup_attempt_pointer_bounds_all_commands_and_issuer_wait() 
                 &format!("bazaar:{}:{}:{step}:1", uid("30"), command.wire()),
             )
             .await;
+            super::authority::register_writer(&mut tx).await.unwrap();
             sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(tail).execute(&mut *tx).await.unwrap();
             let receipt = format!(
                 r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"{}","operation_id":"{tail}","outcome":"REJECTED","result_code":"CHAR_CMD_INTENT_EXPIRED","result_data":null,"recovery_generation":"3","decided_at":"{now}"}}"#,
@@ -4606,6 +4614,7 @@ async fn postgres_return_publication_uses_live_dispositions_and_revokes_conflict
             Some(time::OffsetDateTime::from_unix_timestamp((now - 301) as i64).unwrap()),
         )
         .await;
+        super::authority::register_writer(&mut tx).await.unwrap();
         sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(operation).execute(&mut *tx).await.unwrap();
         let raw = format!(
             r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"ReturnBazaarItem","operation_id":"{operation}","outcome":"REJECTED","result_code":"CHAR_CMD_INTENT_EXPIRED","result_data":null,"recovery_generation":"3","decided_at":"{now}"}}"#
@@ -4678,7 +4687,10 @@ async fn postgres_return_publication_uses_live_dispositions_and_revokes_conflict
     // Roll back this candidate, then poison a historical refusal. It must once
     // again fence compensation even though it was previously reconciled.
     tx.rollback().await.unwrap();
-    sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'DECISION')").bind(first).bind("a".repeat(64)).execute(&db.pool).await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    super::authority::register_writer(&mut tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'DECISION')").bind(first).bind("a".repeat(64)).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
     let mut tx = db.pool.begin().await.unwrap();
     assert!(matches!(
         db.runtime
@@ -5190,6 +5202,7 @@ async fn r8_reconfirmed_escrow_digest() {
         "\"recovery_generation\":\"2\"",
     );
     let receipt = Receipt::parse(old.as_bytes()).unwrap();
+    super::authority::register_writer(&mut tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome) SELECT operation_id,2,source_authority,intent_digest,$1,$2,outcome FROM bazaar_authority_receipts WHERE operation_id=$3").bind(receipt.digest()).bind(old).bind(receipt.operation).execute(&mut *tx).await.unwrap();
     let wire = vector("delivery_intent").replace(
         &digest(vector("escrow_receipt").as_bytes()),
@@ -5328,6 +5341,7 @@ async fn unresynced_deliver_pull_requires_expiry_plus_skew_and_allows_receipt_re
         r#"{{"contract_version":2,"operation":"ReadBazaarCommandIntentV1","source_authority":"{peer}","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","command":"DeliverBazaarItem","operation_id":"{op}"}}"#
     );
     let mut tx = db.pool.begin().await.unwrap();
+    super::authority::register_writer(&mut tx).await.unwrap();
     sqlx::query("DELETE FROM bazaar_authority_resync")
         .execute(&mut *tx)
         .await

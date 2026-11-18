@@ -210,6 +210,9 @@ async fn locked_character_fixture(escrowed: bool) -> BrowserFixture {
     committed_fact(a, &mut tx, &lock, &data, now).await;
 
     let operation = id(text(&lock.value, "operation_id").unwrap()).unwrap();
+    super::super::authority::register_writer(&mut tx)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,3,3)").bind(operation).execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE bazaar_game_issuer SET source_revision=101")
         .execute(&mut *tx)

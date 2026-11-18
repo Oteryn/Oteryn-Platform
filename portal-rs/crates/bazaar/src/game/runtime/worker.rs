@@ -38,7 +38,11 @@ impl Runtime {
                 resync.commit().await?;
                 None
             }
-            Err(problem @ (Error::CustodyDrift | Error::ResyncWorldConfiguration)) => {
+            Err(
+                problem @ (Error::CustodyDrift
+                | Error::ResyncWorldConfiguration
+                | Error::ResyncEvidenceChanged),
+            ) => {
                 resync.commit().await?;
                 Some(problem)
             }

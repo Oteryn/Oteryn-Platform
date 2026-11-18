@@ -247,6 +247,7 @@ impl Outbox {
         // The issuer lock is shared with enqueue and restore, so no lower epoch
         // write can race the invalidation of older evidence.
         let floor=sqlx::query("SELECT projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_game_issuer WHERE singleton FOR UPDATE").fetch_one(&mut **db).await?;
+        super::authority::register_writer(db).await?;
         let floor_epoch = decimal(floor.try_get("epoch")?, true, u64::MAX)?;
         let generation = decimal(floor.try_get("generation")?, true, u64::MAX)?;
         if epoch < floor_epoch {

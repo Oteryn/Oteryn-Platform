@@ -1,3 +1,4 @@
+use super::authority::WRITER_VERSION;
 use super::authority_wire::{decode, number, same};
 use super::delivery_work::{DELIVERY, LISTING};
 use super::game_wire::{id, text};
@@ -11,6 +12,16 @@ use uuid::Uuid;
 const DELIVERY_EVIDENCE_RETRIES: i64 = 8;
 // Restart scans whose checkpoints predate transactional STATUS listing rechecks.
 const RESYNC_VERSION: &str = "delivery-sales-v5:";
+const MAX_EVIDENCE_RESTARTS: i32 = 3;
+
+#[derive(sqlx::FromRow)]
+struct ResyncProgress {
+    listing_cursor: Uuid,
+    operation_cursor: String,
+    worlds: String,
+    evidence_epoch: Option<i64>,
+    evidence_restarts: i32,
+}
 
 enum ReturnStatus {
     Pending,
@@ -38,23 +49,74 @@ impl Authority {
         if worlds.is_empty() || worlds.len() > 32 || worlds.windows(2).any(|w| w[0] >= w[1]) {
             return Err(Error::Invalid);
         }
+        let epoch = sqlx::query_scalar::<_, i64>(
+            "UPDATE bazaar_game_issuer SET minimum_writer_version=$1
+             WHERE singleton AND minimum_writer_version<$1 RETURNING evidence_epoch",
+        )
+        .bind(WRITER_VERSION)
+        .fetch_optional(&mut **db)
+        .await?;
+        let epoch = match epoch {
+            Some(epoch) => epoch,
+            None => {
+                sqlx::query_scalar("SELECT evidence_epoch FROM bazaar_game_issuer WHERE singleton")
+                    .fetch_one(&mut **db)
+                    .await?
+            }
+        };
         let mut certified = self.resync_marker(db).await?;
         let worlds_binding = resync_binding(worlds);
-        let progress=sqlx::query_as::<_, (Uuid, String, String)>("SELECT listing_cursor,operation_cursor::text,worlds FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_optional(&mut **db).await?;
-        let (listing_cursor, operation_cursor) = match progress {
-            Some((listing, operation, worlds)) if worlds == worlds_binding => (listing, operation),
+        let projection_epoch = self.fence.projection_epoch.to_string();
+        let generation = self.fence.recovery_generation.to_string();
+        let progress = sqlx::query_as::<_, ResyncProgress>(
+            "SELECT listing_cursor,operation_cursor::text,worlds,evidence_epoch,evidence_restarts
+             FROM bazaar_resync_progress
+             WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric",
+        )
+        .bind(&projection_epoch)
+        .bind(&generation)
+        .fetch_optional(&mut **db)
+        .await?;
+        let (listing_cursor, operation_cursor, scan_epoch, restarts) = match progress {
+            Some(progress)
+                if progress.worlds == worlds_binding && progress.evidence_epoch.is_some() =>
+            {
+                (
+                    progress.listing_cursor,
+                    progress.operation_cursor,
+                    progress.evidence_epoch.ok_or(Error::Unavailable)?,
+                    progress.evidence_restarts,
+                )
+            }
             progress => {
-                let rebuild = progress.is_some() || certified;
-                if rebuild {
+                if progress.is_some() || certified {
                     sqlx::query("DELETE FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric")
-                        .bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string())
-                        .execute(&mut **db).await?;
+                        .bind(&projection_epoch).bind(&generation).execute(&mut **db).await?;
                     self.revoke_resync_marker(db).await?;
                     certified = false;
                 }
-                (Uuid::nil(), "0".to_owned())
+                (Uuid::nil(), "0".to_owned(), epoch, 0)
             }
         };
+        let mut restarts = restarts;
+        if !certified && restarts == MAX_EVIDENCE_RESTARTS {
+            // Pause after three failed scans. Resume from the first page only
+            // once two consecutive calls observe the same evidence epoch.
+            sqlx::query(
+                "UPDATE bazaar_resync_progress SET evidence_epoch=$3,evidence_restarts=$4
+                 WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric",
+            )
+            .bind(&projection_epoch)
+            .bind(&generation)
+            .bind(epoch)
+            .bind(if epoch == scan_epoch { 0 } else { restarts })
+            .execute(&mut **db)
+            .await?;
+            if epoch != scan_epoch {
+                return Err(Error::ResyncEvidenceChanged);
+            }
+            restarts = 0;
+        }
         if certified && !DELIVERY.pending(db, false).await? && !LISTING.pending(db, false).await? {
             return Ok(());
         }
@@ -108,6 +170,9 @@ impl Authority {
                     }
                 }
                 Err(Error::ResyncWorldConfiguration) => missing_world = true,
+                Err(Error::Unavailable) => {
+                    pending_evidence.get_or_insert(Error::Unavailable);
+                }
                 Err(error) => return Err(error),
             }
         }
@@ -130,7 +195,8 @@ impl Authority {
         {
             return evidence;
         }
-        sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES($1::text::numeric,$2::text::numeric,$3) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(&worlds_binding).execute(&mut **db).await?;
+        sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds,evidence_epoch) VALUES($1::text::numeric,$2::text::numeric,$3,$4) ON CONFLICT DO NOTHING")
+            .bind(&projection_epoch).bind(&generation).bind(&worlds_binding).bind(scan_epoch).execute(&mut **db).await?;
         if let Some(cursor) = next_listing {
             sqlx::query("UPDATE bazaar_resync_progress SET listing_cursor=$3 WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(cursor).execute(&mut **db).await?;
         }
@@ -166,7 +232,32 @@ impl Authority {
         if operations.len() == 24 {
             return Ok(());
         }
-        sqlx::query("INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation) VALUES($1::text::numeric,$2::text::numeric) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
+        let marker = sqlx::query(
+            "INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation)
+             SELECT $1::text::numeric,$2::text::numeric FROM bazaar_game_issuer
+             WHERE singleton AND evidence_epoch=$3",
+        )
+        .bind(&projection_epoch)
+        .bind(&generation)
+        .bind(scan_epoch)
+        .execute(&mut **db)
+        .await?;
+        if marker.rows_affected() == 0 {
+            sqlx::query(
+                "UPDATE bazaar_resync_progress
+                 SET listing_cursor=$3,operation_cursor=0,evidence_epoch=i.evidence_epoch,evidence_restarts=$4
+                 FROM bazaar_game_issuer i WHERE i.singleton
+                   AND bazaar_resync_progress.projection_epoch=$1::text::numeric
+                   AND bazaar_resync_progress.recovery_generation=$2::text::numeric",
+            )
+            .bind(&projection_epoch)
+            .bind(&generation)
+            .bind(Uuid::nil())
+            .bind(restarts + 1)
+            .execute(&mut **db)
+            .await?;
+            return Err(Error::ResyncEvidenceChanged);
+        }
         Ok(())
     }
     // The operation scan verifies the audit independently. A refused or
@@ -358,7 +449,7 @@ impl Authority {
                 SELECT 1 FROM bazaar_resync_progress p JOIN bazaar_authority_resync r
                   USING (projection_epoch, recovery_generation)
                 WHERE p.projection_epoch=$1::text::numeric AND p.recovery_generation=$2::text::numeric
-                  AND p.worlds=$3
+                  AND p.worlds=$3 AND p.evidence_epoch IS NOT NULL
              )",
         )
         .bind(self.fence.projection_epoch.to_string())
@@ -429,6 +520,7 @@ impl Authority {
             return Err(Error::CustodyDrift);
         }
 
+        self.delivery_world(db, listing, worlds).await?;
         let status = self.projection(db, "STATUS", listing).await?;
         let evidence = self.delivery_evidence(db, listing, sale).await?;
         let terminal = matches!(state, State::Completed | State::Cancelled);
@@ -529,23 +621,6 @@ impl Authority {
                 _ => None,
             },
         };
-        if reason.is_none() {
-            // A missing configured world must not consume the evidence retry budget.
-            let world: Option<Uuid> = sqlx::query_scalar::<_, Option<Uuid>>(
-                "SELECT COALESCE(a.world_id,d.world_id)
-                 FROM bazaar_listings l
-                 LEFT JOIN bazaar_authority_assets a ON a.listing_id=l.id
-                 LEFT JOIN bazaar_item_details d ON d.id=l.id
-                 WHERE l.id=$1",
-            )
-            .bind(listing)
-            .fetch_optional(&mut *db)
-            .await?
-            .flatten();
-            if world.is_some_and(|world| !worlds.contains(&world)) {
-                return Err(Error::ResyncWorldConfiguration);
-            }
-        }
         let reason = match reason {
             Some(reason) => reason,
             None if retries >= DELIVERY_EVIDENCE_RETRIES => "evidence_retry_exhausted",
@@ -585,6 +660,27 @@ impl Authority {
         )
         .await?;
         Err(Error::CustodyDrift)
+    }
+
+    async fn delivery_world(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+        worlds: &[Uuid],
+    ) -> Result<(), Error> {
+        let world: Option<Uuid> = sqlx::query_scalar(
+            "SELECT COALESCE(
+                (SELECT world_id FROM bazaar_authority_assets WHERE listing_id=$1),
+                (SELECT world_id FROM bazaar_item_details WHERE id=$1)
+             )",
+        )
+        .bind(listing)
+        .fetch_one(db)
+        .await?;
+        if !worlds.contains(&world.ok_or(Error::Unavailable)?) {
+            return Err(Error::ResyncWorldConfiguration);
+        }
+        Ok(())
     }
 
     async fn published_sale_return(

@@ -157,6 +157,7 @@ impl Outbox {
             return Err(Error::Invalid);
         }
         let row=sqlx::query("SELECT projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_game_issuer WHERE singleton FOR UPDATE").fetch_one(&mut **db).await?;
+        super::authority::register_writer(db).await?;
         let old_epoch = decimal(row.try_get("epoch")?, true, u64::MAX)?;
         let old_generation = decimal(row.try_get("generation")?, true, u64::MAX)?;
         crate::lifecycle::reopen_intents(db, (old_epoch, old_generation), (epoch, generation)).await

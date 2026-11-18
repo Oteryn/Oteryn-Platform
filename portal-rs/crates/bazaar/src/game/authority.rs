@@ -78,6 +78,21 @@ pub enum ReceiptResult {
     Duplicate,
     Quarantined,
 }
+// The database also checks this on evidence and checkpoint writes so that
+// binaries predating this setting are fenced once v5 starts a rebuild.
+pub(super) const WRITER_VERSION: i32 = 5;
+
+pub(super) async fn register_writer(db: &mut PgConnection) -> Result<(), Error> {
+    sqlx::query("SELECT set_config('oteryn.bazaar_writer_version', $1, true)")
+        .bind(WRITER_VERSION.to_string())
+        .execute(&mut *db)
+        .await?;
+    sqlx::query("SELECT bazaar_require_writer(minimum_writer_version) FROM bazaar_game_issuer WHERE singleton")
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 impl Authority {
     pub(super) fn enabled(&self) -> Result<(), Error> {
         if !self.config.available()
@@ -111,7 +126,7 @@ impl Authority {
         {
             return Err(Error::Unavailable);
         }
-        Ok(())
+        register_writer(db).await
     }
     /// Called only by the existing Character receipt facility after its dedicated
     /// peer authentication. No Bazaar receipt route is created. Commit quarantine
