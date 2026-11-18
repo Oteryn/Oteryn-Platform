@@ -317,7 +317,7 @@ async fn postgres_bank_chain_and_retention() -> std::result::Result<(), Box<dyn 
     a.allow(scope.clone()).await;
     let store = db.store(&a);
     store.ingest(r.clone(), clock()).await?;
-    let invalid = playerdata::items(&bank(2, Some(&Uuid::now_v7().to_string()), 100, 100))?;
+    let invalid = playerdata::items(&bank(2, Some(&r.entity), 99, 100))?;
     assert_eq!(store.ingest(invalid, clock()).await, Err(Error::Conflict));
     let second = playerdata::items(&bank(2, Some(&r.entity), 100, 100))?;
     store.ingest(second, clock()).await?;
@@ -2348,6 +2348,29 @@ async fn r10_bank_fee_predecessor() -> std::result::Result<(), Box<dyn std::erro
         .ingest(playerdata::items(raw.as_bytes())?, clock())
         .await;
     assert!(result.is_ok(), "withdraw after fee: {result:?}");
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn r12_bank_zero_net_gap() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let authority = TestAuthority::default();
+    let first = playerdata::items(&bank(1, None, 0, 100))?;
+    let first_id = first.entity.clone();
+    authority.allow(first.scope.clone()).await;
+    let store = db.store(&authority);
+    store.ingest(first, clock()).await?;
+
+    // Unexported native entries offset each other before the next deposit.
+    let native_id = Uuid::now_v7().to_string();
+    let next = playerdata::items(&bank(2, Some(&native_id), 100, 10))?;
+    store.ingest(next, clock()).await?;
+
+    let fork = playerdata::items(&bank(3, Some(&first_id), 110, 10))?;
+    assert_eq!(store.ingest(fork, clock()).await, Err(Error::Conflict));
     db.close().await?;
     Ok(())
 }
