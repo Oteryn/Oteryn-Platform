@@ -732,13 +732,17 @@ impl Authority {
             "SELECT EXISTS (
                 SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_conflicts c USING(operation_id)
                 WHERE o.listing_id=$1 AND o.command IN ('DeliverBazaarItem','ReturnBazaarItem')
+                  AND (c.kind='DECISION' OR NOT EXISTS (
+                      SELECT 1 FROM bazaar_authority_receipts r
+                      WHERE r.operation_id=c.operation_id AND r.receipt_digest=c.incoming_digest
+                  ))
              )",
         )
         .bind(listing)
         .fetch_one(&mut *db)
         .await?;
-        // Intake has already fenced authenticated conflicting observations.
-        // Waiting for an audit of the retained receipt cannot resolve them.
+        // Conflicting replays are fenced on intake. An admitted rejection from
+        // a later recovery generation still needs its own decision audit.
         if conflicted {
             return Ok(DeliveryEvidence::Drift("delivery_reversal_or_conflict"));
         }

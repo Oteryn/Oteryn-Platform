@@ -185,6 +185,10 @@ buyer funds and an ESCROWED projection. Committed and Rejected here describe the
 stored receipt. The audit event supplies the exact retained receipt digest or,
 if no receipt exists, the expected commitment digest. Receipt inputs after an
 existing receipt either replay its exact bytes or contradict its outcome.
+An authenticated conflicting replay at the same fence preserves the original
+receipt and immediately fences the sale. A later-generation first rejection of
+a prior commitment is admitted for audit and cannot authorize a return. Its
+current audit confirms the reversal and triggers the sale drift report.
 Every row preserves the funds, escrow and canonical operation. Reconciliation
 reports Drift once and fences an unresolved rebuild.
 
@@ -298,12 +302,14 @@ database rows in this document. The SQL guard test runs the final row.
 - A sale can release value only along its proven outcome. Buyer delivery may
   settle the seller's funds. Seller return may refund the buyer. Delivery and
   refund, or return and seller settlement, cannot both be authorized.
-- The immutable sale key authorizes at most one Deliver execution. Before
+- Each item sale has exactly one canonical Deliver identity derived from its
+  immutable sale key. At most one outbox operation may use that key. Before
   issuance a sale can be safely returned with no published Deliver. Alternate
   staged records grant no authority and any independent commitment must be checked.
 - Certification requires current audited evidence and matching rebuild version,
   worlds and fence. A fresh watermark alone grants no custody authority.
-- A published sale with unresolved evidence gets eight durable waiting attempts.
+- A published Deliver or Return with unresolved sale evidence shares one
+  budget of eight durable waiting attempts for the sale.
   On the next unresolved check it goes to Drift and is reported once. Scanning
   other listings continues while certification stays fenced.
 - Checkpoints, dirty-key changes and evidence applied by a page commit together.

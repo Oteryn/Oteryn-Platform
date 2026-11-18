@@ -876,9 +876,12 @@ enum StatusEvent {
     Conflict,
 }
 
-async fn custody_status_event(state: &str, event: StatusEvent, result: IngestResult) {
-    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let db = item_in(State::Active).await;
+async fn custody_status_event(
+    db: &BrowserFixture,
+    state: &str,
+    event: StatusEvent,
+    result: IngestResult,
+) {
     let a = db.runtime.authority();
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
@@ -911,7 +914,6 @@ async fn custody_status_event(state: &str, event: StatusEvent, result: IngestRes
         )
         .await
         .unwrap();
-    tx.commit().await.unwrap();
     let subject = if matches!(state, "locked" | "UNLOCKED") {
         uid("30")
     } else {
@@ -921,18 +923,22 @@ async fn custody_status_event(state: &str, event: StatusEvent, result: IngestRes
         "SELECT canonical_body FROM bazaar_game_projections WHERE kind='STATUS' AND subject=$1",
     )
     .bind(subject)
-    .fetch_one(&db.pool)
+    .fetch_one(&mut *tx)
     .await
     .unwrap();
     let quarantined: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM bazaar_game_quarantine WHERE kind='STATUS' AND subject=$1)",
     )
     .bind(subject)
-    .fetch_one(&db.pool)
+    .fetch_one(&mut *tx)
     .await
     .unwrap();
-    let listing = item_state(&db).await;
-    db.end().await;
+    let listing: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(uid("20"))
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    tx.rollback().await.unwrap();
     assert_eq!(observed, result);
     assert_eq!(
         stored,
@@ -971,6 +977,16 @@ fn status_rows() -> impl Iterator<Item = (&'static str, StatusEvent, IngestResul
             .into_iter()
             .map(move |(event, expected)| (status, event, expected))
     })
+}
+
+async fn custody_status_table() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    for (status, event, expected) in status_rows() {
+        eprintln!("status row: {status}, {event:?}");
+        custody_status_event(&db, status, event, expected).await;
+    }
+    db.end().await;
 }
 
 async fn gold_bid(db: &BrowserFixture) -> Uuid {
@@ -2446,10 +2462,7 @@ async fn lifecycle_state_table_postgres() {
         eprintln!("listing row: {state:?}, {event:?}");
         listing_event(state, event, expected).await;
     }
-    for (status, event, expected) in status_rows() {
-        eprintln!("status row: {status}, {event:?}");
-        custody_status_event(status, event, expected).await;
-    }
+    custody_status_table().await;
     for row in LIFECYCLE_SCENARIOS {
         eprintln!("lifecycle row: {}, {}", row.state, row.event);
         (row.run)().await;
