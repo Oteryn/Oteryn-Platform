@@ -559,6 +559,7 @@ async fn sequence(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn payment_sequences_conserve_coins_across_reversals_and_holds() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = Instant::now();
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let admin = PgPool::connect(&url).await?;
