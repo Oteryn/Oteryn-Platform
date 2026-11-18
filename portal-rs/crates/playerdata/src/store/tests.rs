@@ -2352,6 +2352,29 @@ async fn r10_bank_fee_predecessor() -> std::result::Result<(), Box<dyn std::erro
     Ok(())
 }
 
+#[tokio::test]
+async fn r12_bank_zero_net_gap() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let authority = TestAuthority::default();
+    let first = playerdata::items(&bank(1, None, 0, 100))?;
+    let first_id = first.entity.clone();
+    authority.allow(first.scope.clone()).await;
+    let store = db.store(&authority);
+    store.ingest(first, clock()).await?;
+
+    // Unexported native entries offset each other before the next deposit.
+    let native_id = Uuid::now_v7().to_string();
+    let next = playerdata::items(&bank(2, Some(&native_id), 100, 10))?;
+    store.ingest(next, clock()).await?;
+
+    let fork = playerdata::items(&bank(3, Some(&first_id), 110, 10))?;
+    assert_eq!(store.ingest(fork, clock()).await, Err(Error::Conflict));
+    db.close().await?;
+    Ok(())
+}
+
 #[test]
 fn r11_bank_self_predecessor() {
     let raw = bank(1, None, 0, 10);
