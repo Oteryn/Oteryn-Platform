@@ -505,13 +505,13 @@ pub(super) struct Route {
     pub endpoint: Endpoint,
     pub revision: String,
 }
-impl Route {
+impl Endpoint {
     fn endpoint_key(&self) -> (String, u16) {
-        let host = &self.endpoint.host;
+        let host = &self.host;
         let canonical = host
             .parse::<std::net::IpAddr>()
             .map_or_else(|_| host.to_ascii_lowercase(), |ip| ip.to_string());
-        (canonical, self.endpoint.port)
+        (canonical, self.port)
     }
 }
 /// A stored record that is incomplete, malformed or whose revision differs from
@@ -653,14 +653,14 @@ pub(super) async fn candidates(
     let mut endpoints = std::collections::HashSet::new();
     let mut collisions = std::collections::HashSet::new();
     for (route, _, _) in &records {
-        let endpoint = route.endpoint_key();
+        let endpoint = route.endpoint.endpoint_key();
         if !endpoints.insert(endpoint.clone()) {
             collisions.insert(endpoint);
         }
     }
     let mut found = Vec::new();
     for (route, enabled, key) in &records {
-        let shared = collisions.contains(&route.endpoint_key());
+        let shared = collisions.contains(&route.endpoint.endpoint_key());
         let Some(key) = key.as_ref().filter(|k| super::wire::channel_key_valid(k)) else {
             continue;
         };
@@ -706,17 +706,20 @@ pub(super) async fn revalidate(
 pub(super) async fn unshared(
     db: &mut PgConnection,
     world: Uuid,
-    route: &Route,
+    channel: Uuid,
+    endpoint: &Endpoint,
 ) -> Result<(), Error> {
     let rows = sqlx::query("SELECT channel_id, native_route_host, native_route_port, native_route_tls_server_name, native_route_version, native_route_revision FROM game_channels WHERE world_id=$1 AND channel_id<>$2 AND native_route_port=$3 AND native_route_revision IS NOT NULL")
         .bind(world)
-        .bind(route.channel)
-        .bind(i32::from(route.endpoint.port))
+        .bind(channel)
+        .bind(i32::from(endpoint.port))
         .fetch_all(&mut *db)
         .await
         .map_err(|_| Error::Unavailable)?;
     for row in &rows {
-        if record(world, row)?.is_some_and(|other| other.endpoint_key() == route.endpoint_key()) {
+        if record(world, row)?
+            .is_some_and(|other| other.endpoint.endpoint_key() == endpoint.endpoint_key())
+        {
             return Err(Error::RouteUnavailable);
         }
     }

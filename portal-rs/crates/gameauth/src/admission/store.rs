@@ -344,12 +344,13 @@ async fn finish_replay(
     let Some(settings) = v3 else {
         return Ok(response);
     };
-    let (world, _, _) = wire::scope(stored)?;
+    let (world, channel, endpoint) = wire::scope(stored)?;
     let recovery = protocol3::replace(&mut *tx, settings.handles, request.attempt_ref).await?;
     let channels = protocol3::channels(&mut *tx, settings, world).await?;
     if channels.is_empty() {
         return Err(Error::RouteUnavailable);
     }
+    super::grant::unshared(tx, world, channel, &endpoint).await?;
     let body = wire::success3(
         &response,
         request.channel_id.is_none(),

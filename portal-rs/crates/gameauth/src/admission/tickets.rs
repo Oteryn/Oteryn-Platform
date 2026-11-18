@@ -31,15 +31,7 @@ async fn seconds(db: &mut PgConnection) -> Result<i64, Error> {
         .map_err(|_| Error::Unavailable)
 }
 
-/// The §5 read model's listing of `character` for `account`: its World and
-/// availability, `None` when it is not listed. A disabled, stale or invalid
-/// read model is `RouteUnavailable` (§5.4, §19.4 step 4).
-pub(crate) async fn listing(
-    db: &mut PgConnection,
-    projection_authority: &str,
-    account: Uuid,
-    character: Uuid,
-) -> Result<Option<(Uuid, String)>, Error> {
+async fn require_live_feed(db: &mut PgConnection, projection_authority: &str) -> Result<(), Error> {
     if projection_authority.is_empty() {
         return Err(Error::RouteUnavailable);
     }
@@ -49,6 +41,19 @@ pub(crate) async fn listing(
     if live != Some(true) {
         return Err(Error::RouteUnavailable);
     }
+    Ok(())
+}
+
+/// The §5 read model's listing of `character` for `account`: its World and
+/// availability, `None` when it is not listed. A disabled, stale or invalid
+/// read model is `RouteUnavailable` (§5.4, §19.4 step 4).
+pub(crate) async fn listing(
+    db: &mut PgConnection,
+    projection_authority: &str,
+    account: Uuid,
+    character: Uuid,
+) -> Result<Option<(Uuid, String)>, Error> {
+    require_live_feed(db, projection_authority).await?;
     let valid: Option<bool> = sqlx::query_scalar("SELECT NOT s.invalid AND s.projection_epoch=f.highest_epoch AND s.source_authority=$2 FROM account_character_snapshots s CROSS JOIN account_character_feed f WHERE s.account_id=$1 AND f.id=1")
             .bind(account).bind(projection_authority)
             .fetch_optional(&mut *db).await.map_err(|_| Error::Unavailable)?;
@@ -183,7 +188,7 @@ impl AdmissionAuthority for NativeTickets {
             let iat = u64::try_from(seconds(db).await?).map_err(|_| Error::Unavailable)?;
             grant::revalidate(db, runtime, world, &route, &report, iat as i64).await?;
             if request.protocol == 3 {
-                grant::unshared(db, world, &route).await?;
+                grant::unshared(db, world, route.channel, &route.endpoint).await?;
             }
             let ttl = self.issuance.ttl_seconds;
             let payload = grant::payload(&grant::Claims {
@@ -197,12 +202,14 @@ impl AdmissionAuthority for NativeTickets {
                 report: &report,
             })?;
             let expires_at = iat + u64::from(ttl);
+            require_live_feed(db, &self.projection_authority).await?;
             let token = signer.sign_async(&payload, expires_at, iat).await?;
             let signed_at = seconds(db).await?;
             grant::revalidate(db, runtime, world, &route, &report, signed_at).await?;
             if request.protocol == 3 {
-                grant::unshared(db, world, &route).await?;
+                grant::unshared(db, world, route.channel, &route.endpoint).await?;
             }
+            require_live_feed(db, &self.projection_authority).await?;
             Ok(Material {
                 world_id: world,
                 channel_id: route.channel,
