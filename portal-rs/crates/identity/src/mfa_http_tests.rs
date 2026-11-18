@@ -82,7 +82,7 @@ async fn browser_flow(
     // A stored authorize target survives the challenge rotation and is the
     // post-MFA destination, consumed once.
     let target = "/oauth/authorize?response_type=code&client_id=c&state=s";
-    sqlx::query("UPDATE web_sessions SET data=data||jsonb_build_object('oauth_return',$1::text) WHERE account_id IS NULL")
+    sqlx::query("UPDATE web_sessions SET data=data||jsonb_build_object('oauth_return',$1::text,'referral.code','invite-code') WHERE account_id IS NULL")
         .bind(target)
         .execute(&db.pool)
         .await?;
@@ -218,6 +218,16 @@ async fn browser_flow(
             .filter_map(|v| v.to_str().ok())
             .any(|v| v.starts_with(TRUSTED) && v.contains("Secure; HttpOnly; SameSite=Lax"))
     );
+    let referral: Option<String> =
+        sqlx::query_scalar("SELECT data->>'referral.code' FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(
+        referral.as_deref(),
+        Some("invite-code"),
+        "pending referral after MFA login"
+    );
     let grant: String =
         sqlx::query_scalar("SELECT data->>'mfa_grant' FROM web_sessions WHERE account_id=$1")
             .bind(id)
@@ -241,6 +251,43 @@ async fn browser_flow(
         .fetch_one(&db.pool)
         .await?,
         1
+    );
+    let authenticated_cookie = accepted
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|v| v.starts_with(session::COOKIE_NAME) && !v.contains("Max-Age=0"))
+        .and_then(|v| v.split(';').next())
+        .ok_or("authenticated cookie")?;
+    let authenticated_csrf: String =
+        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    let device = mfa.devices(id).await?.pop().ok_or("remembered device")?;
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::post("/en/mfa/devices")
+                .header(header::COOKIE, authenticated_cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+                .body(axum::body::Body::from(format!(
+                    "_csrf={authenticated_csrf}&device={device}"
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(mfa.devices(id).await?.is_empty());
+    let settings = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 32768)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(
+        !settings.contains("action=\"/en/mfa/enroll\""),
+        "device removal offered enrollment"
     );
     let stale = app.clone().oneshot(challenge_request(&codes[1])?).await?;
     assert_eq!(stale.status(), StatusCode::FORBIDDEN);

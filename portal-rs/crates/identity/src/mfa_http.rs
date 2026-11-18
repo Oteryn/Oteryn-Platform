@@ -22,6 +22,7 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use std::net::SocketAddr;
 const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
+const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 const FAILED: SessionKey<bool> = SessionKey::new("mfa_failed");
 const GRANT: SessionKey<String> = SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
 const TRUSTED: &str = "__Host-oteryn_mfa_device";
@@ -472,9 +473,17 @@ async fn login(
         let target = crate::login_http::pending_return(&session)
             .await
             .map_err(unavailable)?;
+        let referral = if session.account_id().await.is_none() {
+            session.get(REFERRAL).await.map_err(unavailable)?
+        } else {
+            None
+        };
         session::rotate(&session, PrivilegeChange::Logout)
             .await
             .map_err(unavailable)?;
+        if let Some(code) = referral {
+            session.set(REFERRAL, &code).await.map_err(unavailable)?;
+        }
         crate::login_http::keep_return(&session, target)
             .await
             .map_err(unavailable)?;
@@ -689,6 +698,14 @@ pub(crate) async fn send_email(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(())
 }
+async fn settings_mode(mfa: &Mfa, id: uuid::Uuid) -> Result<&'static str, StatusCode> {
+    Ok(if mfa.enrolled(id).await.map_err(unavailable)? {
+        "enabled"
+    } else {
+        "settings"
+    })
+}
+
 async fn settings(
     State(context): State<Context>,
     Extension(language): Extension<Language>,
@@ -702,15 +719,10 @@ async fn settings(
     } else {
         vec![]
     };
-    let mode = if context.mfa.enrolled(id).await.map_err(unavailable)? {
-        "enabled"
-    } else {
-        "settings"
-    };
     page(
         language,
         &session,
-        mode,
+        settings_mode(&context.mfa, id).await?,
         false,
         String::new(),
         vec![],
@@ -882,7 +894,7 @@ async fn remove_device(
     page(
         language,
         &session,
-        "settings",
+        settings_mode(&context.mfa, id).await?,
         !removed,
         String::new(),
         vec![],
