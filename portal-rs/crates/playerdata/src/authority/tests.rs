@@ -2334,6 +2334,15 @@ async fn r8_bank_restore_generation() {
     );
     assert_eq!(
         post(&app, ITEMS_SAN, http::RECORDS_PATH, &body).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
+    let stale = bank.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"2""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &stale).await.0,
         StatusCode::CONFLICT
     );
     assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
@@ -2530,6 +2539,15 @@ async fn pd2_bank_generation_requires_admission() {
         .scope;
     db.account(&scope.account, "1", "1").await;
     let app = app(&db, Arc::new(FixedClock(ITEMS_NOW)), true);
+    let future = bank.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"2""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &future).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
     assert_eq!(
         post(&app, ITEMS_SAN, http::RECORDS_PATH, &bank).await.0,
         StatusCode::OK
@@ -2539,7 +2557,7 @@ async fn pd2_bank_generation_requires_admission() {
     scope.recovery = "2".into();
     assert_eq!(
         admit(&mut tx, &scope).await,
-        Err(Error::Conflict),
+        Err(Error::Unavailable),
         "generation switch without restore"
     );
     tx.rollback().await.unwrap();
