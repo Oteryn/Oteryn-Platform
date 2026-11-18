@@ -40,10 +40,14 @@
                     if (credential.response[key]) response[key] = encode(credential.response[key]);
                 }
                 if (credential.response.getTransports) response.transports = credential.response.getTransports();
-                await post("/" + kind + "/finish", {token: start.token, credential: {
+                const finish = await post("/" + kind + "/finish", {token: start.token, credential: {
                     id: credential.id, rawId: encode(credential.rawId), type: credential.type,
                     response, extensions: credential.getClientExtensionResults()
                 }});
+                if (finish.location) {
+                    window.location.assign(finish.location);
+                    return;
+                }
             }
             status.textContent = status.dataset.success;
             window.location.reload();

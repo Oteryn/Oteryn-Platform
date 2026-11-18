@@ -643,3 +643,44 @@ async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::er
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn authenticated_challenge_routes_redirect_home() -> Result<(), Box<dyn std::error::Error>> {
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let account: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale) VALUES('authenticated@example.test','unused','active','en') RETURNING id")
+        .fetch_one(&db.pool).await?;
+    let cookie = "c".repeat(64);
+    let csrf = "d".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES (sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
+        .bind(cookie.as_bytes()).bind(account).bind(&csrf).execute(&db.pool).await?;
+    let app = compose(
+        Router::new(),
+        db.pool.clone(),
+        Mfa::new(db.pool.clone(), [7; 32]),
+        SessionLayer::new(db.pool.clone()),
+    );
+    for (method, path) in [
+        ("GET", "challenge"),
+        ("POST", "challenge"),
+        ("POST", "email"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(method)
+                    .uri(format!("/en/mfa/{path}"))
+                    .header(header::COOKIE, format!("{}={cookie}", session::COOKIE_NAME))
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+                    .body(axum::body::Body::from(format!("_csrf={csrf}")))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[header::LOCATION], "/en/");
+    }
+    db.close().await?;
+    Ok(())
+}

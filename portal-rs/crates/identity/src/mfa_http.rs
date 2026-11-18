@@ -21,10 +21,11 @@ use oteryn_web::{
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::net::SocketAddr;
-const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
+pub(crate) const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
 const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 const FAILED: SessionKey<bool> = SessionKey::new("mfa_failed");
-const GRANT: SessionKey<String> = SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
+pub(crate) const GRANT: SessionKey<String> =
+    SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
 const TRUSTED: &str = "__Host-oteryn_mfa_device";
 #[derive(Clone)]
 struct Context {
@@ -302,6 +303,9 @@ async fn show_challenge(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_some() {
+        return Ok(redirect(language, "/"));
+    }
     if pending(&context, &session).await?.is_none() {
         return Ok(redirect(language, "/login"));
     }
@@ -550,6 +554,9 @@ async fn challenge(
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_some() {
+        return Ok(redirect(language, "/"));
+    }
     let limiter = supplied
         .map(|v| v.0)
         .unwrap_or_else(|| context.limiter.clone());
@@ -612,6 +619,9 @@ async fn email(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_some() {
+        return Ok(redirect(language, "/"));
+    }
     let limiter = supplied
         .map(|v| v.0)
         .unwrap_or_else(|| context.limiter.clone());
