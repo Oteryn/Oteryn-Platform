@@ -29,10 +29,12 @@ impl Runtime {
         crate::locking::listing_gate(&mut resync).await?;
         let resync_problem = match self
             .authority()
-            .finish_resync(&mut resync, &self.config.worlds)
+            .finish_resync(&mut resync, &self.authority().config.worlds)
             .await
         {
-            Ok(()) | Err(Error::DeliveryEvidencePending) => {
+            // Unavailable can follow a valid listing checkpoint when the
+            // operation scan still needs current evidence.
+            Ok(()) | Err(Error::DeliveryEvidencePending | Error::Unavailable) => {
                 resync.commit().await?;
                 None
             }
@@ -197,6 +199,15 @@ impl Runtime {
         parties.extend(l.leader);
         crate::locking::accounts(&mut tx, &parties).await?;
         self.authority().lock(&mut tx).await?;
+        if l.kind == Kind::Item
+            && l.state == State::AwaitingDelivery
+            && self
+                .authority()
+                .has_delivery_drift(&mut tx, Some(id))
+                .await?
+        {
+            return Err(Error::CustodyDrift);
+        }
         let row = sqlx::query(
             "SELECT session_hash,cancel_requested,refusal_code FROM bazaar_authority_assets WHERE listing_id=$1",
         )

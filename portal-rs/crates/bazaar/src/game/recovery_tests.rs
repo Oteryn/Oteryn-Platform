@@ -152,7 +152,6 @@ pub(super) async fn item_effect(db: &BrowserFixture, command: Command, refused: 
 async fn recover(db: &mut BrowserFixture) {
     let config = std::sync::Arc::make_mut(&mut db.runtime.config);
     config.fence.recovery_generation = 4;
-    config.worlds = vec![uid("12")];
     let fence = serde_json::json!({"projection_epoch":3,"recovery_generation":4,"incarnation":config.fence.incarnation,"character_history_complete_since":null});
     std::fs::write(&config.fence_file, fence.to_string()).unwrap();
     let a = &mut config.authority;
@@ -500,7 +499,6 @@ pub(super) async fn recover_character(db: &mut BrowserFixture) {
     let config = std::sync::Arc::make_mut(&mut db.runtime.config);
     config.fence.projection_epoch = 4;
     config.fence.recovery_generation = 4;
-    config.worlds = vec![uid("12")];
     let fence = serde_json::json!({"projection_epoch":4,"recovery_generation":4,"incarnation":config.fence.incarnation,"character_history_complete_since":null});
     std::fs::write(&config.fence_file, fence.to_string()).unwrap();
     config.authority.fence.projection_epoch = 4;
@@ -973,6 +971,10 @@ async fn restored_same_delivery_key_with_changed_commitment_reports_drift() {
 
 #[tokio::test]
 async fn bz02_compensated_sale_reversal_is_reported_as_drift() {
+    compensated_sale_reversal_is_reported_as_drift().await;
+}
+
+pub(super) async fn compensated_sale_reversal_is_reported_as_drift() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_sale(false, false).await;
     let delivery = newest_intent(&db, uid("20"), Command::Deliver).await;

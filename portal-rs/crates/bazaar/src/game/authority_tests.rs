@@ -54,6 +54,7 @@ fn authority() -> Authority {
             receipt_authority: "oteryn:character-authority:primary".into(),
             projection_authority: "oteryn:game:primary".into(),
             snapshot_keys: vec![("fixture-example-1".into(), key())],
+            worlds: vec![uid("12")],
             escrow_account_id: None,
             character_cooldown_seconds: None,
             character_history_complete_since: None,
@@ -1642,6 +1643,9 @@ async fn postgres_completed_resync_does_not_rescan_terminal_history() {
         .await
         .unwrap();
     sqlx::query("INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation) VALUES(3,3) ON CONFLICT DO NOTHING").execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES(3,3,$1) ON CONFLICT DO NOTHING")
+        .bind(format!("delivery-sales-v3:{}", uid("12")))
+        .execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) SELECT uuidv7(),$1,'item','auction','coins',100,false,'completed',now() FROM generate_series(1,2000)").bind(Uuid::now_v7()).execute(&mut *tx).await.unwrap();
     let result = tokio::time::timeout(
         std::time::Duration::from_millis(100),

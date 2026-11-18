@@ -1,6 +1,7 @@
 use super::*;
 use crate::State;
 use crate::moderation::{StaffCommand, execute_staff};
+use std::{future::Future, pin::Pin};
 
 async fn item_state(db: &BrowserFixture) -> State {
     sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
@@ -113,7 +114,7 @@ async fn dispatched(db: &BrowserFixture, listing: Uuid, command: Command) -> i64
     .unwrap()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ListingEvent {
     Bid,
     Cancel,
@@ -173,43 +174,109 @@ async fn listing_event(state: State, event: ListingEvent, expected: Result<(), &
     );
 }
 
-macro_rules! listing_cases {
-    ($($name:ident, $state:ident, $event:ident, $outcome:expr;)*) => {
-        $(
-            #[tokio::test]
+const LISTING_STATES: [State; 7] = [
+    State::Draft,
+    State::Active,
+    State::Matched,
+    State::AwaitingDelivery,
+    State::Completed,
+    State::Cancelled,
+    State::Expired,
+];
+const LISTING_EVENTS: [ListingEvent; 3] = [
+    ListingEvent::Bid,
+    ListingEvent::Cancel,
+    ListingEvent::Suspend,
+];
+type ListingRow = (State, ListingEvent, Result<(), &'static str>);
+const LISTING_ROWS: &[ListingRow] = &[
+    (
+        State::Draft,
+        ListingEvent::Bid,
+        Err("bazaar authorization denied"),
+    ),
+    (State::Draft, ListingEvent::Cancel, Ok(())),
+    (State::Draft, ListingEvent::Suspend, Ok(())),
+    (State::Active, ListingEvent::Bid, Ok(())),
+    (State::Active, ListingEvent::Cancel, Ok(())),
+    (State::Active, ListingEvent::Suspend, Ok(())),
+    (
+        State::Matched,
+        ListingEvent::Bid,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::Matched,
+        ListingEvent::Cancel,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::Matched,
+        ListingEvent::Suspend,
+        Err("illegal bazaar transition"),
+    ),
+    (
+        State::AwaitingDelivery,
+        ListingEvent::Bid,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::AwaitingDelivery,
+        ListingEvent::Cancel,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::AwaitingDelivery,
+        ListingEvent::Suspend,
+        Err("illegal bazaar transition"),
+    ),
+    (
+        State::Completed,
+        ListingEvent::Bid,
+        Err("bazaar game integration unavailable"),
+    ),
+    (
+        State::Completed,
+        ListingEvent::Cancel,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::Completed,
+        ListingEvent::Suspend,
+        Err("illegal bazaar transition"),
+    ),
+    (
+        State::Cancelled,
+        ListingEvent::Bid,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::Cancelled,
+        ListingEvent::Cancel,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::Cancelled,
+        ListingEvent::Suspend,
+        Err("illegal bazaar transition"),
+    ),
+    (
+        State::Expired,
+        ListingEvent::Bid,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::Expired,
+        ListingEvent::Cancel,
+        Err("bazaar authorization denied"),
+    ),
+    (
+        State::Expired,
+        ListingEvent::Suspend,
+        Err("illegal bazaar transition"),
+    ),
+];
 
-            async fn $name() {
-                listing_event(State::$state, ListingEvent::$event, $outcome).await;
-            }
-        )*
-    };
-}
-
-listing_cases! {
-    lifecycle_draft_bid, Draft, Bid, Err("bazaar authorization denied");
-    lifecycle_draft_cancel, Draft, Cancel, Ok(());
-    lifecycle_draft_suspend, Draft, Suspend, Ok(());
-    lifecycle_active_bid, Active, Bid, Ok(());
-    lifecycle_active_cancel, Active, Cancel, Ok(());
-    lifecycle_active_suspend, Active, Suspend, Ok(());
-    lifecycle_matched_bid, Matched, Bid, Err("bazaar authorization denied");
-    lifecycle_matched_cancel, Matched, Cancel, Err("bazaar authorization denied");
-    lifecycle_matched_suspend, Matched, Suspend, Err("illegal bazaar transition");
-    lifecycle_awaiting_delivery_bid, AwaitingDelivery, Bid, Err("bazaar authorization denied");
-    lifecycle_awaiting_delivery_cancel, AwaitingDelivery, Cancel, Err("bazaar authorization denied");
-    lifecycle_awaiting_delivery_suspend, AwaitingDelivery, Suspend, Err("illegal bazaar transition");
-    lifecycle_completed_bid, Completed, Bid, Err("bazaar game integration unavailable");
-    lifecycle_completed_cancel, Completed, Cancel, Err("bazaar authorization denied");
-    lifecycle_completed_suspend, Completed, Suspend, Err("illegal bazaar transition");
-    lifecycle_cancelled_bid, Cancelled, Bid, Err("bazaar authorization denied");
-    lifecycle_cancelled_cancel, Cancelled, Cancel, Err("bazaar authorization denied");
-    lifecycle_cancelled_suspend, Cancelled, Suspend, Err("illegal bazaar transition");
-    lifecycle_expired_bid, Expired, Bid, Err("bazaar authorization denied");
-    lifecycle_expired_cancel, Expired, Cancel, Err("bazaar authorization denied");
-    lifecycle_expired_suspend, Expired, Suspend, Err("illegal bazaar transition");
-}
-
-#[tokio::test]
 async fn lifecycle_draft_advance_escrowed() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Draft).await;
@@ -220,7 +287,6 @@ async fn lifecycle_draft_advance_escrowed() {
     assert_eq!(state, State::Active);
 }
 
-#[tokio::test]
 async fn lifecycle_draft_advance_cancel_requested() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Draft).await;
@@ -244,7 +310,6 @@ async fn lifecycle_draft_advance_cancel_requested() {
     assert_eq!(returned, State::Cancelled);
 }
 
-#[tokio::test]
 async fn lifecycle_active_expire_unbid() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -259,7 +324,6 @@ async fn lifecycle_active_expire_unbid() {
     assert_eq!(returned, State::Cancelled);
 }
 
-#[tokio::test]
 async fn lifecycle_active_expire_held() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -273,7 +337,6 @@ async fn lifecycle_active_expire_held() {
     assert_eq!(returns, 0);
 }
 
-#[tokio::test]
 async fn lifecycle_active_expire_funded() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = expired_item_with_bid(1).await;
@@ -291,7 +354,6 @@ async fn pending_item_delivery() -> BrowserFixture {
     db
 }
 
-#[tokio::test]
 async fn lifecycle_awaiting_delivery_commit_delivery() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
@@ -310,7 +372,6 @@ async fn lifecycle_awaiting_delivery_commit_delivery() {
     assert_eq!(sales, 1);
 }
 
-#[tokio::test]
 async fn lifecycle_awaiting_delivery_refuse_delivery() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
@@ -333,7 +394,6 @@ async fn lifecycle_awaiting_delivery_refuse_delivery() {
     assert_eq!(remaining, 0);
 }
 
-#[tokio::test]
 async fn lifecycle_active_invalidate() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -378,7 +438,10 @@ async fn lifecycle_active_invalidate() {
 }
 
 async fn create_item(db: &mut BrowserFixture) -> Uuid {
-    std::sync::Arc::make_mut(&mut db.runtime.config).worlds = vec![uid("12")];
+    std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .worlds = vec![uid("12")];
     authorize_seller(db).await;
     sqlx::query("INSERT INTO world_status(id,name) VALUES($1,'Fixture')")
         .bind(uid("12"))
@@ -410,7 +473,6 @@ async fn create_item(db: &mut BrowserFixture) -> Uuid {
         .unwrap()
 }
 
-#[tokio::test]
 async fn lifecycle_absent_create() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Active).await;
@@ -528,7 +590,6 @@ async fn rebuild_epoch(db: &BrowserFixture) -> Authority {
     next
 }
 
-#[tokio::test]
 async fn lifecycle_fence_matching_new_epoch() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -619,7 +680,6 @@ async fn lifecycle_receipt_absent_stale_generation() {
     assert_eq!(state, State::AwaitingDelivery);
 }
 
-#[tokio::test]
 async fn lifecycle_completed_worker_tick() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
@@ -653,7 +713,6 @@ async fn lifecycle_cancelled_worker_tick() {
     assert_eq!((delivery_count, return_count), (0, 1));
 }
 
-#[tokio::test]
 async fn lifecycle_draft_pending_lock() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -692,7 +751,6 @@ async fn lifecycle_active_bid_foreign_destination() {
     assert_eq!(reservations, 0);
 }
 
-#[tokio::test]
 async fn lifecycle_draft_refuse_escrow() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -810,7 +868,7 @@ fn status_publication(state: &str, revision: u64, custody_revision: u64, now: u6
     status
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StatusEvent {
     Newer,
     Older,
@@ -818,7 +876,7 @@ enum StatusEvent {
     Conflict,
 }
 
-async fn custody_status_event(state: &str, event: StatusEvent) {
+async fn custody_status_event(state: &str, event: StatusEvent, result: IngestResult) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let a = db.runtime.authority();
@@ -838,17 +896,11 @@ async fn custody_status_event(state: &str, event: StatusEvent) {
             .unwrap(),
         IngestResult::Applied
     );
-    let (incoming, result) = match event {
-        StatusEvent::Newer => (status_publication(state, 11, 3, now), IngestResult::Applied),
-        StatusEvent::Older => (
-            status_publication(state, 9, 1, now),
-            IngestResult::Superseded,
-        ),
-        StatusEvent::Replay => (original.clone(), IngestResult::Duplicate),
-        StatusEvent::Conflict => (
-            status_publication(state, 10, 3, now),
-            IngestResult::Quarantined,
-        ),
+    let incoming = match event {
+        StatusEvent::Newer => status_publication(state, 11, 3, now),
+        StatusEvent::Older => status_publication(state, 9, 1, now),
+        StatusEvent::Replay => original.clone(),
+        StatusEvent::Conflict => status_publication(state, 10, 3, now),
     };
     let observed = outbox
         .ingest(
@@ -898,41 +950,27 @@ async fn custody_status_event(state: &str, event: StatusEvent) {
     );
 }
 
-macro_rules! status_cases {
-    ($($state:literal, $newer:ident, $older:ident, $replay:ident, $conflict:ident;)*) => {
-        $(
-            #[tokio::test]
+const STATUS_STATES: [&str; 6] = [
+    "locked",
+    "ESCROWED",
+    "DELIVERED",
+    "RETURNED",
+    "UNLOCKED",
+    "INVALID",
+];
+const STATUS_EVENTS: [(StatusEvent, IngestResult); 4] = [
+    (StatusEvent::Newer, IngestResult::Applied),
+    (StatusEvent::Older, IngestResult::Superseded),
+    (StatusEvent::Replay, IngestResult::Duplicate),
+    (StatusEvent::Conflict, IngestResult::Quarantined),
+];
 
-            async fn $newer() { custody_status_event($state, StatusEvent::Newer).await; }
-
-            #[tokio::test]
-
-            async fn $older() { custody_status_event($state, StatusEvent::Older).await; }
-
-            #[tokio::test]
-
-            async fn $replay() { custody_status_event($state, StatusEvent::Replay).await; }
-
-            #[tokio::test]
-
-            async fn $conflict() { custody_status_event($state, StatusEvent::Conflict).await; }
-        )*
-    };
-}
-
-status_cases! {
-    "locked", lifecycle_locked_status_newer, lifecycle_locked_status_older,
-        lifecycle_locked_status_replay, lifecycle_locked_status_conflict;
-    "ESCROWED", lifecycle_escrowed_status_newer, lifecycle_escrowed_status_older,
-        lifecycle_escrowed_status_replay, lifecycle_escrowed_status_conflict;
-    "DELIVERED", lifecycle_delivered_status_newer, lifecycle_delivered_status_older,
-        lifecycle_delivered_status_replay, lifecycle_delivered_status_conflict;
-    "RETURNED", lifecycle_returned_status_newer, lifecycle_returned_status_older,
-        lifecycle_returned_status_replay, lifecycle_returned_status_conflict;
-    "UNLOCKED", lifecycle_unlocked_status_newer, lifecycle_unlocked_status_older,
-        lifecycle_unlocked_status_replay, lifecycle_unlocked_status_conflict;
-    "INVALID", lifecycle_invalid_status_newer, lifecycle_invalid_status_older,
-        lifecycle_invalid_status_replay, lifecycle_invalid_status_conflict;
+fn status_rows() -> impl Iterator<Item = (&'static str, StatusEvent, IngestResult)> {
+    STATUS_STATES.into_iter().flat_map(|status| {
+        STATUS_EVENTS
+            .into_iter()
+            .map(move |(event, expected)| (status, event, expected))
+    })
 }
 
 async fn gold_bid(db: &BrowserFixture) -> Uuid {
@@ -1142,7 +1180,6 @@ intent_cases! {
     lifecycle_intent_reopened_read_state, Reopened;
 }
 
-#[tokio::test]
 async fn lifecycle_draft_refuse_lock() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -1245,7 +1282,6 @@ pub(super) fn set_resync_fence(db: &mut BrowserFixture, epoch: u64, generation: 
     config.fence.recovery_generation = generation;
     config.authority.fence.projection_epoch = epoch;
     config.authority.fence.recovery_generation = generation;
-    config.worlds = vec![uid("12")];
     let fence = serde_json::json!({
         "projection_epoch": epoch,
         "recovery_generation": generation,
@@ -1281,7 +1317,6 @@ async fn resync_progress(db: &BrowserFixture) -> (bool, bool) {
     (certified, progress)
 }
 
-#[tokio::test]
 async fn lifecycle_completed_resync_waits_for_current_receipt_and_audit() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Completed).await;
@@ -1402,7 +1437,6 @@ async fn completed_resync_contradiction(status_change: impl FnOnce(String) -> St
     assert!(matches!(result, Err(Error::CustodyDrift)));
 }
 
-#[tokio::test]
 async fn lifecycle_completed_resync_escrow_status() {
     completed_resync_contradiction(|status| {
         let parsed = decode(status.as_bytes(), 262144).unwrap();
@@ -1577,7 +1611,6 @@ async fn redecided_lock(cancel_first: bool, initial_status: bool) {
     db.end().await;
 }
 
-#[tokio::test]
 async fn lifecycle_matched_legacy_hold_retires_once() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = expired_item_with_bid(1).await;
@@ -1627,7 +1660,6 @@ async fn lifecycle_matched_legacy_hold_retires_once() {
     db.end().await;
 }
 
-#[tokio::test]
 async fn lifecycle_delivery_pending_exhausts_retry_budget_once() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Completed).await;
@@ -1665,7 +1697,6 @@ async fn lifecycle_delivery_pending_exhausts_retry_budget_once() {
     db.end().await;
 }
 
-#[tokio::test]
 async fn bz01_alternate_delivery_cannot_win_publication() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = expired_item_with_bid(1).await;
@@ -1830,56 +1861,19 @@ async fn dirty_status_rechecked(after_certification: bool) {
     db.end().await;
 }
 
-#[tokio::test]
 async fn bz03_status_committed_behind_cursor_is_rechecked() {
     dirty_status_rechecked(false).await;
 }
 
-#[tokio::test]
 async fn bz03_status_committed_after_certification_is_rechecked() {
     dirty_status_rechecked(true).await;
 }
 
-#[tokio::test]
 async fn bz05_drift_does_not_starve_a_later_page() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Completed).await;
     insert_resync_fillers(&db, 23).await;
-    let later = uid("80");
-    let sale = uid("81");
-    let mut tx = db.pool.begin().await.unwrap();
-    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
-                 SELECT $1,owner,kind,form,currency,price,accept_offers,state,ends_at FROM bazaar_listings WHERE id=$2")
-        .bind(later).bind(uid("20")).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,
-                 expected_revision,session_hash,quantity,publication_consent,input_binding)
-                 SELECT $1,$1,world_id,seller_character_id,$1,expected_revision,session_hash,quantity,
-                 publication_consent,input_binding FROM bazaar_authority_assets WHERE listing_id=$2")
-        .bind(later).bind(uid("20")).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key,completed_at)
-                 SELECT $1,$2,buyer,seller,currency,amount,commission,seller_net,$1,'later',now()
-                 FROM bazaar_settlements WHERE listing_id=$3")
-        .bind(sale).bind(later).bind(uid("20")).execute(&mut *tx).await.unwrap();
-    tx.commit().await.unwrap();
-    let original = newest_intent(&db, uid("20"), Command::Deliver).await;
-    let raw = std::str::from_utf8(original.bytes())
-        .unwrap()
-        .replace(&uid("20").to_string(), &later.to_string())
-        .replace(text(&original.value, "sale_id").unwrap(), &sale.to_string())
-        .replace(
-            text(&original.value, "operation_id").unwrap(),
-            &uid("82").to_string(),
-        )
-        .replace(
-            &format!(
-                r#""source_revision":"{}""#,
-                text(&original.value, "source_revision").unwrap()
-            ),
-            r#""source_revision":"1000""#,
-        );
-    let mut tx = db.pool.begin().await.unwrap();
-    store_intent(&mut tx, &PreparedIntent::parse(&raw).unwrap()).await;
-    tx.commit().await.unwrap();
+    let later = insert_later_completed_sale(&db).await;
     set_resync_fence(&mut db, 3, 4);
     sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
         .execute(&db.pool)
@@ -1898,7 +1892,6 @@ async fn bz05_drift_does_not_starve_a_later_page() {
     db.end().await;
 }
 
-#[tokio::test]
 async fn bz06_missing_configured_world_does_not_charge_delivery_retries() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Completed).await;
@@ -1932,7 +1925,10 @@ async fn bz06_missing_configured_world_does_not_charge_delivery_retries() {
         IngestResult::Applied
     );
     tx.commit().await.unwrap();
-    std::sync::Arc::make_mut(&mut db.runtime.config).worlds = vec![alternate];
+    std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .worlds = vec![alternate];
     for _ in 0..12 {
         let result = db.runtime.tick().await;
         assert!(
@@ -1946,8 +1942,912 @@ async fn bz06_missing_configured_world_does_not_charge_delivery_retries() {
     assert_eq!(reports, 0);
     assert_eq!(quarantine_count(&db).await, 0);
     assert!(!resync_progress(&db).await.0);
-    std::sync::Arc::make_mut(&mut db.runtime.config).worlds = vec![uid("12")];
+    std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .worlds = vec![uid("12")];
     db.runtime.tick().await.unwrap();
     assert!(resync_progress(&db).await.0);
     db.end().await;
+}
+
+async fn insert_later_completed_sale(db: &BrowserFixture) -> Uuid {
+    let later = uid("80");
+    let sale = uid("81");
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
+                 SELECT $1,owner,kind,form,currency,price,accept_offers,state,ends_at FROM bazaar_listings WHERE id=$2")
+        .bind(later).bind(uid("20")).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,
+                 expected_revision,session_hash,quantity,publication_consent,input_binding)
+                 SELECT $1,$1,world_id,seller_character_id,$1,expected_revision,session_hash,quantity,
+                 publication_consent,input_binding FROM bazaar_authority_assets WHERE listing_id=$2")
+        .bind(later).bind(uid("20")).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key,completed_at)
+                 SELECT $1,$2,buyer,seller,currency,amount,commission,seller_net,$1,'later',now()
+                 FROM bazaar_settlements WHERE listing_id=$3")
+        .bind(sale).bind(later).bind(uid("20")).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let original = newest_intent(db, uid("20"), Command::Deliver).await;
+    let raw = std::str::from_utf8(original.bytes())
+        .unwrap()
+        .replace(&uid("20").to_string(), &later.to_string())
+        .replace(text(&original.value, "sale_id").unwrap(), &sale.to_string())
+        .replace(
+            text(&original.value, "operation_id").unwrap(),
+            &uid("82").to_string(),
+        )
+        .replace(
+            &format!(
+                r#""source_revision":"{}""#,
+                text(&original.value, "source_revision").unwrap()
+            ),
+            r#""source_revision":"1000""#,
+        );
+    let mut tx = db.pool.begin().await.unwrap();
+    store_intent(&mut tx, &PreparedIntent::parse(&raw).unwrap()).await;
+    tx.commit().await.unwrap();
+    later
+}
+
+async fn sale_effects(db: &BrowserFixture) -> (i64, bool, bool, i64) {
+    sale_effects_on(&mut db.pool.acquire().await.unwrap()).await
+}
+
+async fn sale_effects_on(db: &mut sqlx::PgConnection) -> (i64, bool, bool, i64) {
+    sqlx::query_as(
+        "SELECT h.amount, s.completed_at IS NOT NULL, d.completed,
+            (SELECT count(*) FROM bazaar_authority_compensations WHERE listing_id=s.listing_id)
+         FROM bazaar_settlements s JOIN bazaar_coin_dispositions d ON d.settlement_id=s.id
+         JOIN bazaar_coin_holds h ON h.settlement_id=s.id WHERE s.listing_id=$1",
+    )
+    .bind(uid("20"))
+    .fetch_one(db)
+    .await
+    .unwrap()
+}
+
+async fn delivery_reports(db: &BrowserFixture, listing: Uuid, action: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_audit WHERE relation_name='bazaar_delivery_evidence'
+         AND row_id=$1 AND after_row->>'action'=$2",
+    )
+    .bind(listing)
+    .bind(action)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap()
+}
+
+async fn bz08_awaiting_receipt_without_audit_exhausts_recovery_retries() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = pending_item_delivery().await;
+    let delivery = newest_intent(&db, uid("20"), Command::Deliver).await;
+    let operation = text(&delivery.value, "operation_id").unwrap();
+    set_resync_fence(&mut db, 3, 4);
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    recovery_tests::replay(a, &mut tx, uid("20")).await;
+    let now = runtime::now(&mut tx).await.unwrap();
+    let receipt = format!(
+        r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"DeliverBazaarItem","operation_id":"{operation}","outcome":"REJECTED","result_code":"CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE","result_data":null,"recovery_generation":"4","decided_at":"{now}"}}"#
+    );
+    assert_eq!(
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            receipt.as_bytes(),
+            now
+        )
+        .await
+        .unwrap(),
+        ReceiptResult::Stored
+    );
+    tx.commit().await.unwrap();
+
+    for attempt in 1..=8 {
+        db.runtime.tick().await.unwrap();
+        assert_eq!(
+            delivery_reports(&db, uid("20"), "delivery_evidence_pending").await,
+            attempt
+        );
+        assert_eq!(quarantine_count(&db).await, 0);
+    }
+    assert!(matches!(db.runtime.tick().await, Err(Error::CustodyDrift)));
+    let mut tx = db.pool.begin().await.unwrap();
+    assert_eq!(
+        audit(a, &mut tx, &delivery, &receipt, now).await,
+        ReceiptResult::Stored,
+    );
+    tx.commit().await.unwrap();
+    for _ in 0..2 {
+        assert!(matches!(db.runtime.tick().await, Err(Error::CustodyDrift)));
+    }
+    assert_eq!(
+        delivery_reports(&db, uid("20"), "delivery_custody_drift").await,
+        1
+    );
+    assert_eq!(quarantine_count(&db).await, 1);
+    assert_eq!(sale_effects(&db).await, (10000, false, false, 0));
+    assert_eq!(item_state(&db).await, State::AwaitingDelivery);
+    assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 1);
+    assert_eq!(dispatched(&db, uid("20"), Command::Return).await, 0);
+    assert!(!resync_progress(&db).await.0);
+    db.end().await;
+}
+
+async fn bz09_refunded_sale_quarantines_new_escrow_status() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = pending_item_delivery().await;
+    recovery_tests::item_effect(&db, Command::Deliver, true).await;
+    db.runtime.tick().await.unwrap();
+    recovery_tests::item_effect(&db, Command::Return, false).await;
+    db.runtime.tick().await.unwrap();
+    assert_eq!(item_state(&db).await, State::Cancelled);
+    let refund = sale_effects(&db).await;
+    assert_eq!(refund.0, 0);
+    assert!(refund.2);
+    assert_eq!(refund.3, 1);
+    set_resync_fence(&mut db, 3, 3);
+    db.runtime.tick().await.unwrap();
+    assert!(resync_progress(&db).await.0);
+
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let status = status_publication("ESCROWED", 3, 3, now).replace(
+        &format!(r#""last_operation_id":"{}""#, uid("4")),
+        r#""last_operation_id":null"#,
+    );
+    let a = db.runtime.authority();
+    assert_eq!(
+        projection_ingest()
+            .ingest(
+                &mut tx,
+                &a.config.projection_authority,
+                status.as_bytes(),
+                now
+            )
+            .await
+            .unwrap(),
+        IngestResult::Applied
+    );
+    tx.commit().await.unwrap();
+    for _ in 0..2 {
+        assert!(matches!(db.runtime.tick().await, Err(Error::CustodyDrift)));
+    }
+    assert_eq!(
+        delivery_reports(&db, uid("20"), "delivery_custody_drift").await,
+        1
+    );
+    assert_eq!(sale_effects(&db).await, refund);
+    assert_eq!(item_state(&db).await, State::Cancelled);
+    assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 1);
+    assert!(!resync_progress(&db).await.0);
+    db.end().await;
+}
+
+async fn bz10_failed_rebuild_cannot_serve_obsolete_certification() {
+    failed_rebuild_with_obsolete_binding(true).await;
+    failed_rebuild_with_obsolete_binding(false).await;
+}
+
+async fn failed_rebuild_with_obsolete_binding(world_set_changed: bool) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    set_resync_fence(&mut db, 3, 3);
+    db.runtime.tick().await.unwrap();
+    assert!(resync_progress(&db).await.0);
+    let effects = sale_effects(&db).await;
+    let mut second = db.pool.acquire().await.unwrap();
+    use sqlx::Acquire;
+    let mut tx = second.begin().await.unwrap();
+    assert!(db.runtime.authority().fresh(&mut tx).await.unwrap());
+    tx.rollback().await.unwrap();
+
+    if world_set_changed {
+        std::sync::Arc::make_mut(&mut db.runtime.config)
+            .authority
+            .config
+            .worlds = vec![uid("12"), uid("76")];
+    } else {
+        sqlx::query("UPDATE bazaar_resync_progress SET worlds=$1")
+            .bind(format!("delivery-sales-v2:{}", uid("12")))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM bazaar_game_projections WHERE kind='POLICY'")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let _tick = db.runtime.tick().await;
+    let mut tx = second.begin().await.unwrap();
+    assert!(!db.runtime.authority().fresh(&mut tx).await.unwrap());
+    tx.rollback().await.unwrap();
+    assert_eq!(sale_effects(&db).await, effects);
+    assert_eq!(item_state(&db).await, State::Completed);
+    assert_eq!(
+        delivery_reports(&db, uid("20"), "delivery_custody_drift").await,
+        0
+    );
+    drop(second);
+    db.end().await;
+}
+
+async fn bz11_unpublished_alternate_does_not_fence_safe_return() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    let (sale, reservation): (Uuid, Uuid) =
+        sqlx::query_as("SELECT id,reservation FROM bazaar_settlements WHERE listing_id=$1")
+            .bind(uid("20"))
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    let raw = vector("delivery_intent")
+        .replace(
+            text(
+                &decode(vector("delivery_intent").as_bytes(), 262144).unwrap(),
+                "sale_id",
+            )
+            .unwrap(),
+            &sale.to_string(),
+        )
+        .replace(&uid("25").to_string(), &reservation.to_string())
+        .replace(&uid("4").to_string(), &uid("74").to_string())
+        .replace(r#""source_revision":"20""#, r#""source_revision":"1000""#);
+    let staged = PreparedIntent::parse(&raw).unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    store_intent_with_key(&mut tx, &staged, "alternate-delivery").await;
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(uid("13"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    db.runtime.tick().await.unwrap();
+    assert_eq!(dispatched(&db, uid("20"), Command::Return).await, 1);
+    assert_eq!(sale_effects(&db).await, (10000, false, false, 0));
+    recovery_tests::item_effect(&db, Command::Return, false).await;
+    db.runtime.tick().await.unwrap();
+    assert_eq!(item_state(&db).await, State::Cancelled);
+    let effects = sale_effects(&db).await;
+    assert_eq!((effects.0, effects.2, effects.3), (0, true, 1));
+    assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 0);
+    assert_eq!(
+        delivery_reports(&db, uid("20"), "delivery_custody_drift").await,
+        0
+    );
+    db.end().await;
+}
+
+async fn bz12_missing_first_page_status_does_not_starve_legacy_sale() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    insert_resync_fillers(&db, 23).await;
+    let missing = uid("30");
+    let later = insert_later_completed_sale(&db).await;
+    sqlx::query("UPDATE bazaar_listings SET state=$2 WHERE id=$1")
+        .bind(missing)
+        .bind(State::Active)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    set_resync_fence(&mut db, 3, 4);
+    let intent = newest_intent(&db, later, Command::Deliver).await;
+    let operation = text(&intent.value, "operation_id").unwrap();
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    recovery_tests::replay(a, &mut tx, uid("20")).await;
+    let now = runtime::now(&mut tx).await.unwrap();
+    let receipt = format!(
+        r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"DeliverBazaarItem","operation_id":"{operation}","outcome":"REJECTED","result_code":"CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE","result_data":null,"recovery_generation":"4","decided_at":"{now}"}}"#
+    );
+    assert_eq!(
+        a.receive(
+            &mut tx,
+            &a.config.receipt_authority,
+            receipt.as_bytes(),
+            now
+        )
+        .await
+        .unwrap(),
+        ReceiptResult::Stored,
+    );
+    assert_eq!(
+        audit(a, &mut tx, &intent, &receipt, now).await,
+        ReceiptResult::Stored
+    );
+    // Model a legacy completed row whose evidence predates dirty scheduling.
+    super::super::delivery_work::DELIVERY
+        .remove(&mut tx, later)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let effects = sale_effects(&db).await;
+
+    db.runtime.tick().await.unwrap();
+    assert_eq!(
+        delivery_reports(&db, later, "delivery_custody_drift").await,
+        0
+    );
+    for _ in 0..2 {
+        assert!(matches!(db.runtime.tick().await, Err(Error::CustodyDrift)));
+    }
+    let reason: String = sqlx::query_scalar(
+        "SELECT after_row->>'reason' FROM bazaar_audit
+         WHERE row_id=$1 AND after_row->>'action'='delivery_custody_drift'",
+    )
+    .bind(later)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(reason, "delivery_outcome_contradicts_sale");
+    assert_eq!(
+        delivery_reports(&db, later, "delivery_custody_drift").await,
+        1
+    );
+    assert!(!resync_progress(&db).await.0);
+    let cursor: Uuid = sqlx::query_scalar(
+        "SELECT listing_cursor FROM bazaar_resync_progress
+         WHERE projection_epoch=3 AND recovery_generation=4",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(cursor, later);
+    assert_eq!(sale_effects(&db).await, effects);
+    assert_eq!(item_state(&db).await, State::Completed);
+    db.end().await;
+}
+
+#[derive(Clone, Copy)]
+struct LifecycleScenario {
+    state: &'static str,
+    event: &'static str,
+    run: fn() -> Pin<Box<dyn Future<Output = ()>>>,
+}
+
+macro_rules! lifecycle_scenarios {
+    ($($state:literal, $event:literal => $test:path;)*) => {
+        const LIFECYCLE_SCENARIOS: &[LifecycleScenario] = &[
+            $(LifecycleScenario {
+                state: $state,
+                event: $event,
+                run: || Box::pin($test()),
+            },)*
+        ];
+    };
+}
+
+lifecycle_scenarios! {
+    "Absent", "Create" => lifecycle_absent_create;
+    "Draft/no Game effect", "Lock pending" => lifecycle_draft_pending_lock;
+    "Draft/Lock pending", "Audited Lock rejected" => lifecycle_draft_refuse_lock;
+    "Draft/Escrow pending", "Audited Escrow rejected" => lifecycle_draft_refuse_escrow;
+    "Draft/Escrow audited", "Advance" => lifecycle_draft_advance_escrowed;
+    "Draft/Escrow audited", "Cancel requested" => lifecycle_draft_advance_cancel_requested;
+    "Active/No bid", "Expiry" => lifecycle_active_expire_unbid;
+    "Active/Moderation hold", "Expiry" => lifecycle_active_expire_held;
+    "Active/Held funds", "Expiry" => lifecycle_active_expire_funded;
+    "Active/Moderation hold", "Approved invalidation" => lifecycle_active_invalidate;
+    "Matched/Legacy hold", "Retry tick" => lifecycle_matched_legacy_hold_retires_once;
+    "AwaitingDelivery/Dispatched", "Audited committed Deliver and status" => lifecycle_awaiting_delivery_commit_delivery;
+    "AwaitingDelivery/Dispatched", "Audited rejected Deliver and Return status" => lifecycle_awaiting_delivery_refuse_delivery;
+    "AwaitingDelivery/Canonical and alternate staged", "Second connection attempts publication" => bz01_alternate_delivery_cannot_win_publication;
+    "AwaitingDelivery/Receipt without audit", "BZ-08 Retry bound" => bz08_awaiting_receipt_without_audit_exhausts_recovery_retries;
+    "AwaitingDelivery/Unpublished alternate", "BZ-11 Buyer eligibility changes" => bz11_unpublished_alternate_does_not_fence_safe_return;
+    "Completed/Old evidence", "Receipt before audit" => lifecycle_completed_resync_waits_for_current_receipt_and_audit;
+    "Completed/Old evidence", "STATUS ESCROWED" => lifecycle_completed_resync_escrow_status;
+    "Completed/Old evidence", "Retry bound" => lifecycle_delivery_pending_exhausts_retry_budget_once;
+    "Completed/Current evidence", "Worker tick" => lifecycle_completed_worker_tick;
+    "Completed/Certified", "Status changes after certification" => bz03_status_committed_after_certification_is_rechecked;
+    "Completed/Behind cursor", "Status producer commits between pages" => bz03_status_committed_behind_cursor_is_rechecked;
+    "Completed/Obsolete marker", "BZ-10 Rebuild fails with world-set change" => bz10_failed_rebuild_cannot_serve_obsolete_certification;
+    "Cancelled/Refunded", "BZ-09 STATUS ESCROWED contradicts return" => bz09_refunded_sale_quarantines_new_escrow_status;
+    "Cancelled/Refunded", "Reversal of rejected Deliver" => recovery_tests::compensated_sale_reversal_is_reported_as_drift;
+    "Rebuild/Old epoch", "Rebuild start" => lifecycle_fence_matching_new_epoch;
+    "Rebuild/World absent", "Configured world missing" => bz06_missing_configured_world_does_not_charge_delivery_retries;
+    "Rebuild/Early missing STATUS", "BZ-12 Page checkpoint before late legacy sale" => bz12_missing_first_page_status_does_not_starve_legacy_sale;
+    "Rebuild/Early Drift", "Later page" => bz05_drift_does_not_starve_a_later_page;
+    "Rebuild/Page in flight", "Writer crashes before commit" => lifecycle_crash_before_rebuild_page_commit_replays_page;
+    "AwaitingDelivery/Return audited", "Second worker races" => lifecycle_workers_race_to_refund_once;
+}
+
+#[tokio::test]
+async fn lifecycle_state_table_postgres() {
+    listing_writer_table().await;
+    sale_status_table().await;
+    for &(state, event, expected) in LISTING_ROWS {
+        eprintln!("listing row: {state:?}, {event:?}");
+        listing_event(state, event, expected).await;
+    }
+    for (status, event, expected) in status_rows() {
+        eprintln!("status row: {status}, {event:?}");
+        custody_status_event(status, event, expected).await;
+    }
+    for row in LIFECYCLE_SCENARIOS {
+        eprintln!("lifecycle row: {}, {}", row.state, row.event);
+        (row.run)().await;
+    }
+}
+
+#[test]
+fn lifecycle_state_table_covers_state_event_products() {
+    assert_eq!(
+        LISTING_ROWS.len(),
+        LISTING_STATES.len() * LISTING_EVENTS.len()
+    );
+    for state in LISTING_STATES {
+        for event in LISTING_EVENTS {
+            assert_eq!(
+                LISTING_ROWS
+                    .iter()
+                    .filter(|&&(s, e, _)| (s, e) == (state, event))
+                    .count(),
+                1,
+                "{state:?}, {event:?}",
+            );
+        }
+    }
+    let writer_rows: Vec<_> = listing_writer_rows().collect();
+    assert_eq!(
+        writer_rows.len(),
+        LISTING_STATES.len() * LISTING_STATES.len()
+    );
+    for from in LISTING_STATES {
+        for to in LISTING_STATES {
+            assert_eq!(
+                writer_rows
+                    .iter()
+                    .filter(|&&(s, e, _)| (s, e) == (from, to))
+                    .count(),
+                1
+            );
+        }
+    }
+    let rows: Vec<_> = status_rows().collect();
+    assert_eq!(rows.len(), STATUS_STATES.len() * STATUS_EVENTS.len());
+    for status in STATUS_STATES {
+        for (event, _) in STATUS_EVENTS {
+            assert_eq!(
+                rows.iter()
+                    .filter(|&&(s, e, _)| (s, e) == (status, event))
+                    .count(),
+                1,
+                "{status}, {event:?}",
+            );
+        }
+    }
+    let sale_rows: Vec<_> = sale_status_rows().collect();
+    assert_eq!(
+        sale_rows.len(),
+        SALE_EVIDENCE_STATES.len() * SALE_STATUS_EVENTS.len()
+    );
+    for state in SALE_EVIDENCE_STATES {
+        for event in SALE_STATUS_EVENTS {
+            assert_eq!(
+                sale_rows
+                    .iter()
+                    .filter(|&&(s, e, _)| (s, e) == (state, event))
+                    .count(),
+                1
+            );
+        }
+    }
+    let scenario_keys: std::collections::HashSet<_> = LIFECYCLE_SCENARIOS
+        .iter()
+        .map(|row| (row.state, row.event))
+        .collect();
+    assert_eq!(scenario_keys.len(), LIFECYCLE_SCENARIOS.len());
+    for id in ["BZ-08", "BZ-09", "BZ-10", "BZ-11", "BZ-12"] {
+        assert_eq!(
+            LIFECYCLE_SCENARIOS
+                .iter()
+                .filter(|row| row.event.starts_with(id))
+                .count(),
+            1
+        );
+    }
+}
+
+mod review_regressions {
+    macro_rules! register {
+        ($($name:ident),* $(,)?) => {
+            $(
+                #[tokio::test]
+                async fn $name() {
+                    super::$name().await;
+                }
+            )*
+        };
+    }
+    register!(
+        bz08_awaiting_receipt_without_audit_exhausts_recovery_retries,
+        bz09_refunded_sale_quarantines_new_escrow_status,
+        bz10_failed_rebuild_cannot_serve_obsolete_certification,
+        bz11_unpublished_alternate_does_not_fence_safe_return,
+        bz12_missing_first_page_status_does_not_starve_legacy_sale,
+    );
+}
+
+const LISTING_WRITER_ROWS: [[bool; 7]; 7] = [
+    // Target order matches LISTING_STATES.
+    [false, true, false, false, false, true, false],
+    [false, false, true, true, false, true, true],
+    [false, false, false, true, false, false, false],
+    [false, false, false, false, true, false, false],
+    [false, false, false, false, false, false, false],
+    [false, false, false, false, false, false, false],
+    [false, false, false, false, false, false, false],
+];
+
+fn listing_writer_rows() -> impl Iterator<Item = (State, State, bool)> {
+    LISTING_STATES
+        .into_iter()
+        .zip(LISTING_WRITER_ROWS)
+        .flat_map(|(from, targets)| {
+            LISTING_STATES
+                .into_iter()
+                .zip(targets)
+                .map(move |(to, allowed)| (from, to, allowed))
+        })
+}
+
+async fn listing_writer_table() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    for (from, to, allowed) in listing_writer_rows() {
+        let mut tx = db.pool.begin().await.unwrap();
+        let listing = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
+            VALUES($1,$2,'item','auction','coins',10000,false,$3,now()+interval '1 day')",
+        )
+        .bind(listing).bind(uid("11")).bind(from).execute(&mut *tx).await.unwrap();
+        let result =
+            crate::lifecycle::write_listing(&mut tx, listing, crate::lifecycle::Event::Listing(to))
+                .await;
+        if allowed {
+            result.unwrap();
+        } else {
+            assert!(
+                matches!(result, Err(crate::Error::IllegalTransition)),
+                "{from:?} -> {to:?}: {result:?}"
+            );
+        }
+        let observed: (State, bool, bool, bool, i64) = sqlx::query_as(
+            "SELECT state,
+                EXISTS(SELECT 1 FROM bazaar_coin_holds WHERE id=l.id),
+                EXISTS(SELECT 1 FROM bazaar_settlements WHERE listing_id=l.id),
+                EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=l.id),
+                (SELECT count(*) FROM bazaar_audit WHERE row_id=l.id)
+             FROM bazaar_listings l WHERE l.id=$1",
+        )
+        .bind(listing)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(
+            observed,
+            (
+                if allowed { to } else { from },
+                false,
+                false,
+                false,
+                if allowed { 2 } else { 1 }
+            )
+        );
+        tx.rollback().await.unwrap();
+    }
+    db.end().await;
+}
+
+async fn lifecycle_workers_race_to_refund_once() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = pending_item_delivery().await;
+    recovery_tests::item_effect(&db, Command::Deliver, true).await;
+    db.runtime.tick().await.unwrap();
+    recovery_tests::item_effect(&db, Command::Return, false).await;
+    let worker = db.runtime.clone();
+    let (left, right) = tokio::join!(db.runtime.tick(), worker.tick());
+    left.unwrap();
+    right.unwrap();
+    assert_eq!(item_state(&db).await, State::Cancelled);
+    let effects = sale_effects(&db).await;
+    assert_eq!((effects.0, effects.2, effects.3), (0, true, 1));
+    assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 1);
+    assert_eq!(dispatched(&db, uid("20"), Command::Return).await, 1);
+    assert_eq!(
+        delivery_reports(&db, uid("20"), "delivery_custody_drift").await,
+        0
+    );
+    db.end().await;
+}
+
+async fn lifecycle_crash_before_rebuild_page_commit_replays_page() {
+    use sqlx::Acquire;
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    insert_resync_fillers(&db, 24).await;
+    let next = rebuild_epoch(&db).await;
+    set_resync_fence(
+        &mut db,
+        next.fence.projection_epoch,
+        next.fence.recovery_generation,
+    );
+    let effects = sale_effects(&db).await;
+
+    let mut producer = db.pool.acquire().await.unwrap();
+    let mut observer = db.pool.acquire().await.unwrap();
+    let mut abandoned = producer.begin().await.unwrap();
+    next.finish_resync(&mut abandoned, &[uid("12")])
+        .await
+        .unwrap();
+    let cursor = "SELECT listing_cursor FROM bazaar_resync_progress
+                  WHERE projection_epoch=4 AND recovery_generation=3";
+    assert!(
+        sqlx::query_scalar::<_, Uuid>(cursor)
+            .fetch_optional(&mut *abandoned)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        sqlx::query_scalar::<_, Uuid>(cursor)
+            .fetch_optional(&mut *observer)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    // Dropping the writer and closing its connection rolls back its uncommitted page.
+    drop(abandoned);
+    producer.close().await.unwrap();
+    assert!(
+        sqlx::query_scalar::<_, Uuid>(cursor)
+            .fetch_optional(&mut *observer)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(!next.resynced(&mut observer).await.unwrap());
+
+    db.runtime.tick().await.unwrap();
+    assert!(
+        sqlx::query_scalar::<_, Uuid>(cursor)
+            .fetch_optional(&mut *observer)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    db.runtime.tick().await.unwrap();
+    assert!(next.resynced(&mut observer).await.unwrap());
+    assert_eq!(sale_effects(&db).await, effects);
+    assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 1);
+    assert_eq!(
+        delivery_reports(&db, uid("20"), "delivery_custody_drift").await,
+        0
+    );
+    drop(observer);
+    db.end().await;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SaleEvidenceState {
+    Pending,
+    Committed,
+    Audited,
+    Rejected,
+    Refunded,
+    Drift,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SaleStatusEvent {
+    Escrowed,
+    Delivered,
+    Returned,
+    Missing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Recheck {
+    Certified,
+    Waiting,
+    Drift,
+}
+
+const SALE_STATUS_EVENTS: [SaleStatusEvent; 4] = [
+    SaleStatusEvent::Escrowed,
+    SaleStatusEvent::Delivered,
+    SaleStatusEvent::Returned,
+    SaleStatusEvent::Missing,
+];
+const SALE_EVIDENCE_STATES: [SaleEvidenceState; 6] = [
+    SaleEvidenceState::Pending,
+    SaleEvidenceState::Committed,
+    SaleEvidenceState::Audited,
+    SaleEvidenceState::Rejected,
+    SaleEvidenceState::Refunded,
+    SaleEvidenceState::Drift,
+];
+
+const SALE_STATUS_ROWS: [[Recheck; 4]; 6] = {
+    use Recheck::{Certified, Drift, Waiting};
+    [
+        [Waiting, Waiting, Waiting, Waiting],
+        [Waiting, Waiting, Waiting, Waiting],
+        [Drift, Certified, Drift, Waiting],
+        [Certified, Drift, Waiting, Waiting],
+        [Drift, Drift, Certified, Waiting],
+        [Drift, Drift, Drift, Drift],
+    ]
+};
+
+fn sale_status_rows() -> impl Iterator<Item = (SaleEvidenceState, SaleStatusEvent, Recheck)> {
+    SALE_EVIDENCE_STATES
+        .into_iter()
+        .zip(SALE_STATUS_ROWS)
+        .flat_map(|(state, cases)| {
+            SALE_STATUS_EVENTS
+                .into_iter()
+                .zip(cases)
+                .map(move |(event, expected)| (state, event, expected))
+        })
+}
+
+async fn sale_with_evidence(state: SaleEvidenceState) -> BrowserFixture {
+    let db = pending_item_delivery().await;
+    match state {
+        SaleEvidenceState::Pending => {}
+        SaleEvidenceState::Committed => {
+            let intent = newest_intent(&db, uid("20"), Command::Deliver).await;
+            let mut tx = db.pool.begin().await.unwrap();
+            let now = runtime::now(&mut tx).await.unwrap();
+            let raw = vector("delivery_receipt")
+                .replace(
+                    &uid("4").to_string(),
+                    text(&intent.value, "operation_id").unwrap(),
+                )
+                .replace("1790000002", &now.to_string());
+            let a = db.runtime.authority();
+            assert_eq!(
+                a.receive(&mut tx, &a.config.receipt_authority, raw.as_bytes(), now)
+                    .await
+                    .unwrap(),
+                ReceiptResult::Stored,
+            );
+            tx.commit().await.unwrap();
+        }
+        SaleEvidenceState::Audited | SaleEvidenceState::Drift => {
+            recovery_tests::item_effect(&db, Command::Deliver, false).await;
+            db.runtime.tick().await.unwrap();
+            assert_eq!(item_state(&db).await, State::Completed);
+            if state == SaleEvidenceState::Drift {
+                let mut tx = db.pool.begin().await.unwrap();
+                apply_sale_status(&db, &mut tx, SaleStatusEvent::Escrowed).await;
+                tx.commit().await.unwrap();
+                assert!(matches!(db.runtime.tick().await, Err(Error::CustodyDrift)));
+            }
+        }
+        SaleEvidenceState::Rejected | SaleEvidenceState::Refunded => {
+            recovery_tests::item_effect(&db, Command::Deliver, true).await;
+            if state == SaleEvidenceState::Refunded {
+                db.runtime.tick().await.unwrap();
+                recovery_tests::item_effect(&db, Command::Return, false).await;
+                db.runtime.tick().await.unwrap();
+                assert_eq!(item_state(&db).await, State::Cancelled);
+            }
+        }
+    }
+    db
+}
+
+async fn apply_sale_status(
+    db: &BrowserFixture,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event: SaleStatusEvent,
+) {
+    let raw: String = sqlx::query_scalar(
+        "SELECT canonical_body FROM bazaar_game_projections WHERE kind='STATUS' AND subject=$1",
+    )
+    .bind(uid("20"))
+    .fetch_one(&mut **tx)
+    .await
+    .unwrap();
+    let status = decode(raw.as_bytes(), 262144).unwrap();
+    let revision = number(&status, "projection_revision").unwrap();
+    let now = runtime::now(tx).await.unwrap();
+    let Value::Object(mut fields) = status else {
+        panic!("status fixture");
+    };
+    let new_state = match event {
+        SaleStatusEvent::Escrowed => "ESCROWED",
+        SaleStatusEvent::Delivered => "DELIVERED",
+        SaleStatusEvent::Returned => "RETURNED",
+        SaleStatusEvent::Missing => {
+            sqlx::query("DELETE FROM bazaar_game_projections WHERE kind='STATUS' AND subject=$1")
+                .bind(uid("20"))
+                .execute(&mut **tx)
+                .await
+                .unwrap();
+            return;
+        }
+    };
+    let current_state = fields
+        .iter()
+        .find(|(key, _)| key == "state")
+        .unwrap()
+        .1
+        .clone();
+    let published_state = Value::String(new_state.into());
+    for (key, value) in &mut fields {
+        *value = match key.as_str() {
+            "state" => published_state.clone(),
+            "projection_revision" => Value::String((revision + 1).to_string()),
+            "source_observed_at" => Value::String(now.to_string()),
+            "last_operation_id" if new_state == "ESCROWED" => Value::Null,
+            "last_operation_id" if current_state != published_state => {
+                Value::String(uid("79").to_string())
+            }
+            _ => value.clone(),
+        };
+    }
+    let incoming = canonical::encode(&Value::Object(fields)).unwrap();
+    let a = db.runtime.authority();
+    let result = projection_ingest()
+        .ingest(tx, &a.config.projection_authority, &incoming, now)
+        .await
+        .unwrap();
+    assert!(
+        matches!(result, IngestResult::Applied | IngestResult::Quarantined),
+        "{result:?}"
+    );
+}
+
+async fn sale_status_table() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    for state in SALE_EVIDENCE_STATES {
+        let db = sale_with_evidence(state).await;
+        let before = sale_effects(&db).await;
+        let listing_before = item_state(&db).await;
+        for (_, event, expected) in sale_status_rows().filter(|(s, ..)| *s == state) {
+            let mut tx = db.pool.begin().await.unwrap();
+            // Seed a restart at this fence. The event is applied by Game's
+            // projection writer and consumed by the same rebuild as Runtime.
+            sqlx::query("UPDATE bazaar_resync_progress SET worlds='obsolete'")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            apply_sale_status(&db, &mut tx, event).await;
+            let a = db.runtime.authority();
+            let outcome = a.finish_resync(&mut tx, &[uid("12")]).await;
+            let observed = match outcome {
+                Ok(()) if a.resynced(&mut tx).await.unwrap() => Recheck::Certified,
+                Err(Error::Unavailable | Error::DeliveryEvidencePending) => Recheck::Waiting,
+                Err(Error::CustodyDrift) => Recheck::Drift,
+                outcome => panic!("{state:?} × {event:?}: {outcome:?}"),
+            };
+            assert_eq!(observed, expected, "{state:?} × {event:?}");
+            let reports: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM bazaar_audit WHERE row_id=$1 AND after_row->>'action'='delivery_custody_drift'",
+            ).bind(uid("20")).fetch_one(&mut *tx).await.unwrap();
+            assert_eq!(reports, i64::from(expected == Recheck::Drift));
+            let operations: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM bazaar_game_outbox WHERE listing_id=$1 AND command='DeliverBazaarItem'",
+            ).bind(uid("20")).fetch_one(&mut *tx).await.unwrap();
+            assert_eq!(operations, 1);
+            assert_eq!(sale_effects_on(&mut tx).await, before);
+            let listing: State =
+                sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+                    .bind(uid("20"))
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+            assert_eq!(listing, listing_before);
+            tx.rollback().await.unwrap();
+        }
+        db.end().await;
+    }
 }

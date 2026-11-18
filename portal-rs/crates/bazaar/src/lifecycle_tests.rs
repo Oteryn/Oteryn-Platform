@@ -368,3 +368,25 @@ fn bz07_guard_checks_assembled_and_included_sql() -> std::io::Result<()> {
     assert_eq!(result?.len(), 2);
     Ok(())
 }
+
+#[test]
+fn bz07_bz13_guard_checks_nested_sql_in_macro_definitions() -> std::io::Result<()> {
+    let root = std::env::temp_dir().join(format!("bazaar-sql-guard-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir(&root)?;
+    std::fs::write(root.join("target.sql"), "UPDATE bazaar_listings ")?;
+    std::fs::write(
+        root.join("lib.rs"),
+        r#"
+        macro_rules! write_listing {
+            () => {
+                sqlx::query(concat!(include_str!(concat!("target", ".sql")), "SET state=$1 WHERE id=$2"))
+            };
+        }
+        fn write() { write_listing!(); }
+    "#,
+    )?;
+    let result = sql_guard::scan(&root);
+    std::fs::remove_dir_all(root)?;
+    assert_eq!(result?.len(), 1);
+    Ok(())
+}

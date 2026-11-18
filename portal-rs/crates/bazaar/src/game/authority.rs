@@ -30,6 +30,7 @@ pub struct AuthorityConfig {
     pub signing_and_retention_accepted: bool,
     pub receipt_authority: String,
     pub projection_authority: String,
+    pub worlds: Vec<Uuid>,
     pub snapshot_keys: Vec<(String, VerifyingKey)>,
     pub escrow_account_id: Option<Uuid>,
     pub character_cooldown_seconds: Option<u64>,

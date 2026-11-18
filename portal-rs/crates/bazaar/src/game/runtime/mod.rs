@@ -285,7 +285,7 @@ impl Runtime {
     ) -> Result<Uuid, Error> {
         self.config.current()?;
         input.validate()?;
-        if !self.config.worlds.contains(&input.world_id) {
+        if !self.authority().config.worlds.contains(&input.world_id) {
             return Err(Error::Denied);
         }
         let currency = match input.currency.as_str() {

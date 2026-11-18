@@ -146,6 +146,9 @@ impl Authority {
             // The issuer lock makes no-effect verification and compensation
             // publication atomic. Keep every dispatch and receipt for audit.
             let listing = id(text(&i.value, "listing_id")?)?;
+            if self.has_delivery_drift(db, Some(listing)).await? {
+                return Err(Error::CustodyDrift);
+            }
             let unsafe_dispatch: bool = if i.command == Command::Deliver {
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command IN ('DeliverBazaarItem','ReturnBazaarItem') AND operation_id<>$2)")
                     .bind(listing).bind(operation).fetch_one(&mut **db).await?
@@ -167,6 +170,7 @@ impl Authority {
                     )
                     .await?;
                     crate::lifecycle::write_dispatch(db, operation, self.fence).await?;
+                    super::delivery_work::DELIVERY.mark(db, listing).await?;
                     return Ok(());
                 }
                 if text(f, "currency")? != "COINS" {
@@ -186,6 +190,11 @@ impl Authority {
             }
         }
         crate::lifecycle::write_dispatch(db, operation, self.fence).await?;
+        if i.command == Command::Deliver {
+            super::delivery_work::DELIVERY
+                .mark(db, id(text(&i.value, "listing_id")?)?)
+                .await?;
+        }
         Ok(())
     }
     /// Every published delivery must have current, audited terminal no-effect
@@ -294,7 +303,26 @@ impl Authority {
         db: &mut sqlx::PgConnection,
         listing: Uuid,
     ) -> Result<bool, Error> {
-        Ok(sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND (command IN ('DeliverBazaarItem','PayoutBazaarGold') OR (command='BindBazaarCharacterTransfer' AND intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT'))) AND NOT EXISTS(SELECT 1 FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT')").bind(listing).fetch_one(db).await?)
+        let key = self
+            .delivery_sale_id(db, listing)
+            .await?
+            .map(|sale| super::game_store::issuance_key(listing, Command::Deliver, sale));
+        Ok(sqlx::query_scalar(
+            "SELECT NOT EXISTS(
+                SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=$1 AND (
+                    o.command='PayoutBazaarGold'
+                    OR (o.command='BindBazaarCharacterTransfer' AND o.intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT')
+                    OR (o.command='DeliverBazaarItem' AND (
+                        o.issuance_key=$2
+                        OR EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                        OR EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id)
+                        OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)
+                    ))
+                )
+             ) AND NOT EXISTS(
+                SELECT 1 FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT'
+             )",
+        ).bind(listing).bind(key).fetch_one(db).await?)
     }
 
     pub(super) async fn return_started(

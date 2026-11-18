@@ -335,7 +335,22 @@ impl SourceGuard<'_> {
     fn macro_tokens(&mut self, mut tokens: Cursor<'_>) {
         // Macro arguments are token trees. Exempt only when the Rust AST places
         // the entire macro in test scope.
-        while let Some((_, next)) = tokens.token_tree() {
+        while let Some((token, next)) = tokens.token_tree() {
+            if tokens
+                .ident()
+                .is_some_and(|(ident, _)| ident == "concat" || ident == "include_str")
+                && let Some((bang, after_bang)) = next.token_tree()
+                && next
+                    .punct()
+                    .is_some_and(|(punct, _)| punct.as_char() == '!')
+                && let Some((group, after_group)) = after_bang.token_tree()
+                && let Ok(mac) =
+                    syn::parse2::<syn::Macro>([token, bang, group].into_iter().collect())
+            {
+                self.visit_macro(&mac);
+                tokens = after_group;
+                continue;
+            }
             if let Some((inside, _, _, _)) = tokens.any_group() {
                 self.macro_tokens(inside);
             } else if let Some((literal, _)) = tokens.literal()
