@@ -607,3 +607,40 @@ async fn r7_logout_revokes_rotated_row() -> TestResult {
     assert_eq!(live, 0, "rotated session survived logout");
     db.close().await
 }
+
+#[tokio::test]
+async fn r10_admin_logout_uses_route_origin() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let (cookie, token) = credentials(&app(db.pool.clone())).await?;
+    let mut sessions = SessionLayer::new(db.pool.clone());
+    sessions
+        .csrf
+        .trusted_origins
+        .push("https://admin.test".into());
+    let routes = crate::register::configured(
+        Router::new()
+            .route(
+                "/en/logout",
+                post(|Extension(session): Extension<BrowserSession>| async move {
+                    rotate(&session, PrivilegeChange::Logout)
+                        .await
+                        .map(|()| StatusCode::NO_CONTENT)
+                        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(sessions, middleware)),
+    );
+    let response = routes
+        .oneshot(
+            HttpRequest::post("/en/logout")
+                .header(header::COOKIE, cookie)
+                .header(header::HOST, "admin.test")
+                .header(header::ORIGIN, "https://admin.test")
+                .header("x-csrf-token", token)
+                .body(Body::empty())?,
+        )
+        .await?;
+    db.close().await?;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    Ok(())
+}
