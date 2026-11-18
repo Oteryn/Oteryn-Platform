@@ -101,6 +101,87 @@ fn canonical_and_domain_boundaries() {
     assert!(Catalog::parse(max.as_bytes()).is_ok());
 }
 
+const GAME_RUNTIME: &str = include_str!("../tests/fixtures/game-runtime-catalogue.json");
+
+#[test]
+fn runtime_digest_covers_nested_metadata_and_disabled_offers() {
+    let catalogue = Catalog::parse(GAME_RUNTIME.as_bytes()).unwrap();
+    assert_eq!(catalogue.offers().len(), 24);
+    assert!(
+        !catalogue
+            .offers()
+            .iter()
+            .any(|o| o.offer_key == "store:prey-list-expansion")
+    );
+    assert_eq!(
+        Catalog::parse(catalogue.canonical_bytes())
+            .unwrap()
+            .revision(),
+        catalogue.revision()
+    );
+
+    // Independent D2(b) golden using sorted keys and raw UTF-8, including U+2028.
+    let metadata = GAME_RUNTIME.replace(
+        r#""source": {"#,
+        r#""source": {"z":["Łódź\u2028雪",{"n":18446744073709551615,"a":-9223372036854775808}],"#,
+    );
+    let with_metadata = Catalog::parse(metadata.as_bytes()).unwrap();
+    assert_eq!(
+        with_metadata.revision(),
+        "f8c279c3c2a6dbed13d67d9e88e8967f656b280528c0a9f13a59fa5acb5129eb"
+    );
+    assert_eq!(with_metadata.offers().len(), catalogue.offers().len());
+
+    let disabled_price = GAME_RUNTIME.replace(r#""price": null"#, r#""price": 1"#);
+    let with_disabled_price = Catalog::parse(disabled_price.as_bytes()).unwrap();
+    assert_ne!(with_disabled_price.revision(), catalogue.revision());
+    assert_eq!(with_disabled_price.offers().len(), catalogue.offers().len());
+}
+
+#[test]
+fn runtime_catalogue_rejects_invalid_source_and_fulfilment() {
+    for (from, to) in [
+        (r#""source": {"#, r#""source": {"nested":[1.0],"#),
+        (r#""source": {"#, r#""source": {"nested":{"x":1,"x":2},"#),
+        (
+            r#""source": {"#,
+            r#""catalog_revision":"injected","source": {"#,
+        ),
+        (r#""price": 25"#, r#""price": 9223372036854775808"#),
+        (r#""price": 25"#, r#""price": null"#),
+        (
+            r#""currency": "TIBIA_COIN""#,
+            r#""currency": "TRANSFERABLE_TIBIA_COIN""#,
+        ),
+        (
+            r#""key": "store:exercise-sword""#,
+            r#""key": "store:exercise-bow""#,
+        ),
+        (
+            r#""key": "oteryn:item.tibia.i28552""#,
+            r#""key": "contains a space""#,
+        ),
+        (
+            r#""revision": "definition-r1""#,
+            r#""revision": "definition-r01""#,
+        ),
+        (
+            r#""unlock_key": "charm-expansion""#,
+            r#""unlock_key": "unknown-effect""#,
+        ),
+    ] {
+        let input = GAME_RUNTIME.replacen(from, to, 1);
+        assert_ne!(input, GAME_RUNTIME, "{from}");
+        assert!(
+            matches!(
+                Catalog::parse(input.as_bytes()),
+                Err(Error::InvalidDocument)
+            ),
+            "{to}"
+        );
+    }
+}
+
 /// Regression (owner D1): a Game offer key keeps `:`; the import used to refuse it,
 /// so a purchase quoting it could only answer `OFFER_UNAVAILABLE`.
 fn game_key_premium() -> String {
