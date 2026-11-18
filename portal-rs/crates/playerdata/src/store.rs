@@ -1119,7 +1119,17 @@ impl Store {
                     .checked_add(1)
                     .ok_or(Error::Conflict)?
             };
-            if json_u64(&r.payload, "page_index")? != expected {
+            let begin = if expected == 0 {
+                p
+            } else {
+                let bytes: Option<Vec<u8>> = sqlx::query_scalar("SELECT payload FROM pd_records WHERE stream_key=$1 AND entity_key=$2 AND kind='ITEMS_BEGIN' ORDER BY source_revision DESC LIMIT 1")
+                    .bind(key).bind(&r.entity).fetch_optional(&mut **tx).await?.flatten();
+                canonical::decode(&bytes.ok_or(Error::Conflict)?, 65536, 9)
+                    .map_err(|_| Error::Unavailable)?
+            };
+            if json_u64(&r.payload, "page_index")? != expected
+                || expected >= json_u64(&begin, "page_count")?
+            {
                 return Err(Error::Conflict);
             };
         }
