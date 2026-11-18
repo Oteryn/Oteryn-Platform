@@ -898,9 +898,13 @@ async fn db_now(db: &Db) -> i64 {
 }
 /// A baseline-complete `game_login` watermark of `account`.
 async fn login_watermark(app: &Router, db: &Db, account: &str, through: u64) {
+    login_watermark_at_epoch(app, db, account, through, 1).await;
+}
+
+async fn login_watermark_at_epoch(app: &Router, db: &Db, account: &str, through: u64, epoch: u64) {
     let now = db_now(db).await;
     let body = format!(
-        r#"{{"contract_version":1,"operation":"PublishGameJournalProgressWatermarkV1","source_authority":"{PROGRESS_AUTHORITY}","account_id":"{account}","projection_epoch":"1","recovery_generation":"3","family":"game_login","complete_through":"{through}","observed_at_unix_ms":"{now}","baseline_complete":true}}"#
+        r#"{{"contract_version":1,"operation":"PublishGameJournalProgressWatermarkV1","source_authority":"{PROGRESS_AUTHORITY}","account_id":"{account}","projection_epoch":"{epoch}","recovery_generation":"3","family":"game_login","complete_through":"{through}","observed_at_unix_ms":"{now}","baseline_complete":true}}"#
     );
     let (status, body) = post(app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &body).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -924,6 +928,96 @@ async fn history(db: &Db, account: &str) -> Vec<Uuid> {
     .into_iter()
     .map(|entry| entry.login_event_id)
     .collect()
+}
+
+#[tokio::test]
+async fn postgres_create_receipt_survives_lcfa_epoch_rollover() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let now = db_now(&db).await;
+    let born = (now / 1000 - 60) as u64;
+    db.account(SELLER, "1", "12").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(SELLER, CHARACTER, WORLD, ["9", "12", &born.to_string()])
+        .await;
+    db.exec(
+        "UPDATE account_character_feed SET highest_epoch='2',watermark_epoch='2' WHERE id=1",
+        &[],
+    )
+    .await;
+    assert!(matches!(
+        proof(&db, SELLER, CHARACTER).await,
+        Err(Error::Unavailable)
+    ));
+
+    // The account resyncs in the new epoch, where revisions can restart.
+    db.exec(
+        "UPDATE account_character_snapshots SET projection_epoch='2',projection_revision='1' WHERE account_id=$1::uuid",
+        &[SELLER],
+    )
+    .await;
+    assert_eq!(
+        proof(&db, SELLER, CHARACTER).await.unwrap(),
+        Ownership::Owner(created(9, born))
+    );
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let event = Uuid::now_v7();
+    let login = login_record(SELLER, CHARACTER, ["12", "9"], 1, event, now - 1000)
+        .replace(r#""projection_epoch":"1""#, r#""projection_epoch":"2""#);
+    let (status, body) = record(&app, &login).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    login_watermark_at_epoch(&app, &db, SELLER, 1, 2).await;
+    assert_eq!(history(&db, SELLER).await, vec![event]);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_transfer_rollover_requires_both_lcfa_publications() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    db.account(SELLER, "1", "11").await;
+    db.account(BUYER, "1", "20").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(SELLER, CHARACTER, WORLD, ["9", "12", "1789990000"])
+        .await;
+    db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", "1789999000"])
+        .await;
+
+    // The seller's publication falls short of the receipt in the same epoch.
+    assert!(matches!(
+        proof(&db, BUYER, CHARACTER).await,
+        Err(Error::Unavailable)
+    ));
+    db.exec(
+        "UPDATE account_character_feed SET highest_epoch='2',watermark_epoch='2' WHERE id=1",
+        &[],
+    )
+    .await;
+    let resync = "UPDATE account_character_snapshots SET projection_epoch='2',projection_revision='1' WHERE account_id=$1::uuid";
+    db.exec(resync, &[BUYER]).await;
+    // The buyer's new snapshot cannot stand in for the seller's publication.
+    assert!(matches!(
+        proof(&db, BUYER, CHARACTER).await,
+        Err(Error::Unavailable)
+    ));
+    db.exec(resync, &[SELLER]).await;
+    assert_eq!(
+        proof(&db, BUYER, CHARACTER).await.unwrap(),
+        Ownership::Owner(OwnershipCut {
+            account: id(BUYER),
+            to_projection_revision: 13,
+            ..created(10, 1789999000)
+        })
+    );
+    assert_eq!(
+        proof(&db, SELLER, CHARACTER).await.unwrap(),
+        Ownership::Former
+    );
+    db.close().await;
 }
 
 #[tokio::test]
