@@ -24,7 +24,7 @@ use tower::ServiceExt;
 const ACCOUNT: &str = "0192b6a0-4c00-7000-8000-000000000101";
 const PEER: &str = "store-test-peer";
 const SOURCE: &str = "oteryn-game/store-consumer";
-const PRICE_LIST: &str = r#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
+const PRICE_LIST: &str = r#"{"contract_version":1,"offers":[{"offer_key":"potion-pack-10","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.store.item_grant","product_version":"2","unit_kind":"ITEM","grant_key":"item:great_health_potion","grant_revision":"12","quantity":10}]}]}"#;
 fn settings() -> Settings {
     Settings {
         purchase_enabled: true,
@@ -32,7 +32,7 @@ fn settings() -> Settings {
         environment: "testing".into(),
         source_authority: SOURCE.into(),
         peer_identity: PEER.into(),
-        enabled_unit_kinds: vec!["PREMIUM_TIME".into()],
+        enabled_unit_kinds: vec!["ITEM".into()],
         purchases_per_account_per_minute: 60,
         ..Settings::default()
     }
@@ -71,6 +71,7 @@ fn request(revision: &str) -> Vec<u8> {
     // SOURCE: Oteryn/Oteryn-Game@857f15f376907c592bb28d854fccff18a15cdf87,
     // crates/gameplay/native-admission-source/src/store_wire.rs: catalog revisions
     // are SHA-256 after owner Q2, as in Laravel StorePurchaseInput.php.
+    set(&mut value, "offer_key", text("potion-pack-10"));
     set(&mut value, "catalog_revision", text(revision));
     canonical::encode(&value).unwrap()
 }
@@ -225,7 +226,7 @@ fn wire_requests_are_closed_canonical_and_bounded() {
         ),
         String::from_utf8(raw.clone())
             .unwrap()
-            .replace("premium-30d", "premium\\u002d30d"),
+            .replace("potion-pack-10", "potion\\u002dpack-10"),
     ] {
         assert!(PurchaseRequest::decode(bad.as_bytes()).is_err());
     }
@@ -266,7 +267,7 @@ fn configuration_is_default_off_and_fails_closed() {
     s.enabled_unit_kinds = vec!["OTHER".into()];
     cases.push(s);
     let mut s = settings();
-    s.enabled_unit_kinds.push("PREMIUM_TIME".into());
+    s.enabled_unit_kinds.push("ITEM".into());
     cases.push(s);
     for s in cases {
         assert!(!s.valid());
@@ -494,14 +495,14 @@ async fn db_wire_golden_purchase_balance_history_and_intent() {
     for key in ["entitlement_id", "delivery_operation_id"] {
         assert!(uuid(string(unit, key)).is_ok());
     }
-    assert_eq!(string(unit, "unit_kind"), "PREMIUM_TIME");
+    assert_eq!(string(unit, "unit_kind"), "ITEM");
     let row = sqlx::query("SELECT intent_bytes,binding_digest FROM store_operations")
         .fetch_one(&db.pool)
         .await
         .unwrap();
     let intent: Vec<u8> = row.get("intent_bytes");
     let v = value(&intent);
-    let mut expected = value(&fixture("intent.deliver-premium-time.json"));
+    let mut expected = value(&fixture("intent.deliver-item.json"));
     for key in [
         "source_revision",
         "operation_id",
@@ -541,6 +542,7 @@ async fn db_wire_golden_purchase_balance_history_and_intent() {
         "order_id",
         actual.get("order_id").unwrap().clone(),
     );
+    set(&mut gold[0], "offer_key", text("potion-pack-10"));
     set(&mut gold[1], "kind", text("OPERATOR_ADJUSTMENT"));
     set(&mut gold[1], "available_delta", text("1250"));
     set(&mut expected, "entries", Value::Array(gold));
@@ -1351,14 +1353,14 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
             vec![],
         ),
         (
-            PRICE_LIST.replace("PREMIUM_TIME", "ITEM"),
+            PRICE_LIST.to_owned(),
             "251",
             1,
             "PURCHASE_DISABLED",
             vec!["PREMIUM_TIME"],
         ),
         (
-            PRICE_LIST.replace("PREMIUM_TIME", "COSMETIC"),
+            PRICE_LIST.replace("ITEM", "COSMETIC"),
             "250",
             1,
             "PURCHASE_DISABLED",
@@ -1369,24 +1371,18 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
             "9223372036854775807",
             2,
             "OFFER_UNAVAILABLE",
-            vec!["PREMIUM_TIME"],
-        ),
-        (
-            PRICE_LIST.replace("\"quantity\":30", "\"quantity\":65535"),
-            "250",
-            2,
-            "OFFER_UNAVAILABLE",
-            vec!["PREMIUM_TIME"],
-        ),
-        (
-            PRICE_LIST.replace("PREMIUM_TIME", "ITEM"),
-            "250",
-            2,
-            "ACCEPTED",
             vec!["ITEM"],
         ),
         (
-            PRICE_LIST.replace("PREMIUM_TIME", "COSMETIC"),
+            PRICE_LIST.replace("\"quantity\":10", "\"quantity\":65535"),
+            "250",
+            2,
+            "OFFER_UNAVAILABLE",
+            vec!["ITEM"],
+        ),
+        (PRICE_LIST.to_owned(), "250", 2, "ACCEPTED", vec!["ITEM"]),
+        (
+            PRICE_LIST.replace("ITEM", "COSMETIC"),
             "250",
             1,
             "ACCEPTED",
@@ -1416,7 +1412,7 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
             .fetch_all(&db.pool)
             .await
             .unwrap();
-    assert_eq!(quantities, vec![30, 60]);
+    assert_eq!(quantities, vec![10, 20]);
     db.finish().await;
 }
 /// Regression (owner D1): an imported Game offer key with `:` is purchasable;
@@ -1433,7 +1429,7 @@ async fn db_game_colon_offer_key_is_purchasable() {
     let revision = catalog
         .import(
             PRICE_LIST
-                .replace("premium-30d", "store:exercise-sword")
+                .replace("potion-pack-10", "store:exercise-sword")
                 .as_bytes(),
             actor,
             &TestAccounts,
@@ -1958,5 +1954,38 @@ async fn package_credit_and_provider_reversal_history() {
             "OPERATOR_ADJUSTMENT"
         ]
     );
+    db.finish().await;
+}
+
+#[tokio::test]
+async fn premium_time_checkout_refuses_without_debit_or_delivery() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::new().await.expect("test database required");
+    db.fund(ACCOUNT, 1000).await;
+    let catalog = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
+    let actor = uuid(ACCOUNT).unwrap();
+    const PREMIUM_CATALOG: &[u8] = br#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
+    let revision = catalog
+        .import(PREMIUM_CATALOG, actor, &TestAccounts)
+        .await
+        .unwrap();
+    catalog
+        .activate(&revision, actor, &TestAccounts)
+        .await
+        .unwrap();
+    let mut enabled = settings();
+    enabled.enabled_unit_kinds = vec!["PREMIUM_TIME".into()];
+    let raw = change(&request(&revision), "offer_key", text("premium-30d"));
+    let answer = db.service(enabled).purchase(&raw).await.unwrap();
+    assert_eq!(string(&value(&answer), "result"), "OFFER_UNAVAILABLE");
+    assert_eq!(
+        db.wallet()
+            .balance(uuid(ACCOUNT).unwrap())
+            .await
+            .unwrap()
+            .available,
+        1000
+    );
+    assert_eq!(db.count("store_operations").await, 0);
     db.finish().await;
 }

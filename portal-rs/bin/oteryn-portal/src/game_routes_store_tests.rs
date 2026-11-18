@@ -24,7 +24,8 @@ const STRANGER: &str = "stranger.oteryn.internal";
 const SOURCE: &str = "oteryn-game/store-consumer";
 const PURCHASE: &str = oteryn_store::purchase::http::PURCHASE_PATH;
 const BALANCE: &str = oteryn_store::purchase::http::BALANCE_PATH;
-const PRICE_LIST: &str = r#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
+const PRICE_LIST: &str =
+    include_str!("../../../../docs/contracts/fixtures/store-price-list-v1/price-list.valid.json");
 
 fn values() -> Values {
     [
@@ -35,7 +36,7 @@ fn values() -> Values {
         ("PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY", SOURCE),
         (
             "PRODUCTS_ENTITLEMENTS_STORE_ENABLED_UNIT_KINDS",
-            r#"["PREMIUM_TIME"]"#,
+            r#"["ITEM"]"#,
         ),
         (
             "PRODUCTS_ENTITLEMENTS_STORE_PURCHASES_PER_ACCOUNT_PER_MINUTE",
@@ -80,6 +81,8 @@ fn request(revision: &str, id: Option<&str>) -> Vec<u8> {
 /// As `request`, for the given buyer.
 fn request_for(revision: &str, id: Option<&str>, account: &str) -> Vec<u8> {
     let mut value = fixture("purchase-request.valid.json");
+    set(&mut value, "offer_key", text("test-supply"));
+    set(&mut value, "unit_price", text("25"));
     set(&mut value, "account_id", text(account));
     set(&mut value, "catalog_revision", text(revision));
     if let Some(id) = id {
@@ -98,13 +101,16 @@ fn golden(name: &str, actual: &[u8], generated: &[&str]) -> Vec<u8> {
     }
     canonical::encode(&expected).unwrap()
 }
-/// `golden` for an answer with `units`: each fixture unit keeps its
-/// `unit_kind`, the units their count and order; only the ids the server
-/// generates per unit (`entitlement_id`, `delivery_operation_id`) are taken
-/// from the unit of `actual` at the same position.
-fn golden_units(name: &str, actual: &[u8], generated: &[&str]) -> Vec<u8> {
+/// Expected answer for the 25-coin item. Only the per-run identifiers and timestamp vary.
+fn accepted_item_answer(actual: &[u8]) -> Vec<u8> {
     let decoded = decode(actual);
-    let mut expected = decode(&golden(name, actual, generated));
+    let mut expected = decode(&golden(
+        "purchase-answer.accepted.json",
+        actual,
+        &["request_digest", "order_id", "decided_at"],
+    ));
+    set(&mut expected, "total_price", text("25"));
+    set(&mut expected, "available_after", text("1225"));
     let Value::Object(members) = &mut expected else {
         panic!("object required")
     };
@@ -115,6 +121,7 @@ fn golden_units(name: &str, actual: &[u8], generated: &[&str]) -> Vec<u8> {
         panic!("actual units required: {decoded:?}")
     };
     for (unit, actual) in units.iter_mut().zip(actual_units) {
+        set(unit, "unit_kind", text("ITEM"));
         for key in ["entitlement_id", "delivery_operation_id"] {
             set(unit, key, actual.get(key).unwrap().clone());
         }
@@ -326,20 +333,13 @@ async fn db_mounted_purchase_accepts_once_replays_bytes_and_refuses_conflicts() 
     assert_eq!(status, StatusCode::OK);
     // Generated per run: the order id and the decision time; the digest is
     // checked against the raw request below.
-    assert_eq!(
-        first,
-        golden_units(
-            "purchase-answer.accepted.json",
-            &first,
-            &["request_digest", "order_id", "decided_at"],
-        )
-    );
+    assert_eq!(first, accepted_item_answer(&first));
     assert_eq!(
         decode(&first).get("request_digest"),
         Some(&text(format!("{:x}", Sha256::digest(&raw))))
     );
     assert_eq!(db.written().await, [1, 1, 1, 1, 1]);
-    assert_eq!(db.available().await, 1000);
+    assert_eq!(db.available().await, 1225);
 
     // Lost response: the identical retry returns the stored bytes, no second debit.
     assert_eq!(
@@ -354,7 +354,7 @@ async fn db_mounted_purchase_accepts_once_replays_bytes_and_refuses_conflicts() 
         (StatusCode::CONFLICT, Vec::new())
     );
     assert_eq!(db.written().await, [1, 1, 1, 1, 1]);
-    assert_eq!(db.available().await, 1000);
+    assert_eq!(db.available().await, 1225);
 
     // Guard order on the mounted route: identity, then transport and body.
     assert_eq!(
@@ -387,7 +387,7 @@ async fn db_concurrent_overspend_accepts_exactly_one_and_never_goes_negative() {
     };
     let app = db.app(&values()).await;
     for round in 1..=8 {
-        db.fund(250).await;
+        db.fund(25).await;
         let tasks: Vec<_> = (0..2)
             .map(|_| {
                 let app = app.clone();
@@ -470,7 +470,7 @@ async fn db_refusals_and_failures_roll_back() {
         (StatusCode::OK, "ACCEPTED")
     );
     assert_eq!(db.written().await, [1, 1, 1, 2, 1]);
-    assert_eq!(db.available().await, 750);
+    assert_eq!(db.available().await, 975);
 
     // The production account adapter: an active restriction bars buying.
     sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','test',now()-interval '1 minute',now()+interval '1 day',$2)")
@@ -481,7 +481,7 @@ async fn db_refusals_and_failures_roll_back() {
         (StatusCode::OK, "ACCOUNT_RESTRICTED")
     );
     assert_eq!(db.written().await, [1, 1, 1, 3, 1]);
-    assert_eq!(db.available().await, 750);
+    assert_eq!(db.available().await, 975);
     db.finish().await;
 }
 
@@ -531,7 +531,7 @@ async fn db_preproduction_app_env_accepts() {
         (StatusCode::OK, "ACCEPTED")
     );
     assert_eq!(db.written().await, [1, 1, 1, 1, 1]);
-    assert_eq!(db.available().await, 750);
+    assert_eq!(db.available().await, 975);
     db.finish().await;
 }
 
@@ -696,7 +696,7 @@ async fn db_account_gate_refuses_every_barred_buyer_and_writes_nothing() {
             (StatusCode::OK, "ACCEPTED"),
             "{state:?}"
         );
-        assert_eq!(db.available_of(&buyer).await, 750, "{state:?}");
+        assert_eq!(db.available_of(&buyer).await, 975, "{state:?}");
     }
     db.finish().await;
 }
@@ -733,7 +733,7 @@ async fn db_preprod_core_environment_accepts_purchase() {
         (StatusCode::OK, "ACCEPTED")
     );
     assert_eq!(db.written().await, [1, 1, 1, 1, 1]);
-    assert_eq!(db.available().await, 750);
+    assert_eq!(db.available().await, 975);
     db.finish().await;
     eprintln!(
         "PG db_preprod_core_environment_accepts_purchase duration={:.3}s",
@@ -760,7 +760,10 @@ async fn db_binary_refuses_restore_with_committed_store_generation_seven() {
         .await
         .unwrap();
     let intent_value = decode(&intent);
-    let mut receipt = fixture("receipt.deliver-premium-time.committed.json");
+    let mut receipt = fixture("receipt.deliver-item.committed.json");
+    set(&mut receipt, "product_id", text("oteryn.test_supply"));
+    set(&mut receipt, "product_version", text("1"));
+    set(&mut receipt, "delivered_quantity", Value::Unsigned(5));
     for key in ["operation_id", "entitlement_id", "account_id"] {
         set(&mut receipt, key, intent_value.get(key).unwrap().clone());
     }
