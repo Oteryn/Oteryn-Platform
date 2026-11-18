@@ -202,6 +202,13 @@ impl StoredChannel {
         let evidence: Option<(OffsetDateTime, String)> = sqlx::query_as("SELECT t.created_at,COALESCE(s.ip::text,'') FROM account_mfa_tokens t JOIN web_sessions s ON s.account_id=t.account_id WHERE t.token_hash=$1 AND t.account_id=$2 AND t.purpose='grant' AND t.created_at<=clock_timestamp() AND t.expires_at>clock_timestamp() AND s.id_hash=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() FOR SHARE OF t,s")
             .bind(Sha256::digest(grant.as_bytes()).to_vec()).bind(actor.account).bind(&session_hash).fetch_optional(&mut *tx).await?;
         let (mfa_at, ip) = evidence.ok_or(Error::Denied)?;
+        let pending: Option<Uuid> = sqlx::query_scalar("SELECT request_id FROM admin_control_requests WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND kind='query' AND expires_at>clock_timestamp() AND status IN ('queued','delivered','accepted','in_progress') ORDER BY request_id LIMIT 1")
+            .bind(actor.account).bind(operation).bind(sqlx::types::Json(&target)).bind(&params)
+            .fetch_optional(&mut *tx).await?;
+        if let Some(id) = pending {
+            tx.commit().await?;
+            return Ok(id);
+        }
         let roles = sqlx::query_scalar("SELECT r.key FROM roles r JOIN account_roles a ON a.role_id=r.id WHERE a.account_id=$1 ORDER BY r.key").bind(actor.account).fetch_all(&mut *tx).await?;
         let mut envelope = signer::RequestEnvelope {
             contract: "oteryn.admin-control.v1".into(),

@@ -79,7 +79,19 @@ pub trait Backend: Clone + Send + Sync + 'static {
         session: oteryn_web::session::BrowserSession,
         headers: &axum::http::HeaderMap,
     ) -> Self {
-        if super::trusted_navigation(headers) {
+        if super::trusted_navigation(headers)
+            && !["sec-purpose", "purpose"].iter().any(|name| {
+                headers.get_all(*name).iter().any(|value| {
+                    value
+                        .as_bytes()
+                        .split(|byte| !byte.is_ascii_alphanumeric())
+                        .any(|token| {
+                            token.eq_ignore_ascii_case(b"prefetch")
+                                || token.eq_ignore_ascii_case(b"prerender")
+                        })
+                })
+            })
+        {
             self.for_session(session)
         } else {
             self.clone()

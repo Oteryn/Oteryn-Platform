@@ -116,6 +116,92 @@ async fn poll(
     let queue: Queue = serde_json::from_slice(&to_bytes(response.into_body(), 100000).await?)?;
     Ok(queue.requests)
 }
+async fn speculative_gets_leave_queue_empty(
+    reads: &Router,
+    internal: &Router,
+    cookie: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for path in [
+        "/admin/console/players?character=c-1",
+        "/admin/console/audit",
+        "/admin/console/access",
+    ] {
+        for (header, value) in [
+            ("sec-purpose", "prefetch;prerender"),
+            ("purpose", "prerender"),
+        ] {
+            let response = reads
+                .clone()
+                .oneshot(
+                    Request::get(path)
+                        .header("host", "staff.test")
+                        .header("cookie", cookie)
+                        .header("sec-fetch-site", "same-origin")
+                        .header(header, value)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(
+                poll(internal).await?.is_empty(),
+                "{path} queued a speculative query"
+            );
+        }
+    }
+    Ok(())
+}
+async fn concurrent_identical_searches_share_pending_query(
+    reads: &Router,
+    internal: &Router,
+    cookie: &str,
+    pool: &PgPool,
+    actor: Uuid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let form = browser_get(reads, cookie, "/admin/console/players").await?;
+    let csrf = form
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .ok_or_else(missing)?;
+    let submit = || -> Result<_, axum::http::Error> {
+        Ok(reads.clone().oneshot(
+            Request::post("/admin/console/players")
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}&q=Knight&lang=en")))?,
+        ))
+    };
+    let mut gate = pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(actor)
+        .execute(&mut *gate)
+        .await?;
+    let first = tokio::spawn(submit()?);
+    let second = tokio::spawn(submit()?);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar("WITH RECURSIVE blocked(pid) AS (SELECT pg_backend_pid() UNION SELECT a.pid FROM pg_stat_activity a JOIN blocked b ON b.pid=ANY(pg_blocking_pids(a.pid))) SELECT count(*)-1 FROM blocked")
+                .fetch_one(&mut *gate).await?;
+            if waiting >= 2 { return Ok::<_,sqlx::Error>(()); }
+            sqlx::query("SELECT pg_stat_clear_snapshot()").execute(&mut *gate).await?;
+            tokio::task::yield_now().await;
+        }
+    }).await??;
+    gate.commit().await?;
+    let (first, second) = (first.await?, second.await?);
+    assert_eq!(first?.status(), StatusCode::SEE_OTHER);
+    assert_eq!(second?.status(), StatusCode::SEE_OTHER);
+    let submitted = poll(internal).await?;
+    assert_eq!(
+        submitted.len(),
+        1,
+        "identical searches must share one pending query"
+    );
+    assert_eq!(submitted[0].operation, "player.search");
+    Ok(())
+}
 async fn exercise_reads(
     internal: &Router,
     channel: StoredChannel,
@@ -179,27 +265,9 @@ async fn exercise_reads(
             "speculative player search queued a request"
         );
     }
-    let form = browser_get(&reads, cookie, "/admin/console/players").await?;
-    let csrf = form
-        .split("name=\"_csrf\" value=\"")
-        .nth(1)
-        .and_then(|s| s.split('"').next())
-        .ok_or_else(missing)?;
-    let response = reads
-        .clone()
-        .oneshot(
-            Request::post("/admin/console/players")
-                .header("host", "staff.test")
-                .header("origin", "https://staff.test")
-                .header("cookie", cookie)
-                .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}&q=Knight&lang=en")))?,
-        )
+    speculative_gets_leave_queue_empty(&reads, internal, cookie).await?;
+    concurrent_identical_searches_share_pending_query(&reads, internal, cookie, &pool, actor)
         .await?;
-    assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    let submitted = poll(internal).await?;
-    assert_eq!(submitted.len(), 1);
-    assert_eq!(submitted[0].operation, "player.search");
     let path = "/admin/console/players?lang=en&character=c-1";
     browser_get(&reads, cookie, path).await?;
     let requests = poll(internal).await?;
