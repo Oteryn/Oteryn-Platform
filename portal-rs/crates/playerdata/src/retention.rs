@@ -138,14 +138,14 @@ impl Retention {
             };
             let limit = Some(512_i64);
             let requested_ms = job.try_get("job_ms")?;
+            let closed_revision: Option<String> = job.try_get("closed_revision")?;
             let journal_done = if let Some(character) = character.as_deref() {
                 store
                     .erase_character_cut(
                         &account,
                         character,
                         time,
-                        job.try_get::<Option<String>, _>("closed_revision")?
-                            .as_deref(),
+                        closed_revision.as_deref(),
                         limit,
                         requested_ms,
                     )
@@ -177,10 +177,11 @@ impl Retention {
                 character_id,
                 limit,
                 requested_ms,
+                closed_revision.as_deref(),
             )
             .await?;
-            let removed = sqlx::query("DELETE FROM pd_game_logins WHERE ctid IN (SELECT ctid FROM pd_game_logins WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2) LIMIT $3 FOR UPDATE)")
-                .bind(account_id).bind(character_id).bind(limit).execute(&mut *tx).await?.rows_affected();
+            let removed = sqlx::query("DELETE FROM pd_game_logins WHERE ctid IN (SELECT ctid FROM pd_game_logins WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2) AND ($4::text IS NULL OR character_revision IS NULL OR character_revision <= $4::text::numeric) LIMIT $3 FOR UPDATE)")
+                .bind(account_id).bind(character_id).bind(limit).bind(closed_revision.as_deref()).execute(&mut *tx).await?.rows_affected();
             if journal_done && items_done && deaths_done && limit.is_none_or(|n| removed < n as u64)
             {
                 sqlx::query("DELETE FROM pd_erasure_jobs WHERE id=$1")

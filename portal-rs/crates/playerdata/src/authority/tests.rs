@@ -2642,7 +2642,12 @@ async fn pd2_skull_expiry_uses_ownership_cut() {
 async fn postgres_buyback_refuses_delayed_deleted_period_and_advances() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else { return };
-    let now = db_now(&db).await;
+    promoted_buyback_login(&db).await;
+    db.close().await;
+}
+
+async fn promoted_buyback_login(db: &Db) -> Uuid {
+    let now = db_now(db).await;
     db.account(SELLER, "1", "12").await;
     db.account(BUYER, "1", "13").await;
     db.character(SELLER, CHARACTER, WORLD).await;
@@ -2650,21 +2655,21 @@ async fn postgres_buyback_refuses_delayed_deleted_period_and_advances() {
         SELLER,
         CHARACTER,
         WORLD,
-        ["9", "12", &(now / 1000 - 100).to_string()],
+        ["9", "12", &(now / 1000 - 400).to_string()],
     )
     .await;
     db.transfer(
         CHARACTER,
         SELLER,
         BUYER,
-        ["10", "12", "13", &(now / 1000 - 30).to_string()],
+        ["10", "12", "13", &(now / 1000 - 200).to_string()],
     )
     .await;
     db.transfer(
         CHARACTER,
         BUYER,
         SELLER,
-        ["11", "13", "14", &(now / 1000 - 10).to_string()],
+        ["11", "13", "14", &(now / 1000 - 100).to_string()],
     )
     .await;
     db.exec(
@@ -2678,14 +2683,14 @@ async fn postgres_buyback_refuses_delayed_deleted_period_and_advances() {
         .unwrap();
     assert_eq!(db.count("SELECT count(*) FROM pd_erasure_jobs").await, 0);
 
-    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let app = app(db, Arc::new(DbClock::new(db.pool.clone())), true);
     let delayed = login_record(
         SELLER,
         CHARACTER,
         ["12", "9"],
         1,
         Uuid::now_v7(),
-        now - 60_000,
+        now - 300_000,
     );
     let (status, body) = record(&app, &delayed).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -2696,9 +2701,9 @@ async fn postgres_buyback_refuses_delayed_deleted_period_and_advances() {
     let event = Uuid::now_v7();
     let fresh = login_record(SELLER, CHARACTER, ["14", "11"], 2, event, now - 1000);
     assert_eq!(record(&app, &fresh).await.0, StatusCode::OK);
-    login_watermark(&app, &db, SELLER, 2).await;
-    assert_eq!(history(&db, SELLER).await, vec![event]);
-    db.close().await;
+    login_watermark(&app, db, SELLER, 2).await;
+    assert_eq!(history(db, SELLER).await, vec![event]);
+    event
 }
 
 #[tokio::test]
@@ -2749,5 +2754,131 @@ async fn postgres_login_promotion_keeps_start_of_transaction_feed_proof() {
     login_watermark(&app, &db, SELLER, 3).await;
     assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 3);
     assert_eq!(db.count("SELECT count(*) FROM account_character_feed WHERE complete_through < extract(epoch FROM clock_timestamp())-30").await, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn fx_deleted_buyer_preserves_seller_refusal() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "13").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(
+        SELLER,
+        CHARACTER,
+        WORLD,
+        ["9", "12", &(now / 1000 - 100).to_string()],
+    )
+    .await;
+    db.transfer(
+        CHARACTER,
+        SELLER,
+        BUYER,
+        ["10", "12", "13", &(now / 1000 - 30).to_string()],
+    )
+    .await;
+    db.exec(
+        "DELETE FROM account_characters WHERE character_id=$1::uuid",
+        &[CHARACTER],
+    )
+    .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(db.count("SELECT count(*) FROM pd_erasure_jobs").await, 0);
+
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let delayed = login_record(
+        SELLER,
+        CHARACTER,
+        ["12", "9"],
+        1,
+        Uuid::now_v7(),
+        now - 60_000,
+    );
+    let (status, body) = record(&app, &delayed).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let refusal: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(refusal["result"], "refused");
+    assert_eq!(refusal["reason"], "CHARACTER_SCOPE_DELETED");
+    assert_eq!(refusal["consumed_source_revision"], "1");
+    db.close().await;
+}
+
+#[tokio::test]
+async fn fx_delayed_transfer_purge_preserves_buyback_login() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let event = promoted_buyback_login(&db).await;
+    let (sessions, segment) = session_fixture(&db, 11).await;
+    assert_eq!(publish_segment(&sessions, &segment).await, StatusCode::OK);
+    db.exec(
+        "INSERT INTO pd_erasure_jobs(account_id,character_id,closed_revision) VALUES ($1,$2,10)",
+        &[SELLER, CHARACTER],
+    )
+    .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(history(&db, SELLER).await, vec![event]);
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_g9_records WHERE record IS NOT NULL")
+            .await,
+        1
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn fx_expired_remove_allows_next_login() {
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    let retained = Uuid::now_v7().to_string();
+    db.account(SELLER, "1", "12").await;
+    for character in [CHARACTER, retained.as_str()] {
+        db.character(SELLER, character, WORLD).await;
+        db.create(
+            SELLER,
+            character,
+            WORLD,
+            ["9", "12", &(now / 1000 - 40 * 86400).to_string()],
+        )
+        .await;
+    }
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let upsert = login_record(
+        SELLER,
+        CHARACTER,
+        ["12", "9"],
+        1,
+        Uuid::now_v7(),
+        now - 31 * 86400000,
+    );
+    let remove = format!(
+        "{}null}}",
+        upsert
+            .split_once("\"payload\":")
+            .unwrap()
+            .0
+            .replace("UPSERT", "REMOVE")
+            + "\"payload\":"
+    );
+    assert_eq!(record(&app, &remove).await.0, StatusCode::OK);
+    let event = Uuid::now_v7();
+    assert_eq!(
+        record(
+            &app,
+            &login_record(SELLER, &retained, ["12", "9"], 2, event, now - 500)
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    login_watermark(&app, &db, SELLER, 2).await;
+    assert_eq!(history(&db, SELLER).await, vec![event]);
     db.close().await;
 }

@@ -440,6 +440,25 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
         {
             return Ok(Admission::Deleted);
         }
+        Err(Error::Unavailable) if !items && scope.character_revision.is_some() => {
+            let closed: bool = sqlx::query_scalar(
+                "SELECT NOT EXISTS(SELECT 1 FROM account_characters WHERE character_id=$5)
+                    AND (EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1 AND closed_revision >= $4::text::numeric)
+                      OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$2 AND character_id=$3 AND closed_revision >= $4::text::numeric))",
+            )
+            .bind(crate::store::scope_digest(&scope.account, Some(character)))
+            .bind(&scope.account)
+            .bind(character)
+            .bind(&scope.character_revision)
+            .bind(character_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            return if closed {
+                Ok(Admission::Transferred)
+            } else {
+                Err(Error::Unavailable)
+            };
+        }
         Err(e) => return Err(e),
     };
     // A pending purge of an older period must not consume a new period's

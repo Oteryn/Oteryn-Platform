@@ -1604,3 +1604,93 @@ async fn revoked_sudo_session_denies_paid_rename() {
     assert_eq!(counts, (0, 0));
     db.close().await;
 }
+
+#[tokio::test]
+async fn fx_restored_commit_after_release() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let s = Services::new(db.pool.clone(), settings());
+    let a = Uuid::now_v7();
+    let c = Uuid::now_v7();
+    seed(&s, a, c, 100).await;
+    let cmd = s.request(a, rename(c)).await.unwrap();
+    s.receive(receipt(&cmd, false, 3).as_bytes()).await.unwrap();
+    assert_eq!(balance(&s, a).await, (100, 0));
+    let restore = crate::restore::Restore::new(
+        db.pool.clone(),
+        crate::restore::Settings {
+            enabled: true,
+            source_authority: COMMAND_AUTHORITY.into(),
+            exchange_available: true,
+            ..crate::restore::Settings::default()
+        },
+    );
+    let event = Uuid::now_v7();
+    // Exact existing restore wire; this reopens the same immutable service operation.
+    let raw = include_str!("../restore/fixtures/notice.json");
+    let v = wire::decode_value(raw.as_bytes(), 512).unwrap();
+    let original = wire::string(&v, "restore_event_id").unwrap();
+    let notice = raw
+        .replace(original, &event.to_string())
+        .replace("oteryn-game-eu1", COMMAND_AUTHORITY);
+    restore.notice(notice.as_bytes()).await.unwrap();
+    let new_generation =
+        wire::number(wire::string(&v, "new_recovery_generation").unwrap(), false).unwrap();
+    s.receive(receipt(&cmd, true, new_generation).as_bytes())
+        .await
+        .unwrap();
+    assert_eq!(balance(&s, a).await, (100, 0));
+    let state: String = sqlx::query_scalar(
+        "SELECT financial_state FROM character_service_orders WHERE operation_id=$1",
+    )
+    .bind(cmd.operation_id)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(state, "RELEASED");
+    assert!(
+        restore
+            .notice(notice.as_bytes())
+            .await
+            .unwrap()
+            .contains("ACKNOWLEDGED")
+    );
+    assert!(
+        restore
+            .queue()
+            .await
+            .unwrap()
+            .iter()
+            .any(|q| q.operation_id == Some(cmd.operation_id)
+                && q.reason == "character_authority.restore_outcome_reversed")
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn fx_identity_conflict_holds_reservation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let s = Services::new(db.pool.clone(), settings());
+    let a = Uuid::now_v7();
+    let c = Uuid::now_v7();
+    seed(&s, a, c, 100).await;
+    let cmd = s.request(a, rename(c)).await.unwrap();
+    let raw =
+        receipt(&cmd, false, 3).replace("CHAR_CMD_INTENT_EXPIRED", "CHAR_CMD_OPERATION_CONFLICT");
+    s.receive(raw.as_bytes()).await.unwrap();
+    assert_eq!(balance(&s, a).await, (30, 70));
+    s.receive(raw.as_bytes()).await.unwrap();
+    assert!(matches!(
+        s.request(a, rename(c)).await,
+        Err(Error::Conflict)
+    ));
+    assert_eq!(balance(&s, a).await, (30, 70));
+    db.close().await;
+}
