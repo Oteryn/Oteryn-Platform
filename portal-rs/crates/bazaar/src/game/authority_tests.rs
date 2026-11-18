@@ -5545,3 +5545,14 @@ async fn restricted_buyer_blocks_settlement_bind_publication() {
     db.end().await;
     assert!(!published, "settlement Bind published for restricted buyer");
 }
+
+#[tokio::test]
+async fn r13_replay_gold_bind() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = delivered_character_sale("gold").await;
+    replay_sale_receipts(&db, &[Command::Lock, Command::Bind]).await;
+    db.end().await;
+}
+
+#[path = "recovery_tests.rs"]
+mod recovery_tests;
