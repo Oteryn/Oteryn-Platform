@@ -25,7 +25,7 @@ the round 9 packet after PR #1945 merged.
 
 - [x] Each confirmed finding has a fix with a regression test through the real caller
 - [x] Each pushed fix was reviewed read-only before integration
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -61,10 +61,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-18T06:30:00Z
-head: pending
+head: 35fc53e7b7bd9e6b0c2ecb76ef1a795b4accf190
 branch: claude/happy-davinci-ijz3wy-r13-fixes
 pr: 1946
-status: implementing
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -123,5 +123,13 @@ validation:
     evidence: server-side fixes covered by tests through the real routers and workers
 blockers:
   - none
-next_action: Portal RS CI on the PR head, then squash auto-merge
+next_action: none; delivered by PR #1946 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1946 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR #1946 merged as 35fc53e7b7bd9e6b0c2ecb76ef1a795b4accf190
 ```
