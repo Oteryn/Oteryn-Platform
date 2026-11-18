@@ -1,4 +1,5 @@
 import {expect} from '@playwright/test';
+import * as OTPAuth from 'otpauth';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {pool,csrfRejected,submit,register,login} from './helpers.mjs';
@@ -14,3 +15,37 @@ export async function membership(page,account,role,op){await rolePage(page,role)
 export async function audit(page,operation,target){const rows=await query('SELECT actor,request_id FROM audit_log WHERE action=$1 AND target=$2 ORDER BY created_at DESC',[operation,target]);expect(rows.length,`${operation} emits audit evidence`).toBeGreaterThan(0);for(const row of rows){const actor=row.actor;expect((await page.goto(`/admin/console/audit?${new URLSearchParams({admin:actor,operation,target,request_id:row.request_id})}`)).status(),'audit console opens').toBe(200);const main=page.locator('main');await expect(main,'audit exposes action').toContainText(operation);await expect(main,'audit exposes actor').toContainText(actor);await expect(main,'audit exposes target').toContainText(target);}}
 
 export async function rolePage(page,id){await page.goto('/admin/roles');for(let n=0;n<10000;n++){if(await page.locator(`select[name=role] option[value="${id}"]`).count())return;const next=page.locator('a[href^="/admin/roles?after="]');expect(await next.count(),'role remains discoverable through keyset pagination').toBe(1);await next.click();}throw new Error('role pagination exceeded bound');}
+
+export async function enrollMfa(page,lang,account){
+ await page.goto(`/${lang}/mfa`);
+ await submit(page,'form[action$="/mfa/enroll"]',{password:account.password});
+ const totp=new OTPAuth.TOTP({secret:await page.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
+ await submit(page,'form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
+ return page.locator('textarea[readonly]').allTextContents();
+}
+
+export async function loginWithRecoveryCode(page,lang,account,code){
+ await login(page,lang,account);
+ await expect(page).toHaveURL(/mfa\/challenge/);
+ await submit(page,'form[action$="/mfa/challenge"]',{code});
+}
+
+export async function expectLoginRedirect(page,path){
+ const response=await page.request.get(path,{maxRedirects:0});
+ expect(response.status(),`revoked session accessing ${path}`).toBe(303);
+ expect(response.headers().location).toBe('/login');
+}
+
+export async function isolatedAdmin(browser,info){
+ const lang=info.project.metadata.locale;
+ const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang});
+ try{
+  const page=await context.newPage();
+  const account=await register(page,lang);
+  await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",[account.email]);
+  await login(page,lang,account);
+  const codes=await enrollMfa(page,lang,account);
+  await loginWithRecoveryCode(page,lang,account,codes[0]);
+  return {context,page,account,password:account.password,codes};
+ }catch(error){await context.close();throw error;}
+}
