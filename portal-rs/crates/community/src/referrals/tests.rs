@@ -548,28 +548,18 @@ async fn referrals_buddy_premium_5_and_10_days_within_90() {
             sqlx::query("UPDATE referral_campaign_invitations SET created_at=clock_timestamp()-interval '90 days 1 second' WHERE invitee_id=$1").bind(buddy).execute(&db.pool).await.unwrap();
         }
         db.fund(buddy).await;
-        let raw = db.offer_request(buddy, 1, Uuid::now_v7(), "premium-30d", "250");
+        let raw = db.offer_request(buddy, paid_days / 30, Uuid::now_v7(), "premium-30d", "250");
         let purchases = db.purchases_for_kind("PREMIUM_TIME");
         let answer = purchases.purchase(&raw).await.unwrap();
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&answer).unwrap()["result"],
-            "OFFER_UNAVAILABLE"
+            "ACCEPTED"
         );
         assert_eq!(purchases.purchase(&raw).await.unwrap(), answer);
         let worker = Worker {
             campaign: db.campaign.clone(),
             sender: None,
         };
-        worker.process().await.unwrap();
-        let rewarded: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM premium_ledger WHERE account_id=$1)")
-                .bind(owner)
-                .fetch_one(&db.pool)
-                .await
-                .unwrap();
-        assert!(!rewarded, "refused checkout granted buddy premium");
-
-        record_premium_purchase(&db.pool, buddy, paid_days).await;
         worker.process().await.unwrap();
         worker.process().await.unwrap();
         let days: i64 = sqlx::query_scalar(

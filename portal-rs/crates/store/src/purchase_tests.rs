@@ -1958,13 +1958,13 @@ async fn package_credit_and_provider_reversal_history() {
 }
 
 #[tokio::test]
-async fn premium_time_checkout_refuses_without_debit_or_delivery() {
+async fn premium_time_checkout_grants_extends_replays_and_enforces_limits() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = Database::new().await.expect("test database required");
-    db.fund(ACCOUNT, 1000).await;
+    db.fund(ACCOUNT, 50000).await;
     let catalog = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
     let actor = uuid(ACCOUNT).unwrap();
-    const PREMIUM_CATALOG: &[u8] = br#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
+    const PREMIUM_CATALOG: &[u8] = br#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":13,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
     let revision = catalog
         .import(PREMIUM_CATALOG, actor, &TestAccounts)
         .await
@@ -1976,16 +1976,46 @@ async fn premium_time_checkout_refuses_without_debit_or_delivery() {
     let mut enabled = settings();
     enabled.enabled_unit_kinds = vec!["PREMIUM_TIME".into()];
     let raw = change(&request(&revision), "offer_key", text("premium-30d"));
-    let answer = db.service(enabled).purchase(&raw).await.unwrap();
-    assert_eq!(string(&value(&answer), "result"), "OFFER_UNAVAILABLE");
+    let mut off = enabled.clone();
+    off.enabled_unit_kinds.clear();
     assert_eq!(
-        db.wallet()
-            .balance(uuid(ACCOUNT).unwrap())
-            .await
-            .unwrap()
-            .available,
-        1000
+        string(
+            &value(&db.service(off).purchase(&unique(&raw)).await.unwrap()),
+            "result"
+        ),
+        "PURCHASE_DISABLED"
     );
-    assert_eq!(db.count("store_operations").await, 0);
+    let service = db.service(enabled);
+    let first = service.purchase(&raw).await.unwrap();
+    assert_eq!(string(&value(&first), "result"), "ACCEPTED");
+    assert_eq!(service.purchase(&raw).await.unwrap(), first);
+    assert_eq!(db.wallet().balance(actor).await.unwrap().available, 49750);
+    assert_eq!(
+        db.count("store_operations WHERE operation_kind='DELIVER'")
+            .await,
+        1
+    );
+    assert_eq!(db.count("premium_ledger").await, 1);
+    assert_eq!(db.count("premium_ledger JOIN store_fulfilment_units u ON u.entitlement_id=premium_ledger.request_id WHERE duration_days=30 AND lifecycle_revision=1").await, 1);
+    let second = service.purchase(&unique(&raw)).await.unwrap();
+    assert_eq!(string(&value(&second), "result"), "ACCEPTED");
+    assert_eq!(db.count("premium_ledger a JOIN premium_ledger b ON b.lifecycle_revision=2 AND a.lifecycle_revision=1 WHERE a.effective_from=b.effective_from AND b.effective_until=a.effective_until+interval '30 days'").await, 1);
+    for _ in 0..10 {
+        let bulk = change(&unique(&raw), "quantity", number(12));
+        assert_eq!(
+            string(&value(&service.purchase(&bulk).await.unwrap()), "result"),
+            "ACCEPTED"
+        );
+    }
+    for quantity in [13, 1] {
+        let refused = change(&unique(&raw), "quantity", number(quantity));
+        assert_eq!(
+            string(&value(&service.purchase(&refused).await.unwrap()), "result"),
+            "OFFER_UNAVAILABLE"
+        );
+        assert_eq!(db.wallet().balance(actor).await.unwrap().available, 19500);
+        assert_eq!(db.count("store_operations").await, 12);
+        assert_eq!(db.count("premium_ledger").await, 12);
+    }
     db.finish().await;
 }
