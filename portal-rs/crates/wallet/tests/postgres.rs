@@ -620,6 +620,72 @@ async fn invalid_input_overflow_and_recipient_failure_roll_back() {
 }
 
 #[tokio::test]
+async fn paid_topup_replays_after_account_becomes_ineligible() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = id();
+    let key = id();
+    let reason = format!("wallet-top-up:{key}");
+    let active = db
+        .ledger(&[account])
+        .with_adjustment_kind(AdjustmentKind::TopUp);
+    let mut tx = db.pool.begin().await.unwrap();
+    let credit = active
+        .adjust_in(&mut tx, key, account, 25, account, &reason)
+        .await
+        .unwrap();
+    assert!(!credit.replayed);
+    tx.commit().await.unwrap();
+
+    let restricted = Ledger::new(
+        db.pool.clone(),
+        WalletFlags { enabled: true },
+        Inactive,
+        Blocks {
+            blocked: None,
+            unknown: false,
+        },
+        Audit(true),
+    )
+    .with_adjustment_kind(AdjustmentKind::TopUp);
+    let mut tx = db.pool.begin().await.unwrap();
+    let replay = restricted
+        .adjust_in(&mut tx, key, account, 25, account, &reason)
+        .await
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.available_after, credit.available_after);
+    tx.commit().await.unwrap();
+
+    let mut tx = db.pool.begin().await.unwrap();
+    refused(
+        restricted
+            .adjust_in(&mut tx, key, account, 26, account, &reason)
+            .await,
+        Refusal::IdempotencyConflict,
+    );
+    let new_key = id();
+    refused(
+        restricted
+            .adjust_in(
+                &mut tx,
+                new_key,
+                account,
+                25,
+                account,
+                &format!("wallet-top-up:{new_key}"),
+            )
+            .await,
+        Refusal::AccountDenied,
+    );
+    tx.rollback().await.unwrap();
+
+    assert_eq!(active.balance(account).await.unwrap().available, 25);
+    db.close().await;
+}
+
+#[tokio::test]
 async fn one_coin_balance_store_debit_and_audited_grants() {
     let Some(db) = Database::open().await else {
         return;

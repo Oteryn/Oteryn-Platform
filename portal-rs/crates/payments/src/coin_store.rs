@@ -108,6 +108,30 @@ pub trait CoinHost: Send + Sync {
         coins: i64,
     ) -> HostFuture<'a, Result<Debit, CoinError>>;
     fn wallet(&self, payer: Uuid) -> HostFuture<'_, Result<WalletSnapshot, CoinError>>;
+
+    /// Read the wallet in the same database snapshot as the purchase review state.
+    fn wallet_in<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'static, Postgres>,
+        payer: Uuid,
+    ) -> HostFuture<'a, Result<WalletSnapshot, CoinError>> {
+        Box::pin(async move {
+            if payer.is_nil() || self.restriction_in(tx, payer).await?.is_some() {
+                return Err(CoinError::Unavailable);
+            }
+            let (balance, revision) = oteryn_wallet::read_snapshot_in(tx, payer)
+                .await
+                .map_err(|_| CoinError::Unavailable)?;
+            Ok(WalletSnapshot {
+                revision,
+                total: balance
+                    .available
+                    .checked_add(balance.reserved)
+                    .ok_or(CoinError::Unavailable)?,
+                available: balance.available,
+            })
+        })
+    }
 }
 
 /// A host storage failure inside a verified event is retryable (the event
@@ -457,9 +481,35 @@ impl CoinPurchases {
     /// Reservations are not available; review comes from the payer's orders.
     pub async fn balance(&self, payer: Uuid) -> Result<CoinBalance, CoinError> {
         self.enabled()?;
-        let wallet = self.host.wallet(payer).await?;
-        let review_required: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coin_purchase_orders WHERE payer_account_id=$1 AND review_required) OR EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)")
-            .bind(payer).fetch_one(&self.pool).await?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await?;
+        let wallet = self.host.wallet_in(&mut tx, payer).await?;
+        // Orders are retained and every review transition advances their revision.
+        // A hold contributes one on creation and two after its audited release.
+        let (review_required, purchase_revision): (bool, i64) = sqlx::query_as(
+            "WITH orders AS (
+                SELECT COALESCE(bool_or(review_required), false) AS needs_review,
+                       COALESCE(sum(revision), 0) AS revision
+                FROM coin_purchase_orders WHERE payer_account_id=$1
+             ), hold AS (
+                SELECT EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1) AS present
+             )
+             SELECT orders.needs_review OR hold.present,
+                    (orders.revision + hold.present::integer + 2 * (
+                        SELECT count(*) FROM coin_purchase_hold_releases WHERE account_id=$1
+                    ))::bigint
+             FROM orders, hold",
+        )
+        .bind(payer)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let revision = wallet
+            .revision
+            .checked_add(purchase_revision)
+            .ok_or(CoinError::Unavailable)?;
         let consistent = wallet.revision > 0
             && (0..=MAX_COINS).contains(&wallet.total)
             && (0..=wallet.total).contains(&wallet.available);
@@ -468,7 +518,7 @@ impl CoinPurchases {
         }
         Ok(CoinBalance {
             version: VERSION,
-            revision: wallet.revision,
+            revision,
             total_coins: wallet.total,
             available_coins: wallet.available,
             // One coin class: OTERYN_COIN_PURCHASE_V1 keeps the member and

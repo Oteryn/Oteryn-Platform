@@ -133,14 +133,25 @@ impl CoinHost for Host {
     }
     fn wallet(&self, payer: Uuid) -> HostFuture<'_, Result<WalletSnapshot, CoinError>> {
         Box::pin(async move {
-            let total: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(sum(delta),0)::bigint FROM test_coins WHERE payer=$1",
+            let mut tx = self.pool.begin().await?;
+            self.wallet_in(&mut tx, payer).await
+        })
+    }
+
+    fn wallet_in<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'static, Postgres>,
+        payer: Uuid,
+    ) -> HostFuture<'a, Result<WalletSnapshot, CoinError>> {
+        Box::pin(async move {
+            let (total, entries): (i64, i64) = sqlx::query_as(
+                "SELECT COALESCE(sum(delta),0)::bigint, count(*) FROM test_coins WHERE payer=$1",
             )
             .bind(payer)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut **tx)
             .await?;
             Ok(WalletSnapshot {
-                revision: 1,
+                revision: entries + 1,
                 total,
                 available: total,
             })
@@ -384,6 +395,43 @@ async fn refund_reverses_the_credit_once() -> TestResult {
         .await,
         1
     );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn insufficient_refund_advances_balance_revision_without_a_wallet_debit() -> TestResult {
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
+    let (payer, request, reference) = h.paid_order().await;
+    sqlx::query("INSERT INTO test_coins(key,payer,delta) VALUES ($1,$2,-500)")
+        .bind(Uuid::now_v7())
+        .bind(payer)
+        .execute(&h.pool)
+        .await?;
+
+    let coins = h.coins(true);
+    let before = coins.balance(payer).await?;
+    assert!(!before.review_required);
+    assert_eq!(before.total_coins, 0);
+    let entries = h.count("SELECT count(*) FROM test_coins").await;
+
+    let app = h.app_with(coins.clone());
+    let refund = event("evt_spent_refund", "refund", &reference, 499);
+    let (status, reply) = deliver(&app, &refund).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reply["outcome"], "applied");
+    assert_eq!(h.state(payer, request).await, OrderState::Refunded);
+    assert_eq!(h.count("SELECT count(*) FROM test_coins").await, entries);
+
+    let after = coins.balance(payer).await?;
+    assert!(after.review_required);
+    assert!(after.revision > before.revision);
+    assert_eq!(after.total_coins, before.total_coins);
+    assert_eq!(after.available_coins, before.available_coins);
+    assert_eq!(after.transferable_coins, before.transferable_coins);
+
+    let (_, reply) = deliver(&app, &refund).await;
+    assert_eq!(reply["replay"], true);
+    assert_eq!(coins.balance(payer).await?, after);
     h.finish().await
 }
 
