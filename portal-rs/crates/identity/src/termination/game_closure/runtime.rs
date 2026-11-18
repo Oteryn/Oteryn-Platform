@@ -186,7 +186,18 @@ impl GameBoundary {
         ) {
             return Err(Error::UnknownState);
         }
-        let financial_obligations_clear = financial_obligations_clear(&mut tx, account).await?;
+        // The finalized event and the financial disposition commit together.
+        // A later verified reversal remains a reconciliation obligation, but
+        // cannot revoke the disposition Game needs to finish the closure.
+        let finalized = phase == "FINALIZE"
+            && sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM account_termination_events WHERE termination_id=$1 AND kind='finalized')",
+            )
+            .bind(t.id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let financial_obligations_clear =
+            finalized || financial_obligations_clear(&mut tx, account).await?;
         let observed: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&mut *tx)
@@ -278,10 +289,11 @@ pub async fn financial_obligations_clear(
         OR EXISTS(
             SELECT 1 FROM payment_intents p
             JOIN LATERAL (
-                SELECT account_id,coins FROM store_web_topups
+                SELECT account_id,coins,NULL::uuid AS uncredited_native_order FROM store_web_topups
                 WHERE p.id IN (payment_intent_id,intended_payment_intent_id)
                 UNION ALL
-                SELECT payer_account_id,coins FROM coin_purchase_orders WHERE payment_intent_id=p.id
+                SELECT payer_account_id,coins,CASE WHEN receipt_id IS NULL THEN id END
+                FROM coin_purchase_orders WHERE payment_intent_id=p.id
             ) checkout ON p.account_id=$1 OR checkout.account_id=$1
             WHERE p.state IN ('succeeded','refunded','chargeback') AND (
                 checkout.account_id<>p.account_id OR NOT (
@@ -292,6 +304,14 @@ pub async fn financial_obligations_clear(
                     OR (p.state IN ('refunded','chargeback') AND EXISTS (
                         SELECT 1 FROM payment_events e
                         WHERE e.intent_id=p.id AND e.provider=p.provider AND e.state=p.state))
+                    OR (p.state='succeeded' AND EXISTS (
+                        SELECT 1 FROM coin_purchase_reversals r JOIN payment_events e
+                          ON (e.provider,e.provider_event_id)=(r.provider,r.provider_event_id)
+                        WHERE r.order_id=checkout.uncredited_native_order
+                          AND r.payer_account_id=p.account_id AND r.coins=checkout.coins
+                          AND r.outcome='fenced' AND r.debited=0
+                          AND e.intent_id=p.id AND e.provider=p.provider
+                          AND (r.kind,e.state) IN (('refund','refunded'),('chargeback','chargeback'))))
                 )
             )
         )
