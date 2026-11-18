@@ -57,6 +57,15 @@ impl Authority {
             }
         }
         self.lock(db).await?;
+        if i.command == Command::Deliver {
+            let listing = id(text(&i.value, "listing_id")?)?;
+            let sale = id(text(&i.value, "sale_id")?)?;
+            if self.delivery_sale_id(db, listing).await? != Some(sale)
+                || self.sale_delivery_operation(db, listing, sale).await? != Some(operation)
+            {
+                return Err(Error::Conflict);
+            }
+        }
         if i.is_sale_handoff()?
             && self
                 .return_started(db, id(text(&i.value, "listing_id")?)?)
@@ -137,6 +146,9 @@ impl Authority {
             // The issuer lock makes no-effect verification and compensation
             // publication atomic. Keep every dispatch and receipt for audit.
             let listing = id(text(&i.value, "listing_id")?)?;
+            if self.has_delivery_drift(db, Some(listing)).await? {
+                return Err(Error::CustodyDrift);
+            }
             let unsafe_dispatch: bool = if i.command == Command::Deliver {
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_disposition_fences WHERE listing_id=$1 AND command IN ('DeliverBazaarItem','ReturnBazaarItem') AND operation_id<>$2)")
                     .bind(listing).bind(operation).fetch_one(&mut **db).await?
@@ -157,7 +169,8 @@ impl Authority {
                         id(text(&i.value, "buyer_account_id")?)?,
                     )
                     .await?;
-                    sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
+                    crate::lifecycle::write_dispatch(db, operation, self.fence).await?;
+                    super::delivery_work::DELIVERY.mark(db, listing).await?;
                     return Ok(());
                 }
                 if text(f, "currency")? != "COINS" {
@@ -176,7 +189,23 @@ impl Authority {
                 }
             }
         }
-        sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
+        crate::lifecycle::write_dispatch(db, operation, self.fence).await?;
+        if i.command == Command::Deliver {
+            super::delivery_work::DELIVERY
+                .mark(db, id(text(&i.value, "listing_id")?)?)
+                .await?;
+        } else if i.command == Command::Return {
+            let listing = id(text(&i.value, "listing_id")?)?;
+            let awaiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND state='awaiting_delivery')",
+            )
+            .bind(listing)
+            .fetch_one(&mut **db)
+            .await?;
+            if awaiting {
+                super::delivery_work::DELIVERY.mark(db, listing).await?;
+            }
+        }
         Ok(())
     }
     /// Every published delivery must have current, audited terminal no-effect
@@ -285,7 +314,26 @@ impl Authority {
         db: &mut sqlx::PgConnection,
         listing: Uuid,
     ) -> Result<bool, Error> {
-        Ok(sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND (command IN ('DeliverBazaarItem','PayoutBazaarGold') OR (command='BindBazaarCharacterTransfer' AND intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT'))) AND NOT EXISTS(SELECT 1 FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT')").bind(listing).fetch_one(db).await?)
+        let key = self
+            .delivery_sale_id(db, listing)
+            .await?
+            .map(|sale| super::game_store::issuance_key(listing, Command::Deliver, sale));
+        Ok(sqlx::query_scalar(
+            "SELECT NOT EXISTS(
+                SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=$1 AND (
+                    o.command='PayoutBazaarGold'
+                    OR (o.command='BindBazaarCharacterTransfer' AND o.intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT')
+                    OR (o.command='DeliverBazaarItem' AND (
+                        o.issuance_key=$2
+                        OR EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                        OR EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id)
+                        OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)
+                    ))
+                )
+             ) AND NOT EXISTS(
+                SELECT 1 FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT'
+             )",
+        ).bind(listing).bind(key).fetch_one(db).await?)
     }
 
     pub(super) async fn return_started(
@@ -321,6 +369,18 @@ impl Authority {
         listing: &crate::Listing,
     ) -> Result<(), Error> {
         self.lock(db).await?;
+        // A recorded compensation and its cancelled state were written together.
+        // Replaying that result does not depend on the next custody recheck.
+        let compensated: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_authority_compensations c
+             JOIN bazaar_listings l ON l.id=c.listing_id WHERE c.listing_id=$1 AND l.state='cancelled')",
+        )
+        .bind(listing.id)
+        .fetch_one(&mut *db)
+        .await?;
+        if compensated {
+            return Ok(());
+        }
         if !self.compensation_ready(db, listing).await? {
             return Err(Error::Unavailable);
         }
@@ -345,8 +405,12 @@ impl Authority {
             .bind(listing.id)
             .execute(&mut *db)
             .await?;
-        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1 AND state='awaiting_delivery'")
-            .bind(listing.id).execute(db).await?;
+        crate::lifecycle::write_listing(db, listing.id, crate::lifecycle::Event::Compensated)
+            .await
+            .map_err(|error| match error {
+                crate::Error::Database(error) => Error::Database(error),
+                _ => Error::Denied,
+            })?;
         Ok(())
     }
     pub async fn exchange(
@@ -436,13 +500,20 @@ impl Authority {
             );
             if !pending {
                 let outcome: Option<String> = row.try_get("outcome")?;
-                let state = outcome.unwrap_or_else(|| {
-                    if row.try_get::<String, _>("state").ok().as_deref() == Some("REOPENED") {
-                        "REOPENED".into()
-                    } else {
-                        "PENDING".into()
-                    }
-                });
+                let Ok(crate::lifecycle::Outcome::Receipt(state)) = crate::lifecycle::transition(
+                    crate::lifecycle::Current::Intent {
+                        dispatched: true,
+                        admitted: outcome.is_some(),
+                    },
+                    crate::lifecycle::Event::ReadIntent,
+                    crate::lifecycle::Context {
+                        committed: outcome.as_deref() == Some("COMMITTED"),
+                        reopened: row.try_get::<String, _>("state")? == "REOPENED",
+                        ..Default::default()
+                    },
+                ) else {
+                    return Err(Error::Invalid);
+                };
                 let digest: Option<String> = row.try_get("receipt_digest")?;
                 let generation: Option<String> = row.try_get("generation")?;
                 value.push_str(&format!(

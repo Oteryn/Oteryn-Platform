@@ -29,12 +29,18 @@ impl Settings {
 pub enum Error {
     #[error("bazaar game integration unavailable")]
     Unavailable,
+    #[error("terminal item custody awaits receipt, audit or STATUS")]
+    DeliveryEvidencePending,
+    #[error("Bazaar resync world set does not include an observed custody world")]
+    ResyncWorldConfiguration,
     #[error("invalid bazaar contract input")]
     Invalid,
     #[error("bazaar authorization denied")]
     Denied,
     #[error("immutable bazaar binding conflict")]
     Conflict,
+    #[error("item delivery custody drift")]
+    CustodyDrift,
     #[error("bazaar operation not found")]
     NotFound,
     #[error("bazaar command backlog full")]
@@ -60,6 +66,7 @@ mod coin_ports;
 pub use coin_ports::{CoinReservations, PlatformAccounts};
 mod authority_evidence;
 mod authority_exchange;
+mod delivery_work;
 
 #[cfg(test)]
 mod authority_tests;

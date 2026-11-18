@@ -85,20 +85,15 @@ pub enum State {
 
 impl State {
     pub fn transition(self, next: Self) -> Result<(), Error> {
-        if matches!(
-            (self, next),
-            (Self::Draft, Self::Active | Self::Cancelled)
-                | (
-                    Self::Active,
-                    Self::Matched | Self::AwaitingDelivery | Self::Cancelled | Self::Expired
-                )
-                | (Self::Matched, Self::AwaitingDelivery)
-                | (Self::AwaitingDelivery, Self::Completed)
-        ) {
-            Ok(())
-        } else {
-            Err(Error::IllegalTransition)
-        }
+        use crate::lifecycle::{Context, Current, Event, transition};
+
+        transition(
+            Current::Listing(self),
+            Event::Listing(next),
+            Context::default(),
+        )
+        .map(|_| ())
+        .map_err(|_| Error::IllegalTransition)
     }
 }
 
@@ -159,9 +154,15 @@ pub fn proxy_bid(listing: &Listing, bidder: Uuid, maximum: i64) -> Result<(Uuid,
     if maximum <= 0 || bidder.is_nil() {
         return Err(Error::InvalidInput);
     }
-    if listing.form != Form::Auction || listing.state != State::Active || bidder == listing.owner {
+    if listing.form != Form::Auction || bidder == listing.owner {
         return Err(Error::IllegalTransition);
     }
+    crate::lifecycle::transition(
+        crate::lifecycle::Current::Listing(listing.state),
+        crate::lifecycle::Event::Bid,
+        crate::lifecycle::Context::default(),
+    )
+    .map_err(|_| Error::IllegalTransition)?;
     match (listing.leader, listing.leader_max) {
         (None, None) if maximum >= listing.price => Ok((bidder, listing.price)),
         (Some(leader), Some(old_max)) if leader == bidder && maximum > old_max => {

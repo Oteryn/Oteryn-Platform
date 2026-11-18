@@ -54,6 +54,7 @@ fn authority() -> Authority {
             receipt_authority: "oteryn:character-authority:primary".into(),
             projection_authority: "oteryn:game:primary".into(),
             snapshot_keys: vec![("fixture-example-1".into(), key())],
+            worlds: vec![uid("12")],
             escrow_account_id: None,
             character_cooldown_seconds: None,
             character_history_complete_since: None,
@@ -570,6 +571,16 @@ async fn audit(
     receipt: &str,
     now: u64,
 ) -> ReceiptResult {
+    audit_result(a, tx, intent, receipt, now).await.unwrap()
+}
+
+async fn audit_result(
+    a: &Authority,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    intent: &PreparedIntent,
+    receipt: &str,
+    now: u64,
+) -> Result<ReceiptResult, Error> {
     let payload = BazaarAuthorityDecisionV1 {
         intent_sha256: Sha256::digest(intent.bytes()).to_vec(),
         receipt_sha256: Sha256::digest(receipt.as_bytes()).to_vec(),
@@ -614,7 +625,6 @@ async fn audit(
         now,
     )
     .await
-    .unwrap()
 }
 /// A held purchase reversal of `coins`: coin debt as payments records it.
 async fn owe(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, account: Uuid, coins: i64) -> Uuid {
@@ -640,7 +650,16 @@ async fn savepoint(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &'static
     sqlx::query(sql).execute(&mut **tx).await.unwrap();
 }
 async fn store_intent(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, intent: &PreparedIntent) {
-    store_intent_with_key(tx, intent, &format!("fixture:{}", Uuid::now_v7())).await;
+    let key = if intent.command() == Command::Deliver {
+        super::game_store::issuance_key(
+            id(text(&intent.value, "listing_id").unwrap()).unwrap(),
+            Command::Deliver,
+            id(text(&intent.value, "sale_id").unwrap()).unwrap(),
+        )
+    } else {
+        format!("fixture:{}", Uuid::now_v7())
+    };
+    store_intent_with_key(tx, intent, &key).await;
 }
 async fn store_intent_with_key(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -1021,6 +1040,11 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemS
         .await
         .unwrap();
         assert_eq!(captures, 0);
+        // The terminal sale's evidence must be rechecked before a new action can
+        // use the returned-custody proof. The compensation replay above is a no-op.
+        assert!(!a.resynced(&mut tx).await.unwrap());
+        a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+        assert!(a.resynced(&mut tx).await.unwrap());
         // The same returned-custody proof releases a Gold settlement fence,
         // while ordinary releases remain denied until payout.
         let gold_hold = Uuid::now_v7();
@@ -1628,6 +1652,9 @@ async fn postgres_completed_resync_does_not_rescan_terminal_history() {
         .await
         .unwrap();
     sqlx::query("INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation) VALUES(3,3) ON CONFLICT DO NOTHING").execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES(3,3,$1) ON CONFLICT DO NOTHING")
+        .bind(format!("delivery-sales-v5:{}", uid("12")))
+        .execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) SELECT uuidv7(),$1,'item','auction','coins',100,false,'completed',now() FROM generate_series(1,2000)").bind(Uuid::now_v7()).execute(&mut *tx).await.unwrap();
     let result = tokio::time::timeout(
         std::time::Duration::from_millis(100),
@@ -3572,6 +3599,7 @@ async fn character_status(
             "custody_id" => Value::String(uid("32").to_string()),
             "custody_revision" => Value::String(revisions.1.into()),
             "snapshot_hash" => Value::String(hash.into()),
+            "last_operation_id" if last_operation.is_nil() => Value::Null,
             "last_operation_id" => Value::String(last_operation.to_string()),
             "source_observed_at" => Value::String(now.to_string()),
             _ => value.clone(),
@@ -5786,3 +5814,6 @@ mod worker_tests {
         db.end().await;
     }
 }
+
+#[path = "lifecycle_table_tests.rs"]
+mod lifecycle_table_tests;

@@ -36,7 +36,6 @@ pub struct Config {
     pub bazaar_spki: [u8; 32],
     pub receipt_spki: [u8; 32],
     pub escrow_account: Option<Uuid>,
-    pub worlds: Vec<Uuid>,
     pub public_origin: String,
     pub cooldown_seconds: u64,
     pub financial_retention_days: u64,
@@ -104,6 +103,7 @@ impl Config {
                 receipt_authority: env("OTERYN_BAZAAR_RECEIPT_AUTHORITY")?,
                 projection_authority: env("OTERYN_BAZAAR_SOURCE_AUTHORITY")?,
                 snapshot_keys,
+                worlds: Vec::new(),
             },
             fence: RecoveryFence {
                 projection_epoch: fence.projection_epoch,
@@ -141,6 +141,7 @@ impl Config {
         if worlds.is_empty() || worlds.len() > 32 {
             return Err(Error::Unavailable);
         }
+        authority.config.worlds = worlds;
         let bazaar_spki = hex(&env("OTERYN_BAZAAR_CLIENT_SPKI_SHA256")?)?;
         let receipt_spki = hex(&env("OTERYN_BAZAAR_RECEIPT_CLIENT_SPKI_SHA256")?)?;
         if bazaar_spki == receipt_spki {
@@ -160,7 +161,6 @@ impl Config {
             bazaar_spki,
             receipt_spki,
             escrow_account,
-            worlds,
             public_origin: env("OTERYN_PUBLIC_ORIGIN")?,
             cooldown_seconds: std::env::var("OTERYN_BAZAAR_COOLDOWN_SECONDS")
                 .map_or(Ok(30 * 86400), |v| decimal(&v, false, u64::MAX))?,
@@ -229,7 +229,6 @@ impl Config {
             bazaar_spki: [1; 32],
             receipt_spki: [2; 32],
             escrow_account: None,
-            worlds: vec![],
             public_origin: "https://portal.test".into(),
             cooldown_seconds: 86400,
             financial_retention_days: 3650,
