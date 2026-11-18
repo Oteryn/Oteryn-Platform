@@ -459,6 +459,11 @@ async fn postgres_purchase_uses_quote_ownership_and_domain_idempotency() -> Test
         },
         domain(db.pool.clone()).wallet,
         Policy,
+        crate::premium::repository::Ledger::new(
+            db.pool.clone(),
+            std::sync::Arc::new(crate::loyalty::stream::http::DatabaseAccounts),
+            false,
+        ),
     )));
     let app = app(db.pool.clone(), Arc::new(d));
     let (cookie, csrf) = session(&db.pool, buyer).await?;

@@ -30,18 +30,26 @@ pub struct Purchases<A, B, H, C> {
     settings: Settings,
     wallet: Ledger<A, B, H>,
     accounts: C,
+    premium: crate::premium::repository::Ledger,
 }
 impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
     Purchases<A, B, H, C>
 {
     /// Wallet adapters retain account authorization and transactional auditing.
     /// The audit hook must authorize the buyer's purchase debit, never staff power.
-    pub fn new(pool: PgPool, settings: Settings, wallet: Ledger<A, B, H>, accounts: C) -> Self {
+    pub fn new(
+        pool: PgPool,
+        settings: Settings,
+        wallet: Ledger<A, B, H>,
+        accounts: C,
+        premium: crate::premium::repository::Ledger,
+    ) -> Self {
         Self {
             pool,
             settings,
             wallet: wallet.with_adjustment_kind(AdjustmentKind::StorePurchase),
             accounts,
+            premium,
         }
     }
     pub fn settings(&self) -> &Settings {
@@ -212,22 +220,14 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
         };
         let offer: Offer = serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable)?;
-        // Premium Time checkout is closed pending the grant ownership decision (Q3).
-        if !offer.purchasable
-            || offer.units.is_empty()
-            || offer
-                .units
-                .iter()
-                .any(|unit| unit.unit_kind == "PREMIUM_TIME")
-        {
+        if !offer.purchasable || offer.units.is_empty() {
             return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
         }
         // Only explicit unit-kind flags authorize a purchase; an import alone does not.
-        if offer
-            .units
-            .iter()
-            .any(|u| !self.settings.enabled_unit_kinds.contains(&u.unit_kind))
-        {
+        if offer.units.iter().any(|u| {
+            !self.settings.enabled_unit_kinds.contains(&u.unit_kind)
+                || (u.unit_kind == "PREMIUM_TIME" && !self.premium.enabled())
+        }) {
             return finish(tx, request, raw, "PURCHASE_DISABLED", vec![]).await;
         }
         if offer.currency != request.currency || offer.unit_price != request.unit_price {
@@ -373,6 +373,28 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             )?;
             sqlx::query("INSERT INTO store_operations(source_revision,operation_id,issuer_authority,operation_kind,entitlement_id,intent_bytes,binding_digest) VALUES($1,$2,'OTERYN_PLATFORM_STORE_AUTHORITY','DELIVER',$3,$4,$5)")
                 .bind(sequence).bind(operation).bind(entitlement).bind(&intent).bind(format!("{:x}",Sha256::digest(&intent))).execute(&mut *tx).await?;
+        }
+        for (unit, entitlement, _) in &answer_units {
+            if unit.unit_kind == "PREMIUM_TIME" {
+                match self
+                    .premium
+                    .grant_store_purchase_in(&mut tx, account, *entitlement, unit.quantity)
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(
+                        crate::premium::Error::Invalid
+                        | crate::premium::Error::Unavailable
+                        | crate::premium::Error::Horizon,
+                    ) => {
+                        sqlx::query("ROLLBACK TO SAVEPOINT purchase_debit")
+                            .execute(&mut *tx)
+                            .await?;
+                        return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
+                    }
+                    Err(_) => return Err(Error::Unavailable.into()),
+                }
+            }
         }
         if referrals {
             let days: i32 = units
