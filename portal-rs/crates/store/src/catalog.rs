@@ -6,7 +6,11 @@ use sqlx::{PgConnection, PgPool, Row};
 use std::{collections::HashSet, fmt};
 use uuid::Uuid;
 
+#[path = "catalog_runtime.rs"]
+mod runtime;
+
 const MAX_BYTES: usize = 16 * 1024 * 1024;
+const MAX_OFFERS: usize = 10_000;
 const UNIT: Shape = Shape::Object(&[
     ("product_id", Shape::Scalar),
     ("product_version", Shape::Scalar),
@@ -92,16 +96,29 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn parse(raw: &[u8]) -> Result<Self, Error> {
+        if raw.is_empty() || raw.len() > MAX_BYTES {
+            return Err(Error::InvalidDocument);
+        }
+        // Existing S-5 imports retain their byte identity and can still be read and
+        // activated. Game runtime imports use the D2(b) digest of the source artifact.
+        Self::parse_s5(raw).or_else(|_| runtime::parse(raw))
+    }
+
+    fn parse_s5(raw: &[u8]) -> Result<Self, Error> {
         let value = canonical::decode_canonical(raw, MAX_BYTES, 8, &DOCUMENT)
             .map_err(|_| Error::InvalidDocument)?;
         let bytes = canonical::encode(&value).map_err(|_| Error::InvalidDocument)?;
         let document: Document =
             serde_json::from_slice(&bytes).map_err(|_| Error::InvalidDocument)?;
-        if document.contract_version != 1 || !(1..=10000).contains(&document.offers.len()) {
+        if document.contract_version != 1 || !(1..=MAX_OFFERS).contains(&document.offers.len()) {
             return Err(Error::InvalidDocument);
         }
+        Self::from_offers(bytes, document.offers)
+    }
+
+    fn from_offers(bytes: Vec<u8>, offers: Vec<Offer>) -> Result<Self, Error> {
         let mut seen = HashSet::new();
-        for offer in &document.offers {
+        for offer in &offers {
             if !crate::purchase::offer_key(&offer.offer_key)
                 || !seen.insert(&offer.offer_key)
                 // S-5 follows the Store wire: `COINS` only (owner D1, 2026-11-02).
@@ -138,7 +155,7 @@ impl Catalog {
         Ok(Self {
             revision: format!("{:x}", Sha256::digest(&bytes)),
             canonical_bytes: bytes,
-            offers: document.offers,
+            offers,
         })
     }
     pub fn revision(&self) -> &str {
