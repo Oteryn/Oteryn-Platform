@@ -19,7 +19,7 @@ pub enum Error {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Day {
     pub date: Date,
-    pub levels: BTreeMap<i64, usize>,
+    pub levels: BTreeMap<u64, usize>,
     /// None means no eligible snapshot evidence, not zero deaths.
     pub deaths: Option<usize>,
 }
@@ -46,7 +46,7 @@ pub async fn read(
     if world.is_nil() || start > end || (end - start).whole_days() > 30 {
         return Err(Error::BadInput);
     }
-    let rows = sqlx::query("SELECT d.character_ref,d.day,d.level,CASE WHEN NOT public_projection_conflicted('character_deaths') THEN (SELECT count(*) FROM stats_character_events e WHERE e.character_ref=d.character_ref AND e.day=d.day AND e.kind='death') END AS deaths FROM stats_character_daily d WHERE d.world=$1 AND d.day BETWEEN $2 AND $3 ORDER BY d.day,d.character_ref LIMIT 100001")
+    let rows = sqlx::query("SELECT d.character_ref,d.day,d.level::text,CASE WHEN NOT public_projection_conflicted('character_deaths') THEN (SELECT count(*) FROM stats_character_events e WHERE e.character_ref=d.character_ref AND e.day=d.day AND e.kind='death') END AS deaths FROM stats_character_daily d WHERE d.world=$1 AND d.day BETWEEN $2 AND $3 ORDER BY d.day,d.character_ref LIMIT 100001")
         .bind(world).bind(start).bind(end).fetch_all(db).await.map_err(|_|Error::Unavailable)?;
     if rows.len() > 100_000 {
         return Err(Error::Unavailable);
@@ -77,7 +77,7 @@ pub async fn read(
         }
         let date = row.try_get("day").map_err(|_| Error::Unavailable)?;
         let day = days.get_mut(&date).ok_or(Error::Unavailable)?;
-        let level = row.try_get("level").map_err(|_| Error::Unavailable)?;
+        let level = crate::store::read_level(&row, "level").map_err(|_| Error::Unavailable)?;
         *day.levels.entry(level).or_default() += 1;
         if permissions.deaths {
             let count: Option<i64> = row.try_get("deaths").map_err(|_| Error::Unavailable)?;

@@ -176,6 +176,35 @@ impl Authority {
         {
             return Err(Error::Unavailable);
         }
+        let settlement_bind = receipt.command == Command::Bind
+            && text(i, "purpose")? == "BAZAAR_SETTLEMENT"
+            && text(i.get("funding").ok_or(Error::Invalid)?, "currency")? == "COINS";
+        if matches!(receipt.command, Command::Hold | Command::Payout) || settlement_bind {
+            // A sale can consume the original funding and delivery preconditions.
+            // The immutable admission still identifies the exact committed effect.
+            let prior: Option<bool> = sqlx::query_scalar(
+                "SELECT receipt::jsonb - 'recovery_generation' = $4::text::jsonb - 'recovery_generation'
+                 FROM bazaar_authority_receipts r
+                 WHERE operation_id=$1 AND recovery_generation < $2::text::numeric
+                   AND source_authority=$3 AND intent_digest=$5 AND outcome='COMMITTED'
+                   AND NOT EXISTS (SELECT 1 FROM bazaar_authority_conflicts WHERE operation_id=r.operation_id)
+                 ORDER BY recovery_generation DESC LIMIT 1",
+            )
+            .bind(receipt.operation)
+            .bind(receipt.generation.to_string())
+            .bind(&self.config.receipt_authority)
+            .bind(&receipt.raw)
+            .bind(intent.binding_digest())
+            .fetch_optional(&mut *db)
+            .await?;
+            if let Some(matches) = prior {
+                return if matches {
+                    Ok(())
+                } else {
+                    Err(Error::Conflict)
+                };
+            }
+        }
         if receipt.command == Command::Lock {
             let signed = d.get("signed_snapshot").ok_or(Error::Invalid)?;
             let kid = text(signed, "kid")?;

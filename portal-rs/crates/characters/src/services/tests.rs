@@ -1549,3 +1549,58 @@ async fn r7_committed_transfer_denies_seller() {
     tx.rollback().await.unwrap();
     db.close().await;
 }
+
+#[tokio::test]
+async fn revoked_sudo_session_denies_paid_rename() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let services = Services::new(db.pool.clone(), settings());
+    let account = Uuid::now_v7();
+    let character = Uuid::now_v7();
+    seed(&services, account, character, 100).await;
+    let token = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    let hash = Sha256::digest(token.as_bytes()).to_vec();
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,sudo_until) VALUES ($1,$2,$3,'test',now()+interval '30 minutes',now()+interval '1 day',now()+interval '5 minutes')")
+        .bind(&hash).bind(account).bind(&csrf).execute(&db.pool).await.unwrap();
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        "cookie",
+        format!("__Host-oteryn_session={token}").parse().unwrap(),
+    );
+    let proof = recent(&db.pool, Some(account), &headers).await;
+    assert!(proof.is_some());
+    sqlx::query("DELETE FROM web_sessions WHERE id_hash=$1")
+        .bind(hash)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let fields = vec![
+        ("_csrf".into(), csrf),
+        ("request_id".into(), Uuid::now_v7().to_string()),
+        ("action".into(), "rename".into()),
+        ("requested_name".into(), "Aldric Vale".into()),
+        ("confirm".into(), "yes".into()),
+        ("accepted_price".into(), "70".into()),
+    ];
+    let response = browser::submit_with(
+        &services,
+        Some(account),
+        &character.to_string(),
+        "en",
+        proof,
+        fields,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let counts: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM wallet_reservations), (SELECT count(*) FROM character_commands)",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(counts, (0, 0));
+    db.close().await;
+}

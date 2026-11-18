@@ -32,11 +32,12 @@ impl Cleanup for TicketBudgetCleanup {
 struct VerificationTokenCleanup(PgPool);
 const TOKEN_CLEANUP_SQL: &str = "WITH obsolete AS (
     SELECT token_tid FROM (
-        SELECT ctid AS token_tid, token_hash, greatest((created_at AT TIME ZONE 'UTC') + interval '60 seconds',
+        SELECT ctid AS token_tid, token_hash, updated_at, greatest((created_at AT TIME ZONE 'UTC') + interval '60 seconds',
                   CASE WHEN used_at IS NULL THEN expires_at AT TIME ZONE 'UTC' END) AS eligible_at
         FROM account_email_tokens WHERE purpose = 'verify_email'
     ) tokens
     WHERE eligible_at <= statement_timestamp() AT TIME ZONE 'UTC'
+      AND updated_at <= statement_timestamp() - interval '60 seconds'
     ORDER BY eligible_at, token_hash LIMIT 1000 FOR UPDATE SKIP LOCKED
 ) DELETE FROM account_email_tokens WHERE ctid = ANY (ARRAY(SELECT token_tid FROM obsolete))";
 

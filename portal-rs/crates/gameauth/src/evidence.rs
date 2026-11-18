@@ -785,14 +785,13 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         group_guard: runtime::authorization_probe(identities.clone(), "native-evidence"),
     };
     guard::protect(
-        Router::new()
-            .route("/internal/v1/game-auth/native-evidence", post(handle))
-            .route_layer(middleware::from_fn(runtime::http_bounds)),
+        Router::new().route("/internal/v1/game-auth/native-evidence", post(handle)),
         identities,
         policy,
     )
-    .route_layer(middleware::from_fn_with_state(state, gate))
     .route_layer(middleware::from_fn(runtime::normalize))
+    .route_layer(middleware::from_fn(runtime::http_bounds))
+    .route_layer(middleware::from_fn_with_state(state, gate))
     .route_layer(middleware::from_fn(runtime::no_cache))
 }
 

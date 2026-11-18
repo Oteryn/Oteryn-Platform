@@ -32,6 +32,11 @@ async fn database() -> Result<Option<PgPool>> {
     .execute(&pool)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../migrations/20261117230011_r9_sta.sql"
+    ))
+    .execute(&pool)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
     ))
     .execute(&pool)
@@ -282,7 +287,7 @@ async fn poll_watermark_replay_and_same_timestamp_revision() -> Result {
     sqlx::query("UPDATE public_snapshots SET version=2,payload=jsonb_set(payload,'{profile,0,level}','\"11\"') WHERE family='character_profile' AND NOT is_watermark").execute(&db).await?;
     assert_eq!(job.run().await?, 1);
     assert_eq!(job.run().await?, 0);
-    let level: i64 = sqlx::query_scalar("SELECT level FROM stats_character_daily")
+    let level: i64 = sqlx::query_scalar("SELECT level::bigint FROM stats_character_daily")
         .fetch_one(&db)
         .await?;
     assert_eq!(level, 11);
@@ -913,4 +918,36 @@ async fn audit_w3_01_quarantined_deaths_derivation_and_history() -> Result {
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn poll_records_unsigned_profile_levels() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let now = OffsetDateTime::now_utc().unix_timestamp() - 10;
+    let character = Uuid::now_v7();
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&db)
+        .await?;
+    let payload = json!({"character_id":character,"profile":[{"name":"First","vocation":1,"world_id":Uuid::now_v7(),"level":"9223372036854775808","guild":[],"guild_visible":true}]});
+    sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('character_profile',$1,false,1,1,$2,$3),('character_profile','',true,1,1,$2,'{}')")
+        .bind(character.to_string()).bind(now).bind(payload).execute(&db).await?;
+    let job = StatisticsJob {
+        pool: db.clone(),
+        enabled: true,
+    };
+    let processed = job.run().await;
+    assert!(
+        matches!(processed, Ok(1)),
+        "poll must accept an unsigned level: {processed:?}"
+    );
+    assert_eq!(job.run().await?, 0);
+    let level: String =
+        sqlx::query_scalar("SELECT level::text FROM stats_character_daily WHERE character_ref=$1")
+            .bind(character)
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(level, "9223372036854775808");
+    dispose(db).await
 }

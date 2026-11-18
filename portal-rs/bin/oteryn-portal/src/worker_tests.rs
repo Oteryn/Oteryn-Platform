@@ -1641,7 +1641,7 @@ async fn configured_token_cleanup_preserves_live_tokens_and_resend_window() -> T
         (3, false, false, false),
         (4, false, true, true),
     ] {
-        query("INSERT INTO account_email_tokens(token_hash,account_id,purpose,expires_at,used_at,created_at) VALUES ($1,$2,'verify_email',now()+make_interval(secs=>$3),CASE WHEN $4 THEN now() ELSE NULL END,now()-make_interval(secs=>$5))")
+        query("INSERT INTO account_email_tokens(token_hash,account_id,purpose,expires_at,used_at,created_at,updated_at) VALUES ($1,$2,'verify_email',now()+make_interval(secs=>$3),CASE WHEN $4 THEN now()-make_interval(secs=>$5) ELSE NULL END,now()-make_interval(secs=>$5),now()-make_interval(secs=>$5))")
             .bind(vec![byte;32]).bind(account).bind(if expired { -1.0 } else { 86400.0 })
             .bind(consumed).bind(if recent { 0.0 } else { 120.0 }).execute(&db.pool).await?;
     }
@@ -1684,5 +1684,57 @@ async fn terminal_refusal_releases_topup() -> TestResult {
     .fetch_one(&db.pool)
     .await?;
     assert!(credited, "terminal refusal blocked wallet credit");
+    db.close().await
+}
+
+#[tokio::test]
+async fn expired_token_keeps_latest_resend_cooldown() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let account: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,locale,status) VALUES ('recent@example.test','unused','en','pending_verification') RETURNING id").fetch_one(&db.pool).await?;
+    query("INSERT INTO account_email_tokens(token_hash,account_id,purpose,expires_at,created_at,updated_at) VALUES (sha256('recent'),$1,'verify_email',now()-interval '1 second',now()-interval '24 hours 1 second',now()-interval '2 seconds')").bind(account).execute(&db.pool).await?;
+    VerificationTokenCleanup(db.pool.clone()).clean().await?;
+    let resent = oteryn_identity::verify::resend(&db.pool, account).await?;
+    db.close().await?;
+    assert!(!resent, "second resend within cooldown was accepted");
+    Ok(())
+}
+
+#[tokio::test]
+async fn scheduling_prunes_completed_legacy_slots() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    query("INSERT INTO outbox(kind,payload,idempotency_key,state) VALUES ('league.retention','{}','schedule:1','done'),('league.retention','{}','manual','done')").execute(&db.pool).await?;
+    outbox::schedule(&db.pool, "league.retention", 1).await?;
+    let keys: Vec<String> = query_scalar(
+        "SELECT idempotency_key FROM outbox WHERE state='done' ORDER BY idempotency_key",
+    )
+    .fetch_all(&db.pool)
+    .await?;
+    db.close().await?;
+    assert_eq!(keys, ["manual"], "legacy schedule history retained");
+    Ok(())
+}
+
+#[tokio::test]
+async fn delivered_checkout_releases_capacity() -> TestResult {
+    let Some(db) = Database::new().await? else { return Ok(()) };
+    let (intent, mut tx) = locked_topup(&db).await?;
+    let account: Uuid = query_scalar("SELECT account_id FROM payment_intents WHERE id=$1")
+        .bind(intent).fetch_one(&mut *tx).await?;
+    query("INSERT INTO wallet_accounts(account_id) VALUES($1)").bind(account).execute(&mut *tx).await?;
+    let existing = Uuid::now_v7();
+    let balance = oteryn_wallet::MAX_BALANCE - 1234;
+    query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,$3)")
+        .bind(existing).bind(account).bind(balance).execute(&mut *tx).await?;
+    query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,$4,0)")
+        .bind(Uuid::now_v7()).bind(existing).bind(account).bind(balance).execute(&mut *tx).await?;
+    assert_eq!(oteryn_wallet::incoming_capacity_with_topup_in(&mut tx,account,0).await?,1234, "pending checkout must reserve its package");
+    tx.commit().await?;
+    topup_registry(&db)?.batch(&db.pool).await?;
+    let mut tx = db.pool.begin().await?;
+    let credited: i64 = query_scalar("SELECT available_delta FROM wallet_entries WHERE operation_id=$1")
+        .bind(intent).fetch_one(&mut *tx).await?;
+    assert_eq!(credited,1234);
+    assert_eq!(oteryn_wallet::incoming_capacity_with_topup_in(&mut tx,account,0).await?,0);
+    tx.commit().await?;
     db.close().await
 }

@@ -188,10 +188,19 @@ struct Answer {
     retry_after: Option<String>,
 }
 async fn post_from(app: Router, path: &str, body: &str, source: [u8; 4]) -> Answer {
+    post_typed(app, path, body, source, "application/json").await
+}
+async fn post_typed(
+    app: Router,
+    path: &str,
+    body: &str,
+    source: [u8; 4],
+    media_type: &str,
+) -> Answer {
     let mut request = Request::builder()
         .method("POST")
         .uri(path)
-        .header("content-type", "application/json")
+        .header("content-type", media_type)
         .body(Body::from(body.to_owned()))
         .unwrap();
     request
@@ -615,4 +624,20 @@ async fn malformed_refusal_echo_types_fail_closed_on_both_recovery_routes() {
             )
         );
     }
+}
+
+#[tokio::test]
+async fn recovery_refuses_plain_text_before_forwarding() {
+    let upstream = issuer(503, UNAVAILABLE).await;
+    let answer = post_typed(
+        app(&upstream.url),
+        "/v1/recover",
+        REQUEST,
+        [192, 0, 2, 1],
+        "text/plain",
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::BAD_REQUEST);
+    assert_eq!(answer.body, line(MALFORMED));
+    assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
 }

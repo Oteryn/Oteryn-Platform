@@ -52,6 +52,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        Self::with_host("node.example.test").await
+    }
+    async fn with_host(host: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let db = runtime::tests::Database::new()
             .await?
             .ok_or("PORTAL_TEST_DATABASE_URL required")?;
@@ -68,16 +71,9 @@ impl Fixture {
             .bind(account).execute(&db.pool).await?;
         sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Player','AVAILABLE')")
             .bind(account).bind(character).bind(world).execute(&db.pool).await?;
-        let revision = grant::route_revision(
-            1,
-            world,
-            channel,
-            "node.example.test",
-            7172,
-            "node.example.test",
-        )?;
-        sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,'alpha',true,'node.example.test',7172,'node.example.test',1,$3)")
-            .bind(world).bind(channel).bind(&revision).execute(&db.pool).await?;
+        let revision = grant::route_revision(1, world, channel, host, 7172, "node.example.test")?;
+        sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,'alpha',true,$4,7172,'node.example.test',1,$3)")
+            .bind(world).bind(channel).bind(&revision).bind(host).execute(&db.pool).await?;
         let at: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&db.pool)
@@ -698,6 +694,9 @@ async fn recovery_fixture(
     );
     let mut value: serde_json::Value = serde_json::from_str(raw)?;
     value["character_id"] = f.request.character_id.to_string().into();
+    // pg_advisory_xact_lock is database-wide, so a shared fixture attempt_ref
+    // would make parallel tests (each in its own schema) contend on one key.
+    value["attempt_ref"] = Uuid::now_v7().to_string().into();
     let request = recovery::RecoveryRequest::decode(&serde_json::to_vec(&value)?, false)
         .map_err(|e| format!("{e:?}"))?;
     sqlx::query("INSERT INTO native_play_generations(account_id,generation) VALUES($1,1)")
@@ -748,8 +747,12 @@ async fn wave2_01_unrelated_account_lock_does_not_block_recovery() -> TestResult
         .bind(other)
         .execute(&mut *blocker)
         .await?;
+    // recover() sets lock_timeout=2s, so waiting on B's row lock returns an
+    // error that the is_ok assertions reject. The outer guard only bounds a hang
+    // and stays above that lock timeout so CI load cannot cause a false failure.
+    const RECOVERY_GUARD: Duration = Duration::from_secs(10);
     let response = tokio::time::timeout(
-        Duration::from_secs(2),
+        RECOVERY_GUARD,
         recovery::recover(
             &f.db.pool,
             &request,
@@ -762,7 +765,7 @@ async fn wave2_01_unrelated_account_lock_does_not_block_recovery() -> TestResult
     assert!(response.is_ok(), "{response:?}");
     // Retry authentication must also stay independent of B.
     let retry = tokio::time::timeout(
-        Duration::from_secs(2),
+        RECOVERY_GUARD,
         recovery::recover(
             &f.db.pool,
             &request,
@@ -1205,22 +1208,7 @@ impl GrantSigner for PausingSigner {
     }
 }
 
-/// Round 4 `grant.rs:698`: protocol 3 selected and share-locked A, then waited
-/// in signer preparation; a route write gives another record A's endpoint and
-/// commits. A shared endpoint routes nowhere (§19.2.3 M1), so no grant is
-/// signed for A.
-#[tokio::test]
-async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult {
-    let mut f = Fixture::new().await?;
-    let world: Uuid = runtime::tests::WORLD.parse()?;
-    let reached = Arc::new(tokio::sync::Notify::new());
-    let resume = Arc::new(tokio::sync::Notify::new());
-    let signer: Arc<dyn GrantSigner> = Arc::new(PausingSigner {
-        inner: f.signer.clone(),
-        reached: reached.clone(),
-        resume: resume.clone(),
-    });
-    f.authority.issuance.signer = Some(signer.clone());
+async fn add_fresh_gamma(f: &mut Fixture, world: Uuid) -> TestResult {
     // A third, fresh candidate C keeps the response's channel list non-empty.
     let third = Uuid::now_v7();
     let third_revision = grant::route_revision(
@@ -1260,6 +1248,26 @@ async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult
         runtime::ingest(&f.db.pool, "node", &report).await,
         Ok("accepted")
     );
+    Ok(())
+}
+
+/// Round 4 `grant.rs:698`: protocol 3 selected and share-locked A, then waited
+/// in signer preparation; a route write gives another record A's endpoint and
+/// commits. A shared endpoint routes nowhere (§19.2.3 M1), so no grant is
+/// signed for A.
+#[tokio::test]
+async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult {
+    let mut f = Fixture::new().await?;
+    let world: Uuid = runtime::tests::WORLD.parse()?;
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let signer: Arc<dyn GrantSigner> = Arc::new(PausingSigner {
+        inner: f.signer.clone(),
+        reached: reached.clone(),
+        resume: resume.clone(),
+    });
+    f.authority.issuance.signer = Some(signer.clone());
+    add_fresh_gamma(&mut f, world).await?;
     let mut request = f.request.clone();
     request.protocol = 3;
     let settings = Protocol3 {
@@ -1303,5 +1311,228 @@ async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult
         result?.err().map(|r| r.error),
         Some(Error::RouteUnavailable)
     );
+    f.close().await
+}
+
+async fn delay_commit(pool: &sqlx::PgPool, trigger: &'static str) -> TestResult {
+    sqlx::query("CREATE FUNCTION delay_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(6); RETURN NEW; END $$").execute(pool).await?;
+    sqlx::query(trigger).execute(pool).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn admission_commit_deadline() -> TestResult {
+    let f = Fixture::new().await?;
+    delay_commit(&f.db.pool,"CREATE CONSTRAINT TRIGGER delay_commit AFTER INSERT ON native_admissions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION delay_commit()").await?;
+    let result = store::admit(
+        &f.db.pool,
+        &f.request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        None,
+    )
+    .await;
+    assert_eq!(
+        result.err().map(|r| r.error),
+        Some(Error::ReconciliationRequired)
+    );
+    // Wait for the issuing transaction to release its attempt lock, then
+    // verify PostgreSQL committed the row after the caller timed out.
+    let mut check = f.db.pool.begin().await?;
+    store::lock(&mut check, f.request.attempt_ref.as_bytes()).await?;
+    let committed: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_admissions WHERE attempt_ref=$1)")
+            .bind(f.request.attempt_ref)
+            .fetch_one(&mut *check)
+            .await?;
+    assert!(committed);
+    check.rollback().await?;
+    f.close().await
+}
+
+#[tokio::test]
+async fn recovery_commit_deadline() -> TestResult {
+    let f = Fixture::new().await?;
+    let (request, issuer) = recovery_fixture(&f).await?;
+    delay_commit(&f.db.pool,"CREATE CONSTRAINT TRIGGER delay_commit AFTER INSERT ON native_recoveries DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION delay_commit()").await?;
+    let result = recovery::recover(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &issuer,
+        &f.authority.issuance.runtime,
+    )
+    .await;
+    assert_eq!(
+        result.err().map(|r| r.error),
+        Some(recovery::RecoveryError::ReconciliationRequired)
+    );
+    // Wait for the issuing transaction to release its attempt lock, then
+    // verify PostgreSQL committed the row after the caller timed out.
+    let mut check = f.db.pool.begin().await?;
+    store::lock(&mut check, request.attempt_ref.as_bytes()).await?;
+    let committed: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM native_recoveries WHERE attempt_ref=$1)")
+            .bind(request.attempt_ref)
+            .fetch_one(&mut *check)
+            .await?;
+    assert!(committed);
+    check.rollback().await?;
+    f.close().await
+}
+
+#[tokio::test]
+async fn ipv6_endpoint_collision() -> TestResult {
+    let f = Fixture::with_host("2001:db8::1").await?;
+    let world = runtime::tests::WORLD.parse()?;
+    let mut conn = f.db.pool.acquire().await?;
+    let at = store::now(&mut conn).await? / 1000;
+    let candidate = grant::candidates(&mut conn, &f.authority.issuance.runtime, world, at)
+        .await?
+        .pop()
+        .ok_or("fixture must have an eligible channel")?;
+    let other = Uuid::now_v7();
+    let host = "2001:0db8:0000:0000:0000:0000:0000:0001";
+    let tls = "node.example.test";
+    let revision = grant::route_revision(1, world, other, host, 7172, tls)?;
+    sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES ($1,$2,'other',true,$3,7172,$4,1,$5)").bind(world).bind(other).bind(host).bind(tls).bind(revision).execute(&f.db.pool).await?;
+    assert!(
+        grant::candidates(&mut conn, &f.authority.issuance.runtime, world, at)
+            .await?
+            .is_empty(),
+        "shared IPv6 endpoint remained eligible"
+    );
+    assert_eq!(
+        grant::unshared(
+            &mut conn,
+            world,
+            candidate.route.channel,
+            &candidate.route.endpoint
+        )
+        .await,
+        Err(Error::RouteUnavailable)
+    );
+    drop(conn);
+    f.close().await
+}
+
+async fn publish_beta(
+    db: &mut PgConnection,
+    world: Uuid,
+    channel: Uuid,
+    host: &str,
+) -> Result<(), Error> {
+    let revision = grant::route_revision(1, world, channel, host, 7172, host)?;
+    sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,'beta',true,$3,7172,$3,1,$4) ON CONFLICT (world_id,channel_id) DO UPDATE SET native_route_host=excluded.native_route_host,native_route_tls_server_name=excluded.native_route_tls_server_name,native_route_revision=excluded.native_route_revision")
+        .bind(world).bind(channel).bind(host).bind(revision).execute(db).await.map_err(|_| Error::Unavailable)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn replay_refuses_shared_endpoint() -> TestResult {
+    let mut f = Fixture::new().await?;
+    let world = runtime::tests::WORLD.parse()?;
+    add_fresh_gamma(&mut f, world).await?;
+    let beta = Uuid::now_v7();
+    let mut db = f.db.pool.acquire().await?;
+    publish_beta(&mut db, world, beta, "beta.example.test").await?;
+    f.request.protocol = 3;
+    f.request.channel_id = Some(runtime::tests::CHANNEL.parse()?);
+    let settings = Protocol3 {
+        runtime: f.authority.issuance.runtime.clone(),
+        handles: Handles::Off,
+    };
+    let admit = || {
+        store::admit(
+            &f.db.pool,
+            &f.request,
+            &Accounts,
+            &f.authority,
+            Some(f.signer.as_ref()),
+            Some(&settings),
+        )
+    };
+    assert!(admit().await.is_ok());
+    publish_beta(&mut db, world, beta, "node.example.test").await?;
+    drop(db);
+    assert_eq!(
+        admit().await.err().map(|r| r.error),
+        Some(Error::RouteUnavailable)
+    );
+    f.close().await
+}
+
+#[derive(Debug)]
+enum PreparationChange {
+    ShareEndpoint(Uuid),
+    AgeWatermark,
+}
+#[derive(Debug)]
+struct ChangingSigner(Arc<dyn GrantSigner>, PreparationChange);
+impl GrantSigner for ChangingSigner {
+    fn prepare(&self) -> Future<'_, ()> {
+        self.0.prepare()
+    }
+    fn prepare_on<'a>(&'a self, db: &'a mut PgConnection) -> Future<'a, ()> {
+        Box::pin(async move {
+            match self.1 {
+                PreparationChange::ShareEndpoint(world) => {
+                    publish_beta(db, world, Uuid::now_v7(), "node.example.test").await?
+                }
+                PreparationChange::AgeWatermark => {
+                    sqlx::query("UPDATE account_character_feed SET complete_through=floor(extract(epoch FROM transaction_timestamp()))-31 WHERE id=1").execute(&mut *db).await.map_err(|_| Error::Unavailable)?;
+                }
+            }
+            self.0.prepare_on(db).await
+        })
+    }
+    fn sign(&self, payload: &[u8], expires: u64, now: u64) -> Result<String, Error> {
+        self.0.sign(payload, expires, now)
+    }
+    fn resign(&self, input: &str, expires: u64, now: u64) -> Result<String, Error> {
+        self.0.resign(input, expires, now)
+    }
+}
+
+#[tokio::test]
+async fn recovery_refuses_shared_endpoint_after_selection() -> TestResult {
+    let f = Fixture::new().await?;
+    let (request, mut issuer) = recovery_fixture(&f).await?;
+    issuer.signer = Some(Arc::new(ChangingSigner(
+        issuer.signer.take().ok_or("missing recovery signer")?,
+        PreparationChange::ShareEndpoint(runtime::tests::WORLD.parse()?),
+    )));
+    let result = recovery::recover(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &issuer,
+        &f.authority.issuance.runtime,
+    )
+    .await;
+    assert_eq!(
+        result.err().map(|r| r.error),
+        Some(recovery::RecoveryError::RouteUnavailable)
+    );
+    f.close().await
+}
+#[tokio::test]
+async fn admission_refuses_stale_watermark_after_preparation() -> TestResult {
+    let mut f = Fixture::new().await?;
+    f.authority.issuance.signer = Some(Arc::new(ChangingSigner(
+        f.signer.clone(),
+        PreparationChange::AgeWatermark,
+    )));
+    let result = store::admit(
+        &f.db.pool,
+        &f.request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        None,
+    )
+    .await;
+    assert_eq!(result.err().map(|r| r.error), Some(Error::RouteUnavailable));
     f.close().await
 }

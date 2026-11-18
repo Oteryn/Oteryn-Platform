@@ -444,12 +444,12 @@ struct DeleteInput {
 fn proof(headers: &HeaderMap) -> ActorProof {
     ActorProof(
         headers
-            .get("cookie")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| {
-                v.split(';')
-                    .find_map(|p| p.trim().strip_prefix("__Host-oteryn_session="))
-            })
+            .get_all("cookie")
+            .iter()
+            .filter_map(|field| field.to_str().ok())
+            .flat_map(|field| field.split(';'))
+            .filter_map(|pair| pair.trim().split_once('='))
+            .find_map(|(name, value)| (name == oteryn_web::session::COOKIE_NAME).then_some(value))
             .unwrap_or_default()
             .into(),
     )
@@ -535,4 +535,19 @@ async fn cancel(
 struct Message<'a> {
     lang: &'a str,
     title: String,
+}
+
+#[cfg(test)]
+mod proof_tests {
+    use super::*;
+
+    #[test]
+    fn r9_termination_proof_reads_second_cookie_field()
+    -> Result<(), axum::http::header::InvalidHeaderValue> {
+        let mut headers = HeaderMap::new();
+        headers.append("cookie", "lang=en".parse()?);
+        headers.append("cookie", "__Host-oteryn_session=session-id".parse()?);
+        assert_eq!(proof(&headers).0, "session-id");
+        Ok(())
+    }
 }

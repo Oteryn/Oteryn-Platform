@@ -975,3 +975,56 @@ fn r8_package_wallet_ceiling() {
     package.coins += 1;
     assert!(!valid_packages(&[package]));
 }
+
+#[tokio::test]
+async fn checkout_observes_wallet_capacity() -> TestResult {
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'capacity@example.invalid',now(),'test','active','en')").bind(account).execute(&pool).await?;
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(account)
+        .execute(&pool)
+        .await?;
+    let funding = Uuid::now_v7();
+    let balance = oteryn_wallet::MAX_BALANCE - 1;
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,$3)",
+    )
+    .bind(funding)
+    .bind(account)
+    .bind(balance)
+    .execute(&pool)
+    .await?;
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,$4,0)").bind(Uuid::now_v7()).bind(funding).bind(account).bind(balance).execute(&pool).await?;
+    for coins in [2, 1] {
+        let topups = recovery_topups(
+            &pool,
+            vec![Package {
+                coins,
+                ..recovery_package()
+            }],
+        )?;
+        let intent = topups
+            .create(account, Uuid::now_v7(), "fixture".into())
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let paid = topups.checkout(account, intent, Some("pay".into())).await;
+        assert_eq!(paid.is_ok(), coins == 1, "checkout with {coins} coins");
+        let (state, invoices): (String,i64) = sqlx::query_as("SELECT state,(SELECT count(*) FROM invoices WHERE intent_id=$1) FROM payment_intents WHERE id=$1").bind(intent).fetch_one(&pool).await?;
+        assert_eq!(
+            (state.as_str(), invoices),
+            if coins == 1 {
+                ("succeeded", 1)
+            } else {
+                ("pending", 0)
+            }
+        );
+    }
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    Ok(())
+}

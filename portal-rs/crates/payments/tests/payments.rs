@@ -9,16 +9,28 @@ use uuid::Uuid;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+const PURCHASE_RESTRICTED: u8 = 5;
+
 #[derive(Debug, Clone)]
 struct Accounts(Arc<AtomicU8>);
 impl AccountReader for Accounts {
     async fn state_in(&self, _: &mut sqlx::PgConnection, id: Uuid) -> Result<AccountState, Error> {
         self.state(id).await
     }
+    async fn refund_state_in(
+        &self,
+        _: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<AccountState, Error> {
+        if self.0.load(Ordering::SeqCst) == PURCHASE_RESTRICTED {
+            return Ok(AccountState::Active);
+        }
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
         match self.0.load(Ordering::SeqCst) {
             0 => Ok(AccountState::Active),
-            1 => Ok(AccountState::Restricted),
+            1 | PURCHASE_RESTRICTED => Ok(AccountState::Restricted),
             2 => Ok(AccountState::Unknown),
             3 => Ok(AccountState::Ambiguous),
             _ => Err(Error::NotFound),
@@ -32,10 +44,17 @@ impl AccountReader for Accounts {
 struct FlakyAccounts {
     calls: Arc<AtomicU8>,
     fail_on: u8,
+    restrict: bool,
 }
 impl AccountReader for FlakyAccounts {
+    async fn state_in(&self, _: &mut sqlx::PgConnection, id: Uuid) -> Result<AccountState, Error> {
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
         if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.fail_on {
+            if self.restrict {
+                return Ok(AccountState::Restricted);
+            }
             return Err(Error::Database(sqlx::Error::PoolTimedOut));
         }
         Ok(AccountState::Active)
@@ -543,7 +562,7 @@ async fn l6_03_browser_checkout_refund_refused_twice_after_credit() -> TestResul
     let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
     service.webhook(&body, &sig).await?;
     // Same ledger binding and exact persisted quantity as the top-up worker.
-    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
         .bind(intent.account_id)
         .execute(&h.pool)
         .await?;
@@ -634,11 +653,11 @@ async fn ensure_intent_reread_failure_is_unavailable_and_replay_returns_same_int
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
-    // Call 1 is the eligibility check before the provider; call 2 is the re-read
-    // after commit, which fails.
+    // The second eligibility read fails after provider creation.
     let flaky = FlakyAccounts {
         calls: Arc::new(AtomicU8::new(0)),
         fail_on: 2,
+        restrict: false,
     };
     let service = Payments::new(
         h.pool.clone(),
@@ -652,8 +671,10 @@ async fn ensure_intent_reread_failure_is_unavailable_and_replay_returns_same_int
         Err(Error::Unavailable)
     ));
     assert_eq!(flaky.calls.load(Ordering::SeqCst), 2);
-    assert_eq!(h.count("payment_intents").await?, 1);
+    assert_eq!(h.count("payment_intents").await?, 0);
+    let created = service.ensure_intent(id, account, amount()).await?;
     let replay = service.ensure_intent(id, account, amount()).await?;
+    assert_eq!(created, replay);
     assert_eq!(replay.id, id);
     assert_eq!(replay.account_id, account);
     assert_eq!(replay.state, IntentState::Pending);
@@ -718,5 +739,248 @@ async fn webhook_account_read_failure_is_unavailable_and_redelivery_applies_once
     );
     assert_eq!(h.count("payment_events").await?, 2);
     assert_eq!(h.count("outbox").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn restricted_at_creation_leaves_no_intent() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let accounts = FlakyAccounts {
+        calls: Arc::new(AtomicU8::new(0)),
+        fail_on: 2,
+        restrict: true,
+    };
+    let payments = Payments::new(
+        h.pool.clone(),
+        h.provider.clone(),
+        accounts,
+        PaymentFlags { enabled: true },
+    );
+    assert!(matches!(
+        payments
+            .ensure_intent(Uuid::now_v7(), Uuid::now_v7(), amount())
+            .await,
+        Err(Error::AccountDenied)
+    ));
+    assert_eq!(
+        h.count("payment_intents").await?,
+        0,
+        "restricted creation persisted"
+    );
+    h.finish().await
+}
+
+async fn browser_intent(h: &Harness, account: Uuid) -> Result<Intent, Box<dyn std::error::Error>> {
+    let intent = h.service(true).create_intent(account, amount()).await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'test-package',25,$3,$4,$1)")
+        .bind(intent.id).bind(account).bind(intent.amount.minor_units).bind(&intent.amount.currency).execute(&h.pool).await?;
+    Ok(intent)
+}
+
+async fn credit(h: &Harness, account: Uuid, operation: Uuid, coins: i64) -> TestResult {
+    let mut tx = h.pool.begin().await?;
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
+        .bind(account)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount,reference_id,reason) VALUES($1,'top_up',$2,$3,$2,$4)").bind(operation).bind(account).bind(coins).bind(format!("wallet-top-up:{operation}")).execute(&mut *tx).await?;
+    oteryn_wallet::credit_in(&mut tx, operation, account, coins).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn held_reversal(h: &Harness, account: Uuid) -> TestResult {
+    held_reversal_for(h, account, 25).await
+}
+
+async fn held_reversal_for(h: &Harness, account: Uuid, coins: i64) -> TestResult {
+    let order = Uuid::now_v7();
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$1,$3,100,'EUR',2,'testing',now(),now())").bind(order).bind(account).bind(coins).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code) VALUES ($1,$2,$1,$1,$1,$3,100,'EUR',2,'testing',$1,'processing','review')").bind(order).bind(account).bind(coins).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$1,$2,'chargeback','test',$1::uuid::text,$3,0,'held')").bind(order).bind(account).bind(coins).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')").bind(account).bind(order).execute(&h.pool).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn browser_delivered_chargeback() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    let intent = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    h.service(true).webhook(&body, &sig).await?;
+    credit(&h, account, intent.id, 25).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Chargeback))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::IllegalTransition)
+        ),
+        "delivered chargeback must be refused"
+    );
+    assert_eq!(
+        h.service(true).intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn browser_hold_after_repayment() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    held_reversal(&h, account).await?;
+    credit(&h, account, Uuid::now_v7(), 25).await?;
+    let intent = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::AccountDenied)
+        ),
+        "active purchase hold must block checkout"
+    );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn browser_checkout_repays_debt_at_ceiling() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    credit(&h, account, Uuid::now_v7(), oteryn_wallet::MAX_BALANCE).await?;
+    held_reversal(&h, account).await?;
+    sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+        .bind(account)
+        .execute(&h.pool)
+        .await?;
+    let intent = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Ok(WebhookOutcome::Applied)
+        ),
+        "debt-covered checkout must settle"
+    );
+    let second = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&second, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "pending checkouts cannot both use the same debt"
+    );
+    credit(&h, account, intent.id, 25).await?;
+    h.finish().await
+}
+
+#[tokio::test]
+async fn browser_pending_delivery_capacity() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    credit(&h, account, Uuid::now_v7(), oteryn_wallet::MAX_BALANCE - 25).await?;
+    let first = browser_intent(&h, account).await?;
+    let second = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&first, IntentState::Succeeded))?;
+    h.service(true).webhook(&body, &sig).await?;
+    let (body, sig) = h.signed(&h.event(&second, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "second checkout must be refused"
+    );
+    assert_eq!(h.count("invoices").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn restricted_browser_chargeback_before_delivery() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let intent = browser_intent(&h, Uuid::now_v7()).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    h.service(true).webhook(&body, &sig).await?;
+    h.accounts.0.store(PURCHASE_RESTRICTED, Ordering::SeqCst);
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Chargeback))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Ok(WebhookOutcome::Applied)
+        ),
+        "purchase restriction blocked undelivered chargeback"
+    );
+    h.accounts.0.store(0, Ordering::SeqCst);
+    assert_eq!(
+        h.service(true).intent(intent.id).await?.state,
+        IntentState::Chargeback
+    );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn reserved_browser_intent_checks_capacity() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    credit(&h, account, Uuid::now_v7(), oteryn_wallet::MAX_BALANCE).await?;
+    let intent = browser_intent(&h, account).await?;
+    sqlx::query("UPDATE store_web_topups SET intended_payment_intent_id=$1, payment_intent_id=NULL WHERE operation_id=$1").bind(intent.id).execute(&h.pool).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "reserved checkout bypassed wallet ceiling"
+    );
+    assert_eq!(h.count("invoices").await?, 0);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn checkout_respects_debt_settlement_limit() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    for _ in 0..129 {
+        held_reversal_for(&h, account, 1).await?;
+        sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+            .bind(account)
+            .execute(&h.pool)
+            .await?;
+    }
+    let intent = browser_intent(&h, account).await?;
+    sqlx::query("UPDATE store_web_topups SET coins=200 WHERE operation_id=$1")
+        .bind(intent.id)
+        .execute(&h.pool)
+        .await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "checkout exceeded delivery debt-row limit"
+    );
     h.finish().await
 }

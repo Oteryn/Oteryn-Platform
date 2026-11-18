@@ -376,17 +376,39 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
+    let mut csrf = request
+        .extensions()
+        .get::<crate::csrf::CsrfConfig>()
+        .cloned()
+        .unwrap_or_else(|| layer.csrf.clone());
+    // The login router knows both deployment origins. Bind logout to the
+    // configured origin matching this host, including the dedicated staff host.
+    if matches!(
+        request.uri().path(),
+        "/logout" | "/en/logout" | "/pl/logout"
+    ) {
+        let mut hosts = request.headers().get_all(header::HOST).iter();
+        if let Some(host) = hosts.next().and_then(|value| value.to_str().ok())
+            && hosts.next().is_none()
+        {
+            let https_origin = format!("https://{host}");
+            if let Some(origin) = layer
+                .csrf
+                .trusted_origins
+                .iter()
+                .find(|origin| origin.eq_ignore_ascii_case(&https_origin))
+            {
+                csrf.trusted_origins = vec![origin.clone()];
+            }
+        }
+    }
     let layer = SessionLayer {
         config: request
             .extensions()
             .get::<SessionConfig>()
             .copied()
             .unwrap_or(layer.config),
-        csrf: request
-            .extensions()
-            .get::<crate::csrf::CsrfConfig>()
-            .cloned()
-            .unwrap_or(layer.csrf),
+        csrf,
         pool: layer.pool,
     };
     match run(&layer, &mut request).await {

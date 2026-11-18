@@ -441,7 +441,11 @@ mod tests;
 /// §19.6.2 uses the §11.1 public classes; locator reports have no attempt_ref.
 async fn refusal_envelope(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
-    let (code, class) = match response.status() {
+    let status = match response.status() {
+        StatusCode::PAYLOAD_TOO_LARGE => StatusCode::BAD_REQUEST,
+        status => status,
+    };
+    let (code, class) = match status {
         StatusCode::BAD_REQUEST => ("NATIVE_LOGIN_REQUEST_MALFORMED", "RETRY_LOGIN"),
         StatusCode::UNAUTHORIZED => (
             "NATIVE_LOGIN_AUTHENTICATION_REQUIRED",
@@ -451,7 +455,6 @@ async fn refusal_envelope(request: Request, next: Next) -> Response {
         StatusCode::TOO_MANY_REQUESTS => ("NATIVE_LOGIN_RATE_LIMITED", "TEMPORARILY_UNAVAILABLE"),
         _ => return response,
     };
-    let status = response.status();
     let retry = response
         .headers()
         .get(axum::http::header::RETRY_AFTER)

@@ -79,7 +79,19 @@ pub trait Backend: Clone + Send + Sync + 'static {
         session: oteryn_web::session::BrowserSession,
         headers: &axum::http::HeaderMap,
     ) -> Self {
-        if super::trusted_navigation(headers) {
+        if super::trusted_navigation(headers)
+            && !["sec-purpose", "purpose"].iter().any(|name| {
+                headers.get_all(*name).iter().any(|value| {
+                    value
+                        .as_bytes()
+                        .split(|byte| !byte.is_ascii_alphanumeric())
+                        .any(|token| {
+                            token.eq_ignore_ascii_case(b"prefetch")
+                                || token.eq_ignore_ascii_case(b"prerender")
+                        })
+                })
+            })
+        {
             self.for_session(session)
         } else {
             self.clone()
@@ -430,7 +442,10 @@ where
         ),
     ] {
         let page = match area {
-            "players" => Router::new().route(path, get(super::players::page::<B>)),
+            "players" => Router::new().route(
+                path,
+                get(super::players::page::<B>).post(super::players::search::<B>),
+            ),
             "audit" => Router::new().route(path, get(super::audit::page::<B>)),
             "approvals" => Router::new().route(path, get(super::approvals::page::<B>)),
             _ => Router::new().route(path, get(page::<B>)),
@@ -525,6 +540,7 @@ pub(crate) struct Page {
     pub access: String,
     pub approvals: String,
     pub search: bool,
+    pub csrf: String,
     pub filters: bool,
     pub submit: String,
     pub query_label: String,
@@ -551,6 +567,7 @@ impl Page {
             access: tr(lang, "access"),
             approvals: tr(lang, "approvals"),
             search: false,
+            csrf: String::new(),
             filters: false,
             submit: tr(lang, "submit"),
             query_label: tr(lang, "query"),

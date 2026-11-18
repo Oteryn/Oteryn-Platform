@@ -356,6 +356,26 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     {
         return Err(Error::Conflict);
     }
+    // Before the first restore, an established BANK ledger cannot switch
+    // generations. Its cursor survives both payload and replay digest expiry.
+    if scope.family == "BANK" && restored == 0 {
+        let key = crate::store::stream_key(scope);
+        let (ledger, _) = key.rsplit_once('|').ok_or(Error::Invalid)?;
+        let changed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pd_streams
+            WHERE account_id=$1 AND authority=$2 AND family='BANK' AND stored_through>0
+            AND starts_with(stream_key,$3) AND stream_key<>$4)",
+        )
+        .bind(&scope.account)
+        .bind(&scope.authority)
+        .bind(format!("{ledger}|"))
+        .bind(&key)
+        .fetch_one(&mut *tx)
+        .await?;
+        if changed {
+            return Err(Error::Conflict);
+        }
+    }
     // A G-11 stream is bound to the account's current projection epoch; a G-10
     // cut's epoch is proven with its receipt below.
     if !items && let Some(epoch) = scope.epoch.as_deref() {
@@ -422,7 +442,7 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
             && (scope.family == "skull" || opt_counter(pr).ok() == Some(cut.to_projection_revision))
     };
     if exact {
-        Ok(Admission::Owner)
+        Ok(Admission::CharacterOwner(cut.character_revision))
     } else {
         Err(Error::Conflict)
     }

@@ -19,7 +19,7 @@ impl Retention {
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
                 .fetch_one(&mut *tx)
                 .await?;
-        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,purged_at=COALESCE(purged_at,$1) WHERE ctid IN (SELECT d.ctid FROM pd_g9_records d WHERE d.expires_at<=$1 AND d.canonical_bytes IS NOT NULL
+        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,expires_at=0,purged_at=COALESCE(purged_at,$1) WHERE ctid IN (SELECT d.ctid FROM pd_g9_records d WHERE d.expires_at<=$1 AND (d.canonical_bytes IS NOT NULL OR (d.purged_at IS NOT NULL AND d.expires_at<>0))
             AND (d.record_kind<>'RARE_DROP' OR NOT EXISTS (SELECT 1 FROM pd_g9_records s
                 WHERE s.source_authority=d.source_authority AND s.segment_id=d.segment_id
                 AND s.account_id=d.account_id AND s.stream_generation=d.stream_generation
@@ -53,6 +53,17 @@ impl Retention {
             .bind(now-120*86400000_i64).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_records WHERE ctid IN (SELECT r.ctid FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE r.source_revision<=s.retention_floor LIMIT 512 FOR UPDATE OF r SKIP LOCKED)")
             .execute(&mut *tx).await?;
+        // Character erasure clears scope_key and sets expires_ms to the purge
+        // time plus 89 days. Keep the shared account cursor and its live rows.
+        sqlx::query(
+            "DELETE FROM pd_records WHERE ctid IN (
+            SELECT r.ctid FROM pd_records r JOIN pd_streams s USING(stream_key)
+            WHERE s.progress AND NOT s.erased AND r.scope_key='' AND r.payload IS NULL
+            AND r.expires_ms<=$1 LIMIT 512 FOR UPDATE OF r SKIP LOCKED)",
+        )
+        .bind(now - 31 * 86400000_i64)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM pd_deleted_scopes WHERE ctid IN (SELECT ctid FROM pd_deleted_scopes WHERE expires_ms<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_conflicts WHERE ctid IN (SELECT ctid FROM pd_conflicts WHERE expires_ms<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")
@@ -76,26 +87,35 @@ impl Retention {
             Arc::new(UnavailableAuthority),
             Flags::default(),
         );
-        // Erasure is idempotent. A crash before deleting the job repeats the purge;
-        // new jobs remain visible even while ingestion is disabled.
-        let mut tx = self.0.begin().await?;
-        let jobs = sqlx::query(
-            "SELECT id,account_id,character_id,closed_revision::text FROM pd_erasure_jobs ORDER BY id LIMIT 32 FOR UPDATE SKIP LOCKED",
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        let now: i64 =
-            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
-                .fetch_one(&self.0)
+        // Visit each candidate once. Commit a job's view cleanup before claiming
+        // the next job, even when this pass leaves more records for a later run.
+        let candidates: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM pd_erasure_jobs ORDER BY id LIMIT 32")
+                .fetch_all(&self.0)
                 .await?;
-        for job in jobs {
+        for id in candidates {
+            let mut tx = self.0.begin().await?;
+            let Some(job) = sqlx::query(
+                "SELECT account_id,character_id,closed_revision::text,
+                    floor(extract(epoch FROM created_at)*1000)::bigint AS job_ms,
+                    floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms
+                FROM pd_erasure_jobs WHERE id=$1 FOR UPDATE SKIP LOCKED",
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            else {
+                continue;
+            };
             let account: String = job.try_get("account_id")?;
             let character: Option<String> = job.try_get("character_id")?;
             let time = TrustedTime {
-                unix_ms: now as u64,
+                unix_ms: job.try_get::<i64, _>("now_ms")? as u64,
                 uncertainty_ms: 0,
             };
-            let result = if let Some(character) = character.as_deref() {
+            let limit = Some(512_i64);
+            let requested_ms = job.try_get("job_ms")?;
+            let journal_done = if let Some(character) = character.as_deref() {
                 store
                     .erase_character_cut(
                         &account,
@@ -103,12 +123,16 @@ impl Retention {
                         time,
                         job.try_get::<Option<String>, _>("closed_revision")?
                             .as_deref(),
+                        limit,
+                        requested_ms,
                     )
                     .await
             } else {
-                store.erase_account(&account, time).await
-            };
-            result.map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                store
+                    .erase_account_batch(&account, time, limit, requested_ms)
+                    .await
+            }
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
             let account_id = uuid::Uuid::parse_str(&account)
                 .map_err(|_| sqlx::Error::Protocol("invalid erasure account".into()))?;
             let character_id = character
@@ -116,16 +140,33 @@ impl Retention {
                 .map(uuid::Uuid::parse_str)
                 .transpose()
                 .map_err(|_| sqlx::Error::Protocol("invalid erasure character".into()))?;
-            crate::items::store::erase_scope(&mut tx, account_id, character_id).await?;
-            crate::deaths::storage::erase_scope(&mut tx, account_id, character_id).await?;
-            sqlx::query("DELETE FROM pd_game_logins WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
-                .bind(account_id).bind(character_id).execute(&mut *tx).await?;
-            sqlx::query("DELETE FROM pd_erasure_jobs WHERE id=$1")
-                .bind(job.try_get::<i64, _>("id")?)
-                .execute(&mut *tx)
-                .await?;
+            let items_done = crate::items::store::erase_scope(
+                &mut tx,
+                account_id,
+                character_id,
+                limit,
+                Some(requested_ms),
+            )
+            .await?;
+            let deaths_done = crate::deaths::storage::erase_scope(
+                &mut tx,
+                account_id,
+                character_id,
+                limit,
+                requested_ms,
+            )
+            .await?;
+            let removed = sqlx::query("DELETE FROM pd_game_logins WHERE ctid IN (SELECT ctid FROM pd_game_logins WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2) LIMIT $3 FOR UPDATE)")
+                .bind(account_id).bind(character_id).bind(limit).execute(&mut *tx).await?.rows_affected();
+            if journal_done && items_done && deaths_done && limit.is_none_or(|n| removed < n as u64)
+            {
+                sqlx::query("DELETE FROM pd_erasure_jobs WHERE id=$1")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            tx.commit().await?;
         }
-        tx.commit().await?;
         Ok(())
     }
 }

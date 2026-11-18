@@ -103,10 +103,13 @@ fn visible(s: &str, max: usize) -> bool {
 
 /// The Go outer router uses the last duplicate member and the literal integer spelling.
 pub fn is_native(body: &[u8]) -> bool {
+    login_version(body) == Some(2)
+}
+pub(crate) fn login_version(body: &[u8]) -> Option<i64> {
     serde_json::from_slice::<std::collections::HashMap<String, Box<RawValue>>>(body)
         .ok()
         .and_then(|mut m| m.remove("protocol_version"))
-        .is_some_and(|v| v.get() == "2")
+        .and_then(|v| v.get().parse().ok())
 }
 pub fn attempt_echo(body: &[u8]) -> Option<String> {
     if body.is_empty() || body.len() > MAX_REQUEST_BYTES {

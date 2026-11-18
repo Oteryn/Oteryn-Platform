@@ -80,8 +80,10 @@ struct ExistingPayload {
 }
 impl Mailer {
     async fn prepare_existing(&self, payload: &ExistingPayload) -> Result<Option<Message>, String> {
+        // Primary email changes permanently advance the hold from its initial -infinity.
+        // A legacy payload has no address to match once that has happened.
         let account: Option<(String, String)> = sqlx::query_as(
-            "SELECT email,locale FROM accounts WHERE id=$1 AND ($2::text IS NULL OR lower(email)=$2) AND status IN ('active','pending_verification','suspended')"
+            "SELECT email,locale FROM accounts WHERE id=$1 AND (lower(email)=$2 OR ($2::text IS NULL AND email_change_blocked_until='-infinity')) AND status IN ('active','pending_verification','suspended')"
         ).bind(payload.account_id).bind(&payload.email).fetch_optional(&self.pool).await
             .map_err(|_| "account-exists delivery unavailable")?;
         let Some((email, locale)) = account else {
@@ -289,11 +291,15 @@ mod account_exists_tests {
         let legacy: ExistingPayload =
             serde_json::from_value(serde_json::json!({"account_id": id, "locale": "en"}))?;
         assert!(mailer.prepare_existing(&legacy).await?.is_some());
-        sqlx::query("UPDATE accounts SET email='changed@example.test' WHERE id=$1")
+        sqlx::query("UPDATE accounts SET email='changed@example.test',email_change_blocked_until=now()-interval '1 day' WHERE id=$1")
             .bind(id)
             .execute(&db.pool)
             .await?;
         assert!(mailer.prepare_existing(&payload).await?.is_none());
+        assert!(
+            mailer.prepare_existing(&legacy).await?.is_none(),
+            "legacy notice targets replacement address"
+        );
         sqlx::query(
             "UPDATE accounts SET email='existing@example.test',status='closed' WHERE id=$1",
         )

@@ -213,6 +213,7 @@ fn decode(raw: &[u8], max: usize) -> Result<Value> {
     require(!raw.contains(&b'\\') && canonical::encode(&v).map_err(|_| Error::Invalid)? == raw)?;
     Ok(v)
 }
+pub const PROGRESS_GROUP: &str = "playerdata-journal-progress";
 pub const PROGRESS_FAMILIES: &str = "bestiary boss_cooldown quest achievement skill_history death_recap pvp skull stamina premium_end game_login";
 pub fn progress(raw: &[u8]) -> Result<Record> {
     let v = decode(raw, 262144)?;
@@ -404,10 +405,15 @@ fn progress_payload(scope: &Scope, entity: &str, p: &Value) -> Result<()> {
                     "magic fist club sword axe distance shielding fishing",
                 )?;
                 let min = if skill == "magic" { 0 } else { 10 };
-                num(t, "level_before", min, 1000)?;
-                num(t, "level_after", min, 1000)?;
-                dec(t, "progress_before", 0, i64::MAX as u64)?;
-                dec(t, "progress_after", 0, i64::MAX as u64)?;
+                let before = (
+                    num(t, "level_before", min, 1000)?,
+                    dec(t, "progress_before", 0, i64::MAX as u64)?,
+                );
+                let after = (
+                    num(t, "level_after", min, 1000)?,
+                    dec(t, "progress_after", 0, i64::MAX as u64)?,
+                );
+                require(before != after)?;
             }
         }
         "death_recap" => {
@@ -561,11 +567,6 @@ pub fn cursor(raw: &[u8]) -> Result<Scope> {
 }
 pub fn items(raw: &[u8]) -> Result<Record> {
     let v = decode(raw, 65536)?;
-    // G-9 revision 3 has its own codec and purpose-bound transport. Never
-    // reinterpret a G-9 envelope as G-10 ownership/custody evidence.
-    if v.get("stream_generation").is_some() {
-        return Err(Error::Unavailable);
-    }
     fields(
         &v,
         "contract_version operation source_authority account_id world_id character_id character_revision from_projection_revision to_projection_revision projection_epoch family recovery_generation source_revision record_id occurred_at coverage_start_at kind payload",
@@ -619,7 +620,7 @@ fn items_payload(scope: &Scope, kind: &str, p: &Value) -> Result<String> {
             id(p, "operation_occurrence_id")?;
             id(p, "event_id")?;
             let entry = id(p, "entry_id")?;
-            opt_id(p, "previous_entry_id")?;
+            require(opt_id(p, "previous_entry_id")?.as_ref() != Some(&entry))?;
             let kind = s(p, "kind")?;
             one(kind, "DEPOSIT WITHDRAW TRANSFER")?;
             let direction = s(p, "direction")?;

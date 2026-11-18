@@ -132,7 +132,11 @@ fn validation_denies_every_unsupported_authorization_parameter() -> TestResult {
         "http://127.0.0.1:43210/callback#fragment",
         "https://user@host/callback",
     ] {
-        assert!(!config().redirect("native-test", uri));
+        assert!(!config().redirect("native-test", uri, str::eq));
+        assert_eq!(
+            config().redirect("native-test", uri, registered_redirect),
+            uri == "http://127.0.0.1:43211/callback"
+        );
     }
     let mut c = config();
     c.clients.push(c.clients[0].clone());
@@ -1067,5 +1071,57 @@ async fn regression_consent_scopes() -> TestResult {
             );
         }
     }
+    db.close().await
+}
+
+#[test]
+fn authorization_accepts_loopback_port_changes() {
+    for host in ["127.0.0.1", "[::1]"] {
+        let mut c = config();
+        c.clients[0].redirect_uris = vec![format!("http://{host}:43210/callback")];
+        let mut a = authorization();
+        a.redirect_uri = format!("http://{host}:51234/callback");
+        assert!(a.valid(&c), "loopback port change rejected");
+        a.redirect_uri = format!("http://{host}:51234/other/../callback");
+        assert!(!a.valid(&c));
+    }
+}
+
+#[test]
+fn enrollment_refuses_unsupported_client_uuid() {
+    let mut c = config();
+    for id in [
+        Uuid::nil(),
+        Uuid::from_u128(0x90008000000000000000),
+        Uuid::from_u128(0x40000000000000000000),
+    ] {
+        c.clients[0].client_id = id.to_string();
+        assert!(
+            !native_client(&c, id),
+            "unsupported enrollment client accepted: {id}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn postgres_code_exchange_on_selected_loopback_port() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let account = db.account().await?;
+    let mut a = authorization();
+    a.redirect_uri = "http://127.0.0.1:51234/callback".into();
+    let code = authorize(&db.pool, &config(), account, &a).await?;
+    let mut input = TokenRequest {
+        code,
+        ..code_request()
+    };
+    input.redirect_uri = "http://127.0.0.1:51235/callback".into();
+    assert_eq!(
+        exchange(&db.pool, &config(), &input).await.err(),
+        Some(Error::InvalidRequest)
+    );
+    input.redirect_uri = a.redirect_uri;
+    exchange(&db.pool, &config(), &input).await?;
     db.close().await
 }

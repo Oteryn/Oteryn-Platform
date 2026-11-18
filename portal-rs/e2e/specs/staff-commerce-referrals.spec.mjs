@@ -8,6 +8,9 @@ test('referral link binds a newly registered invitee; self-referral refused',asy
  try {
   // Inline Askama Page and routes in community/src/referrals/web.rs.
   await page.goto(`/${lang}/account/referrals`);
+  const links=await db.query('SELECT count(*)::int n FROM referral_links l JOIN accounts a ON a.id=l.account_id WHERE a.email=$1',[a.email]);
+  expect(links.rows[0].n,'viewing referrals does not create a link').toBe(0);
+  await page.locator('button[name=kind][value=link]').click();
   const link=await page.locator('#invite-link').inputValue();
   await page.goto(link);
   const csrf=await page.locator('main [name="_csrf"]').inputValue();

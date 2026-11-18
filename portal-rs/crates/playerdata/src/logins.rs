@@ -403,19 +403,25 @@ impl Logins {
     pub async fn remove(
         tx: &mut Transaction<'_, Postgres>,
         account: Uuid,
+        character: Option<Uuid>,
         occurrence: Uuid,
     ) -> Result<()> {
-        sqlx::query("DELETE FROM pd_game_logins WHERE account_id=$1 AND login_event_id=$2")
+        sqlx::query("DELETE FROM pd_game_logins WHERE account_id=$1 AND login_event_id=$2 AND character_id IS NOT DISTINCT FROM $3")
             .bind(account)
             .bind(occurrence)
+            .bind(character)
             .execute(&mut **tx)
             .await?;
         Ok(())
     }
     /// Run in the owning retention worker; reads also enforce the exact 30-day cap.
     pub async fn purge_expired(&self) -> Result<u64> {
-        Ok(sqlx::query("DELETE FROM pd_game_logins WHERE entered_at < (extract(epoch FROM clock_timestamp())*1000)::bigint - 2592000000").execute(&self.pool).await?.rows_affected())
+        purge_expired(&self.pool).await
     }
+}
+
+async fn purge_expired(pool: &PgPool) -> Result<u64> {
+    Ok(sqlx::query("DELETE FROM pd_game_logins WHERE ctid IN (SELECT ctid FROM pd_game_logins WHERE entered_at < (extract(epoch FROM statement_timestamp())*1000)::bigint - 2592000000 ORDER BY entered_at LIMIT 512 FOR UPDATE SKIP LOCKED)").execute(pool).await?.rows_affected())
 }
 
 impl std::fmt::Display for Error {
@@ -430,7 +436,9 @@ pub struct Retention(pub PgPool);
 impl oteryn_db::outbox::Cleanup for Retention {
     fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
         Box::pin(async move {
-            sqlx::query("DELETE FROM pd_game_logins WHERE entered_at < (extract(epoch FROM clock_timestamp())*1000)::bigint - 2592000000").execute(&self.0).await.map_err(|_| "login retention unavailable".to_owned())?;
+            purge_expired(&self.0)
+                .await
+                .map_err(|_| "login retention unavailable".to_owned())?;
             Ok(())
         })
     }

@@ -21,9 +21,11 @@ use oteryn_web::{
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::net::SocketAddr;
-const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
+pub(crate) const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
+const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 const FAILED: SessionKey<bool> = SessionKey::new("mfa_failed");
-const GRANT: SessionKey<String> = SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
+pub(crate) const GRANT: SessionKey<String> =
+    SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
 const TRUSTED: &str = "__Host-oteryn_mfa_device";
 #[derive(Clone)]
 struct Context {
@@ -74,14 +76,18 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
             .route(&format!("{prefix}/mfa/devices"), post(remove_device));
     }
+    let admin_host = std::env::var("OTERYN_ADMIN_HOST").ok().filter(|host| {
+        std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|flag| flag == "true")
+            && host.parse::<axum::http::uri::Authority>().is_ok()
+    });
     let routes = routes
         .route_layer(axum::middleware::from_fn_with_state(
             context.mfa.clone(),
             audit_account_refusal,
         ))
         .route_layer(axum::middleware::from_fn_with_state(
-            sessions,
-            session::middleware,
+            (sessions, admin_host),
+            mfa_session,
         ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
         .with_state(context);
@@ -89,6 +95,26 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     Router::new()
         .fallback_service(app.merge(oteryn_web::ratelimit::finish_routes(routes)))
         .layer(axum::middleware::from_fn(rewrite_login))
+}
+async fn mfa_session(
+    State((layer, admin_host)): State<(SessionLayer, Option<String>)>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let mut hosts = request.headers().get_all(header::HOST).iter();
+    if let Some(host) = admin_host
+        && hosts
+            .next()
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.eq_ignore_ascii_case(&host))
+        && hosts.next().is_none()
+    {
+        // The outer router can supply its public CSRF policy via an extension.
+        // Keep its other settings while selecting the dedicated host's origin.
+        let csrf = request.extensions_mut().get_or_insert(layer.csrf.clone());
+        csrf.trusted_origins = vec![format!("https://{}", host.to_ascii_lowercase())];
+    }
+    session::middleware(State(layer), request, next).await
 }
 async fn audit_account_refusal(
     State(mfa): State<Mfa>,
@@ -277,6 +303,9 @@ async fn show_challenge(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_some() {
+        return Ok(redirect(language, "/"));
+    }
     if pending(&context, &session).await?.is_none() {
         return Ok(redirect(language, "/login"));
     }
@@ -448,9 +477,17 @@ async fn login(
         let target = crate::login_http::pending_return(&session)
             .await
             .map_err(unavailable)?;
+        let referral = if session.account_id().await.is_none() {
+            session.get(REFERRAL).await.map_err(unavailable)?
+        } else {
+            None
+        };
         session::rotate(&session, PrivilegeChange::Logout)
             .await
             .map_err(unavailable)?;
+        if let Some(code) = referral {
+            session.set(REFERRAL, &code).await.map_err(unavailable)?;
+        }
         crate::login_http::keep_return(&session, target)
             .await
             .map_err(unavailable)?;
@@ -517,6 +554,9 @@ async fn challenge(
     headers: HeaderMap,
     form: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_some() {
+        return Ok(redirect(language, "/"));
+    }
     let limiter = supplied
         .map(|v| v.0)
         .unwrap_or_else(|| context.limiter.clone());
@@ -579,6 +619,9 @@ async fn email(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    if session.account_id().await.is_some() {
+        return Ok(redirect(language, "/"));
+    }
     let limiter = supplied
         .map(|v| v.0)
         .unwrap_or_else(|| context.limiter.clone());
@@ -665,6 +708,14 @@ pub(crate) async fn send_email(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(())
 }
+async fn settings_mode(mfa: &Mfa, id: uuid::Uuid) -> Result<&'static str, StatusCode> {
+    Ok(if mfa.enrolled(id).await.map_err(unavailable)? {
+        "enabled"
+    } else {
+        "settings"
+    })
+}
+
 async fn settings(
     State(context): State<Context>,
     Extension(language): Extension<Language>,
@@ -678,15 +729,10 @@ async fn settings(
     } else {
         vec![]
     };
-    let mode = if context.mfa.enrolled(id).await.map_err(unavailable)? {
-        "enabled"
-    } else {
-        "settings"
-    };
     page(
         language,
         &session,
-        mode,
+        settings_mode(&context.mfa, id).await?,
         false,
         String::new(),
         vec![],
@@ -858,7 +904,7 @@ async fn remove_device(
     page(
         language,
         &session,
-        "settings",
+        settings_mode(&context.mfa, id).await?,
         !removed,
         String::new(),
         vec![],

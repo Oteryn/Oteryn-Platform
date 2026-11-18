@@ -122,6 +122,11 @@ async fn postgres_character_history_privacy_and_comparison()
     .execute(&db)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261117230011_r9_sta.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
     ))
     .execute(&db)
@@ -137,7 +142,7 @@ async fn postgres_character_history_privacy_and_comparison()
                 &store::Snapshot {
                     character_ref: id,
                     day: day() + Duration::days(i),
-                    level: 10 + i,
+                    level: u64::try_from(10 + i)?,
                     experience: Some((100 + i * 100).to_string()),
                     skills: Some(json!({"sword_level":20})),
                     achievement_points: Some(999),
@@ -316,6 +321,11 @@ async fn postgres_comparison_rejects_revoked_disclosures() -> Result<(), Box<dyn
         .await?;
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261105210000_t65_statistics.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261117230011_r9_sta.sql"
     ))
     .execute(&db)
     .await?;

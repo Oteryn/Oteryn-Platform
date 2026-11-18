@@ -27,6 +27,8 @@ impl Authority {
         let mut parties = vec![id(text(&i.value, "seller_account_id")?)?];
         if let Some(Value::String(buyer)) = i.value.get("buyer_account_id") {
             parties.push(id(buyer)?);
+        } else if i.command == Command::Bind && text(&i.value, "purpose")? == "BAZAAR_SETTLEMENT" {
+            parties.push(super::runtime::characters::settlement_buyer(db, &i).await?);
         }
         parties.sort();
         parties.dedup();
@@ -194,8 +196,17 @@ impl Authority {
         db: &mut sqlx::PgConnection,
         listing: Uuid,
     ) -> Result<Option<(Uuid, Uuid)>, Error> {
-        let transfer: Option<Uuid> = sqlx::query_scalar("SELECT operation_id FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT' ORDER BY source_revision DESC LIMIT 1")
-            .bind(listing).fetch_optional(&mut *db).await?;
+        self.bind_refused(db, listing, "BAZAAR_SETTLEMENT").await
+    }
+
+    pub(crate) async fn bind_refused(
+        &self,
+        db: &mut sqlx::PgConnection,
+        listing: Uuid,
+        purpose: &str,
+    ) -> Result<Option<(Uuid, Uuid)>, Error> {
+        let transfer: Option<Uuid> = sqlx::query_scalar("SELECT operation_id FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose=$2 ORDER BY source_revision DESC LIMIT 1")
+            .bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
         let Some(transfer) = transfer else {
             return Ok(None);
         };
@@ -209,7 +220,7 @@ impl Authority {
         };
         if receipt.committed
             || text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED"
-            || text(&intent.value, "purpose")? != "BAZAAR_SETTLEMENT"
+            || text(&intent.value, "purpose")? != purpose
         {
             return Ok(None);
         }
@@ -218,10 +229,29 @@ impl Authority {
         if text(&intent.value, "transfer_binding_digest")? != super::game_wire::digest(&raw) {
             return Err(Error::Denied);
         }
-        // No settlement leg of this listing may ever have been published or
-        // bound: a published transfer can still execute in Game.
-        let executable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_all_transfers t JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose='BAZAAR_SETTLEMENT') OR EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=$1 AND o.command='BindBazaarCharacterTransfer' AND o.intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT' AND r.outcome='COMMITTED')")
-            .bind(listing).fetch_one(&mut *db).await?;
+        // A published or bound leg can still execute unless reconciliation
+        // retired it against its own current-generation terminal rejection.
+        let executable: bool = sqlx::query_scalar(
+            "WITH candidates(operation_id) AS (
+                SELECT t.operation_id FROM bazaar_all_transfers t
+                JOIN character_commands c ON c.id=t.operation_id
+                WHERE t.listing_id=$1 AND t.purpose=$3
+                UNION ALL
+                SELECT (o.intent::jsonb->>'transfer_operation_id')::uuid
+                FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
+                WHERE o.listing_id=$1 AND o.command='BindBazaarCharacterTransfer'
+                  AND o.intent::jsonb->>'purpose'=$3 AND r.outcome='COMMITTED'
+            )
+            SELECT EXISTS(SELECT 1 FROM candidates c WHERE NOT EXISTS(
+                SELECT 1 FROM bazaar_authority_transfer_retirements t
+                WHERE t.operation_id=c.operation_id AND t.evidence_operation_id=t.operation_id
+                  AND t.recovery_generation=$2::text::numeric))",
+        )
+        .bind(listing)
+        .bind(self.fence.recovery_generation.to_string())
+        .bind(purpose)
+        .fetch_one(&mut *db)
+        .await?;
         if executable {
             return Ok(None);
         }
@@ -269,6 +299,10 @@ impl Authority {
         };
         sqlx::query("INSERT INTO bazaar_authority_compensations(listing_id,return_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING")
             .bind(listing.id).bind(id(text(&returning.value, "operation_id")?)?).bind(self.fence.recovery_generation.to_string()).execute(&mut *db).await?;
+        sqlx::query("DELETE FROM bazaar_moderation_holds WHERE listing_id=$1")
+            .bind(listing.id)
+            .execute(&mut *db)
+            .await?;
         sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1 AND state='awaiting_delivery'")
             .bind(listing.id).execute(db).await?;
         Ok(())

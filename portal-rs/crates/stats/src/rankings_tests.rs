@@ -36,6 +36,11 @@ async fn database() -> Result<Option<PgPool>> {
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261117230011_r9_sta.sql"
+    ))
+    .execute(&db)
+    .await?;
     Ok(Some(db))
 }
 async fn dispose(db: PgPool) -> Result {

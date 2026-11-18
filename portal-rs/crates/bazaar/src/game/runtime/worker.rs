@@ -213,6 +213,25 @@ impl Runtime {
                 {
                     self.compensate_bind(&mut tx, &l).await?;
                 }
+                if receipt.command == Command::Bind
+                    && l.kind == Kind::Character
+                    && l.state == State::Draft
+                    && let Some((bind, transfer)) = self
+                        .authority()
+                        .bind_refused(&mut tx, id, "BAZAAR_LISTING_ESCROW")
+                        .await?
+                {
+                    self.retire_refused_bind(&mut tx, bind, transfer).await?;
+                    if self
+                        .latest(&mut tx, id, Command::Unlock)
+                        .await?
+                        .is_some_and(|(_, receipt)| receipt.committed)
+                    {
+                        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
+                    } else {
+                        self.unlock(&mut tx, &l).await?;
+                    }
+                }
                 tx.commit().await?;
                 return Ok(());
             }
@@ -459,17 +478,26 @@ impl Runtime {
         else {
             return Ok(());
         };
-        sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
-            .execute(&mut **tx)
-            .await?;
-        sqlx::query("INSERT INTO bazaar_authority_transfer_retirements(operation_id,evidence_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING")
-            .bind(transfer).bind(bind).bind(self.config.fence.recovery_generation.to_string()).execute(&mut **tx).await?;
+        self.retire_refused_bind(tx, bind, transfer).await?;
         self.transfer(tx, l, "BAZAAR_ESCROW_RETURN", None).await?;
         if !self.authority().compensation_ready(tx, l).await? || !self.refund(tx, l).await? {
             return Ok(());
         }
         self.authority().finish_compensation(tx, l).await?;
         self.unlock(tx, l).await
+    }
+    async fn retire_refused_bind(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        bind: Uuid,
+        transfer: Uuid,
+    ) -> Result<(), Error> {
+        sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("INSERT INTO bazaar_authority_transfer_retirements(operation_id,evidence_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING")
+            .bind(transfer).bind(bind).bind(self.config.fence.recovery_generation.to_string()).execute(&mut **tx).await?;
+        Ok(())
     }
     /// Release the buyer's funds after a proven compensation. Returns false
     /// while a Gold release is still awaiting its Game receipt.
@@ -817,7 +845,7 @@ fn funding(s: &Settlement) -> Value {
 
 pub(crate) async fn listing_batch(pool: &PgPool, generation: u64) -> Result<Vec<Uuid>, Error> {
     let cursor = crate::scheduling::cursor(pool, "listings").await?;
-    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR (l.state='active' AND a.cancel_requested) OR l.state='awaiting_delivery' OR EXISTS(SELECT 1 FROM bazaar_game_outbox cleanup WHERE cleanup.listing_id=l.id AND cleanup.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold'))) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state IN ('completed','cancelled') AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE (a.refusal_code IS NULL OR (l.state='draft' AND l.kind='character' AND EXISTS(SELECT 1 FROM bazaar_game_outbox b WHERE b.listing_id=l.id AND b.command='BindBazaarCharacterTransfer')) OR (l.state='active' AND a.cancel_requested) OR l.state='awaiting_delivery' OR EXISTS(SELECT 1 FROM bazaar_game_outbox cleanup WHERE cleanup.listing_id=l.id AND cleanup.command IN ('ReturnBazaarItem','UnlockBazaarCharacter','PayoutBazaarGold'))) AND (l.state IN ('draft','awaiting_delivery') OR (l.state='active' AND (l.ends_at<=now() OR a.cancel_requested)) OR (l.state IN ('completed','cancelled') AND l.kind='character' AND NOT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.listing_id=l.id AND o.command='UnlockBazaarCharacter' AND r.outcome='COMMITTED' AND r.recovery_generation=$1::text::numeric AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation)))) ORDER BY (l.id <= $2),l.id LIMIT 24").bind(generation.to_string()).bind(cursor).fetch_all(pool).await?;
     if let Some(last) = ids.last() {
         crate::scheduling::advance(pool, "listings", *last).await?;
     }

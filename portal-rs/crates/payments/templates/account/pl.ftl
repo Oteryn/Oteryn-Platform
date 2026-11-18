@@ -22,3 +22,4 @@ pending = Oczekująca
 succeeded = Opłacona
 failed = Nieudana
 refunded = Zwrócona
+chargeback = Obciążenie zwrotne

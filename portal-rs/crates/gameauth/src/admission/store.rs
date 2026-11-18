@@ -117,6 +117,7 @@ impl From<Error> for Refusal {
         }
     }
 }
+#[cfg(test)]
 pub(super) async fn admit(
     pool: &PgPool,
     request: &AdmissionRequest,
@@ -125,21 +126,20 @@ pub(super) async fn admit(
     signer: Option<&dyn GrantSigner>,
     protocol3: Option<&protocol3::Protocol3>,
 ) -> Result<Vec<u8>, Refusal> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        admit_inner(pool, request, accounts, authority, signer, protocol3),
+    finish_attempt(
+        tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+        prepare_admission(pool, request, accounts, authority, signer, protocol3),
     )
     .await
-    .map_err(|_| Refusal::from(Error::Unavailable))?
 }
-async fn admit_inner(
+pub(super) async fn prepare_admission(
     pool: &PgPool,
     request: &AdmissionRequest,
     accounts: &dyn AccountStateLookup,
     authority: &dyn AdmissionAuthority,
     signer: Option<&dyn GrantSigner>,
     protocol3: Option<&protocol3::Protocol3>,
-) -> Result<Vec<u8>, Refusal> {
+) -> Result<PreparedAttempt, Refusal> {
     // Protocol 3 is decoded only while its switch is on (§19.1).
     let v3 = match (request.protocol, protocol3) {
         (2, _) => None,
@@ -199,7 +199,10 @@ async fn admit_inner(
         if input.matches('.').count() != 1 {
             let response = finish_replay(&mut tx, v3, request, &body, response).await?;
             let response = final_validity(&mut tx, request, &response, expires).await?;
-            return commit_replay(tx, v3, response).await;
+            return Ok(PreparedAttempt {
+                commit: v3.map(|_| tx),
+                response,
+            });
         }
         let signer = signer.ok_or(Error::ReconciliationRequired)?;
         signer
@@ -219,7 +222,10 @@ async fn admit_inner(
         let response = wire::with_token(&response, &token)?;
         let response = finish_replay(&mut tx, v3, request, &body, response).await?;
         let response = final_validity(&mut tx, request, &response, expires).await?;
-        return commit_replay(tx, v3, response).await;
+        return Ok(PreparedAttempt {
+            commit: v3.map(|_| tx),
+            response,
+        });
     }
     // One attempt_ref namespace with §19.4 recoveries, under the same lock.
     let recovered: bool =
@@ -321,10 +327,10 @@ async fn admit_inner(
         .bind(request.attempt_ref).bind(request.ticket_hash()).bind(request.digest()).bind(account.id).bind(&stored).bind(material.expires_at_ms)
         .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     let response = final_validity(&mut tx, request, &response, material.expires_at_ms).await?;
-    tx.commit()
-        .await
-        .map_err(|_| Error::ReconciliationRequired)?;
-    response.finish().map_err(Into::into)
+    Ok(PreparedAttempt {
+        commit: Some(tx),
+        response,
+    })
 }
 /// A protocol 3 retry recomputes `channels` and replaces the attempt's handle
 /// (§19.2.4, §19.3), committing the replacement; protocol 2 is unchanged.
@@ -338,12 +344,13 @@ async fn finish_replay(
     let Some(settings) = v3 else {
         return Ok(response);
     };
-    let (world, _, _) = wire::scope(stored)?;
+    let (world, channel, endpoint) = wire::scope(stored)?;
     let recovery = protocol3::replace(&mut *tx, settings.handles, request.attempt_ref).await?;
     let channels = protocol3::channels(&mut *tx, settings, world).await?;
     if channels.is_empty() {
         return Err(Error::RouteUnavailable);
     }
+    super::grant::unshared(tx, world, channel, &endpoint).await?;
     let body = wire::success3(
         &response,
         request.channel_id.is_none(),
@@ -352,18 +359,30 @@ async fn finish_replay(
     )?;
     Ok(body)
 }
-/// A protocol 3 retry commits its handle replacement; protocol 2 commits nothing.
-async fn commit_replay(
-    tx: sqlx::Transaction<'_, sqlx::Postgres>,
-    v3: Option<&protocol3::Protocol3>,
-    response: PreparedResponse,
-) -> Result<Vec<u8>, Refusal> {
-    if v3.is_some() {
-        tx.commit()
+pub(super) struct PreparedAttempt {
+    pub commit: Option<sqlx::Transaction<'static, sqlx::Postgres>>,
+    pub response: PreparedResponse,
+}
+
+/// The issuer deadline covers both phases. Once COMMIT is in flight the
+/// database may have consumed the ticket even if its acknowledgement is late.
+pub(super) async fn finish_attempt<E: From<Error>>(
+    deadline: tokio::time::Instant,
+    prepare: impl StdFuture<Output = Result<PreparedAttempt, E>>,
+) -> Result<Vec<u8>, E> {
+    let attempt = tokio::time::timeout_at(deadline, prepare)
+        .await
+        .map_err(|_| Error::Unavailable)??;
+    if let Some(tx) = attempt.commit {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(Error::Unavailable.into());
+        }
+        tokio::time::timeout_at(deadline, tx.commit())
             .await
+            .map_err(|_| Error::ReconciliationRequired)?
             .map_err(|_| Error::ReconciliationRequired)?;
     }
-    response.finish().map_err(Into::into)
+    attempt.response.finish().map_err(Into::into)
 }
 /// §19.2.5 candidates of the Character's World, read in the refused transaction
 /// after the authority's character checks passed.

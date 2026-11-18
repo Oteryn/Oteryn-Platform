@@ -422,7 +422,7 @@ impl Access for Target {
         Box::pin(async move { Ok(self.character == character && self.world == world) })
     }
 }
-const CATALOG: &[u8] = br#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
+const CATALOG: &[u8] = br#"{"contract_version":1,"offers":[{"offer_key":"potion-pack-10","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.store.item_grant","product_version":"2","unit_kind":"ITEM","grant_key":"item:great_health_potion","grant_revision":"12","quantity":10}]}]}"#;
 async fn catalog(
     domain: &Domain<Policy, Policy, Policy>,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -454,7 +454,7 @@ async fn postgres_purchase_uses_quote_ownership_and_domain_idempotency() -> Test
             environment: "testing".into(),
             source_authority: "shop-test".into(),
             peer_identity: "shop-test-peer".into(),
-            enabled_unit_kinds: vec!["PREMIUM_TIME".into()],
+            enabled_unit_kinds: vec!["ITEM".into()],
             ..Default::default()
         },
         domain(db.pool.clone()).wallet,
@@ -464,7 +464,7 @@ async fn postgres_purchase_uses_quote_ownership_and_domain_idempotency() -> Test
     let (cookie, csrf) = session(&db.pool, buyer).await?;
     let key = Uuid::now_v7();
     let form = format!(
-        "_csrf={csrf}&operation={key}&character={character}&world={world}&revision={revision}&offer=premium-30d&price=250&quantity=1"
+        "_csrf={csrf}&operation={key}&character={character}&world={world}&revision={revision}&offer=potion-pack-10&price=250&quantity=1"
     );
     for _ in 0..2 {
         assert_eq!(
@@ -740,7 +740,7 @@ async fn postgres_configured_identity_d14_transfer_and_ownership_deny() -> TestR
         .await?;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let form = format!(
-        "_csrf={csrf}&operation={}&character={}&world={}&revision={}&offer=premium-30d&price=250&quantity=1",
+        "_csrf={csrf}&operation={}&character={}&world={}&revision={}&offer=potion-pack-10&price=250&quantity=1",
         Uuid::now_v7(),
         Uuid::now_v7(),
         Uuid::now_v7(),

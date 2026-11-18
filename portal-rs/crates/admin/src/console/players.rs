@@ -17,7 +17,7 @@ use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
     pub lang: Option<String>,
@@ -294,12 +294,52 @@ pub(crate) async fn page<B: Backend>(
     if (input.q.is_some() || input.character.is_some()) && !super::trusted_navigation(&headers) {
         return Err(Error::Denied);
     }
+    let backend = if input.character.is_some() {
+        state.backend.for_navigation(session.clone(), &headers)
+    } else {
+        state.backend.clone()
+    };
     let scoped = Console {
         pool: state.pool.clone(),
         flags: state.flags,
-        backend: state.backend.for_session(session),
+        backend,
     };
-    view(&scoped, actor, input).await?.response()
+    let mut page = view(&scoped, actor, input).await?;
+    if page.search && state.backend.advertised("player.search").await {
+        page.csrf = session.csrf_token().await?;
+    }
+    page.response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SearchForm {
+    q: String,
+    lang: Option<String>,
+    _csrf: String,
+}
+
+pub(super) async fn search<B: Backend>(
+    State(state): State<Arc<Console<B>>>,
+    Extension(actor): Extension<CheckContext>,
+    Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    axum::Form(form): axum::Form<SearchForm>,
+) -> Result<axum::response::Redirect, Error> {
+    let input = Input {
+        q: Some(form.q),
+        lang: form.lang,
+        character: None,
+    };
+    let query = serde_urlencoded::to_string(&input).map_err(|_| Error::BadInput)?;
+    input.validate()?;
+    state.check(actor, "game.player.read").await?;
+    let backend = state.backend.for_session(session);
+    if backend.advertised("player.search").await {
+        backend.players(actor, &input, "player.search").await?;
+    }
+    Ok(axum::response::Redirect::to(&format!(
+        "/admin/console/players?{query}"
+    )))
 }
 
 #[cfg(test)]

@@ -869,6 +869,10 @@ async fn sw3_02_suspended_seller_cancels_through_coin_router() {
         .await;
         assert_eq!(member(&parse(&response.1), "result"), refusal);
     }
+    let lookup = format!(
+        "/internal/v1/coins/operations/{}",
+        member(&body, "operation_id")
+    );
     let body = canonical::encode(&body).unwrap();
     let first = call(
         app.clone(),
@@ -878,6 +882,9 @@ async fn sw3_02_suspended_seller_cancels_through_coin_router() {
     )
     .await;
     assert_eq!(first.0, StatusCode::OK, "{:?}", first);
+    let found = call(app.clone(), &lookup, None, true).await;
+    assert_eq!(found.0, StatusCode::OK);
+    assert_eq!(found.1, first.1);
     let replay = call(
         app,
         "/internal/v1/coins/market/cancellations",

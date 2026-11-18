@@ -41,6 +41,11 @@ async fn current_statistics_switches_and_missing_state_deny()
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261117230011_r9_sta.sql"
+    ))
+    .execute(&db)
+    .await?;
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let owner = Uuid::now_v7();
     let character = Uuid::now_v7();

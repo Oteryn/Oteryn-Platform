@@ -60,9 +60,11 @@ pub(crate) async fn staged(
 ) -> Result<Value, Error> {
     let row=sqlx::query("SELECT intent,intent_digest,projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_all_transfers WHERE operation_id=$1").bind(operation).fetch_optional(&mut *db).await?.ok_or(Error::Unavailable)?;
     let raw: String = row.try_get("intent")?;
+    // Staging records when the immutable intent was created. Replayed receipts
+    // and projections carry their own current recovery fences.
     if digest(raw.as_bytes()) != row.try_get::<String, _>("intent_digest")?
-        || decimal(row.try_get("epoch")?, false, u64::MAX)? != a.fence.projection_epoch
-        || decimal(row.try_get("generation")?, false, u64::MAX)? != a.fence.recovery_generation
+        || decimal(row.try_get("epoch")?, false, u64::MAX)? > a.fence.projection_epoch
+        || decimal(row.try_get("generation")?, false, u64::MAX)? > a.fence.recovery_generation
     {
         return Err(Error::Denied);
     }
@@ -113,6 +115,21 @@ pub(crate) async fn staged(
     }
     Ok(v)
 }
+pub(crate) async fn settlement_buyer(
+    db: &mut PgConnection,
+    i: &PreparedIntent,
+) -> Result<Uuid, Error> {
+    sqlx::query_scalar(
+                "SELECT buyer FROM bazaar_settlements WHERE id=$1 AND listing_id=$2 AND seller=$3 UNION ALL SELECT buyer FROM bazaar_authority_gold_sales WHERE id=$1 AND listing_id=$2 AND seller=$3",
+            )
+            .bind(id(text(&i.value, "sale_id")?)?)
+            .bind(id(text(&i.value, "listing_id")?)?)
+            .bind(id(text(&i.value, "seller_account_id")?)?)
+            .fetch_optional(db)
+            .await?
+            .ok_or(Error::Unavailable)
+}
+
 pub(crate) async fn validate_bind(
     a: &Authority,
     db: &mut PgConnection,
@@ -146,16 +163,7 @@ pub(crate) async fn validate_bind(
         "BAZAAR_LISTING_ESCROW" => (seller, escrow),
         "BAZAAR_ESCROW_RETURN" => (escrow, seller),
         "BAZAAR_SETTLEMENT" => {
-            let sale = id(text(&i.value, "sale_id")?)?;
-            let buyer: Uuid = sqlx::query_scalar(
-                "SELECT buyer FROM bazaar_settlements WHERE id=$1 AND listing_id=$2 AND seller=$3 UNION ALL SELECT buyer FROM bazaar_authority_gold_sales WHERE id=$1 AND listing_id=$2 AND seller=$3",
-            )
-            .bind(sale)
-            .bind(listing)
-            .bind(seller)
-            .fetch_optional(&mut *db)
-            .await?
-            .ok_or(Error::Unavailable)?;
+            let buyer = settlement_buyer(db, i).await?;
             funded(a, db, &i.value, buyer).await?;
             (escrow, buyer)
         }
@@ -482,8 +490,15 @@ pub(crate) async fn verify_unlock(
         id(text(&receipt, "to_account_id")?)?
     } else if let Some((_, receipt, _, _)) = proof(a, db, listing, "BAZAAR_ESCROW_RETURN").await? {
         id(text(&receipt, "to_account_id")?)?
-    } else if never_transferred(db, listing).await? {
-        // Only the approved cancellation can publish this unlock. Receipt
+    } else {
+        let refused_escrow = a
+            .bind_refused(db, listing, "BAZAAR_LISTING_ESCROW")
+            .await?
+            .is_some();
+        if !refused_escrow && !never_transferred(db, listing).await? {
+            return Err(Error::Unavailable);
+        }
+        // A refused escrow bind or approved invalidation authorizes cleanup. Receipt
         // admission follows its durable dispatch even if staff revise the hold.
         let authorized = if current.is_some() {
             sqlx::query_scalar(
@@ -493,7 +508,7 @@ pub(crate) async fn verify_unlock(
             .fetch_one(&mut *db)
             .await?
         } else {
-            super::invalidation::approved(db, listing).await?
+            refused_escrow || super::invalidation::approved(db, listing).await?
         };
         if !authorized {
             return Err(Error::Denied);
@@ -508,8 +523,6 @@ pub(crate) async fn verify_unlock(
         same(facts, "lock_id", &i.value, "lock_id")?;
         same(facts, "lock_revision", &i.value, "expected_lock_revision")?;
         id(text(&lock.value, "seller_account_id")?)?
-    } else {
-        return Err(Error::Unavailable);
     };
     if let Some(facts) = current
         && id(text(facts, "current_account_id")?)? != owner

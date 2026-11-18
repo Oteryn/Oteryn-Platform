@@ -65,6 +65,10 @@ pub(super) fn reject_escapes(body: &[u8]) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn valid_client_id(id: Uuid) -> bool {
+    (1..=8).contains(&id.get_version_num()) && id.get_variant() == uuid::Variant::RFC4122
+}
+
 pub(super) fn decode_operation(body: &[u8], query: bool) -> Result<OperationRequest> {
     if query {
         return Err(Failure::Invalid);
@@ -75,8 +79,7 @@ pub(super) fn decode_operation(body: &[u8], query: bool) -> Result<OperationRequ
     let raw: serde_json::Value = serde_json::from_slice(body).map_err(|_| Failure::Invalid)?;
     if request.protocol_version != 1
         || raw["client_id"] != request.client_id.to_string()
-        || !(1..=8).contains(&request.client_id.get_version_num())
-        || request.client_id.get_variant() != uuid::Variant::RFC4122
+        || !valid_client_id(request.client_id)
     {
         return Err(Failure::Invalid);
     }

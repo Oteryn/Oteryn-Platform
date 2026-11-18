@@ -40,6 +40,11 @@ async fn world_postgres_observations_privacy_and_gaps() -> Result {
     .execute(&db)
     .await?;
     sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261117230011_r9_sta.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::raw_sql(include_str!(
         "../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"
     ))
     .execute(&db)

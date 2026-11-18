@@ -425,9 +425,16 @@ async fn postgres_cancel_before_delivery_and_after_proof_never_issues_finalize()
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
-    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
     let s = service(&db, b.clone());
-    for (proof, terminal_reject) in [(false, false), (true, false), (false, true)] {
+    for (proof, terminal_reject, delayed) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (true, false, true),
+    ] {
+        recovery.0.store(3, Ordering::SeqCst);
         let account = db.account().await?;
         let (t, intent) = issue(&db, &s, account).await;
         if proof {
@@ -504,6 +511,9 @@ async fn postgres_cancel_before_delivery_and_after_proof_never_issues_finalize()
             result.proof_sha256 = wire::hex(&digest(&body));
         }
         let raw = serde_json::to_vec(&receipt)?;
+        if delayed {
+            recovery.0.store(4, Ordering::SeqCst);
+        }
         b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
             .await?;
 
@@ -1451,4 +1461,121 @@ async fn r7_cancel_at_capacity() -> TestResult {
         "full queue blocked cancellation"
     );
     db.close().await
+}
+
+#[tokio::test]
+async fn r9_receipt_retry_after_recovery_advances() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
+    let s = service(&db, b.clone());
+    let (_, intent) = issue(&db, &s, db.account().await?).await;
+    let (raw, _) = publish(&db, &b, &intent, true).await;
+    recovery.0.store(4, Ordering::SeqCst);
+    let retry = b
+        .ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await;
+    assert!(retry.is_ok(), "exact receipt retry returned {retry:?}");
+    db.close().await
+}
+
+#[tokio::test]
+async fn r9_audit_cleanup_commits_one_batch() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let s = service(&db, b.clone());
+    let (t, intent) = issue(&db, &s, db.account().await?).await;
+    publish(&db, &b, &intent, true).await;
+    // Keep the original audit copy live alongside 101 expired copies.
+    sqlx::query(
+        "WITH commands AS (
+            INSERT INTO plat3_closure_commands(operation_id,termination_id,source_revision,command,intent,intent_sha256)
+            SELECT gen_random_uuid(),termination_id,nextval('plat3_closure_source_revision'),command,intent,intent_sha256
+            FROM plat3_closure_commands CROSS JOIN generate_series(1,101) WHERE termination_id=$1
+            RETURNING operation_id
+        ), receipts AS (
+            INSERT INTO plat3_closure_receipts(operation_id,receipt,signature,receipt_sha256,recovery_generation)
+            SELECT c.operation_id,r.receipt,r.signature,r.receipt_sha256,r.recovery_generation
+            FROM commands c CROSS JOIN plat3_closure_receipts r RETURNING operation_id
+        )
+        INSERT INTO plat3_closure_audit_outbox(operation_id,payload,expires_at)
+        SELECT r.operation_id,a.payload,now() FROM receipts r CROSS JOIN plat3_closure_audit_outbox a"
+    ).bind(t.id).execute(&db.pool).await?;
+    let retention = AuditRetention(db.pool.clone());
+    for expected in [2_i64, 1] {
+        oteryn_db::outbox::Cleanup::clean(&retention)
+            .await
+            .map_err(std::io::Error::other)?;
+        let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM plat3_closure_audit_outbox")
+            .fetch_one(&db.pool)
+            .await?;
+        assert_eq!(remaining, expected, "audit rows remaining after cleanup");
+    }
+    db.close().await
+}
+
+#[tokio::test]
+async fn r11_delayed_cancel_rejections() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
+    let s = service(&db, b.clone());
+    let decision = "CANCEL";
+    for rejection in [
+        "CHAR_CMD_INTENT_EXPIRED",
+        "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION",
+    ] {
+        recovery.0.store(3, Ordering::SeqCst);
+        let account = db.account().await?;
+        issue(&db, &s, account).await;
+        s.cancel(
+            account,
+            &ActorProof(account.to_string()),
+            "termination test password",
+        )
+        .await?;
+        let pending = b.pending_intents(&db.pool, 0, 40).await?;
+        let intent = pending
+            .iter()
+            .filter_map(|raw| Intent::parse(raw).ok())
+            .find(|i| {
+                i.account_id == account.to_string() && i.decision.as_deref() == Some(decision)
+            })
+            .ok_or("resolution")?;
+        let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+        receipt.command = intent.command.clone();
+        receipt.operation_id = intent.operation_id.clone();
+        receipt.outcome = "REJECTED".into();
+        receipt.result_code = rejection.into();
+        receipt.result_data = None;
+        receipt.recovery_generation = "3".into();
+        receipt.decided_at = intent.issued_at_source.clone();
+        let raw = serde_json::to_vec(&receipt)?;
+        recovery.0.store(4, Ordering::SeqCst);
+        let result = b
+            .ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+            .await;
+        assert!(result.is_ok(), "delayed rejection: {result:?}");
+        s.run_worker(100).await?;
+        let pending = b.pending_intents(&db.pool, 0, 40).await?;
+        let fresh = pending
+            .iter()
+            .filter_map(|raw| Intent::parse(raw).ok())
+            .find(|i| {
+                i.account_id == account.to_string() && i.decision.as_deref() == Some(decision)
+            })
+            .ok_or("fresh resolution")?;
+        assert_ne!(fresh.operation_id, intent.operation_id);
+        assert_eq!(fresh.decision, intent.decision);
+        assert_eq!(fresh.close_operation_id, intent.close_operation_id);
+        assert_eq!(fresh.expected_recovery_generation, "4");
+    }
+    db.close().await?;
+    Ok(())
 }

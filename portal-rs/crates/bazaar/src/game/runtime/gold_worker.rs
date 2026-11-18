@@ -169,7 +169,10 @@ impl Runtime {
             .await
             .map_err(core_error)?
             .ok_or(Error::Denied)?;
-        let valid = l.ends_at.unix_timestamp() > now(&mut tx).await? as i64
+        let accepted_at: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut *tx)
+            .await?;
+        let valid = l.ends_at > accepted_at
             && actor.allows_trade()
             && self
                 .accounts(None)
@@ -226,7 +229,7 @@ impl Runtime {
             } else {
                 l.leader_max.ok_or(Error::Invalid)?
             };
-            let ends = if l.ends_at.unix_timestamp() - (now(&mut tx).await? as i64) < 300 {
+            let ends = if l.ends_at - accepted_at < Duration::minutes(5) {
                 l.ends_at + Duration::minutes(5)
             } else {
                 l.ends_at

@@ -160,31 +160,50 @@ impl GameBoundary {
             .bind(operation).fetch_optional(&mut *tx).await?;
         let (intent_raw, intent_hash, account) = command.ok_or(Error::NoPending)?;
         lock(&mut tx, account).await?.ok_or(Error::UnknownState)?;
-        let current = self.recovery(&mut tx).await?;
-        if wire::number(&receipt.decided_at, false)? > now(&mut tx).await?.saturating_add(5) {
-            return Err(Error::UnknownState);
-        }
-        let intent = Intent::parse(&intent_raw)?;
-        receipt.bind(&intent, current)?;
-        if digest(&intent_raw) != intent_hash {
-            return Err(Error::UnknownState);
-        }
         let existing: Option<Vec<u8>> =
             sqlx::query_scalar("SELECT receipt FROM plat3_closure_receipts WHERE operation_id=$1")
                 .bind(operation)
                 .fetch_optional(&mut *tx)
                 .await?;
-        if let Some(existing) = existing {
-            if existing != raw {
-                sqlx::query("UPDATE plat3_closure_work SET invalid=true WHERE termination_id=$1")
-                    .bind(wire::id(&intent.termination_id)?)
-                    .execute(&mut *tx)
-                    .await?;
-                tx.commit().await?;
-                return Err(Error::Conflict);
-            }
+        if existing.as_deref() == Some(raw) {
+            // These immutable bytes were validated in the original generation.
             tx.commit().await?;
             return Ok(());
+        }
+        let current = self.recovery(&mut tx).await?;
+        if wire::number(&receipt.decided_at, false)? > now(&mut tx).await?.saturating_add(5) {
+            return Err(Error::UnknownState);
+        }
+        let intent = Intent::parse(&intent_raw)?;
+        // A delayed terminal CANCEL receipt either resolves the original
+        // operation or permits reconciliation to issue a fresh attempt.
+        let decided_generation = wire::number(&receipt.recovery_generation, true)?;
+        let historical_cancel = intent.decision.as_deref() == Some("CANCEL")
+            && (receipt.outcome == "COMMITTED"
+                || (receipt.outcome == "REJECTED"
+                    && matches!(
+                        receipt.result_code.as_str(),
+                        "CHAR_CMD_INTENT_EXPIRED" | "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION"
+                    )))
+            && decided_generation < current;
+        receipt.bind(
+            &intent,
+            if historical_cancel {
+                decided_generation
+            } else {
+                current
+            },
+        )?;
+        if digest(&intent_raw) != intent_hash {
+            return Err(Error::UnknownState);
+        }
+        if existing.is_some() {
+            sqlx::query("UPDATE plat3_closure_work SET invalid=true WHERE termination_id=$1")
+                .bind(wire::id(&intent.termination_id)?)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            return Err(Error::Conflict);
         }
         let hash = digest(raw);
         sqlx::query("INSERT INTO plat3_closure_receipts(operation_id,receipt,signature,receipt_sha256,recovery_generation) VALUES($1,$2,$3,$4,$5)")
@@ -193,7 +212,7 @@ impl GameBoundary {
             intent_sha256: intent_hash,
             receipt: raw.to_vec(),
             receipt_sha256: hash,
-            recovery_generation: current,
+            recovery_generation: decided_generation,
         }
         .encode_to_vec();
         let decided_at = OffsetDateTime::from_unix_timestamp(wire::time(&receipt.decided_at)?)
@@ -761,7 +780,18 @@ pub struct AuditRetention(pub PgPool);
 impl oteryn_db::outbox::Cleanup for AuditRetention {
     fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
         Box::pin(async {
-            sqlx::query("DELETE FROM plat3_closure_audit_outbox a USING plat3_closure_receipts r WHERE a.operation_id=r.operation_id AND (a.expires_at<=clock_timestamp() OR to_timestamp((convert_from(r.receipt,'UTF8')::jsonb->>'decided_at')::double precision)<=clock_timestamp()-interval '90 days')")
+            sqlx::query(
+                "WITH expired AS MATERIALIZED (
+                    SELECT a.operation_id FROM plat3_closure_audit_outbox a
+                    JOIN plat3_closure_receipts r USING (operation_id)
+                    WHERE a.expires_at <= now() OR
+                        to_timestamp((convert_from(r.receipt,'UTF8')::jsonb->>'decided_at')::double precision)
+                            <= now() - interval '90 days'
+                    ORDER BY a.operation_id LIMIT 100 FOR UPDATE OF a SKIP LOCKED
+                )
+                DELETE FROM plat3_closure_audit_outbox a USING expired
+                WHERE a.operation_id = expired.operation_id",
+            )
                 .execute(&self.0).await.map(|_|()).map_err(|_|"account closure audit retention failed".into())
         })
     }

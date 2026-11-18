@@ -455,6 +455,11 @@ async fn postgres_pending_transfer_then_committed_transfer_moves_every_read() {
         body.contains("\"result\":\"refused\"") && body.contains("CHARACTER_SCOPE_DELETED"),
         "{body}"
     );
+    assert_eq!(
+        record(&app, &stamina_at("2", "b3")).await,
+        (status, body),
+        "terminal retry"
+    );
     // The buyer is admitted at the new cut only.
     let buyer = |pr: &str, cr: &str| {
         progress("record-stamina.valid.json")
@@ -1377,6 +1382,28 @@ async fn postgres_pd2_01_lifecycle_purges_recent_promoted_logins() {
             "close" => db.exec("UPDATE accounts SET status='closed' WHERE id=$1::uuid", &[SELLER]).await,
             "delete" => db.exec("INSERT INTO character_service_states(account_id,character_id,epoch,revision,character_revision,snapshot_json) VALUES($1::uuid,$2::uuid,1,1,'10','{\"lifecycle\":\"DELETED\"}')", &[SELLER, CHARACTER]).await,
             _ => db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", &(now/1000).to_string()]).await,
+        }
+        if action == "transfer" {
+            db.exec("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms)
+                SELECT stream_key,i,authority,recovery_generation,uuidv7()::text,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms
+                FROM pd_records CROSS JOIN generate_series(2,513) i WHERE character_id=$1", &[CHARACTER]).await;
+            db.exec("INSERT INTO pd_game_logins SELECT account_id,uuidv7(),character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,i,entered_at,left_at,end_reason,created_at,updated_at FROM pd_game_logins CROSS JOIN generate_series(2,513) i WHERE character_id=$1::uuid",&[CHARACTER]).await;
+            crate::retention::Retention(db.pool.clone())
+                .expire_batch()
+                .await
+                .unwrap();
+            assert_eq!(
+                db.count("SELECT count(*) FROM pd_erasure_jobs").await,
+                1,
+                "oversized character job completed in one pass"
+            );
+            // One seller row remains in each table alongside the buyer's row.
+            assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 2);
+            assert_eq!(
+                db.count("SELECT count(*) FROM pd_records WHERE character_id IS NOT NULL")
+                    .await,
+                2
+            );
         }
         crate::retention::Retention(db.pool.clone())
             .expire_batch()
@@ -2426,5 +2453,169 @@ async fn r8_drop_retention() {
         .await
         .unwrap();
     assert_eq!(db.count("SELECT count(record) FROM pd_g9_records").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r9_g9_expiry_scrubs_timestamp() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let (app, segment) = session_fixture(&db, 9).await;
+    assert_eq!(publish_segment(&app, &segment).await, StatusCode::OK);
+    db.exec("UPDATE pd_g9_records SET expires_at=1234567890", &[])
+        .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_g9_records WHERE record IS NULL AND expires_at=0")
+            .await,
+        1,
+        "timestamp-free fence"
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r9_login_remove_preserves_other_subject() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    db.account(SELLER, "1", "12").await;
+    for character in [CHARACTER, KEPT] {
+        db.character(SELLER, character, WORLD).await;
+        db.create(
+            SELLER,
+            character,
+            WORLD,
+            ["9", "12", &(now / 1000 - 100).to_string()],
+        )
+        .await;
+    }
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let event = Uuid::now_v7();
+    let first = login_record(SELLER, CHARACTER, ["12", "9"], 1, event, now - 1000);
+    assert_eq!(record(&app, &first).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 1).await;
+    for (rev, subject, remaining) in [(2, KEPT, 1), (3, CHARACTER, 0)] {
+        let raw = login_record(SELLER, subject, ["12", "9"], rev, event, now - 1000);
+        let prefix = raw
+            .split_once("\"payload\":")
+            .unwrap()
+            .0
+            .replace("UPSERT", "REMOVE");
+        assert_eq!(
+            record(&app, &format!("{prefix}\"payload\":null}}")).await.0,
+            StatusCode::OK
+        );
+        login_watermark(&app, &db, SELLER, rev).await;
+        assert_eq!(
+            db.count("SELECT count(*) FROM pd_game_logins").await,
+            remaining,
+            "subject-scoped removal"
+        );
+    }
+    db.close().await;
+}
+
+#[tokio::test]
+async fn pd2_bank_generation_requires_admission() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let bank = items("record-bank-entry.valid.json");
+    let mut scope = oteryn_internal_api::playerdata::items(bank.as_bytes())
+        .unwrap()
+        .scope;
+    db.account(&scope.account, "1", "1").await;
+    let app = app(&db, Arc::new(FixedClock(ITEMS_NOW)), true);
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &bank).await.0,
+        StatusCode::OK
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(admit(&mut tx, &scope).await.is_ok());
+    scope.recovery = "2".into();
+    assert_eq!(
+        admit(&mut tx, &scope).await,
+        Err(Error::Conflict),
+        "generation switch without restore"
+    );
+    tx.rollback().await.unwrap();
+    db.close().await;
+}
+
+#[tokio::test]
+async fn pd2_skull_expiry_uses_ownership_cut() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let mut config = settings(true);
+    config.families.insert("skull".into());
+    let app = router_with(
+        db.pool.clone(),
+        Arc::new(DbAuthority),
+        Arc::new(FixedClock(PROGRESS_NOW)),
+        vec![],
+        &config,
+        identities(),
+    );
+    for (revision, suffix, character_revision) in [("1", "03", "9"), ("2", "04", "10")] {
+        let original = stamina_at(revision, suffix);
+        let prefix = original
+            .split_once(r#""payload":"#)
+            .unwrap()
+            .0
+            .replace(r#""stamina""#, r#""skull""#)
+            .replace(
+                r#""character_revision":"9""#,
+                &format!(r#""character_revision":"{character_revision}""#),
+            );
+        let body = format!(
+            r#"{prefix}"payload":{{"skull":"NONE","skull_until_unix_ms":null,"kill_block_until_unix_ms":null}}}}"#
+        );
+        assert_eq!(record(&app, &body).await.0, StatusCode::OK);
+        let mark = progress("watermark-baseline.valid.json")
+            .replace(r#""stamina""#, r#""skull""#)
+            .replace(
+                r#""complete_through":"1""#,
+                &format!(r#""complete_through":"{revision}""#),
+            );
+        assert_eq!(
+            post(&app, PROGRESS_SAN, http::PROGRESS_WATERMARK_PATH, &mark)
+                .await
+                .0,
+            StatusCode::OK
+        );
+    }
+    let expires = db
+        .count("SELECT expires_ms FROM pd_records WHERE source_revision=1")
+        .await;
+    assert_eq!(
+        expires as u64,
+        PROGRESS_NOW + 7 * 86400000,
+        "superseded skull expiry"
+    );
+    // Exercise the upgrade on the pre-fix rows, including a previously
+    // published replacement that will receive no further watermarks.
+    db.exec("UPDATE pd_records SET ownership_revision=(8+source_revision)::text,expires_ms=4943600000000",&[]).await;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261117230012_r9_pd2.sql"
+    ))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        db.count("SELECT count(*) FROM pd_records WHERE ownership_revision='9'")
+            .await,
+        2
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_records WHERE source_revision=1 AND expires_ms<=(extract(epoch FROM clock_timestamp())*1000)::bigint").await,1);
+    assert_eq!(
+        db.count("SELECT expires_ms FROM pd_records WHERE source_revision=2")
+            .await,
+        4943600000000
+    );
     db.close().await;
 }

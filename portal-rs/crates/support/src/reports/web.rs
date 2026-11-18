@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, Request, State},
-    http::{Method, StatusCode, header},
+    http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -206,7 +206,6 @@ async fn index(
     page.render().map_err(IntoResponse::into_response)
 }
 async fn create(
-    method: Method,
     State(service): State<Reports>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
@@ -231,12 +230,6 @@ async fn create(
     {
         page.input = flash.input;
         page.error = flash.error;
-        if method == Method::GET {
-            session
-                .set(FLASH, &None::<Flash>)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-        }
     } else {
         page.input.request_key = oteryn_core::new_id().to_string();
         page.input.report_type = "player".to_owned();
@@ -269,10 +262,14 @@ async fn store(
             .await
     };
     match result {
-        Ok(report) => Ok(redirect(&format!(
-            "/{}/support/reports/{}",
-            locale.0, report.id
-        ))),
+        Ok(report) => {
+            sqlx::query("UPDATE web_sessions SET data=data-'support.reports.flash' WHERE id_hash=$1 AND data #>> '{support.reports.flash,input,request_key}'=$2")
+                .bind(session.identity_hash().await).bind(&input.request_key).execute(&service.pool).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?;
+            Ok(redirect(&format!(
+                "/{}/support/reports/{}",
+                locale.0, report.id
+            )))
+        }
         Err(Error::RateLimited) => Err((
             StatusCode::TOO_MANY_REQUESTS,
             [(header::RETRY_AFTER, "60")],
@@ -293,7 +290,12 @@ async fn store(
                 .map(|s| s.chars().take(2000).collect());
             input.report_type = input.report_type.chars().take(16).collect();
             input.category = input.category.chars().take(32).collect();
-            input.request_key = input.request_key.chars().take(64).collect();
+            // The hidden key must remain usable when the owner retries the saved form.
+            input.request_key = if request_key.is_nil() {
+                oteryn_core::new_id().to_string()
+            } else {
+                request_key.to_string()
+            };
             session
                 .set(
                     FLASH,

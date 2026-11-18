@@ -1088,6 +1088,30 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
         .execute(&h.pool)
         .await
         .unwrap();
+    // Simulate the grant reaching its deadline while the audit is being written.
+    sqlx::raw_sql("CREATE FUNCTION expire_reviewer() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE account_mfa_tokens SET expires_at=clock_timestamp() WHERE account_id=NEW.actor; RETURN NEW; END $$; CREATE TRIGGER expire_reviewer BEFORE INSERT ON audit_log FOR EACH ROW WHEN (NEW.action='commerce.cancelled') EXECUTE FUNCTION expire_reviewer()").execute(&h.pool).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            HttpRequest::post(format!("/admin/commerce/cancellations/{}", blocked[0]))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "reviewer grant expired at audit"
+    );
+    sqlx::query("DROP TRIGGER expire_reviewer ON audit_log")
+        .execute(&h.pool)
+        .await
+        .unwrap();
     for (path, token, expected) in [
         (
             format!("/admin/commerce/cancellations/{}", blocked[0]),

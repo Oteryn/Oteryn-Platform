@@ -349,7 +349,7 @@ async fn character(
                             .get("level")
                             .or_else(|| event.details.get("to"))
                             .and_then(|v| {
-                                v.as_i64()
+                                v.as_u64()
                                     .map(|v| v.to_string())
                                     .or_else(|| v.as_str().map(str::to_owned))
                             })
@@ -383,7 +383,7 @@ async fn character(
 }
 fn metric(d: &Daily, metric: &str) -> Option<u64> {
     match metric {
-        "level" => u64::try_from(d.level).ok(),
+        "level" => Some(d.level),
         "experience" => d.experience.as_deref()?.parse().ok(),
         skill => d.skills.as_ref()?.get(skill)?.as_u64(),
     }

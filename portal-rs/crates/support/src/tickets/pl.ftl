@@ -26,3 +26,4 @@ staff = Pomoc
 notification-reply = Pomoc odpowiedziała na Twoje zgłoszenie.
 notification-status = Zmienił się status Twojego zgłoszenia.
 error = Nie udało się wykonać żądania. Odśwież zgłoszenie i spróbuj ponownie.
+mark-read = Oznacz odpowiedź jako przeczytaną

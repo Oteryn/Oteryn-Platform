@@ -100,7 +100,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     let mut host_config = panel.clone();
     host_config.admin_panel &= config.present;
     let mut session = SessionLayer::new(pool.clone());
-    session.csrf.trusted_origins = vec![format!("https://{}", panel.host)];
+    session.csrf.trusted_origins = vec![panel.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Context {
         pool: pool.clone(),

@@ -84,7 +84,10 @@ impl catalog::CatalogAccess for Checks {
         Ok(true)
     }
 }
-const CATALOG: &str = r#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
+const CATALOG: &str = include_str!(
+    "../../../../../docs/contracts/fixtures/store-price-list-v1/price-list.valid.json"
+);
+const PREMIUM_CATALOG: &str = r#"{"contract_version":1,"offers":[{"offer_key":"premium-30d","currency":"COINS","unit_price":"250","max_quantity":10,"purchasable":true,"units":[{"product_id":"oteryn.premium_time","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"premium_time","grant_revision":"1","quantity":30}]}]}"#;
 type Purchases = purchase::Purchases<Checks, Checks, Checks, Checks>;
 struct Database {
     pool: PgPool,
@@ -95,6 +98,9 @@ struct Database {
 }
 impl Database {
     async fn open() -> Option<Self> {
+        Self::open_with_catalog(CATALOG).await
+    }
+    async fn open_with_catalog(catalog: &str) -> Option<Self> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIPPED N012 PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
             return None;
@@ -130,7 +136,7 @@ impl Database {
             catalog::CatalogStore::new(pool.clone(), catalog::CatalogFlags { enabled: true });
         let actor = Uuid::now_v7();
         let revision = store
-            .import(CATALOG.as_bytes(), actor, &Checks)
+            .import(catalog.as_bytes(), actor, &Checks)
             .await
             .unwrap();
         store.activate(&revision, actor, &Checks).await.unwrap();
@@ -180,6 +186,9 @@ impl Database {
         )
     }
     fn purchases(&self) -> Purchases {
+        self.purchases_for_kind("ITEM")
+    }
+    fn purchases_for_kind(&self, kind: &str) -> Purchases {
         purchase::Purchases::new(
             self.pool.clone(),
             purchase::Settings {
@@ -188,7 +197,7 @@ impl Database {
                 environment: "testing".into(),
                 source_authority: "referral-tests".into(),
                 peer_identity: "referral.test".into(),
-                enabled_unit_kinds: vec!["PREMIUM_TIME".into()],
+                enabled_unit_kinds: vec![kind.into()],
                 purchases_per_account_per_minute: 60,
                 ..purchase::Settings::default()
             },
@@ -197,6 +206,16 @@ impl Database {
         )
     }
     fn request(&self, account: Uuid, quantity: u8, key: Uuid) -> Vec<u8> {
+        self.offer_request(account, quantity, key, "test-supply", "25")
+    }
+    fn offer_request(
+        &self,
+        account: Uuid,
+        quantity: u8,
+        key: Uuid,
+        offer: &str,
+        price: &str,
+    ) -> Vec<u8> {
         serde_json::to_vec(&purchase::PurchaseRequest {
             contract_version: 1,
             operation: "PurchaseStoreOfferV1".into(),
@@ -206,9 +225,9 @@ impl Database {
             character_id: Uuid::now_v7().to_string(),
             world_id: Uuid::now_v7().to_string(),
             catalog_revision: self.revision.clone(),
-            offer_key: "premium-30d".into(),
+            offer_key: offer.into(),
             currency: "COINS".into(),
-            unit_price: "250".into(),
+            unit_price: price.into(),
             quantity,
         })
         .unwrap()
@@ -500,13 +519,24 @@ async fn referrals_buddy_limit_20_per_30_days() {
         .unwrap();
     db.close().await;
 }
+async fn record_premium_purchase(pool: &PgPool, buddy: Uuid, days: i32) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT referral_campaign_purchase($1,$2,clock_timestamp())")
+        .bind(buddy)
+        .bind(days)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+}
+
 #[tokio::test]
 async fn referrals_buddy_premium_5_and_10_days_within_90() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let Some(db) = Database::open().await else {
+    let Some(db) = Database::open_with_catalog(PREMIUM_CATALOG).await else {
         return;
     };
-    for (quantity, expected, expired) in [(1, 5, false), (3, 10, false), (3, 0, true)] {
+    for (paid_days, expected, expired) in [(30, 5, false), (90, 10, false), (90, 0, true)] {
         let owner = db.account().await;
         let buddy = db.account().await;
         db.inactive(buddy, 13).await;
@@ -517,11 +547,29 @@ async fn referrals_buddy_premium_5_and_10_days_within_90() {
         if expired {
             sqlx::query("UPDATE referral_campaign_invitations SET created_at=clock_timestamp()-interval '90 days 1 second' WHERE invitee_id=$1").bind(buddy).execute(&db.pool).await.unwrap();
         }
-        db.buy(buddy, quantity).await;
+        db.fund(buddy).await;
+        let raw = db.offer_request(buddy, 1, Uuid::now_v7(), "premium-30d", "250");
+        let purchases = db.purchases_for_kind("PREMIUM_TIME");
+        let answer = purchases.purchase(&raw).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&answer).unwrap()["result"],
+            "OFFER_UNAVAILABLE"
+        );
+        assert_eq!(purchases.purchase(&raw).await.unwrap(), answer);
         let worker = Worker {
             campaign: db.campaign.clone(),
             sender: None,
         };
+        worker.process().await.unwrap();
+        let rewarded: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM premium_ledger WHERE account_id=$1)")
+                .bind(owner)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert!(!rewarded, "refused checkout granted buddy premium");
+
+        record_premium_purchase(&db.pool, buddy, paid_days).await;
         worker.process().await.unwrap();
         worker.process().await.unwrap();
         let days: i64 = sqlx::query_scalar(
@@ -533,7 +581,7 @@ async fn referrals_buddy_premium_5_and_10_days_within_90() {
         .unwrap();
         assert_eq!(days, expected);
         // Further purchases neither extend the deadline nor change an awarded tier.
-        db.buy(buddy, 3).await;
+        record_premium_purchase(&db.pool, buddy, 90).await;
         worker.process().await.unwrap();
         let rows: i64 =
             sqlx::query_scalar("SELECT count(*) FROM premium_ledger WHERE account_id=$1")
@@ -1990,7 +2038,7 @@ async fn nwave_purchase_retries_entire_transaction_and_replays_original_answer()
         .await
         .unwrap();
     assert_eq!(orders, 1);
-    assert_eq!(db.wallet().balance(invitee).await.unwrap().available, 9750);
+    assert_eq!(db.wallet().balance(invitee).await.unwrap().available, 9975);
     assert_eq!(db.count("outfit").await, 1);
     db.close().await;
 }

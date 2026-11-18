@@ -235,6 +235,34 @@ async fn postgres_read_note_and_logout_success_refusal_bad_input() {
     db.close().await;
 }
 #[tokio::test]
+async fn reset_approval_requires_support_permission() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let s = db.service();
+    let request = s
+        .request_reset(context(db.support), db.target, db.evidence, "Verified case")
+        .await
+        .unwrap();
+    let security = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin'").bind(security).execute(&db.pool).await.unwrap();
+    let result = s.approve_reset(context(security), db.target, request).await;
+    let state: (bool, bool, bool) =
+        sqlx::query_as("SELECT reset,revoked,verified FROM test_security WHERE account_id=$1")
+            .bind(db.target)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    db.close().await;
+    assert!(
+        matches!(
+            result,
+            Err(Error::Authorization(crate::rbac::Error::Denied))
+        ),
+        "security-only approver cleared MFA"
+    );
+    assert_eq!(state, (false, false, true));
+}
+#[tokio::test]
 async fn postgres_reset_requires_two_current_staff_and_is_single_use() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::open().await else {
@@ -2170,5 +2198,27 @@ async fn r8_self_logout_revokes_operator_session() {
             .await
             .unwrap();
     assert_eq!(remaining, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn self_kick_commits_with_live_session() {
+    let db = Db::open().await.expect("PostgreSQL required");
+    let kicker = kick_fixture(&db).await;
+    sqlx::query("UPDATE account_roles SET account_id=$1 WHERE account_id=$2")
+        .bind(db.target)
+        .bind(kicker)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut actor = context(db.target);
+    actor.session_proof = Some(crate::test_staff::proof(&db.pool, db.target).await.unwrap());
+    let before = kick_state(&db).await.0;
+    let result = db
+        .service()
+        .kick(actor, db.target, "Own native sessions")
+        .await;
+    assert_eq!(result.expect("authorized self kick"), before + 1);
+    assert_eq!(kick_state(&db).await.0, before + 1);
     db.close().await;
 }

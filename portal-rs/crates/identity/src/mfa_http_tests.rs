@@ -82,7 +82,7 @@ async fn browser_flow(
     // A stored authorize target survives the challenge rotation and is the
     // post-MFA destination, consumed once.
     let target = "/oauth/authorize?response_type=code&client_id=c&state=s";
-    sqlx::query("UPDATE web_sessions SET data=data||jsonb_build_object('oauth_return',$1::text) WHERE account_id IS NULL")
+    sqlx::query("UPDATE web_sessions SET data=data||jsonb_build_object('oauth_return',$1::text,'referral.code','invite-code') WHERE account_id IS NULL")
         .bind(target)
         .execute(&db.pool)
         .await?;
@@ -218,6 +218,16 @@ async fn browser_flow(
             .filter_map(|v| v.to_str().ok())
             .any(|v| v.starts_with(TRUSTED) && v.contains("Secure; HttpOnly; SameSite=Lax"))
     );
+    let referral: Option<String> =
+        sqlx::query_scalar("SELECT data->>'referral.code' FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(
+        referral.as_deref(),
+        Some("invite-code"),
+        "pending referral after MFA login"
+    );
     let grant: String =
         sqlx::query_scalar("SELECT data->>'mfa_grant' FROM web_sessions WHERE account_id=$1")
             .bind(id)
@@ -241,6 +251,43 @@ async fn browser_flow(
         .fetch_one(&db.pool)
         .await?,
         1
+    );
+    let authenticated_cookie = accepted
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|v| v.starts_with(session::COOKIE_NAME) && !v.contains("Max-Age=0"))
+        .and_then(|v| v.split(';').next())
+        .ok_or("authenticated cookie")?;
+    let authenticated_csrf: String =
+        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    let device = mfa.devices(id).await?.pop().ok_or("remembered device")?;
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::post("/en/mfa/devices")
+                .header(header::COOKIE, authenticated_cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+                .body(axum::body::Body::from(format!(
+                    "_csrf={authenticated_csrf}&device={device}"
+                )))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(mfa.devices(id).await?.is_empty());
+    let settings = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 32768)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(
+        !settings.contains("action=\"/en/mfa/enroll\""),
+        "device removal offered enrollment"
     );
     let stale = app.clone().oneshot(challenge_request(&codes[1])?).await?;
     assert_eq!(stale.status(), StatusCode::FORBIDDEN);
@@ -499,6 +546,141 @@ async fn postgres_mfa_http_refusal_records_only_the_session_account()
     let actors = rows().await?;
     assert_eq!(actors.len(), 1, "account-bound MFA HTTP refusal rows");
     assert_eq!(actors[0], Some(account));
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("R9_ADMIN_LOGIN_TEST").is_none() {
+        let result = std::process::Command::new(std::env::current_exe()?)
+            .args(["r9_admin_origin_login_reaches_challenge", "--nocapture"])
+            .env("R9_ADMIN_LOGIN_TEST", "1")
+            .env("OTERYN_ACCOUNT_MFA", "true")
+            .env("OTERYN_ACCOUNT_LOGIN", "true")
+            .env("OTERYN_ADMIN_PANEL", "true")
+            .env("OTERYN_ADMIN_HOST", "admin.example.test")
+            .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
+            .env("OTERYN_MFA_KEY", "07".repeat(32))
+            .status()?;
+        assert!(result.success());
+        return Ok(());
+    }
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let app = oteryn_web::register::configured(configured(Router::new(), db.pool.clone())?);
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('browser@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
+    let enrollment = mfa.enroll(id, "test password").await?.ok_or("enrollment")?;
+    let secret = totp_rs::Secret::Encoded(enrollment.secret).to_bytes()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let code = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret)?.generate(now);
+    let _codes = mfa
+        .confirm(id, "test password", &code)
+        .await?
+        .ok_or("confirm")?;
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/login")
+                .header(header::HOST, "admin.example.test")
+                .body(axum::body::Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .ok_or("cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("cookie")?
+        .to_owned();
+    let bytes = axum::body::to_bytes(response.into_body(), 32768).await?;
+    let body = String::from_utf8(bytes.to_vec())?;
+    let csrf = body
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|v| v.split('"').next())
+        .ok_or("csrf")?;
+    let request = |token: &str| -> Result<_, Box<dyn std::error::Error>> {
+        Ok(axum::http::Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::HOST, "admin.example.test")
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "https://admin.example.test")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+            .body(axum::body::Body::from(format!(
+                "_csrf={token}&email=browser%40example.test&password=test+password"
+            )))?)
+    };
+    let mut wrong_host = request(csrf)?;
+    wrong_host
+        .headers_mut()
+        .insert(header::HOST, "portal.example.test".parse()?);
+    assert_eq!(
+        app.clone().oneshot(wrong_host).await?.status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = app.oneshot(request(csrf)?).await?;
+    assert!(
+        response.status().is_redirection(),
+        "expected challenge redirect, got {}",
+        response.status()
+    );
+    assert!(
+        response.headers()["location"]
+            .to_str()?
+            .contains("/mfa/challenge")
+    );
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn authenticated_challenge_routes_redirect_home() -> Result<(), Box<dyn std::error::Error>> {
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let account: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale) VALUES('authenticated@example.test','unused','active','en') RETURNING id")
+        .fetch_one(&db.pool).await?;
+    let cookie = "c".repeat(64);
+    let csrf = "d".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES (sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
+        .bind(cookie.as_bytes()).bind(account).bind(&csrf).execute(&db.pool).await?;
+    let app = compose(
+        Router::new(),
+        db.pool.clone(),
+        Mfa::new(db.pool.clone(), [7; 32]),
+        SessionLayer::new(db.pool.clone()),
+    );
+    for (method, path) in [
+        ("GET", "challenge"),
+        ("POST", "challenge"),
+        ("POST", "email"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(method)
+                    .uri(format!("/en/mfa/{path}"))
+                    .header(header::COOKIE, format!("{}={cookie}", session::COOKIE_NAME))
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+                    .body(axum::body::Body::from(format!("_csrf={csrf}")))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[header::LOCATION], "/en/");
+    }
     db.close().await?;
     Ok(())
 }

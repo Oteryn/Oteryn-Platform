@@ -21,9 +21,9 @@ archives the round 7 packet after PR #1943 merged.
 
 ## Acceptance criteria
 
-- [ ] Each confirmed finding has a fix with a regression test through the real caller
-- [ ] Each pushed fix was reviewed read-only before integration
-- [ ] Portal RS CI green on the PR head
+- [x] Each confirmed finding has a fix with a regression test through the real caller
+- [x] Each pushed fix was reviewed read-only before integration
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -156,10 +156,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T23:25:00Z
-head: pending
+head: cf7a35ad91b907916c403a8ace82e4140f04c6f2
 branch: claude/happy-davinci-ijz3wy-r8-fixes
 pr: 1944
-status: implementing
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -374,5 +374,13 @@ validation:
     evidence: server-side fixes covered by tests through the real routers and workers
 blockers:
   - none
-next_action: Portal RS CI on the PR head, then squash auto-merge
+next_action: none; delivered by PR #1944 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1944 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR #1944 merged as cf7a35ad91b907916c403a8ace82e4140f04c6f2
 ```

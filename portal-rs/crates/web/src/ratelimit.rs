@@ -247,6 +247,14 @@ impl RateLimiter {
         }
         check(self, policy, keys).await
     }
+    pub(crate) async fn check_recovery_submission(&self, keys: Keys) -> Result<(), Denial> {
+        let policy = NamedPolicy::IdentityRecoveryKeyUse;
+        let mut aggregate = Keys::source(keys.source);
+        aggregate.email = Some("aggregate-recovery-source".into());
+        // The aggregate check also charges the shared anonymous-source budget.
+        self.check(policy, &[aggregate]).await?;
+        check(self, policy, &[keys]).await
+    }
     fn unavailable(&self, policy: NamedPolicy) -> Denial {
         let window = SystemTime::now()
             .duration_since(UNIX_EPOCH)
