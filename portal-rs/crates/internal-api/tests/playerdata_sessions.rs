@@ -22,14 +22,15 @@ fn zero_duration_segment_with_kill(end_reason: &str, final_segment: bool) -> Str
 #[test]
 fn accepts_zero_duration_area_exit_with_kill() {
     let raw = zero_duration_segment_with_kill("AREA_EXIT", false);
-    sessions::record(raw.as_bytes()).expect("same-second AREA_EXIT may contain a kill");
+    let result = sessions::record(raw.as_bytes());
+    assert!(
+        result.is_ok(),
+        "same-second AREA_EXIT may contain a kill: {result:?}"
+    );
 }
 
 #[test]
 fn rejects_zero_duration_session_end_with_kill() {
     let raw = zero_duration_segment_with_kill("SESSION_END", true);
-    assert_eq!(
-        sessions::record(raw.as_bytes()).unwrap_err(),
-        Error::Invalid
-    );
+    assert_eq!(sessions::record(raw.as_bytes()).err(), Some(Error::Invalid));
 }
