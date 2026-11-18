@@ -16,9 +16,10 @@ enum RefusedCharacterCustody {
 impl oteryn_db::outbox::Cleanup for Runtime {
     fn clean(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(async move {
-            self.tick()
-                .await
-                .map_err(|_| "bazaar authority reconciliation failed".to_owned())
+            self.tick().await.map_err(|error| match error {
+                Error::ResyncEvidenceChanged => error.to_string(),
+                _ => "bazaar authority reconciliation failed".to_owned(),
+            })
         })
     }
 }

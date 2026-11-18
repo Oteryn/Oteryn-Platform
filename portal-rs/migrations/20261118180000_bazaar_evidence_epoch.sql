@@ -82,6 +82,10 @@ CREATE TRIGGER bazaar_writer_fence_delete AFTER DELETE ON bazaar_work_cursors
     FOR EACH ROW WHEN (OLD.queue LIKE 'delivery-dirty:%' OR OLD.queue LIKE 'resync-listing-dirty:%'
         OR OLD.queue IN ('delivery-evidence-scan', 'resync-listing-scan'))
     EXECUTE FUNCTION bazaar_fence_writer();
-CREATE TRIGGER bazaar_delivery_audit_writer_fence AFTER INSERT ON bazaar_audit
+CREATE TRIGGER bazaar_delivery_audit_fence AFTER INSERT ON bazaar_audit
     FOR EACH ROW WHEN (NEW.relation_name = 'bazaar_delivery_evidence')
     EXECUTE FUNCTION bazaar_fence_writer();
+CREATE TRIGGER bazaar_delivery_drift_epoch AFTER INSERT ON bazaar_audit
+    FOR EACH ROW WHEN (NEW.relation_name = 'bazaar_delivery_evidence'
+        AND NEW.after_row->>'action' = 'delivery_custody_drift')
+    EXECUTE FUNCTION bazaar_advance_evidence_epoch();

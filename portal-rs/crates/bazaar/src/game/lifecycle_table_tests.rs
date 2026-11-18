@@ -2268,6 +2268,22 @@ async fn bz17_immediate_drift_waits_for_legacy_world() {
         .authority
         .config
         .worlds = vec![uid("12")];
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM bazaar_item_details WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let a = db.runtime.authority();
+    assert!(matches!(
+        a.finish_resync(&mut tx, &a.config.worlds).await,
+        Err(Error::Unavailable)
+    ));
+    for action in ["delivery_evidence_pending", "delivery_custody_drift"] {
+        assert_eq!(delivery_reports_on(&mut tx, listing, action).await, 0);
+    }
+    tx.rollback().await.unwrap();
+
     publish_next_status(&db, &valid).await;
     db.runtime.tick().await.unwrap();
     assert_eq!(resync_progress(&db).await, (true, true));
