@@ -2430,7 +2430,7 @@ async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResu
     let missing_account = Uuid::now_v7();
     let service = make_service(host.clone());
     // Both a positive ownership result and a real quote prove the fixture is live.
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint")
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=extract(epoch FROM statement_timestamp())::bigint,observed_at=extract(epoch FROM statement_timestamp())::bigint")
         .bind(authority).execute(&db.pool).await?;
     assert_eq!(host.ownership(payer, mine).await, Ownership::Owned);
     assert_eq!(
@@ -2586,7 +2586,7 @@ async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResu
                 .await?;
         }
         sqlx::query("UPDATE account_character_snapshots SET projection_epoch='1',invalid=false WHERE account_id=$1").bind(payer).execute(&db.pool).await?;
-        sqlx::query("UPDATE account_character_feed SET complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint").execute(&db.pool).await?;
+        sqlx::query("UPDATE account_character_feed SET complete_through=extract(epoch FROM statement_timestamp())::bigint,observed_at=extract(epoch FROM statement_timestamp())::bigint").execute(&db.pool).await?;
     }
     assert_eq!(
         post(

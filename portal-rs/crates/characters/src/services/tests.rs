@@ -160,7 +160,7 @@ async fn seed(s: &Services, account: Uuid, character: Uuid, coins: i64) {
         .execute(&s.pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='lcfa',complete_through=floor(extract(epoch FROM clock_timestamp())),observed_at=floor(extract(epoch FROM clock_timestamp()))").execute(&s.pool).await.unwrap();
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='lcfa',complete_through=floor(extract(epoch FROM statement_timestamp())),observed_at=floor(extract(epoch FROM statement_timestamp()))").execute(&s.pool).await.unwrap();
     sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES ($1,'lcfa','1','1',1,$2) ON CONFLICT DO NOTHING").bind(account).bind(vec![0u8;32]).execute(&s.pool).await.unwrap();
     sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES ($1,$2,$3,'Aldric','AVAILABLE')").bind(account).bind(character).bind(Uuid::now_v7()).execute(&s.pool).await.unwrap();
     let at = current(&s.pool).await;

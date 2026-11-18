@@ -770,7 +770,7 @@ async fn database_native_character_projection_and_failure_rollback()
             .await,
         Err(Failure::Unavailable)
     );
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test-source',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&s.pool).await?;
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test-source',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1").execute(&s.pool).await?;
     sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test-source','1','1',0,$2)").bind(account).bind(vec![0u8;32]).execute(&s.pool).await?;
     let character = Uuid::now_v7();
     sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Player','AVAILABLE')").bind(account).bind(character).bind(Uuid::now_v7()).execute(&s.pool).await?;
@@ -1177,7 +1177,7 @@ async fn devices_e2e_unbound_lifecycle_with_game_client_bytes()
     let Some((s, account, client, bearer)) = native_setup().await? else {
         return Ok(());
     };
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test-source',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&s.pool).await?;
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test-source',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1").execute(&s.pool).await?;
     sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'test-source','1','1',0,$2)").bind(account).bind(vec![0u8;32]).execute(&s.pool).await?;
     let character = Uuid::now_v7();
     sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Player','AVAILABLE')").bind(account).bind(character).bind(Uuid::now_v7()).execute(&s.pool).await?;

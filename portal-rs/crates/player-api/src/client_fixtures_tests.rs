@@ -357,7 +357,7 @@ async fn pg_native_characters_match_native_characters_fixture() -> TestResult {
     run(&db.api(false), "characters-flag-off").await;
     run(&app, "characters-feed-stale").await;
     // A live watermark for epoch 1 from the configured Character Authority.
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1', watermark_epoch='1', source_authority=$1, complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint - 1, observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1")
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1', watermark_epoch='1', source_authority=$1, complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint - 1, observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1")
         .bind(AUTHORITY).execute(&db.pool).await?;
     run(&app, "characters-no-snapshot").await;
     let account = Uuid::parse_str(ACCOUNT)?;
