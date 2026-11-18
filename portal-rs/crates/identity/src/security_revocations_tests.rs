@@ -676,3 +676,30 @@ fn recovery_locator_metadata_does_not_disable_export() -> TestResult {
     assert!(identities(vars).is_ok());
     Ok(())
 }
+
+#[tokio::test]
+async fn retention_future_suspension_read_after_expiry() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let actor = db.account().await?;
+    let account = db.account().await?;
+    let approver = db.account().await?;
+    // Approval after the window has closed never made this sanction effective.
+    sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by,approved_by) VALUES ($1,'suspension','active','Public reason',now()-interval '2 days',now()-interval '1 day',$2,$3)")
+        .bind(account).bind(actor).bind(approver).execute(&db.pool).await?;
+    let scheduled: Uuid = sqlx::query_scalar("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES ($1,'suspension','pending','Public reason',clock_timestamp()+interval '1 second',clock_timestamp()+interval '2 seconds',$2) RETURNING id")
+        .bind(account).bind(actor).fetch_one(&db.pool).await?;
+    sqlx::query("UPDATE sanctions SET status='active', approved_by=$2 WHERE id=$1")
+        .bind(scheduled)
+        .bind(approver)
+        .execute(&db.pool)
+        .await?;
+    assert!(db.records().await?.is_empty());
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let result = page(&db, None, 500).await?;
+    assert_eq!(result["items"][0]["cause"], 3);
+    page(&db, Some(1), 500).await?;
+    assert_eq!(db.records().await?, vec![(1, account, 1, 3)]);
+    db.cleanup().await
+}
