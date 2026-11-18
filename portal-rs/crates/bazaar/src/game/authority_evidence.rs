@@ -9,8 +9,8 @@ use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 const DELIVERY_EVIDENCE_RETRIES: i64 = 8;
-// Restart scans that did not enumerate legacy deliveries and in-flight returns.
-const RESYNC_VERSION: &str = "delivery-sales-v4:";
+// Restart scans whose checkpoints predate transactional STATUS listing rechecks.
+const RESYNC_VERSION: &str = "delivery-sales-v5:";
 
 enum ReturnStatus {
     Pending,
@@ -530,12 +530,18 @@ impl Authority {
             },
         };
         if reason.is_none() {
-            let world: Option<Uuid> = sqlx::query_scalar(
-                "SELECT world_id FROM bazaar_authority_assets WHERE listing_id=$1",
+            // A missing configured world must not consume the evidence retry budget.
+            let world: Option<Uuid> = sqlx::query_scalar::<_, Option<Uuid>>(
+                "SELECT COALESCE(a.world_id,d.world_id)
+                 FROM bazaar_listings l
+                 LEFT JOIN bazaar_authority_assets a ON a.listing_id=l.id
+                 LEFT JOIN bazaar_item_details d ON d.id=l.id
+                 WHERE l.id=$1",
             )
             .bind(listing)
             .fetch_optional(&mut *db)
-            .await?;
+            .await?
+            .flatten();
             if world.is_some_and(|world| !worlds.contains(&world)) {
                 return Err(Error::ResyncWorldConfiguration);
             }

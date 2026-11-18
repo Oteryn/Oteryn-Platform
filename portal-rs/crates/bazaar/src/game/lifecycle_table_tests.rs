@@ -1951,6 +1951,13 @@ async fn bz14_active_custody_conflict_behind_cursor_fences_certification() {
 
     db.runtime.tick().await.unwrap();
     let certification = resync_progress(&db).await;
+    let certified_marker: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_resync
+         WHERE projection_epoch=4 AND recovery_generation=3)",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
     let remaining = sqlx::query_scalar::<_, Uuid>(dirty)
         .bind(&listing_key)
         .fetch_optional(&db.pool)
@@ -1964,6 +1971,7 @@ async fn bz14_active_custody_conflict_behind_cursor_fences_certification() {
         (false, true),
         "final page certified quarantined custody"
     );
+    assert!(!certified_marker);
     assert_eq!(queued, Some(listing));
     assert_eq!(remaining, Some(listing));
     assert_eq!(state, State::Active);
@@ -2099,7 +2107,13 @@ async fn bz15_missing_legacy_world_preserves_delivery_retry_budget() {
         .config
         .worlds = vec![world];
     let mut tx = db.pool.begin().await.unwrap();
-    recovery_tests::replay(db.runtime.authority(), &mut tx, listing).await;
+    recovery_tests::replay_except(
+        db.runtime.authority(),
+        &mut tx,
+        listing,
+        Some(Command::Escrow),
+    )
+    .await;
     tx.commit().await.unwrap();
     let restored = db.runtime.tick().await;
     let certification = resync_progress(&db).await;

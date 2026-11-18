@@ -22,16 +22,40 @@ pub(super) const LISTING: Queue = Queue {
 };
 
 pub(super) async fn mark_status(db: &mut PgConnection, listing: Uuid) -> Result<(), sqlx::Error> {
+    mark_custody_work(db, listing, true).await
+}
+
+async fn mark_custody_work(
+    db: &mut PgConnection,
+    listing: Uuid,
+    status_changed: bool,
+) -> Result<(), sqlx::Error> {
+    // STATUS can invalidate custody that a rebuild page has already checked.
+    // Delivery owns terminal item sales, as it does in the listing scan.
     sqlx::query(
-        "INSERT INTO bazaar_work_cursors(queue,cursor_id)
-         SELECT 'delivery-dirty:' || l.id,l.id FROM bazaar_listings l WHERE l.id=$1 AND l.kind='item'
-           AND (l.state='completed' OR EXISTS (SELECT 1 FROM bazaar_authority_compensations c
-                  WHERE c.listing_id=l.id) OR EXISTS (SELECT 1 FROM bazaar_game_outbox o
-                  WHERE o.listing_id=l.id AND (o.command='DeliverBazaarItem'
-                      OR (l.state='awaiting_delivery' AND o.command='ReturnBazaarItem'))))
+        "WITH subject AS (
+             SELECT l.id,l.state,l.kind='item' AND (
+                 l.state='completed'
+                 OR EXISTS (SELECT 1 FROM bazaar_authority_compensations c WHERE c.listing_id=l.id)
+                 OR EXISTS (SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
+                     AND (o.command='DeliverBazaarItem'
+                         OR (l.state='awaiting_delivery' AND o.command='ReturnBazaarItem')))
+             ) AS delivery
+             FROM bazaar_listings l WHERE l.id=$1
+         )
+         INSERT INTO bazaar_work_cursors(queue,cursor_id)
+         SELECT $2 || id,id FROM subject WHERE delivery
+         UNION ALL
+         SELECT $3 || id,id FROM subject
+         WHERE $4 AND NOT (delivery AND state IN ('completed','cancelled'))
          ON CONFLICT DO NOTHING",
     )
-    .bind(listing).execute(db).await?;
+    .bind(listing)
+    .bind(DELIVERY.prefix)
+    .bind(LISTING.prefix)
+    .bind(status_changed)
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -45,7 +69,7 @@ pub(super) async fn mark_operation(
             .fetch_optional(&mut *db)
             .await?;
     if let Some(listing) = listing {
-        mark_status(db, listing).await?;
+        mark_custody_work(db, listing, false).await?;
     }
     Ok(())
 }

@@ -1653,7 +1653,7 @@ async fn postgres_completed_resync_does_not_rescan_terminal_history() {
         .unwrap();
     sqlx::query("INSERT INTO bazaar_authority_resync(projection_epoch,recovery_generation) VALUES(3,3) ON CONFLICT DO NOTHING").execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES(3,3,$1) ON CONFLICT DO NOTHING")
-        .bind(format!("delivery-sales-v4:{}", uid("12")))
+        .bind(format!("delivery-sales-v5:{}", uid("12")))
         .execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) SELECT uuidv7(),$1,'item','auction','coins',100,false,'completed',now() FROM generate_series(1,2000)").bind(Uuid::now_v7()).execute(&mut *tx).await.unwrap();
     let result = tokio::time::timeout(

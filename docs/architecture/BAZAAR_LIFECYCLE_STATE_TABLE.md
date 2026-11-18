@@ -46,7 +46,8 @@ keys continue to fence certification. A rebuild rolls back a failing
 transaction. The next worker resumes from the last committed cursor and
 requires the current scan version and configured worlds before serving.
 
-The v4 scan binds the sorted worlds to the marker through its progress row.
+The v5 scan binds the sorted worlds to the marker through its progress row
+and restarts older checkpoints that predate transactional STATUS rechecks.
 An older marker or progress row becomes obsolete as soon as the fence,
 version or world set changes. A reader checks that binding under the issuer
 lock even when a worker has yet to commit an invalidation. A current marker
@@ -162,9 +163,10 @@ drift report is emitted by these controls.
 ### Game custody projection intake
 
 Game intake changes the durable projection independently of financial and
-listing effects. The conflict outcome creates a projection quarantine. The
-sale recheck determines whether the conflicting evidence creates a sale
-drift report.
+listing effects. Applied or conflicting STATUS schedules a custody recheck
+in the same transaction. The conflict outcome creates a projection quarantine.
+The sale recheck determines whether conflicting sale evidence creates a drift
+report.
 
 | Current status | Incoming revision | Next status | Effects | Disposition |
 | --- | --- | --- | --- | --- |
