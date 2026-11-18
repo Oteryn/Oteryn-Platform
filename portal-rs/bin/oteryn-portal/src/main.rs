@@ -435,6 +435,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
+            #[cfg(test)]
+            if native_listener.is_some() {
+                record_route_registrations("native", &app)?;
+            }
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             let private_listeners = register_private_listeners(
                 [
