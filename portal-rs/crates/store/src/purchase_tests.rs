@@ -605,6 +605,68 @@ async fn db_exact_replay_and_conflicting_reuse() {
     assert_eq!(db.count("purchase_test_audit").await, 2);
     db.finish().await;
 }
+// Oteryn/Oteryn-Game@cadfdd03dd5eb0fcef071d54162805336d301f50,
+// rulesets/economy/store/catalogue.json. The digest is the Game D2(b) quote revision.
+const GAME_CATALOGUE: &[u8] = include_bytes!("../tests/fixtures/game-runtime-catalogue.json");
+const GAME_REVISION: &str = "451c944aa7b6ab9d27cfce868fcf4949c8996a7b6857cc2641e2c296fd415c8c";
+
+#[tokio::test]
+async fn db_purchase_accepts_active_game_catalogue_revision_and_rejects_mismatches() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let store = CatalogStore::new(db.pool.clone(), CatalogFlags { enabled: true });
+    let actor = uuid(ACCOUNT).unwrap();
+    let revision = store
+        .import(GAME_CATALOGUE, actor, &TestAccounts)
+        .await
+        .unwrap();
+    assert_eq!(revision, GAME_REVISION);
+    assert_eq!(
+        store.active().await.unwrap().unwrap().revision(),
+        db.revision
+    );
+    store
+        .activate(GAME_REVISION, actor, &TestAccounts)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.active().await.unwrap().unwrap().revision(),
+        GAME_REVISION
+    );
+
+    db.fund(ACCOUNT, 100).await;
+    let service = db.service(settings());
+    let raw = change(
+        &request(GAME_REVISION),
+        "offer_key",
+        text("store:exercise-sword"),
+    );
+    let raw = change(&raw, "unit_price", text("25"));
+    let accepted = value(&service.purchase(&raw).await.unwrap());
+    assert_eq!(string(&accepted, "result"), "ACCEPTED");
+    let unit = &array(&accepted, "units")[0];
+    let intent: Vec<u8> =
+        sqlx::query_scalar("SELECT intent_bytes FROM store_operations WHERE operation_id=$1")
+            .bind(uuid(string(unit, "delivery_operation_id")).unwrap())
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    let intent = value(&intent);
+    assert_eq!(string(&intent, "catalog_revision"), GAME_REVISION);
+    assert_eq!(string(&intent, "grant_key"), "oteryn:item.tibia.i28552");
+    assert_eq!(string(&intent, "grant_revision"), "1");
+    assert_eq!(intent.get("quantity"), Some(&number(1)));
+
+    let stale = change(&unique(&raw), "catalog_revision", text(&db.revision));
+    let refused = service.purchase(&stale).await.unwrap();
+    assert_eq!(string(&value(&refused), "result"), "STALE_QUOTE");
+    assert_eq!(service.purchase(&stale).await.unwrap(), refused);
+    assert_eq!(db.count("store_orders").await, 1);
+    assert_eq!(db.count("wallet_entries").await, 2);
+    db.finish().await;
+}
 #[tokio::test]
 async fn db_refusals_are_terminal_and_create_only_answers() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
