@@ -9,7 +9,7 @@
 </head>
 <body class="op-theme">
 <main class="op-stack">
-<h1>{{ labels[0] }}</h1>{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}<form class="op-stack" method="get">
+<h1>{{ labels[0] }}</h1>{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% elif stale %}<p role="status">{{ labels[10] }}</p>{% else %}<form class="op-stack" method="get">
 <label for="world">{{ labels[2] }}</label>
 <select class="op-input" id="world" name="world">
 <option value="">{{ labels[3] }}</option>{% for id in ids %}<option value="{{ id }}"{% if filter.as_str() == id.as_str() %} selected{% endif %}>{{ id }}</option>{% endfor %}</select>

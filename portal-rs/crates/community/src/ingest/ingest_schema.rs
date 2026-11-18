@@ -191,21 +191,36 @@ pub(super) fn publication(family: Option<Family>, v: &Value, now: u64) -> Result
     let extras: &[&str] = match f.name {
         "highscores" => {
             let world = uuid(v, "world_id")?;
-            let category = integer(v, "category", 1, 11)?;
+            let category = integer(v, "category", 1, 17)?;
+            if !matches!(category, 1..=12 | 14 | 16 | 17) {
+                return Err(());
+            }
             let filter = integer(v, "filter", 0, 5)?;
             time(v, "computed_at", false)?;
-            let mut previous = "";
+            let mut previous = 0;
+            let mut tie_run = 0;
             let mut seen = std::collections::HashSet::new();
             for (i, r) in list(v, "rows", 0, 1000)?.iter().enumerate() {
                 keys(
                     r,
                     &["rank", "character_id", "name", "vocation", "level", "value"],
                 )?;
-                let rank = decimal(r, "rank", false)?;
-                if rank != (i + 1).to_string() && rank != previous {
-                    return Err(());
+                let rank: u64 = decimal(r, "rank", false)?.parse().map_err(|_| ())?;
+                if rank == previous {
+                    tie_run += 1;
+                } else {
+                    // Vocation-filtered lists retain World ranks and may omit rows from a tie.
+                    let valid = if filter == 0 {
+                        rank == u64::try_from(i + 1).map_err(|_| ())?
+                    } else {
+                        rank.checked_sub(previous).is_some_and(|gap| gap >= tie_run)
+                    };
+                    if !valid {
+                        return Err(());
+                    }
+                    previous = rank;
+                    tie_run = 1;
                 }
-                previous = rank;
                 if !seen.insert(uuid(r, "character_id")?) {
                     return Err(());
                 }
