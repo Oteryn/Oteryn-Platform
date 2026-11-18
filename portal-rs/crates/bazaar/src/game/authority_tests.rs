@@ -5524,3 +5524,24 @@ async fn r10_replay_gold_payout_before_resync() {
     replay_sale_receipts(&db, &[Command::Payout]).await;
     db.end().await;
 }
+
+#[tokio::test]
+async fn restricted_buyer_blocks_settlement_bind_publication() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = settling_character_fixture("coins").await;
+    sqlx::query(
+        "UPDATE accounts SET email_change_blocked_until=now()+interval '1 hour' WHERE id=$1",
+    )
+    .bind(uid("13"))
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    db.runtime.tick().await.unwrap();
+    let published: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch JOIN bazaar_game_outbox USING(operation_id) WHERE listing_id=$1 AND command='BindBazaarCharacterTransfer' AND intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT')")
+        .bind(uid("30"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    db.end().await;
+    assert!(!published, "settlement Bind published for restricted buyer");
+}

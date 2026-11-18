@@ -27,6 +27,8 @@ impl Authority {
         let mut parties = vec![id(text(&i.value, "seller_account_id")?)?];
         if let Some(Value::String(buyer)) = i.value.get("buyer_account_id") {
             parties.push(id(buyer)?);
+        } else if i.command == Command::Bind && text(&i.value, "purpose")? == "BAZAAR_SETTLEMENT" {
+            parties.push(super::runtime::characters::settlement_buyer(db, &i).await?);
         }
         parties.sort();
         parties.dedup();
