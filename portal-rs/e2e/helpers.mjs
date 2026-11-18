@@ -69,7 +69,13 @@ export async function register(page,lang) {
   await submit(page,'main form',{email,password:pass,password_confirmation:pass,terms:true,privacy:true});
   await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox`),{timeout:90_000});
   const link=await mailLink(page,email,/https:\/\/localhost:18443\/(?:pl|en)\/verify-email\?token=[a-f0-9]+/);
-  await page.goto(link);
+  // Reserve room for the verification GET and form submissions in the current minute.
+  const db=pool();
+  try {
+    await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-verification-source' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThanOrEqual(7);
+  } finally {await db.end();}
+  const verification=await page.goto(link);
+  expect(verification.status(),'email verification page opens').toBe(200);
   const form=page.locator('main form');
   if(await form.count()) await submit(page);
   return {email,password:pass};
