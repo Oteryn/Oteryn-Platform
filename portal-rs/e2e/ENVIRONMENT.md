@@ -399,7 +399,7 @@ fixture-backed Game client. This stub is test support, not a production adapter.
 | `PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE`, `PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE` | Required server certificate/private-key paths; contents never committed |
 | `PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256` | Required exact DER leaf SHA-256 for the dedicated Character client |
 | `PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256` | Required distinct DER leaf SHA-256 for the portfolio publisher |
-| `PORTAL_ACCOUNT_CLOSURE_KEY_ID`, `PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX` | Required configured Ed25519 signing key id and 32-byte lowercase public-key hex |
+| `PORTAL_ACCOUNT_CLOSURE_KEY_ID`, `PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX` | Optional Ed25519 key for the detached-signature compatibility entry point; the private routes do not use it |
 | `PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION` | Required positive reconciled nonrollback floor; local fixture `3`, never inferred |
 | `PORTAL_ACCOUNT_CLOSURE_SOURCE_AUTHORITY` | `oteryn:character-authority:primary` |
 | `PORTAL_ACCOUNT_CLOSURE_FINAL_DISPOSITION_POLICY` | `game_verified`; conservative override `hold` keeps verified closures pending but allows CANCEL |
@@ -409,10 +409,16 @@ fixture-backed Game client. This stub is test support, not a production adapter.
 | `PORTAL_ACCOUNT_CLOSURE_STALE_SECONDS` | `30` (2..30), with fixed 1-second clock uncertainty |
 | `PORTAL_E2E_GAME_CLOSURE_CONTROL_URL` | Test-only loopback producer fault control, never a production URL |
 
-Publications carry detached lowercase signature hex in `x-oteryn-signature` and
-the configured `x-oteryn-key-id`; original JSON remains byte-exact. Headers never
-establish mTLS identity. The listener requires TLS 1.3, HTTP/1.1 and CA validation
-plus exact certificate pins. The Character identity cannot publish LCFA facts.
+Game pulls with the v1 `ListPendingCharacterCommandsV1` and
+`ReadCharacterCommandIntentV1` wrappers. The Character mTLS identity alone
+authenticates receipts, closure snapshots and the `PublishProjectionWatermarkV1`
+closure watermark; original JSON remains byte-exact and no signature header is
+read. The listener requires TLS 1.3, HTTP/1.1 and CA validation plus exact
+certificate pins. The Character identity cannot publish LCFA facts. The
+producer's `wrong_identity` fault sends one account's publications with the LCFA
+publisher certificate, which the Character guard refuses. The producer also
+publishes each Bazaar fixture buyer's destination character in that account's
+LCFA portfolio before the bid.
 
 The browser spec advances only its own termination's grace timestamps before
 issuance to simulate elapsed days. It never inserts commands, receipts, projections

@@ -82,7 +82,8 @@ test('Game refusal stays closed: no listing activation, transfer or credit',asyn
   const {id,asset}=await list(page,lang,'item',true);
   await expect.poll(async()=>{await page.reload();return await page.locator('main').innerText();},{timeout:30000,intervals:[1000]}).toContain(lang==='pl'?'Gra odrzuciła':'Game authority refused');
   const db=pool();try{
-   expect((await db.query('SELECT state::text FROM bazaar_listings WHERE id=$1',[id])).rows[0].state).toBe('draft');
+   // A refused item deposit closes the draft (crates/bazaar refused_item_deposit_closes_draft).
+   expect((await db.query('SELECT state::text FROM bazaar_listings WHERE id=$1',[id])).rows[0].state).toBe('cancelled');
    expect(Number((await db.query('SELECT count(*) FROM bazaar_settlements WHERE listing_id=$1',[id])).rows[0].count)).toBe(0);
    expect(Number((await db.query('SELECT count(*) FROM bazaar_coin_holds WHERE id=$1',[id])).rows[0].count)).toBe(0);
   }finally{await db.end();}

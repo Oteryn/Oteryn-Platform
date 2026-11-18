@@ -237,7 +237,10 @@ export async function startBazaarProducer(config){
     if(state.assets[input.asset_id])throw new Error('Fixture identity reuse');
     const base={id:input.asset_id,world,owner:input.seller,character:input.seller_character_id,kind:input.kind,revision:'7',quantity:1,name:'Fixture Hero',playable:true,transferable:!input.refuse,offline:true,eligible:true,obligationsResolved:true,locked:false};
     state.banks[input.seller]??={balance:0,held:0,incoming:0};bank(input.buyer);
-    state.characters[input.seller_character_id]={owner:input.seller,world};state.characters[input.buyer_character_id]={owner:input.buyer,world};state.assets[input.asset_id]=base;persist();res.writeHead(201);res.end('{}');return;
+    state.characters[input.seller_character_id]={owner:input.seller,world};state.characters[input.buyer_character_id]={owner:input.buyer,world};state.assets[input.asset_id]=base;persist();
+    // Game's account-character projection lists the buyer's destination before a bid.
+    await config.publishCharacter({account_id:input.buyer,character_id:input.buyer_character_id,world_id:world});
+    res.writeHead(201);res.end('{}');return;
    }
    if(req.method==='POST'&&req.url==='/replay'){const input=JSON.parse(raw);if(!validID(input.listing_id))throw new Error('Missing replay subject');for(const entry of state.outbox){if(state.decisions[entry.key].listing!==input.listing_id)continue;entry.receiptSent=false;entry.statusSent=!entry.status;entry.eventSent=!entry.event;}persist();res.end('{}');return;}
    res.writeHead(404);res.end();
