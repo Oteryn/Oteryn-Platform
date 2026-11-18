@@ -729,10 +729,16 @@ async fn audit06_retained_fingerprint_accepts_purged_replay() -> Result {
 #[tokio::test]
 async fn audit06_wait_past_interval_refuses_boost_data() -> Result {
     let d = Database::new().await?.ok_or("PostgreSQL required")?;
+    // Start on a fresh second so the setup below has two whole seconds of validity:
+    // reads at `now` and `now + 1` are inside the interval, a read at `now + 2` is not.
+    let previous = at();
+    while at() == previous {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
     let now = at();
     let raw = snapshot(now, 2, 17).replace(
         &format!("\"effective_until\":\"{}\"", now + 100),
-        &format!("\"effective_until\":\"{}\"", now + 2),
+        &format!("\"effective_until\":\"{}\"", now + 3),
     );
     ack(app(d.db.clone(), config()), "world-daily", raw, "accepted").await;
     ack(
@@ -770,7 +776,7 @@ async fn audit06_wait_past_interval_refuses_boost_data() -> Result {
         );
         tokio::task::yield_now().await;
     }
-    while at() < now + 1 {
+    while at() < now + 2 {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
     lock.commit().await?;
