@@ -51,12 +51,11 @@ impl termination::Boundary for TerminationBoundary {
         account: Uuid,
     ) -> BoundaryFuture<'a> {
         Box::pin(async move {
-            // Wallet writers serialize on this row. No Game lifecycle mutation is composed.
-            sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
-                .bind(account)
-                .execute(&mut **tx)
-                .await?;
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')) OR EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) OR EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)").bind(account).fetch_one(&mut **tx).await?;
+            if !termination::game_closure::runtime::financial_obligations_clear(tx, account).await?
+            {
+                return Err(termination::Error::UnknownState);
+            }
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) OR EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)").bind(account).fetch_one(&mut **tx).await?;
             if blocked {
                 Err(termination::Error::UnknownState)
             } else {

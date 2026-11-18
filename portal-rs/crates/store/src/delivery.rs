@@ -179,7 +179,7 @@ impl Delivery {
             return Err(Error::Unavailable);
         }
         let stale: bool = sqlx::query_scalar(
-            "SELECT new_recovery_generation>$1::text::numeric FROM store_delivery_fence WHERE id=1",
+            "SELECT new_recovery_generation > $1::text::numeric OR COALESCE((SELECT max(new_recovery_generation)::numeric <> $1::text::numeric FROM character_restore_notices WHERE acknowledged_at IS NOT NULL), false) FROM store_delivery_fence WHERE id=1",
         )
         .bind(get(&v, "recovery_generation")?)
         .fetch_one(&mut *tx)

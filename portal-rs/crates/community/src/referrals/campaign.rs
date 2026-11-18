@@ -365,6 +365,7 @@ impl<P: Policy> Campaign<P> {
 /// Periodic reconciliation uses the same premium ledger as other store grants.
 #[derive(Debug)]
 pub struct Worker {
+    premium_enabled: bool,
     pub campaign: Campaign,
     pub sender: Option<Arc<dyn oteryn_notify::EmailSender>>,
 }
@@ -393,6 +394,7 @@ impl Worker {
             None
         };
         Ok(Self {
+            premium_enabled: std::env::var("OTERYN_PREMIUM_ENABLED").as_deref() == Ok("true"),
             campaign: Campaign::new(pool, Flags { enabled }, DatabasePolicy, origin)?,
             sender,
         })
@@ -424,9 +426,9 @@ impl Worker {
         let ledger = oteryn_store::premium::repository::Ledger::new(
             self.campaign.pool.clone(),
             Arc::new(DatabasePolicy),
-            true,
+            self.premium_enabled,
         );
-        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE r.kind='premium' AND r.applied_at IS NULL AND account_value_eligible(a.id) ORDER BY r.created_at LIMIT 100").fetch_all(&self.campaign.pool).await?;
+        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE $1 AND r.kind='premium' AND r.applied_at IS NULL AND account_value_eligible(a.id) ORDER BY r.created_at LIMIT 100").bind(self.premium_enabled).fetch_all(&self.campaign.pool).await?;
         let mut premium_failed = false;
         for id in ids {
             let mut tx = self.campaign.pool.begin().await?;
@@ -464,17 +466,18 @@ impl Worker {
                 );
                 let subject = web::translate(&lang, "mail-title")?;
                 let body = format!("{}\n\n{url}", web::translate(&lang, "mail-body")?);
-                let sent = sender
-                    .send(&oteryn_notify::Email {
-                        id,
-                        recipient: row.try_get("recipient")?,
-                        subject,
-                        text: body.clone(),
-                        html: format!("<p>{}</p><p>{url}</p>", web::translate(&lang, "mail-body")?),
-                        unsubscribe: None,
-                    })
-                    .await;
-                if sent.is_err() {
+                let email = oteryn_notify::Email {
+                    id,
+                    recipient: row.try_get("recipient")?,
+                    subject,
+                    text: body.clone(),
+                    html: format!("<p>{}</p><p>{url}</p>", web::translate(&lang, "mail-body")?),
+                    unsubscribe: None,
+                };
+                let sent =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), sender.send(&email))
+                        .await;
+                if !matches!(sent, Ok(Ok(()))) {
                     sqlx::query("UPDATE referral_email_attempts SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await?;
                     tx.commit().await?;
                     continue;

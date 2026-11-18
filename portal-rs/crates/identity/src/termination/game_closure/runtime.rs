@@ -193,13 +193,7 @@ impl GameBoundary {
         ) {
             return Err(Error::UnknownState);
         }
-        // Wallet writers use this lock. Credential and Character state are
-        // separate from the current financial attestation.
-        sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
-            .bind(account)
-            .execute(&mut *tx)
-            .await?;
-        let financial_obligations_clear: bool = sqlx::query_scalar("SELECT NOT (EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')))").bind(account).fetch_one(&mut *tx).await?;
+        let financial_obligations_clear = financial_obligations_clear(&mut tx, account).await?;
         let observed: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&mut *tx)
@@ -255,4 +249,24 @@ pub(super) fn lifecycle_observation(
             .to_string(),
     };
     Ok(observation)
+}
+
+/// Shared financial check for local termination and Game lifecycle attestation.
+/// The caller holds the account lock.
+pub async fn financial_obligations_clear(
+    tx: &mut Transaction<'_, Postgres>,
+    account: Uuid,
+) -> Result<bool> {
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut **tx)
+        .await?;
+    Ok(sqlx::query_scalar("SELECT NOT (
+        EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active')
+        OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery'))
+        OR EXISTS(SELECT 1 FROM payment_intents p WHERE p.account_id=$1 AND p.state='succeeded'
+            AND EXISTS (SELECT 1 FROM store_web_topups t WHERE t.account_id=p.account_id AND COALESCE(t.payment_intent_id,t.intended_payment_intent_id)=p.id)
+            AND NOT EXISTS (SELECT 1 FROM wallet_operations WHERE id=p.id AND account_id=p.account_id AND kind='top_up')
+            AND NOT EXISTS (SELECT 1 FROM commerce_refunds WHERE intent_id=p.id AND state='done'))
+    )").bind(account).fetch_one(&mut **tx).await?)
 }

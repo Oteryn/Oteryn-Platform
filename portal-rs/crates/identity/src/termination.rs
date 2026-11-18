@@ -190,6 +190,28 @@ pub struct Terminations {
     config: Config,
     boundary: Arc<dyn Boundary>,
 }
+async fn check_role_survivors(
+    tx: &mut Transaction<'_, Postgres>,
+    account: AccountId,
+) -> Result<()> {
+    // Role mutations take the same fence after locking the affected accounts.
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut **tx)
+        .await?;
+    let last_holder:bool = sqlx::query_scalar("SELECT EXISTS (
+        SELECT 1 FROM account_roles mine JOIN roles r ON r.id=mine.role_id
+        WHERE mine.account_id=$1 AND r.key IN ('owner','platform_admin') AND NOT EXISTS (
+            SELECT 1 FROM account_roles other JOIN accounts a ON a.id=other.account_id
+            WHERE other.role_id=r.id AND a.id<>$1 AND a.status='active'
+            AND NOT EXISTS (SELECT 1 FROM account_terminations t WHERE t.account_id=a.id AND t.cancelled_at IS NULL AND t.finalized_at IS NULL)
+        )
+    )").bind(account).fetch_one(&mut **tx).await?;
+    if last_holder {
+        return Err(Error::UnknownState);
+    }
+    Ok(())
+}
+
 impl Terminations {
     pub fn new(pool: PgPool, config: Config, boundary: Arc<dyn Boundary>) -> Result<Self> {
         Ok(Self {
@@ -232,6 +254,7 @@ impl Terminations {
             return Ok(pending);
         }
         self.boundary.check_blockers(&mut tx, account).await?;
+        check_role_survivors(&mut tx, account).await?;
         let termination: Termination = sqlx::query_as("INSERT INTO account_terminations (account_id,scheduled_for) VALUES ($1,now()+make_interval(days=>$2)) RETURNING *")
             .bind(account).bind(self.config.grace_days).fetch_one(&mut *tx).await?;
         self.boundary.requested(&mut tx, &termination).await?;
@@ -313,11 +336,14 @@ impl Terminations {
             return Ok(false);
         }
         self.boundary.check_blockers(&mut tx, account).await?;
+        check_role_survivors(&mut tx, account).await?;
         self.boundary.revoke(&mut tx, account, true).await?;
         sqlx::query("DELETE FROM account_backup_emails WHERE account_id=$1")
             .bind(account)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("UPDATE tickets SET status='closed',closed_at=now(),updated_at=now(),lock_version=lock_version+1 WHERE account_id=$1 AND status IN ('open','waiting_staff','waiting_user')")
+            .bind(account).execute(&mut *tx).await?;
         // Closed status and a non-PHC password prevent credential use even after a retry.
         sqlx::query("UPDATE accounts SET email=$2,password_hash='!closed',status='closed',email_verified_at=NULL,public_account_association=false,public_status_visible=false,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
             .bind(account).bind(format!("terminated+{account}")).execute(&mut *tx).await?;

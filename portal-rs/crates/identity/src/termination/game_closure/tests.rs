@@ -1640,3 +1640,44 @@ async fn delayed_cancel_resolution_conflict_allows_new_closure() -> TestResult {
     assert_eq!(fresh.expected_recovery_generation, "4");
     db.close().await
 }
+
+#[tokio::test]
+async fn delayed_finalize_commit_resolves_original_command() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
+    let s = service(&db, b.clone());
+    let account = db.account().await?;
+    let (t, close) = issue(&db, &s, account).await;
+    publish(&db, &b, &close, true).await;
+    assert!(s.finalize(account).await?);
+    let raw:Vec<u8>=sqlx::query_scalar("SELECT intent FROM plat3_closure_commands WHERE termination_id=$1 AND command='ResolveAccountClosure'").bind(t.id).fetch_one(&db.pool).await?;
+    let resolution = Intent::parse(&raw)?;
+    let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+    receipt.command = resolution.command.clone();
+    receipt.operation_id = resolution.operation_id.clone();
+    receipt.decided_at = resolution.issued_at_source.clone();
+
+    let result = receipt.result_data.as_mut().ok_or("receipt result")?;
+    result.account_id = resolution.account_id.clone();
+    result.termination_id = resolution.termination_id.clone();
+    result.lifecycle_generation = resolution.lifecycle_generation.clone();
+    result.closure_state = "FINALIZED".into();
+    let bytes = serde_json::to_vec(result)?;
+    let marker = b",\"proof_sha256\":";
+    let end = bytes
+        .windows(marker.len())
+        .position(|w| w == marker)
+        .ok_or("proof")?;
+    let mut body = bytes[..end].to_vec();
+    body.push(b'}');
+    result.proof_sha256 = wire::hex(&digest(&body));
+
+    let raw = serde_json::to_vec(&receipt)?;
+    recovery.0.store(4, Ordering::SeqCst);
+    b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await?;
+    db.close().await
+}
