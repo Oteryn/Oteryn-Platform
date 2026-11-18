@@ -128,3 +128,11 @@ blockers:
   - none
 next_action: none; delivered by PR #1948 and archived
 ```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR; head branch deleted after merge
+source_branch_evidence: PR 1948 merged as e367f15f1e0a171f46edebb743c12588397b9e2e
+```
