@@ -46,6 +46,21 @@ keys continue to fence certification. A rebuild rolls back a failing
 transaction. The next worker resumes from the last committed cursor and
 requires the current scan version and configured worlds before serving.
 
+The v4 scan binds the sorted worlds to the marker through its progress row.
+An older marker or progress row becomes obsolete as soon as the fence,
+version or world set changes. A reader checks that binding under the issuer
+lock even when a worker has yet to commit an invalidation. A current marker
+also needs a fresh watermark and no unresolved listing or terminal sale
+keys. During ordinary operation an awaiting sale uses its own custody and
+funding gates while its delivery key waits for evidence. During a rebuild,
+all enumerated keys must resolve before the final operation scan can certify.
+
+The rebuild tracks listing enumeration separately from the durable recheck
+queues. A missing listing status can retain a key and let the next page
+proceed. A missing configured policy pauses evidence retries until the world
+is available. The delivery retry budget belongs to the sale, so restarting
+the scan or rediscovering the same key preserves the attempts already charged.
+
 ## Executable transition rows
 
 The PostgreSQL acceptance test uses five products and named recovery scenarios.
