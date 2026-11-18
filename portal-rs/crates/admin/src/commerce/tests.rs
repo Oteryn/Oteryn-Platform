@@ -944,6 +944,7 @@ async fn postgres_a3_commerce_locks_payment_owner_before_role_fence() {
 
 #[tokio::test]
 async fn a3_commerce_queue_pagination_and_terminal_disposition() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let h = Harness::new().await.expect("PostgreSQL required");
     let service = h.service();
