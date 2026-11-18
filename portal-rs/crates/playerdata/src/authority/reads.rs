@@ -2,7 +2,8 @@
 //! and the G-10 item-read evidence. Each re-proves ownership in its own
 //! transaction with [`super::ownership`]; journal rows are never ownership.
 use super::{
-    Ownership, OwnershipCut, account, account_epoch, ownership, restore_generation, shared_fences,
+    LiveFeed, Ownership, OwnershipCut, account, account_epoch_with_feed, live_feed, ownership,
+    ownership_with_feed, restore_generation, shared_fences,
 };
 use crate::items::{
     model::{self as item_model, Cut as ItemCut, Item},
@@ -13,6 +14,7 @@ use crate::store::{self, Consumer, ConsumerFuture, Error};
 use async_trait::async_trait;
 use oteryn_internal_api::playerdata::{Record, Scope};
 use sqlx::{PgConnection, Postgres, Row, Transaction};
+use std::collections::{HashMap, hash_map::Entry};
 use uuid::Uuid;
 
 fn login_error(e: Error) -> logins::Error {
@@ -62,17 +64,28 @@ impl JournalLoginAuthority {
         tx: &mut PgConnection,
         account_id: Uuid,
         character: Option<Uuid>,
-    ) -> Result<Cut, Error> {
+        feed: Option<&LiveFeed>,
+    ) -> Result<Option<Cut>, Error> {
         // Account (hierarchy level 3) precedes the shared issuance fence.
         account(tx, account_id).await?;
         shared_fences(tx).await?;
         let restored = restore_generation(tx).await?;
+        let checked_feed;
+        let feed = match feed {
+            Some(feed) => feed,
+            None => {
+                checked_feed = live_feed(tx).await?;
+                &checked_feed
+            }
+        };
         // A character the account does not own now is denied before any stream.
         let owned = match character {
             None => None,
             Some(character) => {
-                let Ownership::Owner(owned) = ownership(tx, account_id, character).await? else {
-                    return Err(Error::Denied);
+                let Ownership::Owner(owned) =
+                    ownership_with_feed(tx, account_id, character, feed).await?
+                else {
+                    return Ok(None);
                 };
                 if crate::store::character_deleted(
                     tx,
@@ -87,7 +100,7 @@ impl JournalLoginAuthority {
                 Some(owned)
             }
         };
-        let epoch = account_epoch(tx, account_id).await?;
+        let epoch = account_epoch_with_feed(tx, account_id, feed).await?;
         let key = store::stream_key(&Scope {
             authority: self.source.clone(),
             account: account_id.to_string(),
@@ -136,7 +149,7 @@ impl JournalLoginAuthority {
             cut.world_id = Some(owned.world);
             cut.visibility_floor_ms = floor_ms(&owned)?;
         }
-        Ok(cut)
+        Ok(Some(cut))
     }
 }
 impl logins::Authority for JournalLoginAuthority {
@@ -146,7 +159,12 @@ impl logins::Authority for JournalLoginAuthority {
         account: Uuid,
         character: Option<Uuid>,
     ) -> AuthorityFuture<'a> {
-        Box::pin(async move { self.cut(tx, account, character).await.map_err(login_error) })
+        Box::pin(async move {
+            self.cut(tx, account, character, None)
+                .await
+                .map_err(login_error)?
+                .ok_or(logins::Error::Denied)
+        })
     }
 }
 
@@ -155,6 +173,7 @@ impl logins::Authority for JournalLoginAuthority {
 #[derive(Debug, Clone)]
 pub struct LoginPromoter {
     pub logins: Logins,
+    pub(crate) authority: JournalLoginAuthority,
 }
 #[cfg(test)]
 pub(super) static PROMOTION_BATCH_MAX: std::sync::atomic::AtomicUsize =
@@ -173,6 +192,9 @@ impl LoginPromoter {
             return Ok(());
         }
         let account_id = Uuid::parse_str(&scope.account).map_err(|_| Error::Invalid)?;
+        // The locked feed cannot advance during promotion. Check freshness once.
+        let feed = live_feed(tx).await?;
+        let mut cuts = HashMap::new();
         let mut after = after;
         loop {
             let rows = sqlx::query("SELECT source_revision::text AS revision,kind,entity_key,scope_key,character_id,payload FROM pd_records WHERE stream_key=$1 AND source_revision>$2::numeric AND source_revision<=$3::numeric ORDER BY source_revision LIMIT 128")
@@ -211,31 +233,26 @@ impl LoginPromoter {
                 let Some(payload) = row.try_get::<Option<Vec<u8>>, _>("payload")? else {
                     continue;
                 };
-                if let Some(character) = character {
-                    // A character sold since the record stays out of the seller's view.
-                    if !matches!(
-                        ownership(tx, account_id, character).await?,
-                        Ownership::Owner(_)
-                    ) {
-                        continue;
-                    }
-                }
-                let cut = self
-                    .logins
-                    .authority
-                    .current(tx, account_id, character)
-                    .await
-                    .map_err(from_login)?;
+                let cut = match cuts.entry(character) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => entry.insert(
+                        self.authority
+                            .cut(tx, account_id, character, Some(&feed))
+                            .await?,
+                    ),
+                };
+                // A character sold since the record stays out of the seller's view.
+                let Some(cut) = cut else { continue };
                 let record = PromotedLogin {
                     account: account_id,
                     character,
                     // The fence admitted the record at or above the ownership cut.
                     character_revision: cut.ownership_character_revision,
-                    cut,
-                    source_revision: super::counter(&row.try_get::<String, _>("revision")?)?,
+                    cut: cut.clone(),
+                    source_revision: after,
                     login: Login::parse(&payload).map_err(from_login)?,
                 };
-                match self.logins.apply(tx, &record).await {
+                match self.logins.apply_with_cut(tx, &record, Some(cut)).await {
                     // Before the transfer floor or ahead of the trusted clock: not shown.
                     Err(logins::Error::Denied) => continue,
                     other => other.map_err(from_login)?,

@@ -214,6 +214,16 @@ impl Logins {
         tx: &mut Transaction<'_, Postgres>,
         record: &PromotedLogin,
     ) -> Result<()> {
+        self.apply_with_cut(tx, record, None).await
+    }
+
+    /// A supplied cut must have been proven under locks in this transaction.
+    pub(crate) async fn apply_with_cut(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        record: &PromotedLogin,
+        current: Option<&Cut>,
+    ) -> Result<()> {
         if !self.flags.progress_ingest_enabled {
             return Err(Error::Unavailable);
         }
@@ -227,13 +237,20 @@ impl Logins {
         {
             return Err(Error::Invalid);
         }
-        let current = self
-            .authority
-            .current(tx, record.account, record.character)
-            .await?;
+        let verified;
+        let current = match current {
+            Some(current) => current,
+            None => {
+                verified = self
+                    .authority
+                    .current(tx, record.account, record.character)
+                    .await?;
+                &verified
+            }
+        };
         let now = now(tx).await?;
-        check_cut(&current, record.character, now)?;
-        if current != record.cut
+        check_cut(current, record.character, now)?;
+        if *current != record.cut
             || record
                 .character_revision
                 .zip(current.ownership_character_revision)
