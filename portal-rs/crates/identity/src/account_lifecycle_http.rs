@@ -537,11 +537,11 @@ struct Message<'a> {
 }
 
 #[cfg(test)]
-pub(crate) async fn request_test_termination(
+pub(crate) async fn test_termination_actor(
     pool: &PgPool,
     account: Uuid,
-) -> Result<termination::Result<termination::Termination>, Box<dyn std::error::Error>> {
-    let password = "closure financial fixture password";
+    password: &str,
+) -> Result<ActorProof, Box<dyn std::error::Error>> {
     let hash = oteryn_identity::password::hash(password)?;
     sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
         .bind(account)
@@ -552,6 +552,16 @@ pub(crate) async fn request_test_termination(
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,sudo_until)
                  VALUES($1,$2,$3,'closure financial fixture',now()+interval '1 hour',now()+interval '1 day',now()+interval '5 minutes')")
         .bind(Sha256::digest(token.as_bytes()).to_vec()).bind(account).bind(oteryn_identity::mfa::random_token()?).execute(pool).await?;
+    Ok(ActorProof(token))
+}
+
+#[cfg(test)]
+pub(crate) async fn request_test_termination(
+    pool: &PgPool,
+    account: Uuid,
+) -> Result<termination::Result<termination::Termination>, Box<dyn std::error::Error>> {
+    let password = "closure financial fixture password";
+    let actor = test_termination_actor(pool, account, password).await?;
     let service = termination::Terminations::new(
         pool.clone(),
         termination::Config {
@@ -561,7 +571,7 @@ pub(crate) async fn request_test_termination(
         Arc::new(TerminationBoundary),
     )?;
     Ok(service
-        .request(account, &ActorProof(token), password, "TERMINATE")
+        .request(account, &actor, password, "TERMINATE")
         .await)
 }
 #[cfg(test)]
