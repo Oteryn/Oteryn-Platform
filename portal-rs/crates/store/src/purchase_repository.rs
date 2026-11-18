@@ -212,7 +212,14 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
         };
         let offer: Offer = serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable)?;
-        if !offer.purchasable || offer.units.is_empty() {
+        // Premium Time checkout is closed pending the grant ownership decision (Q3).
+        if !offer.purchasable
+            || offer.units.is_empty()
+            || offer
+                .units
+                .iter()
+                .any(|unit| unit.unit_kind == "PREMIUM_TIME")
+        {
             return finish(tx, request, raw, "OFFER_UNAVAILABLE", vec![]).await;
         }
         // Only explicit unit-kind flags authorize a purchase; an import alone does not.
