@@ -130,11 +130,12 @@ async fn item_effect(db: &BrowserFixture, command: Command, refused: bool) {
 }
 
 async fn recover(db: &mut BrowserFixture) {
-    let config=std::sync::Arc::make_mut(&mut db.runtime.config);
-    config.fence.recovery_generation=4;
-    let fence=serde_json::json!({"projection_epoch":3,"recovery_generation":4,"incarnation":config.fence.incarnation,"character_history_complete_since":null});
-    std::fs::write(&config.fence_file,fence.to_string()).unwrap();
-    let a=&mut config.authority;
+    let config = std::sync::Arc::make_mut(&mut db.runtime.config);
+    config.fence.recovery_generation = 4;
+    config.worlds = vec![uid("12")];
+    let fence = serde_json::json!({"projection_epoch":3,"recovery_generation":4,"incarnation":config.fence.incarnation,"character_history_complete_since":null});
+    std::fs::write(&config.fence_file, fence.to_string()).unwrap();
+    let a = &mut config.authority;
     a.fence.recovery_generation = 4;
     let mut tx = db.pool.begin().await.unwrap();
     replay(a, &mut tx, uid("20")).await;
