@@ -25,7 +25,7 @@ pub struct BrowserContext {
     pub chrome: oteryn_ui::Chrome,
     pub csrf: String,
     pub notice: String,
-    pub flash: Arc<dyn Fn(&'static str) -> RateFuture + Send + Sync>,
+    pub flash: Arc<dyn Fn(&'static str, Option<AccountId>) -> RateFuture + Send + Sync>,
     pub language: &'static str,
     pub rate: Arc<dyn Fn(String) -> RateFuture + Send + Sync>,
 }
@@ -179,7 +179,7 @@ async fn failure(
         Error::InvalidInput => "invalid",
         Error::Rejected => "rejected",
     };
-    if let Err(response) = (context.flash)(key).await {
+    if let Err(response) = (context.flash)(key, None).await {
         return Ok(response);
     }
     let path = match mode {
@@ -317,8 +317,8 @@ async fn recover(
         )
         .await
     {
-        Ok(_) => {
-            if let Err(response) = (context.flash)("recovered").await {
+        Ok(recovered) => {
+            if let Err(response) = (context.flash)("recovered", Some(recovered)).await {
                 return Ok(response);
             }
             redirect(&format!("/{}/login", context.language))

@@ -719,6 +719,11 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
             s.auth.check_in(&mut tx, context, permission).await?;
         }
     }
+    if assigned {
+        Change::Revoke { account, role }
+            .revoke_browser_credentials(&mut tx, context)
+            .await?;
+    }
     tx.commit().await?;
     Ok(())
 }

@@ -389,9 +389,26 @@ async fn valid_verification_activates_account_and_used_token_is_generic_error() 
     let id = create(&db).await?;
     let raw = token(&db).await?;
     let app = db.app();
-    let response = app
+    let preview = app
         .clone()
         .oneshot(Request::get(format!("/en/verify-email?token={raw}")).body(Body::empty())?)
+        .await?;
+    let cookie = session_cookie(&preview)?.to_owned();
+    let html = String::from_utf8(to_bytes(preview.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains(&format!("action=\"/en/verify-email?token={raw}\"")));
+    let csrf = html
+        .split_once("name=\"_csrf\" value=\"")
+        .and_then(|(_, s)| s.split_once('"'))
+        .ok_or("missing confirmation CSRF")?
+        .0;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/en/verify-email?token={raw}"))
+                .header(header::COOKIE, cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))?,
+        )
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     let html = String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await?.to_vec())?;
@@ -435,7 +452,7 @@ async fn expired_unknown_and_malformed_tokens_have_identical_error() -> Result {
     db.close().await
 }
 #[tokio::test]
-async fn resend_invalidates_old_token_and_requires_anonymous_csrf() -> Result {
+async fn resend_replaces_expired_token_and_requires_anonymous_csrf() -> Result {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -443,7 +460,7 @@ async fn resend_invalidates_old_token_and_requires_anonymous_csrf() -> Result {
     let id = create(&db).await?;
     let old = token(&db).await?;
     assert!(!verify::resend(&db.pool, id).await?);
-    sqlx::query("UPDATE account_email_tokens SET created_at=clock_timestamp()-interval '61 seconds' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
+    sqlx::query("UPDATE account_email_tokens SET created_at=clock_timestamp()-interval '61 seconds',updated_at=clock_timestamp()-interval '61 seconds',expires_at=clock_timestamp()-interval '1 second' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
     let response = app
         .clone()
         .oneshot(Request::get("/en/verify-email/resend").body(Body::empty())?)
@@ -582,7 +599,8 @@ async fn verification_keeps_pending_referral_code_in_fresh_session() -> Result {
     let raw = token(&db).await?;
     let response = app
         .oneshot(
-            Request::get(format!("/en/verify-email?token={raw}"))
+            Request::post(format!("/en/verify-email?token={raw}"))
+                .header("x-csrf-token", &registration_csrf)
                 .header(header::COOKIE, cookie)
                 .body(Body::empty())?,
         )
@@ -614,7 +632,8 @@ async fn verification_from_registration_session_rotates_revoked_session() -> Res
     let raw = token(&db).await?;
     let response = app
         .oneshot(
-            Request::get(format!("/en/verify-email?token={raw}"))
+            Request::post(format!("/en/verify-email?token={raw}"))
+                .header("x-csrf-token", &registration_csrf)
                 .header(header::COOKIE, cookie)
                 .body(Body::empty())?,
         )
@@ -635,5 +654,57 @@ async fn verification_from_registration_session_rotates_revoked_session() -> Res
     let body = String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await?.to_vec())?;
     assert!(body.contains("Your e-mail has been verified"));
     assert!(!body.contains(&raw));
+    db.close().await
+}
+
+#[tokio::test]
+async fn verification_preview_preserves_pending_account() -> Result {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = create(&db).await?;
+    let raw = token(&db).await?;
+    let app = db.app();
+    for method in ["HEAD", "GET"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(format!("/en/verify-email?token={raw}"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT FROM accounts a JOIN account_email_tokens t ON t.account_id=a.id WHERE a.id=$1 AND a.status='pending_verification' AND t.used_at IS NULL)").bind(id).fetch_one(&db.pool).await?;
+        assert!(
+            pending,
+            "preview must preserve the unused token and pending account"
+        );
+    }
+    let response = app
+        .oneshot(Request::post(format!("/en/verify-email?token={raw}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    db.close().await
+}
+
+#[tokio::test]
+async fn resend_queues_existing_unexpired_link() -> Result {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = create(&db).await?;
+    let original = token(&db).await?;
+    sqlx::query("UPDATE account_email_tokens SET created_at=clock_timestamp()-interval '61 seconds',updated_at=clock_timestamp()-interval '61 seconds' WHERE account_id=$1").bind(id).execute(&db.pool).await?;
+    assert!(verify::resend(&db.pool, id).await?);
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox WHERE kind='email.verify' AND payload->>'token'=$1",
+    )
+    .bind(original)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(count, 2, "both deliveries must carry the existing link");
+    assert!(!verify::resend(&db.pool, id).await?);
+    assert_eq!(
+        verify::consume(&db.pool, &token(&db).await?).await?,
+        Some(id)
+    );
     db.close().await
 }

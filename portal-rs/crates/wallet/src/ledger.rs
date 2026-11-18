@@ -89,6 +89,30 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         recipient: Uuid,
         amount: i64,
     ) -> Result<Receipt, Error> {
+        self.transfer_inner(key, sender, recipient, amount, false)
+            .await
+    }
+
+    /// Browser operation IDs must leave payment intent IDs available for delivery.
+    pub async fn browser_transfer(
+        &self,
+        key: Uuid,
+        sender: Uuid,
+        recipient: Uuid,
+        amount: i64,
+    ) -> Result<Receipt, Error> {
+        self.transfer_inner(key, sender, recipient, amount, true)
+            .await
+    }
+
+    async fn transfer_inner(
+        &self,
+        key: Uuid,
+        sender: Uuid,
+        recipient: Uuid,
+        amount: i64,
+        reserve_payment_intents: bool,
+    ) -> Result<Receipt, Error> {
         self.enabled()?;
         valid_key(key)?;
         valid_id(sender)?;
@@ -111,6 +135,16 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         Self::active_state(recipient_state)?;
         for account in lock_order(sender, recipient) {
             lock(&mut tx, account).await?;
+        }
+        if reserve_payment_intents {
+            let reserved: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM payment_intents WHERE id = $1)")
+                    .bind(key)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if reserved {
+                return Err(Refusal::InvalidIdentifier.into());
+            }
         }
         let operation = Operation {
             key,

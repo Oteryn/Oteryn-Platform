@@ -1209,6 +1209,21 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
     for n in 0..51 {
         sqlx::query("INSERT INTO ticket_messages(id,ticket_id,author_account_id,author_kind,body,internal) VALUES($1,$2,$3,$4,$5,false)").bind(Uuid::now_v7()).bind(id).bind(if n==50 {staff} else {owner}).bind(if n==50 {"staff"} else {"user"}).bind(format!("Message {n}")).execute(&db.pool).await?;
     }
+    let (cookie, _) = db.cookie(owner).await?;
+    let cursor: Uuid = sqlx::query_scalar(
+        "SELECT id FROM ticket_messages WHERE ticket_id=$1 ORDER BY id OFFSET 49 LIMIT 1",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await?;
+    let response = router(tickets.clone(), "http://localhost:3000")
+        .oneshot(
+            Request::head(format!("/en/support/tickets/{id}?after={cursor}"))
+                .header("cookie", cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
     let (_, first) = tickets.show(owner, false, id).await?;
     let unread = || {
         sqlx::query_scalar::<_, bool>("SELECT unread_reply FROM tickets WHERE id=$1")
@@ -1345,6 +1360,15 @@ async fn audit_w3_02_changed_payload_draft_recovers_on_postgres() -> TestResult 
     let response = post(key, "Edited", "Edited+message").await?;
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(response.headers()["location"], "/en/support/tickets/create");
+    let head = app
+        .clone()
+        .oneshot(
+            Request::head("/en/support/tickets/create")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(head.status(), StatusCode::OK);
     let response = app
         .clone()
         .oneshot(
@@ -1378,4 +1402,59 @@ async fn audit_w3_02_changed_payload_draft_recovers_on_postgres() -> TestResult 
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn postgres_staff_reply_rolls_back_when_grant_expires_during_audit() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let actor = db.account("en").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(actor).execute(&db.pool).await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(owner, Uuid::now_v7(), "account", "Help", "body")
+        .await?;
+    let context = staff(&db.pool, actor).await;
+    // Shorten the fixture grant only once the audit write is reached.
+    sqlx::raw_sql("CREATE FUNCTION expire_during_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE deadline timestamptz := clock_timestamp() + interval '30 milliseconds';
+        BEGIN
+            UPDATE account_mfa_tokens SET expires_at=deadline WHERE purpose='grant';
+            PERFORM pg_sleep_until(deadline);
+            RETURN NEW;
+        END $$;
+        CREATE TRIGGER expire_grant AFTER INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION expire_during_audit()")
+        .execute(&db.pool).await?;
+    let result = tickets
+        .change(
+            actor,
+            context,
+            ticket.id,
+            1,
+            Change::Reply {
+                body: "answer",
+                internal: false,
+            },
+        )
+        .await;
+    assert!(
+        matches!(result, Err(Error::Denied)),
+        "reply result: {:?}",
+        result.map(|ticket| ticket.lock_version)
+    );
+    let (stored, messages) = tickets.show(owner, false, ticket.id).await?;
+    assert_eq!(stored.lock_version, 1);
+    assert_eq!(messages.len(), 1);
+    for table in ["audit_log", "notifications", "email_outbox", "outbox"] {
+        let count: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(count, 0, "{table}");
+    }
+    db.finish().await
 }

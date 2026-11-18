@@ -451,6 +451,10 @@ async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() 
         .oneshot(post("/en/support/reports", &cookie, &csrf, &invalid))
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
+    let mut head = get("/en/support/reports/create", &cookie);
+    *head.method_mut() = axum::http::Method::HEAD;
+    let response = app.clone().oneshot(head).await?;
+    assert_eq!(response.status(), StatusCode::OK);
     let html = body(
         app.clone()
             .oneshot(get("/en/support/reports/create", &cookie))
@@ -458,6 +462,7 @@ async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() 
     )
     .await?;
     assert!(html.contains("Check the report type"));
+    assert!(html.contains(">Evidence</textarea>"));
     assert!(html.contains("role=\"alert\""));
     assert_eq!(
         app.clone()

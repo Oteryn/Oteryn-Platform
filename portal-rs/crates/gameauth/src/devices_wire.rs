@@ -82,19 +82,13 @@ pub(super) fn decode_operation(body: &[u8], query: bool) -> Result<OperationRequ
     }
     Ok(request)
 }
-pub(super) fn operation_response(
-    value: serde_json::Value,
-    purpose: Purpose,
-) -> Result<serde_json::Value> {
-    match purpose {
-        Purpose::Characters => {
-            serde_json::from_value::<CharactersResponse>(value).and_then(serde_json::to_value)
-        }
-        Purpose::Ticket => {
-            serde_json::from_value::<TicketResponse>(value).and_then(serde_json::to_value)
-        }
-    }
-    .map_err(|_| Failure::Unavailable)
+#[derive(Serialize)]
+#[serde(untagged)]
+pub(super) enum DeviceResponse {
+    Enrollment(CredentialResponse),
+    Characters(CharactersResponse),
+    Ticket(TicketResponse),
+    Revoke(RevokeResponse),
 }
 
 impl std::fmt::Debug for EnrollmentRequest {

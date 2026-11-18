@@ -61,6 +61,7 @@ async fn postgres_payment_intent_replay_conflict_and_interrupted_claim() -> Test
         oteryn_store::web::Flags {
             shop: true,
             top_ups: true,
+            transfers: true,
             ..Default::default()
         },
         oteryn_store::web::configured_backend(pool.clone(), Some(topups.clone())),
@@ -89,6 +90,17 @@ async fn postgres_payment_intent_replay_conflict_and_interrupted_claim() -> Test
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         let location = response.headers()["location"].to_str()?.to_owned();
         let id = Uuid::parse_str(location.rsplit('/').next().ok_or("missing intent")?)?;
+        if action == "pay" {
+            let transfer = app
+                .clone()
+                .oneshot(browser_post(
+                    "/en/shop/transfer",
+                    &cookie,
+                    format!("_csrf={csrf}&operation={id}&recipient={other}&amount=1"),
+                )?)
+                .await?;
+            assert_eq!(transfer.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        }
         let page = app
             .clone()
             .oneshot(
@@ -213,6 +225,17 @@ async fn postgres_payment_intent_replay_conflict_and_interrupted_claim() -> Test
                     .status,
                 "checkout-credited"
             );
+            sqlx::query("UPDATE payment_intents SET state='chargeback' WHERE id=$1")
+                .bind(id)
+                .execute(&pool)
+                .await?;
+            let reversed = topups
+                .checkout(account, id, None)
+                .await
+                .map_err(|e| format!("{e:?}"))?
+                .ok_or("missing charged-back checkout")?;
+            assert!(!reversed.pending);
+            assert_eq!(reversed.status, "checkout-refunded");
         }
     }
     sqlx::query(
@@ -938,4 +961,17 @@ async fn postgres_payment_account_state_held_lock_sheds_within_read_budget() -> 
         "budget exceeded: {elapsed:?}"
     );
     Ok(())
+}
+
+#[test]
+fn r8_package_wallet_ceiling() {
+    let mut package = Package {
+        key: "boundary".into(),
+        minor_units: 500,
+        currency: "JPY".into(),
+        coins: oteryn_wallet::MAX_BALANCE,
+    };
+    assert!(valid_packages(std::slice::from_ref(&package)));
+    package.coins += 1;
+    assert!(!valid_packages(&[package]));
 }

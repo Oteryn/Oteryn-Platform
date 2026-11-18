@@ -512,7 +512,7 @@ async fn db_service_and_account_budgets_refuse() -> TestResult {
         return Ok(());
     };
     for _ in 0..600 {
-        super::store::budget(&db.pool, &Sha256::digest(CURRENT.as_bytes()), 600).await?;
+        super::store::budget(&db.pool, 600).await?;
     }
     assert_eq!(
         send(db.router(), CURRENT, body()).await?.0,
@@ -591,5 +591,20 @@ async fn db_gateway_client_calls_real_admission_listener() -> TestResult {
     assert_eq!(success.channel_id, CHANNEL);
     assert_eq!(db.count().await?, 1);
     server.abort();
+    db.close().await
+}
+
+#[tokio::test]
+async fn rotated_credentials_share_budget_row() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    for credential in [CURRENT, PREVIOUS] {
+        send(db.router(), credential, Vec::new()).await?;
+    }
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM native_admission_budgets")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(rows, 1, "one gateway budget");
     db.close().await
 }

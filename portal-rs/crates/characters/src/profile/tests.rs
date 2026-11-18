@@ -1,12 +1,20 @@
 use super::*;
-#[tokio::test]
-async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dyn std::error::Error>>
-{
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
-    let started = std::time::Instant::now();
+
+struct ProfileFixture {
+    admin: PgPool,
+    schema: String,
+    pool: PgPool,
+    account: Uuid,
+    other: Uuid,
+    one: Uuid,
+    two: Uuid,
+    settings: Settings,
+}
+
+async fn profile_fixture() -> Result<Option<ProfileFixture>, Box<dyn std::error::Error>> {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL profile test: PORTAL_TEST_DATABASE_URL is unset");
-        return Ok(());
+        return Ok(None);
     };
     let admin = sqlx::postgres::PgPoolOptions::new().connect(&url).await?;
     let schema = format!("profile_test_{}", Uuid::now_v7().simple());
@@ -30,6 +38,7 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .await?;
     for sql in [
         include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
         include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),
         include_str!("../../../../migrations/20261105220226_t09c_privacy.sql"),
@@ -57,6 +66,36 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         environment: oteryn_core::Environment::Testing,
         source_authority: "oteryn:character-authority:primary".into(),
         ..Settings::default()
+    };
+    Ok(Some(ProfileFixture {
+        admin,
+        schema,
+        pool,
+        account,
+        other,
+        one,
+        two,
+        settings,
+    }))
+}
+
+#[tokio::test]
+async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dyn std::error::Error>>
+{
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let Some(ProfileFixture {
+        admin,
+        schema,
+        pool,
+        account,
+        other,
+        one,
+        two,
+        settings,
+    }) = profile_fixture().await?
+    else {
+        return Ok(());
     };
     let service = Service::new(pool.clone(), settings.clone(), true);
     let off = Service::new(pool.clone(), settings.clone(), false);
@@ -419,6 +458,7 @@ async fn postgres_profile_takes_account_before_feed_like_termination()
         .await?;
     for sql in [
         include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
         include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),
         include_str!("../../../../migrations/20261105220226_t09c_privacy.sql"),
@@ -516,6 +556,60 @@ async fn postgres_profile_takes_account_before_feed_like_termination()
     assert!(matches!(shed, Err(Error::Unavailable)), "{shed:?}");
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     holding.rollback().await?;
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn committed_transfer_blocks_profile_save() -> Result<(), Box<dyn std::error::Error>> {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(ProfileFixture {
+        admin,
+        schema,
+        pool,
+        account,
+        other,
+        two: character,
+        settings,
+        ..
+    }) = profile_fixture().await?
+    else {
+        return Ok(());
+    };
+    let service = Service::new(pool.clone(), settings, true);
+    http::save_form(&service, account, "Belric", b"comment=Original", 1000)
+        .await
+        .map_err(|e| format!("initial save: {e:?}"))?;
+    let receipt = serde_json::json!({
+        "character_id": character,
+        "outcome": "COMMITTED",
+        "projection_epoch": "1",
+        "from_projection_revision": "2"
+    });
+    sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$2,'sale','TransferCharacterOwnership',$3,$4,'{}','{}',$5,'TERMINAL')")
+        .bind(Uuid::now_v7()).bind(Uuid::now_v7()).bind(account).bind(other).bind(receipt.to_string()).execute(&pool).await?;
+    assert_eq!(
+        http::save_form(
+            &service,
+            account,
+            "Belric",
+            b"comment=Changed&hidden=1",
+            1000
+        )
+        .await,
+        Err(Error::NotFound)
+    );
+    let stored = sqlx::query_as::<_, (String, bool)>(
+        "SELECT comment,hidden FROM character_profiles WHERE account_id=$1 AND character_id=$2",
+    )
+    .bind(account)
+    .bind(character)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(stored, ("Original".to_owned(), false));
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)

@@ -76,6 +76,7 @@ fn accepted() -> Vec<u8> {
 }
 fn invalid(error: playerdata::Error) -> StatusCode {
     match error {
+        playerdata::Error::ArrayTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         playerdata::Error::Invalid => StatusCode::BAD_REQUEST,
         playerdata::Error::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
@@ -406,6 +407,20 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
     }
     sqlx::query("INSERT INTO pd_g9_records(source_authority,account_id,stream_generation,source_revision,record_kind,session_id,segment_id,business_id,segment_index,character_id,digest,canonical_bytes,record,expires_at) VALUES($1,$2,$3,$4::numeric,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
  .bind(&r.authority).bind(account).bind(generation).bind(r.revision.to_string()).bind(&r.kind).bind(id(&r.session)?).bind(id(&r.segment)?).bind(id(&r.business_id)?).bind(index).bind(id(&r.character)?).bind(digest).bind(&r.bytes).bind(record_json).bind(end+90*86400).execute(&mut *tx).await.map_err(unavailable)?;
+    // Either member may arrive first. Once paired, both expire at segment end + 90 days.
+    sqlx::query(
+        "UPDATE pd_g9_records d SET expires_at=s.expires_at
+        FROM pd_g9_records s WHERE d.source_authority=$1 AND d.segment_id=$2
+        AND s.source_authority=d.source_authority AND s.segment_id=d.segment_id
+        AND s.account_id=d.account_id AND s.stream_generation=d.stream_generation
+        AND s.record_kind='HUNT_SEGMENT' AND d.record_kind='RARE_DROP'
+        AND d.record IS NOT NULL AND d.expires_at<>s.expires_at",
+    )
+    .bind(&r.authority)
+    .bind(id(&r.segment)?)
+    .execute(&mut *tx)
+    .await
+    .map_err(unavailable)?;
     // The first absent revision bounds the contiguous durable prefix. Application
     // stays separately fenced until session/drop reconciliation is proven.
     sqlx::query("UPDATE pd_g9_streams s SET highest_seen=greatest(highest_seen,$4::numeric),stored_through=CASE WHEN EXISTS(SELECT 1 FROM pd_g9_records first_record WHERE first_record.source_authority=$1 AND first_record.account_id=$2 AND first_record.stream_generation=$3 AND first_record.source_revision=s.retention_floor+1) THEN COALESCE((SELECT min(r.source_revision+1)-1 FROM pd_g9_records r WHERE r.source_authority=$1 AND r.account_id=$2 AND r.stream_generation=$3 AND r.source_revision>s.retention_floor AND NOT EXISTS(SELECT 1 FROM pd_g9_records n WHERE n.source_authority=r.source_authority AND n.account_id=r.account_id AND n.stream_generation=r.stream_generation AND n.source_revision=r.source_revision+1)),s.retention_floor) ELSE s.retention_floor END WHERE s.source_authority=$1 AND s.account_id=$2 AND s.stream_generation=$3")
@@ -478,7 +493,7 @@ async fn exchange(
                 )
             })
             .map_err(invalid)? as i64;
-        let rows:Vec<(Uuid,String)>=sqlx::query_as("SELECT operation_id,source_revision::text FROM pd_g9_commands WHERE source_authority=$1 AND receipt IS NULL AND (source_revision,operation_id)>($2::numeric,$3) ORDER BY source_revision,operation_id LIMIT $4")
+        let rows:Vec<(Uuid,String)>=sqlx::query_as("SELECT operation_id,source_revision::text FROM pd_g9_commands WHERE source_authority=$1 AND receipt IS NULL AND (source_revision,operation_id)>($2::numeric,$3) ORDER BY pd_g9_commands.source_revision,operation_id LIMIT $4")
   .bind(source).bind(text(v,"after_source_revision")?).bind(id(text(v,"after_operation_id")?)?).bind(max).fetch_all(db).await.map_err(unavailable)?;
         return Ok(format!(
             "{{\"contract_version\":1,\"entries\":[{}]}}",

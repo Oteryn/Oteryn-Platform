@@ -1,11 +1,11 @@
 //! Authenticated browser gift-code dispatch. Item codes stay unavailable.
 use axum::{
     Extension, Json, Router,
-    extract::{DefaultBodyLimit, Request, State},
+    extract::{DefaultBodyLimit, FromRequest, Path, Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use oteryn_store::{codes::*, premium};
 use oteryn_wallet as wallet;
@@ -122,7 +122,7 @@ fn configured_from(
         lookup("OTERYN_WALLET_ENABLED").as_deref() == Some("true"),
     );
     let staff = Router::new()
-        .route(GENERATE, post(generate))
+        .route(GENERATE, get(issuance_form).post(generate))
         .with_state(state.clone());
     let staff = oteryn_admin::web::configured_guard_from(
         staff,
@@ -174,9 +174,36 @@ async fn budget(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+#[derive(askama::Template)]
+#[template(path = "code_issuance.html")]
+struct IssuanceForm {
+    lang: String,
+    request_id: Uuid,
+    csrf: String,
+}
+
+async fn issuance_form(
+    Path(lang): Path<String>,
+    Extension(session): Extension<BrowserSession>,
+) -> Response {
+    if !matches!(lang.as_str(), "pl" | "en") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Ok(csrf) = session.csrf_token().await else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    oteryn_web::render(&IssuanceForm {
+        lang,
+        request_id: Uuid::now_v7(),
+        csrf,
+    })
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Generate {
+    request_id: Uuid,
+    _csrf: Option<String>,
     kind: String,
     amount: i64,
     count: usize,
@@ -212,8 +239,25 @@ async fn generate(
     State(state): State<Context>,
     Extension(context): Extension<oteryn_admin::rbac::CheckContext>,
     Extension(auth): Extension<oteryn_admin::rbac::MutationAuthorization>,
-    Json(input): Json<Generate>,
+    request: Request,
 ) -> Response {
+    let input = if request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        == Some("application/x-www-form-urlencoded")
+    {
+        match axum::Form::<Generate>::from_request(request, &state).await {
+            Ok(form) => form.0,
+            Err(error) => return error.into_response(),
+        }
+    } else {
+        match Json::<Generate>::from_request(request, &state).await {
+            Ok(json) => json.0,
+            Err(error) => return error.into_response(),
+        }
+    };
     let actor = context.account;
     let authority = CodeAuthority { context, auth };
     let kind = match input.kind.as_str() {
@@ -228,6 +272,7 @@ async fn generate(
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     };
     let batch = Batch {
+        request_id: input.request_id,
         kind,
         amount: input.amount,
         max_per_code: input.max_per_code,

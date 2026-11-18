@@ -3,7 +3,7 @@
 use askama::Template;
 use axum::{
     Router,
-    extract::{OriginalUri, Query, Request, State},
+    extract::{OriginalUri, Path, Query, Request, State, rejection::PathRejection},
     http::{HeaderMap, StatusCode, header},
     middleware::{Next, from_fn_with_state},
     response::{Html, IntoResponse, Response},
@@ -477,7 +477,13 @@ async fn listing(
         title,
     })
 }
+#[derive(Deserialize)]
+struct EntityKind {
+    kind: String,
+}
+
 async fn list(
+    Path(EntityKind { kind }): Path<EntityKind>,
     State(state): State<EntityState>,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
@@ -487,13 +493,7 @@ async fn list(
         Ok(v) => v,
         Err(s) => return error(s, "en"),
     };
-    let kind = uri
-        .path()
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .unwrap_or_default();
-    if !KINDS.contains(&kind) {
+    if !KINDS.contains(&kind.as_str()) {
         return error(StatusCode::NOT_FOUND, lang);
     }
     let mut filters = match query {
@@ -503,18 +503,20 @@ async fn list(
     if !filters.kind.is_empty() && filters.kind != kind {
         return error(StatusCode::UNPROCESSABLE_ENTITY, lang);
     }
-    filters.kind = kind.into();
+    filters.kind = kind;
     listing(&state, lang, filters, false).await
 }
-async fn dispatch(State(state): State<EntityState>, request: Request, next: Next) -> Response {
+async fn dispatch(
+    State(state): State<EntityState>,
+    params: Result<Path<EntityKind>, PathRejection>,
+    request: Request,
+    next: Next,
+) -> Response {
     let path = request.uri().path();
     let home = matches!(path, "/wiki" | "/en/wiki" | "/pl/wiki");
     let search = matches!(path, "/wiki/search" | "/en/wiki/search" | "/pl/wiki/search");
-    let entity = path
-        .split('/')
-        .collect::<Vec<_>>()
-        .windows(2)
-        .any(|pair| pair[0] == "wiki" && KINDS.contains(&pair[1]));
+    let entity = path.contains("/wiki/")
+        && params.is_ok_and(|Path(params)| KINDS.contains(&params.kind.as_str()));
     if !matches!(
         *request.method(),
         axum::http::Method::GET | axum::http::Method::HEAD

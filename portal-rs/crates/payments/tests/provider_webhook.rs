@@ -13,7 +13,7 @@ use axum::{
 };
 use oteryn_payments::{
     TestProvider,
-    coin::{CoinOrderRequest, CoinSettings, OrderState, parse_packages},
+    coin::{CoinOrder, CoinOrderRequest, CoinSettings, OrderState, parse_packages},
     coin_store::{
         CoinError, CoinHost, CoinPurchases, Debit, HostFuture, Ownership, WalletSnapshot,
     },
@@ -238,8 +238,7 @@ impl Harness {
     fn app(&self) -> Router {
         self.app_with(self.coins(true))
     }
-    /// A credited sandbox order: (payer, request id, provider order reference).
-    async fn paid_order(&self) -> (Uuid, Uuid, String) {
+    async fn unpaid_order(&self) -> (Uuid, CoinOrder, String) {
         let coins = self.coins(true);
         let payer = Uuid::now_v7();
         let catalogue = coins.catalogue(payer, None).await.unwrap();
@@ -257,18 +256,23 @@ impl Harness {
             )
             .await
             .unwrap();
-        let paid = coins
-            .sandbox_complete(payer, order.order_id, true)
-            .await
-            .unwrap();
-        assert_eq!(paid.state, OrderState::Paid);
         let reference: String = sqlx::query_scalar("SELECT i.provider_reference FROM payment_intents i JOIN coin_purchase_orders o ON o.payment_intent_id=i.id WHERE o.id=$1")
             .bind(order.order_id)
             .fetch_one(&self.pool)
             .await
             .unwrap();
+        (payer, order, reference)
+    }
+    async fn paid_order(&self) -> (Uuid, Uuid, String) {
+        let (payer, order, reference) = self.unpaid_order().await;
+        let paid = self
+            .coins(true)
+            .sandbox_complete(payer, order.order_id, true)
+            .await
+            .unwrap();
+        assert_eq!(paid.state, OrderState::Paid);
         assert_eq!(self.balance(payer).await, 500);
-        (payer, request, reference)
+        (payer, order.request_id, reference)
     }
     async fn balance(&self, payer: Uuid) -> i64 {
         sqlx::query_scalar("SELECT COALESCE(sum(delta),0)::bigint FROM test_coins WHERE payer=$1")
@@ -393,6 +397,11 @@ async fn chargeback_reverses_the_credit_once() -> TestResult {
     let (status, reply) = deliver(&app, &event("evt_cb_1", "chargeback", &reference, 499)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(reply["outcome"], "applied");
+    assert_eq!(
+        h.count("SELECT count(*) FROM payment_intents WHERE state='chargeback'")
+            .await,
+        1
+    );
     assert_eq!(h.state(payer, request).await, OrderState::Chargeback);
     assert_eq!(h.balance(payer).await, 0);
     assert_eq!(
@@ -964,6 +973,16 @@ async fn audit_09_01_ceiling_settlement_is_held_and_balance_readable() -> TestRe
             .await,
         1
     );
+    let reference: String = sqlx::query_scalar("SELECT provider_reference FROM payment_intents")
+        .fetch_one(&h.pool)
+        .await?;
+    let (status, reply) = deliver(&h.app(), &event("held_refund", "refund", &reference, 499)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reply["outcome"], "applied");
+    let state: String = sqlx::query_scalar("SELECT state FROM payment_intents")
+        .fetch_one(&h.pool)
+        .await?;
+    assert_eq!(state, "refunded", "held refund must update the intent");
     h.finish().await?;
     eprintln!(
         "PG audit_09_01_ceiling_settlement_is_held_and_balance_readable: {:.3}s",
@@ -1184,5 +1203,35 @@ async fn host_storage_failure_in_a_coin_event_is_unavailable_and_a_retry_applies
     );
     assert_eq!(h.state(payer, request).await, OrderState::Refunded);
     assert_eq!(h.balance(payer).await, 0);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn second_full_refund_before_credit_is_refused() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let (_, _, reference) = h.unpaid_order().await;
+    let app = h.app();
+    let first = event("refund_first", "refund", &reference, 499);
+    let (status, reply) = deliver(&app, &first).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reply["outcome"], "applied");
+    let (status, reply) = deliver(&app, &event("refund_second", "refund", &reference, 499)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "second full refund"
+    );
+    assert_eq!(reply["code"], "PROVIDER_WEBHOOK_ILLEGAL_TRANSITION");
+    assert_eq!(
+        h.outcome("refund_second").await.as_deref(),
+        Some("illegal_transition")
+    );
+    assert_eq!(
+        h.count("SELECT count(*) FROM coin_purchase_reversals")
+            .await,
+        1
+    );
     h.finish().await
 }

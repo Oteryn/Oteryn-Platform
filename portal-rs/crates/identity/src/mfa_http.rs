@@ -375,7 +375,12 @@ async fn establish(
     )
     .await
     .map_err(unavailable)?;
-    session.set(GRANT, &auth.grant).await.map_err(unavailable)?;
+    if let Err(error) = session.set(GRANT, &auth.grant).await {
+        session::rotate(session, PrivilegeChange::Logout)
+            .await
+            .map_err(unavailable)?;
+        return Err(unavailable(error));
+    }
     validate_rotated_session(context, session, &authorization).await?;
     crate::sessions_http::complete_login(&context.mfa.pool(), session, auth.account).await?;
     let mut response = home_or_return(language, session).await?;

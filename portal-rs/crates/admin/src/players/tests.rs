@@ -2138,3 +2138,37 @@ async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn r8_self_logout_revokes_operator_session() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Db::open().await.unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'self@example.invalid','fixture','active','en',now())").bind(db.support).execute(&db.pool).await.unwrap();
+    let mut actor = context(db.support);
+    actor.session_proof = Some(
+        crate::test_staff::proof(&db.pool, db.support)
+            .await
+            .unwrap(),
+    );
+    let service = Players::new(
+        db.pool.clone(),
+        db.service().flags,
+        Staff,
+        IdentityAccounts {
+            accounts: oteryn_identity::accounts::Accounts {
+                pool: db.pool.clone(),
+            },
+            projection: None,
+        },
+    );
+    let result = service.logout_all(actor, db.support, "Self logout").await;
+    assert!(result.is_ok(), "self logout returned {result:?}");
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+            .bind(db.support)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+    db.close().await;
+}

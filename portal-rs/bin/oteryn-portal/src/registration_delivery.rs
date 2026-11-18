@@ -1,4 +1,5 @@
 //! Delivery of registration verification jobs through the existing outbox worker.
+//! Delivery is at least once: a crash after SMTP acceptance and before outbox acknowledgement can resend the message.
 use crate::worker::{Handler, HandlerFuture, Registry};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use oteryn_identity::verify::token_hash;
@@ -181,6 +182,32 @@ mod tests {
     use crate::reset_http::tests::db;
 
     #[tokio::test]
+    async fn unavailable_delivery_blocks_resend_aliases() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use axum::{
+            Router,
+            body::Body,
+            http::{Request, StatusCode},
+        };
+        use tower::ServiceExt;
+
+        let app =
+            admission_with_readiness(Router::new().fallback(|| async { StatusCode::OK }), false);
+        for path in [
+            "/verify-email/resend",
+            "/en/verify-email/resend",
+            "/pl/verify-email/resend",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::post(path).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn verification_delivery_checks_token_owner_freshness_and_locale()
     -> Result<(), Box<dyn std::error::Error>> {
         let Some(db) = db::Database::open().await? else {
@@ -301,7 +328,12 @@ fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
                 && request.method() == Method::POST
                 && matches!(
                     request.uri().path(),
-                    "/register" | "/pl/register" | "/en/register"
+                    "/register"
+                        | "/pl/register"
+                        | "/en/register"
+                        | "/verify-email/resend"
+                        | "/pl/verify-email/resend"
+                        | "/en/verify-email/resend"
                 )
             {
                 return (

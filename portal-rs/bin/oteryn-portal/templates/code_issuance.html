@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if lang == "pl" %}Generowanie kodów{% else %}Issue gift codes{% endif %}</title></head>
+<body><main>
+<h1>{% if lang == "pl" %}Generowanie kodów{% else %}Issue gift codes{% endif %}</h1>
+<form method="post">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="request_id" value="{{ request_id }}">
+<p><label>{% if lang == "pl" %}Rodzaj{% else %}Kind{% endif %}
+<select name="kind"><option value="coins">{% if lang == "pl" %}Monety{% else %}Coins{% endif %}</option>
+<option value="premium_days">{% if lang == "pl" %}Dni premium{% else %}Premium days{% endif %}</option></select></label></p>
+<p><label>{% if lang == "pl" %}Wartość kodu{% else %}Amount per code{% endif %} <input name="amount" type="number" min="1" required></label></p>
+<p><label>{% if lang == "pl" %}Liczba kodów{% else %}Number of codes{% endif %} <input name="count" type="number" min="1" max="10000" required></label></p>
+<p><label>{% if lang == "pl" %}Limit użyć kodu{% else %}Redemptions per code{% endif %} <input name="max_per_code" type="number" min="1" value="1" required></label></p>
+<p><label>{% if lang == "pl" %}Limit użyć na konto{% else %}Redemptions per account{% endif %} <input name="max_per_account" type="number" min="1" value="1" required></label></p>
+<p><label>{% if lang == "pl" %}Ważny od (czas Unix w sekundach){% else %}Valid from (Unix seconds){% endif %} <input name="valid_from" type="number" required></label></p>
+<p><label>{% if lang == "pl" %}Ważny do (czas Unix w sekundach){% else %}Valid until (Unix seconds){% endif %} <input name="valid_until" type="number" required></label></p>
+<p><label>{% if lang == "pl" %}Uzasadnienie{% else %}Reason for issuance{% endif %} <input name="note" maxlength="500" required></label></p>
+<button>{% if lang == "pl" %}Wygeneruj kody{% else %}Issue codes{% endif %}</button>
+</form></main></body></html>

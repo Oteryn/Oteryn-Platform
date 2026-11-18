@@ -351,7 +351,6 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
-        self.accounts.revoke_all(&mut tx, id).await?;
         append(
             &mut tx,
             context,
@@ -362,6 +361,18 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .await?;
         self.check_in(&mut tx, context, Permission::ManageSupportTickets)
             .await?;
+        let expiry = if id == context.account {
+            Some(crate::rbac::SessionExpiry::capture(&mut tx, context).await?)
+        } else {
+            None
+        };
+        self.accounts.revoke_all(&mut tx, id).await?;
+        if let Some(expiry) = expiry {
+            expiry.check(&mut tx).await?;
+        } else {
+            self.check_in(&mut tx, context, Permission::ManageSupportTickets)
+                .await?;
+        }
         tx.commit().await?;
         Ok(())
     }

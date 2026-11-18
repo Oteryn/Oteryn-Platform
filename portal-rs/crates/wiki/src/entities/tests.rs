@@ -919,3 +919,20 @@ async fn canonical_atlas_markers_follow_wiki_through_merged_router() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn encoded_entity_kind_shares_page_budget() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    db.entity("creatures", "x", json!({"name":"Creature"}), true, true)
+        .await;
+    let plain = "/en/wiki/creatures/x";
+    for _ in 0..30 {
+        assert_eq!(db.get(plain, true).await.0, StatusCode::OK);
+    }
+    for path in [plain, "/en/wiki/%63reatures/x"] {
+        assert_eq!(db.get(path, true).await.0, StatusCode::TOO_MANY_REQUESTS);
+    }
+    db.close().await;
+}

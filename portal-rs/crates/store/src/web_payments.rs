@@ -84,6 +84,7 @@ impl TopUps for PaymentTopUps {
                 return Ok(None);
             }
             use oteryn_payments::{IntentState, PaymentEvent};
+            let coins = row.try_get("coins").map_err(|_| Error::Unavailable)?;
             if let Some(action) = action {
                 let state = match action.as_str() {
                     "pay" => IntentState::Succeeded,
@@ -91,6 +92,12 @@ impl TopUps for PaymentTopUps {
                     _ => return Err(Error::Invalid),
                 };
                 if matches!(intent.state, IntentState::Created | IntentState::Pending) {
+                    // Pending intents may predate package validation.
+                    if state == IntentState::Succeeded
+                        && !(1..=oteryn_wallet::MAX_BALANCE).contains(&coins)
+                    {
+                        return Err(Error::Invalid);
+                    }
                     // Stable event IDs deduplicate identical decisions; the payment
                     // row lock serializes competing terminal transitions.
                     let event = PaymentEvent {
@@ -131,7 +138,7 @@ impl TopUps for PaymentTopUps {
             Ok(Some(oteryn_store::web::Checkout {
                 package: Package {
                     key: row.try_get("package_key").map_err(|_| Error::Unavailable)?,
-                    coins: row.try_get("coins").map_err(|_| Error::Unavailable)?,
+                    coins,
                     minor_units: row.try_get("minor_units").map_err(|_| Error::Unavailable)?,
                     currency: row.try_get("currency").map_err(|_| Error::Unavailable)?,
                 },
@@ -141,7 +148,7 @@ impl TopUps for PaymentTopUps {
                     IntentState::Succeeded if credited => "checkout-credited",
                     IntentState::Succeeded => "checkout-succeeded",
                     IntentState::Failed => "checkout-failed",
-                    IntentState::Refunded => "checkout-refunded",
+                    IntentState::Refunded | IntentState::Chargeback => "checkout-refunded",
                 }
                 .into(),
             }))
@@ -230,7 +237,7 @@ fn valid_packages(packages: &[Package]) -> bool {
     !packages.is_empty()
         && packages.len() <= 20
         && packages.iter().enumerate().all(|(i, p)| {
-            p.coins > 0
+            (1..=oteryn_wallet::MAX_BALANCE).contains(&p.coins)
                 && p.minor_units > 0
                 && (1..=64).contains(&p.key.len())
                 && p.key

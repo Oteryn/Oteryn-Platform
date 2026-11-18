@@ -79,7 +79,24 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
         Ok::<_, Box<dyn std::error::Error>>(app.clone().oneshot(req))
     };
     let now = OffsetDateTime::now_utc().unix_timestamp();
-    let batch = serde_json::json!({"kind":"coins","amount":7,"count":1,"max_per_code":1,"max_per_account":1,"valid_from":now-60,"valid_until":now+3600,"note":"Dispatch regression"});
+    let form = app
+        .clone()
+        .oneshot(
+            Request::get("/en/admin/store/codes")
+                .header("host", "admin.example.test")
+                .header("cookie", format!("__Host-oteryn_session={cookie}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(form.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(form.into_body(), 8192).await?.to_vec())?;
+    let request_id = html
+        .split_once("name=\"request_id\" value=\"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .ok_or("missing form request ID")?
+        .0;
+    assert_eq!(Uuid::parse_str(request_id)?.get_version_num(), 7);
+    let batch = serde_json::json!({"request_id":request_id,"kind":"coins","amount":7,"count":1,"max_per_code":1,"max_per_account":1,"valid_from":now-60,"valid_until":now+3600,"note":"Dispatch regression"});
     let identity = oteryn_admin::web::PortalIdentity::configured_from(pool.clone(), &config);
     let authenticated = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
@@ -100,13 +117,14 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
         identity,
         oteryn_admin::rbac::Permission::GenerateStoreCodes,
     );
+    let mut form_data = batch.clone();
+    form_data["_csrf"] = csrf.clone().into();
     let issue = Request::post("/en/admin/store/codes")
         .header("host", "admin.example.test")
         .header("origin", "https://admin.example.test")
         .header("cookie", format!("__Host-oteryn_session={cookie}"))
-        .header("x-csrf-token", &csrf)
-        .header("content-type", "application/json")
-        .body(Body::from(batch.to_string()))?;
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(serde_urlencoded::to_string(&form_data)?))?;
     let issue = tokio::spawn(async move { paused.oneshot(issue).await });
     tokio::time::timeout(std::time::Duration::from_secs(2), authenticated.notified()).await?;
     let response = crate::test_staff::race_account_before_fence(&pool, actor, async move {
@@ -118,6 +136,20 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
     assert_eq!(response.status(), StatusCode::OK);
     let result: serde_json::Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 8192).await?)?;
+    let replay = send("/en/admin/store/codes", batch.clone())?.await?;
+    assert_eq!(replay.status(), StatusCode::OK);
+    let replay: serde_json::Value =
+        serde_json::from_slice(&to_bytes(replay.into_body(), 8192).await?)?;
+    assert_eq!(replay["batch_id"], result["batch_id"]);
+    assert_eq!(replay["codes"], serde_json::json!([]));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE action='store.codes.generated'"
+        )
+        .fetch_one(&pool)
+        .await?,
+        1
+    );
     let redemption = serde_json::json!({"code":result["codes"][0],"operation":Uuid::now_v7()});
     for _ in 0..2 {
         assert_eq!(
@@ -155,6 +187,7 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
         0
     );
     let mut premium_batch = batch.clone();
+    premium_batch["request_id"] = Uuid::now_v7().to_string().into();
     premium_batch["kind"] = "premium_days".into();
     premium_batch["max_per_code"] = 4.into();
     let response = send("/en/admin/store/codes", premium_batch)?.await?;
@@ -273,7 +306,7 @@ async fn a3_l6_02_premium_code_route_refuses_restricted_acquisitions()
 
     let now = OffsetDateTime::now_utc().unix_timestamp();
     for restriction in ["restriction", "suspension", "termination", "cooldown"] {
-        let batch = serde_json::json!({"kind":"premium_days","amount":7,"count":1,"max_per_code":1,"max_per_account":1,"valid_from":now-60,"valid_until":now+3600,"note":"Acquisition regression"});
+        let batch = serde_json::json!({"request_id":Uuid::now_v7(),"kind":"premium_days","amount":7,"count":1,"max_per_code":1,"max_per_account":1,"valid_from":now-60,"valid_until":now+3600,"note":"Acquisition regression"});
         let response = send("/en/admin/store/codes", batch)?.await?;
         assert_eq!(response.status(), StatusCode::OK);
         let generated: serde_json::Value =

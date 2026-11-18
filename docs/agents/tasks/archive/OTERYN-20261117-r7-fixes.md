@@ -22,7 +22,7 @@ review found gaps.
 
 - [x] Each confirmed finding has a fix with a regression test through the real caller
 - [x] Each pushed fix was reviewed read-only before integration
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -228,10 +228,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-17T21:07:36Z
-head: fa74b18390e0760d8556bd661975ad15cb274956
+head: 2fdacc801c9bbe42f6ecaa9d39504bc67f7b2465
 branch: claude/happy-davinci-ijz3wy-r7-fixes
 pr: 1943
-status: validating
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -592,5 +592,13 @@ validation:
     evidence: server-side fixes covered by tests through the real routers and workers
 blockers:
   - none
-next_action: Portal RS CI on the PR head, then merge
+next_action: none; delivered by PR #1943 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1943 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR #1943 merged as 2fdacc801c9bbe42f6ecaa9d39504bc67f7b2465
 ```

@@ -329,12 +329,16 @@ async fn postgres_bank_chain_and_retention() -> std::result::Result<(), Box<dyn 
             .len(),
         2
     );
+    assert_eq!(
+        store.ingest(r.clone(), clock()).await?,
+        acknowledgement(&r)?
+    );
     let later = TrustedTime {
         unix_ms: NOW + 31 * 86400000,
         uncertainty_ms: 0,
     };
     assert_eq!(store.expire(later).await?, 2);
-    assert_eq!(store.ingest(r.clone(), later).await?, acknowledgement(&r)?);
+    assert_eq!(store.ingest(r.clone(), later).await, Err(Error::Conflict));
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM pd_records WHERE payload IS NOT NULL")
             .fetch_one(&db.pool)
@@ -2111,6 +2115,32 @@ async fn r7_snapshot_revisions_cross_ten() -> std::result::Result<(), Box<dyn st
             .await;
         assert!(end.is_ok(), "END {}: {end:?}", revision + 1);
     }
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn r8_expired_bank_retry() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let r = playerdata::items(&bank(1, None, 0, 100))?;
+    a.allow(r.scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(r.clone(), clock()).await?;
+    let later = TrustedTime {
+        unix_ms: NOW + 31 * 86400000,
+        uncertainty_ms: 0,
+    };
+    store.expire(later).await?;
+    let tombstones: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pd_records WHERE payload IS NULL AND digest IS NOT NULL",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(tombstones, 1);
+    assert_eq!(store.ingest(r, later).await, Err(Error::Conflict));
     db.close().await?;
     Ok(())
 }

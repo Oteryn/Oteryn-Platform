@@ -81,6 +81,28 @@ impl Harness {
         let response = self.raw(&format!("POST /api/v1/game-auth/device-sessions{suffix} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nAuthorization: {authorization}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())).await;
         let (head, body) = response.split_once("\r\n\r\n").unwrap();
         let status = head.split_whitespace().nth(1).unwrap().parse().unwrap();
+        if status == 200 {
+            use crate::devices::wire::{CredentialResponse, TicketResponse};
+            let ordered = match suffix {
+                "" => Some(
+                    serde_json::to_string(
+                        &serde_json::from_str::<CredentialResponse>(body).unwrap(),
+                    )
+                    .unwrap(),
+                ),
+                "/tickets" => Some(
+                    serde_json::to_string(&serde_json::from_str::<TicketResponse>(body).unwrap())
+                        .unwrap(),
+                ),
+                _ => None,
+            };
+            if let Some(ordered) = ordered {
+                assert!(
+                    body == ordered,
+                    "device response member order differs from wire type"
+                );
+            }
+        }
         (status, serde_json::from_str(body).unwrap())
     }
 }

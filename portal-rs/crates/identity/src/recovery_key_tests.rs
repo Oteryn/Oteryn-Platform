@@ -488,6 +488,35 @@ async fn postgres_browser_recovery_success_bad_input_and_no_secret_echo() -> Res
 }
 
 #[tokio::test]
+async fn recovery_preserves_other_account_session() -> Result {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let id = db.account().await?;
+    let key = db.key(id).await?;
+    let other: AccountId = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,locale,status,email_verified_at) VALUES('other@example.test','unused','en','active',now()) RETURNING id").fetch_one(&db.pool).await?;
+    let cookie = db.session(Some(other)).await?;
+    let form = serde_urlencoded::to_string([
+        ("_csrf", "b".repeat(64)),
+        ("email", "owner@example.test".into()),
+        ("recovery_key", key),
+        ("password", NEW.into()),
+        ("password_confirmation", NEW.into()),
+    ])?;
+    let response = db
+        .app()
+        .oneshot(post("/en/recovery-key", &cookie, &form)?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()[header::LOCATION], "/en/login");
+    let alive: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT FROM web_sessions WHERE account_id=$1)")
+            .bind(other)
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(alive, "recovery must preserve the unrelated session");
+    db.close().await
+}
+
+#[tokio::test]
 async fn postgres_browser_generate_confirm_and_revoke() -> Result {
     let Some(db) = Database::new().await? else {
         return Ok(());

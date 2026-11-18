@@ -1665,3 +1665,24 @@ async fn configured_token_cleanup_preserves_live_tokens_and_resend_window() -> T
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn terminal_refusal_releases_topup() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let (intent, mut tx) = locked_topup(&db).await?;
+    let op = Uuid::now_v7();
+    query("INSERT INTO commerce_operations(id,actor_id,target_id,command,reason_sha256,requires_approval,result) VALUES($1,$2,$3,'{}',repeat('0',64),false,jsonb_build_object('refund_outcome','refused'::text))").bind(op).bind(Uuid::now_v7()).bind(intent).execute(&mut *tx).await?;
+    query("INSERT INTO commerce_refunds(operation_id,intent_id,account_id,amount,currency,provider) SELECT $1,id,account_id,amount,currency,provider FROM payment_intents WHERE id=$2").bind(op).bind(intent).execute(&mut *tx).await?;
+    tx.commit().await?;
+    topup_registry(&db)?.batch(&db.pool).await?;
+    let credited: bool = query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM wallet_operations WHERE id=$1 AND kind='top_up')",
+    )
+    .bind(intent)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(credited, "terminal refusal blocked wallet credit");
+    db.close().await
+}

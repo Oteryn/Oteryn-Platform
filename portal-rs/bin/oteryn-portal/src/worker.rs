@@ -30,22 +30,24 @@ impl Cleanup for TicketBudgetCleanup {
 /// entire resend-rate window even when a token was consumed immediately.
 #[derive(Debug)]
 struct VerificationTokenCleanup(PgPool);
+const TOKEN_CLEANUP_SQL: &str = "WITH obsolete AS (
+    SELECT token_tid FROM (
+        SELECT ctid AS token_tid, token_hash, greatest((created_at AT TIME ZONE 'UTC') + interval '60 seconds',
+                  CASE WHEN used_at IS NULL THEN expires_at AT TIME ZONE 'UTC' END) AS eligible_at
+        FROM account_email_tokens WHERE purpose = 'verify_email'
+    ) tokens
+    WHERE eligible_at <= statement_timestamp() AT TIME ZONE 'UTC'
+    ORDER BY eligible_at, token_hash LIMIT 1000 FOR UPDATE SKIP LOCKED
+) DELETE FROM account_email_tokens WHERE ctid = ANY (ARRAY(SELECT token_tid FROM obsolete))";
+
 impl Cleanup for VerificationTokenCleanup {
     fn clean(&self) -> HandlerFuture<'_> {
         Box::pin(async move {
-            sqlx::query(
-                "WITH obsolete AS (
-                SELECT token_hash FROM account_email_tokens
-                WHERE purpose='verify_email'
-                  AND created_at <= clock_timestamp()-interval '60 seconds'
-                  AND (used_at IS NOT NULL OR expires_at <= clock_timestamp())
-                ORDER BY created_at,token_hash LIMIT 1000 FOR UPDATE SKIP LOCKED
-            ) DELETE FROM account_email_tokens t USING obsolete o WHERE t.token_hash=o.token_hash",
-            )
-            .execute(&self.0)
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+            sqlx::query(TOKEN_CLEANUP_SQL)
+                .execute(&self.0)
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
         })
     }
 }
@@ -469,10 +471,6 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("outbox worker started");
     run_until(pool, registry, shutdown).await
 }
-#[cfg(test)]
-#[path = "worker_tests.rs"]
-mod tests;
-
 impl Handler for oteryn_notify::Delivery {
     fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a> {
         Box::pin(async move {
@@ -507,5 +505,56 @@ impl Registry {
         delivery: oteryn_admin::commerce::RefundDelivery,
     ) -> Result<(), String> {
         self.register("commerce.refund", Arc::new(delivery))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    include!("worker_tests.rs");
+
+    #[tokio::test]
+    async fn idle_token_cleanup_avoids_history_scan() -> TestResult {
+        let Some(db) = Database::new().await? else {
+            return Ok(());
+        };
+        let account: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,locale) VALUES ('plan@example.test','test-only','en') RETURNING id").fetch_one(&db.pool).await?;
+        query("INSERT INTO account_email_tokens(token_hash,account_id,purpose,expires_at,created_at)
+               SELECT sha256(i::text::bytea),$1,'verify_email',now()+interval '1 day',now()-interval '1 hour'
+               FROM generate_series(1,20000) i").bind(account).execute(&db.pool).await?;
+        query("ANALYZE account_email_tokens")
+            .execute(&db.pool)
+            .await?;
+        let plan: Vec<String> = query_scalar(outbox::AssertSqlSafe(format!(
+            "EXPLAIN ANALYZE {TOKEN_CLEANUP_SQL}"
+        )))
+        .fetch_all(&db.pool)
+        .await?;
+        db.close().await?;
+        assert!(
+            !plan
+                .iter()
+                .any(|line| line.contains("Seq Scan on account_email_tokens")
+                    || line.contains("Rows Removed by Filter: 20000")),
+            "idle cleanup scanned token history: {plan:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn completed_schedule_slots_are_pruned() -> TestResult {
+        let Some(db) = Database::new().await? else {
+            return Ok(());
+        };
+        outbox::schedule(&db.pool, "league.retention", 1).await?;
+        let jobs = outbox::claim(&db.pool, 1, 60).await?;
+        assert_eq!(jobs.len(), 1);
+        assert!(outbox::finish(&db.pool, &jobs[0], None, false).await?);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        outbox::schedule(&db.pool, "league.retention", 1).await?;
+        let counts = outbox::counts(&db.pool).await?;
+        db.close().await?;
+        assert_eq!(counts.pending, 1);
+        assert_eq!(counts.done, 0, "obsolete completed schedule slot retained");
+        Ok(())
     }
 }

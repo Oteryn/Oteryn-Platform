@@ -43,7 +43,7 @@ pub fn translate(lang: &str, key: &str) -> Result<String, Error> {
 #[template(
     source = r#"<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/app.css"></head><body class="op-theme"><main class="op-stack" id="main"><h1>{{ title }}</h1>{% if !notice.is_empty() %}<p role="status">{{ notice }}</p>{% endif %}
 {% if landing %}<p>{{ accept_hint }}</p>{% if !csrf.is_empty() %}<form method="post" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" type="submit">{{ accept }}</button></form>{% endif %}
-{% else %}<label class="op-field" for="invite-link">{{ link_label }}</label><input class="op-input" id="invite-link" type="url" readonly value="{{ link }}"><p>{{ hint }}</p><p>{{ rewards_hint }}</p>
+{% else %}{% if link.is_empty() %}<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" type="submit" name="kind" value="link">{{ create_link }}</button></form>{% else %}<label class="op-field" for="invite-link">{{ link_label }}</label><input class="op-input" id="invite-link" type="url" readonly value="{{ link }}">{% endif %}<p>{{ hint }}</p><p>{{ rewards_hint }}</p>
 <form class="op-stack" method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="new"><label class="op-field" for="new-email">{{ email }}</label><input class="op-input" id="new-email" name="email" type="email" maxlength="254" autocomplete="off" required><button class="op-button" type="submit">{{ send }}</button></form>
 <form class="op-stack" method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="returning"><label class="op-field" for="buddy-email">{{ email }}</label><input class="op-input" id="buddy-email" name="email" type="email" maxlength="254" autocomplete="off" required><button class="op-button" type="submit">{{ buddy }}</button></form>
 <section aria-labelledby="invitations"><h2 id="invitations">{{ status }}</h2><ul>{% for entry in invitations %}<li>{{ entry }}</li>{% else %}<li>{{ empty }}</li>{% endfor %}</ul></section>
@@ -59,6 +59,7 @@ struct Page {
     accept_hint: String,
     accept: String,
     link_label: String,
+    create_link: String,
     link: String,
     hint: String,
     rewards_hint: String,
@@ -85,6 +86,7 @@ impl Page {
             accept_hint: t("accept-hint")?,
             accept: t("accept")?,
             link_label: t("link")?,
+            create_link: t("create-link")?,
             link: String::new(),
             hint: t("hint")?,
             rewards_hint: t("rewards-hint")?,
@@ -176,9 +178,9 @@ async fn page(
         return Redirect::to(&format!("/{lang}/login")).into_response();
     };
     let result=async {
-        let code=campaign.link(actor).await?;
+        let code=campaign.existing_link(actor).await?;
         let mut page=Page::new(&lang,session.csrf_token().await.map_err(|_|Error::Unavailable)?)?;
-        page.link=format!("{}/{lang}/referrals/{code}",campaign.origin);
+        if let Some(code) = code {page.link=format!("{}/{lang}/referrals/{code}",campaign.origin);}
         if session.get(SessionKey::<bool>::new("referral.notice")).await.map_err(|_|Error::Unavailable)?.unwrap_or(false) {
             page.notice=translate(&lang,"notice")?;
             session.set(SessionKey::new("referral.notice"),&false).await.map_err(|_|Error::Unavailable)?;
@@ -198,6 +200,7 @@ async fn page(
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InvitationForm {
+    #[serde(default)]
     email: String,
     kind: String,
     #[serde(rename = "_csrf")]
@@ -216,6 +219,12 @@ async fn submit(
         return Redirect::to(&format!("/{lang}/login")).into_response();
     };
     let kind = match form.kind.as_str() {
+        "link" => {
+            return match campaign.link(actor).await {
+                Ok(_) => Redirect::to(&format!("/{lang}/account/referrals")).into_response(),
+                Err(error) => failure(&lang, error),
+            };
+        }
         "new" => Kind::New,
         "returning" => Kind::Returning,
         _ => return failure(&lang, Error::Invalid),

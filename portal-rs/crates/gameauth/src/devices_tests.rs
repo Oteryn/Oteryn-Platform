@@ -1287,6 +1287,9 @@ async fn database_http_refuses_proposed_and_malformed_bodies()
         return Ok(());
     };
     let server = tls::tests::Harness::new(router(s.clone())).await;
+    let body = GAME_UNBOUND_ENROLLMENT;
+    let response = server.raw(&format!("POST /api/v1/game-auth/device-sessions HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nAuthorization: Bearer valid\r\nContent-Length: 0{}\r\nConnection: close\r\n\r\n{body}", body.len())).await;
+    assert_eq!(response.split_whitespace().nth(1), Some("400"));
     let invalid = (400, fixture_value("invalid.json"));
     let too_large = (413, fixture_value("invalid.json"));
     let oversized = format!(

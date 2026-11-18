@@ -214,8 +214,30 @@ impl Tickets {
         let (ticket, _) = self
             .change_in(&mut tx, actor, staff, (id, version), change, true)
             .await?;
+        if let Some(context) = staff {
+            self.check_staff_permissions(&mut tx, context).await?;
+        }
         tx.commit().await?;
         Ok(ticket)
+    }
+    async fn check_staff_permissions(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        context: CheckContext,
+    ) -> Result<()> {
+        let auth = Authorizer::new(
+            self.pool.clone(),
+            PortalIdentity::configured(self.pool.clone()),
+        );
+        for permission in [Permission::Access, Permission::ManageSupportTickets] {
+            auth.check_in(tx, context, permission)
+                .await
+                .map_err(|error| match error {
+                    rbac::Error::Storage(error) => Error::Database(error),
+                    _ => Error::Denied,
+                })?;
+        }
+        Ok(())
     }
     /// Caller retains the authorization/audit transaction. The queue adapter
     /// supplies its audit through the admin execute boundary.
@@ -293,22 +315,7 @@ impl Tickets {
         .await?
         .ok_or(Error::NotFound)?;
         if let Some(context) = staff {
-            // The owner lock may have waited behind a revocation. Join the
-            // role-writer fence only after the domain locks, then keep current
-            // grants and the actor's account state valid through commit.
-
-            let auth = Authorizer::new(
-                self.pool.clone(),
-                PortalIdentity::configured(self.pool.clone()),
-            );
-            for permission in [Permission::Access, Permission::ManageSupportTickets] {
-                auth.check_in(&mut *tx, context, permission).await.map_err(
-                    |error| match error {
-                        rbac::Error::Storage(error) => Error::Database(error),
-                        _ => Error::Denied,
-                    },
-                )?;
-            }
+            self.check_staff_permissions(tx, context).await?;
         }
         if !STATUSES.contains(&ticket.status.as_str()) {
             return Err(Error::Denied);
@@ -406,6 +413,17 @@ impl Tickets {
         id: Uuid,
         after: Option<Uuid>,
     ) -> Result<(Ticket, Vec<Message>)> {
+        self.load_page(account, staff, id, after, true).await
+    }
+
+    async fn load_page(
+        &self,
+        account: Uuid,
+        staff: bool,
+        id: Uuid,
+        after: Option<Uuid>,
+        acknowledge: bool,
+    ) -> Result<(Ticket, Vec<Message>)> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
         let ticket = sqlx::query_as(
@@ -425,7 +443,7 @@ impl Tickets {
         .bind(after)
         .fetch_all(&mut *tx)
         .await?;
-        if !staff {
+        if acknowledge && !staff {
             // The ticket lock fences concurrent replies. A durable message ID
             // identifies the newest public reply; only its displayed page may
             // acknowledge it. Owner mutations establish no viewing boundary.

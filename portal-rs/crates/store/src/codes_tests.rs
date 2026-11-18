@@ -170,6 +170,7 @@ fn staff() -> AuthorizedStaff {
 fn batch(kind: Kind) -> Batch {
     let now = OffsetDateTime::now_utc();
     Batch {
+        request_id: Uuid::now_v7(),
         kind,
         amount: 7,
         max_per_code: 1,
@@ -947,4 +948,59 @@ async fn postgres_redemptions_held_code_lock_sheds_within_mutation_budget() {
         );
     }
     assert_eq!(redeemed, 0);
+}
+
+#[tokio::test]
+async fn r8_issuance_retry_preserves_batch() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let service = db.service();
+    let issuer = staff();
+    let terms = batch(Kind::Coins);
+    let (first, retry) = tokio::join!(
+        service.generate(&issuer, &terms, 1),
+        service.generate(&issuer, &terms, 1)
+    );
+    let first = first.unwrap();
+    let retry = retry.unwrap();
+    assert_eq!(
+        first.batch_id, retry.batch_id,
+        "retry created another batch"
+    );
+    assert_eq!(first.codes.len() + retry.codes.len(), 1);
+    assert!(matches!(
+        service.generate(&issuer, &terms, 2).await,
+        Err(Error::Conflict)
+    ));
+    assert!(matches!(
+        service.generate(&staff(), &terms, 1).await,
+        Err(Error::Conflict)
+    ));
+    db.close().await;
+}
+
+#[tokio::test]
+async fn r8_distinct_issuance_requests_create_two_batches() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let service = db.service();
+    let issuer = staff();
+    let mut terms = batch(Kind::Coins);
+    let first = service.generate(&issuer, &terms, 1).await.unwrap();
+    terms.request_id = Uuid::now_v7();
+    let second = service.generate(&issuer, &terms, 1).await.unwrap();
+    assert_ne!(first.batch_id, second.batch_id);
+    assert_eq!((first.codes.len(), second.codes.len()), (1, 1));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM code_batches")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        2
+    );
+    db.close().await;
 }

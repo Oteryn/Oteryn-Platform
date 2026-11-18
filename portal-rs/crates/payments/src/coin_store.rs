@@ -868,8 +868,8 @@ impl CoinPurchases {
         }
         let current: String = intent.try_get("state")?;
         // The order lock serializes every reversal of this order.
-        let reversal: Option<String> =
-            sqlx::query_scalar("SELECT outcome FROM coin_purchase_reversals WHERE order_id=$1")
+        let reversal: Option<(String, String)> =
+            sqlx::query_as("SELECT kind,outcome FROM coin_purchase_reversals WHERE order_id=$1")
                 .bind(order.order.order_id)
                 .fetch_optional(&mut **tx)
                 .await?;
@@ -1001,7 +1001,7 @@ impl CoinPurchases {
         event: &CoinEvent,
         order: &OrderRow,
         current: &str,
-        reversal: Option<String>,
+        reversal: Option<(String, String)>,
     ) -> Result<(), Error> {
         let (kind, target) = match event.state {
             EventState::Refunded => ("refund", OrderState::Refunded),
@@ -1014,6 +1014,18 @@ impl CoinPurchases {
             if order.order.state == OrderState::Failed {
                 return Err(Error::IllegalTransition);
             }
+            // A fresh event can only advance an existing fence from refund to chargeback.
+            // Older fences may predate the corresponding payment intent state update.
+            if let Some((first_kind, _)) = &reversal
+                && (first_kind != "refund"
+                    || event.state != EventState::Chargeback
+                    || current == "chargeback")
+            {
+                return Err(Error::IllegalTransition);
+            }
+            sqlx::query("UPDATE payment_intents SET state=$2, updated_at=now() WHERE id=$1 AND state NOT IN ($2,'chargeback')")
+                .bind(event.intent_id).bind(event.state.as_str())
+                .execute(&mut **tx).await?;
             if reversal.is_none() {
                 self.record_reversal(tx, key, event, order, kind, "fenced")
                     .await?;
@@ -1039,7 +1051,7 @@ impl CoinPurchases {
             .await?;
         let outcome = match reversal {
             // Refund then chargeback: the credit was reversed (or held) once.
-            Some(outcome) => outcome,
+            Some((_, outcome)) => outcome,
             None => {
                 // The wallet account lock serializes this debit, and the debt
                 // it may record, with every credit that would settle the debt.
