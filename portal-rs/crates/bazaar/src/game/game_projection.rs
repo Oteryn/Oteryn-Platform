@@ -247,6 +247,7 @@ impl Outbox {
         // The issuer lock is shared with enqueue and restore, so no lower epoch
         // write can race the invalidation of older evidence.
         let floor=sqlx::query("SELECT projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_game_issuer WHERE singleton FOR UPDATE").fetch_one(&mut **db).await?;
+        super::authority::register_writer(db).await?;
         let floor_epoch = decimal(floor.try_get("epoch")?, true, u64::MAX)?;
         let generation = decimal(floor.try_get("generation")?, true, u64::MAX)?;
         if epoch < floor_epoch {
@@ -281,26 +282,26 @@ impl Outbox {
                 .collect(),
         );
         let content_digest = digest(&canonical::encode(&content).map_err(|_| Error::Invalid)?);
-        let old=sqlx::query("SELECT projection_epoch::text AS epoch,projection_revision::text AS revision,source_observed_at::text AS observed,content_digest FROM bazaar_game_projections WHERE source_authority=$1 AND kind=$2 AND subject=$3 FOR UPDATE").bind(authority).bind(kind).bind(subject).fetch_optional(&mut **db).await?;
-        if let Some(old) = old {
-            let old_epoch = decimal(old.try_get("epoch")?, false, u64::MAX)?;
-            let old_revision = decimal(old.try_get("revision")?, false, u64::MAX)?;
-            let old_observed = decimal(old.try_get("observed")?, false, u64::MAX)?;
-            if (epoch, revision) < (old_epoch, old_revision)
-                || (watermark && epoch == old_epoch && observed < old_observed)
-            {
-                return Ok(IngestResult::Superseded);
-            }
-            if (epoch, revision) == (old_epoch, old_revision) {
-                if old.try_get::<String, _>("content_digest")? == content_digest {
-                    return Ok(IngestResult::Duplicate);
-                }
-                sqlx::query("INSERT INTO bazaar_game_quarantine(source_authority,kind,subject,incoming_digest) VALUES($1,$2,$3,$4)").bind(authority).bind(kind).bind(subject).bind(content_digest).execute(&mut **db).await?;
-                return Ok(IngestResult::Quarantined);
-            }
+        let result = crate::lifecycle::write_projection(
+            db,
+            authority,
+            kind,
+            subject,
+            crate::lifecycle::ProjectionWrite {
+                cursor: crate::lifecycle::Projection {
+                    epoch,
+                    revision,
+                    observed,
+                },
+                digest: &content_digest,
+                body: std::str::from_utf8(raw).map_err(|_| Error::Invalid)?,
+                watermark,
+            },
+        )
+        .await?;
+        if kind == "STATUS" && matches!(result, IngestResult::Applied | IngestResult::Quarantined) {
+            super::delivery_work::mark_status(db, subject, result).await?;
         }
-        sqlx::query("INSERT INTO bazaar_game_projections(source_authority,kind,subject,projection_epoch,projection_revision,content_digest,canonical_body,source_observed_at) VALUES($1,$2,$3,$4::text::numeric,$5::text::numeric,$6,$7,$8::text::numeric) ON CONFLICT(source_authority,kind,subject) DO UPDATE SET projection_epoch=EXCLUDED.projection_epoch,projection_revision=EXCLUDED.projection_revision,content_digest=EXCLUDED.content_digest,canonical_body=EXCLUDED.canonical_body,source_observed_at=EXCLUDED.source_observed_at,updated_at=now()")
-            .bind(authority).bind(kind).bind(subject).bind(epoch.to_string()).bind(revision.to_string()).bind(content_digest).bind(std::str::from_utf8(raw).map_err(|_|Error::Invalid)?).bind(observed.to_string()).execute(&mut **db).await?;
-        Ok(IngestResult::Applied)
+        Ok(result)
     }
 }

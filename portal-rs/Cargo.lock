@@ -2746,6 +2746,7 @@ dependencies = [
  "serde_urlencoded",
  "sha2 0.10.9",
  "sqlx",
+ "syn 2.0.119",
  "thiserror 2.0.21",
  "time",
  "tokio",
