@@ -60,10 +60,7 @@ impl Database {
             .filter(|v| *v < VERSION)
             .max()
             .unwrap();
-        {
-            let mut connection = oteryn_db::migration_connection(&pool).await.unwrap();
-            MIGRATOR.run_to(previous, &mut *connection).await.unwrap();
-        }
+        MIGRATOR.run_to(previous, &pool).await.unwrap();
         assert!(!applied(&pool, VERSION).await);
         sqlx::query(
             "INSERT INTO store_price_list_imports (catalog_revision, canonical_bytes, imported_by) VALUES ($1, '\\x7b7d', gen_random_uuid())",
@@ -131,7 +128,19 @@ async fn transferable_offer_stops_the_migration_and_changes_nothing() {
     let before = db.currency_check().await;
     assert!(before.contains("TRANSFERABLE_COINS"), "{before}");
 
-    let error = oteryn_db::migrate(&db.pool).await.unwrap_err().to_string();
+    // sqlx keeps its session advisory lock when a migration fails; release it on
+    // this connection so no other migrator on the test server waits on it.
+    let mut connection = db.pool.acquire().await.unwrap();
+    let error = MIGRATOR
+        .run(&mut *connection)
+        .await
+        .unwrap_err()
+        .to_string();
+    sqlx::query("SELECT pg_advisory_unlock_all()")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    drop(connection);
     assert!(
         error.contains("store_offers holds offers not quoted in COINS"),
         "{error}"
@@ -158,7 +167,7 @@ async fn coins_only_offers_migrate_and_later_transferable_is_refused() {
     };
     db.offer("store:exercise-sword", "COINS").await.unwrap();
 
-    oteryn_db::migrate(&db.pool).await.unwrap();
+    MIGRATOR.run(&db.pool).await.unwrap();
     assert!(applied(&db.pool, VERSION).await);
     assert_eq!(
         db.currency_check().await,

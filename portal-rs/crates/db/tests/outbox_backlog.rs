@@ -22,18 +22,19 @@ async fn backlog(state: &str) -> Result {
         eprintln!("SKIPPED outbox backlog test: PORTAL_TEST_DATABASE_URL is unset");
         return Ok(());
     };
-    let schema = format!("backlog_{}", sqlx::types::Uuid::now_v7().simple());
-    let options = url
-        .parse::<sqlx::postgres::PgConnectOptions>()?
-        .options([("search_path", schema.as_str())]);
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with(options)
+        .connect(&url)
         .await?;
+    let schema = format!("backlog_{}", sqlx::types::Uuid::now_v7().simple());
     sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
         .execute(&pool)
         .await?;
-    oteryn_db::migrate(&pool).await?;
+    sqlx::query("SELECT set_config('search_path',$1,false)")
+        .bind(&schema)
+        .execute(&pool)
+        .await?;
+    oteryn_db::MIGRATOR.run(&pool).await?;
     sqlx::query(
         "INSERT INTO outbox (kind, payload, idempotency_key, state)
          SELECT 'task', '{}', 'schedule:' || i, $1 FROM generate_series(1, 20000) i",

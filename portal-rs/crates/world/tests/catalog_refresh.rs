@@ -504,10 +504,7 @@ async fn migration_copies_aliases_and_denies_conflicting_approvals()
         ),
         ..sqlx::migrate::Migrator::DEFAULT
     };
-    {
-        let mut connection = oteryn_db::migration_connection(&pool).await?;
-        preceding.run(&mut *connection).await?;
-    }
+    preceding.run(&pool).await?;
     let version = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO world_versions(id,source_commit,status) VALUES($1,repeat('a',40),'ready')",
