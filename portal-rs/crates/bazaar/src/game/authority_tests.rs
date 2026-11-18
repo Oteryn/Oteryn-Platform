@@ -5389,6 +5389,13 @@ async fn unresynced_deliver_pull_requires_expiry_plus_skew_and_allows_receipt_re
     let expired = newest_intent(&db, uid("20"), Command::Deliver).await;
     reject_expired(&db, &expired).await;
     let mut tx = db.pool.begin().await.unwrap();
+    assert!(matches!(
+        a.finish_resync(&mut tx, &[uid("12")]).await,
+        Err(Error::ResyncEvidenceChanged)
+    ));
+    assert!(!a.resynced(&mut tx).await.unwrap());
+    tx.commit().await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
     a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
     assert!(a.resynced(&mut tx).await.unwrap());
     tx.commit().await.unwrap();
