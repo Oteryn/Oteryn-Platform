@@ -1,12 +1,11 @@
 //! CC v2 pull/read/receipt and private closure projection transport. Mount only
-//! behind verified TLS 1.3/HTTP 1.1. Signatures are detached HTTP metadata; the
-//! contract's original JSON bytes are never enveloped or reformatted.
+//! behind verified Character mTLS (TLS 1.3/HTTP 1.1).
 use super::*;
 use axum::{
     Router,
     body::Bytes,
     extract::{Request, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::post,
@@ -22,19 +21,17 @@ pub const GROUP: &str = "OTERYN_GAME_CHARACTER_COMMANDS";
 struct StateData {
     pool: PgPool,
     boundary: Arc<GameBoundary>,
-    key_id: String,
     rate: Arc<Mutex<(Instant, u32)>>,
 }
 pub fn router(
     pool: PgPool,
     boundary: Arc<GameBoundary>,
-    key_id: String,
+    _key_id: String,
     identities: Arc<IdentityMap>,
 ) -> Router {
     let state = StateData {
         pool,
         boundary,
-        key_id,
         rate: Arc::new(Mutex::new((Instant::now(), 0))),
     };
     let mut routes = Router::new();
@@ -127,24 +124,6 @@ async fn rate(State(state): State<StateData>, request: Request, next: Next) -> R
     }
     next.run(request).await
 }
-fn signature(headers: &HeaderMap, state: &StateData) -> Result<Vec<u8>> {
-    let one = |name: &str| -> Result<&str> {
-        let mut all = headers.get_all(name).iter();
-        let value = all.next().ok_or(Error::Unauthorized)?;
-        if all.next().is_some() {
-            return Err(Error::Unauthorized);
-        }
-        value.to_str().map_err(|_| Error::Unauthorized)
-    };
-    if one("x-oteryn-key-id")? != state.key_id {
-        return Err(Error::Unauthorized);
-    }
-    let signature = runtime::decode_hex(one("x-oteryn-signature")?)?;
-    if signature.len() != 64 {
-        return Err(Error::Unauthorized);
-    }
-    Ok(signature)
-}
 fn response(result: Result<Vec<u8>>) -> Response {
     match result {
         Ok(body) => ([(header::CONTENT_TYPE, "application/json")], body).into_response(),
@@ -185,7 +164,7 @@ async fn pending(State(state): State<StateData>, body: Bytes) -> Response {
     response(
         async {
             let request: Pending = wire::canonical(&body, 512)?;
-            if request.contract_version != 2
+            if request.contract_version != 1
                 || request.operation != "ListPendingCharacterCommandsV1"
                 || request.source_authority != state.boundary.authority
                 || !(1..=32).contains(&request.max_entries)
@@ -216,7 +195,7 @@ async fn pending(State(state): State<StateData>, body: Bytes) -> Response {
                 });
             }
             serde_json::to_vec(&PendingResponse {
-                contract_version: 2,
+                contract_version: 1,
                 pending: entries,
             })
             .map_err(|_| Error::InvalidInput)
@@ -238,7 +217,7 @@ async fn read(State(state): State<StateData>, body: Bytes) -> Response {
     response(
         async {
             let request: Read = wire::canonical(&body, 512)?;
-            if request.contract_version != 2
+            if request.contract_version != 1
                 || request.operation != "ReadCharacterCommandIntentV1"
                 || request.source_authority != state.boundary.authority
                 || request.issuer_authority != "OTERYN_PLATFORM_CHARACTER_AUTHORITY"
@@ -258,37 +237,28 @@ async fn read(State(state): State<StateData>, body: Bytes) -> Response {
         .await,
     )
 }
-async fn receipt(State(state): State<StateData>, headers: HeaderMap, body: Bytes) -> Response {
+async fn receipt(State(state): State<StateData>, body: Bytes) -> Response {
     response(
         async {
-            state
-                .boundary
-                .ingest_receipt(&state.pool, &body, &signature(&headers, &state)?)
-                .await?;
+            state.boundary.store_receipt(&state.pool, &body).await?;
             accepted()
         }
         .await,
     )
 }
-async fn projection(State(state): State<StateData>, headers: HeaderMap, body: Bytes) -> Response {
+async fn projection(State(state): State<StateData>, body: Bytes) -> Response {
     response(
         async {
-            state
-                .boundary
-                .ingest_projection(&state.pool, &body, &signature(&headers, &state)?)
-                .await?;
+            state.boundary.store_projection(&state.pool, &body).await?;
             accepted()
         }
         .await,
     )
 }
-async fn watermark(State(state): State<StateData>, headers: HeaderMap, body: Bytes) -> Response {
+async fn watermark(State(state): State<StateData>, body: Bytes) -> Response {
     response(
         async {
-            state
-                .boundary
-                .ingest_watermark(&state.pool, &body, &signature(&headers, &state)?)
-                .await?;
+            state.boundary.store_watermark(&state.pool, &body).await?;
             accepted()
         }
         .await,

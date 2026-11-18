@@ -354,7 +354,7 @@ impl Watermark {
     pub fn parse(raw: &[u8]) -> Result<Self> {
         let value: Self = canonical(raw, 512)?;
         if value.contract_version != 2
-            || value.operation != "PublishPublicProjectionWatermarkV1"
+            || value.operation != "PublishProjectionWatermarkV1"
             || value.family != "account_closure"
             || time(&value.observed_at)? < time(&value.complete_through)?
         {

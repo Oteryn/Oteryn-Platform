@@ -38,14 +38,7 @@ impl Config {
         let worker_interval_seconds = get("PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS")
             .map_or(Ok(5), |s| s.parse().map_err(|_| Error::InvalidInput))?;
         if !(1..=60).contains(&worker_interval_seconds)
-            || (enabled
-                && (public_key.is_none()
-                    || recovery_generation.is_none()
-                    || key_id.is_empty()
-                    || key_id.len() > 128
-                    || !key_id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))))
+            || (enabled && recovery_generation.is_none())
         {
             return Err(Error::InvalidInput);
         }
@@ -97,7 +90,7 @@ impl Config {
             Arc::new(DurableRecoveryFence {
                 generation: self.recovery_generation.ok_or(Error::InvalidInput)?,
             }),
-            self.public_key.ok_or(Error::InvalidInput)?,
+            self.public_key,
             self.authority.clone(),
         )?;
         Ok(Some(Arc::new(
