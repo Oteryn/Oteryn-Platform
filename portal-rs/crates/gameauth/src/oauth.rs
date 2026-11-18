@@ -27,7 +27,7 @@ pub struct Client {
 }
 impl Config {
     /// Reads `PORTAL_OAUTH_CONFIG` as JSON with `enabled` and `clients` fields.
-    /// Each client has `client_id` and `redirect_uris`; redirects include the exact port.
+    /// Each client has `client_id` and `redirect_uris`; HTTP loopback redirects permit a runtime-selected port.
     /// Missing, malformed or ambiguous deployment configuration denies OAuth traffic.
     pub fn from_env() -> Self {
         std::env::var("PORTAL_OAUTH_CONFIG")
@@ -40,14 +40,37 @@ impl Config {
             && !id.is_empty()
             && self.clients.iter().filter(|c| c.client_id == id).count() == 1
     }
-    fn redirect(&self, id: &str, redirect: &str) -> bool {
+    fn redirect(&self, id: &str, redirect: &str, matches: fn(&str, &str) -> bool) -> bool {
         self.client(id)
             && safe_redirect(redirect)
             && self
                 .clients
                 .iter()
-                .any(|c| c.client_id == id && c.redirect_uris.iter().any(|r| r == redirect))
+                .any(|c| c.client_id == id && c.redirect_uris.iter().any(|r| matches(r, redirect)))
     }
+}
+// Compare the original spelling so URL normalization cannot erase path differences.
+fn loopback_parts(uri: &str) -> Option<(&str, &str)> {
+    let rest = uri.strip_prefix("http://")?;
+    let authority_end = rest.find('/').unwrap_or(rest.len());
+    let (authority, path) = rest.split_at(authority_end);
+    for host in ["127.0.0.1", "[::1]"] {
+        if let Some(port) = authority.strip_prefix(host)
+            && (port.is_empty()
+                || port.strip_prefix(':').is_some_and(|p| {
+                    !p.is_empty()
+                        && p.bytes().all(|b| b.is_ascii_digit())
+                        && p.parse::<u16>().is_ok()
+                }))
+        {
+            return Some((host, path));
+        }
+    }
+    None
+}
+fn registered_redirect(registered: &str, requested: &str) -> bool {
+    registered == requested
+        || loopback_parts(registered).is_some_and(|parts| Some(parts) == loopback_parts(requested))
 }
 fn safe_redirect(s: &str) -> bool {
     let Ok(u) = url::Url::parse(s) else {
@@ -96,7 +119,7 @@ impl Authorization {
             && URL_SAFE_NO_PAD
                 .decode(&self.code_challenge)
                 .is_ok_and(|v| v.len() == 32 && URL_SAFE_NO_PAD.encode(v) == self.code_challenge)
-            && config.redirect(&self.client_id, &self.redirect_uri)
+            && config.redirect(&self.client_id, &self.redirect_uri, registered_redirect)
     }
 }
 #[derive(Default, Deserialize)]
@@ -347,7 +370,7 @@ async fn exchange_code(
         || !verifier(&input.code_verifier)
         || !input.refresh_token.is_empty()
         || !input.scope.is_empty()
-        || !config.redirect(&input.client_id, &input.redirect_uri)
+        || !config.redirect(&input.client_id, &input.redirect_uri, registered_redirect)
     {
         return Err(Error::InvalidRequest);
     }
@@ -361,9 +384,15 @@ async fn exchange_code(
     let current = stamp(&mut tx, account).await?;
     let row = sqlx::query("SELECT *, expires_at>clock_timestamp() AND used_at IS NULL AND revoked_at IS NULL AS valid FROM oauth_authorization_codes WHERE code_hash=$1 FOR UPDATE")
         .bind(hash(&input.code)).fetch_one(&mut *tx).await?;
+    let bound_redirect: String = row.get("redirect_uri");
+    if bound_redirect != input.redirect_uri
+        && !config.redirect(&input.client_id, &input.redirect_uri, str::eq)
+    {
+        return Err(Error::InvalidRequest);
+    }
     if !row.get::<bool, _>("valid")
         || row.get::<String, _>("client_id") != input.client_id
-        || row.get::<String, _>("redirect_uri") != input.redirect_uri
+        || bound_redirect != input.redirect_uri
         || !same(&current, &row.get::<Vec<u8>, _>("credential_hash"))
         || !same(
             URL_SAFE_NO_PAD
@@ -601,5 +630,5 @@ pub(crate) async fn native_enrollment(
     })
 }
 pub(crate) fn native_client(config: &Config, client: Uuid) -> bool {
-    config.client(&client.to_string())
+    crate::devices::wire::valid_client_id(client) && config.client(&client.to_string())
 }
