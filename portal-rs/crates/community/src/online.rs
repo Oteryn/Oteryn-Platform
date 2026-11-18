@@ -207,7 +207,9 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
         return Err(Unavailable);
     }
     // The family cut advances after a complete scan. Unchanged worlds can retain older snapshots.
-    let Some(complete_through) = sqlx::query_scalar::<_, i64>(
+    // A missing or stale cut withholds names, but must not mask the fail-closed
+    // checks below (visibility authority, privacy cut), which answer 503.
+    let complete_through = sqlx::query_scalar::<_, i64>(
         "SELECT watermark FROM public_snapshots
          WHERE family='world_online' AND subject='' AND is_watermark
            AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
@@ -215,15 +217,19 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
     .fetch_optional(&mut *fence)
     .await
     .map_err(|_| Unavailable)?
-    else {
-        return Ok(None);
+    .map(u64::try_from)
+    .transpose()
+    .map_err(|_| Unavailable)?;
+    let fresh_cut = match complete_through {
+        Some(cut) if watermark_is_fresh(cut, now()?) => Some(cut),
+        _ => None,
     };
-    let complete_through = u64::try_from(complete_through).map_err(|_| Unavailable)?;
-    if !watermark_is_fresh(complete_through, now()?) {
-        return Ok(None);
-    }
     let mut visible_refs = Vec::new();
-    let rows = sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?;
+    let rows = if fresh_cut.is_none() {
+        Vec::new()
+    } else {
+        sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?
+    };
     if rows.len() > 256 {
         return Err(Unavailable);
     }
@@ -307,6 +313,9 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
     }
     fence.commit().await.map_err(|_| Unavailable)?;
     let serving = now()?;
+    let Some(complete_through) = fresh_cut else {
+        return Ok(None);
+    };
     if !watermark_is_fresh(complete_through, serving) {
         return Ok(None);
     }

@@ -86,6 +86,11 @@ async fn scenario(case: &str) -> TestResult {
             .execute(&db)
             .await?;
     }
+    if case == "unavailable_without_cut" {
+        sqlx::query("DELETE FROM public_snapshots WHERE is_watermark")
+            .execute(&db)
+            .await?;
+    }
     if case == "watermark_epoch" {
         sqlx::query("UPDATE public_snapshots SET epoch=2 WHERE NOT is_watermark")
             .execute(&db)
@@ -95,11 +100,12 @@ async fn scenario(case: &str) -> TestResult {
         enabled: case != "disabled",
         stale_after: Duration::from_secs(600),
     };
-    let visibility: Arc<dyn PublicVisibility> = if case == "unavailable" {
-        Arc::new(online::FailClosed)
-    } else {
-        Arc::new(Visibility)
-    };
+    let visibility: Arc<dyn PublicVisibility> =
+        if matches!(case, "unavailable" | "unavailable_without_cut") {
+            Arc::new(online::FailClosed)
+        } else {
+            Arc::new(Visibility)
+        };
     let app = online::router(db.clone(), visibility, config);
     let path = match case {
         "sort" => "/en/online?sort=level",
@@ -124,7 +130,7 @@ async fn scenario(case: &str) -> TestResult {
                 );
             }
         }
-        "unavailable" => {
+        "unavailable" | "unavailable_without_cut" => {
             assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
             assert!(html.contains("Temporarily unavailable"));
             assert!(!html.contains("Alice"));
@@ -193,6 +199,7 @@ db_test!(world_filter, "filter");
 db_test!(stale_notice, "stale");
 db_test!(hidden_excluded, "hidden");
 db_test!(fail_closed, "unavailable");
+db_test!(fail_closed_without_cut, "unavailable_without_cut");
 db_test!(flag_off_404, "disabled");
 db_test!(bad_query_400, "bad");
 
