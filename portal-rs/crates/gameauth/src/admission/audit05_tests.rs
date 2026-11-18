@@ -694,6 +694,9 @@ async fn recovery_fixture(
     );
     let mut value: serde_json::Value = serde_json::from_str(raw)?;
     value["character_id"] = f.request.character_id.to_string().into();
+    // pg_advisory_xact_lock is database-wide, so a shared fixture attempt_ref
+    // would make parallel tests (each in its own schema) contend on one key.
+    value["attempt_ref"] = Uuid::now_v7().to_string().into();
     let request = recovery::RecoveryRequest::decode(&serde_json::to_vec(&value)?, false)
         .map_err(|e| format!("{e:?}"))?;
     sqlx::query("INSERT INTO native_play_generations(account_id,generation) VALUES($1,1)")
