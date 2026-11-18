@@ -13,11 +13,19 @@ x-portal: &portal
   tmpfs:
     - /tmp:rw,noexec,nosuid,size=64m
   volumes:
-    - /opt/oteryn-oracle/platform-secrets:/run/oteryn:ro
+    - &platform-secrets /opt/oteryn-oracle/platform-secrets:/run/oteryn:ro
 services:
   platform:
     <<: *portal
     command: [serve]
+    volumes:
+      - *platform-secrets
+      - type: bind
+        source: /opt/oteryn-oracle/native-evidence-witness
+        target: /var/lib/oteryn/witness
+        read_only: false
+        bind:
+          create_host_path: false
     networks:
       private:
         ipv4_address: 172.18.0.12
@@ -26,6 +34,7 @@ services:
       OTERYN_BIND: 0.0.0.0:8080
       TRUSTED_PROXIES: 172.18.0.10
       OTERYN_PUBLIC_ORIGIN: https://oteryn.com
+      GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY: /var/lib/oteryn/witness
       PORTAL_NATIVE_ADMISSION_BIND: 127.0.0.1:8091
       PORTAL_GATEWAY_TOKEN_SHA256_FILE: /run/oteryn/gateway-token.sha256
   worker:

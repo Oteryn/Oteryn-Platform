@@ -241,14 +241,26 @@ remain host-private; `prepare-platform.sh <reviewed-checkout>` validates their
 presence and runs the Rust migration role. Existing game/money flags remain off
 unless the operator explicitly enables them.
 
+Both Platform deployment paths provision
+`/opt/oteryn-oracle/native-evidence-witness` with owner UID/GID 65532 and mode 0700.
+Only the portal service mounts it read-write. Its
+`GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` points to `/var/lib/oteryn/witness`.
+Retain the directory across container recreation and preserve it with its database
+provenance when moving the service. `GAME_AUTH_NATIVE_EVIDENCE_ENABLED` defaults to
+off. On the public production deployment, Platform reserves Protocol 3 and the
+sandbox coin checkout for testing/preproduction.
+
 The release receipt records the latest embedded Rust migration version and
 accepts only predecessors present in the candidate migration inventory. A legacy
 Laravel schema receipt requires explicit operator reconciliation: the removed
 application is not a migration source. Before stopping Rust writers, deployment
-streams a PostgreSQL custom-format dump to private action state, fsyncs it and
-validates its archive table of contents. The backup uses the retained PostgreSQL image as a one-off client with the
-migration role's exact database URL, TLS configuration and read-only certificates;
-it keeps that URL out of command arguments and logs. Failure prevents disruption. No automatic schema rollback is attempted.
+streams a PostgreSQL custom-format dump to a private per-attempt file, fsyncs it
+and validates its archive table of contents before publishing the SHA-named dump.
+Failed attempts leave the final path untouched. The backup uses the retained
+PostgreSQL image as a one-off client with the migration role's exact database URL,
+TLS configuration and read-only certificates. The client shell expands the URL
+inside the container, keeping it out of host-side Docker arguments and logs.
+Failure prevents disruption. No automatic schema rollback is attempted.
 
 Caddy forwards its already-resolved `{client_ip}` as a single `X-Forwarded-For`
 value. Its strict Cloudflare trust policy rejects spoofed forwarding from other

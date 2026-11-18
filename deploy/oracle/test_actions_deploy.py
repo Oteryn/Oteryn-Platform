@@ -386,9 +386,39 @@ class RustDeployment(unittest.TestCase):
                 os.umask(previous)
             self.assertIn(str(root / 'platform-migrate.env'), calls[0])
             self.assertIn('postgres:fixture', calls[0])
-            self.assertIn('export PGDATABASE="${OTERYN_DATABASE_URL:?missing migration database URL}"; exec pg_dump --format=custom', calls[0])
+            self.assertIn('exec pg_dump --format=custom --dbname="${OTERYN_DATABASE_URL:?missing migration database URL}"', calls[0])
+            self.assertNotIn('PGDATABASE', calls[0][-1])
             self.assertIn('pg_restore', calls[1])
             self.assertNotIn('--env-file', calls[1])
+
+    def test_failed_backup_leaves_no_final_archive_and_same_sha_can_retry(self):
+        for failure in ('pg_dump', 'pg_restore'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                sha = 'a' * 40
+                path = root / (sha + '-platform.dump')
+                failing = True
+
+                def command(args, **kwargs):
+                    operation = 'pg_dump' if 'stdout' in kwargs and 'stdin' not in kwargs else 'pg_restore'
+                    if operation == 'pg_dump':
+                        kwargs['stdout'].write(b'PGDMP-fixture-archive')
+                    else:
+                        self.assertFalse(path.exists(), 'archive published before validation')
+                        self.assertEqual(kwargs['stdin'].read(), b'PGDMP-fixture-archive')
+                    if failing and operation == failure:
+                        raise subprocess.CalledProcessError(1, args)
+
+                with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), \
+                     patch.object(deploy, 'inspect', return_value={'Config': {'Image': 'postgres:fixture'}}), \
+                     patch.object(deploy.subprocess, 'run', side_effect=command):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        deploy.backup_platform(sha)
+                    self.assertEqual(list(root.iterdir()), [])
+                    failing = False
+                    deploy.backup_platform(sha)
+                self.assertEqual(path.read_bytes(), b'PGDMP-fixture-archive')
+                self.assertEqual(list(root.iterdir()), [path])
 
     def test_active_platform_deployment_uses_existing_rust_inputs_and_roles(self):
         checkout = Path(__file__).resolve().parents[2]

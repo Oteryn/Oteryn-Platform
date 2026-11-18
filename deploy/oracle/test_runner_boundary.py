@@ -1,4 +1,5 @@
 """Exercise the actual workflow shell before its host SSH boundary."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -9,6 +10,35 @@ WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/oracle-opera
 
 
 class RunnerBoundary(unittest.TestCase):
+    def test_platform_witness_uses_a_durable_writable_mount(self):
+        compose = Path(__file__).with_name('public-platform.compose.yml')
+        environment = dict(os.environ, PLATFORM_IMAGE='platform:fixture', GATEWAY_IMAGE='gateway:fixture')
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / 'compose.yml'
+            env_file = fixture.with_suffix('.env')
+            env_file.touch()
+            text = compose.read_text()
+            for name in ('platform.env', 'platform-migrate.env'):
+                text = text.replace('/opt/oteryn-oracle/' + name, str(env_file))
+            fixture.write_text(text)
+            result = subprocess.run(
+                ['docker', 'compose', '-f', str(fixture), '--profile', 'migration', 'config', '--format', 'json'],
+                env=environment, check=True, capture_output=True, text=True,
+            )
+        services = json.loads(result.stdout)['services']
+        platform = services['platform']
+        directory = Path(platform['environment']['GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY'])
+        mounts = [mount for mount in platform['volumes'] if directory.is_relative_to(mount['target'])]
+        self.assertEqual(len(mounts), 1)
+        mount, = mounts
+        self.assertEqual(mount['type'], 'bind')
+        self.assertEqual(mount['source'], '/opt/oteryn-oracle/native-evidence-witness')
+        self.assertFalse(mount.get('read_only', False))
+        self.assertFalse(mount['bind'].get('create_host_path', False))
+        self.assertIn('GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY', compose.with_name('README.md').read_text())
+        for service in ('worker', 'migrate', 'gateway'):
+            self.assertFalse(any(item['source'] == mount['source'] for item in services[service]['volumes']))
+
     def test_reachable_alternative_docker_endpoint_stops_before_ssh(self):
         text = WORKFLOW.read_text()
         script = text.split('        run: |\n', 1)[1]
