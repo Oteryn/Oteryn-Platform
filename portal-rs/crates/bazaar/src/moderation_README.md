@@ -43,7 +43,9 @@ runtime is disabled. The immutable moderation outbox contains Platform work
 requests and is never dispatched to Game as a wire command.
 
 Suspension retains custody, reservations and proceeds. Database triggers fence
-trading writes, including offer acceptance and settlement. Invalidation approval
+trading writes, including offer acceptance and settlement. Staff suspension
+refuses Matched listings because invalidation cannot release their reservations.
+Invalidation approval
 requires a different currently permitted, MFA-verified staff member and an
 unchanged hold revision. Approval records a reconciliation request. The Game
 runtime processes requests in bounded batches, rechecks the hold and refuses any

@@ -58,7 +58,7 @@ repository root. Inventory line numbers refer to Step A’s base. Step B uses
 | Coin reservation / disposition | Reservation amount follows the winning bid. Settlement attaches the hold to a disposition, then exactly one capture or release closes it (`coin_ports.rs:250,315–334,392–397,462–468`). |
 | Moderation clear → held, requested, approved → clear | Suspend creates or replaces a hold revision. Request binds that revision; a second actor approves and enqueues reconciliation. Approval does not itself move custody. The worker retires the exact hold after safe invalidation, compensation, or verified irreversible handoff (`../moderation.rs:473–530`, `runtime/invalidation.rs:42–163`, `authority_exchange.rs:342–348`, `runtime/worker.rs:285–311`). |
 | Projection fence unknown, matching or stale | The issuer advances monotonically. New projection epoch reopens old operations and makes all earlier projections ineligible. A new restore notice fences the runtime under the shared Character restore lock; the runtime also checks its fence file and the issuer row (`game_projection.rs:247–260`, `game_store.rs:139–158`, `authority.rs:81–113`, `runtime/config.rs:172–182`). |
-| Resync required → scanning → finished | Require policy for every configured world and current STATUS for known custody. Check the referenced receipt or CC1 proof, then scan retained operations. Listing and operation cursors commit bounded batches and completion inserts a fence-specific marker. Serving and trading additionally require a fresh watermark. While unready, an already-issued item Deliver can be read for reconciliation only after expiry plus five seconds (`authority_evidence.rs:13–127,204–225`, `runtime/worker.rs:16–42`, `authority_exchange.rs:388–395`). |
+| Resync required → scanning → finished | Require policy for every configured world and current STATUS for known custody. Check current-generation receipt and audit or CC1 proof, then scan retained operations. Listing and operation cursors commit bounded batches and completion inserts a fence-specific marker. Serving and trading additionally require a fresh watermark. While unready, an already-issued item Deliver can be read for reconciliation only after expiry plus five seconds (`authority_evidence.rs:13–127,204–225`, `runtime/worker.rs:16–42`, `authority_exchange.rs:388–395`). |
 
 ### Transition outcomes
 
@@ -80,7 +80,7 @@ represents an existing legacy state and exercises the shared request boundary.
 | --- | --- | --- | --- |
 | Draft | CORRECT · refuse, auction inactive | CORRECT · request return | CORRECT · create hold |
 | Active | CORRECT · reserve and change leader with buyer ownership | CORRECT · request return with no leader | CORRECT · create hold |
-| Matched | CORRECT · refuse, auction inactive | CORRECT · refuse, settlement already matched | CORRECT · create hold |
+| Matched | CORRECT · refuse, auction inactive | CORRECT · refuse, settlement already matched | CORRECT · refuse, the reservation is already matched and staff invalidation cannot release it |
 | Awaiting delivery | CORRECT · refuse, auction inactive | CORRECT · refuse, settlement in progress | CORRECT · refuse before dispatch |
 | Completed | CORRECT · refuse, asset no longer in escrow | CORRECT · refuse, terminal | CORRECT · refuse, terminal |
 | Cancelled | CORRECT · refuse, auction inactive | CORRECT · refuse, terminal | CORRECT · refuse, terminal |
@@ -152,7 +152,7 @@ rows (`authority_exchange.rs:398–455`).
 | `fence_matching` | `new_epoch` | Current projections advance issuer epoch and reopen prior intents. The old fence is unavailable and the new fence resyncs with retained same-generation receipts (`game_projection.rs:247–261`, `game_store.rs:139–158`, `authority_evidence.rs:45–127`). | CORRECT |
 | `draft` | `refuse_lock` | Records the terminal refusal and closes the character draft when no Lock could have acquired custody (`runtime/worker.rs:208–225,254–255,908–910`). | CORRECT |
 | `intent_staged` | `resync` | The operation scan keeps the staged bytes and advances without a receipt when no dispatch or admitted receipt exists (`authority_evidence.rs:110–118`, `authority_exchange.rs:428`). | CORRECT |
-| `completed` | `resync_escrow_status` | Resync checks a completed item against its retained delivery proof. A contradiction quarantines the STATUS for operator reconciliation and preserves the completed sale (`authority_evidence.rs:45–55,68–82,110–127`). | CORRECT |
+| `completed` | `resync_escrow_status` | Checks STATUS against the current-generation audited delivery. Missing proof rolls back the scan for retry. Contradictory proof quarantines STATUS and preserves the completed sale. A custody or operation change committed behind a saved resync cursor can escape that check. | KNOWN GAP (C2) |
 
 | State | Event | Classification and reason |
 | --- | --- | --- |
@@ -168,6 +168,20 @@ rows (`authority_exchange.rs:398–455`).
 
 Receipt events key by operation and projection epoch events key by issuer floor.
 These events use the corresponding authority or projection state in the table.
+
+### Remaining lifecycle review gaps
+
+| Review ID | Behavior | Classification |
+| --- | --- | --- |
+| C2 | A commit behind a saved listing or operation cursor can escape an in-progress resync scan. See `resync_escrow_status` above. | KNOWN GAP |
+| C3 | `finish_resync` returns immediately when `resynced()` finds a marker, so evidence changes after certification do not trigger a new scan for that fence (`authority_evidence.rs`). | KNOWN GAP |
+| C5 | The review identifies C5 as pre-existing. Its scenario and source location are unspecified in the review summary. | KNOWN GAP |
+| C6 | The staging backlog counts receipt heads outside the configured generation. Dispatched operations without a receipt head and current-generation receipts awaiting audit do not count toward that limit (`game_store.rs`). | KNOWN GAP |
+| C8 | A higher-generation Escrow commitment can follow an earlier rejection. Receipt admission detects the opposite outcome reversal and can still store this late commitment after the listing has been refused (`authority.rs`). | KNOWN GAP |
+| C10 | `settle_locked` can enter settlement without its own fresh Game evidence check. The worker checks handoff evidence in subsequent steps (`../repository.rs`). | KNOWN GAP |
+| C13 | The item delivery worker uses the latest retained Escrow receipt to build the handoff without rechecking the current item custody STATUS at that step (`runtime/worker.rs`). | KNOWN GAP |
+| C14 | Once the worker has the retained committed Bind, it publishes the Character transfer without a fresh projection check at the publication step (`runtime/worker.rs`). | KNOWN GAP |
+| C15 | A prerequisite receipt already at the current generation is read by digest without passing through the audit and conflict checks in `retained` (`authority.rs`). | KNOWN GAP |
 
 ### Review packet at this base
 

@@ -194,7 +194,7 @@ listing_cases! {
     lifecycle_active_suspend, Active, Suspend, Ok(());
     lifecycle_matched_bid, Matched, Bid, Err("bazaar authorization denied");
     lifecycle_matched_cancel, Matched, Cancel, Err("bazaar authorization denied");
-    lifecycle_matched_suspend, Matched, Suspend, Ok(());
+    lifecycle_matched_suspend, Matched, Suspend, Err("illegal bazaar transition");
     lifecycle_awaiting_delivery_bid, AwaitingDelivery, Bid, Err("bazaar authorization denied");
     lifecycle_awaiting_delivery_cancel, AwaitingDelivery, Cancel, Err("bazaar authorization denied");
     lifecycle_awaiting_delivery_suspend, AwaitingDelivery, Suspend, Err("illegal bazaar transition");
@@ -1167,6 +1167,33 @@ async fn lifecycle_draft_refuse_lock() {
 }
 
 #[tokio::test]
+async fn lifecycle_legacy_refused_lock_closes_draft() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    authorize_seller(&db).await;
+    let intent = new_character_draft(&db).await;
+    let refusal = "CHAR_CMD_BAZAAR_STALE_REVISION";
+    reject(&db, &intent, refusal).await;
+    // The old worker recorded the refusal while leaving the listing in draft.
+    sqlx::query("UPDATE bazaar_authority_assets SET refusal_code=$2 WHERE listing_id=$1")
+        .bind(uid("30"))
+        .bind(refusal)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    db.runtime.tick().await.unwrap();
+    let state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(uid("30"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let unlocks = dispatched(&db, uid("30"), Command::Unlock).await;
+    db.end().await;
+    assert_eq!(state, State::Cancelled);
+    assert_eq!(unlocks, 0);
+}
+
+#[tokio::test]
 async fn lifecycle_intent_staged_resync() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -1188,32 +1215,148 @@ async fn lifecycle_intent_staged_resync() {
     );
 }
 
-#[tokio::test]
-async fn lifecycle_completed_resync_escrow_status() {
-    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let db = item_in(State::Completed).await;
+fn set_resync_fence(db: &mut BrowserFixture, epoch: u64, generation: u64) {
+    let config = std::sync::Arc::make_mut(&mut db.runtime.config);
+    config.fence.projection_epoch = epoch;
+    config.fence.recovery_generation = generation;
+    config.authority.fence.projection_epoch = epoch;
+    config.authority.fence.recovery_generation = generation;
+    config.worlds = vec![uid("12")];
+    let fence = serde_json::json!({
+        "projection_epoch": epoch,
+        "recovery_generation": generation,
+        "incarnation": config.fence.incarnation,
+        "character_history_complete_since": config.fence.character_history_complete_since,
+    });
+    std::fs::write(&config.fence_file, fence.to_string()).unwrap();
+}
+
+async fn quarantine_count(db: &BrowserFixture) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_game_quarantine WHERE kind='STATUS' AND subject=$1",
+    )
+    .bind(uid("20"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap()
+}
+
+async fn resync_progress(db: &BrowserFixture) -> (bool, bool) {
     let a = db.runtime.authority();
     let mut tx = db.pool.begin().await.unwrap();
-    let now = runtime::now(&mut tx).await.unwrap();
-    let policy: String = sqlx::query_scalar(
-        "SELECT canonical_body FROM bazaar_game_projections WHERE kind='POLICY'",
+    let certified = a.resynced(&mut tx).await.unwrap();
+    let progress: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_resync_progress
+         WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric)",
     )
+    .bind(a.fence.projection_epoch.to_string())
+    .bind(a.fence.recovery_generation.to_string())
     .fetch_one(&mut *tx)
     .await
     .unwrap();
-    let policy = policy.replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#);
-    let status = vector("delivered_status")
-        .replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#)
-        .replace("1790000002", &now.to_string())
-        .replace("DELIVERED", "ESCROWED")
-        .replace(&format!("\"{}\"", uid("4")), "null");
-    for projection in [policy, status] {
+    (certified, progress)
+}
+
+#[tokio::test]
+async fn lifecycle_completed_resync_waits_for_current_receipt_and_audit() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    assert_eq!(item_state(&db).await, State::Completed);
+    set_resync_fence(&mut db, 3, 4);
+    sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+    let first_tick = db.runtime.tick().await;
+    let before_receipt = (quarantine_count(&db).await, resync_progress(&db).await);
+
+    let a = db.runtime.authority();
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT intent,receipt FROM bazaar_game_outbox JOIN bazaar_authority_receipts USING(operation_id)
+         WHERE listing_id=$1 AND bazaar_authority_receipts.recovery_generation=3 ORDER BY source_revision",
+    )
+    .bind(uid("20"))
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let mut delivery = None;
+    for (intent, raw) in rows {
+        let intent = PreparedIntent::parse(&intent).unwrap();
+        let raw = raw.replace(
+            r#""recovery_generation":"3""#,
+            r#""recovery_generation":"4""#,
+        );
+        assert_eq!(
+            a.receive(&mut tx, &a.config.receipt_authority, raw.as_bytes(), now)
+                .await
+                .unwrap(),
+            ReceiptResult::Stored
+        );
+        if intent.command() == Command::Deliver {
+            delivery = Some((intent, raw));
+        } else {
+            assert_eq!(
+                audit(a, &mut tx, &intent, &raw, now).await,
+                ReceiptResult::Stored
+            );
+        }
+    }
+    tx.commit().await.unwrap();
+    let second_tick = db.runtime.tick().await;
+    let before_audit = (quarantine_count(&db).await, resync_progress(&db).await);
+
+    let (intent, raw) = delivery.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    assert_eq!(
+        audit(a, &mut tx, &intent, &raw, now).await,
+        ReceiptResult::Stored
+    );
+    tx.commit().await.unwrap();
+    let third_tick = db.runtime.tick().await;
+    let after_audit = (quarantine_count(&db).await, resync_progress(&db).await);
+    let state = item_state(&db).await;
+    db.end().await;
+
+    assert_eq!(before_receipt, (0, (false, false)), "{first_tick:?}");
+    assert_eq!(before_audit, (0, (false, false)), "{second_tick:?}");
+    assert_eq!(after_audit, (0, (true, true)), "{third_tick:?}");
+    first_tick.unwrap();
+    second_tick.unwrap();
+    third_tick.unwrap();
+    assert_eq!(state, State::Completed);
+}
+
+async fn completed_resync_contradiction(status_change: impl FnOnce(String) -> String) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    assert_eq!(item_state(&db).await, State::Completed);
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let projections: Vec<(String, String)> = sqlx::query_as(
+        "SELECT kind,canonical_body FROM bazaar_game_projections WHERE kind IN ('POLICY','STATUS')
+         ORDER BY kind",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    let mut status_change = Some(status_change);
+    for (kind, body) in projections {
+        let next = body.replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#);
+        let next = if kind == "STATUS" {
+            status_change.take().unwrap()(next)
+        } else {
+            next
+        };
         assert_eq!(
             projection_ingest()
                 .ingest(
                     &mut tx,
                     &a.config.projection_authority,
-                    projection.as_bytes(),
+                    next.as_bytes(),
                     now
                 )
                 .await
@@ -1221,19 +1364,44 @@ async fn lifecycle_completed_resync_escrow_status() {
             IngestResult::Applied
         );
     }
+    assert!(status_change.is_none());
     tx.commit().await.unwrap();
-    let mut current = a.clone();
-    current.fence.projection_epoch = 4;
-    let result = resync(&db, &current).await;
+    set_resync_fence(&mut db, 4, 3);
+    let result = db.runtime.tick().await;
     let state = item_state(&db).await;
+    let quarantines = quarantine_count(&db).await;
+    let (certified, _) = resync_progress(&db).await;
     db.end().await;
-    assert_eq!(
-        state,
-        State::Completed,
-        "recovery must preserve the commercial result"
-    );
-    assert!(
-        result.is_err(),
-        "resync accepted ESCROWED after committed delivery: {result:?}"
-    );
+    assert_eq!(state, State::Completed);
+    assert_eq!(quarantines, 1, "{result:?}");
+    assert!(!certified);
+    assert!(matches!(result, Err(Error::CustodyDrift)));
+}
+
+#[tokio::test]
+async fn lifecycle_completed_resync_escrow_status() {
+    completed_resync_contradiction(|status| {
+        let parsed = decode(status.as_bytes(), 262144).unwrap();
+        let operation = text(&parsed, "last_operation_id").unwrap();
+        status
+            .replace("DELIVERED", "ESCROWED")
+            .replace(&format!("\"{operation}\""), "null")
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn lifecycle_completed_resync_quarantines_wrong_asset() {
+    completed_resync_contradiction(|status| {
+        status.replace(&uid("22").to_string(), &uid("72").to_string())
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn lifecycle_completed_resync_quarantines_wrong_seller() {
+    completed_resync_contradiction(|status| {
+        status.replace(&uid("11").to_string(), &uid("71").to_string())
+    })
+    .await;
 }

@@ -117,7 +117,7 @@ pub(crate) fn transition(
             Ok(Outcome::Listing(next))
         }
         (Current::Listing(Active), Event::Bid)
-        | (Current::Listing(Draft | Active | Matched), Event::Suspend) => Ok(Outcome::Continue),
+        | (Current::Listing(Draft | Active), Event::Suspend) => Ok(Outcome::Continue),
         (Current::Listing(Draft | Active), Event::CancelRequest) if !context.has_leader => {
             Ok(Outcome::Continue)
         }

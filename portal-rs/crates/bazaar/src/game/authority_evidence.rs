@@ -66,7 +66,7 @@ impl Authority {
         let next_listing = listings.last().map(|(id, _, _)| *id);
         let listing_count = listings.len();
         for (listing, no_deposit_effect, completed_item) in listings {
-            if no_deposit_effect {
+            if no_deposit_effect && !completed_item {
                 continue;
             }
             let status = self
@@ -74,31 +74,32 @@ impl Authority {
                 .await?
                 .ok_or(Error::Unavailable)?;
             let world = id(text(&status, "world_id")?)?;
-            if !worlds.contains(&world) {
-                return Err(Error::Unavailable);
-            }
             let state = text(&status, "state")?;
             let operation = if status.get("last_operation_id") == Some(&Value::Null) {
                 None
             } else {
                 Some(id(text(&status, "last_operation_id")?)?)
             };
-            let retained = if let Some(operation) = operation {
-                self.retained(db, operation).await?
-            } else {
-                None
-            };
-            let delivered = if completed_item && state == "DELIVERED" {
-                if let Some((intent, receipt)) = &retained {
-                    let facts = receipt.value.get("result_data").ok_or(Error::Invalid)?;
-                    intent.command() == Command::Deliver
-                        && receipt.committed
-                        && id(text(&intent.value, "listing_id")?)? == listing
-                        && text(facts, "escrow_id")? == text(&status, "custody_id")?
-                        && text(facts, "escrow_revision")? == text(&status, "custody_revision")?
-                } else {
-                    false
-                }
+            let delivered = if completed_item {
+                // STATUS can arrive before the receipt replay or its audit. Find
+                // the listing's delivery independently so even a STATUS with a
+                // different (or missing) operation can be checked once it is known.
+                let (intent, receipt) =
+                    super::runtime::gold::record(self, db, listing, Command::Deliver)
+                        .await?
+                        .ok_or(Error::Unavailable)?;
+                state == "DELIVERED"
+                    && text(&status, "asset_kind")? == "ITEM"
+                    && operation == Some(receipt.operation)
+                    && receipt.committed
+                    && id(text(&intent.value, "listing_id")?)? == listing
+                    && text(&status, "seller_account_id")?
+                        == text(&intent.value, "seller_account_id")?
+                    && text(&status, "world_id")? == text(&intent.value, "world_id")?
+                    && item_custody_matches(
+                        &status,
+                        receipt.value.get("result_data").ok_or(Error::Invalid)?,
+                    )?
             } else {
                 false
             };
@@ -124,9 +125,19 @@ impl Authority {
                 .await?;
                 return Err(Error::CustodyDrift);
             }
-            if operation.is_none() && matches!(state, "locked" | "ESCROWED" | "INVALID") {
+            if !worlds.contains(&world) {
+                return Err(Error::Unavailable);
+            }
+            if completed_item
+                || (operation.is_none() && matches!(state, "locked" | "ESCROWED" | "INVALID"))
+            {
                 continue;
             }
+            let retained = if let Some(operation) = operation {
+                self.retained(db, operation).await?
+            } else {
+                None
+            };
             if retained.is_none() {
                 // The existing CC1 ownership leg is not a v2 Bazaar receipt.
                 // Rebuild its proof from the unchanged receipt plus its v2 bind.
@@ -406,11 +417,11 @@ impl Authority {
                 ) {
                     return Ok(None);
                 }
-                let item = d.get("item").ok_or(Error::Invalid)?;
-                same(&s, "asset_id", item, "item_instance_id")?;
-                same(&s, "custody_id", d, "escrow_id")?;
-                same(&s, "custody_revision", d, "escrow_revision")?;
+                if !item_custody_matches(&s, d)? {
+                    return Err(Error::Denied);
+                }
                 if state == "ESCROWED" {
+                    let item = d.get("item").ok_or(Error::Invalid)?;
                     let row=sqlx::query("SELECT world_id,seller_character_id,item_instance_id,quantity,definition_key,definition_revision FROM bazaar_item_details WHERE id=$1").bind(listing.id).fetch_optional(&mut *db).await?;
                     let Some(row) = row else {
                         return Ok(None);
@@ -576,4 +587,11 @@ impl Evidence for Authority {
                 && number(funding, "gross_amount").map_err(domain)? == sale.amount as u64,
         )
     }
+}
+
+fn item_custody_matches(status: &Value, facts: &Value) -> Result<bool, Error> {
+    let item = facts.get("item").ok_or(Error::Invalid)?;
+    Ok(text(status, "asset_id")? == text(item, "item_instance_id")?
+        && text(status, "custody_id")? == text(facts, "escrow_id")?
+        && text(status, "custody_revision")? == text(facts, "escrow_revision")?)
 }
