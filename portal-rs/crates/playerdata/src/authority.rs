@@ -373,7 +373,15 @@ pub async fn admit(tx: &mut PgConnection, scope: &Scope) -> Result<Admission> {
     let recovery = counter(&scope.recovery).map_err(|_| Error::Conflict)?;
     // Zero denotes no restore notice. Once acknowledged, the generation
     // is authoritative for account streams. Character item cuts are proven below.
-    if recovery < restored
+    if scope.family == "BANK" {
+        let announced = restored.max(1);
+        if recovery > announced {
+            return Err(Error::Unavailable);
+        }
+        if recovery < announced {
+            return Err(Error::Conflict);
+        }
+    } else if recovery < restored
         || ((!items || scope.character.is_none()) && restored != 0 && recovery != restored)
     {
         return Err(Error::Conflict);
