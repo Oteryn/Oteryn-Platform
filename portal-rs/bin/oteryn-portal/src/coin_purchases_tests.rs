@@ -478,11 +478,13 @@ async fn catalogue_order_paid_credits_once() -> TestResult {
         1
     );
 
+    // Balance revision = wallet revision (2: one credit) + the payer's order
+    // revisions (2: created, paid), so review transitions also advance it (H019).
     let (status, body) = get(db.app(&service), &format!("{API}/balance"), &token).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        br#"{"version":1,"revision":2,"total_coins":500,"available_coins":500,"transferable_coins":500,"review_required":false}"#
+        br#"{"version":1,"revision":4,"total_coins":500,"available_coins":500,"transferable_coins":500,"review_required":false}"#
     );
     // Payment again from the page is a no-op on a paid order.
     service.sandbox_complete(payer, order_id, true).await?;
