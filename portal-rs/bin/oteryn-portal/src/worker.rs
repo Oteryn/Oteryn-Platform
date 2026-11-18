@@ -3,11 +3,22 @@ use oteryn_db::outbox::{self, Job, PgPool};
 use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub type HandlerFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+pub type DeliveryFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<DeliveryOutcome, String>> + Send + 'a>>;
+
+pub enum DeliveryOutcome {
+    Complete,
+    Deferred,
+}
 
 /// Domain handlers validate payloads and deduplicate effects using the stable job ID.
 /// Delivery is at least once: a process can stop after an effect but before acknowledgement.
 pub trait Handler: std::fmt::Debug + Send + Sync {
     fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a>;
+
+    fn deliver<'a>(&'a self, job: &'a Job) -> DeliveryFuture<'a> {
+        Box::pin(async move { self.run(job).await.map(|()| DeliveryOutcome::Complete) })
+    }
 }
 
 pub use oteryn_db::outbox::Cleanup;
@@ -198,7 +209,7 @@ async fn execute_observed(
         .await?;
         return Ok(());
     };
-    let future = handler.run(&job);
+    let future = handler.deliver(&job);
     tokio::pin!(future);
     let mut heartbeat = tokio::time::interval(heartbeat_interval);
     let result = loop {
@@ -223,7 +234,27 @@ async fn execute_observed(
             }
         }
     };
-    if !outbox::finish(pool, &job, result.as_ref().err().map(String::as_str), false).await? {
+    let acknowledged = match result {
+        Ok(DeliveryOutcome::Complete) => outbox::finish(pool, &job, None, false).await?,
+        Err(error) => outbox::finish(pool, &job, Some(&error), false).await?,
+        Ok(DeliveryOutcome::Deferred) => {
+            // The handler has finished and no further acknowledgement can use
+            // this claim. Release the live lease and return its attempt together.
+            sqlx::query(
+                "UPDATE outbox SET state='pending', attempts=attempts-1,
+                    run_after=clock_timestamp()+interval '1 minute', leased_until=NULL,
+                    last_error=NULL, updated_at=clock_timestamp()
+                 WHERE id=$1 AND attempts=$2 AND state='running' AND leased_until>clock_timestamp()",
+            )
+            .bind(job.id)
+            .bind(job.attempts)
+            .execute(pool)
+            .await?
+            .rows_affected()
+                == 1
+        }
+    };
+    if !acknowledged {
         return Err(outbox::Error::Protocol(
             "outbox lease lost before acknowledgement".into(),
         ));
