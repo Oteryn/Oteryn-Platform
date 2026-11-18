@@ -28,6 +28,7 @@ mod flag_boundary {
     const LISTENER_SETTINGS: &[&str] = &[
         "OTERYN_BIND",
         "OTERYN_INTERNAL_TLS_BIND",
+        "OTERYN_NATIVE_TLS_BIND",
         "PORTAL_NATIVE_ADMISSION_BIND",
         "OTERYN_BAZAAR_INTERNAL_BIND",
         "OTERYN_LEAGUE_BIND",
@@ -405,6 +406,8 @@ mod flag_boundary {
                 "OTERYN_INTERNAL_TLS_CLIENT_CA_FILE",
                 tls.path().join("ca.pem"),
             )
+            .env("OTERYN_NATIVE_TLS_CERT_FILE", tls.path().join("server.pem"))
+            .env("OTERYN_NATIVE_TLS_KEY_FILE", tls.path().join("server.key"))
             .env("FLAG_BOUNDARY_SCHEMA", &schema);
         if matches!(
             test,
@@ -538,16 +541,6 @@ mod flag_boundary {
     }
 
     async fn capture_enabled_routes(pool: &PgPool, profile: &str) -> TestResult {
-        let admission = oteryn_gameauth::admission::router(
-            pool.clone(),
-            oteryn_gameauth::admission::AdmissionConfig::default(),
-            Arc::new(crate::game_login::admission_accounts()),
-            Arc::new(crate::game_login::admission_authority(
-                &oteryn_characters::overview::configured_projection(),
-                oteryn_gameauth::admission::Issuance::configured(|_: &str| None),
-            )),
-        );
-        crate::record_route_registrations("admission", &admission)?;
         let serve = tokio::task::spawn_local(async { crate::run(crate::Role::Serve).await });
         let result = async {
             wait_for_serve(&serve, std::env::var("OTERYN_BIND")?.parse()?).await?;
@@ -1525,6 +1518,7 @@ mod flag_boundary {
 
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     struct Probe {
+        listener: Listener,
         method: char,
         path: String,
         status: u16,
@@ -1544,6 +1538,10 @@ mod flag_boundary {
                 let fallback = entry.starts_with('~');
                 let entry = entry.strip_prefix('~').unwrap_or(entry);
                 let (methods, target) = entry.split_once(':').ok_or("expected METHOD:/path")?;
+                let (methods, listener) = match methods.split_once('@') {
+                    Some((methods, listener)) => (methods, Listener::parse(listener)?),
+                    None => (methods, Listener::Public),
+                };
                 let (methods, status) = methods.find(|c: char| c.is_ascii_digit()).map_or(
                     Ok((methods, 404)),
                     |index| {
@@ -1642,6 +1640,7 @@ mod flag_boundary {
                 for path in paths {
                     assert!(!path.contains('{'), "unexpanded route {path}");
                     probes.extend(methods.chars().map(|method| Probe {
+                        listener,
                         method,
                         path: path.clone(),
                         status,
@@ -1862,7 +1861,16 @@ mod flag_boundary {
                 "the Game proof listener must survive the intake pause"
             );
         }
-        let documented = route_probes()?;
+        // Classify registrations from this profile as well, even if they are absent from
+        // both the all-off and fully enabled profiles.
+        let mut routes = enabled.clone();
+        routes.extend(route_snapshot(
+            &Path::new(&profiles).join("enabled-with-restore"),
+        )?);
+        routes.extend(route_snapshot(&Path::new(&profiles).join("disabled"))?);
+        routes.extend(disabled.iter().cloned());
+        let (probes, failures) = classify_routes(&route_probes()?, &routes)?;
+        assert!(failures.is_empty(), "{flag}=false: {failures:?}");
         let address = std::env::var("OTERYN_BIND")?.parse()?;
         let mut checks = 0;
         for group in ROUTE_PREREQUISITES
@@ -1871,8 +1879,8 @@ mod flag_boundary {
         {
             for path in group.paths {
                 let mut count = 0;
-                for (method, route) in &enabled {
-                    if !in_scope(path, route) {
+                for (listener, method, route) in &enabled {
+                    if *listener != Listener::Public || !in_scope(path, route) {
                         continue;
                     }
                     // The atlas page shares its prefix with independent features.
@@ -1882,11 +1890,15 @@ mod flag_boundary {
                     {
                         continue;
                     }
-                    if group.registration_removed && disabled.contains(&(*method, route.clone())) {
+                    if group.registration_removed
+                        && disabled.contains(&(*listener, *method, route.clone()))
+                    {
                         return Err(format!("{flag}=false left {method} {route} registered").into());
                     }
-                    for probe in documented.iter().filter(|probe| {
-                        probe.method == *method && specificity(route, &probe.path).is_some()
+                    for probe in probes.iter().filter(|probe| {
+                        probe.listener == *listener
+                            && probe.method == *method
+                            && specificity(route, &probe.path).is_some()
                     }) {
                         let response =
                             exchange(address, None, http_method(*method)?, &probe.path).await?;
@@ -1918,7 +1930,7 @@ mod flag_boundary {
             'P' => "POST",
             'U' => "PUT",
             'D' => "DELETE",
-            'A' => "PATCH",
+            'A' | 'S' => "PATCH",
             'H' => "HEAD",
             'O' => "OPTIONS",
             'T' => "TRACE",
@@ -1927,10 +1939,53 @@ mod flag_boundary {
         })
     }
 
-    type Registration = (char, String);
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum Listener {
+        Public,
+        Native,
+        Internal,
+        Admission,
+        Closure,
+        Bazaar,
+        League,
+    }
+
+    impl Listener {
+        fn parse(name: &str) -> TestResult<Self> {
+            Ok(match name {
+                "public" => Self::Public,
+                "native" => Self::Native,
+                "internal" => Self::Internal,
+                "admission" => Self::Admission,
+                "closure" => Self::Closure,
+                "bazaar" => Self::Bazaar,
+                "league" => Self::League,
+                _ => return Err(format!("unknown listener {name}").into()),
+            })
+        }
+
+        fn bind_key(self) -> &'static str {
+            match self {
+                Self::Public => "OTERYN_BIND",
+                Self::Native => "OTERYN_NATIVE_TLS_BIND",
+                Self::Internal => "OTERYN_INTERNAL_TLS_BIND",
+                Self::Admission => "PORTAL_NATIVE_ADMISSION_BIND",
+                Self::Closure => "PORTAL_ACCOUNT_CLOSURE_BIND",
+                Self::Bazaar => "OTERYN_BAZAAR_INTERNAL_BIND",
+                Self::League => "OTERYN_LEAGUE_BIND",
+            }
+        }
+
+        fn closes_when_disabled(self) -> bool {
+            matches!(self, Self::Closure | Self::Bazaar | Self::League)
+        }
+    }
+
+    type MethodPaths = BTreeSet<(char, String)>;
+    type Registration = (Listener, char, String);
     type Registrations = BTreeSet<Registration>;
 
-    fn registered_routes(router: &str) -> TestResult<Registrations> {
+    fn registered_routes(router: &str) -> TestResult<MethodPaths> {
         // Axum exposes route IDs, paths and explicit method slots through Router's Debug view.
         let routes = router
             .strip_prefix("Router { path_router: PathRouter { routes: {")
@@ -1947,7 +2002,7 @@ mod flag_boundary {
             .filter_map(|entry| entry.split_once("): \""))
             .filter_map(|(id, entry)| entry.split_once('"').map(|(path, _)| (id, path)))
             .collect();
-        let mut registrations = Registrations::new();
+        let mut registrations = BTreeSet::new();
         for entry in methods.split("RouteId(").skip(1) {
             let (id, method_router) = entry.split_once("): ").ok_or("invalid Axum route ID")?;
             let path = paths.get(id).ok_or("Axum route ID has no path")?;
@@ -1957,7 +2012,11 @@ mod flag_boundary {
                     method_router.starts_with("Route("),
                     "unexpected Axum endpoint {method_router}"
                 );
+                registrations.insert(('S', (*path).to_owned()));
                 continue;
+            }
+            if method_router.contains("allow_header: Skip") {
+                registrations.insert(('S', (*path).to_owned()));
             }
             for (slot, method) in [
                 ("get", 'G'),
@@ -1984,7 +2043,22 @@ mod flag_boundary {
     fn route_snapshot(dir: &Path) -> TestResult<Registrations> {
         let mut routes = Registrations::new();
         for file in fs::read_dir(dir)? {
-            routes.extend(registered_routes(&fs::read_to_string(file?.path())?)?);
+            let file = file?;
+            let name = file.file_name();
+            let name = name.to_str().ok_or("invalid route capture name")?;
+            // The pre-MFA composition is nested as a fallback on these three listeners.
+            let listeners = if name == "mfa-fallback" {
+                vec![Listener::Public, Listener::Internal, Listener::Native]
+            } else {
+                vec![Listener::parse(name)?]
+            };
+            for (method, path) in registered_routes(&fs::read_to_string(file.path())?)? {
+                routes.extend(
+                    listeners
+                        .iter()
+                        .map(|listener| (*listener, method, path.clone())),
+                );
+            }
         }
         assert!(
             !routes.is_empty(),
@@ -2012,23 +2086,120 @@ mod flag_boundary {
         parts.next().is_none().then_some(score)
     }
 
-    fn production_probes(profiles: &Path) -> TestResult<(BTreeSet<Probe>, Vec<String>)> {
-        let documented = route_probes()?;
-        let mut enabled = route_snapshot(&profiles.join("enabled"))?;
-        enabled.extend(route_snapshot(&profiles.join("enabled-with-restore"))?);
-        let disabled = route_snapshot(&profiles.join("disabled"))?;
-        let all = enabled.union(&disabled).collect::<BTreeSet<_>>();
-        let mut targets: BTreeMap<&str, Vec<&Probe>> = BTreeMap::new();
-        for probe in &documented {
-            targets.entry(&probe.path).or_default().push(probe);
+    fn explicit_inventory() -> TestResult<(Registrations, MethodPaths)> {
+        let mut always = Registrations::new();
+        let mut public_internal_contracts = BTreeSet::new();
+        for line in fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/FLAG_BOUNDARY_ALWAYS_ON.txt"),
+        )?
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        {
+            let mut fields = line.splitn(3, ' ');
+            let listener = fields.next().ok_or("missing listener")?;
+            let method = fields
+                .next()
+                .filter(|method| method.len() == 1)
+                .and_then(|method| method.chars().next())
+                .ok_or("invalid method")?;
+            let path = fields
+                .next()
+                .filter(|path| path.starts_with('/'))
+                .ok_or("invalid path")?
+                .to_owned();
+            if listener == "shared-internal" {
+                assert!(
+                    public_internal_contracts.insert((method, path)),
+                    "duplicate shared internal contract"
+                );
+            } else {
+                assert!(
+                    always.insert((Listener::parse(listener)?, method, path)),
+                    "duplicate always-on contract"
+                );
+            }
+        }
+        Ok((always, public_internal_contracts))
+    }
+
+    fn production_registrations(profiles: &Path) -> TestResult<Registrations> {
+        let mut routes = Registrations::new();
+        for profile in fs::read_dir(profiles)? {
+            routes.extend(route_snapshot(&profile?.path())?);
+        }
+        Ok(routes)
+    }
+
+    fn check_route_classifier(documented: &BTreeSet<Probe>, routes: &Registrations) -> TestResult {
+        let mut routes = routes.clone();
+        let path = "/flag-boundary-unclassified";
+        let extra =
+            axum::Router::<()>::new().route(path, axum::routing::put(|| async { "fixture" }));
+        for (method, path) in registered_routes(&format!("{extra:?}"))? {
+            // A registration common to enabled and disabled profiles must still be classified.
+            routes.insert((Listener::Public, method, path));
+        }
+        let same_path = "/internal/v1/game-auth/character-commands/pending";
+        for listener in [Listener::Internal, Listener::Closure] {
+            assert!(routes.contains(&(listener, 'P', same_path.into())));
+        }
+        // A third listener mounting a known method/path needs its own contract.
+        routes.insert((Listener::Admission, 'P', same_path.into()));
+        let (_, failures) = classify_routes(documented, &routes)?;
+        assert!(
+            failures.contains(&format!("unclassified Public U {path}")),
+            "{failures:?}"
+        );
+        assert!(
+            failures.contains(&format!("unclassified Admission P {same_path}")),
+            "{failures:?}"
+        );
+        Ok(())
+    }
+
+    fn classify_routes(
+        documented: &BTreeSet<Probe>,
+        all: &Registrations,
+    ) -> TestResult<(BTreeSet<Probe>, Vec<String>)> {
+        let (always, shared_internal) = explicit_inventory()?;
+        let mut contracts = documented.clone();
+        for probe in documented {
+            if probe.listener == Listener::Public {
+                contracts.insert(Probe {
+                    listener: Listener::Native,
+                    ..probe.clone()
+                });
+                if !probe.path.starts_with("/internal/") {
+                    contracts.insert(Probe {
+                        listener: Listener::Internal,
+                        status: 404,
+                        location: None,
+                        ..probe.clone()
+                    });
+                }
+            }
+        }
+        // A small set of historically merged internal guards are mounted by the
+        // browser router as well. Require explicit listener/path pairs for those.
+        let mut targets: BTreeMap<(Listener, &str), Vec<&Probe>> = BTreeMap::new();
+        for probe in &contracts {
+            targets
+                .entry((probe.listener, &probe.path))
+                .or_default()
+                .push(probe);
         }
         let mut classified = BTreeSet::new();
         let mut generated = BTreeSet::new();
         let mut failures = Vec::new();
-        for (target, expected) in targets {
+        for ((listener, target), expected) in targets {
             let matches = all
                 .iter()
-                .filter_map(|route| specificity(&route.1, target).map(|score| (score, *route)))
+                .filter_map(|route| {
+                    (route.0 == listener)
+                        .then(|| specificity(&route.2, target))
+                        .flatten()
+                        .map(|score| (score, route))
+                })
                 .collect::<Vec<_>>();
             let best = matches.iter().map(|(score, _)| *score).max();
             let mut registered = BTreeSet::new();
@@ -2036,54 +2207,68 @@ mod flag_boundary {
                 .into_iter()
                 .filter(|(score, _)| Some(*score) == best)
             {
-                let method = route.0;
+                let method = route.1;
                 registered.insert(method);
                 if let Some(contract) = expected
                     .iter()
                     .find(|probe| probe.method == method && !probe.fallback)
                 {
-                    classified.insert(route);
-                    generated.insert(Probe {
-                        method,
-                        path: target.to_owned(),
-                        status: contract.status,
-                        location: contract.location.clone(),
-                        fallback: false,
-                    });
-                } else {
+                    classified.insert(route.clone());
+                    generated.insert((*contract).clone());
+                } else if !always.contains(route) {
                     failures.push(format!(
-                        "registered {method} {} is absent from FLAG_BOUNDARY.md",
-                        route.1
+                        "registered {listener:?} {method} {} has no feature contract",
+                        route.2
                     ));
-                    generated.insert(Probe {
-                        method,
-                        path: target.to_owned(),
-                        status: 404,
-                        location: None,
-                        fallback: false,
-                    });
                 }
             }
             for probe in expected {
-                if probe.fallback {
-                    generated.insert(probe.clone());
-                } else if !registered.contains(&probe.method) {
+                if documented.contains(probe)
+                    && !probe.fallback
+                    && !registered.contains(&probe.method)
+                {
                     failures.push(format!(
-                        "documented {} {} has no production registration",
-                        probe.method, target
+                        "documented {listener:?} {} {target} has no matching registration",
+                        probe.method
                     ));
+                }
+                if probe.fallback || documented.contains(probe) {
                     generated.insert(probe.clone());
                 }
             }
         }
-        for route in enabled
-            .difference(&disabled)
-            .filter(|route| !classified.contains(route))
-        {
-            failures.push(format!(
-                "enabled route {} {} is absent from FLAG_BOUNDARY.md",
-                route.0, route.1
-            ));
+        for &(ref listener, method, ref path) in all {
+            let registration = (*listener, method, path.clone());
+            if classified.contains(&registration) || always.contains(&registration) {
+                continue;
+            }
+            let mirrored = (*listener == Listener::Native
+                || *listener == Listener::Internal && !path.starts_with("/internal/"))
+                && always.contains(&(Listener::Public, method, path.clone()));
+            if mirrored {
+                continue;
+            }
+            if matches!(listener, Listener::Public | Listener::Native)
+                && shared_internal.contains(&(method, path.clone()))
+            {
+                let mut matches_contract = false;
+                for probe in documented.iter().filter(|probe| {
+                    probe.listener == Listener::Internal
+                        && probe.method == method
+                        && !probe.fallback
+                        && specificity(path, &probe.path).is_some()
+                }) {
+                    generated.insert(Probe {
+                        listener: *listener,
+                        ..probe.clone()
+                    });
+                    matches_contract = true;
+                }
+                if matches_contract {
+                    continue;
+                }
+            }
+            failures.push(format!("unclassified {listener:?} {method} {path}"));
         }
         failures.sort();
         failures.dedup();
@@ -2123,7 +2308,9 @@ mod flag_boundary {
         } else {
             ("localhost", SESSION)
         };
-        let fields = if path.contains("/support/tickets/") && path.ends_with("/status") {
+        let fields = if path.ends_with("/account/privacy/delete/cancel") {
+            "&current_password=boundary+test+password"
+        } else if path.contains("/support/tickets/") && path.ends_with("/status") {
             "&lock_version=1&status=closed"
         } else if path.starts_with("/admin/support/tickets/") {
             "&lock_version=1&action=ticket_status&status=closed"
@@ -2231,7 +2418,10 @@ mod flag_boundary {
             .starts_with("HTTP/1.1 404 ")
         );
         let profiles = std::env::var(ROUTE_PROFILES)?;
-        let (probes, mut failures) = production_probes(Path::new(&profiles))?;
+        let all = production_registrations(Path::new(&profiles))?;
+        let documented = route_probes()?;
+        check_route_classifier(&documented, &all)?;
+        let (probes, mut failures) = classify_routes(&documented, &all)?;
         for key in CLOSED_LISTENERS {
             let address: SocketAddr = std::env::var(key)?.parse()?;
             match tokio::net::TcpStream::connect(address).await {
@@ -2243,16 +2433,13 @@ mod flag_boundary {
         for probe in &probes {
             let path = &probe.path;
             let method = http_method(probe.method)?;
-            let (address, connector) = if path
-                .starts_with("/internal/v1/game-auth/native-admissions")
-                || path.starts_with("/internal/v1/game-auth/native-recoveries")
-            {
-                (admission, None)
-            } else if path.starts_with("/internal/") {
-                (internal, Some(&tls))
-            } else {
-                (public, None)
-            };
+            if probe.listener.closes_when_disabled() {
+                // The closed-listener checks above cover these exact contracts.
+                continue;
+            }
+            let address = std::env::var(probe.listener.bind_key())?.parse()?;
+            let connector =
+                matches!(probe.listener, Listener::Internal | Listener::Native).then_some(&tls);
             let response = exchange(address, connector, method, path).await?;
             let status = response
                 .split_ascii_whitespace()
@@ -2272,8 +2459,8 @@ mod flag_boundary {
                 || !protocol_matches
             {
                 failures.push(format!(
-                    "{method} {path}: expected HTTP {}, received {status}",
-                    probe.status
+                    "{:?} {method} {path}: expected HTTP {}, received {status}",
+                    probe.listener, probe.status
                 ));
             }
         }

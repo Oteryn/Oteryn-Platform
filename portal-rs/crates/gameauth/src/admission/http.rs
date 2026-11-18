@@ -362,21 +362,21 @@ async fn revoke(State(app): State<App>, request: Request) -> Response {
 /// authority (the binary composes the suspension-aware ones) and the grant
 /// signer that authority signs with. The feature defaults off even when hashes
 /// are configured.
-pub async fn start_private_listener(
+pub fn configured_router(
     db: PgPool,
     accounts: Arc<dyn AccountStateLookup>,
     authority: Arc<dyn AdmissionAuthority>,
     signer: Option<Arc<dyn GrantSigner>>,
     protocol3: Option<Protocol3>,
     recovery: Option<RecoveryIssuer>,
-) -> Result<tokio::task::JoinHandle<std::io::Result<()>>, Box<dyn std::error::Error>> {
+) -> Router {
     let enabled = std::env::var("PORTAL_NATIVE_ADMISSIONS_ENABLED").is_ok_and(|v| v == "true");
     let current = std::env::var_os("PORTAL_GATEWAY_TOKEN_SHA256_FILE");
     let previous = std::env::var_os("PORTAL_GATEWAY_PREVIOUS_TOKEN_SHA256_FILE");
     let tokens = current.and_then(|path| {
         ServiceTokens::from_files(Path::new(&path), previous.as_deref().map(Path::new)).ok()
     });
-    let app = router(
+    router(
         db,
         AdmissionConfig {
             enabled,
@@ -390,7 +390,12 @@ pub async fn start_private_listener(
         accounts,
         authority,
     )
-    .route("/health", get(|| async { "ok" }));
+    .route("/health", get(|| async { "ok" }))
+}
+
+pub async fn start_private_listener(
+    app: Router,
+) -> Result<tokio::task::JoinHandle<std::io::Result<()>>, Box<dyn std::error::Error>> {
     let address =
         std::env::var("PORTAL_NATIVE_ADMISSION_BIND").unwrap_or_else(|_| "127.0.0.1:8091".into());
     let address: std::net::SocketAddr = address.parse()?;

@@ -225,15 +225,17 @@ pub async fn start_admission_listener(
         &projection,
         |key| std::env::var(key).ok(),
     );
-    admission::start_private_listener(
+    let app = admission::configured_router(
         pool,
         Arc::new(admission_accounts()),
         Arc::new(admission_authority(&projection, issuance)),
         signer,
         protocol3,
         recovery,
-    )
-    .await
+    );
+    #[cfg(test)]
+    crate::record_route_registrations("admission", &app)?;
+    admission::start_private_listener(app).await
 }
 
 /// LCFA snapshot and watermark ingestion for the internal mTLS listener, keyed
