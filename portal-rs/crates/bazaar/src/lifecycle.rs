@@ -430,11 +430,7 @@ pub(crate) async fn write_listing_with(
     event: Event,
     change: ListingChange,
 ) -> Result<(), Error> {
-    let old: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1 FOR UPDATE")
-        .bind(id)
-        .fetch_optional(&mut *db)
-        .await?
-        .ok_or(Error::NotFound)?;
+    let old = lock_listing_state(db, id).await?;
     let next = match transition(Current::Listing(old), event, Context::default()) {
         Ok(Outcome::Listing(next)) => next,
         Ok(Outcome::Duplicate) => return Ok(()),
@@ -465,6 +461,27 @@ pub(crate) async fn write_listing_with(
         return Err(Error::IllegalTransition);
     }
     Ok(())
+}
+
+async fn lock_listing_state(db: &mut PgConnection, listing: Uuid) -> Result<State, Error> {
+    sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+        .bind(listing)
+        .fetch_optional(db)
+        .await?
+        .ok_or(Error::NotFound)
+}
+
+async fn require_sale_transition(
+    db: &mut PgConnection,
+    listing: Uuid,
+    event: Event,
+) -> Result<(), Error> {
+    let state = lock_listing_state(db, listing).await?;
+    // Terminal replay is handled by the callers before attempting a new write.
+    match transition(Current::Listing(state), event, Context::default()) {
+        Ok(Outcome::Listing(_)) => Ok(()),
+        _ => Err(Error::IllegalTransition),
+    }
 }
 
 pub(crate) async fn create_listing(
@@ -508,14 +525,20 @@ pub(crate) async fn write_coin_sale(
     Ok(())
 }
 
-pub(crate) async fn complete_coin_sale(
-    db: &mut PgConnection,
-    listing: Uuid,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE bazaar_settlements SET completed_at=clock_timestamp(),updated_at=clock_timestamp() WHERE listing_id=$1",
+pub(crate) async fn complete_coin_sale(db: &mut PgConnection, listing: Uuid) -> Result<(), Error> {
+    require_sale_transition(db, listing, Event::Listing(State::Completed)).await?;
+    let written = sqlx::query(
+        "UPDATE bazaar_settlements s
+         SET completed_at=clock_timestamp(),updated_at=clock_timestamp()
+         WHERE s.listing_id=$1 AND s.completed_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM bazaar_authority_compensations c WHERE c.listing_id=s.listing_id)",
     )
-    .bind(listing).execute(db).await?;
+    .bind(listing)
+    .execute(db)
+    .await?;
+    if written.rows_affected() != 1 {
+        return Err(Error::IllegalTransition);
+    }
     Ok(())
 }
 
@@ -536,12 +559,22 @@ pub(crate) async fn write_gold_sale(
 
 pub(crate) async fn complete_gold_sale(
     db: &mut PgConnection,
+    listing: Uuid,
     sale: Uuid,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE bazaar_authority_gold_sales SET completed_at=now() WHERE id=$1")
-        .bind(sale)
-        .execute(db)
-        .await?;
+) -> Result<(), Error> {
+    require_sale_transition(db, listing, Event::Listing(State::Completed)).await?;
+    let written = sqlx::query(
+        "UPDATE bazaar_authority_gold_sales s SET completed_at=now()
+         WHERE s.id=$1 AND s.listing_id=$2 AND s.completed_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM bazaar_authority_compensations c WHERE c.listing_id=s.listing_id)",
+    )
+    .bind(sale)
+    .bind(listing)
+    .execute(db)
+    .await?;
+    if written.rows_affected() != 1 {
+        return Err(Error::IllegalTransition);
+    }
     Ok(())
 }
 
@@ -550,12 +583,24 @@ pub(crate) async fn write_compensation(
     listing: Uuid,
     operation: Uuid,
     generation: u64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<(), Error> {
+    require_sale_transition(db, listing, Event::Compensated).await?;
+    let written = sqlx::query(
         "INSERT INTO bazaar_authority_compensations(listing_id,return_operation_id,recovery_generation)
-         VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING",
+         SELECT $1,o.operation_id,$3::text::numeric FROM bazaar_game_outbox o
+         WHERE o.operation_id=$2 AND o.listing_id=$1
+           AND NOT EXISTS (SELECT 1 FROM bazaar_settlements s WHERE s.listing_id=$1 AND s.completed_at IS NOT NULL)
+           AND NOT EXISTS (SELECT 1 FROM bazaar_authority_gold_sales s WHERE s.listing_id=$1 AND s.completed_at IS NOT NULL)
+         ON CONFLICT DO NOTHING",
     )
-    .bind(listing).bind(operation).bind(generation.to_string()).execute(db).await?;
+    .bind(listing)
+    .bind(operation)
+    .bind(generation.to_string())
+    .execute(db)
+    .await?;
+    if written.rows_affected() != 1 {
+        return Err(Error::IllegalTransition);
+    }
     Ok(())
 }
 

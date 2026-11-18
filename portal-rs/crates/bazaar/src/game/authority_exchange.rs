@@ -405,7 +405,11 @@ impl Authority {
             id(text(&returning.value, "operation_id")?)?,
             self.fence.recovery_generation,
         )
-        .await?;
+        .await
+        .map_err(|error| match error {
+            crate::Error::Database(error) => Error::Database(error),
+            _ => Error::Denied,
+        })?;
         sqlx::query("DELETE FROM bazaar_moderation_holds WHERE listing_id=$1")
             .bind(listing.id)
             .execute(&mut *db)

@@ -253,6 +253,18 @@ fn lifecycle_guard_detects_forbidden_sql_and_accepts_writer() {
             "UPDATE bazaar_listings SET updated_at=now() WHERE state='active'",
             false,
         ),
+        (
+            "UPDATE bazaar_settlements s SET completed_at=clock_timestamp() WHERE s.listing_id=$1",
+            true,
+        ),
+        (
+            "UPDATE bazaar_authority_gold_sales s SET completed_at=now() WHERE s.id=$1",
+            true,
+        ),
+        (
+            "INSERT INTO bazaar_authority_compensations(listing_id,return_operation_id,recovery_generation) SELECT $1,$2,$3",
+            true,
+        ),
     ];
     for (sql, expected) in cases {
         let mut offenders = Vec::new();
@@ -370,7 +382,7 @@ fn bz07_guard_checks_assembled_and_included_sql() -> std::io::Result<()> {
 }
 
 #[test]
-fn bz07_bz13_guard_checks_nested_sql_in_macro_definitions() -> std::io::Result<()> {
+pub(crate) fn bz07_bz13_guard_checks_nested_sql_in_macro_definitions() -> std::io::Result<()> {
     let root = std::env::temp_dir().join(format!("bazaar-sql-guard-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir(&root)?;
     std::fs::write(root.join("target.sql"), "UPDATE bazaar_listings ")?;

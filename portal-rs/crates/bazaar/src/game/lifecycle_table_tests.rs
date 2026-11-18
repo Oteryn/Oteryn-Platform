@@ -380,6 +380,12 @@ async fn lifecycle_awaiting_delivery_commit_delivery() {
     recovery_tests::item_effect(&db, Command::Deliver, false).await;
     db.runtime.tick().await.unwrap();
     let state = item_state(&db).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(matches!(
+        crate::lifecycle::complete_coin_sale(&mut tx, uid("20")).await,
+        Err(crate::Error::IllegalTransition)
+    ));
+    tx.rollback().await.unwrap();
     let sales: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM bazaar_settlements WHERE listing_id=$1 AND completed_at IS NOT NULL",
     )
@@ -401,6 +407,15 @@ async fn lifecycle_awaiting_delivery_refuse_delivery() {
     recovery_tests::item_effect(&db, Command::Return, false).await;
     db.runtime.tick().await.unwrap();
     let returned = item_state(&db).await;
+    let operation = newest_intent(&db, uid("20"), Command::Return).await;
+    let operation = id(text(&operation.value, "operation_id").unwrap()).unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(matches!(
+        crate::lifecycle::write_compensation(&mut tx, uid("20"), operation, 3).await,
+        Err(crate::Error::IllegalTransition)
+    ));
+    tx.rollback().await.unwrap();
+    assert_eq!(sale_effects(&db).await.3, 1);
     let remaining: i64 =
         sqlx::query_scalar("SELECT amount FROM bazaar_coin_holds WHERE id=$1 AND account_id=$2")
             .bind(uid("20"))
@@ -412,6 +427,59 @@ async fn lifecycle_awaiting_delivery_refuse_delivery() {
     assert_eq!(pending, State::AwaitingDelivery);
     assert_eq!(returned, State::Cancelled);
     assert_eq!(remaining, 0);
+}
+
+async fn lifecycle_gold_completion_requires_awaiting_delivery() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    let listing = uid("20");
+    let sale = crate::Settlement {
+        id: Uuid::now_v7(),
+        listing_id: listing,
+        buyer: uid("13"),
+        seller: uid("11"),
+        currency: crate::Currency::Gold,
+        amount: 10000,
+        commission: 250,
+        seller_net: 9750,
+        reservation: Uuid::now_v7(),
+    };
+    let mut tx = db.pool.begin().await.unwrap();
+    crate::lifecycle::write_gold_sale(&mut tx, &sale, 1)
+        .await
+        .unwrap();
+    assert!(matches!(
+        crate::lifecycle::complete_gold_sale(&mut tx, listing, sale.id).await,
+        Err(crate::Error::IllegalTransition)
+    ));
+    let completed: bool = sqlx::query_scalar(
+        "SELECT completed_at IS NOT NULL FROM bazaar_authority_gold_sales WHERE id=$1",
+    )
+    .bind(sale.id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert!(!completed);
+    crate::lifecycle::write_listing(
+        &mut tx,
+        listing,
+        crate::lifecycle::Event::Listing(State::AwaitingDelivery),
+    )
+    .await
+    .unwrap();
+    crate::lifecycle::complete_gold_sale(&mut tx, listing, sale.id)
+        .await
+        .unwrap();
+    let completed: bool = sqlx::query_scalar(
+        "SELECT completed_at IS NOT NULL FROM bazaar_authority_gold_sales WHERE id=$1",
+    )
+    .bind(sale.id)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert!(completed);
+    tx.rollback().await.unwrap();
+    db.end().await;
 }
 
 async fn lifecycle_active_invalidate() {
@@ -999,12 +1067,13 @@ fn status_rows() -> impl Iterator<Item = (&'static str, StatusEvent, IngestResul
     })
 }
 
-async fn custody_status_table() {
+async fn custody_status_table(executed: &mut Vec<String>) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     for (status, event, expected) in status_rows() {
         eprintln!("status row: {status}, {event:?}");
         custody_status_event(&db, status, event, expected).await;
+        executed.push(format!("CP-{status}-{event:?}"));
     }
     db.end().await;
 }
@@ -2956,8 +3025,7 @@ async fn missing_first_page_status(legacy_without_asset: bool) {
 
 #[derive(Clone, Copy)]
 struct LifecycleScenario {
-    state: &'static str,
-    event: &'static str,
+    id: &'static str,
     run: fn() -> Pin<Box<dyn Future<Output = ()>>>,
 }
 
@@ -3022,11 +3090,10 @@ async fn return_recovery(deliver_dispatched: bool, return_rejected: bool) {
 }
 
 macro_rules! lifecycle_scenarios {
-    ($($state:literal, $event:literal => $test:path;)*) => {
+    ($($id:literal => $test:path;)*) => {
         const LIFECYCLE_SCENARIOS: &[LifecycleScenario] = &[
             $(LifecycleScenario {
-                state: $state,
-                event: $event,
+                id: $id,
                 run: || Box::pin($test()),
             },)*
         ];
@@ -3034,65 +3101,105 @@ macro_rules! lifecycle_scenarios {
 }
 
 lifecycle_scenarios! {
-    "Absent", "Create" => lifecycle_absent_create;
-    "Draft/no Game effect", "Lock pending" => lifecycle_draft_pending_lock;
-    "Draft/Lock pending", "Audited Lock rejected" => lifecycle_draft_refuse_lock;
-    "Draft/Escrow pending", "Audited Escrow rejected" => lifecycle_draft_refuse_escrow;
-    "Draft/Escrow audited", "Advance" => lifecycle_draft_advance_escrowed;
-    "Draft/Escrow audited", "Cancel requested" => lifecycle_draft_advance_cancel_requested;
-    "Active/No bid", "Expiry" => lifecycle_active_expire_unbid;
-    "Active/Moderation hold", "Expiry" => lifecycle_active_expire_held;
-    "Active/Held funds", "Expiry" => lifecycle_active_expire_funded;
-    "Active/Moderation hold", "Approved invalidation" => lifecycle_active_invalidate;
-    "Matched/Legacy hold", "Retry tick" => lifecycle_matched_legacy_hold_retires_once;
-    "AwaitingDelivery/Dispatched", "Suspend after dispatch" => lifecycle_awaiting_delivery_can_suspend_after_dispatch;
-    "AwaitingDelivery/Dispatched", "Audited committed Deliver and status" => lifecycle_awaiting_delivery_commit_delivery;
-    "AwaitingDelivery/Dispatched", "Audited rejected Deliver and Return status" => lifecycle_awaiting_delivery_refuse_delivery;
-    "AwaitingDelivery/Canonical and alternate staged", "Second connection attempts publication" => bz01_alternate_delivery_cannot_win_publication;
-    "AwaitingDelivery/Receipt without audit", "BZ-08 Retry bound" => bz08_awaiting_receipt_without_audit_exhausts_recovery_retries;
-    "AwaitingDelivery/Return dispatched after audited Deliver rejection", "Missing Return receipt through retry bound" => rejected_delivery_return_waits_within_retry_bound;
-    "AwaitingDelivery/Return dispatched before Deliver", "Missing Return receipt through retry bound" => pre_delivery_return_waits_within_retry_bound;
-    "AwaitingDelivery/Return dispatched after audited Deliver rejection", "Audited Return rejection" => audited_return_rejection_reports_drift;
-    "AwaitingDelivery/Unpublished alternate", "BZ-11 Buyer eligibility changes" => bz11_unpublished_alternate_does_not_fence_safe_return;
-    "Completed/Old evidence", "Receipt before audit" => lifecycle_completed_resync_waits_for_current_receipt_and_audit;
-    "Completed/Old evidence", "STATUS ESCROWED" => lifecycle_completed_resync_escrow_status;
-    "Completed/Old evidence", "Retry bound" => lifecycle_delivery_pending_exhausts_retry_budget_once;
-    "Completed/Current evidence", "Worker tick" => lifecycle_completed_worker_tick;
-    "Completed/Certified", "Status changes after certification" => bz03_status_committed_after_certification_is_rechecked;
-    "Completed/Behind cursor", "Status producer commits between pages" => bz03_status_committed_behind_cursor_is_rechecked;
-    "Completed/Obsolete marker", "BZ-10 Rebuild fails with world-set change" => bz10_failed_rebuild_cannot_serve_obsolete_certification;
-    "Cancelled/Refunded", "BZ-09 STATUS ESCROWED contradicts return" => bz09_refunded_sale_quarantines_new_escrow_status;
-    "Cancelled/Refunded", "Reversal of rejected Deliver" => recovery_tests::compensated_sale_reversal_is_reported_as_drift;
-    "Rebuild/Old epoch", "Rebuild start" => lifecycle_fence_matching_new_epoch;
-    "Rebuild/World absent", "Configured world missing" => bz06_missing_configured_world_does_not_charge_delivery_retries;
-    "Rebuild/Early missing STATUS", "BZ-12 Page checkpoint before late legacy sale" => bz12_missing_first_page_status_does_not_starve_legacy_sale;
-    "Rebuild/Completed legacy item without authority asset", "Page finds contradictory Deliver evidence" => legacy_sale_without_authority_asset_is_reconciled;
-    "Rebuild/Active escrow behind cursor", "BZ-14 Conflicting STATUS commits between pages" => bz14_active_custody_conflict_behind_cursor_fences_certification;
-    "Rebuild/Completed legacy item with missing configured world", "BZ-15 Retry checks without current Deliver evidence" => bz15_missing_legacy_world_preserves_delivery_retry_budget;
-    "Rebuild/Active escrow behind cursor", "BZ-14b Applied STATUS names a missing operation" => bz14b_applied_status_behind_cursor_retains_listing_key;
-    "Rebuild/Escrow behind operation cursor", "BZ-16 Receipt or decision audit conflict" => bz16_escrow_conflict_between_operation_pages_fences_certification;
-    "Rebuild/Completed legacy item with missing configured world", "BZ-17 Immediate drift with world missing" => bz17_immediate_drift_waits_for_legacy_world;
-    "Rebuild/v5 checkpoint", "BZ-18 Legacy writer attempts evidence and checkpoint writes" => bz18_old_writer_cannot_change_evidence_or_checkpoint;
-    "Rebuild/Paged operation scan", "BZ-19 Evidence epoch changes" => bz19_moved_evidence_epoch_restarts_and_bounds_rebuild;
-    "Rebuild/Early Drift", "Later page" => bz05_drift_does_not_starve_a_later_page;
-    "Rebuild/Page in flight", "Writer crashes before commit" => lifecycle_crash_before_rebuild_page_commit_replays_page;
-    "AwaitingDelivery/Return audited", "Second worker races" => lifecycle_workers_race_to_refund_once;
+    "REC-01" => lifecycle_absent_create;
+    "REC-02" => lifecycle_draft_pending_lock;
+    "REC-03" => lifecycle_draft_refuse_lock;
+    "REC-04" => lifecycle_draft_refuse_escrow;
+    "REC-05" => lifecycle_draft_advance_escrowed;
+    "REC-06" => lifecycle_draft_advance_cancel_requested;
+    "REC-07" => lifecycle_active_expire_unbid;
+    "REC-08" => lifecycle_active_expire_held;
+    "REC-09" => lifecycle_active_expire_funded;
+    "REC-10" => lifecycle_active_invalidate;
+    "REC-11" => lifecycle_matched_legacy_hold_retires_once;
+    "REC-12" => lifecycle_awaiting_delivery_can_suspend_after_dispatch;
+    "REC-13" => lifecycle_awaiting_delivery_commit_delivery;
+    "REC-14" => lifecycle_awaiting_delivery_refuse_delivery;
+    "REC-15" => bz01_alternate_delivery_cannot_win_publication;
+    "BZ-08" => bz08_awaiting_receipt_without_audit_exhausts_recovery_retries;
+    "REC-17" => rejected_delivery_return_waits_within_retry_bound;
+    "REC-18" => pre_delivery_return_waits_within_retry_bound;
+    "REC-19" => audited_return_rejection_reports_drift;
+    "BZ-11" => bz11_unpublished_alternate_does_not_fence_safe_return;
+    "REC-21" => lifecycle_completed_resync_waits_for_current_receipt_and_audit;
+    "REC-22" => lifecycle_completed_resync_escrow_status;
+    "REC-23" => lifecycle_delivery_pending_exhausts_retry_budget_once;
+    "REC-24" => lifecycle_completed_worker_tick;
+    "REC-25" => bz03_status_committed_after_certification_is_rechecked;
+    "REC-26" => bz03_status_committed_behind_cursor_is_rechecked;
+    "BZ-10" => bz10_failed_rebuild_cannot_serve_obsolete_certification;
+    "BZ-09" => bz09_refunded_sale_quarantines_new_escrow_status;
+    "REC-29" => recovery_tests::compensated_sale_reversal_is_reported_as_drift;
+    "REC-30" => lifecycle_fence_matching_new_epoch;
+    "REC-31" => bz06_missing_configured_world_does_not_charge_delivery_retries;
+    "BZ-12" => bz12_missing_first_page_status_does_not_starve_legacy_sale;
+    "REC-33" => legacy_sale_without_authority_asset_is_reconciled;
+    "BZ-14" => bz14_active_custody_conflict_behind_cursor_fences_certification;
+    "BZ-15" => bz15_missing_legacy_world_preserves_delivery_retry_budget;
+    "BZ-14b" => bz14b_applied_status_behind_cursor_retains_listing_key;
+    "BZ-16" => bz16_escrow_conflict_between_operation_pages_fences_certification;
+    "BZ-17" => bz17_immediate_drift_waits_for_legacy_world;
+    "BZ-18" => bz18_old_writer_cannot_change_evidence_or_checkpoint;
+    "BZ-19" => bz19_moved_evidence_epoch_restarts_and_bounds_rebuild;
+    "REC-41" => bz05_drift_does_not_starve_a_later_page;
+    "REC-42" => lifecycle_crash_before_rebuild_page_commit_replays_page;
+    "REC-43" => lifecycle_workers_race_to_refund_once;
+    "SALE-GOLD-COMPLETE" => lifecycle_gold_completion_requires_awaiting_delivery;
+}
+
+// The Markdown spec is independent of the executable scenarios and matrices.
+fn required_row_ids() -> std::collections::BTreeSet<&'static str> {
+    let spec = include_str!("../../../../../docs/architecture/BAZAAR_LIFECYCLE_STATE_TABLE.md");
+    let (_, transitions) = spec.split_once("## Executable transition rows").unwrap();
+    let (transitions, _) = transitions.split_once("## Invariants").unwrap();
+    let mut required = std::collections::BTreeSet::new();
+    for line in transitions.lines().filter(|line| line.starts_with("| ")) {
+        let (cell, _) = line[2..].split_once('|').unwrap();
+        match cell.trim() {
+            "Row ID" | "---" => continue,
+            id => {
+                let id = id
+                    .strip_prefix('`')
+                    .and_then(|id| id.strip_suffix('`'))
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or_else(|| panic!("missing row ID: {line}"));
+                assert!(required.insert(id), "duplicate required row {id}");
+            }
+        }
+    }
+    assert!(!required.is_empty());
+    required
 }
 
 #[tokio::test]
 async fn lifecycle_state_table_postgres() {
-    listing_writer_table().await;
-    sale_status_table().await;
-    delivery_admission_table().await;
+    let mut executed = Vec::new();
+    listing_writer_table(&mut executed).await;
+    sale_status_table(&mut executed).await;
+    delivery_admission_table(&mut executed).await;
     for &(state, event, expected) in LISTING_ROWS {
         eprintln!("listing row: {state:?}, {event:?}");
         listing_event(state, event, expected).await;
+        executed.push(format!("LC-{state:?}-{event:?}"));
     }
-    custody_status_table().await;
+    custody_status_table(&mut executed).await;
     for row in LIFECYCLE_SCENARIOS {
-        eprintln!("lifecycle row: {}, {}", row.state, row.event);
+        eprintln!("lifecycle row: {}", row.id);
         (row.run)().await;
+        executed.push(row.id.to_owned());
     }
+    crate::lifecycle_tests::bz07_bz13_guard_checks_nested_sql_in_macro_definitions().unwrap();
+    executed.push("BZ-13".to_owned());
+
+    let required = required_row_ids();
+    let observed: std::collections::BTreeSet<_> = executed.iter().map(String::as_str).collect();
+    assert_eq!(observed.len(), executed.len(), "duplicate executed row");
+    let missing: Vec<_> = required.difference(&observed).collect();
+    let unknown: Vec<_> = observed.difference(&required).collect();
+    assert!(
+        missing.is_empty() && unknown.is_empty(),
+        "missing rows: {missing:?}; unknown rows: {unknown:?}"
+    );
 }
 
 #[test]
@@ -3175,34 +3282,6 @@ fn lifecycle_state_table_covers_state_event_products() {
             );
         }
     }
-    // The architecture table independently enumerates the recovery scenarios.
-    // Its final row belongs to the production SQL guard.
-    let spec = include_str!("../../../../../docs/architecture/BAZAAR_LIFECYCLE_STATE_TABLE.md");
-    let (_, recovery) = spec
-        .split_once("### Recovery and cross-record transitions")
-        .unwrap();
-    let (table, _) = recovery.split_once("## Invariants").unwrap();
-    assert_eq!(
-        table.lines().filter(|line| line.starts_with("| ")).count(),
-        LIFECYCLE_SCENARIOS.len() + 3,
-    );
-    let scenario_keys: std::collections::HashSet<_> = LIFECYCLE_SCENARIOS
-        .iter()
-        .map(|row| (row.state, row.event))
-        .collect();
-    assert_eq!(scenario_keys.len(), LIFECYCLE_SCENARIOS.len());
-    for id in [
-        "BZ-08", "BZ-09", "BZ-10", "BZ-11", "BZ-12", "BZ-14", "BZ-14b", "BZ-15", "BZ-16", "BZ-17",
-        "BZ-18", "BZ-19",
-    ] {
-        assert_eq!(
-            LIFECYCLE_SCENARIOS
-                .iter()
-                .filter(|row| row.event.split_whitespace().next() == Some(id))
-                .count(),
-            1
-        );
-    }
 }
 
 mod review_regressions {
@@ -3255,7 +3334,7 @@ fn listing_writer_rows() -> impl Iterator<Item = (State, State, bool)> {
         })
 }
 
-async fn listing_writer_table() {
+async fn listing_writer_table(executed: &mut Vec<String>) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = BrowserFixture::new().await;
     for (from, to, allowed) in listing_writer_rows() {
@@ -3300,8 +3379,20 @@ async fn listing_writer_table() {
             )
         );
         tx.rollback().await.unwrap();
+        executed.push(format!("LW-{from:?}-{to:?}"));
     }
     db.end().await;
+}
+
+async fn buyer_balance(db: &BrowserFixture) -> (i64, i64) {
+    sqlx::query_as(
+        "SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint
+         FROM wallet_entries WHERE account_id=$1",
+    )
+    .bind(uid("13"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap()
 }
 
 async fn lifecycle_workers_race_to_refund_once() {
@@ -3310,6 +3401,7 @@ async fn lifecycle_workers_race_to_refund_once() {
     recovery_tests::item_effect(&db, Command::Deliver, true).await;
     db.runtime.tick().await.unwrap();
     recovery_tests::item_effect(&db, Command::Return, false).await;
+    assert_eq!(buyer_balance(&db).await, (0, 10000));
     let worker = db.runtime.clone();
     let (left, right) = tokio::join!(db.runtime.tick(), worker.tick());
     left.unwrap();
@@ -3330,6 +3422,7 @@ async fn lifecycle_workers_race_to_refund_once() {
         entries,
         vec![("release".to_owned(), uid("13"), 10000, -10000)]
     );
+    assert_eq!(buyer_balance(&db).await, (10000, 0));
     assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 1);
     assert_eq!(dispatched(&db, uid("20"), Command::Return).await, 1);
     assert_eq!(
@@ -3579,7 +3672,7 @@ async fn apply_sale_status(
     );
 }
 
-async fn sale_status_table() {
+async fn sale_status_table(executed: &mut Vec<String>) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     for state in SALE_EVIDENCE_STATES {
         let db = sale_with_evidence(state).await;
@@ -3642,6 +3735,7 @@ async fn sale_status_table() {
                     .unwrap();
             assert_eq!(listing, listing_before);
             tx.rollback().await.unwrap();
+            executed.push(format!("SS-{state:?}-{event:?}"));
         }
         db.end().await;
     }
@@ -3736,7 +3830,7 @@ fn delivery_admission_rows() -> impl Iterator<
         })
 }
 
-async fn delivery_admission_table() {
+async fn delivery_admission_table(executed: &mut Vec<String>) {
     use DeliveryAdmission::*;
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
@@ -3893,6 +3987,7 @@ async fn delivery_admission_table() {
             "{label}",
         );
         tx.rollback().await.unwrap();
+        executed.push(format!("DA-{state:?}-{input:?}"));
     }
     db.end().await;
 }

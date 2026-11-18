@@ -93,57 +93,57 @@ rejected by the listing writer. Funds, Game custody and sale records are
 preserved in every row. The special AwaitingDelivery-to-Cancelled transition
 runs through the compensation scenarios with a proven return.
 
-| Current | Requested state | Next | Disposition |
-| --- | --- | --- | --- |
-| Draft | Draft | Draft | Impossible because an enum write requires a state transition |
-| Draft | Active | Active | Allowed |
-| Draft | Matched | Draft | Impossible because the lifecycle has no direct edge |
-| Draft | AwaitingDelivery | Draft | Impossible because the lifecycle has no direct edge |
-| Draft | Completed | Draft | Impossible because the lifecycle has no direct edge |
-| Draft | Cancelled | Cancelled | Allowed |
-| Draft | Expired | Draft | Impossible because the lifecycle has no direct edge |
-| Active | Draft | Active | Impossible because the lifecycle has no direct edge |
-| Active | Active | Active | Impossible because an enum write requires a state transition |
-| Active | Matched | Matched | Allowed |
-| Active | AwaitingDelivery | AwaitingDelivery | Allowed |
-| Active | Completed | Active | Impossible because the lifecycle has no direct edge |
-| Active | Cancelled | Cancelled | Allowed |
-| Active | Expired | Expired | Allowed |
-| Matched | Draft | Matched | Impossible because the lifecycle has no direct edge |
-| Matched | Active | Matched | Impossible because the lifecycle has no direct edge |
-| Matched | Matched | Matched | Impossible because an enum write requires a state transition |
-| Matched | AwaitingDelivery | AwaitingDelivery | Allowed |
-| Matched | Completed | Matched | Impossible because the lifecycle has no direct edge |
-| Matched | Cancelled | Matched | Impossible because the lifecycle has no direct edge |
-| Matched | Expired | Matched | Impossible because the lifecycle has no direct edge |
-| AwaitingDelivery | Draft | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
-| AwaitingDelivery | Active | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
-| AwaitingDelivery | Matched | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
-| AwaitingDelivery | AwaitingDelivery | AwaitingDelivery | Impossible because an enum write requires a state transition |
-| AwaitingDelivery | Completed | Completed | Allowed |
-| AwaitingDelivery | Cancelled | AwaitingDelivery | Impossible without the compensation writer and verified return |
-| AwaitingDelivery | Expired | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
-| Completed | Draft | Completed | Impossible because the listing is terminal |
-| Completed | Active | Completed | Impossible because the listing is terminal |
-| Completed | Matched | Completed | Impossible because the listing is terminal |
-| Completed | AwaitingDelivery | Completed | Impossible because the listing is terminal |
-| Completed | Completed | Completed | Impossible because an enum write requires a state transition |
-| Completed | Cancelled | Completed | Impossible because the listing is terminal |
-| Completed | Expired | Completed | Impossible because the listing is terminal |
-| Cancelled | Draft | Cancelled | Impossible because the listing is terminal |
-| Cancelled | Active | Cancelled | Impossible because the listing is terminal |
-| Cancelled | Matched | Cancelled | Impossible because the listing is terminal |
-| Cancelled | AwaitingDelivery | Cancelled | Impossible because the listing is terminal |
-| Cancelled | Completed | Cancelled | Impossible because the listing is terminal |
-| Cancelled | Cancelled | Cancelled | Impossible because an enum write requires a state transition |
-| Cancelled | Expired | Cancelled | Impossible because the listing is terminal |
-| Expired | Draft | Expired | Impossible because the listing is terminal |
-| Expired | Active | Expired | Impossible because the listing is terminal |
-| Expired | Matched | Expired | Impossible because the listing is terminal |
-| Expired | AwaitingDelivery | Expired | Impossible because the listing is terminal |
-| Expired | Completed | Expired | Impossible because the listing is terminal |
-| Expired | Cancelled | Expired | Impossible because the listing is terminal |
-| Expired | Expired | Expired | Impossible because an enum write requires a state transition |
+| Row ID | Current | Requested state | Next | Disposition |
+| --- | --- | --- | --- | --- |
+| `LW-Draft-Draft` | Draft | Draft | Draft | Impossible because an enum write requires a state transition |
+| `LW-Draft-Active` | Draft | Active | Active | Allowed |
+| `LW-Draft-Matched` | Draft | Matched | Draft | Impossible because the lifecycle has no direct edge |
+| `LW-Draft-AwaitingDelivery` | Draft | AwaitingDelivery | Draft | Impossible because the lifecycle has no direct edge |
+| `LW-Draft-Completed` | Draft | Completed | Draft | Impossible because the lifecycle has no direct edge |
+| `LW-Draft-Cancelled` | Draft | Cancelled | Cancelled | Allowed |
+| `LW-Draft-Expired` | Draft | Expired | Draft | Impossible because the lifecycle has no direct edge |
+| `LW-Active-Draft` | Active | Draft | Active | Impossible because the lifecycle has no direct edge |
+| `LW-Active-Active` | Active | Active | Active | Impossible because an enum write requires a state transition |
+| `LW-Active-Matched` | Active | Matched | Matched | Allowed |
+| `LW-Active-AwaitingDelivery` | Active | AwaitingDelivery | AwaitingDelivery | Allowed |
+| `LW-Active-Completed` | Active | Completed | Active | Impossible because the lifecycle has no direct edge |
+| `LW-Active-Cancelled` | Active | Cancelled | Cancelled | Allowed |
+| `LW-Active-Expired` | Active | Expired | Expired | Allowed |
+| `LW-Matched-Draft` | Matched | Draft | Matched | Impossible because the lifecycle has no direct edge |
+| `LW-Matched-Active` | Matched | Active | Matched | Impossible because the lifecycle has no direct edge |
+| `LW-Matched-Matched` | Matched | Matched | Matched | Impossible because an enum write requires a state transition |
+| `LW-Matched-AwaitingDelivery` | Matched | AwaitingDelivery | AwaitingDelivery | Allowed |
+| `LW-Matched-Completed` | Matched | Completed | Matched | Impossible because the lifecycle has no direct edge |
+| `LW-Matched-Cancelled` | Matched | Cancelled | Matched | Impossible because the lifecycle has no direct edge |
+| `LW-Matched-Expired` | Matched | Expired | Matched | Impossible because the lifecycle has no direct edge |
+| `LW-AwaitingDelivery-Draft` | AwaitingDelivery | Draft | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
+| `LW-AwaitingDelivery-Active` | AwaitingDelivery | Active | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
+| `LW-AwaitingDelivery-Matched` | AwaitingDelivery | Matched | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
+| `LW-AwaitingDelivery-AwaitingDelivery` | AwaitingDelivery | AwaitingDelivery | AwaitingDelivery | Impossible because an enum write requires a state transition |
+| `LW-AwaitingDelivery-Completed` | AwaitingDelivery | Completed | Completed | Allowed |
+| `LW-AwaitingDelivery-Cancelled` | AwaitingDelivery | Cancelled | AwaitingDelivery | Impossible without the compensation writer and verified return |
+| `LW-AwaitingDelivery-Expired` | AwaitingDelivery | Expired | AwaitingDelivery | Impossible because the lifecycle has no direct edge |
+| `LW-Completed-Draft` | Completed | Draft | Completed | Impossible because the listing is terminal |
+| `LW-Completed-Active` | Completed | Active | Completed | Impossible because the listing is terminal |
+| `LW-Completed-Matched` | Completed | Matched | Completed | Impossible because the listing is terminal |
+| `LW-Completed-AwaitingDelivery` | Completed | AwaitingDelivery | Completed | Impossible because the listing is terminal |
+| `LW-Completed-Completed` | Completed | Completed | Completed | Impossible because an enum write requires a state transition |
+| `LW-Completed-Cancelled` | Completed | Cancelled | Completed | Impossible because the listing is terminal |
+| `LW-Completed-Expired` | Completed | Expired | Completed | Impossible because the listing is terminal |
+| `LW-Cancelled-Draft` | Cancelled | Draft | Cancelled | Impossible because the listing is terminal |
+| `LW-Cancelled-Active` | Cancelled | Active | Cancelled | Impossible because the listing is terminal |
+| `LW-Cancelled-Matched` | Cancelled | Matched | Cancelled | Impossible because the listing is terminal |
+| `LW-Cancelled-AwaitingDelivery` | Cancelled | AwaitingDelivery | Cancelled | Impossible because the listing is terminal |
+| `LW-Cancelled-Completed` | Cancelled | Completed | Cancelled | Impossible because the listing is terminal |
+| `LW-Cancelled-Cancelled` | Cancelled | Cancelled | Cancelled | Impossible because an enum write requires a state transition |
+| `LW-Cancelled-Expired` | Cancelled | Expired | Cancelled | Impossible because the listing is terminal |
+| `LW-Expired-Draft` | Expired | Draft | Expired | Impossible because the listing is terminal |
+| `LW-Expired-Active` | Expired | Active | Expired | Impossible because the listing is terminal |
+| `LW-Expired-Matched` | Expired | Matched | Expired | Impossible because the listing is terminal |
+| `LW-Expired-AwaitingDelivery` | Expired | AwaitingDelivery | Expired | Impossible because the listing is terminal |
+| `LW-Expired-Completed` | Expired | Completed | Expired | Impossible because the listing is terminal |
+| `LW-Expired-Cancelled` | Expired | Cancelled | Expired | Impossible because the listing is terminal |
+| `LW-Expired-Expired` | Expired | Expired | Expired | Impossible because an enum write requires a state transition |
 
 ### Listing controls
 
@@ -151,29 +151,29 @@ These events leave the listing enum and custody unchanged. The bidder hold,
 cancel request and moderation hold are the effects shown below. No custody
 drift report is emitted by these controls.
 
-| Current | Event | Next | Effects | Disposition |
-| --- | --- | --- | --- | --- |
-| Draft | Bid | Draft | Preserve all | Impossible because bids require Active |
-| Draft | Cancel | Draft | Record cancel request | Allowed |
-| Draft | Suspend | Draft | Record moderation hold | Allowed |
-| Active | Bid | Active | Hold funds and set leader | Allowed |
-| Active | Cancel | Active | Record cancel request | Allowed |
-| Active | Suspend | Active | Record moderation hold | Allowed |
-| Matched | Bid | Matched | Preserve all | Impossible because bids require Active |
-| Matched | Cancel | Matched | Preserve all | Impossible because the request requires Draft or Active with no leader |
-| Matched | Suspend | Matched | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
-| AwaitingDelivery | Bid | AwaitingDelivery | Preserve all | Impossible because bids require Active |
-| AwaitingDelivery | Cancel | AwaitingDelivery | Preserve all | Impossible because the request requires Draft or Active with no leader |
-| AwaitingDelivery | Suspend | AwaitingDelivery | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
-| Completed | Bid | Completed | Preserve all | Impossible because delivery evidence awaits terminal recheck |
-| Completed | Cancel | Completed | Preserve all | Impossible because the request requires Draft or Active with no leader |
-| Completed | Suspend | Completed | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
-| Cancelled | Bid | Cancelled | Preserve all | Impossible because bids require Active |
-| Cancelled | Cancel | Cancelled | Preserve all | Impossible because the request requires Draft or Active with no leader |
-| Cancelled | Suspend | Cancelled | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
-| Expired | Bid | Expired | Preserve all | Impossible because bids require Active |
-| Expired | Cancel | Expired | Preserve all | Impossible because the request requires Draft or Active with no leader |
-| Expired | Suspend | Expired | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
+| Row ID | Current | Event | Next | Effects | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| `LC-Draft-Bid` | Draft | Bid | Draft | Preserve all | Impossible because bids require Active |
+| `LC-Draft-Cancel` | Draft | Cancel | Draft | Record cancel request | Allowed |
+| `LC-Draft-Suspend` | Draft | Suspend | Draft | Record moderation hold | Allowed |
+| `LC-Active-Bid` | Active | Bid | Active | Hold funds and set leader | Allowed |
+| `LC-Active-Cancel` | Active | Cancel | Active | Record cancel request | Allowed |
+| `LC-Active-Suspend` | Active | Suspend | Active | Record moderation hold | Allowed |
+| `LC-Matched-Bid` | Matched | Bid | Matched | Preserve all | Impossible because bids require Active |
+| `LC-Matched-Cancel` | Matched | Cancel | Matched | Preserve all | Impossible because the request requires Draft or Active with no leader |
+| `LC-Matched-Suspend` | Matched | Suspend | Matched | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
+| `LC-AwaitingDelivery-Bid` | AwaitingDelivery | Bid | AwaitingDelivery | Preserve all | Impossible because bids require Active |
+| `LC-AwaitingDelivery-Cancel` | AwaitingDelivery | Cancel | AwaitingDelivery | Preserve all | Impossible because the request requires Draft or Active with no leader |
+| `LC-AwaitingDelivery-Suspend` | AwaitingDelivery | Suspend | AwaitingDelivery | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
+| `LC-Completed-Bid` | Completed | Bid | Completed | Preserve all | Impossible because delivery evidence awaits terminal recheck |
+| `LC-Completed-Cancel` | Completed | Cancel | Completed | Preserve all | Impossible because the request requires Draft or Active with no leader |
+| `LC-Completed-Suspend` | Completed | Suspend | Completed | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
+| `LC-Cancelled-Bid` | Cancelled | Bid | Cancelled | Preserve all | Impossible because bids require Active |
+| `LC-Cancelled-Cancel` | Cancelled | Cancel | Cancelled | Preserve all | Impossible because the request requires Draft or Active with no leader |
+| `LC-Cancelled-Suspend` | Cancelled | Suspend | Cancelled | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
+| `LC-Expired-Bid` | Expired | Bid | Expired | Preserve all | Impossible because bids require Active |
+| `LC-Expired-Cancel` | Expired | Cancel | Expired | Preserve all | Impossible because the request requires Draft or Active with no leader |
+| `LC-Expired-Suspend` | Expired | Suspend | Expired | Preserve all | Impossible because this fixture lacks a suspendible pre-handoff state |
 
 ### Game custody projection intake
 
@@ -183,32 +183,32 @@ custody recheck in the same transaction. An applied change also requeues
 listings an unfinished rebuild has already scanned. The sale recheck
 determines whether conflicting sale evidence creates a drift report.
 
-| Current status | Incoming revision | Next status | Effects | Disposition |
-| --- | --- | --- | --- | --- |
-| locked | Newer | locked | Replace projection | Allowed |
-| locked | Older | locked | Preserve and supersede incoming | Impossible to apply because revision is older |
-| locked | Replay | locked | Preserve and acknowledge duplicate | Allowed |
-| locked | Conflict | locked | Preserve prior and quarantine subject | Quarantined |
-| ESCROWED | Newer | ESCROWED | Replace projection | Allowed |
-| ESCROWED | Older | ESCROWED | Preserve and supersede incoming | Impossible to apply because revision is older |
-| ESCROWED | Replay | ESCROWED | Preserve and acknowledge duplicate | Allowed |
-| ESCROWED | Conflict | ESCROWED | Preserve prior and quarantine subject | Quarantined |
-| DELIVERED | Newer | DELIVERED | Replace projection | Allowed |
-| DELIVERED | Older | DELIVERED | Preserve and supersede incoming | Impossible to apply because revision is older |
-| DELIVERED | Replay | DELIVERED | Preserve and acknowledge duplicate | Allowed |
-| DELIVERED | Conflict | DELIVERED | Preserve prior and quarantine subject | Quarantined |
-| RETURNED | Newer | RETURNED | Replace projection | Allowed |
-| RETURNED | Older | RETURNED | Preserve and supersede incoming | Impossible to apply because revision is older |
-| RETURNED | Replay | RETURNED | Preserve and acknowledge duplicate | Allowed |
-| RETURNED | Conflict | RETURNED | Preserve prior and quarantine subject | Quarantined |
-| UNLOCKED | Newer | UNLOCKED | Replace projection | Allowed |
-| UNLOCKED | Older | UNLOCKED | Preserve and supersede incoming | Impossible to apply because revision is older |
-| UNLOCKED | Replay | UNLOCKED | Preserve and acknowledge duplicate | Allowed |
-| UNLOCKED | Conflict | UNLOCKED | Preserve prior and quarantine subject | Quarantined |
-| INVALID | Newer | INVALID | Replace projection | Allowed |
-| INVALID | Older | INVALID | Preserve and supersede incoming | Impossible to apply because revision is older |
-| INVALID | Replay | INVALID | Preserve and acknowledge duplicate | Allowed |
-| INVALID | Conflict | INVALID | Preserve prior and quarantine subject | Quarantined |
+| Row ID | Current status | Incoming revision | Next status | Effects | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| `CP-locked-Newer` | locked | Newer | locked | Replace projection | Allowed |
+| `CP-locked-Older` | locked | Older | locked | Preserve and supersede incoming | Impossible to apply because revision is older |
+| `CP-locked-Replay` | locked | Replay | locked | Preserve and acknowledge duplicate | Allowed |
+| `CP-locked-Conflict` | locked | Conflict | locked | Preserve prior and quarantine subject | Quarantined |
+| `CP-ESCROWED-Newer` | ESCROWED | Newer | ESCROWED | Replace projection | Allowed |
+| `CP-ESCROWED-Older` | ESCROWED | Older | ESCROWED | Preserve and supersede incoming | Impossible to apply because revision is older |
+| `CP-ESCROWED-Replay` | ESCROWED | Replay | ESCROWED | Preserve and acknowledge duplicate | Allowed |
+| `CP-ESCROWED-Conflict` | ESCROWED | Conflict | ESCROWED | Preserve prior and quarantine subject | Quarantined |
+| `CP-DELIVERED-Newer` | DELIVERED | Newer | DELIVERED | Replace projection | Allowed |
+| `CP-DELIVERED-Older` | DELIVERED | Older | DELIVERED | Preserve and supersede incoming | Impossible to apply because revision is older |
+| `CP-DELIVERED-Replay` | DELIVERED | Replay | DELIVERED | Preserve and acknowledge duplicate | Allowed |
+| `CP-DELIVERED-Conflict` | DELIVERED | Conflict | DELIVERED | Preserve prior and quarantine subject | Quarantined |
+| `CP-RETURNED-Newer` | RETURNED | Newer | RETURNED | Replace projection | Allowed |
+| `CP-RETURNED-Older` | RETURNED | Older | RETURNED | Preserve and supersede incoming | Impossible to apply because revision is older |
+| `CP-RETURNED-Replay` | RETURNED | Replay | RETURNED | Preserve and acknowledge duplicate | Allowed |
+| `CP-RETURNED-Conflict` | RETURNED | Conflict | RETURNED | Preserve prior and quarantine subject | Quarantined |
+| `CP-UNLOCKED-Newer` | UNLOCKED | Newer | UNLOCKED | Replace projection | Allowed |
+| `CP-UNLOCKED-Older` | UNLOCKED | Older | UNLOCKED | Preserve and supersede incoming | Impossible to apply because revision is older |
+| `CP-UNLOCKED-Replay` | UNLOCKED | Replay | UNLOCKED | Preserve and acknowledge duplicate | Allowed |
+| `CP-UNLOCKED-Conflict` | UNLOCKED | Conflict | UNLOCKED | Preserve prior and quarantine subject | Quarantined |
+| `CP-INVALID-Newer` | INVALID | Newer | INVALID | Replace projection | Allowed |
+| `CP-INVALID-Older` | INVALID | Older | INVALID | Preserve and supersede incoming | Impossible to apply because revision is older |
+| `CP-INVALID-Replay` | INVALID | Replay | INVALID | Preserve and acknowledge duplicate | Allowed |
+| `CP-INVALID-Conflict` | INVALID | Conflict | INVALID | Preserve prior and quarantine subject | Quarantined |
 
 ### Deliver receipt and audit admission
 
@@ -224,26 +224,26 @@ current audit confirms the reversal and triggers the sale drift report.
 Every row preserves the funds, escrow and canonical operation. Reconciliation
 reports Drift once and fences an unresolved rebuild.
 
-| Current | Event | Next | Intake effect | Work and report | Disposition |
-| --- | --- | --- | --- | --- | --- |
-| Pending | Commit receipt | Committed | Store receipt | Keep dirty and charge one attempt | Allowed |
-| Pending | Reject receipt | Rejected | Store receipt | Keep dirty and charge one attempt | Allowed |
-| Pending | Decision audit | Pending | No write because receipt is absent | Keep dirty and charge one attempt | Impossible until receipt is admitted |
-| Committed | Commit receipt | Committed | Acknowledge duplicate | Keep dirty and charge one attempt | Allowed |
-| Committed | Reject receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
-| Committed | Decision audit | Audited commitment | Store audit | Wait for matching DELIVERED and charge one attempt | Allowed |
-| Rejected | Commit receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
-| Rejected | Reject receipt | Rejected | Acknowledge duplicate | Keep dirty and charge one attempt | Allowed |
-| Rejected | Decision audit | Audited rejection | Store audit | Resolve delivery work and enable certification | Allowed |
-| Audited commitment | Commit receipt | Audited commitment | Acknowledge duplicate | Wait for matching DELIVERED and charge one attempt | Allowed |
-| Audited commitment | Reject receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
-| Audited commitment | Decision audit | Audited commitment | Store matching attestation | Wait for matching DELIVERED and charge one attempt | Allowed |
-| Audited rejection | Commit receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
-| Audited rejection | Reject receipt | Audited rejection | Acknowledge duplicate | Resolve delivery work and enable certification | Allowed |
-| Audited rejection | Decision audit | Audited rejection | Store matching attestation | Resolve delivery work and enable certification | Allowed |
-| Drift | Commit receipt | Drift | Acknowledge the retained commitment | Preserve one report and fence certification | Quarantined |
-| Drift | Reject receipt | Drift | Record conflict against retained commitment | Preserve one report and fence certification | Quarantined |
-| Drift | Decision audit | Drift | Store matching attestation | Preserve one report and fence certification | Quarantined |
+| Row ID | Current | Event | Next | Intake effect | Work and report | Disposition |
+| --- | --- | --- | --- | --- | --- | --- |
+| `DA-Pending-Commitment` | Pending | Commit receipt | Committed | Store receipt | Keep dirty and charge one attempt | Allowed |
+| `DA-Pending-Rejection` | Pending | Reject receipt | Rejected | Store receipt | Keep dirty and charge one attempt | Allowed |
+| `DA-Pending-Audit` | Pending | Decision audit | Pending | No write because receipt is absent | Keep dirty and charge one attempt | Impossible until receipt is admitted |
+| `DA-Committed-Commitment` | Committed | Commit receipt | Committed | Acknowledge duplicate | Keep dirty and charge one attempt | Allowed |
+| `DA-Committed-Rejection` | Committed | Reject receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| `DA-Committed-Audit` | Committed | Decision audit | Audited commitment | Store audit | Wait for matching DELIVERED and charge one attempt | Allowed |
+| `DA-Rejected-Commitment` | Rejected | Commit receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| `DA-Rejected-Rejection` | Rejected | Reject receipt | Rejected | Acknowledge duplicate | Keep dirty and charge one attempt | Allowed |
+| `DA-Rejected-Audit` | Rejected | Decision audit | Audited rejection | Store audit | Resolve delivery work and enable certification | Allowed |
+| `DA-AuditedCommitment-Commitment` | Audited commitment | Commit receipt | Audited commitment | Acknowledge duplicate | Wait for matching DELIVERED and charge one attempt | Allowed |
+| `DA-AuditedCommitment-Rejection` | Audited commitment | Reject receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| `DA-AuditedCommitment-Audit` | Audited commitment | Decision audit | Audited commitment | Store matching attestation | Wait for matching DELIVERED and charge one attempt | Allowed |
+| `DA-AuditedRejection-Commitment` | Audited rejection | Commit receipt | Drift | Keep original and record conflict | Report once and fence certification | Quarantined |
+| `DA-AuditedRejection-Rejection` | Audited rejection | Reject receipt | Audited rejection | Acknowledge duplicate | Resolve delivery work and enable certification | Allowed |
+| `DA-AuditedRejection-Audit` | Audited rejection | Decision audit | Audited rejection | Store matching attestation | Resolve delivery work and enable certification | Allowed |
+| `DA-Drift-Commitment` | Drift | Commit receipt | Drift | Acknowledge the retained commitment | Preserve one report and fence certification | Quarantined |
+| `DA-Drift-Rejection` | Drift | Reject receipt | Drift | Record conflict against retained commitment | Preserve one report and fence certification | Quarantined |
+| `DA-Drift-Audit` | Drift | Decision audit | Drift | Store matching attestation | Preserve one report and fence certification | Quarantined |
 
 ### Sale evidence and STATUS during a rebuild
 
@@ -256,86 +256,89 @@ These rows preserve the current funds, listing enum and canonical Deliver
 identity. Verified evidence can clear the key and complete certification if
 the remaining scans are complete.
 
-| Sale evidence | STATUS event | Next evidence | Work and report | Disposition |
-| --- | --- | --- | --- | --- |
-| Pending | ESCROWED | Pending | Keep dirty and charge one attempt | Allowed |
-| Pending | DELIVERED | Pending | Keep dirty and charge one attempt | Allowed |
-| Pending | RETURNED | Pending | Keep dirty and charge one attempt | Allowed |
-| Pending | Missing | Pending | Keep dirty and charge one attempt | Allowed |
-| Committed | ESCROWED | Committed | Keep dirty and charge one attempt | Allowed |
-| Committed | DELIVERED | Committed | Keep dirty and charge one attempt | Allowed |
-| Committed | RETURNED | Committed | Keep dirty and charge one attempt | Allowed |
-| Committed | Missing | Committed | Keep dirty and charge one attempt | Allowed |
-| Audited | ESCROWED | Drift | Keep report count at one and fence certification | Quarantined |
-| Audited | DELIVERED | Audited | Clear dirty key and enable certification | Allowed |
-| Audited | RETURNED | Drift | Keep report count at one and fence certification | Quarantined |
-| Audited | Missing | Audited | Keep dirty and charge one attempt | Allowed |
-| Rejected | ESCROWED | Rejected | Clear dirty key and enable certification | Allowed |
-| Rejected | DELIVERED | Drift | Keep report count at one and fence certification | Quarantined |
-| Rejected | RETURNED | Rejected | Keep dirty and charge one attempt | Allowed |
-| Rejected | Missing | Rejected | Keep dirty and charge one attempt | Allowed |
-| Refunded | ESCROWED | Drift | Keep report count at one and fence certification | Quarantined |
-| Refunded | DELIVERED | Drift | Keep report count at one and fence certification | Quarantined |
-| Refunded | RETURNED | Refunded | Clear dirty key and enable certification | Allowed |
-| Refunded | Missing | Refunded | Keep dirty and charge one attempt | Allowed |
-| Drift | ESCROWED | Drift | Keep report count at one and fence certification | Quarantined |
-| Drift | DELIVERED | Drift | Keep report count at one and fence certification | Quarantined |
-| Drift | RETURNED | Drift | Keep report count at one and fence certification | Quarantined |
-| Drift | Missing | Drift | Keep report count at one and fence certification | Quarantined |
+| Row ID | Sale evidence | STATUS event | Next evidence | Work and report | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| `SS-Pending-Escrowed` | Pending | ESCROWED | Pending | Keep dirty and charge one attempt | Allowed |
+| `SS-Pending-Delivered` | Pending | DELIVERED | Pending | Keep dirty and charge one attempt | Allowed |
+| `SS-Pending-Returned` | Pending | RETURNED | Pending | Keep dirty and charge one attempt | Allowed |
+| `SS-Pending-Missing` | Pending | Missing | Pending | Keep dirty and charge one attempt | Allowed |
+| `SS-Committed-Escrowed` | Committed | ESCROWED | Committed | Keep dirty and charge one attempt | Allowed |
+| `SS-Committed-Delivered` | Committed | DELIVERED | Committed | Keep dirty and charge one attempt | Allowed |
+| `SS-Committed-Returned` | Committed | RETURNED | Committed | Keep dirty and charge one attempt | Allowed |
+| `SS-Committed-Missing` | Committed | Missing | Committed | Keep dirty and charge one attempt | Allowed |
+| `SS-Audited-Escrowed` | Audited | ESCROWED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Audited-Delivered` | Audited | DELIVERED | Audited | Clear dirty key and enable certification | Allowed |
+| `SS-Audited-Returned` | Audited | RETURNED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Audited-Missing` | Audited | Missing | Audited | Keep dirty and charge one attempt | Allowed |
+| `SS-Rejected-Escrowed` | Rejected | ESCROWED | Rejected | Clear dirty key and enable certification | Allowed |
+| `SS-Rejected-Delivered` | Rejected | DELIVERED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Rejected-Returned` | Rejected | RETURNED | Rejected | Keep dirty and charge one attempt | Allowed |
+| `SS-Rejected-Missing` | Rejected | Missing | Rejected | Keep dirty and charge one attempt | Allowed |
+| `SS-Refunded-Escrowed` | Refunded | ESCROWED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Refunded-Delivered` | Refunded | DELIVERED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Refunded-Returned` | Refunded | RETURNED | Refunded | Clear dirty key and enable certification | Allowed |
+| `SS-Refunded-Missing` | Refunded | Missing | Refunded | Keep dirty and charge one attempt | Allowed |
+| `SS-Drift-Escrowed` | Drift | ESCROWED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Drift-Delivered` | Drift | DELIVERED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Drift-Returned` | Drift | RETURNED | Drift | Keep report count at one and fence certification | Quarantined |
+| `SS-Drift-Missing` | Drift | Missing | Drift | Keep report count at one and fence certification | Quarantined |
 
 ### Recovery and cross-record transitions
 
 These rows seed the linked records needed to exercise a complete lifecycle
 path. A row can include a second input to prove that a later replay or retry
-preserves the first outcome. The PostgreSQL acceptance test runs all 179
-database rows in this document. The SQL guard test runs the final row.
+preserves the first outcome. The PostgreSQL acceptance test compares the
+executed row IDs with the required IDs declared in these tables. BZ-13 also
+runs as a standalone SQL guard test.
 
-| Current | Event | Next | Funds | Custody | Work and report | Disposition |
-| --- | --- | --- | --- | --- | --- | --- |
-| Absent | Create | Draft | None | Stage deposit | Publish one escrow intent | Allowed |
-| Draft, no Game effect | Lock pending | Draft | None | Await Lock | Preserve operation | Allowed |
-| Draft, Lock pending | Audited Lock rejection | Cancelled or awaiting release of surviving Lock | None | Close only with verified no effect or unlock | Record refusal | Allowed |
-| Draft, Escrow pending | Audited Escrow rejection | Cancelled | None | No deposit effect | Record refusal | Allowed |
-| Draft, audited Escrow | Advance | Active | None | Escrow | Preserve proof | Allowed |
-| Draft, audited Escrow | Cancel requested | Cancelled after audited Return | None | Returned | Dispatch one return | Allowed |
-| Active, no bid | Expiry | Cancelled after audited Return | None | Returned | Dispatch one return | Allowed |
-| Active, moderation hold | Expiry | Active | Preserve | Escrow | Preserve hold with no Return dispatch | Allowed to defer |
-| Active, held funds | Expiry | AwaitingDelivery | Held | Escrow | Bind one sale | Allowed |
-| Active, moderation hold | Approved invalidation | Cancelled | Release if reserved | Returned | Resolve hold after return | Allowed |
-| Matched, legacy hold | Retry tick | AwaitingDelivery | Preserve reservation | Escrow | Retire hold once and resume settlement | Allowed |
-| AwaitingDelivery, dispatched Deliver | Suspend | AwaitingDelivery | Preserve | Escrow | Record moderation hold after dispatch fence | Allowed |
-| AwaitingDelivery, dispatched Deliver | Audited commitment and Delivered status | Completed | Settle once | Delivered | One completed sale | Allowed |
-| AwaitingDelivery, dispatched Deliver | Audited rejection and audited Returned status | Cancelled | Refund once | Returned | Record compensation | Allowed |
-| AwaitingDelivery, canonical and alternate staged | Second connection publishes alternate, then canonical publishes | AwaitingDelivery with canonical dispatched | Held | Escrow | Exactly one dispatch | Alternate impossible because its key cannot authorize publication |
-| AwaitingDelivery, receipt without audit | BZ-08 retry bound | Drift, listing unchanged | Held | Quarantine | Queue survives eight retries. Report once and keep custody fenced after late audit | Quarantined |
-| AwaitingDelivery, Return dispatched after audited Deliver rejection | Return receipt remains missing through retry bound | Drift, listing unchanged | Held | Quarantine | Report once. Deliver rejection does not clear unresolved Return work | Quarantined |
-| AwaitingDelivery, Return dispatched before Deliver | Return receipt remains missing through retry bound | Drift, listing unchanged | Held | Quarantine | Report once even without a Deliver operation | Quarantined |
-| AwaitingDelivery, Return dispatched after audited Deliver rejection | Audited Return rejection | Drift, listing unchanged | Held | Quarantine | Report once. Preserve return fence and require operator reconciliation | Quarantined |
-| AwaitingDelivery, unpublished alternate | BZ-11 buyer becomes ineligible | Cancelled after audited Return | Refund once | Returned | Ignore staged alternate. Independently evidenced handoff still fences return | Allowed |
-| Completed, old evidence | Receipt before audit | Completed | Settled | Preserve | Wait for audit, then resolve dirty key and certify | Allowed |
-| Completed, old evidence | STATUS ESCROWED contradicts delivered custody | Drift, listing unchanged | Settled | Quarantine | Report once | Quarantined |
-| Completed, old evidence | Retry bound | Drift, listing unchanged | Settled | Quarantine | Report once even after receipt replay | Quarantined |
-| Completed, current evidence | Worker tick | Completed | Preserve settlement | Delivered | No repeat handoff | Allowed |
-| Completed, certified | Contradictory status changes after certification | Drift, listing unchanged | Preserve settlement | Quarantine | Recheck and revoke certification | Quarantined |
-| Completed, behind cursor | Status producer commits between pages | Drift, listing unchanged | Preserve settlement | Quarantine | Committed dirty key forces recheck behind cursor | Quarantined |
-| Completed, obsolete marker | BZ-10 same-fence version or world-set change and rebuild failure | Rebuilding or fenced | Preserve settlement | Preserve | Obsolete marker cannot serve with fresh watermark | Allowed rebuild failure |
-| Cancelled, refunded | BZ-09 ESCROWED status contradicts Return | Drift, listing unchanged | Preserve refund | Quarantine | Report once and revoke certification | Quarantined |
-| Cancelled, refunded | Reversal of rejected Deliver | Drift, listing unchanged | Preserve refund | Quarantine | Report the conflicting commitment once | Quarantined |
-| Rebuild, old epoch | Rebuild start | Current after scan | Preserve | Preserve | Old coordinator cannot certify. The correct epoch can finish | Allowed |
-| Rebuild, world absent | Configured world missing | Fenced until corrected | Preserve | Preserve | No sale retry charged for configuration gap | Allowed to defer |
-| Rebuild, early missing STATUS | BZ-12 page checkpoint before contradictory legacy sale | Later sale in Drift | Preserve | Quarantine affected sale | Advance past missing listing and report the later sale once without new intake | Allowed enumeration with later sale quarantined |
-| Rebuild, completed legacy item with no authority asset row | Page finds contradictory Deliver evidence | Drift, listing unchanged | Preserve settlement | Quarantine | Enumerate by the retained sale and command, then report once | Quarantined |
-| Rebuild, Active escrow behind cursor | BZ-14 Conflicting STATUS commits between pages | Active, certification pending | Preserve | Projection quarantined | Commit the listing dirty key with the conflict. The final page leaves certification fenced | Quarantined |
-| Rebuild, completed legacy item with missing configured world | BZ-15 Retry checks without current Deliver evidence | Completed, certification pending until the world and evidence return | Preserve settlement | Preserve | Resolve the world from retained item details. Charge no retries and report no drift while the world is missing | Allowed to defer |
-| Rebuild, Active escrow behind cursor | BZ-14b Applied STATUS names a missing operation | Active, then certified after replacement and a clean scan | Preserve | Wait for valid evidence | Keep the listing key until the replacement resolves it | Allowed to defer |
-| Rebuild, Escrow behind operation cursor | BZ-16 Receipt or decision audit conflict | Fenced | Preserve | Conflicted evidence | Restart enumeration and recheck the invalidated operation | Quarantined |
-| Rebuild, completed legacy item with missing configured world | BZ-17 Immediate drift with world missing | Completed, then certified after world and evidence recover | Preserve | Preserve | Charge no retries and record no drift until the world resolves | Allowed to defer |
-| Rebuild, v5 checkpoint | BZ-18 Legacy writer attempts evidence and checkpoint writes | Rebuilding at the same cursor | Preserve | Preserve | Reject both writes and keep certification fenced until the v5 scan finishes | Impossible for the older writer |
-| Rebuild, paged operation scan | BZ-19 Evidence epoch changes | Restarted from page one | Preserve | Recheck | Withhold the marker and pause after three consecutive resets | Allowed to defer |
-| Rebuild, early Drift | Later page | Both contradictions in Drift | Preserve | Quarantine affected sales | Report both once and continue past early Drift | Quarantined |
-| Rebuild, page in flight | Writer connection closes before commit | Last committed cursor, then replayed page | Preserve | Preserve | Observer cannot read abandoned checkpoint. Retry commits successor | Allowed |
-| AwaitingDelivery, Return audited | Second worker races to compensate | Cancelled | Refund once | Returned once | One compensation, one Return dispatch, and one buyer refund ledger entry | Allowed |
-| SQL guard, production macro definition | BZ-13 nested concat!/include_str! assembles a direct state write | Rejected by the guard | Preserve | Preserve | Report the assembled production SQL | Impossible to bypass the lifecycle writer guard |
+| Row ID | Current | Event | Next | Funds | Custody | Work and report | Disposition |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `REC-01` | Absent | Create | Draft | None | Stage deposit | Publish one escrow intent | Allowed |
+| `REC-02` | Draft, no Game effect | Lock pending | Draft | None | Await Lock | Preserve operation | Allowed |
+| `REC-03` | Draft, Lock pending | Audited Lock rejection | Cancelled or awaiting release of surviving Lock | None | Close only with verified no effect or unlock | Record refusal | Allowed |
+| `REC-04` | Draft, Escrow pending | Audited Escrow rejection | Cancelled | None | No deposit effect | Record refusal | Allowed |
+| `REC-05` | Draft, audited Escrow | Advance | Active | None | Escrow | Preserve proof | Allowed |
+| `REC-06` | Draft, audited Escrow | Cancel requested | Cancelled after audited Return | None | Returned | Dispatch one return | Allowed |
+| `REC-07` | Active, no bid | Expiry | Cancelled after audited Return | None | Returned | Dispatch one return | Allowed |
+| `REC-08` | Active, moderation hold | Expiry | Active | Preserve | Escrow | Preserve hold with no Return dispatch | Allowed to defer |
+| `REC-09` | Active, held funds | Expiry | AwaitingDelivery | Held | Escrow | Bind one sale | Allowed |
+| `REC-10` | Active, moderation hold | Approved invalidation | Cancelled | Release if reserved | Returned | Resolve hold after return | Allowed |
+| `REC-11` | Matched, legacy hold | Retry tick | AwaitingDelivery | Preserve reservation | Escrow | Retire hold once and resume settlement | Allowed |
+| `REC-12` | AwaitingDelivery, dispatched Deliver | Suspend | AwaitingDelivery | Preserve | Escrow | Record moderation hold after dispatch fence | Allowed |
+| `REC-13` | AwaitingDelivery, dispatched Deliver | Audited commitment and Delivered status | Completed | Settle once | Delivered | One completed sale. A direct repeat write after completion is refused | Allowed |
+| `REC-14` | AwaitingDelivery, dispatched Deliver | Audited rejection and audited Returned status | Cancelled | Refund once | Returned | Record one compensation. A direct repeat insert after cancellation is refused | Allowed |
+| `REC-15` | AwaitingDelivery, canonical and alternate staged | Second connection publishes alternate, then canonical publishes | AwaitingDelivery with canonical dispatched | Held | Escrow | Exactly one dispatch | Alternate impossible because its key cannot authorize publication |
+| `BZ-08` | AwaitingDelivery, receipt without audit | BZ-08 retry bound | Drift, listing unchanged | Held | Quarantine | Queue survives eight retries. Report once and keep custody fenced after late audit | Quarantined |
+| `REC-17` | AwaitingDelivery, Return dispatched after audited Deliver rejection | Return receipt remains missing through retry bound | Drift, listing unchanged | Held | Quarantine | Report once. Deliver rejection does not clear unresolved Return work | Quarantined |
+| `REC-18` | AwaitingDelivery, Return dispatched before Deliver | Return receipt remains missing through retry bound | Drift, listing unchanged | Held | Quarantine | Report once even without a Deliver operation | Quarantined |
+| `REC-19` | AwaitingDelivery, Return dispatched after audited Deliver rejection | Audited Return rejection | Drift, listing unchanged | Held | Quarantine | Report once. Preserve return fence and require operator reconciliation | Quarantined |
+| `BZ-11` | AwaitingDelivery, unpublished alternate | BZ-11 buyer becomes ineligible | Cancelled after audited Return | Refund once | Returned | Ignore staged alternate. Independently evidenced handoff still fences return | Allowed |
+| `REC-21` | Completed, old evidence | Receipt before audit | Completed | Settled | Preserve | Wait for audit, then resolve dirty key and certify | Allowed |
+| `REC-22` | Completed, old evidence | STATUS ESCROWED contradicts delivered custody | Drift, listing unchanged | Settled | Quarantine | Report once | Quarantined |
+| `REC-23` | Completed, old evidence | Retry bound | Drift, listing unchanged | Settled | Quarantine | Report once even after receipt replay | Quarantined |
+| `REC-24` | Completed, current evidence | Worker tick | Completed | Preserve settlement | Delivered | No repeat handoff | Allowed |
+| `REC-25` | Completed, certified | Contradictory status changes after certification | Drift, listing unchanged | Preserve settlement | Quarantine | Recheck and revoke certification | Quarantined |
+| `REC-26` | Completed, behind cursor | Status producer commits between pages | Drift, listing unchanged | Preserve settlement | Quarantine | Committed dirty key forces recheck behind cursor | Quarantined |
+| `BZ-10` | Completed, obsolete marker | BZ-10 same-fence version or world-set change and rebuild failure | Rebuilding or fenced | Preserve settlement | Preserve | Obsolete marker cannot serve with fresh watermark | Allowed rebuild failure |
+| `BZ-09` | Cancelled, refunded | BZ-09 ESCROWED status contradicts Return | Drift, listing unchanged | Preserve refund | Quarantine | Report once and revoke certification | Quarantined |
+| `REC-29` | Cancelled, refunded | Reversal of rejected Deliver | Drift, listing unchanged | Preserve refund | Quarantine | Report the conflicting commitment once | Quarantined |
+| `REC-30` | Rebuild, old epoch | Rebuild start | Current after scan | Preserve | Preserve | Old coordinator cannot certify. The correct epoch can finish | Allowed |
+| `REC-31` | Rebuild, world absent | Configured world missing | Fenced until corrected | Preserve | Preserve | No sale retry charged for configuration gap | Allowed to defer |
+| `BZ-12` | Rebuild, early missing STATUS | BZ-12 page checkpoint before contradictory legacy sale | Later sale in Drift | Preserve | Quarantine affected sale | Advance past missing listing and report the later sale once without new intake | Allowed enumeration with later sale quarantined |
+| `REC-33` | Rebuild, completed legacy item with no authority asset row | Page finds contradictory Deliver evidence | Drift, listing unchanged | Preserve settlement | Quarantine | Enumerate by the retained sale and command, then report once | Quarantined |
+| `BZ-14` | Rebuild, Active escrow behind cursor | BZ-14 Conflicting STATUS commits between pages | Active, certification pending | Preserve | Projection quarantined | Commit the listing dirty key with the conflict. The final page leaves certification fenced | Quarantined |
+| `BZ-15` | Rebuild, completed legacy item with missing configured world | BZ-15 Retry checks without current Deliver evidence | Completed, certification pending until the world and evidence return | Preserve settlement | Preserve | Resolve the world from retained item details. Charge no retries and report no drift while the world is missing | Allowed to defer |
+| `BZ-14b` | Rebuild, Active escrow behind cursor | BZ-14b Applied STATUS names a missing operation | Active, then certified after replacement and a clean scan | Preserve | Wait for valid evidence | Keep the listing key until the replacement resolves it | Allowed to defer |
+| `BZ-16` | Rebuild, Escrow behind operation cursor | BZ-16 Receipt or decision audit conflict | Fenced | Preserve | Conflicted evidence | Restart enumeration and recheck the invalidated operation | Quarantined |
+| `BZ-17` | Rebuild, completed legacy item with missing configured world | BZ-17 Immediate drift with world missing | Completed, then certified after world and evidence recover | Preserve | Preserve | Charge no retries and record no drift until the world resolves | Allowed to defer |
+| `BZ-18` | Rebuild, v5 checkpoint | BZ-18 Legacy writer attempts evidence and checkpoint writes | Rebuilding at the same cursor | Preserve | Preserve | Reject both writes and keep certification fenced until the v5 scan finishes | Impossible for the older writer |
+| `BZ-19` | Rebuild, paged operation scan | BZ-19 Evidence epoch changes | Restarted from page one | Preserve | Recheck | Withhold the marker and pause after three consecutive resets | Allowed to defer |
+| `REC-41` | Rebuild, early Drift | Later page | Both contradictions in Drift | Preserve | Quarantine affected sales | Report both once and continue past early Drift | Quarantined |
+| `REC-42` | Rebuild, page in flight | Writer connection closes before commit | Last committed cursor, then replayed page | Preserve | Preserve | Observer cannot read abandoned checkpoint. Retry commits successor | Allowed |
+| `REC-43` | AwaitingDelivery, Return audited | Second worker races to compensate | Cancelled | Refund once | Returned once | One compensation, one Return dispatch, and one buyer refund ledger entry | Allowed |
+| `SALE-GOLD-COMPLETE` | Active, then AwaitingDelivery with a gold sale | Attempt both completion writes | Mark the sale complete only from AwaitingDelivery | Preserve | Preserve | Verify the completion marker is absent after the refused write | Impossible from Active |
+| `BZ-13` | SQL guard, production macro definition | BZ-13 nested concat!/include_str! assembles a direct state write | Rejected by the guard | Preserve | Preserve | Report the assembled production SQL | Impossible to bypass the lifecycle writer guard |
+
 
 ## Invariants
 
