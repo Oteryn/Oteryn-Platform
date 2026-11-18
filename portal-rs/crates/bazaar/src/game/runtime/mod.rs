@@ -151,6 +151,27 @@ impl Runtime {
                     && *k != "eligibility_revision"
                     && intent.value.get(k) != Some(v)
                 {
+                    // An issued intent keeps the prerequisite digest it originally
+                    // named. Recovery may reattest the same operation and facts.
+                    let prerequisite = match *k {
+                        "escrow_receipt_digest" => Some(Command::Escrow),
+                        "delivery_receipt_digest" if listing.kind == Kind::Item => {
+                            Some(Command::Deliver)
+                        }
+                        _ => None,
+                    };
+                    if let Some(command) = prerequisite {
+                        let current = self
+                            .authority()
+                            .prerequisite(tx, text(&intent.value, k)?)
+                            .await?;
+                        if current.committed
+                            && current.command == command
+                            && string(current.digest()) == *v
+                        {
+                            continue;
+                        }
+                    }
                     return Err(Error::Conflict);
                 }
             }

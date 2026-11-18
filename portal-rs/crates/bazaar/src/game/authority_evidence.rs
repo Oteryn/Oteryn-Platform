@@ -19,8 +19,7 @@ impl Authority {
         if worlds.is_empty() || worlds.len() > 32 || worlds.windows(2).any(|w| w[0] >= w[1]) {
             return Err(Error::Invalid);
         }
-        let completed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_resync WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric)").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?;
-        if completed {
+        if self.resynced(db).await? {
             return Ok(());
         }
         let worlds_binding = worlds
@@ -181,12 +180,14 @@ impl Authority {
         }
         Ok(Some(value))
     }
+    pub(super) async fn resynced(&self, db: &mut PgConnection) -> Result<bool, Error> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_resync WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric)").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut *db).await?)
+    }
     pub(super) async fn fresh(&self, db: &mut PgConnection) -> Result<bool, Error> {
         if self.lock(db).await.is_err() {
             return Ok(false);
         }
-        let resynced:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_resync WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric)").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut *db).await?;
-        if !resynced {
+        if !self.resynced(db).await? {
             return Ok(false);
         }
         let Some(watermark) = self.projection(db, "WATERMARK", Uuid::nil()).await? else {
