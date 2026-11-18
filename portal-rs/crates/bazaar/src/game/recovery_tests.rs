@@ -6,7 +6,7 @@ async fn replay(a: &Authority, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, l
         .await
         .unwrap();
     let now = runtime::now(tx).await.unwrap();
-    let rows: Vec<(String,String)> = sqlx::query_as("SELECT intent,receipt FROM bazaar_game_outbox JOIN bazaar_authority_receipts USING(operation_id) WHERE listing_id=$1 AND recovery_generation=3 ORDER BY source_revision").bind(listing).fetch_all(&mut **tx).await.unwrap();
+    let rows: Vec<(String,String)> = sqlx::query_as("SELECT intent,receipt FROM bazaar_game_outbox JOIN bazaar_authority_receipts USING(operation_id) WHERE listing_id=$1 AND bazaar_authority_receipts.recovery_generation=3 ORDER BY source_revision").bind(listing).fetch_all(&mut **tx).await.unwrap();
     for (intent, raw) in rows {
         let intent = PreparedIntent::parse(&intent).unwrap();
         let raw = raw.replace(
@@ -130,7 +130,11 @@ async fn item_effect(db: &BrowserFixture, command: Command, refused: bool) {
 }
 
 async fn recover(db: &mut BrowserFixture) {
-    let a = &mut std::sync::Arc::make_mut(&mut db.runtime.config).authority;
+    let config=std::sync::Arc::make_mut(&mut db.runtime.config);
+    config.fence.recovery_generation=4;
+    let fence=serde_json::json!({"projection_epoch":3,"recovery_generation":4,"incarnation":config.fence.incarnation,"character_history_complete_since":null});
+    std::fs::write(&config.fence_file,fence.to_string()).unwrap();
+    let a=&mut config.authority;
     a.fence.recovery_generation = 4;
     let mut tx = db.pool.begin().await.unwrap();
     replay(a, &mut tx, uid("20")).await;
