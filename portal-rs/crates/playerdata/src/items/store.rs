@@ -506,7 +506,7 @@ impl Projection {
     /// metadata survives until cleanup advances the durable floor.
     pub async fn erase(&self, account: Uuid, character: Option<Uuid>) -> Result<()> {
         let mut tx = self.pool.begin().await?;
-        erase_scope(&mut tx, account, character).await?;
+        erase_scope(&mut tx, account, character, None).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -617,12 +617,17 @@ pub(crate) async fn erase_scope(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     account: Uuid,
     character: Option<Uuid>,
-) -> std::result::Result<(), sqlx::Error> {
+    limit: Option<i64>,
+) -> std::result::Result<bool, sqlx::Error> {
     sqlx::query("UPDATE pd_t76_streams SET fenced=true,snapshot=NULL,snapshot_at=NULL,staging_start=NULL,staging_at=NULL,coverage_start=0,last_bank_entry=NULL,last_bank_balance=NULL,updated_at=now() WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
             .bind(account).bind(character).execute(&mut **tx).await?;
-    sqlx::query("UPDATE pd_t76_records SET canonical_bytes=NULL,occurred_at=0 WHERE stream_key IN (SELECT stream_key FROM pd_t76_streams WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2))")
-            .bind(account).bind(character).execute(&mut **tx).await?;
-    sqlx::query("UPDATE pd_t76_events SET canonical_bytes=NULL,occurred_at=0 WHERE stream_key IN (SELECT stream_key FROM pd_t76_streams WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2))")
-            .bind(account).bind(character).execute(&mut **tx).await?;
-    Ok(())
+    let records = sqlx::query("UPDATE pd_t76_records SET canonical_bytes=NULL,occurred_at=0 WHERE ctid IN (
+        SELECT r.ctid FROM pd_t76_records r JOIN pd_t76_streams s USING(stream_key) WHERE s.account_id=$1 AND ($2::uuid IS NULL OR s.character_id=$2)
+        AND (r.canonical_bytes IS NOT NULL OR r.occurred_at<>0) LIMIT $3 FOR UPDATE OF r)")
+        .bind(account).bind(character).bind(limit).execute(&mut **tx).await?.rows_affected();
+    let events = sqlx::query("UPDATE pd_t76_events SET canonical_bytes=NULL,occurred_at=0 WHERE ctid IN (
+        SELECT r.ctid FROM pd_t76_events r JOIN pd_t76_streams s USING(stream_key) WHERE s.account_id=$1 AND ($2::uuid IS NULL OR s.character_id=$2)
+        AND (r.canonical_bytes IS NOT NULL OR r.occurred_at<>0) LIMIT $3 FOR UPDATE OF r)")
+        .bind(account).bind(character).bind(limit).execute(&mut **tx).await?.rows_affected();
+    Ok(limit.is_none_or(|n| events < n as u64 && records < n as u64))
 }

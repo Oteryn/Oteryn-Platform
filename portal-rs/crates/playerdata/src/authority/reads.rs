@@ -195,9 +195,14 @@ impl LoginPromoter {
                 if entity.is_empty() && row.try_get::<String, _>("scope_key")?.is_empty() {
                     continue;
                 }
+                let character = row
+                    .try_get::<Option<String>, _>("character_id")?
+                    .map(|c| Uuid::parse_str(&c))
+                    .transpose()
+                    .map_err(|_| Error::Unavailable)?;
                 if row.try_get::<String, _>("kind")? == "REMOVE" {
                     let id = Uuid::parse_str(&entity).map_err(|_| Error::Unavailable)?;
-                    Logins::remove(tx, account_id, id)
+                    Logins::remove(tx, account_id, character, id)
                         .await
                         .map_err(from_login)?;
                     continue;
@@ -206,11 +211,6 @@ impl LoginPromoter {
                 let Some(payload) = row.try_get::<Option<Vec<u8>>, _>("payload")? else {
                     continue;
                 };
-                let character = row
-                    .try_get::<Option<String>, _>("character_id")?
-                    .map(|c| Uuid::parse_str(&c))
-                    .transpose()
-                    .map_err(|_| Error::Unavailable)?;
                 if let Some(character) = character {
                     // A character sold since the record stays out of the seller's view.
                     if !matches!(

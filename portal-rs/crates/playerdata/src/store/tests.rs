@@ -2144,3 +2144,135 @@ async fn r8_expired_bank_retry() -> std::result::Result<(), Box<dyn std::error::
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn r9_bank_event_identity() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let authority = TestAuthority::default();
+    let first = playerdata::items(&bank(1, None, 0, 10))?;
+    authority.allow(first.scope.clone()).await;
+    let store = db.store(&authority);
+    store.ingest(first.clone(), clock()).await?;
+    let raw = String::from_utf8(bank(2, Some(&first.entity), 10, 10))?;
+    let candidate = playerdata::items(raw.as_bytes())?;
+    for field in ["event_id", "operation_occurrence_id"] {
+        let id = |r: &Record| {
+            playerdata::text(playerdata::get(&r.payload, field).unwrap())
+                .unwrap()
+                .to_owned()
+        };
+        let repeated = raw.replace(&id(&candidate), &id(&first));
+        assert!(
+            matches!(
+                store
+                    .ingest(playerdata::items(repeated.as_bytes())?, clock())
+                    .await,
+                Err(Error::Conflict)
+            ),
+            "duplicate {field} accepted"
+        );
+    }
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn r9_history_coverage_after_pruning() -> std::result::Result<(), Box<dyn std::error::Error>>
+{
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let authority = TestAuthority::default();
+    let store = db.store(&authority);
+    for (family, payload) in [
+        (
+            "MARKET",
+            include_str!(
+                "../../../../../docs/contracts/fixtures/game-journal-items-v1/payload-market-event.valid.json"
+            ),
+        ),
+        (
+            "PLAYER_TRADE",
+            include_str!(
+                "../../../../../docs/contracts/fixtures/game-journal-items-v1/payload-player-trade-event.valid.json"
+            ),
+        ),
+    ] {
+        let later = TrustedTime {
+            unix_ms: NOW + 100 * 86400000,
+            ..clock()
+        };
+        let make = |rev, occurred, coverage| {
+            let envelope =
+                String::from_utf8(snapshot(rev, &Uuid::now_v7().to_string(), false).bytes).unwrap();
+            let prefix = envelope
+                .split_once("\"payload\":")
+                .unwrap()
+                .0
+                .replace("\"ITEMS\"", &format!("\"{family}\""))
+                .replace("ITEMS_BEGIN", &format!("{family}_EVENT"))
+                .replace(
+                    &format!(r#""occurred_at":"{}""#, NOW / 1000),
+                    &format!(r#""occurred_at":"{occurred}""#),
+                )
+                .replace(
+                    &format!("\"coverage_start_at\":\"{}\"", NOW / 1000),
+                    &format!("\"coverage_start_at\":\"{coverage}\""),
+                );
+            playerdata::items(format!("{prefix}\"payload\":{payload}}}").as_bytes())
+        };
+        let first = make(1, NOW / 1000, NOW / 1000)?;
+        authority.allow(first.scope.clone()).await;
+        store.ingest(first, clock()).await?;
+        store.expire(later).await?;
+        let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM pd_records WHERE kind=$1")
+            .bind(format!("{family}_EVENT"))
+            .fetch_one(&db.pool)
+            .await?;
+        assert_eq!(retained, 0);
+        assert!(
+            matches!(
+                store
+                    .ingest(make(2, later.unix_ms / 1000, NOW / 1000 - 1)?, later)
+                    .await,
+                Err(Error::Conflict)
+            ),
+            "changed {family} coverage accepted"
+        );
+        store
+            .ingest(make(2, later.unix_ms / 1000, NOW / 1000)?, later)
+            .await?;
+    }
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn r9_account_erasure_batch() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let authority = TestAuthority::default();
+    let first = playerdata::progress(&progress(1))?;
+    authority.allow(first.scope.clone()).await;
+    db.store(&authority).ingest(first, clock()).await?;
+    sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms) SELECT stream_key,i,authority,recovery_generation,uuidv7()::text,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms FROM pd_records CROSS JOIN generate_series(2,513) i").execute(&db.pool).await?;
+    sqlx::query("INSERT INTO pd_erasure_jobs(account_id) VALUES($1)")
+        .bind(ACCOUNT)
+        .execute(&db.pool)
+        .await?;
+    let worker = crate::retention::Retention(db.pool.clone());
+    for expected in [1, 0] {
+        worker.expire_batch().await?;
+        let state:(i64,i64) = sqlx::query_as("SELECT count(*) FILTER(WHERE scope_key<>''),(SELECT count(*) FROM pd_erasure_jobs) FROM pd_records").fetch_one(&db.pool).await?;
+        assert_eq!(
+            state,
+            (expected, expected),
+            "bounded erasure and pending job"
+        );
+    }
+    db.close().await?;
+    Ok(())
+}
