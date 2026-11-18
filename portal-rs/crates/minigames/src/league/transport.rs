@@ -113,6 +113,21 @@ pub async fn start_private_listener(pool: PgPool) -> Result<Option<JoinHandle<()
     };
     start(pool, c).await.map(Some)
 }
+/// Builds the routes served by the dedicated League listener.
+pub fn private_router(pool: PgPool, config: Config) -> Router {
+    let surface = Surface {
+        pool,
+        config: Arc::new(config),
+        rate: Arc::new(Mutex::new(VecDeque::new())),
+    };
+    let mut app = Router::new();
+    for path in [admission::EVENT, admission::SEASON, admission::WATERMARK] {
+        app = app.route(path, post(ingest));
+    }
+    app.fallback(|| async { response(StatusCode::BAD_REQUEST) })
+        .method_not_allowed_fallback(|| async { response(StatusCode::BAD_REQUEST) })
+        .with_state(surface)
+}
 async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
     let connection_limit = c.connections()?;
     let load = |p: &std::path::Path| std::fs::read(p).map_err(|_| Error::Unavailable);
@@ -141,19 +156,8 @@ async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
     let listener = tokio::net::TcpListener::bind(&c.bind)
         .await
         .map_err(|_| Error::Unavailable)?;
-    let surface = Surface {
-        pool,
-        config: Arc::new(c),
-        rate: Arc::new(Mutex::new(VecDeque::new())),
-    };
-    let mut app = Router::new();
-    for path in [admission::EVENT, admission::SEASON, admission::WATERMARK] {
-        app = app.route(path, post(ingest));
-    }
-    let app = app
-        .fallback(|| async { response(StatusCode::BAD_REQUEST) })
-        .method_not_allowed_fallback(|| async { response(StatusCode::BAD_REQUEST) })
-        .with_state(surface.clone());
+    let expected = c.client_spki_sha256.clone();
+    let app = private_router(pool, c);
     let limit = Arc::new(tokio::sync::Semaphore::new(connection_limit));
     Ok(tokio::spawn(async move {
         loop {
@@ -171,7 +175,7 @@ async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
             };
             let acceptor = acceptor.clone();
             let app = app.clone();
-            let expected = surface.config.client_spki_sha256.clone();
+            let expected = expected.clone();
             tokio::spawn(async move {
                 let _permit = permit;
                 let Ok(Ok(tls)) =

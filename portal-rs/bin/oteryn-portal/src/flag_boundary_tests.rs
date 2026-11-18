@@ -5,7 +5,7 @@ mod flag_boundary {
     use sha2::{Digest, Sha256};
     use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
     use std::{
-        collections::BTreeSet,
+        collections::{BTreeMap, BTreeSet},
         fs,
         net::{SocketAddr, TcpListener},
         path::Path,
@@ -18,6 +18,8 @@ mod flag_boundary {
     type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
     const CHILD: &str = "FLAG_BOUNDARY_CHILD";
+    const ROUTE_PROFILE: &str = "FLAG_BOUNDARY_ROUTE_PROFILE";
+    const ROUTE_PROFILES: &str = "FLAG_BOUNDARY_ROUTE_PROFILES";
     const CLOSED_LISTENERS: &[&str] = &[
         "OTERYN_BAZAAR_INTERNAL_BIND",
         "OTERYN_LEAGUE_BIND",
@@ -317,6 +319,36 @@ mod flag_boundary {
                         .run_until(exercise_boundary(test, referrals_enabled)),
                 );
         }
+        let route_profiles = tempfile::tempdir()?;
+        if test == "flags_off_keep_routes_jobs_and_tables_inert" {
+            launch_case(test, false, route_profiles.path(), "enabled")?;
+            launch_case(test, false, route_profiles.path(), "enabled-with-restore")?;
+            launch_case(test, referrals_enabled, route_profiles.path(), "")?;
+            let prerequisites = ROUTE_PREREQUISITES
+                .iter()
+                .flat_map(|group| group.flags.iter().copied())
+                .collect::<BTreeSet<_>>();
+            let mut failures = Vec::new();
+            for prerequisite in prerequisites {
+                if let Err(error) = launch_case(test, false, route_profiles.path(), prerequisite) {
+                    failures.push(error.to_string());
+                }
+            }
+            return if failures.is_empty() {
+                Ok(())
+            } else {
+                Err(failures.join("\n").into())
+            };
+        }
+        launch_case(test, referrals_enabled, route_profiles.path(), "")
+    }
+
+    fn launch_case(
+        test: &str,
+        referrals_enabled: bool,
+        route_profiles: &Path,
+        route_profile: &str,
+    ) -> TestResult {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
         let listeners = LISTENER_SETTINGS
             .iter()
@@ -374,15 +406,153 @@ mod flag_boundary {
                 tls.path().join("ca.pem"),
             )
             .env("FLAG_BOUNDARY_SCHEMA", &schema);
+        if test == "flags_off_keep_routes_jobs_and_tables_inert" {
+            let route_dir = if route_profile.is_empty() {
+                "disabled"
+            } else {
+                route_profile
+            };
+            let dir = route_profiles.join(route_dir);
+            fs::create_dir_all(&dir)?;
+            command.env("FLAG_BOUNDARY_ROUTE_DIR", dir);
+            command.env(ROUTE_PROFILES, route_profiles);
+            command.env(ROUTE_PROFILE, route_profile);
+            if !route_profile.is_empty() {
+                enable_route_profile(&mut command, tls.path())?;
+                match route_profile {
+                    "enabled-with-restore" => {
+                        command.env("PORTAL_GAME_RESTORE_NOTICE_ENABLED", "true");
+                        command.env("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED", "false");
+                    }
+                    "enabled" => {}
+                    disabled => {
+                        command.env(disabled, "false");
+                    }
+                }
+            }
+        }
         drop(listeners);
         let output = command.output()?;
         let stdout = String::from_utf8(output.stdout)?;
         let stderr = String::from_utf8(output.stderr)?;
         if !output.status.success() || !stdout.contains("test result: ok. 1 passed") {
-            return Err(format!("{stdout}\n{stderr}").into());
+            return Err(format!("{route_profile} profile failed:\n{stdout}\n{stderr}").into());
         }
         eprint!("{stderr}");
         Ok(())
+    }
+
+    fn enable_route_profile(command: &mut Command, tls: &Path) -> TestResult {
+        command.envs(FLAGS.iter().map(|flag| (*flag, "true")));
+        command.envs([
+            // Restore notice and Store delivery are mutually exclusive at startup.
+            ("PORTAL_GAME_RESTORE_NOTICE_ENABLED", "false"),
+            ("PORTAL_OAUTH_CONFIG", r#"{"enabled":true,"clients":[{"client_id":"boundary","redirect_uris":["http://127.0.0.1/callback"]}]}"#),
+            ("PORTAL_ADMIN_CONTROL_AGENTS_JSON", r#"[{"cn":"oteryn-admin-agent/boundary","identity":{"san":"flag-boundary-agent"},"allowed_nodes":["019ad000-0000-7000-8000-000000000001"],"allowed_worlds":[]}]"#),
+            ("OTERYN_ADMIN_ANALYTICS_AUTHORITY", "flag-boundary-analytics"),
+            ("OTERYN_ADMIN_ANALYTICS_PRIVACY", "flag-boundary"),
+            ("OTERYN_ADMIN_ANALYTICS_PEER_SAN", "game-admin-analytics"),
+            ("OTERYN_NOTIFY_UNSUBSCRIBE_KEY", "flag-boundary-notification-key-00000000"),
+            ("OTERYN_NOTIFY_UNSUBSCRIBE_URL", "https://localhost/unsubscribe"),
+            ("OTERYN_WEBAUTHN_RP_ID", "localhost"),
+            ("OTERYN_SHOP_TOP_UP_PACKAGES", r#"[{"key":"coins-100","coins":100,"minor_units":250,"currency":"PLN"}]"#),
+            ("OTERYN_SHOP_TEST_PAYMENT_KEY", "flag-boundary-shop-test-key-0000000000"),
+            ("PORTAL_ATLAS_DELIVERY_ENABLED", "1"),
+            ("PORTAL_WORLD_ENABLED", "1"),
+        ]);
+        let verification_key = ed25519_dalek::SigningKey::from_bytes(&[17; 32]).verifying_key();
+        let key_hex = verification_key
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        fs::write(
+            tls.join("bazaar-keys.json"),
+            format!(r#"[{{"kid":"boundary","public_key_hex":"{key_hex}"}}]"#),
+        )?;
+        fs::write(
+            tls.join("bazaar-fence.json"),
+            r#"{"projection_epoch":1,"recovery_generation":1,"incarnation":"019ad000-0000-7000-8000-000000000001","character_history_complete_since":0}"#,
+        )?;
+        fs::write(
+            tls.join("league-fence.json"),
+            r#"{"source_authority":"oteryn:game:primary","projection_epoch":"1","recovery_generation":"1"}"#,
+        )?;
+        let client_pin = format!("{:x}", Sha256::digest(fs::read(tls.join("client.der"))?));
+        command
+            .env("OTERYN_ATLAS_DIRECTORY", tls)
+            .env("OTERYN_RESET_DELIVERY_KEY", "02".repeat(32))
+            .env("PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX", key_hex)
+            .env("PORTAL_ACCOUNT_CLOSURE_KEY_ID", "boundary")
+            .env("PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION", "1")
+            .env("PORTAL_ACCOUNT_CLOSURE_BASE_URL", "https://localhost")
+            .env("PORTAL_ACCOUNT_CLOSURE_TLS_CA_FILE", tls.join("ca.pem"))
+            .env(
+                "PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE",
+                tls.join("server.pem"),
+            )
+            .env(
+                "PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE",
+                tls.join("server.key"),
+            )
+            .env("PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256", client_pin)
+            .env(
+                "PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256",
+                "21".repeat(32),
+            )
+            .env("OTERYN_BAZAAR_SOURCE_AUTHORITY", "oteryn:game:primary")
+            .env("OTERYN_BAZAAR_RECEIPT_AUTHORITY", "oteryn:game:receipts")
+            .env("OTERYN_BAZAAR_INTERNAL_BASE_URL", "https://localhost")
+            .env(
+                "OTERYN_BAZAAR_WORLD_IDS",
+                "019ad000-0000-7000-8000-000000000001",
+            )
+            .env("OTERYN_BAZAAR_CLIENT_SPKI_SHA256", "31".repeat(32))
+            .env("OTERYN_BAZAAR_RECEIPT_CLIENT_SPKI_SHA256", "41".repeat(32))
+            .env("OTERYN_BAZAAR_TLS_CERT_FILE", tls.join("server.pem"))
+            .env("OTERYN_BAZAAR_TLS_KEY_FILE", tls.join("server.key"))
+            .env("OTERYN_BAZAAR_CLIENT_CA_FILE", tls.join("ca.pem"))
+            .env("OTERYN_BAZAAR_FENCE_FILE", tls.join("bazaar-fence.json"))
+            .env(
+                "OTERYN_BAZAAR_SNAPSHOT_KEYS_FILE",
+                tls.join("bazaar-keys.json"),
+            )
+            .env("OTERYN_LEAGUE_SOURCE_AUTHORITY", "oteryn:game:primary")
+            .env("OTERYN_LEAGUE_BASE_URL", "https://localhost")
+            .env("OTERYN_LEAGUE_CLIENT_CA_DER", tls.join("ca.der"))
+            .env("OTERYN_LEAGUE_CERTIFICATE_DER", tls.join("server.der"))
+            .env("OTERYN_LEAGUE_PRIVATE_KEY_DER", tls.join("server.key.der"))
+            .env("OTERYN_LEAGUE_CLIENT_SPKI_SHA256", "51".repeat(32))
+            .env("OTERYN_LEAGUE_RECOVERY_FILE", tls.join("league-fence.json"));
+        Ok(())
+    }
+
+    async fn capture_enabled_routes(pool: &PgPool, profile: &str) -> TestResult {
+        let admission = oteryn_gameauth::admission::router(
+            pool.clone(),
+            oteryn_gameauth::admission::AdmissionConfig::default(),
+            Arc::new(crate::game_login::admission_accounts()),
+            Arc::new(crate::game_login::admission_authority(
+                &oteryn_characters::overview::configured_projection(),
+                oteryn_gameauth::admission::Issuance::configured(|_: &str| None),
+            )),
+        );
+        crate::record_route_registrations("admission", &admission)?;
+        let serve = tokio::task::spawn_local(async { crate::run(crate::Role::Serve).await });
+        let result = async {
+            wait_for_serve(&serve, std::env::var("OTERYN_BIND")?.parse()?).await?;
+            if !profile.starts_with("enabled") {
+                exercise_prerequisite(pool, profile).await?;
+            }
+            Ok(())
+        }
+        .await;
+        if serve.is_finished() {
+            return serve.await?;
+        }
+        serve.abort();
+        let _ = serve.await;
+        result
     }
 
     fn make_tls(path: &Path) -> TestResult {
@@ -391,6 +561,7 @@ mod flag_boundary {
         let ca_key = KeyPair::generate()?;
         let ca = params.self_signed(&ca_key)?;
         fs::write(path.join("ca.pem"), ca.pem())?;
+        fs::write(path.join("ca.der"), ca.der())?;
         for (name, purpose) in [
             ("server", ExtendedKeyUsagePurpose::ServerAuth),
             ("client", ExtendedKeyUsagePurpose::ClientAuth),
@@ -400,6 +571,8 @@ mod flag_boundary {
             let key = KeyPair::generate()?;
             let cert = params.signed_by(&key, &ca, &ca_key)?;
             fs::write(path.join(format!("{name}.pem")), cert.pem())?;
+            fs::write(path.join(format!("{name}.der")), cert.der())?;
+            fs::write(path.join(format!("{name}.key.der")), key.serialize_der())?;
             fs::write(path.join(format!("{name}.key")), key.serialize_pem())?;
         }
         Ok(())
@@ -422,6 +595,11 @@ mod flag_boundary {
             .await?;
         let result = async {
             oteryn_db::migrate(&pool).await?;
+            if let Ok(profile) = std::env::var(ROUTE_PROFILE)
+                && !profile.is_empty()
+            {
+                return capture_enabled_routes(&pool, &profile).await;
+            }
             match test {
                 "referrals_on_records_legacy_session_refresh" => {
                     exercise_legacy_refresh(&pool).await
@@ -1168,12 +1346,13 @@ mod flag_boundary {
         "PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED",
     ];
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     struct Probe {
         method: char,
         path: String,
         status: u16,
         location: Option<String>,
+        fallback: bool,
     }
 
     fn route_probes() -> TestResult<BTreeSet<Probe>> {
@@ -1185,6 +1364,8 @@ mod flag_boundary {
                 .nth(2)
                 .ok_or("missing inventory route column")?;
             for entry in routes.split('`').skip(1).step_by(2) {
+                let fallback = entry.starts_with('~');
+                let entry = entry.strip_prefix('~').unwrap_or(entry);
                 let (methods, target) = entry.split_once(':').ok_or("expected METHOD:/path")?;
                 let (methods, status) = methods.find(|c: char| c.is_ascii_digit()).map_or(
                     Ok((methods, 404)),
@@ -1247,10 +1428,7 @@ mod flag_boundary {
                             "character-outfit",
                         ],
                     ),
-                    (
-                        "{g4_tab}",
-                        &["skills", "achievements", "equipment", "outfit"],
-                    ),
+                    ("{g4_tab}", &["achievements", "equipment", "outfit"]),
                     (
                         "{stats_tab}",
                         &[
@@ -1291,11 +1469,448 @@ mod flag_boundary {
                         path: path.clone(),
                         status,
                         location: location.clone(),
+                        fallback,
                     }));
                 }
             }
         }
         Ok(probes)
+    }
+
+    struct RoutePrerequisites {
+        flags: &'static [&'static str],
+        paths: &'static [&'static str],
+        registration_removed: bool,
+        disabled_status: Option<u16>,
+    }
+    const WORLD_FLAGS: &[&str] = &["OTERYN_WORLD_ENABLED", "PORTAL_WORLD_ENABLED"];
+    const ROUTE_PREREQUISITES: &[RoutePrerequisites] = &[
+        RoutePrerequisites {
+            flags: &["OTERYN_SUPPORT_TICKETS"],
+            paths: &["/admin/support/tickets", "/{lang}/admin/support/tickets"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ADMIN_PANEL"],
+            paths: &[
+                "/admin/support/tickets",
+                "/{lang}/admin/support/tickets",
+                "/admin/moderation/reports",
+                "/admin/analytics",
+                "/admin/commerce",
+                "/admin/world",
+                "/admin/players",
+                "/console",
+                "/admin/console",
+                "/admin/control",
+                "/{lang}/admin/store/codes",
+            ],
+            registration_removed: false,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_REPORTS_ENABLED"],
+            paths: &["/admin/moderation/reports"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ADMIN_ANALYTICS_PRESENT"],
+            paths: &["/admin/analytics"],
+            registration_removed: false,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ADMIN_COMMERCE"],
+            paths: &["/admin/commerce"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_WORLD_ADMIN"],
+            paths: &["/admin/world"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ADMIN_PLAYERS"],
+            paths: &["/admin/players"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ADMIN_CONSOLE"],
+            paths: &["/console", "/admin/console"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ADMIN_CONTROL"],
+            paths: &["/admin/control"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_STORE_CODES_ENABLED"],
+            paths: &["/{lang}/admin/store/codes"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["PORTAL_ACCOUNT_TERMINATION_ENABLED"],
+            paths: &["/{lang}/account/privacy/delete"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ACCOUNT_LOGIN", "OTERYN_ACCOUNT_MFA"],
+            paths: &["/mfa", "/{lang}/mfa"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &[
+                "OTERYN_CHARACTER_CREATE_WEB_ENABLED",
+                "OTERYN_CHARACTER_COMMANDS_ENABLED",
+                "OTERYN_CHARACTER_COMMAND_CREATE_ENABLED",
+            ],
+            paths: &[
+                "/{lang}/account/characters/new",
+                "/{lang}/account/characters/requests",
+                "/{lang}/account/characters/suggest",
+            ],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: WORLD_FLAGS,
+            paths: &[
+                "/atlas/spawns",
+                "/atlas/spawns-text",
+                "/atlas/private-markers",
+                "/atlas/map-reports",
+            ],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: WORLD_FLAGS,
+            paths: &["/{lang}/atlas", "/atlas/tiles", "/{lang}/atlas/delivery"],
+            registration_removed: false,
+            disabled_status: Some(503),
+        },
+        RoutePrerequisites {
+            flags: &["OTERYN_ATLAS_ENABLED", "OTERYN_ATLAS_SPAWNS_ENABLED"],
+            paths: &[
+                "/atlas/spawns",
+                "/atlas/spawns-text",
+                "/atlas/private-markers",
+                "/atlas/map-reports",
+            ],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &[
+                "OTERYN_ATLAS_DELIVERY_ENABLED",
+                "PORTAL_ATLAS_DELIVERY_ENABLED",
+            ],
+            paths: &["/{lang}/atlas/delivery"],
+            registration_removed: false,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &[
+                "OTERYN_ATLAS_DELIVERY_ENABLED",
+                "PORTAL_ATLAS_DELIVERY_ENABLED",
+            ],
+            paths: &["/atlas/delivery.css"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &[
+                "OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED",
+                "OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED",
+            ],
+            paths: &["/account/game-logins", "/{lang}/account/game-logins"],
+            registration_removed: false,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &[
+                "OTERYN_SHOP_ENABLED",
+                "OTERYN_SHOP_TOP_UPS_ENABLED",
+                "OTERYN_SHOP_TEST_PAYMENTS_ENABLED",
+            ],
+            paths: &["/{lang}/shop/test-checkout"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+    ];
+
+    fn in_scope(pattern: &str, path: &str) -> bool {
+        let count = pattern.split('/').count();
+        let parts = path.split('/').take(count).collect::<Vec<_>>();
+        specificity(pattern, &parts.join("/")).is_some()
+    }
+
+    async fn exercise_prerequisite(pool: &PgPool, flag: &str) -> TestResult {
+        let (account, _) = seed_browser_accounts(pool).await?;
+        sqlx::query(
+            "INSERT INTO tickets(id,account_id,request_key,category,subject)
+            VALUES($1,$1,uuidv7(),'other','route fixture')",
+        )
+        .bind(account)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO player_reports(id,reporter_account_id,request_key,report_type,category,target_reference)
+             VALUES($1,$1,uuidv7(),'player','conduct','route fixture')",
+        )
+        .bind(account)
+        .execute(pool)
+        .await?;
+        let profiles = std::env::var(ROUTE_PROFILES)?;
+        let enabled = route_snapshot(&Path::new(&profiles).join("enabled"))?;
+        let disabled = route_snapshot(&Path::new(&profiles).join(flag))?;
+        if flag == "PORTAL_ACCOUNT_TERMINATION_ENABLED" {
+            let closure = fs::read_to_string(Path::new(&profiles).join(flag).join("closure"))?;
+            assert!(
+                registered_routes(&closure)?.contains(&(
+                    'P',
+                    "/internal/v1/game-auth/account-closure/lifecycle/read".into(),
+                )),
+                "the Game proof listener must survive the intake pause"
+            );
+        }
+        let documented = route_probes()?;
+        let address = std::env::var("OTERYN_BIND")?.parse()?;
+        let mut checks = 0;
+        for group in ROUTE_PREREQUISITES
+            .iter()
+            .filter(|group| group.flags.contains(&flag))
+        {
+            for path in group.paths {
+                let mut count = 0;
+                for (method, route) in &enabled {
+                    if !in_scope(path, route) {
+                        continue;
+                    }
+                    // The atlas page shares its prefix with independent features.
+                    if *path == "/{lang}/atlas"
+                        && route != path
+                        && route != "/{lang}/atlas/delivery"
+                    {
+                        continue;
+                    }
+                    if group.registration_removed && disabled.contains(&(*method, route.clone())) {
+                        return Err(format!("{flag}=false left {method} {route} registered").into());
+                    }
+                    for probe in documented.iter().filter(|probe| {
+                        probe.method == *method && specificity(route, &probe.path).is_some()
+                    }) {
+                        let response =
+                            exchange(address, None, http_method(*method)?, &probe.path).await?;
+                        let status = group.disabled_status.unwrap_or(probe.status);
+                        assert!(
+                            response.starts_with(&format!("HTTP/1.1 {status} ")),
+                            "{flag}=false failed to disable {method} {}: {response}",
+                            probe.path
+                        );
+                        checks += 1;
+                        count += 1;
+                    }
+                }
+                assert!(
+                    count > 0,
+                    "{flag} has no enabled production probes for {path}"
+                );
+            }
+        }
+        eprintln!(
+            "{flag}=false: checked {checks} enabled method/path pairs with other prerequisites on"
+        );
+        Ok(())
+    }
+
+    fn http_method(method: char) -> TestResult<&'static str> {
+        Ok(match method {
+            'G' => "GET",
+            'P' => "POST",
+            'U' => "PUT",
+            'D' => "DELETE",
+            'A' => "PATCH",
+            'H' => "HEAD",
+            'O' => "OPTIONS",
+            'T' => "TRACE",
+            'C' => "CONNECT",
+            _ => return Err("unknown inventory HTTP method".into()),
+        })
+    }
+
+    type Registration = (char, String);
+    type Registrations = BTreeSet<Registration>;
+
+    fn registered_routes(router: &str) -> TestResult<Registrations> {
+        // Axum exposes route IDs, paths and explicit method slots through Router's Debug view.
+        let routes = router
+            .strip_prefix("Router { path_router: PathRouter { routes: {")
+            .ok_or("expected Axum path-router registration data")?;
+        let (methods, paths) = routes
+            .split_once("}, node: Node { paths: {")
+            .ok_or("expected Axum route IDs and path map")?;
+        let (paths, _) = paths
+            .split_once("} } }, fallback_router: ")
+            .ok_or("expected end of Axum path map")?;
+        let paths: BTreeMap<_, _> = paths
+            .split("RouteId(")
+            .skip(1)
+            .filter_map(|entry| entry.split_once("): \""))
+            .filter_map(|(id, entry)| entry.split_once('"').map(|(path, _)| (id, path)))
+            .collect();
+        let mut registrations = Registrations::new();
+        for entry in methods.split("RouteId(").skip(1) {
+            let (id, method_router) = entry.split_once("): ").ok_or("invalid Axum route ID")?;
+            let path = paths.get(id).ok_or("Axum route ID has no path")?;
+            if !method_router.starts_with("MethodRouter(MethodRouter { ") {
+                // Services and nesting shims have no explicit HTTP method registration.
+                assert!(
+                    method_router.starts_with("Route("),
+                    "unexpected Axum endpoint {method_router}"
+                );
+                continue;
+            }
+            for (slot, method) in [
+                ("get", 'G'),
+                ("post", 'P'),
+                ("put", 'U'),
+                ("delete", 'D'),
+                ("head", 'H'),
+                ("options", 'O'),
+                ("patch", 'A'),
+                ("trace", 'T'),
+                ("connect", 'C'),
+            ] {
+                let (_, value) = method_router
+                    .split_once(&format!("{slot}: "))
+                    .ok_or("missing Axum method slot")?;
+                if !value.starts_with("None,") {
+                    registrations.insert((method, (*path).to_owned()));
+                }
+            }
+        }
+        Ok(registrations)
+    }
+
+    fn route_snapshot(dir: &Path) -> TestResult<Registrations> {
+        let mut routes = Registrations::new();
+        for file in fs::read_dir(dir)? {
+            routes.extend(registered_routes(&fs::read_to_string(file?.path())?)?);
+        }
+        assert!(
+            !routes.is_empty(),
+            "empty production route snapshot at {}",
+            dir.display()
+        );
+        Ok(routes)
+    }
+
+    fn specificity(pattern: &str, target: &str) -> Option<usize> {
+        let mut score = 0;
+        let mut parts = target.split('/');
+        for part in pattern.split('/') {
+            let target = parts.next()?;
+            if part.starts_with("{*") {
+                return Some(score);
+            }
+            if !part.starts_with('{') {
+                if part != target {
+                    return None;
+                }
+                score += 1;
+            }
+        }
+        parts.next().is_none().then_some(score)
+    }
+
+    fn production_probes(profiles: &Path) -> TestResult<(BTreeSet<Probe>, Vec<String>)> {
+        let documented = route_probes()?;
+        let mut enabled = route_snapshot(&profiles.join("enabled"))?;
+        enabled.extend(route_snapshot(&profiles.join("enabled-with-restore"))?);
+        let disabled = route_snapshot(&profiles.join("disabled"))?;
+        let all = enabled.union(&disabled).collect::<BTreeSet<_>>();
+        let mut targets: BTreeMap<&str, Vec<&Probe>> = BTreeMap::new();
+        for probe in &documented {
+            targets.entry(&probe.path).or_default().push(probe);
+        }
+        let mut classified = BTreeSet::new();
+        let mut generated = BTreeSet::new();
+        let mut failures = Vec::new();
+        for (target, expected) in targets {
+            let matches = all
+                .iter()
+                .filter_map(|route| specificity(&route.1, target).map(|score| (score, *route)))
+                .collect::<Vec<_>>();
+            let best = matches.iter().map(|(score, _)| *score).max();
+            let mut registered = BTreeSet::new();
+            for (_, route) in matches
+                .into_iter()
+                .filter(|(score, _)| Some(*score) == best)
+            {
+                let method = route.0;
+                registered.insert(method);
+                if let Some(contract) = expected
+                    .iter()
+                    .find(|probe| probe.method == method && !probe.fallback)
+                {
+                    classified.insert(route);
+                    generated.insert(Probe {
+                        method,
+                        path: target.to_owned(),
+                        status: contract.status,
+                        location: contract.location.clone(),
+                        fallback: false,
+                    });
+                } else {
+                    failures.push(format!(
+                        "registered {method} {} is absent from FLAG_BOUNDARY.md",
+                        route.1
+                    ));
+                    generated.insert(Probe {
+                        method,
+                        path: target.to_owned(),
+                        status: 404,
+                        location: None,
+                        fallback: false,
+                    });
+                }
+            }
+            for probe in expected {
+                if probe.fallback {
+                    generated.insert(probe.clone());
+                } else if !registered.contains(&probe.method) {
+                    failures.push(format!(
+                        "documented {} {} has no production registration",
+                        probe.method, target
+                    ));
+                    generated.insert(probe.clone());
+                }
+            }
+        }
+        for route in enabled
+            .difference(&disabled)
+            .filter(|route| !classified.contains(route))
+        {
+            failures.push(format!(
+                "enabled route {} {} is absent from FLAG_BOUNDARY.md",
+                route.0, route.1
+            ));
+        }
+        failures.sort();
+        failures.dedup();
+        Ok((generated, failures))
     }
 
     async fn exchange(
@@ -1320,7 +1935,7 @@ mod flag_boundary {
             Ok(String::from_utf8(bytes)?)
         }
 
-        let has_body = matches!(method, "POST" | "PUT" | "DELETE");
+        let has_body = matches!(method, "POST" | "PUT" | "DELETE" | "PATCH");
         let json = path.starts_with("/internal/")
             || path.starts_with("/api/")
             || path.starts_with("/__test/");
@@ -1331,7 +1946,13 @@ mod flag_boundary {
         } else {
             ("localhost", SESSION)
         };
-        let fields = if path.ends_with("/account/consents") {
+        let fields = if path.contains("/support/tickets/") && path.ends_with("/status") {
+            "&lock_version=1&status=closed"
+        } else if path.starts_with("/admin/support/tickets/") {
+            "&lock_version=1&action=ticket_status&status=closed"
+        } else if path.starts_with("/admin/moderation/reports/") {
+            "&lock_version=1&action=moderate&status=reviewing&public_outcome=reviewing&moderator_notes=fixture"
+        } else if path.ends_with("/account/consents") {
             "&kind=analytics&version=flag-boundary&granted=on"
         } else if path.ends_with("/journal/reports/notes") {
             "&body=flag-boundary"
@@ -1432,8 +2053,8 @@ mod flag_boundary {
             .await?
             .starts_with("HTTP/1.1 404 ")
         );
-        let probes = route_probes()?;
-        let mut failures = Vec::new();
+        let profiles = std::env::var(ROUTE_PROFILES)?;
+        let (probes, mut failures) = production_probes(Path::new(&profiles))?;
         for key in CLOSED_LISTENERS {
             let address: SocketAddr = std::env::var(key)?.parse()?;
             match tokio::net::TcpStream::connect(address).await {
@@ -1444,13 +2065,7 @@ mod flag_boundary {
         }
         for probe in &probes {
             let path = &probe.path;
-            let method = match probe.method {
-                'G' => "GET",
-                'P' => "POST",
-                'U' => "PUT",
-                'D' => "DELETE",
-                _ => return Err("unknown inventory HTTP method".into()),
-            };
+            let method = http_method(probe.method)?;
             let (address, connector) = if path
                 .starts_with("/internal/v1/game-auth/native-admissions")
                 || path.starts_with("/internal/v1/game-auth/native-recoveries")

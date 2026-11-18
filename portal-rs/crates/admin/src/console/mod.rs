@@ -347,6 +347,9 @@ pub struct Console<P, C> {
 /// Off by default; additionally requires the existing admin host/session/MFA guard.
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let enabled = std::env::var("OTERYN_ADMIN_CONSOLE").is_ok_and(|v| v == "true");
+    if !enabled {
+        return Ok(Router::new());
+    }
     web::configured_guard(
         configured_routes(
             pool.clone(),

@@ -49,6 +49,15 @@ pub fn configured_router_from<B: Backend>(
 ) -> Result<Router, Box<dyn std::error::Error>> {
     let mut routes = Router::new();
     for area in [Area::Tickets, Area::Reports, Area::Enforcement] {
+        // Fence disabled surfaces before staff authorization and form extraction.
+        let flag = match area {
+            Area::Tickets => Some("OTERYN_SUPPORT_TICKETS"),
+            Area::Reports => Some("OTERYN_REPORTS_ENABLED"),
+            Area::Enforcement => None,
+        };
+        if flag.is_some_and(|flag| lookup(flag).as_deref() != Some("true")) {
+            continue;
+        }
         let state = Arc::new(Panel {
             pool: pool.clone(),
             auth: Authorizer::new(

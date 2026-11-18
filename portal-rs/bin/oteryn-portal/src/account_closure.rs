@@ -96,6 +96,8 @@ pub async fn start_listener(
         identities,
         closure_projection(oteryn_core::Config::from_env()?.environment),
     );
+    #[cfg(test)]
+    crate::record_route_registrations("closure", &app)?;
     let bind =
         std::env::var("PORTAL_ACCOUNT_CLOSURE_BIND").unwrap_or_else(|_| "127.0.0.1:8092".into());
     let listener = tokio::net::TcpListener::bind(bind).await?;

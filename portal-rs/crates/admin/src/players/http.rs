@@ -27,6 +27,9 @@ pub(crate) fn configured_router_from(
         characters: lookup("OTERYN_ADMIN_PLAYER_CHARACTERS").is_some_and(|v| v == "true"),
         coin_holds: oteryn_payments::coin::CoinSettings::from_lookup(lookup).enabled,
     };
+    if !flags.players {
+        return Ok(Router::new());
+    }
     let characters_enabled = flags.characters;
     let routes = routes(Players::new(
         pool.clone(),
