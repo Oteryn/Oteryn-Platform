@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
-"""Prepare a fresh isolated Game database. Never replace existing state or keys."""
+"""Prepare Game PostgreSQL or maintain its TLS certificates without replacing keys."""
+import argparse
+import fcntl
 import os
 from pathlib import Path
 import secrets
 import shutil
+import stat
 import subprocess
 import tempfile
 
 ROOT = Path('/opt/oteryn-oracle/game-db')
 SOURCE = Path('/opt/oteryn-build/Oteryn-Platform-1194d5548760d9d773a1cebb182bc5986a6a42bf')
+
+POSTGRES = 'oteryn-oracle-game-postgres-1'
+CA_DAYS = 3650
+SERVER_DAYS = 30
+RENEW_BEFORE_DAYS = 7
+SERVER_NAME = 'game-postgres'
+SECONDS_PER_DAY = 86400
 
 
 def run(*args):
@@ -28,12 +38,122 @@ def write(path, value, mode=0o600, uid=0):
         os.fsync(handle.fileno())
 
 
-def main():
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def publish_certificate(staged, target, mode):
+    staged.chmod(mode)
+    with staged.open('rb') as handle:
+        os.fsync(handle.fileno())
+    staged.replace(target)
+    sync_directory(target.parent)
+
+
+def valid_for(certificate, days):
+    return subprocess.run(
+        ['openssl', 'x509', '-in', str(certificate), '-noout', '-checkend', str(days * SECONDS_PER_DAY)],
+        stdout=subprocess.DEVNULL, check=False,
+    ).returncode == 0
+
+
+def issue_server_certificate(ca, key, work):
+    csr = work / 'server.csr'
+    extensions = work / 'server.ext'
+    certificate = work / 'server.crt'
+    run('openssl', 'req', '-new', '-key', str(key), '-subj', '/CN=' + SERVER_NAME, '-out', str(csr))
+    write(extensions, 'subjectAltName=DNS:' + SERVER_NAME + '\nextendedKeyUsage=serverAuth\n'
+          'keyUsage=digitalSignature,keyEncipherment\n')
+    run('openssl', 'x509', '-req', '-in', str(csr),
+        '-CA', str(ca / 'ca.crt'), '-CAkey', str(ca / 'ca.key'),
+        '-set_serial', '0x' + secrets.token_hex(16), '-days', str(SERVER_DAYS),
+        '-sha256', '-extfile', str(extensions), '-out', str(certificate))
+    run('openssl', 'verify', '-purpose', 'sslserver', '-verify_hostname', SERVER_NAME,
+        '-CAfile', str(ca / 'ca.crt'), str(certificate))
+    return certificate
+
+
+def renew_server_certificate():
+    ca = ROOT / 'signer'
+    server = ROOT / 'server'
+    certificate = server / 'server.crt'
+    pending = ROOT / 'postgres-tls-reload-pending'
+    ca_certificate = ca / 'ca.crt'
+
+    if not valid_for(ca_certificate, SERVER_DAYS):
+        raise SystemExit('Game PostgreSQL CA expires soon: extend the retained CA and refresh client trust.')
+    if ca_certificate.read_bytes() != (ROOT / 'client/ca.crt').read_bytes():
+        raise SystemExit('Game PostgreSQL client and signer CA certificates differ: finish the CA upgrade.')
+
+    if not valid_for(certificate, RENEW_BEFORE_DAYS):
+        with tempfile.TemporaryDirectory(prefix='.renew-', dir=server) as temporary:
+            staged = issue_server_certificate(ca, server / 'server.key', Path(temporary))
+            if not pending.exists():
+                write(pending, '')
+                sync_directory(ROOT)
+            publish_certificate(staged, certificate, 0o644)
+
+    # A retry after a failed reload must still signal PostgreSQL even when the
+    # new certificate on disk is already valid. A stopped server loads it on start.
+    if pending.exists():
+        running = subprocess.check_output(['docker', 'inspect', '--format', '{{.State.Running}}', POSTGRES],
+                                          text=True, timeout=30).strip()
+        if running == 'true':
+            run('docker', 'kill', '--signal', 'HUP', POSTGRES)
+        elif running != 'false':
+            raise ValueError('Could not determine Game PostgreSQL container state.')
+        pending.unlink()
+        sync_directory(ROOT)
+
+
+def extend_ca():
+    """Extend the legacy CA certificate while retaining its subject and key."""
+    ca = ROOT / 'signer' / 'ca.crt'
+    client = ROOT / 'client' / 'ca.crt'
+    if not valid_for(ca, 365):
+        with tempfile.TemporaryDirectory(prefix='.extend-', dir=ca.parent) as temporary:
+            staged = Path(temporary) / ca.name
+            run('openssl', 'x509', '-in', str(ca), '-signkey', str(ca.with_suffix('.key')),
+                '-set_serial', '0x' + secrets.token_hex(16), '-days', str(CA_DAYS),
+                '-sha256', '-out', str(staged))
+            original_key = subprocess.check_output(['openssl', 'x509', '-in', str(ca), '-noout', '-pubkey'])
+            renewed_key = subprocess.check_output(['openssl', 'x509', '-in', str(staged), '-noout', '-pubkey'])
+            if renewed_key != original_key:
+                raise SystemExit('Game PostgreSQL CA signing key does not match the retained certificate.')
+            run('openssl', 'verify', '-check_ss_sig', '-CAfile', str(staged), str(staged))
+            publish_certificate(staged, ca, 0o600)
+
+    # Repair an interrupted upgrade from the already published signer.
+    if not client.exists() or client.read_bytes() != ca.read_bytes():
+        with tempfile.TemporaryDirectory(prefix='.extend-', dir=client.parent) as temporary:
+            staged = Path(temporary) / client.name
+            shutil.copyfile(ca, staged)
+            publish_certificate(staged, client, 0o644)
+    print('Game PostgreSQL CA ready; update retained Game runtime and ops client trust before legacy expiry.')
+
+
+def main(operation=None):
     if os.geteuid() != 0:
         raise SystemExit('Run as root.')
+    os.umask(0o077)
+    if operation is not None:
+        metadata = ROOT.lstat()
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != 0 or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise SystemExit('Unsafe Game database directory.')
+        fd = os.open(ROOT / 'postgres-tls.lock', os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if operation == 'extend-ca':
+                extend_ca()
+            else:
+                renew_server_certificate()
+        return
     if ROOT.exists():
         raise SystemExit('Existing Game database configuration retained; refusing to regenerate it.')
-    os.umask(0o077)
     ROOT.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     staged = Path(tempfile.mkdtemp(prefix='.game-db-', dir=ROOT.parent))
     try:
@@ -46,21 +166,15 @@ def main():
         ca = staged / 'signer'
         server = staged / 'server'
         run('openssl', 'req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-sha256',
-            '-days', '30', '-subj', '/CN=Oteryn Oracle Game PostgreSQL CA',
+            '-days', str(CA_DAYS), '-subj', '/CN=Oteryn Oracle Game PostgreSQL CA',
             '-keyout', str(ca / 'ca.key'), '-out', str(ca / 'ca.crt'))
-        run('openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes',
-            '-subj', '/CN=game-postgres', '-keyout', str(server / 'server.key'),
-            '-out', str(server / 'server.csr'))
-        write(server / 'server.ext', 'subjectAltName=DNS:game-postgres\nextendedKeyUsage=serverAuth\nkeyUsage=digitalSignature,keyEncipherment\n')
-        run('openssl', 'x509', '-req', '-in', str(server / 'server.csr'),
-            '-CA', str(ca / 'ca.crt'), '-CAkey', str(ca / 'ca.key'),
-            '-CAcreateserial', '-days', '30', '-sha256', '-extfile', str(server / 'server.ext'),
-            '-out', str(server / 'server.crt'))
-        (server / 'server.csr').unlink()
-        (server / 'server.ext').unlink()
-        os.chown(server / 'server.key', 999, 999)
-        (server / 'server.key').chmod(0o600)
-        (server / 'server.crt').chmod(0o644)
+        key = server / 'server.key'
+        run('openssl', 'genpkey', '-algorithm', 'RSA', '-pkeyopt', 'rsa_keygen_bits:2048', '-out', str(key))
+        os.chown(key, 999, 999)
+        key.chmod(0o600)
+        with tempfile.TemporaryDirectory(prefix='.issue-', dir=server) as temporary:
+            certificate = issue_server_certificate(ca, key, Path(temporary))
+            publish_certificate(certificate, server / 'server.crt', 0o644)
         shutil.copyfile(ca / 'ca.crt', staged / 'client/ca.crt')
         (staged / 'client/ca.crt').chmod(0o644)
         passwords = {role: secrets.token_hex(32) for role in ('postgres', 'owner', 'control', 'runtime')}
@@ -99,11 +213,7 @@ host replication all all reject
                 with path.open('rb') as handle:
                     os.fsync(handle.fileno())
         staged.rename(ROOT)
-        fd = os.open(ROOT.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        sync_directory(ROOT.parent)
         print('Game PostgreSQL configuration created; private keys and passwords were not printed.')
     finally:
         if staged.exists():
@@ -111,4 +221,6 @@ host replication all all reject
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('operation', nargs='?', choices=('renew-server-certificate', 'extend-ca'))
+    main(parser.parse_args().operation)

@@ -1,5 +1,7 @@
 """Focused custody/registration-gap tests; never contact a Docker daemon."""
 import importlib.util
+import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -9,6 +11,132 @@ from unittest.mock import patch
 SPEC = importlib.util.spec_from_file_location('oracle_supervisor', Path(__file__).with_name('game-supervisor.py'))
 SUP = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SUP)
+
+
+DB_SPEC = importlib.util.spec_from_file_location('oracle_game_db', Path(__file__).with_name('prepare-game-db.py'))
+DB = importlib.util.module_from_spec(DB_SPEC)
+DB_SPEC.loader.exec_module(DB)
+
+
+class DatabaseCertificateTests(unittest.TestCase):
+    def test_prepare_issues_long_lived_game_database_ca(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'source'
+            postgres = source / 'deploy/synology/postgres'
+            (postgres / 'backup').mkdir(parents=True)
+            (postgres / 'postgresql.conf').write_text("ssl = on\n")
+            (postgres / 'backup/archive-wal.sh').write_text('#!/bin/sh\n')
+            root = Path(temporary) / 'game-db'
+            ca_days = []
+
+            def openssl(*args):
+                self.assertEqual(args[0], 'openssl')
+                for option in ('-out', '-keyout'):
+                    if option in args:
+                        Path(args[args.index(option) + 1]).write_text('fixture')
+                if '-x509' in args:
+                    ca_days.append(int(args[args.index('-days') + 1]))
+
+            previous_umask = os.umask(0o077)
+            self.addCleanup(os.umask, previous_umask)
+            with patch.multiple(DB, ROOT=root, SOURCE=source, run=openssl), \
+                 patch.object(DB.os, 'geteuid', return_value=0), \
+                 patch.object(DB.os, 'chown'), patch.object(DB.os, 'fchown'):
+                DB.main()
+            self.assertEqual(len(ca_days), 1)
+            self.assertGreaterEqual(ca_days[0], 365)
+            self.assertEqual((root / 'client/ca.crt').read_bytes(), (root / 'signer/ca.crt').read_bytes())
+
+    def database_certificates(self, root, ca_days):
+        ca = root / 'signer'
+        server = root / 'server'
+        client = root / 'client'
+        for directory in (ca, server, client):
+            directory.mkdir()
+        subprocess.run(
+            ['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes',
+             '-days', str(ca_days), '-subj', '/CN=Oteryn Oracle Game PostgreSQL CA',
+             '-addext', 'basicConstraints=critical,CA:TRUE',
+             '-keyout', str(ca / 'ca.key'), '-out', str(ca / 'ca.crt')],
+            check=True, capture_output=True,
+        )
+        shutil.copyfile(ca / 'ca.crt', client / 'ca.crt')
+        subprocess.run(
+            ['openssl', 'genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256',
+             '-out', str(server / 'server.key')], check=True, capture_output=True,
+        )
+        with tempfile.TemporaryDirectory(dir=root) as temporary, patch.object(DB, 'SERVER_DAYS', 1), \
+             patch.object(DB.os, 'fchown'):
+            certificate = DB.issue_server_certificate(ca, server / 'server.key', Path(temporary))
+            certificate.replace(server / 'server.crt')
+
+    def test_game_database_renews_under_retained_ca_and_retries_failed_reload(self):
+        oracle = Path(__file__).parent
+        self.assertIn('OnCalendar=daily', (oracle / 'oteryn-game-db-certificate.timer').read_text())
+        self.assertIn('prepare-game-db.py renew-server-certificate',
+                      (oracle / 'oteryn-game-db-certificate.service').read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.database_certificates(root, ca_days=365)
+            cert = root / 'server/server.crt'
+            key = root / 'server/server.key'
+            ca = root / 'client/ca.crt'
+            old_cert, old_key, old_ca = cert.read_bytes(), key.read_bytes(), ca.read_bytes()
+
+            actual_run = DB.run
+            reload_count = 0
+
+            def run(*args):
+                nonlocal reload_count
+                if args[0] != 'docker':
+                    return actual_run(*args)
+                self.assertEqual(args, ('docker', 'kill', '--signal', 'HUP', DB.POSTGRES))
+                reload_count += 1
+                self.assertNotEqual(cert.read_bytes(), old_cert)
+                if reload_count == 1:
+                    raise subprocess.CalledProcessError(1, args)
+
+            with patch.multiple(DB, ROOT=root, run=run), patch.object(DB.os, 'fchown'), \
+                 patch.object(DB.subprocess, 'check_output', return_value='true\n') as inspect:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    DB.renew_server_certificate()
+                renewed = cert.read_bytes()
+                self.assertTrue((root / 'postgres-tls-reload-pending').exists())
+                DB.renew_server_certificate()
+                DB.renew_server_certificate()
+                self.assertEqual(inspect.call_count, 2)
+            self.assertEqual(reload_count, 2)
+            self.assertFalse((root / 'postgres-tls-reload-pending').exists())
+            self.assertEqual(cert.read_bytes(), renewed)
+            self.assertEqual(key.read_bytes(), old_key)
+            self.assertEqual(ca.read_bytes(), old_ca)
+            self.assertTrue(DB.valid_for(cert, DB.RENEW_BEFORE_DAYS))
+
+    def test_legacy_game_database_ca_extension_preserves_trust_and_signer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.database_certificates(root, ca_days=30)
+            ca = root / 'signer/ca.crt'
+            client = root / 'client/ca.crt'
+            key = root / 'signer/ca.key'
+            old_key = key.read_bytes()
+            old_client = root / 'old-ca.crt'
+            shutil.copyfile(client, old_client)
+            with patch.object(DB, 'ROOT', root):
+                DB.extend_ca()
+                self.assertEqual(ca.read_bytes(), client.read_bytes())
+                self.assertNotEqual(client.read_bytes(), old_client.read_bytes())
+                self.assertTrue(DB.valid_for(ca, 365))
+                self.assertEqual(key.read_bytes(), old_key)
+                DB.run('openssl', 'verify', '-CAfile', str(client), str(root / 'server/server.crt'))
+
+                client.write_bytes(old_client.read_bytes())
+                DB.extend_ca()
+                self.assertEqual(ca.read_bytes(), client.read_bytes())
+
+                with tempfile.TemporaryDirectory(dir=root) as work, patch.object(DB.os, 'fchown'):
+                    leaf = DB.issue_server_certificate(ca.parent, root / 'server/server.key', Path(work))
+                    DB.run('openssl', 'verify', '-CAfile', str(old_client), str(leaf))
 
 
 class CustodyTests(unittest.TestCase):

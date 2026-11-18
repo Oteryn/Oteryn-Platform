@@ -43,6 +43,35 @@ migration executable over verify-full TLS as the schema owner. It starts no node
 `check-game-db.py` proves the runtime role cannot perform DDL and rejects
 plaintext and an unknown CA, without printing credentials.
 
+### Game PostgreSQL TLS maintenance
+
+Fresh configuration issues a 10-year CA. Install the reviewed
+`prepare-game-db.py` under `/opt/oteryn-oracle` and the separate
+`oteryn-game-db-certificate.service` and `oteryn-game-db-certificate.timer`
+under `/etc/systemd/system`. With the database provisioned, run as root:
+
+```bash
+systemctl daemon-reload
+systemctl start oteryn-game-db-certificate.service
+systemctl enable --now oteryn-game-db-certificate.timer
+```
+
+The daily timer renews a 30-day leaf when it is within seven days of expiry.
+It signs for `game-postgres` with the retained CA and server key, verifies the
+chain and name, replaces the mounted certificate atomically, then sends
+PostgreSQL SIGHUP. A failed signal is retried on the next run. This timer is
+separate from the public Game TLS timer.
+
+For an existing 30-day CA, first run
+`python3 /opt/oteryn-oracle/prepare-game-db.py extend-ca` as root. It extends the
+same CA identity without changing its key, and updates the CA bundle used by
+migrations and database checks. Before the original expiry, distribute the
+updated `/opt/oteryn-oracle/game-db/client/ca.crt` to the database
+`root_ca_file` paths used by the retained Game runtime and ops settings. Reload
+client trust through the normal Game supervisor lifecycle and verify new
+connections with hostname verification. Then start and enable the timer as
+above. Keep runtime verify-full TLS enabled during the transition.
+
 ## Historical verified target results
 
 - Platform, gateway and Game native ARM64 builds passed.
@@ -245,8 +274,9 @@ Both Platform deployment paths provision
 `/opt/oteryn-oracle/native-evidence-witness` with owner UID/GID 65532 and mode 0700.
 Only the portal service mounts it read-write. Its
 `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY` points to `/var/lib/oteryn/witness`.
-Retain the directory across container recreation and preserve it with its database
-provenance when moving the service. `GAME_AUTH_NATIVE_EVIDENCE_ENABLED` defaults to
+Retain the directory across container recreation. If the database already records
+witness provenance, move the matching marker and floors from the retained store
+before recreating the service. `GAME_AUTH_NATIVE_EVIDENCE_ENABLED` defaults to
 off. On the public production deployment, Platform reserves Protocol 3 and the
 sandbox coin checkout for testing/preproduction.
 

@@ -400,7 +400,7 @@ class RustDeployment(unittest.TestCase):
                 failing = True
 
                 def command(args, **kwargs):
-                    operation = 'pg_dump' if 'stdout' in kwargs and 'stdin' not in kwargs else 'pg_restore'
+                    operation = 'pg_restore' if 'pg_restore' in args else 'pg_dump'
                     if operation == 'pg_dump':
                         kwargs['stdout'].write(b'PGDMP-fixture-archive')
                     else:
@@ -444,6 +444,10 @@ class RustDeployment(unittest.TestCase):
             context = checkout / build[-1]
             for filename in ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'bin', 'crates', 'migrations', 'templates', 'static']:
                 self.assertTrue((context / filename).exists(), filename)
+            prepare = ['bash', str(checkout / 'deploy/oracle/prepare-platform-witness.sh')]
+            self.assertTrue(Path(prepare[1]).is_file())
+            stop = next(index for index, args in enumerate(calls) if 'stop' in args)
+            self.assertLess(calls.index(prepare), stop)
             self.assertTrue(any(args[-5:] == ['run', '--rm', '-T', '--no-deps', 'migrate'] for args in calls))
             self.assertTrue(any(args[-3:] == ['platform', 'gateway', 'worker'] and 'up' in args for args in calls))
             self.assertEqual(set(images.values()), {'rust-id'})

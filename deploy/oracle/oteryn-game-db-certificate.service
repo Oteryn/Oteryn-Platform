@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew the Oteryn Game PostgreSQL server certificate
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+TimeoutStartSec=2min
+ExecStart=/usr/bin/python3 /opt/oteryn-oracle/prepare-game-db.py renew-server-certificate
