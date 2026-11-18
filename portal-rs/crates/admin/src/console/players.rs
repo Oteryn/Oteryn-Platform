@@ -295,7 +295,7 @@ pub(crate) async fn page<B: Backend>(
         return Err(Error::Denied);
     }
     let backend = if input.character.is_some() {
-        state.backend.for_session(session.clone())
+        state.backend.for_navigation(session.clone(), &headers)
     } else {
         state.backend.clone()
     };
