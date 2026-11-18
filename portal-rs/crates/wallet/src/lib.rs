@@ -12,4 +12,4 @@ pub use domain::*;
 pub use ledger::Ledger;
 pub mod wire;
 
-pub use ledger::{incoming_capacity_in, reserve_incoming_in};
+pub use ledger::{incoming_capacity_in, incoming_capacity_with_topup_in, reserve_incoming_in};

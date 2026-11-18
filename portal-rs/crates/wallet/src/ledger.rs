@@ -997,10 +997,38 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
 /// Capacity promised to irreversible incoming payouts. Caller holds the wallet
 /// row lock, as do all credits and reservation writers.
 pub async fn incoming_capacity_in(db: &mut PgConnection, account: Uuid) -> Result<i64, Error> {
+    incoming_capacity_with_topup_in(db, account, 0).await
+}
+
+/// Project incoming capacity under the wallet lock, including a proposed
+/// browser checkout. A succeeded checkout promises its package until delivery
+/// claims the intent's top_up operation. Refunds before delivery end the promise.
+/// All pending packages share the debt that is still available to repay.
+pub async fn incoming_capacity_with_topup_in(
+    db: &mut PgConnection,
+    account: Uuid,
+    proposed_coins: i64,
+) -> Result<i64, Error> {
+    if proposed_coins < 0 {
+        return Err(Refusal::InvalidAmount.into());
+    }
     Ok(sqlx::query_scalar(
-        "SELECT COALESCE(sum(amount),0)::bigint FROM wallet_incoming_capacity WHERE account_id=$1",
+        "WITH packages AS (
+            SELECT COALESCE(sum(t.coins), 0) + $2::bigint AS gross
+            FROM store_web_topups t
+            JOIN payment_intents i ON i.id=t.payment_intent_id AND i.account_id=t.account_id
+            WHERE t.account_id=$1 AND i.state='succeeded'
+              AND NOT EXISTS (SELECT 1 FROM wallet_operations w
+                              WHERE w.id=i.id AND w.account_id=t.account_id AND w.kind='top_up')
+        )
+        SELECT ((SELECT COALESCE(sum(amount), 0) FROM wallet_incoming_capacity WHERE account_id=$1)
+                + CASE WHEN gross > 0 THEN GREATEST(0, gross - (
+                    SELECT COALESCE(sum(owed), 0) FROM coin_outstanding_debts WHERE account_id=$1
+                )) ELSE 0 END)::bigint
+        FROM packages",
     )
     .bind(account)
+    .bind(proposed_coins)
     .fetch_one(db)
     .await?)
 }
