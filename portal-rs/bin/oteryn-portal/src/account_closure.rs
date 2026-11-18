@@ -15,6 +15,7 @@ use sqlx::PgPool;
 use std::{io::BufReader, sync::Arc, time::Duration};
 pub struct Runtime {
     pub terminations: termination::Terminations,
+    pub termination_enabled: bool,
     game: Option<Arc<game_closure::GameBoundary>>,
     config: runtime::Config,
 }
@@ -41,9 +42,11 @@ pub fn configured(pool: PgPool) -> Result<Runtime, Box<dyn std::error::Error>> {
         || Arc::new(termination::UnavailableBoundary) as Arc<dyn termination::Boundary>,
         |game| game.clone(),
     );
+    let termination_enabled = termination.enabled;
     let terminations = termination::Terminations::new(pool, termination, boundary)?;
     Ok(Runtime {
         terminations,
+        termination_enabled,
         game,
         config,
     })
