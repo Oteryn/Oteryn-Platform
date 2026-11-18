@@ -794,7 +794,7 @@ mod tests {
         let fixture = include_str!(
             "../../../../docs/contracts/fixtures/game-journal-items-v1/record-items-begin.valid.json"
         );
-        let (envelope, payload) = fixture.split_once(r#""payload":"#).unwrap();
+        let (envelope, payload) = fixture.split_once(r#""payload":"#).unwrap_or((fixture, ""));
         let envelope =
             envelope.replace(r#""character_revision":"1""#, r#""character_revision":"7""#);
         let payload = payload.replace(
@@ -808,12 +808,13 @@ mod tests {
     fn items_begin_accepts_snapshot_at_or_after_ownership_revision() {
         for revision in [7, 8, u64::MAX] {
             let begin = items_begin(revision);
-            let record = items(begin.as_bytes()).unwrap();
-            assert_eq!(record.scope.character_revision.as_deref(), Some("7"));
-            assert_eq!(
-                dec(&record.payload, "character_revision", 1, u64::MAX),
-                Ok(revision)
-            );
+            let record = items(begin.as_bytes()).map(|record| {
+                (
+                    record.scope.character_revision.clone(),
+                    dec(&record.payload, "character_revision", 1, u64::MAX),
+                )
+            });
+            assert_eq!(record, Ok((Some("7".to_owned()), Ok(revision))));
         }
     }
 
