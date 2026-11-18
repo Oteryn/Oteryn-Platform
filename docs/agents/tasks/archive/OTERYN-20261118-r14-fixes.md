@@ -30,7 +30,7 @@ merged.
 
 - [x] Each confirmed finding has a fix with a regression test through the real caller
 - [x] Each pushed fix was reviewed read-only before integration
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -88,10 +88,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-18T06:45:00Z
-head: pending
+head: ca5a5fdda62662a6e153dc2aa6c33d5f44a206b1
 branch: claude/happy-davinci-ijz3wy-r14-fixes
 pr: 1947
-status: implementing
+status: completed
 terminal_pr_policy: archive_pending
 context_routes: []
 owned_paths:
@@ -179,12 +179,20 @@ validation:
     result: PASS
     evidence: local PostgreSQL 18 - bazaar 189, identity 198, internal-api 19, playerdata 199 (Codex run after BANK change), store 141, community 194, oteryn-portal 249; 0 failed, 0 ignored
   - command: Portal RS CI on the PR head
-    result: NOT_RUN
-    evidence: full suite runs in CI shards
+    result: PASS
+    evidence: all Portal RS CI jobs green on PR head 665b5e32; merged through the merge queue
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: server-side fixes covered by tests through the real routers and workers
 blockers:
   - none
-next_action: Portal RS CI on the PR head, then squash auto-merge
+next_action: none; delivered by PR #1947 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: PR #1947 squash-merged through the merge queue; GitHub deletes the head branch after merge
+source_branch_evidence: PR #1947 merged as ca5a5fdda62662a6e153dc2aa6c33d5f44a206b1
 ```
