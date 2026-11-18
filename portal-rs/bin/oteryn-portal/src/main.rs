@@ -634,7 +634,10 @@ mod browser_configuration_tests {
     #[test]
     fn csrf_configuration_wraps_coin_and_moderation_routes() {
         let source = include_str!("main.rs");
-        let composition = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let composition = source
+            .split_once("async fn run(role: Role)")
+            .and_then(|(_, rest)| rest.split_once("\ntype ListenerCompletion"))
+            .map_or("", |(body, _)| body);
         let configuration = composition
             .find("let app = oteryn_web::register::configured(app);")
             .unwrap_or_default();
