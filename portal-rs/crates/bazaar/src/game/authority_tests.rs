@@ -5553,3 +5553,6 @@ async fn r13_replay_gold_bind() {
     replay_sale_receipts(&db, &[Command::Lock, Command::Bind]).await;
     db.end().await;
 }
+
+#[path = "recovery_tests.rs"]
+mod recovery_tests;
