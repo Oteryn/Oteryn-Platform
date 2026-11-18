@@ -32,22 +32,6 @@ impl Restore {
         let raw = std::str::from_utf8(raw).map_err(|_| Error::BadInput)?;
         let mut tx = self.pool.begin().await?;
         lock(&mut tx, true).await?;
-        // Store evidence survives feature switches. Until Store reconciliation is
-        // composed here, no notice may acknowledge a stack containing its intents.
-        let store_installed: bool =
-            sqlx::query_scalar("SELECT to_regclass('store_operations') IS NOT NULL")
-                .fetch_one(&mut *tx)
-                .await?;
-        let store_intents = if store_installed {
-            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM store_operations)")
-                .fetch_one(&mut *tx)
-                .await?
-        } else {
-            false
-        };
-        if store_intents {
-            return Err(Error::Unavailable);
-        }
         if let Some(row) = sqlx::query(
             "SELECT notice_json FROM character_restore_notices WHERE restore_event_id=$1",
         )
@@ -67,6 +51,31 @@ impl Restore {
                 return Err(Error::Conflict);
             }
         } else {
+            // Store evidence survives feature switches. Until Store reconciliation is
+            // composed here, no notice may acknowledge a stack containing its intents.
+            let store_installed: bool =
+                sqlx::query_scalar("SELECT to_regclass('store_operations') IS NOT NULL")
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let store_intents = if store_installed {
+                sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM store_operations)")
+                    .fetch_one(&mut *tx)
+                    .await?
+            } else {
+                false
+            };
+            if store_intents {
+                return Err(Error::Unavailable);
+            }
+            // Game can have lost either closure operation at the restored generation.
+            let closure_installed: bool =
+                sqlx::query_scalar("SELECT to_regclass('plat3_closure_receipts') IS NOT NULL")
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if closure_installed && sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM plat3_closure_receipts WHERE recovery_generation::numeric >= $1::text::numeric)")
+                .bind(&notice.restored).fetch_one(&mut *tx).await? {
+                return Err(Error::Unavailable);
+            }
             let stale:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_restore_notices WHERE new_recovery_generation >= $1)").bind(&notice.new_generation).fetch_one(&mut *tx).await?;
             if stale {
                 tx.rollback().await?;

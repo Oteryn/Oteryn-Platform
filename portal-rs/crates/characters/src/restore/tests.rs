@@ -880,3 +880,43 @@ async fn audit_a210_rate_admission_precedes_body_validation_v1_and_restore() {
         }
     }
 }
+
+#[tokio::test]
+async fn fx_store_after_ack() {
+    let Some((pool, admin, schema)) = database().await else {
+        return;
+    };
+    let restore = Restore::new(pool.clone(), settings());
+    let ack = restore.notice(NOTICE.as_bytes()).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE store_operations(id int); INSERT INTO store_operations VALUES (1)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(restore.notice(NOTICE.as_bytes()).await.unwrap(), ack);
+    assert!(matches!(
+        restore.notice(notice(4, 5).as_bytes()).await,
+        Err(Error::Unavailable)
+    ));
+    cleanup(pool, admin, schema).await;
+}
+
+#[tokio::test]
+async fn fx_closure_at_restored_generation() {
+    let Some((pool, admin, schema)) = database().await else {
+        return;
+    };
+    let restore = Restore::new(pool.clone(), settings());
+    sqlx::raw_sql("CREATE TABLE plat3_closure_receipts(recovery_generation text); INSERT INTO plat3_closure_receipts VALUES ('3')").execute(&pool).await.unwrap();
+    assert!(matches!(
+        restore.notice(NOTICE.as_bytes()).await,
+        Err(Error::Unavailable)
+    ));
+    assert!(
+        restore
+            .notice(notice(4, 5).as_bytes())
+            .await
+            .unwrap()
+            .contains("ACKNOWLEDGED")
+    );
+    cleanup(pool, admin, schema).await;
+}

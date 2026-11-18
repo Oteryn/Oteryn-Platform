@@ -934,10 +934,10 @@ impl Store {
         for authority in authorities {
             lock(&mut tx, &authority).await?;
         }
-        let streams = sqlx::query("UPDATE pd_streams SET history_coverage_ms=NULL WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1 AND history_coverage_ms IS NOT NULL AND split_part(stream_key,'|',4)='36:'||$2 LIMIT $3 FOR UPDATE)")
-            .bind(account).bind(character).bind(limit).execute(&mut *tx).await?.rows_affected();
-        let heads = sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT h.stream_key FROM pd_item_heads h JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND split_part(h.stream_key,'|',4)='36:'||$2 LIMIT $3 FOR UPDATE OF h)")
-            .bind(account).bind(character).bind(limit).execute(&mut *tx).await?.rows_affected();
+        let streams = sqlx::query("UPDATE pd_streams SET history_coverage_ms=NULL WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1 AND history_coverage_ms IS NOT NULL AND split_part(stream_key,'|',4)='36:'||$2 AND ($4::text IS NULL OR COALESCE(NULLIF(split_part(split_part(stream_key,'|',5),':',2),''),'0')::numeric <= $4::text::numeric) LIMIT $3 FOR UPDATE)")
+            .bind(account).bind(character).bind(limit).bind(closed_revision).execute(&mut *tx).await?.rows_affected();
+        let heads = sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT h.stream_key FROM pd_item_heads h JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND split_part(h.stream_key,'|',4)='36:'||$2 AND ($4::text IS NULL OR COALESCE(NULLIF(split_part(split_part(h.stream_key,'|',5),':',2),''),'0')::numeric <= $4::text::numeric) LIMIT $3 FOR UPDATE OF h)")
+            .bind(account).bind(character).bind(limit).bind(closed_revision).execute(&mut *tx).await?.rows_affected();
         let records = sqlx::query(
             "UPDATE pd_records SET payload=NULL, entity_key='', occurred_ms=0, coverage_ms=0,
                 scope_key='', character_id=NULL, expires_ms=$3
@@ -956,7 +956,7 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
-        let segments=sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,expires_at=0,purged_at=GREATEST(purged_at,$3) WHERE ctid IN (SELECT ctid FROM pd_g9_records WHERE account_id=$1::uuid AND character_id=$2::uuid AND (purged_at IS NULL OR purged_at<$5 OR canonical_bytes IS NOT NULL OR record IS NOT NULL OR expires_at<>0) LIMIT $4 FOR UPDATE)").bind(account).bind(character).bind((now/1000) as i64).bind(limit).bind(requested_ms/1000).execute(&mut *tx).await?.rows_affected();
+        let segments=sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,expires_at=0,purged_at=GREATEST(purged_at,$3) WHERE ctid IN (SELECT ctid FROM pd_g9_records WHERE account_id=$1::uuid AND character_id=$2::uuid AND ($6::text IS NULL OR COALESCE((record->>'character_revision')::numeric,0) <= $6::text::numeric) AND (purged_at IS NULL OR purged_at<$5 OR canonical_bytes IS NOT NULL OR record IS NOT NULL OR expires_at<>0) LIMIT $4 FOR UPDATE)").bind(account).bind(character).bind((now/1000) as i64).bind(limit).bind(requested_ms/1000).bind(closed_revision).execute(&mut *tx).await?.rows_affected();
         tombstone(&mut tx, account, Some(character), now, closed_revision).await?;
         tx.commit().await?;
         Ok(limit.is_none_or(|n| {

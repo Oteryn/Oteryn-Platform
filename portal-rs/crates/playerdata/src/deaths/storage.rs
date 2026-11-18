@@ -312,7 +312,7 @@ impl<A: Authority> Deaths<A> {
     }
     pub async fn erase_account(&self, account: Uuid) -> Result<(), Failure> {
         let mut tx = self.pool.begin().await.map_err(db)?;
-        erase_scope(&mut tx, account, None, None, 0)
+        erase_scope(&mut tx, account, None, None, 0, None)
             .await
             .map_err(db)?;
         tx.commit().await.map_err(db)?;
@@ -342,6 +342,7 @@ pub(crate) async fn erase_scope(
     character: Option<Uuid>,
     limit: Option<i64>,
     requested_ms: i64,
+    closed_revision: Option<&str>,
 ) -> std::result::Result<bool, sqlx::Error> {
     if character.is_none() {
         // The account-wide accepted cursor survives, so old revisions cannot
@@ -354,7 +355,7 @@ pub(crate) async fn erase_scope(
             .await?;
         return Ok(limit.is_none_or(|n| removed.rows_affected() < n as u64));
     }
-    let rows=sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0,erased_at_ms=GREATEST(erased_at_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE ctid IN (SELECT ctid FROM pd_t78_records WHERE account_id=$1 AND character_id=$2 AND (erased_at_ms IS NULL OR erased_at_ms<$4 OR payload IS NOT NULL OR entity_key<>'' OR occurred_at_ms<>0) LIMIT $3 FOR UPDATE)")
-        .bind(account).bind(character).bind(limit).bind(requested_ms).execute(&mut **tx).await?;
+    let rows=sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0,erased_at_ms=GREATEST(erased_at_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE ctid IN (SELECT ctid FROM pd_t78_records WHERE account_id=$1 AND character_id=$2 AND ($5::text IS NULL OR payload IS NULL OR COALESCE((payload->>'character_revision')::numeric,0) <= $5::text::numeric) AND (erased_at_ms IS NULL OR erased_at_ms<$4 OR payload IS NOT NULL OR entity_key<>'' OR occurred_at_ms<>0) LIMIT $3 FOR UPDATE)")
+        .bind(account).bind(character).bind(limit).bind(requested_ms).bind(closed_revision).execute(&mut **tx).await?;
     Ok(limit.is_none_or(|cap| rows.rows_affected() < cap as u64))
 }

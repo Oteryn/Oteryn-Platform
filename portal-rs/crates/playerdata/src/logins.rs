@@ -275,8 +275,8 @@ impl Logins {
         if entered < now - 30 * 86_400_000 {
             return Ok(());
         }
-        let old: Option<ExistingLogin> = sqlx::query_as("SELECT entered_at,left_at,character_id,end_reason FROM pd_game_logins WHERE account_id=$1 AND login_event_id=$2 FOR UPDATE")
-            .bind(record.account).bind(record.login.login_event_id).fetch_optional(&mut **tx).await?;
+        let old: Option<ExistingLogin> = sqlx::query_as("SELECT entered_at,left_at,character_id,end_reason FROM pd_game_logins WHERE account_id=$1 AND login_event_id=$2 AND projection_epoch=$3::text::numeric AND recovery_generation=$4::text::numeric FOR UPDATE")
+            .bind(record.account).bind(record.login.login_event_id).bind(current.epoch.to_string()).bind(current.recovery_generation.to_string()).fetch_optional(&mut **tx).await?;
         let reason = record.login.end_reason.as_ref().map(|v| match v {
             EndReason::Logout => "LOGOUT",
             EndReason::Disconnect => "DISCONNECT",
@@ -297,7 +297,7 @@ impl Logins {
         }) {
             return Err(Error::Conflict);
         }
-        let changed = sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,source_revision,entered_at,left_at,end_reason) VALUES($1,$2,$3,$12,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7::text::numeric,$8::text::numeric,$9,$10,$11) ON CONFLICT(account_id,login_event_id) DO UPDATE SET character_id=EXCLUDED.character_id,world_id=EXCLUDED.world_id,projection_epoch=EXCLUDED.projection_epoch,recovery_generation=EXCLUDED.recovery_generation,projection_revision=EXCLUDED.projection_revision,character_revision=EXCLUDED.character_revision,source_revision=EXCLUDED.source_revision,left_at=EXCLUDED.left_at,end_reason=EXCLUDED.end_reason,updated_at=now() WHERE pd_game_logins.projection_epoch<>EXCLUDED.projection_epoch OR pd_game_logins.recovery_generation<>EXCLUDED.recovery_generation OR pd_game_logins.source_revision < EXCLUDED.source_revision")
+        let changed = sqlx::query("INSERT INTO pd_game_logins(account_id,login_event_id,character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,source_revision,entered_at,left_at,end_reason) VALUES($1,$2,$3,$12,$4::text::numeric,$5::text::numeric,$6::text::numeric,$7::text::numeric,$8::text::numeric,$9,$10,$11) ON CONFLICT(account_id,login_event_id) DO UPDATE SET entered_at=EXCLUDED.entered_at,character_id=EXCLUDED.character_id,world_id=EXCLUDED.world_id,projection_epoch=EXCLUDED.projection_epoch,recovery_generation=EXCLUDED.recovery_generation,projection_revision=EXCLUDED.projection_revision,character_revision=EXCLUDED.character_revision,source_revision=EXCLUDED.source_revision,left_at=EXCLUDED.left_at,end_reason=EXCLUDED.end_reason,updated_at=now() WHERE pd_game_logins.projection_epoch<>EXCLUDED.projection_epoch OR pd_game_logins.recovery_generation<>EXCLUDED.recovery_generation OR pd_game_logins.source_revision < EXCLUDED.source_revision")
             .bind(record.account).bind(record.login.login_event_id).bind(record.character).bind(current.epoch.to_string()).bind(current.recovery_generation.to_string()).bind(current.projection_revision.map(|v| v.to_string())).bind(record.character_revision.map(|v| v.to_string())).bind(record.source_revision.to_string()).bind(entered).bind(left).bind(reason).bind(current.world_id).execute(&mut **tx).await?.rows_affected();
         if changed != 1 {
             return Err(Error::Conflict);
