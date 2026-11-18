@@ -2351,3 +2351,94 @@ async fn r10_bank_fee_predecessor() -> std::result::Result<(), Box<dyn std::erro
     db.close().await?;
     Ok(())
 }
+
+#[test]
+fn r11_bank_self_predecessor() {
+    let raw = bank(1, None, 0, 10);
+    let entry = playerdata::items(&raw).unwrap().entity;
+    let raw = String::from_utf8(raw).unwrap().replace(
+        r#""previous_entry_id":null"#,
+        &format!(r#""previous_entry_id":"{entry}""#),
+    );
+    assert_eq!(
+        playerdata::items(raw.as_bytes()).err(),
+        Some(playerdata::Error::Invalid)
+    );
+}
+
+#[tokio::test]
+async fn r11_zero_page_snapshot() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let entity = Uuid::now_v7().to_string();
+    let begin = snapshot(1, &entity, false);
+    a.allow(begin.scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(begin, clock()).await?;
+    let end = snapshot(2, &entity, true);
+    let envelope = std::str::from_utf8(&end.bytes)?
+        .split_once(r#""kind":"ITEMS_END""#)
+        .unwrap()
+        .0;
+    let item = r#"{"item_instance_id":"019a0000-0000-7000-8000-000000000010","definition_family":"item","definition_production_key":"item","definition_revision_ref":"rev","quantity":1,"root":"INBOX","town_id":null,"depot_box":null,"house_id":null,"spatial_position_hex":null,"equipment_slot":null,"parent_item_instance_id":null,"placement_ordinal":"1"}"#;
+    let raw = format!(
+        r#"{envelope}"kind":"ITEMS_PAGE","payload":{{"snapshot_id":"{entity}","page_index":0,"items":[{item}]}}}}"#
+    );
+    let page = playerdata::items(raw.as_bytes())?;
+    assert_eq!(store.ingest(page, clock()).await, Err(Error::Conflict));
+    store.ingest(end, clock()).await?;
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn r11_character_replay_expiry() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let a = TestAuthority::default();
+    let r = playerdata::progress(&progress(1))?;
+    a.allow(r.scope.clone()).await;
+    let store = db.store(&a);
+    store.ingest(r, clock()).await?;
+    let other = playerdata::progress(&progress_for(2, &Uuid::now_v7().to_string()))?;
+    a.allow(other.scope.clone()).await;
+    store.ingest(other, clock()).await?;
+    let db_now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    let purge = TrustedTime {
+        unix_ms: db_now as u64 - 119 * 86400000,
+        uncertainty_ms: 0,
+    };
+    store
+        .erase_character_cut(
+            ACCOUNT,
+            CHARACTER,
+            purge,
+            Some("9"),
+            None,
+            purge.unix_ms as i64,
+        )
+        .await?;
+    let retention = crate::retention::Retention(db.pool.clone());
+    retention.expire_batch().await?;
+    let revisions = || {
+        sqlx::query_scalar::<_, String>(
+            "SELECT source_revision::text FROM pd_records ORDER BY pd_records.source_revision",
+        )
+        .fetch_all(&db.pool)
+    };
+    assert_eq!(revisions().await?, ["1", "2"]);
+    // Age both records equally, crossing the erased character's deadline.
+    sqlx::query("UPDATE pd_records SET expires_ms=expires_ms-2*86400000::bigint")
+        .execute(&db.pool)
+        .await?;
+    retention.expire_batch().await?;
+    assert_eq!(revisions().await?, ["2"]);
+    db.close().await?;
+    Ok(())
+}

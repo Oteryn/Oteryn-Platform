@@ -175,11 +175,16 @@ impl GameBoundary {
             return Err(Error::UnknownState);
         }
         let intent = Intent::parse(&intent_raw)?;
-        // A committed CANCEL resolves its original operation even when its
-        // first authenticated delivery follows restore reconciliation.
+        // A delayed terminal CANCEL receipt either resolves the original
+        // operation or permits reconciliation to issue a fresh attempt.
         let decided_generation = wire::number(&receipt.recovery_generation, true)?;
         let historical_cancel = intent.decision.as_deref() == Some("CANCEL")
-            && receipt.outcome == "COMMITTED"
+            && (receipt.outcome == "COMMITTED"
+                || (receipt.outcome == "REJECTED"
+                    && matches!(
+                        receipt.result_code.as_str(),
+                        "CHAR_CMD_INTENT_EXPIRED" | "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION"
+                    )))
             && decided_generation < current;
         receipt.bind(
             &intent,

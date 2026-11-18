@@ -53,6 +53,17 @@ impl Retention {
             .bind(now-120*86400000_i64).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_records WHERE ctid IN (SELECT r.ctid FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE r.source_revision<=s.retention_floor LIMIT 512 FOR UPDATE OF r SKIP LOCKED)")
             .execute(&mut *tx).await?;
+        // Character erasure clears scope_key and sets expires_ms to the purge
+        // time plus 89 days. Keep the shared account cursor and its live rows.
+        sqlx::query(
+            "DELETE FROM pd_records WHERE ctid IN (
+            SELECT r.ctid FROM pd_records r JOIN pd_streams s USING(stream_key)
+            WHERE s.progress AND NOT s.erased AND r.scope_key='' AND r.payload IS NULL
+            AND r.expires_ms<=$1 LIMIT 512 FOR UPDATE OF r SKIP LOCKED)",
+        )
+        .bind(now - 31 * 86400000_i64)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM pd_deleted_scopes WHERE ctid IN (SELECT ctid FROM pd_deleted_scopes WHERE expires_ms<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_conflicts WHERE ctid IN (SELECT ctid FROM pd_conflicts WHERE expires_ms<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")

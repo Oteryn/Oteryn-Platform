@@ -620,7 +620,7 @@ fn items_payload(scope: &Scope, kind: &str, p: &Value) -> Result<String> {
             id(p, "operation_occurrence_id")?;
             id(p, "event_id")?;
             let entry = id(p, "entry_id")?;
-            opt_id(p, "previous_entry_id")?;
+            require(opt_id(p, "previous_entry_id")?.as_ref() != Some(&entry))?;
             let kind = s(p, "kind")?;
             one(kind, "DEPOSIT WITHDRAW TRANSFER")?;
             let direction = s(p, "direction")?;
