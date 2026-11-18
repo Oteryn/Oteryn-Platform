@@ -5758,3 +5758,6 @@ mod worker_tests {
         db.end().await;
     }
 }
+
+#[path = "lifecycle_table_tests.rs"]
+mod lifecycle_table_tests;
