@@ -399,8 +399,13 @@ impl Authority {
         let Some((_, returning, _)) = self.custody(db, listing, "RETURNED").await? else {
             return Err(Error::Unavailable);
         };
-        sqlx::query("INSERT INTO bazaar_authority_compensations(listing_id,return_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING")
-            .bind(listing.id).bind(id(text(&returning.value, "operation_id")?)?).bind(self.fence.recovery_generation.to_string()).execute(&mut *db).await?;
+        crate::lifecycle::write_compensation(
+            db,
+            listing.id,
+            id(text(&returning.value, "operation_id")?)?,
+            self.fence.recovery_generation,
+        )
+        .await?;
         sqlx::query("DELETE FROM bazaar_moderation_holds WHERE listing_id=$1")
             .bind(listing.id)
             .execute(&mut *db)

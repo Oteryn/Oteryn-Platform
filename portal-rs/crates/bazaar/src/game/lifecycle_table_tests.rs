@@ -354,6 +354,26 @@ async fn pending_item_delivery() -> BrowserFixture {
     db
 }
 
+async fn lifecycle_awaiting_delivery_can_suspend_after_dispatch() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = pending_item_delivery().await;
+    let effects = sale_effects(&db).await;
+    let listing = uid("20");
+    staff_suspend(&db, listing).await.unwrap();
+    let held: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
+    )
+    .bind(listing)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(held);
+    assert_eq!(item_state(&db).await, State::AwaitingDelivery);
+    assert_eq!(sale_effects(&db).await, effects);
+    assert_eq!(dispatched(&db, listing, Command::Deliver).await, 1);
+    db.end().await;
+}
+
 async fn lifecycle_awaiting_delivery_commit_delivery() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
@@ -1977,6 +1997,398 @@ async fn bz14_active_custody_conflict_behind_cursor_fences_certification() {
     assert_eq!(state, State::Active);
 }
 
+async fn current_status(db: &BrowserFixture) -> String {
+    sqlx::query_scalar(
+        "SELECT canonical_body FROM bazaar_game_projections WHERE kind='STATUS' AND subject=$1",
+    )
+    .bind(uid("20"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap()
+}
+
+async fn publish_next_status(db: &BrowserFixture, status: &str) {
+    let mut tx = db.pool.begin().await.unwrap();
+    let revision: String = sqlx::query_scalar(
+        "SELECT projection_revision::text FROM bazaar_game_projections WHERE kind='STATUS' AND subject=$1",
+    )
+    .bind(uid("20"))
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let previous = number(
+        &decode(status.as_bytes(), 2048).unwrap(),
+        "projection_revision",
+    )
+    .unwrap();
+    let next = revision.parse::<u64>().unwrap() + 1;
+    let status = status.replace(
+        &format!(r#""projection_revision":"{previous}""#),
+        &format!(r#""projection_revision":"{next}""#),
+    );
+    let now = runtime::now(&mut tx).await.unwrap();
+    assert_eq!(
+        projection_ingest()
+            .ingest(
+                &mut tx,
+                &db.runtime.authority().config.projection_authority,
+                status.as_bytes(),
+                now
+            )
+            .await
+            .unwrap(),
+        IngestResult::Applied
+    );
+    tx.commit().await.unwrap();
+}
+
+async fn bz14b_applied_status_behind_cursor_retains_listing_key() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Active).await;
+    insert_resync_fillers(&db, 24).await;
+    let next = rebuild_epoch(&db).await;
+    set_resync_fence(
+        &mut db,
+        next.fence.projection_epoch,
+        next.fence.recovery_generation,
+    );
+    db.runtime.tick().await.unwrap();
+    let listing = uid("20");
+    let lookup = "SELECT cursor_id FROM bazaar_work_cursors WHERE queue=$1";
+    let key = format!("resync-listing-dirty:{listing}");
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>(lookup)
+            .bind(&key)
+            .fetch_optional(&db.pool)
+            .await
+            .unwrap(),
+        None
+    );
+
+    let valid = current_status(&db).await;
+    let operation = id(text(
+        &decode(valid.as_bytes(), 2048).unwrap(),
+        "last_operation_id",
+    )
+    .unwrap())
+    .unwrap();
+    let missing = Uuid::now_v7();
+    publish_next_status(
+        &db,
+        &valid.replace(&operation.to_string(), &missing.to_string()),
+    )
+    .await;
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>(lookup)
+            .bind(&key)
+            .fetch_optional(&db.pool)
+            .await
+            .unwrap(),
+        Some(listing)
+    );
+
+    db.runtime.tick().await.unwrap();
+    assert_eq!(resync_progress(&db).await, (false, true));
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>(lookup)
+            .bind(&key)
+            .fetch_optional(&db.pool)
+            .await
+            .unwrap(),
+        Some(listing)
+    );
+    assert_eq!(quarantine_count(&db).await, 0);
+
+    publish_next_status(&db, &valid).await;
+    assert!(matches!(
+        db.runtime.tick().await,
+        Err(Error::ResyncEvidenceChanged)
+    ));
+    assert_eq!(resync_progress(&db).await, (false, true));
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>(lookup)
+            .bind(&key)
+            .fetch_optional(&db.pool)
+            .await
+            .unwrap(),
+        None
+    );
+    for _ in 0..2 {
+        db.runtime.tick().await.unwrap();
+    }
+    assert_eq!(resync_progress(&db).await, (true, true));
+    assert_eq!(item_state(&db).await, State::Active);
+    db.end().await;
+}
+
+async fn operation_checkpoint(db: &BrowserFixture) -> (Uuid, i64) {
+    sqlx::query_as(
+        "SELECT listing_cursor,operation_cursor::bigint FROM bazaar_resync_progress
+         WHERE projection_epoch=4 AND recovery_generation=3",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap()
+}
+
+async fn operation_page_fixture() -> (BrowserFixture, PreparedIntent, (Uuid, i64)) {
+    let mut db = item_in(State::Active).await;
+    let escrow = newest_intent(&db, uid("20"), Command::Escrow).await;
+    let original = text(&escrow.value, "operation_id").unwrap();
+    let first = number(&escrow.value, "source_revision").unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    for revision in first + 1..=first + 24 {
+        let operation = Uuid::now_v7();
+        let raw = std::str::from_utf8(escrow.bytes())
+            .unwrap()
+            .replace(original, &operation.to_string())
+            .replace(
+                &format!(r#""source_revision":"{first}""#),
+                &format!(r#""source_revision":"{revision}""#),
+            );
+        let staged = PreparedIntent::parse(&raw).unwrap();
+        store_intent_with_key(&mut tx, &staged, &format!("fixture:{operation}")).await;
+    }
+    tx.commit().await.unwrap();
+    let next = rebuild_epoch(&db).await;
+    set_resync_fence(
+        &mut db,
+        next.fence.projection_epoch,
+        next.fence.recovery_generation,
+    );
+    db.runtime.tick().await.unwrap();
+    let checkpoint = operation_checkpoint(&db).await;
+    assert_eq!(checkpoint, (uid("20"), (first + 23) as i64));
+    assert_eq!(resync_progress(&db).await, (false, true));
+    (db, escrow, checkpoint)
+}
+
+async fn bz16_escrow_conflict_between_operation_pages_fences_certification() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    for decision in [false, true] {
+        let (db, escrow, _) = operation_page_fixture().await;
+        let operation = id(text(&escrow.value, "operation_id").unwrap()).unwrap();
+        let a = db.runtime.authority();
+        let mut tx = db.pool.begin().await.unwrap();
+        let now = runtime::now(&mut tx).await.unwrap();
+        let result = if decision {
+            let wire: Vec<u8> = sqlx::query_scalar(
+                "SELECT envelope_semantics FROM bazaar_authority_decisions WHERE operation_id=$1",
+            )
+            .bind(operation)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            let mut envelope = event_wire::EventEnvelope::decode(wire.as_slice()).unwrap();
+            envelope.server_build_id.push_str("-conflict");
+            a.ingest_decision(
+                &mut tx,
+                &a.config.projection_authority,
+                &envelope.encode_to_vec(),
+                now,
+            )
+            .await
+        } else {
+            let wire: String = sqlx::query_scalar(
+                "SELECT receipt FROM bazaar_authority_receipts WHERE operation_id=$1",
+            )
+            .bind(operation)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            let decided = number(
+                &Receipt::parse(wire.as_bytes()).unwrap().value,
+                "decided_at",
+            )
+            .unwrap();
+            let conflict = wire.replace(
+                &format!(r#""decided_at":"{decided}""#),
+                &format!(r#""decided_at":"{}""#, decided - 1),
+            );
+            a.receive(
+                &mut tx,
+                &a.config.receipt_authority,
+                conflict.as_bytes(),
+                now,
+            )
+            .await
+        };
+        assert_eq!(result.unwrap(), ReceiptResult::Quarantined);
+        tx.commit().await.unwrap();
+
+        assert!(matches!(
+            db.runtime.tick().await,
+            Err(Error::ResyncEvidenceChanged)
+        ));
+        assert_eq!(operation_checkpoint(&db).await, (Uuid::nil(), 0));
+        db.runtime.tick().await.unwrap();
+        assert_eq!(resync_progress(&db).await, (false, true));
+        assert_eq!(item_state(&db).await, State::Active);
+        db.end().await;
+    }
+}
+
+async fn bz17_immediate_drift_waits_for_legacy_world() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    let listing = uid("20");
+    let effects = sale_effects(&db).await;
+    let next = rebuild_epoch(&db).await;
+    set_resync_fence(
+        &mut db,
+        next.fence.projection_epoch,
+        next.fence.recovery_generation,
+    );
+    let valid = current_status(&db).await;
+    let contradictory = valid.replace(&uid("22").to_string(), &uid("75").to_string());
+    publish_next_status(&db, &contradictory).await;
+    sqlx::query("DELETE FROM bazaar_authority_assets WHERE listing_id=$1")
+        .bind(listing)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    configure_alternate_world(&mut db, uid("76")).await;
+
+    assert!(matches!(
+        db.runtime.tick().await,
+        Err(Error::ResyncWorldConfiguration)
+    ));
+    assert_eq!(
+        delivery_reports(&db, listing, "delivery_evidence_pending").await,
+        0
+    );
+    assert_eq!(
+        delivery_reports(&db, listing, "delivery_custody_drift").await,
+        0
+    );
+    assert_eq!(quarantine_count(&db).await, 0);
+    assert!(!resync_progress(&db).await.0);
+
+    std::sync::Arc::make_mut(&mut db.runtime.config)
+        .authority
+        .config
+        .worlds = vec![uid("12")];
+    publish_next_status(&db, &valid).await;
+    db.runtime.tick().await.unwrap();
+    assert_eq!(resync_progress(&db).await, (true, true));
+    assert_eq!(sale_effects(&db).await, effects);
+    assert_eq!(item_state(&db).await, State::Completed);
+    db.end().await;
+}
+
+async fn bz18_old_writer_cannot_change_evidence_or_checkpoint() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let (db, escrow, checkpoint) = operation_page_fixture().await;
+    let operation = id(text(&escrow.value, "operation_id").unwrap()).unwrap();
+    // A v4 process has no v5 registration. Replay its actual custody conflict
+    // and checkpoint writes through a separate connection to PostgreSQL.
+    let mut old_worker = db.pool.acquire().await.unwrap();
+    use sqlx::Acquire;
+    let mut tx = old_worker.begin().await.unwrap();
+    let result = sqlx::query(
+        "INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')",
+    )
+    .bind(operation)
+    .bind("a".repeat(64))
+    .execute(&mut *tx)
+    .await;
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        result
+            .unwrap_err()
+            .as_database_error()
+            .unwrap()
+            .code()
+            .as_deref(),
+        Some("55000")
+    );
+
+    let mut tx = old_worker.begin().await.unwrap();
+    let result = sqlx::query(
+        "DELETE FROM bazaar_resync_progress WHERE projection_epoch=4 AND recovery_generation=3",
+    )
+    .execute(&mut *tx)
+    .await;
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        result
+            .unwrap_err()
+            .as_database_error()
+            .unwrap()
+            .code()
+            .as_deref(),
+        Some("55000")
+    );
+    assert_eq!(operation_checkpoint(&db).await, checkpoint);
+    assert_eq!(resync_progress(&db).await, (false, true));
+
+    drop(old_worker);
+    db.runtime.tick().await.unwrap();
+    assert_eq!(resync_progress(&db).await, (true, true));
+    assert_eq!(operation_checkpoint(&db).await.1, checkpoint.1 + 1);
+    db.end().await;
+}
+
+async fn publish_next_policy(db: &BrowserFixture) {
+    let mut tx = db.pool.begin().await.unwrap();
+    let (policy, revision): (String, String) = sqlx::query_as(
+        "SELECT canonical_body,projection_revision::text FROM bazaar_game_projections
+         WHERE kind='POLICY' AND subject=$1",
+    )
+    .bind(uid("12"))
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let next = revision.parse::<u64>().unwrap() + 1;
+    let policy = policy.replace(&format!(r#""{revision}""#), &format!(r#""{next}""#));
+    let now = runtime::now(&mut tx).await.unwrap();
+    assert_eq!(
+        projection_ingest()
+            .ingest(
+                &mut tx,
+                &db.runtime.authority().config.projection_authority,
+                policy.as_bytes(),
+                now
+            )
+            .await
+            .unwrap(),
+        IngestResult::Applied
+    );
+    tx.commit().await.unwrap();
+}
+
+async fn bz19_moved_evidence_epoch_restarts_and_bounds_rebuild() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let (db, _, checkpoint) = operation_page_fixture().await;
+    for attempt in 1..=3 {
+        publish_next_policy(&db).await;
+        assert!(matches!(
+            db.runtime.tick().await,
+            Err(Error::ResyncEvidenceChanged)
+        ));
+        assert_eq!(operation_checkpoint(&db).await, (Uuid::nil(), 0));
+        assert_eq!(resync_progress(&db).await, (false, true));
+        if attempt < 3 {
+            db.runtime.tick().await.unwrap();
+            assert_eq!(operation_checkpoint(&db).await, checkpoint);
+        }
+    }
+
+    // Further evidence while paused does not start another enumeration.
+    publish_next_policy(&db).await;
+    assert!(matches!(
+        db.runtime.tick().await,
+        Err(Error::ResyncEvidenceChanged)
+    ));
+    assert_eq!(operation_checkpoint(&db).await, (Uuid::nil(), 0));
+    assert_eq!(resync_progress(&db).await, (false, true));
+    db.runtime.tick().await.unwrap();
+    assert_eq!(operation_checkpoint(&db).await, checkpoint);
+    db.runtime.tick().await.unwrap();
+    assert_eq!(resync_progress(&db).await, (true, true));
+    db.end().await;
+}
+
 async fn bz05_drift_does_not_starve_a_later_page() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Completed).await;
@@ -2427,6 +2839,16 @@ async fn missing_first_page_status(legacy_without_asset: bool) {
     let missing = uid("30");
     let later = insert_later_completed_sale(&db).await;
     if legacy_without_asset {
+        sqlx::query(
+            "INSERT INTO bazaar_item_details(id,definition_key,definition_revision,world_id,quantity)
+             SELECT $1,definition_key,definition_revision,world_id,quantity
+             FROM bazaar_item_details WHERE id=$2",
+        )
+        .bind(later)
+        .bind(uid("20"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
         sqlx::query("DELETE FROM bazaar_authority_assets WHERE listing_id=$1")
             .bind(later)
             .execute(&db.pool)
@@ -2598,6 +3020,7 @@ lifecycle_scenarios! {
     "Active/Held funds", "Expiry" => lifecycle_active_expire_funded;
     "Active/Moderation hold", "Approved invalidation" => lifecycle_active_invalidate;
     "Matched/Legacy hold", "Retry tick" => lifecycle_matched_legacy_hold_retires_once;
+    "AwaitingDelivery/Dispatched", "Suspend after dispatch" => lifecycle_awaiting_delivery_can_suspend_after_dispatch;
     "AwaitingDelivery/Dispatched", "Audited committed Deliver and status" => lifecycle_awaiting_delivery_commit_delivery;
     "AwaitingDelivery/Dispatched", "Audited rejected Deliver and Return status" => lifecycle_awaiting_delivery_refuse_delivery;
     "AwaitingDelivery/Canonical and alternate staged", "Second connection attempts publication" => bz01_alternate_delivery_cannot_win_publication;
@@ -2621,6 +3044,11 @@ lifecycle_scenarios! {
     "Rebuild/Completed legacy item without authority asset", "Page finds contradictory Deliver evidence" => legacy_sale_without_authority_asset_is_reconciled;
     "Rebuild/Active escrow behind cursor", "BZ-14 Conflicting STATUS commits between pages" => bz14_active_custody_conflict_behind_cursor_fences_certification;
     "Rebuild/Completed legacy item with missing configured world", "BZ-15 Retry checks without current Deliver evidence" => bz15_missing_legacy_world_preserves_delivery_retry_budget;
+    "Rebuild/Active escrow behind cursor", "BZ-14b Applied STATUS names a missing operation" => bz14b_applied_status_behind_cursor_retains_listing_key;
+    "Rebuild/Escrow behind operation cursor", "BZ-16 Receipt or decision audit conflict" => bz16_escrow_conflict_between_operation_pages_fences_certification;
+    "Rebuild/Completed legacy item with missing configured world", "BZ-17 Immediate drift with world missing" => bz17_immediate_drift_waits_for_legacy_world;
+    "Rebuild/v5 checkpoint", "BZ-18 Legacy writer attempts evidence and checkpoint writes" => bz18_old_writer_cannot_change_evidence_or_checkpoint;
+    "Rebuild/Paged operation scan", "BZ-19 Evidence epoch changes" => bz19_moved_evidence_epoch_restarts_and_bounds_rebuild;
     "Rebuild/Early Drift", "Later page" => bz05_drift_does_not_starve_a_later_page;
     "Rebuild/Page in flight", "Writer crashes before commit" => lifecycle_crash_before_rebuild_page_commit_replays_page;
     "AwaitingDelivery/Return audited", "Second worker races" => lifecycle_workers_race_to_refund_once;
@@ -2722,18 +3150,30 @@ fn lifecycle_state_table_covers_state_event_products() {
             );
         }
     }
+    // The architecture table independently enumerates the recovery scenarios.
+    // Its final row belongs to the production SQL guard.
+    let spec = include_str!("../../../../../docs/architecture/BAZAAR_LIFECYCLE_STATE_TABLE.md");
+    let (_, recovery) = spec
+        .split_once("### Recovery and cross-record transitions")
+        .unwrap();
+    let (table, _) = recovery.split_once("## Invariants").unwrap();
+    assert_eq!(
+        table.lines().filter(|line| line.starts_with("| ")).count(),
+        LIFECYCLE_SCENARIOS.len() + 3,
+    );
     let scenario_keys: std::collections::HashSet<_> = LIFECYCLE_SCENARIOS
         .iter()
         .map(|row| (row.state, row.event))
         .collect();
     assert_eq!(scenario_keys.len(), LIFECYCLE_SCENARIOS.len());
     for id in [
-        "BZ-08", "BZ-09", "BZ-10", "BZ-11", "BZ-12", "BZ-14", "BZ-15",
+        "BZ-08", "BZ-09", "BZ-10", "BZ-11", "BZ-12", "BZ-14", "BZ-14b", "BZ-15", "BZ-16", "BZ-17",
+        "BZ-18", "BZ-19",
     ] {
         assert_eq!(
             LIFECYCLE_SCENARIOS
                 .iter()
-                .filter(|row| row.event.starts_with(id))
+                .filter(|row| row.event.split_whitespace().next() == Some(id))
                 .count(),
             1
         );
@@ -2759,6 +3199,11 @@ mod review_regressions {
         bz12_missing_first_page_status_does_not_starve_legacy_sale,
         bz14_active_custody_conflict_behind_cursor_fences_certification,
         bz15_missing_legacy_world_preserves_delivery_retry_budget,
+        bz14b_applied_status_behind_cursor_retains_listing_key,
+        bz16_escrow_conflict_between_operation_pages_fences_certification,
+        bz17_immediate_drift_waits_for_legacy_world,
+        bz18_old_writer_cannot_change_evidence_or_checkpoint,
+        bz19_moved_evidence_epoch_restarts_and_bounds_rebuild,
     );
 }
 
@@ -2847,6 +3292,19 @@ async fn lifecycle_workers_race_to_refund_once() {
     assert_eq!(item_state(&db).await, State::Cancelled);
     let effects = sale_effects(&db).await;
     assert_eq!((effects.0, effects.2, effects.3), (0, true, 1));
+    let entries: Vec<(String, Uuid, i64, i64)> = sqlx::query_as(
+        "SELECT o.kind,e.account_id,e.available_delta,e.reserved_delta
+         FROM bazaar_settlements s JOIN wallet_operations o ON o.reference_id=s.id
+         JOIN wallet_entries e ON e.operation_id=o.id WHERE s.listing_id=$1",
+    )
+    .bind(uid("20"))
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        entries,
+        vec![("release".to_owned(), uid("13"), 10000, -10000)]
+    );
     assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 1);
     assert_eq!(dispatched(&db, uid("20"), Command::Return).await, 1);
     assert_eq!(

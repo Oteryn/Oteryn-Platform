@@ -625,10 +625,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             reservation: listing.reservation.ok_or(Error::IllegalTransition)?,
         };
         self.reservations.settle(tx, &result).await?;
-        sqlx::query("INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-            .bind(result.id).bind(id).bind(buyer).bind(seller).bind(result.currency).bind(result.amount)
-            .bind(commission).bind(result.seller_net).bind(result.reservation).bind(key).execute(&mut *tx).await?;
+        crate::lifecycle::write_coin_sale(tx, &result, key).await?;
         crate::lifecycle::write_listing(
             tx,
             id,
@@ -674,8 +671,7 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         self.funds_lock(db, vec![result.buyer, result.seller])
             .await?;
         self.reservations.complete(db, &result).await?;
-        sqlx::query("UPDATE bazaar_settlements SET completed_at=clock_timestamp(),updated_at=clock_timestamp() WHERE listing_id=$1")
-            .bind(id).execute(&mut *db).await?;
+        crate::lifecycle::complete_coin_sale(db, id).await?;
         crate::lifecycle::write_listing(db, id, crate::lifecycle::Event::Listing(State::Completed))
             .await?;
         Ok(())

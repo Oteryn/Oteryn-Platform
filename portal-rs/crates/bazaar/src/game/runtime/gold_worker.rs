@@ -349,9 +349,18 @@ impl Runtime {
                     }
                 }
                 let (fee, net) = super::super::gold_payout(l.price as u64)?;
-                let id = oteryn_core::new_id();
-                sqlx::query("INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric)").bind(id).bind(l.id).bind(buyer).bind(l.owner).bind(l.price).bind(fee as i64).bind(net as i64).bind(hold.id).bind(hold.revision.to_string()).execute(&mut **tx).await?;
-                let s = sale(tx, l.id).await?;
+                let s = crate::Settlement {
+                    id: oteryn_core::new_id(),
+                    listing_id: l.id,
+                    buyer,
+                    seller: l.owner,
+                    currency: crate::Currency::Gold,
+                    amount: l.price,
+                    commission: fee as i64,
+                    seller_net: net as i64,
+                    reservation: hold.id,
+                };
+                crate::lifecycle::write_gold_sale(tx, &s, hold.revision).await?;
                 CoinReservations {
                     authority: self.authority().clone(),
                 }
@@ -464,12 +473,7 @@ impl Runtime {
                 .complete(tx, &s)
                 .await
                 .map_err(core_error)?;
-                sqlx::query(
-                    "UPDATE bazaar_authority_gold_sales SET completed_at=now() WHERE id=$1",
-                )
-                .bind(s.id)
-                .execute(&mut **tx)
-                .await?;
+                crate::lifecycle::complete_gold_sale(tx, s.id).await?;
                 crate::lifecycle::write_listing(
                     tx,
                     l.id,

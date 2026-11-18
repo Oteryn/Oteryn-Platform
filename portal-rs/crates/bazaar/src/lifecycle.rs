@@ -493,6 +493,72 @@ pub(crate) async fn create_listing(
     .await?)
 }
 
+pub(crate) async fn write_coin_sale(
+    db: &mut PgConnection,
+    sale: &crate::Settlement,
+    key: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(sale.id).bind(sale.listing_id).bind(sale.buyer).bind(sale.seller).bind(sale.currency)
+    .bind(sale.amount).bind(sale.commission).bind(sale.seller_net).bind(sale.reservation).bind(key)
+    .execute(db).await?;
+    Ok(())
+}
+
+pub(crate) async fn complete_coin_sale(
+    db: &mut PgConnection,
+    listing: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE bazaar_settlements SET completed_at=clock_timestamp(),updated_at=clock_timestamp() WHERE listing_id=$1",
+    )
+    .bind(listing).execute(db).await?;
+    Ok(())
+}
+
+pub(crate) async fn write_gold_sale(
+    db: &mut PgConnection,
+    sale: &crate::Settlement,
+    hold_revision: u64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric)",
+    )
+    .bind(sale.id).bind(sale.listing_id).bind(sale.buyer).bind(sale.seller).bind(sale.amount)
+    .bind(sale.commission).bind(sale.seller_net).bind(sale.reservation).bind(hold_revision.to_string())
+    .execute(db).await?;
+    Ok(())
+}
+
+pub(crate) async fn complete_gold_sale(
+    db: &mut PgConnection,
+    sale: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE bazaar_authority_gold_sales SET completed_at=now() WHERE id=$1")
+        .bind(sale)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn write_compensation(
+    db: &mut PgConnection,
+    listing: Uuid,
+    operation: Uuid,
+    generation: u64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO bazaar_authority_compensations(listing_id,return_operation_id,recovery_generation)
+         VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING",
+    )
+    .bind(listing).bind(operation).bind(generation.to_string()).execute(db).await?;
+    Ok(())
+}
+
 pub(crate) async fn reopen_intents(
     db: &mut PgConnection,
     old: (u64, u64),

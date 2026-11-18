@@ -15,6 +15,8 @@ have been verified.
 | Character custody | None, Lock, Bind, CC1, Escrow, Returned | Audited Lock and Bind, bound CC1 transfer receipt and current STATUS. Return includes the verified release leg |
 | Item custody | None, Escrow, Delivered, Returned, Unknown, Drift | Audited Escrow, Deliver or Return and matching STATUS. Missing status leaves custody unknown |
 | Funds | None, Held, Settled, Refunded | Immutable sale/reservation, coin hold/disposition and wallet ledger, or Game gold hold/payout/release receipts |
+| Gold bid | Pending, Releasing, Accepted, Refused | `bazaar_authority_gold_bids.phase`. A verified hold establishes the reservation. A release required by the bid remains in flight until its outcome is audited |
+| Offer | Pending, Accepted, Rejected, Expired | `bazaar_offers.state`. A gold offer uses its Game hold as the reservation while the offer is pending |
 | Certification | Missing, Rebuilding, Current, Obsolete, Fenced | Marker and progress bound to projection epoch, recovery generation, scan version and sorted configured worlds. Proof also requires current evidence and a fresh watermark |
 | Work | No key, Dirty, Waiting (0–8 attempts), Resolved, Quarantined | Coalesced delivery or listing recheck key, rotating scan cursor, rebuild listing/operation cursors and durable delivery audit |
 
@@ -46,8 +48,20 @@ keys continue to fence certification. A rebuild rolls back a failing
 transaction. The next worker resumes from the last committed cursor and
 requires the current scan version and configured worlds before serving.
 
-The v5 scan binds the sorted worlds to the marker through its progress row
-and restarts older checkpoints that predate transactional STATUS rechecks.
+The v5 scan binds the sorted worlds to the marker through its progress row.
+It raises the database minimum writer version to 5 under the issuer lock.
+Older intake and rebuild writes fail at the database boundary, including
+checkpoint changes from an alternating older worker. Legacy checkpoints
+without an evidence epoch require a fresh scan.
+
+Each transaction that changes custody or delivery evidence advances the
+issuer evidence epoch once. A scan records that epoch at the start and
+checks it in the transaction that writes the marker. A mismatch clears both
+enumeration cursors, keeps the dirty keys, and reports changed evidence.
+After three consecutive resets the scan waits for two successive rebuild
+calls to observe the same epoch before trying the first page again.
+Watermarks advance independently of the evidence epoch.
+
 An older marker or progress row becomes obsolete as soon as the fence,
 version or world set changes. A reader checks that binding under the issuer
 lock even when a worker has yet to commit an invalidation. A current marker
@@ -58,8 +72,9 @@ all enumerated keys must resolve before the final operation scan can certify.
 
 The rebuild tracks listing enumeration separately from the durable recheck
 queues. A missing listing status can retain a key and let the next page
-proceed. A missing configured policy pauses evidence retries until the world
-is available. The delivery retry budget belongs to the sale, so restarting
+proceed. Delivery rechecks resolve the world from the authority asset, then
+from retained item details. A missing world or configured policy pauses
+retry charges and drift reports until the world is available. The delivery retry budget belongs to the sale, so restarting
 the scan or rediscovering the same key preserves the attempts already charged.
 
 ## Executable transition rows
@@ -272,7 +287,7 @@ the remaining scans are complete.
 
 These rows seed the linked records needed to exercise a complete lifecycle
 path. A row can include a second input to prove that a later replay or retry
-preserves the first outcome. The PostgreSQL acceptance test runs all 173
+preserves the first outcome. The PostgreSQL acceptance test runs all 179
 database rows in this document. The SQL guard test runs the final row.
 
 | Current | Event | Next | Funds | Custody | Work and report | Disposition |
@@ -288,6 +303,7 @@ database rows in this document. The SQL guard test runs the final row.
 | Active, held funds | Expiry | AwaitingDelivery | Held | Escrow | Bind one sale | Allowed |
 | Active, moderation hold | Approved invalidation | Cancelled | Release if reserved | Returned | Resolve hold after return | Allowed |
 | Matched, legacy hold | Retry tick | AwaitingDelivery | Preserve reservation | Escrow | Retire hold once and resume settlement | Allowed |
+| AwaitingDelivery, dispatched Deliver | Suspend | AwaitingDelivery | Preserve | Escrow | Record moderation hold after dispatch fence | Allowed |
 | AwaitingDelivery, dispatched Deliver | Audited commitment and Delivered status | Completed | Settle once | Delivered | One completed sale | Allowed |
 | AwaitingDelivery, dispatched Deliver | Audited rejection and audited Returned status | Cancelled | Refund once | Returned | Record compensation | Allowed |
 | AwaitingDelivery, canonical and alternate staged | Second connection publishes alternate, then canonical publishes | AwaitingDelivery with canonical dispatched | Held | Escrow | Exactly one dispatch | Alternate impossible because its key cannot authorize publication |
@@ -311,9 +327,14 @@ database rows in this document. The SQL guard test runs the final row.
 | Rebuild, completed legacy item with no authority asset row | Page finds contradictory Deliver evidence | Drift, listing unchanged | Preserve settlement | Quarantine | Enumerate by the retained sale and command, then report once | Quarantined |
 | Rebuild, Active escrow behind cursor | BZ-14 Conflicting STATUS commits between pages | Active, certification pending | Preserve | Projection quarantined | Commit the listing dirty key with the conflict. The final page leaves certification fenced | Quarantined |
 | Rebuild, completed legacy item with missing configured world | BZ-15 Retry checks without current Deliver evidence | Completed, certification pending until the world and evidence return | Preserve settlement | Preserve | Resolve the world from retained item details. Charge no retries and report no drift while the world is missing | Allowed to defer |
+| Rebuild, Active escrow behind cursor | BZ-14b Applied STATUS names a missing operation | Active, then certified after replacement and a clean scan | Preserve | Wait for valid evidence | Keep the listing key until the replacement resolves it | Allowed to defer |
+| Rebuild, Escrow behind operation cursor | BZ-16 Receipt or decision audit conflict | Fenced | Preserve | Conflicted evidence | Restart enumeration and recheck the invalidated operation | Quarantined |
+| Rebuild, completed legacy item with missing configured world | BZ-17 Immediate drift with world missing | Completed, then certified after world and evidence recover | Preserve | Preserve | Charge no retries and record no drift until the world resolves | Allowed to defer |
+| Rebuild, v5 checkpoint | BZ-18 Legacy writer attempts evidence and checkpoint writes | Rebuilding at the same cursor | Preserve | Preserve | Reject both writes and keep certification fenced until the v5 scan finishes | Impossible for the older writer |
+| Rebuild, paged operation scan | BZ-19 Evidence epoch changes | Restarted from page one | Preserve | Recheck | Withhold the marker and pause after three consecutive resets | Allowed to defer |
 | Rebuild, early Drift | Later page | Both contradictions in Drift | Preserve | Quarantine affected sales | Report both once and continue past early Drift | Quarantined |
 | Rebuild, page in flight | Writer connection closes before commit | Last committed cursor, then replayed page | Preserve | Preserve | Observer cannot read abandoned checkpoint. Retry commits successor | Allowed |
-| AwaitingDelivery, Return audited | Second worker races to compensate | Cancelled | Refund once | Returned once | One compensation and one Return dispatch | Allowed |
+| AwaitingDelivery, Return audited | Second worker races to compensate | Cancelled | Refund once | Returned once | One compensation, one Return dispatch, and one buyer refund ledger entry | Allowed |
 | SQL guard, production macro definition | BZ-13 nested concat!/include_str! assembles a direct state write | Rejected by the guard | Preserve | Preserve | Report the assembled production SQL | Impossible to bypass the lifecycle writer guard |
 
 ## Invariants
@@ -326,7 +347,7 @@ database rows in this document. The SQL guard test runs the final row.
   issuance a sale can be safely returned with no published Deliver. Alternate
   staged records grant no authority and any independent commitment must be checked.
 - Certification requires current audited evidence and matching rebuild version,
-  worlds and fence. A fresh watermark alone grants no custody authority.
+  worlds and fence. The scanned evidence epoch must still match at certification. A fresh watermark alone grants no custody authority.
 - A published Deliver or Return with unresolved sale evidence shares one
   budget of eight durable waiting attempts for the sale.
   On the next unresolved check it goes to Drift and is reported once. Scanning

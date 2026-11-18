@@ -207,6 +207,9 @@ fn forbidden_state_write(sql: &str) -> bool {
         "bazaar_authority_receipts",
         "bazaar_game_quarantine",
         "bazaar_authority_gold_bids",
+        "bazaar_settlements",
+        "bazaar_authority_gold_sales",
+        "bazaar_authority_compensations",
         "bazaar_authority_transfers",
         "bazaar_authority_transfer_retries",
         "bazaar_authority_transfer_retirements",
@@ -231,6 +234,10 @@ fn forbidden_state_write(sql: &str) -> bool {
             return ["bazaar_game_outbox", "bazaar_game_projections"]
                 .iter()
                 .any(|protected| table.eq_ignore_ascii_case(protected))
+                || (["bazaar_settlements", "bazaar_authority_gold_sales"]
+                    .iter()
+                    .any(|protected| table.eq_ignore_ascii_case(protected))
+                    && assignment_to(rest, "completed_at"))
                 || (table.eq_ignore_ascii_case("bazaar_listings") && assignment_to(rest, "state"))
                 || (table.eq_ignore_ascii_case("bazaar_authority_gold_bids")
                     && assignment_to(rest, "phase"));
