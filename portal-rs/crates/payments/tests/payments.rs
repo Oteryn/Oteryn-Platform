@@ -858,6 +858,38 @@ async fn browser_checkout_repays_debt_at_ceiling() -> TestResult {
         ),
         "debt-covered checkout must settle"
     );
+    let second = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&second, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "pending checkouts cannot both use the same debt"
+    );
     credit(&h, account, intent.id, 25).await?;
+    h.finish().await
+}
+
+#[tokio::test]
+async fn browser_pending_delivery_capacity() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    credit(&h, account, Uuid::now_v7(), oteryn_wallet::MAX_BALANCE - 25).await?;
+    let first = browser_intent(&h, account).await?;
+    let second = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&first, IntentState::Succeeded))?;
+    h.service(true).webhook(&body, &sig).await?;
+    let (body, sig) = h.signed(&h.event(&second, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::InvalidInput)
+        ),
+        "second checkout must be refused"
+    );
+    assert_eq!(h.count("invoices").await?, 1);
     h.finish().await
 }

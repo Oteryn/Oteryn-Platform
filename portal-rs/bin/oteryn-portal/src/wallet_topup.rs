@@ -148,8 +148,8 @@ impl Delivery {
             Policy,
         )
         .with_adjustment_kind(AdjustmentKind::TopUp);
-        // Intent IDs are UUIDv7 and the global ledger key. Replays (even with
-        // different outbox IDs) claim the identical payload under wallet locks.
+        // Claiming the intent as a top_up operation consumes its pending capacity
+        // under the wallet lock. A failed credit rolls back that claim as well.
         ledger
             .adjust_in(
                 &mut tx,

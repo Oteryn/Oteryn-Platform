@@ -355,16 +355,12 @@ async fn check_wallet_capacity(
     if held {
         return Err(Error::AccountDenied);
     }
-    let debt = oteryn_wallet::outstanding_debt(tx, account)
-        .await
-        .map_err(|_| Error::Unavailable)?;
-    let net_credit = coins - coins.min(debt);
-    let incoming = oteryn_wallet::incoming_capacity_in(tx, account)
+    let incoming = oteryn_wallet::incoming_capacity_with_topup_in(tx, account, coins)
         .await
         .map_err(|_| Error::Unavailable)?;
     let fits: bool = sqlx::query_scalar(
-        "SELECT COALESCE(sum(available_delta),0) + COALESCE(sum(reserved_delta),0) + $2::bigint + $3::bigint <= $4::bigint FROM wallet_entries WHERE account_id=$1",
-    ).bind(account).bind(incoming).bind(net_credit).bind(oteryn_wallet::MAX_BALANCE).fetch_one(tx).await?;
+        "SELECT COALESCE(sum(available_delta),0) + COALESCE(sum(reserved_delta),0) + $2::bigint <= $3::bigint FROM wallet_entries WHERE account_id=$1",
+    ).bind(account).bind(incoming).bind(oteryn_wallet::MAX_BALANCE).fetch_one(tx).await?;
     if !fits {
         return Err(Error::InvalidInput);
     }
