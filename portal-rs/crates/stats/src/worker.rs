@@ -49,7 +49,7 @@ impl DeathRetention {
         sqlx::query("SELECT pg_advisory_xact_lock(65001)")
             .execute(&mut *tx)
             .await?;
-        let n = sqlx::query("DELETE FROM stats_character_events WHERE kind='death' AND (details->>'occurred_at')::bigint < extract(epoch FROM now())::bigint-30*86400")
+        let n = sqlx::query("DELETE FROM stats_character_events WHERE kind='death' AND details->>'occurred_at' ~ '^[0-9]{1,18}$' AND (details->>'occurred_at')::bigint < extract(epoch FROM now())::bigint-30*86400")
             .execute(&mut *tx)
             .await?
             .rows_affected();

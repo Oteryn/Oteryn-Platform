@@ -959,11 +959,15 @@ async fn death_details_expire_while_statistics_disabled() -> Result {
     };
     let now = OffsetDateTime::now_utc().unix_timestamp();
     let character = Uuid::now_v7();
-    for (key, at) in [("old", now - 31 * 86400), ("new", now - 10)] {
+    for (key, at) in [
+        ("old", (now - 31 * 86400).to_string()),
+        ("new", (now - 10).to_string()),
+        ("odd", "not-a-number".to_owned()),
+    ] {
         sqlx::query("INSERT INTO stats_character_events (character_ref,day,kind,event_key,details) VALUES ($1,CURRENT_DATE,'death',$2,$3)")
             .bind(character)
             .bind(key)
-            .bind(json!({"occurred_at": at.to_string(), "killers": ["Beren"]}))
+            .bind(json!({"occurred_at": at, "killers": ["Beren"]}))
             .execute(&db)
             .await?;
     }
@@ -974,10 +978,11 @@ async fn death_details_expire_while_statistics_disabled() -> Result {
     assert_eq!(disabled.run().await?, 0);
     let retention = crate::worker::DeathRetention { pool: db.clone() };
     assert_eq!(retention.purge().await?, 1);
-    let keys: Vec<String> =
-        sqlx::query_scalar("SELECT event_key FROM stats_character_events WHERE kind='death'")
-            .fetch_all(&db)
-            .await?;
-    assert_eq!(keys, vec!["new".to_owned()]);
+    let keys: Vec<String> = sqlx::query_scalar(
+        "SELECT event_key FROM stats_character_events WHERE kind='death' ORDER BY event_key",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(keys, vec!["new".to_owned(), "odd".to_owned()]);
     dispose(db).await
 }

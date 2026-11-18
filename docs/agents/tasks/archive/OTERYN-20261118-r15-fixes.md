@@ -26,7 +26,7 @@ after PR #1947 merged.
 
 - [x] Each confirmed finding has a fix with a regression test through the real caller
 - [x] Each pushed fix was reviewed read-only before integration
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -62,11 +62,11 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-18T08:45:00Z
-head: pending
+head: e367f15f
 branch: claude/happy-davinci-ijz3wy-r15-fixes
 pr: 1948
-status: implementing
-terminal_pr_policy: archive_pending
+status: completed
+terminal_pr_policy: archived
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261118-r14-fixes.md
@@ -119,12 +119,12 @@ validation:
     result: PASS
     evidence: local PostgreSQL 18 on the integrated tree - playerdata 202, bazaar 193; 0 failed, 0 ignored
   - command: Portal RS CI on the PR head
-    result: NOT_RUN
-    evidence: full suite runs in CI shards
+    result: PASS
+    evidence: PR #1948 merged as e367f15f with required checks green
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: server-side fixes covered by tests through the real routers and workers
 blockers:
   - none
-next_action: Portal RS CI on the PR head, then squash auto-merge
+next_action: none; delivered by PR #1948 and archived
 ```
