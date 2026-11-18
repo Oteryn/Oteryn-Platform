@@ -527,23 +527,38 @@ impl FeedJob {
         if path == admission::EVENT || path == admission::SEASON {
             let s = schema::Snapshot::decode(body, path == admission::SEASON, now()?)?;
             let withdrawn = s.record()?.is_empty();
-            let previous: Option<(String, String, String)> = sqlx::query_as("SELECT epoch::text,revision::text,record_hash FROM league_feed_withdrawals WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4")
+            // Before the feed cursor recorded generation, an exact match
+            // to the store's subject still establishes that cursor's fence.
+            let previous: Option<(String, Option<String>, String, String)> = sqlx::query_as(
+                "SELECT w.epoch::text,coalesce(w.recovery_generation,s.recovery_generation)::text,w.revision::text,w.record_hash
+                 FROM league_feed_withdrawals w LEFT JOIN league_subjects s
+                 USING(authority,family,world_id,subject_id,epoch,revision)
+                 WHERE w.authority=$1 AND w.family=$2 AND w.world_id=$3 AND w.subject_id=$4")
                 .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&self.pool).await?;
-            if let Some((epoch, revision, hash)) = previous {
+            if let Some((epoch, generation, revision, hash)) = previous {
                 let old_epoch = schema::number(&epoch, false)?;
-                let next_epoch = schema::number(s.epoch(), false)?;
-                let old_revision = schema::number(&revision, false)?;
-                let next_revision = schema::number(s.revision(), false)?;
-                if next_epoch == old_epoch && next_revision > old_revision.saturating_add(1) {
-                    return Err(Error::MissingPredecessor);
-                }
-                if next_epoch < old_epoch
-                    || (next_epoch == old_epoch
-                        && (next_revision < old_revision
-                            || (next_revision == old_revision
-                                && hash != schema::hash(&s.record()?))))
+                let old_generation = generation
+                    .as_deref()
+                    .map(|value| schema::number(value, false))
+                    .transpose()?;
+                if old_epoch > original.0 || old_generation.is_some_and(|value| value > original.1)
                 {
                     return Err(Error::Conflict);
+                }
+                // An unbound legacy cursor still requires continuity within
+                // its epoch until an authenticated publication binds it.
+                if old_epoch == original.0 && old_generation.is_none_or(|value| value == original.1)
+                {
+                    let old_revision = schema::number(&revision, false)?;
+                    let next_revision = schema::number(s.revision(), false)?;
+                    if next_revision > old_revision.saturating_add(1) {
+                        return Err(Error::MissingPredecessor);
+                    }
+                    if next_revision < old_revision
+                        || (next_revision == old_revision && hash != schema::hash(&s.record()?))
+                    {
+                        return Err(Error::Conflict);
+                    }
                 }
             }
             question(&self.pool, &s, c, &m).await?;
@@ -562,20 +577,21 @@ impl FeedJob {
             context(&mut tx, c, &m).await?;
             if withdrawn {
                 registered_world(&mut tx, s.world()).await?;
-                let old: Option<(String, String)> = sqlx::query_as("SELECT epoch::text,revision::text FROM league_subjects WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4 FOR UPDATE").bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&mut *tx).await?;
-                if let Some((epoch, revision)) = old {
+                let old: Option<(String, String, String)> = sqlx::query_as("SELECT epoch::text,recovery_generation::text,revision::text FROM league_subjects WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4 FOR UPDATE").bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).fetch_optional(&mut *tx).await?;
+                if let Some((epoch, generation, revision)) = old {
                     let old = (
                         schema::number(&epoch, false)?,
+                        schema::number(&generation, false)?,
                         schema::number(&revision, false)?,
                     );
-                    let next = (
-                        schema::number(s.epoch(), false)?,
-                        schema::number(s.revision(), false)?,
-                    );
-                    if old > next {
+                    let next_revision = schema::number(s.revision(), false)?;
+                    if old.0 > original.0
+                        || old.1 > original.1
+                        || ((old.0, old.1) == original && old.2 > next_revision)
+                    {
                         return Err(Error::Conflict);
                     }
-                    if old == next {
+                    if (old.0, old.1) == original && old.2 == next_revision {
                         let identical: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM league_feed_withdrawals WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4 AND epoch=$5::numeric AND revision=$6::numeric AND withdrawn AND record_hash=$7)")
                             .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(schema::hash(&s.record()?)).fetch_one(&mut *tx).await?;
                         if !identical {
@@ -586,8 +602,8 @@ impl FeedJob {
                 sqlx::query("UPDATE league_subjects SET epoch=$5::numeric,revision=$6::numeric,recovery_generation=$7::numeric WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4")
                     .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(&m.recovery_generation).execute(&mut *tx).await?;
             }
-            sqlx::query("INSERT INTO league_feed_withdrawals(authority,family,world_id,subject_id,epoch,revision,withdrawn,record_hash) VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7,$8) ON CONFLICT(authority,family,world_id,subject_id) DO UPDATE SET epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,withdrawn=EXCLUDED.withdrawn,record_hash=EXCLUDED.record_hash")
-                .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(withdrawn).bind(schema::hash(&s.record()?)).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO league_feed_withdrawals(authority,family,world_id,subject_id,epoch,revision,withdrawn,record_hash,recovery_generation) VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7,$8,$9::numeric) ON CONFLICT(authority,family,world_id,subject_id) DO UPDATE SET epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,withdrawn=EXCLUDED.withdrawn,record_hash=EXCLUDED.record_hash,recovery_generation=EXCLUDED.recovery_generation")
+                .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(withdrawn).bind(schema::hash(&s.record()?)).bind(&m.recovery_generation).execute(&mut *tx).await?;
             sqlx::query("WITH updated AS (UPDATE league_feed_inbox SET state='done' WHERE request_id=$1 RETURNING request_id) UPDATE league_feed_requests SET state='done' WHERE request_id IN (SELECT request_id FROM updated)")
                 .bind(schema::id(&m.request_id)?).execute(&mut *tx).await?;
             tx.commit().await?;

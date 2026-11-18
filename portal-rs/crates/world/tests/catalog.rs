@@ -30,19 +30,19 @@ async fn verified_catalogue_is_idempotent_and_cannot_publish()
         eprintln!("SKIPPED catalog PostgreSQL test: PORTAL_TEST_DATABASE_URL unset");
         return Ok(());
     };
+    let schema = format!("catalog_{}", Uuid::now_v7().simple());
+    let options = url
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .options([("search_path", schema.as_str())]);
     let db = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&url)
+        .connect_with(options)
         .await?;
     let version: String = sqlx::query_scalar("SHOW server_version_num")
         .fetch_one(&db)
         .await?;
     assert_eq!(version, "180006");
-    let schema = format!("catalog_{}", Uuid::now_v7().simple());
     sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&db)
-        .await?;
-    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
         .execute(&db)
         .await?;
     oteryn_db::migrate(&db).await?;

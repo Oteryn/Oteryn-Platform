@@ -299,35 +299,9 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
     }
     /// The operation key is also the reservation ID.
     pub async fn reserve(&self, key: Uuid, account: Uuid, amount: i64) -> Result<Receipt, Error> {
-        self.enabled()?;
-        valid_key(key)?;
-        valid_id(account)?;
-        positive(amount)?;
+        self.validate_reservation(key, account, amount)?;
         let mut tx = self.pool.begin().await?;
-        self.active(&mut tx, account).await?;
-        lock(&mut tx, account).await?;
-        let operation = Operation {
-            key,
-            kind: "reserve",
-            account,
-            counterparty: None,
-            amount,
-            reference: None,
-            reason: None,
-        };
-        if claim(&mut tx, &operation).await? {
-            let result = receipt(&mut tx, key, true).await?;
-            tx.commit().await?;
-            return Ok(result);
-        }
-        entry(&mut tx, key, account, -amount, amount).await?;
-        sqlx::query("INSERT INTO wallet_reservations (id, account_id, amount) VALUES ($1,$2,$3)")
-            .bind(key)
-            .bind(account)
-            .bind(amount)
-            .execute(&mut *tx)
-            .await?;
-        let result = receipt(&mut tx, key, false).await?;
+        let result = self.reserve_in(&mut tx, key, account, amount).await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -651,6 +625,13 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
 }
 
 impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H> {
+    fn validate_reservation(&self, key: Uuid, account: Uuid, amount: i64) -> Result<(), Error> {
+        self.enabled()?;
+        valid_key(key)?;
+        valid_id(account)?;
+        positive(amount)
+    }
+
     /// Reserve in the caller transaction. Roll back the entire transaction on error.
     pub async fn reserve_in(
         &self,
@@ -659,10 +640,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         account: Uuid,
         amount: i64,
     ) -> Result<Receipt, Error> {
-        self.enabled()?;
-        valid_key(key)?;
-        valid_id(account)?;
-        positive(amount)?;
+        self.validate_reservation(key, account, amount)?;
         self.active(tx, account).await?;
         lock(tx, account).await?;
         let operation = Operation {

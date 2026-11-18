@@ -10,9 +10,7 @@ fn player_spend_paths_check_the_locked_payer() {
             part.contains("sender, -amount") || part.contains("account, -amount, amount")
         });
         let purchase_adjustment = function == "adjust_in";
-        // The standalone reserve API is used for neutral ledger reservations.
-        // Paid services use the transaction-bound reserve_in API.
-        if (debit.is_none() && !purchase_adjustment) || function == "reserve" {
+        if debit.is_none() && !purchase_adjustment {
             continue;
         }
         let check = part.find("check_payer_in(").unwrap_or(part.len());
@@ -28,6 +26,12 @@ fn player_spend_paths_check_the_locked_payer() {
         guarded,
         ["transfer_inner", "adjust_in", "reserve_in", "reserve_offer"]
     );
+    let reserve = ledger
+        .split("async fn reserve(")
+        .nth(1)
+        .and_then(|body| body.split("async fn ").next())
+        .unwrap_or_default();
+    assert!(reserve.contains("self.reserve_in(&mut tx, key, account, amount)"));
     let adjustment = ledger
         .split("async fn adjust_in(")
         .nth(1)

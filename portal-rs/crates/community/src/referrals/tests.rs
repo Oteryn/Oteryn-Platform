@@ -2921,3 +2921,42 @@ async fn failed_premium_batch_does_not_starve_the_next_award() {
     assert!(applied);
     db.close().await;
 }
+
+#[tokio::test]
+async fn overdue_premium_retry_precedes_one_hundred_fresh_awards() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let retry = db.account().await;
+    use oteryn_db::outbox::Cleanup;
+    sqlx::query("INSERT INTO referral_campaign_rewards(operation_key,account_id,kind,amount,created_at,next_attempt_at)
+                 VALUES('retry',$1,'premium',5,now()-interval '1 hour',now()-interval '1 minute')")
+        .bind(retry).execute(&db.pool).await.unwrap();
+    sqlx::query(
+        "WITH recipients AS (
+                    INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+                    SELECT uuidv7(),'fresh-' || n || '@example.test','test-only','active',now(),'en'
+                    FROM generate_series(1,100) n RETURNING id
+                 ) SELECT referral_campaign_reward('fresh-' || id,id,'premium',5) FROM recipients",
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    Worker {
+        premium_enabled: true,
+        campaign: db.campaign.clone(),
+        sender: None,
+    }
+    .clean()
+    .await
+    .unwrap();
+    let applied: (bool, i64) = sqlx::query_as(
+        "SELECT bool_or(operation_key='retry' AND applied_at IS NOT NULL),
+                                              count(*) FILTER (WHERE applied_at IS NOT NULL)
+                                              FROM referral_campaign_rewards",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(applied, (true, 100));
+    db.close().await;
+}
