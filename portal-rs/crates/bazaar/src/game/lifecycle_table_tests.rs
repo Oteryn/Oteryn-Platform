@@ -1164,3 +1164,102 @@ intent_cases! {
     lifecycle__intent_committed__read_state, Committed;
     lifecycle__intent_reopened__read_state, Reopened;
 }
+
+#[tokio::test]
+#[expect(non_snake_case, reason = "required test naming")]
+async fn lifecycle__draft__refuse_lock() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    authorize_seller(&db).await;
+    let intent = new_character_draft(&db).await;
+    reject(&db, &intent, "CHAR_CMD_BAZAAR_STALE_REVISION").await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(uid("30"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let unlocks = dispatched(&db, uid("30"), Command::Unlock).await;
+    db.end().await;
+    assert_eq!(unlocks, 0, "a rejected Lock acquired no Game custody");
+    assert_eq!(
+        state,
+        State::Cancelled,
+        "a rejected Lock must close the draft"
+    );
+}
+
+#[tokio::test]
+#[expect(non_snake_case, reason = "required test naming")]
+async fn lifecycle__intent_staged__resync() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    let staged = stage_item_escrow(&db).await;
+    let published: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch WHERE operation_id=$1)",
+    )
+    .bind(staged)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(!published, "this intent has never been executable");
+    let next = rebuild_epoch(&db).await;
+    let result = resync(&db, &next).await;
+    db.end().await;
+    assert!(
+        result.is_ok(),
+        "an undispatched intent cannot require a Game receipt: {result:?}"
+    );
+}
+
+#[tokio::test]
+#[expect(non_snake_case, reason = "required test naming")]
+async fn lifecycle__completed__resync_escrow_status() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Completed).await;
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let policy: String = sqlx::query_scalar(
+        "SELECT canonical_body FROM bazaar_game_projections WHERE kind='POLICY'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let policy = policy.replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#);
+    let status = vector("delivered_status")
+        .replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#)
+        .replace("1790000002", &now.to_string())
+        .replace("DELIVERED", "ESCROWED")
+        .replace(&format!("\"{}\"", uid("4")), "null");
+    for projection in [policy, status] {
+        assert_eq!(
+            projection_ingest()
+                .ingest(
+                    &mut tx,
+                    &a.config.projection_authority,
+                    projection.as_bytes(),
+                    now
+                )
+                .await
+                .unwrap(),
+            IngestResult::Applied
+        );
+    }
+    tx.commit().await.unwrap();
+    let mut current = a.clone();
+    current.fence.projection_epoch = 4;
+    let result = resync(&db, &current).await;
+    let state = item_state(&db).await;
+    db.end().await;
+    assert_eq!(
+        state,
+        State::Completed,
+        "recovery must preserve the commercial result"
+    );
+    assert!(
+        result.is_err(),
+        "resync accepted ESCROWED after committed delivery: {result:?}"
+    );
+}

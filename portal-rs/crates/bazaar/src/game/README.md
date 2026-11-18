@@ -149,6 +149,9 @@ rows (`authority_exchange.rs:398–455`).
 | `completed` | `unlock_character` | Preserves completed and dispatches one Unlock after committed handoff (`runtime/worker.rs:468–470,783–822`). | CORRECT |
 | `fence_stale` | `restore_notice` | Refuses settlement work until the configured generation catches up with the accepted restore notice (`authority.rs:90–111`, `runtime/worker.rs:18–39`). | CORRECT |
 | `fence_matching` | `new_epoch` | Current projections advance issuer epoch and reopen prior intents. The old fence is unavailable and the new fence resyncs with retained same-generation receipts (`game_projection.rs:247–261`, `game_store.rs:139–158`, `authority_evidence.rs:45–127`). | CORRECT |
+| `draft` | `refuse_lock` | Records the refusal and leaves a character draft. The listing batch then excludes it. A terminal Lock with no effect should close the draft without Unlock (`runtime/worker.rs:208–225,254–255,908–910`). | DEFECT |
+| `intent_staged` | `resync` | The op scan requires a receipt for a never-dispatched intent, even though the public exchange never exposes it. Resync should reconcile only executable attempts and retain the staged bytes for audit (`authority_evidence.rs:110–118`, `authority_exchange.rs:428`). | DEFECT |
+| `completed` | `resync_escrow_status` | Status from the new epoch reports ESCROWED with no last operation, and the old same-generation delivery receipt still exists. The listing scan accepts the contradiction. Resync should flag the drift for operator reconciliation and keep the sale completed (`authority_evidence.rs:45–55,68–82,110–127`). | DEFECT |
 
 | State | Event | Classification and reason |
 | --- | --- | --- |
