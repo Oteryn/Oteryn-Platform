@@ -59,6 +59,8 @@ async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::err
         sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('world_online',$1,1,1,1,$2)")
             .bind(world).bind(serde_json::json!({"world_id":world,"characters":[{"name":"Zed","level":"100","vocation":1},{"name":"Alice","level":"9","vocation":2},{"name":"Hidden","level":"999","vocation":3},{"name":"<script>","level":"2","vocation":0}]})).execute(&db).await?;
     }
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online','',true,1,1,floor(extract(epoch FROM clock_timestamp()))::bigint,'null')")
+        .execute(&db).await?;
     Ok(Some((root, db, schema)))
 }
 async fn request(
@@ -79,8 +81,13 @@ async fn scenario(case: &str) -> TestResult {
             .execute(&db)
             .await?;
     }
-    if case == "epoch" {
+    if matches!(case, "epoch" | "watermark_epoch") {
         sqlx::query("UPDATE public_projection_state SET highest_epoch=2")
+            .execute(&db)
+            .await?;
+    }
+    if case == "watermark_epoch" {
+        sqlx::query("UPDATE public_snapshots SET epoch=2 WHERE NOT is_watermark")
             .execute(&db)
             .await?;
     }
@@ -122,7 +129,7 @@ async fn scenario(case: &str) -> TestResult {
             assert!(html.contains("Temporarily unavailable"));
             assert!(!html.contains("Alice"));
         }
-        "epoch" => {
+        "epoch" | "watermark_epoch" => {
             assert_eq!(status, StatusCode::OK);
             assert!(!html.contains("Alice"));
             assert_eq!(html.matches("<section").count(), 0);
@@ -191,6 +198,10 @@ db_test!(bad_query_400, "bad");
 
 db_test!(fresh_snapshot, "fresh");
 db_test!(old_epoch_excluded, "epoch");
+db_test!(
+    old_watermark_epoch_withholds_current_worlds,
+    "watermark_epoch"
+);
 
 #[tokio::test]
 async fn audit06_two_connection_requests_and_serving_age() -> TestResult {

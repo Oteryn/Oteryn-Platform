@@ -220,6 +220,77 @@ async fn database_families_ordering_rollback_and_watermarks() -> TestResult {
     Ok(())
 }
 
+#[tokio::test]
+async fn highscores_ingest_accepts_filtered_world_ranks_and_game_categories() -> TestResult {
+    let fixture = crate::audit06_test_db::Database::new().await?;
+    let router = app(fixture.db.clone(), true);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let snapshot = |category: u8, filter: u8, ranks: &[u64]| {
+        let rows = ranks
+            .iter()
+            .enumerate()
+            .map(|(i, rank)| {
+                serde_json::json!({
+                    "rank": rank.to_string(),
+                    "character_id": format!("01934f10-7c04-7001-805b-{i:012x}"),
+                    "name": "Aldric",
+                    "vocation": 2,
+                    "level": "412",
+                    "value": "1000",
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "contract_version": 1,
+            "operation": "PublishWorldHighscoresV1",
+            "source_authority": "oteryn:game:primary",
+            "world_id": "01934f10-7c02-7001-805b-3b1122334401",
+            "category": category,
+            "filter": filter,
+            "projection_epoch": "1",
+            "projection_revision": "1",
+            "source_observed_at": now.to_string(),
+            "computed_at": now.to_string(),
+            "rows": rows,
+        })
+        .to_string()
+    };
+    let publish = |body: String| {
+        let router = router.clone();
+        async move { send(router, "highscores", &body, "projection-test").await }
+    };
+    for (category, filter, ranks) in [
+        (1, 2, &[3, 3, 5][..]),
+        (12, 0, &[1, 1, 3]),
+        (14, 0, &[1]),
+        (16, 0, &[1]),
+        (17, 0, &[1]),
+    ] {
+        let response = publish(snapshot(category, filter, ranks)).await;
+        assert_eq!(response.status(), StatusCode::OK, "{category}:{filter}");
+        assert_eq!(
+            to_bytes(response.into_body(), 1000).await?.as_ref(),
+            br#"{"contract_version":1,"result":"accepted"}"#
+        );
+    }
+    for (category, filter, ranks) in [
+        (1, 0, &[3, 3, 5][..]),
+        (1, 2, &[3, 3, 4]),
+        (1, 2, &[3, 2]),
+        (1, 2, &[0]),
+        (1, 2, &[u64::MAX - 1, u64::MAX - 1, u64::MAX]),
+        (13, 0, &[1]),
+        (15, 0, &[1]),
+    ] {
+        assert_eq!(
+            publish(snapshot(category, filter, ranks)).await.status(),
+            StatusCode::BAD_REQUEST,
+            "{category}:{filter}, ranks {ranks:?}"
+        );
+    }
+    fixture.close().await
+}
+
 const FIXTURES: &[(&str, &str)] = &[
     (
         "highscores",
