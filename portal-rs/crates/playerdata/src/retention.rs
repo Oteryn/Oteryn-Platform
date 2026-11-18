@@ -3,6 +3,30 @@ use crate::store::{Flags, Store, TrustedTime, UnavailableAuthority};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
+pub(crate) async fn expire_records(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    now: i64,
+    limit: Option<i64>,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "WITH expired AS (SELECT r.ctid, s.progress FROM pd_records r JOIN pd_streams s USING(stream_key)
+            WHERE r.expires_ms <= $1 AND (r.payload IS NOT NULL OR
+                (s.progress AND (r.occurred_ms<>0 OR r.coverage_ms<>0 OR r.entity_key<>'' OR r.character_id IS NOT NULL)))
+            ORDER BY r.expires_ms LIMIT $2 FOR UPDATE OF r SKIP LOCKED)
+         UPDATE pd_records r SET payload=NULL,
+            occurred_ms=CASE WHEN e.progress THEN 0 ELSE r.occurred_ms END,
+            coverage_ms=CASE WHEN e.progress THEN 0 ELSE r.coverage_ms END,
+            entity_key=CASE WHEN e.progress THEN '' ELSE r.entity_key END,
+            character_id=CASE WHEN e.progress THEN NULL ELSE r.character_id END
+         FROM expired e WHERE r.ctid=e.ctid",
+    )
+    .bind(now)
+    .bind(limit)
+    .execute(&mut **tx)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 #[derive(Debug)]
 pub struct Retention(pub PgPool);
 impl oteryn_db::outbox::Cleanup for Retention {
@@ -25,8 +49,7 @@ impl Retention {
                 AND s.account_id=d.account_id AND s.stream_generation=d.stream_generation
                 AND s.record_kind='HUNT_SEGMENT' AND s.expires_at>$1))
             LIMIT 512 FOR UPDATE OF d SKIP LOCKED)").bind(now/1000).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_records SET payload=NULL WHERE ctid IN (SELECT ctid FROM pd_records WHERE payload IS NOT NULL AND expires_ms<=$1 ORDER BY expires_ms LIMIT 512 FOR UPDATE SKIP LOCKED)")
-            .bind(now).execute(&mut *tx).await?;
+        expire_records(&mut tx, now, Some(512)).await?;
         sqlx::query("UPDATE pd_t76_streams SET snapshot=NULL,snapshot_at=NULL WHERE ctid IN (SELECT ctid FROM pd_t76_streams WHERE snapshot IS NOT NULL AND snapshot_at<=$1 LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .bind(now/1000-30*86400).execute(&mut *tx).await?;
         sqlx::query("UPDATE pd_t76_records SET canonical_bytes=NULL WHERE ctid IN (SELECT r.ctid FROM pd_t76_records r WHERE canonical_bytes IS NOT NULL AND (occurred_at<=$1 OR EXISTS(SELECT 1 FROM pd_t76_streams s WHERE s.stream_key=r.stream_key AND s.staging_at<=$2)) LIMIT 512 FOR UPDATE OF r SKIP LOCKED)")
