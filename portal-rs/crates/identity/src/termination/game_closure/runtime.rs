@@ -256,6 +256,11 @@ pub async fn financial_obligations_clear(
         .await?;
     Ok(sqlx::query_scalar("SELECT NOT (
         EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active')
+        OR EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)
+        OR EXISTS(SELECT 1 FROM coin_outstanding_debts WHERE account_id=$1 AND owed>0)
+        OR EXISTS(SELECT 1 FROM payment_intents p WHERE p.account_id=$1 AND p.state='succeeded'
+            AND EXISTS (SELECT 1 FROM coin_purchase_orders o WHERE o.payment_intent_id=p.id AND o.payer_account_id=p.account_id)
+            AND NOT EXISTS (SELECT 1 FROM wallet_operations WHERE id=p.id AND account_id=p.account_id AND kind='top_up'))
         OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery'))
         OR EXISTS(SELECT 1 FROM payment_intents p WHERE p.account_id=$1 AND p.state='succeeded'
             AND EXISTS (SELECT 1 FROM store_web_topups t WHERE t.account_id=p.account_id AND COALESCE(t.payment_intent_id,t.intended_payment_intent_id)=p.id)
