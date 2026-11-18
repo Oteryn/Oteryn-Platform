@@ -1168,6 +1168,15 @@ async fn lifecycle_draft_refuse_lock() {
 
 #[tokio::test]
 async fn lifecycle_legacy_refused_lock_rejection_replay_closes_draft() {
+    rejected_lock_replay(false).await;
+}
+
+#[tokio::test]
+async fn lifecycle_refused_cancelled_lock_rejection_replay_stays_closed() {
+    rejected_lock_replay(true).await;
+}
+
+async fn rejected_lock_replay(cancel_first: bool) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Active).await;
     authorize_seller(&db).await;
@@ -1181,6 +1190,15 @@ async fn lifecycle_legacy_refused_lock_rejection_replay_closes_draft() {
         .execute(&db.pool)
         .await
         .unwrap();
+    if cancel_first {
+        db.runtime.tick().await.unwrap();
+        let state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+            .bind(uid("30"))
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(state, State::Cancelled);
+    }
     set_resync_fence(&mut db, 3, 4);
     let mut tx = db.pool.begin().await.unwrap();
     for listing in [uid("20"), uid("30")] {
@@ -1461,6 +1479,15 @@ async fn lifecycle_completed_resync_ignores_newer_staged_delivery() {
 
 #[tokio::test]
 async fn lifecycle_legacy_refused_lock_recovery_only() {
+    redecided_lock(false).await;
+}
+
+#[tokio::test]
+async fn lifecycle_cancelled_refused_lock_redecided_is_unlocked() {
+    redecided_lock(true).await;
+}
+
+async fn redecided_lock(cancel_first: bool) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Active).await;
     authorize_seller(&db).await;
@@ -1476,6 +1503,16 @@ async fn lifecycle_legacy_refused_lock_recovery_only() {
         .execute(&db.pool)
         .await
         .unwrap();
+    if cancel_first {
+        db.runtime.tick().await.unwrap();
+        let state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+            .bind(uid("30"))
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(state, State::Cancelled);
+        assert_eq!(dispatched(&db, uid("30"), Command::Unlock).await, 0);
+    }
     set_resync_fence(&mut db, 3, 4);
     let a = db.runtime.authority();
     let mut tx = db.pool.begin().await.unwrap();
@@ -1572,5 +1609,43 @@ async fn lifecycle_matched_legacy_hold_retires_once() {
     .await
     .unwrap();
     assert_eq!(effects, (1, 1));
+    db.end().await;
+}
+
+#[tokio::test]
+async fn lifecycle_delivery_pending_exhausts_retry_budget_once() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    set_resync_fence(&mut db, 3, 4);
+    sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    // Exactly eight ticks may wait for the missing receipt for this key.
+    for _ in 0..8 {
+        db.runtime.tick().await.unwrap();
+        assert_eq!(quarantine_count(&db).await, 0);
+        assert_eq!(resync_progress(&db).await, (false, false));
+    }
+    let result = db.runtime.tick().await;
+    assert!(matches!(result, Err(Error::CustodyDrift)), "{result:?}");
+    // A later exact replay cannot reopen a terminal custody report.
+    let mut tx = db.pool.begin().await.unwrap();
+    recovery_tests::replay(db.runtime.authority(), &mut tx, uid("20")).await;
+    tx.commit().await.unwrap();
+    let result = db.runtime.clone().tick().await;
+    assert!(matches!(result, Err(Error::CustodyDrift)), "{result:?}");
+    assert_eq!(quarantine_count(&db).await, 1);
+    let reports: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM bazaar_audit WHERE row_id=$1
+         AND after_row->>'action'='delivery_custody_drift'
+         AND after_row->>'reason'='evidence_retry_exhausted'",
+    )
+    .bind(uid("20"))
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(reports, 1);
+    assert_eq!(item_state(&db).await, State::Completed);
     db.end().await;
 }

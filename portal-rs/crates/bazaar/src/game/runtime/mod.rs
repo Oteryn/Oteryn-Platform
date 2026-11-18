@@ -137,7 +137,7 @@ impl Runtime {
             step
         };
         for attempt in 0..2 {
-            let key = format!("bazaar:{}:{}:{step}:1", listing.id, command.wire());
+            let key = super::game_store::issuance_key(listing.id, command, step);
             let raw = sqlx::query_scalar::<_, String>(
                 "SELECT intent FROM bazaar_game_outbox WHERE issuance_key=$1",
             )

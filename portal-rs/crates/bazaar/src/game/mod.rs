@@ -29,6 +29,8 @@ impl Settings {
 pub enum Error {
     #[error("bazaar game integration unavailable")]
     Unavailable,
+    #[error("completed item custody awaits receipt, audit or STATUS")]
+    DeliveryEvidencePending,
     #[error("invalid bazaar contract input")]
     Invalid,
     #[error("bazaar authorization denied")]

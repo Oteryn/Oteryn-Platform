@@ -95,7 +95,7 @@ impl Outbox {
         if epoch != floor_epoch || generation != floor_generation {
             return Err(Error::Denied);
         }
-        let key = format!("bazaar:{listing}:{}:{step}:1", intent.command.wire());
+        let key = issuance_key(listing, intent.command, step);
         if let Some(row)=sqlx::query_as::<_,StagedCommand>("SELECT operation_id,binding_digest,intent,state FROM bazaar_game_outbox WHERE issuance_key=$1").bind(&key).fetch_optional(&mut **db).await? {
             if row.intent!=intent.raw {return Err(Error::Conflict);} return Ok(row);
         }
@@ -188,4 +188,8 @@ impl crate::Evidence for Outbox {
     ) -> Result<bool, crate::Error> {
         Ok(false)
     }
+}
+
+pub(super) fn issuance_key(listing: Uuid, command: Command, step: Uuid) -> String {
+    format!("bazaar:{listing}:{}:{step}:1", command.wire())
 }

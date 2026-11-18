@@ -640,7 +640,16 @@ async fn savepoint(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &'static
     sqlx::query(sql).execute(&mut **tx).await.unwrap();
 }
 async fn store_intent(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, intent: &PreparedIntent) {
-    store_intent_with_key(tx, intent, &format!("fixture:{}", Uuid::now_v7())).await;
+    let key = if intent.command() == Command::Deliver {
+        super::game_store::issuance_key(
+            id(text(&intent.value, "listing_id").unwrap()).unwrap(),
+            Command::Deliver,
+            id(text(&intent.value, "sale_id").unwrap()).unwrap(),
+        )
+    } else {
+        format!("fixture:{}", Uuid::now_v7())
+    };
+    store_intent_with_key(tx, intent, &key).await;
 }
 async fn store_intent_with_key(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

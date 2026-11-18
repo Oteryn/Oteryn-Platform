@@ -319,3 +319,27 @@ fn lifecycle_guard_limits_fixture_exemption_to_test_item() {
     scan_source(path, &source, &mut offenders);
     assert_eq!(offenders.len(), 1);
 }
+
+#[test]
+fn lifecycle_guard_handles_postgres_escape_strings() {
+    let source = r##"fn write() { query(r#"WITH note AS (SELECT E'can\'t') UPDATE bazaar_listings SET state='active'"#); }"##;
+    let mut offenders = Vec::new();
+    scan_source(
+        std::path::Path::new("outside_writer.rs"),
+        source,
+        &mut offenders,
+    );
+    assert_eq!(offenders.len(), 1);
+}
+
+#[test]
+fn lifecycle_guard_keeps_adjacent_array_element_in_production() {
+    let source = r#"fn write() { let sql = [#[cfg(test)] "fixture", "UPDATE bazaar_listings SET state='active'"]; query(sql[0]); }"#;
+    let mut offenders = Vec::new();
+    scan_source(
+        std::path::Path::new("game/runtime/browser.rs"),
+        source,
+        &mut offenders,
+    );
+    assert_eq!(offenders.len(), 1);
+}

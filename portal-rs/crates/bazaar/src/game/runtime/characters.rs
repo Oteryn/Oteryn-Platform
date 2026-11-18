@@ -506,11 +506,12 @@ pub(crate) async fn verify_unlock(
             .bind_refused(db, listing, "BAZAAR_LISTING_ESCROW")
             .await?
             .is_some();
-        if !refused_escrow && !never_transferred(db, listing).await? {
+        let no_transfer = never_transferred(db, listing).await?;
+        if !refused_escrow && !no_transfer {
             return Err(Error::Unavailable);
         }
-        // A refused draft can release an acquired lock when ownership never moved.
-        // Receipt admission follows the durable dispatch even after the draft closes.
+        // Receipt admission follows the durable dispatch after closure.
+        let mut refused_lock_recovery = false;
         let authorized = if current.is_some() {
             sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch WHERE operation_id=$1)",
@@ -519,16 +520,19 @@ pub(crate) async fn verify_unlock(
             .fetch_one(&mut *db)
             .await?
         } else {
-            refused_escrow
-                || super::invalidation::approved(db, listing).await?
-                || sqlx::query_scalar::<_, bool>(
+            refused_lock_recovery = no_transfer
+                && sqlx::query_scalar::<_, bool>(
                     "SELECT EXISTS(SELECT 1 FROM bazaar_authority_assets a
-                     JOIN bazaar_listings l ON l.id=a.listing_id
-                     WHERE l.id=$1 AND l.state='draft' AND l.kind='character' AND a.refusal_code IS NOT NULL)",
+                 JOIN bazaar_listings l ON l.id=a.listing_id
+                 WHERE l.id=$1 AND l.state IN ('draft','cancelled') AND l.kind='character'
+                   AND a.refusal_code IS NOT NULL)",
                 )
                 .bind(listing)
                 .fetch_one(&mut *db)
-                .await?
+                .await?;
+            refused_escrow
+                || refused_lock_recovery
+                || super::invalidation::approved(db, listing).await?
         };
         if !authorized {
             return Err(Error::Denied);
@@ -542,6 +546,22 @@ pub(crate) async fn verify_unlock(
         let facts = receipt.value.get("result_data").ok_or(Error::Invalid)?;
         same(facts, "lock_id", &i.value, "lock_id")?;
         same(facts, "lock_revision", &i.value, "expected_lock_revision")?;
+        if refused_lock_recovery {
+            let status = a
+                .projection(db, "STATUS", listing)
+                .await?
+                .ok_or(Error::Unavailable)?;
+            if text(&status, "state")? != "locked" || text(&status, "asset_kind")? != "CHARACTER" {
+                return Err(Error::Denied);
+            }
+            for key in ["world_id", "seller_account_id"] {
+                same(&status, key, &lock.value, key)?;
+            }
+            same(&status, "asset_id", &lock.value, "character_id")?;
+            same(&status, "custody_id", facts, "lock_id")?;
+            same(&status, "custody_revision", facts, "lock_revision")?;
+            same(&status, "last_operation_id", &lock.value, "operation_id")?;
+        }
         id(text(&lock.value, "seller_account_id")?)?
     };
     if let Some(facts) = current

@@ -152,7 +152,7 @@ rows (`authority_exchange.rs:398–455`).
 | `fence_matching` | `new_epoch` | Current projections advance issuer epoch and reopen prior intents. The old fence is unavailable and the new fence resyncs with retained same-generation receipts (`game_projection.rs:247–261`, `game_store.rs:139–158`, `authority_evidence.rs:45–127`). | CORRECT |
 | `draft` | `refuse_lock` | Records the refusal. Recovery closes the draft on audited no-effect proof or reconciles an acquired lock without starting listing escrow (`runtime/worker.rs`). | CORRECT |
 | `intent_staged` | `resync` | The operation scan keeps the staged bytes and advances without a receipt when no dispatch or admitted receipt exists (`authority_evidence.rs:110–118`, `authority_exchange.rs:428`). | CORRECT |
-| `completed` | `resync_escrow_status` | Checks STATUS against the completed sale’s delivery operation. Missing receipt or audit rolls back the scan for retry. An audited reversal or contradictory STATUS quarantines STATUS and preserves the completed sale. A custody or operation change committed behind a saved resync cursor can escape that check. | KNOWN GAP (C2) |
+| `completed` | `resync_escrow_status` | Checks STATUS against the Deliver issuance key for the sale. The worker records up to eight retries per key for missing receipt, audit, or STATUS. A second audited commitment, an audited reversal, a contradictory STATUS, or retry exhaustion quarantines the listing and appends one custody-drift report to `bazaar_audit`. The completed sale is preserved. A custody or operation change committed behind a saved resync cursor can escape that check. | KNOWN GAP (C2) |
 
 | State | Event | Classification and reason |
 | --- | --- | --- |
@@ -168,6 +168,20 @@ rows (`authority_exchange.rs:398–455`).
 
 Receipt events key by operation and projection epoch events key by issuer floor.
 These events use the corresponding authority or projection state in the table.
+
+### Refused-character recovery
+
+The worker evaluates current audited custody for refused drafts and cancelled
+listings. An audited no-effect Lock closes the listing. If the Lock committed
+and ownership never moved, the worker checks the seller’s STATUS and unlocks
+that exact lock. An audited refused escrow Bind can be retired before unlock.
+A committed CC1 escrow transfer follows the escrow return path.
+
+A committed escrow Bind with an unpublished CC1 transfer has an unresolved
+custody outcome. The worker keeps the listing fenced and records the bind,
+transfer and generation in `bazaar_audit` as
+`refused_unpublished_bind_conflict`. The report is retained once per transfer
+and generation.
 
 ### Remaining lifecycle review gaps
 

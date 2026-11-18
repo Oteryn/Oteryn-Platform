@@ -7,6 +7,14 @@ use oteryn_internal_api::canonical::Value;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
+const DELIVERY_EVIDENCE_RETRIES: i64 = 8;
+
+enum DeliveryEvidence {
+    Pending,
+    Audited(PreparedIntent, Receipt),
+    Drift(&'static str),
+}
+
 impl Authority {
     /// Called by the restore coordinator after complete enumeration and receipt
     /// replay. Every retained listing (including terminal) and policy world must
@@ -28,13 +36,12 @@ impl Authority {
             .map(Uuid::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES($1::text::numeric,$2::text::numeric,$3) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(&worlds_binding).execute(&mut **db).await?;
-        let progress=sqlx::query("SELECT listing_cursor,operation_cursor::text AS operation_cursor,worlds FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric FOR UPDATE").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_one(&mut **db).await?;
-        if progress.try_get::<String, _>("worlds")? != worlds_binding {
-            return Err(Error::Conflict);
-        }
-        let listing_cursor: Uuid = progress.try_get("listing_cursor")?;
-        let operation_cursor: String = progress.try_get("operation_cursor")?;
+        let progress=sqlx::query_as::<_, (Uuid, String, String)>("SELECT listing_cursor,operation_cursor::text,worlds FROM bazaar_resync_progress WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric FOR UPDATE").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).fetch_optional(&mut **db).await?;
+        let (listing_cursor, operation_cursor) = match progress {
+            Some((listing, operation, worlds)) if worlds == worlds_binding => (listing, operation),
+            Some(_) => return Err(Error::Conflict),
+            None => (Uuid::nil(), "0".to_owned()),
+        };
         for world in worlds {
             id(&world.to_string())?;
             self.projection(db, "POLICY", *world)
@@ -69,10 +76,13 @@ impl Authority {
             if no_deposit_effect && !completed_item {
                 continue;
             }
-            let status = self
-                .projection(db, "STATUS", listing)
-                .await?
-                .ok_or(Error::Unavailable)?;
+            let status = self.projection(db, "STATUS", listing).await?;
+            if completed_item {
+                self.resync_completed_delivery(db, listing, status.as_ref(), worlds)
+                    .await?;
+                continue;
+            }
+            let status = status.ok_or(Error::Unavailable)?;
             let world = id(text(&status, "world_id")?)?;
             let state = text(&status, "state")?;
             let operation = if status.get("last_operation_id") == Some(&Value::Null) {
@@ -80,52 +90,10 @@ impl Authority {
             } else {
                 Some(id(text(&status, "last_operation_id")?)?)
             };
-            let delivered = if completed_item {
-                let (intent, receipt, conflicted) = self.completed_delivery(db, listing).await?;
-                !conflicted
-                    && state == "DELIVERED"
-                    && text(&status, "asset_kind")? == "ITEM"
-                    && operation == Some(receipt.operation)
-                    && receipt.committed
-                    && id(text(&intent.value, "listing_id")?)? == listing
-                    && text(&status, "seller_account_id")?
-                        == text(&intent.value, "seller_account_id")?
-                    && text(&status, "world_id")? == text(&intent.value, "world_id")?
-                    && item_custody_matches(
-                        &status,
-                        receipt.value.get("result_data").ok_or(Error::Invalid)?,
-                    )?
-            } else {
-                false
-            };
-            if let Err(refusal) = transition(
-                Current::Custody { completed_item },
-                Event::ResyncCustody,
-                Context {
-                    delivered,
-                    ..Context::default()
-                },
-            ) {
-                if refusal != crate::lifecycle::Refusal::CustodyDrift {
-                    return Err(Error::Invalid);
-                }
-                let bytes =
-                    oteryn_internal_api::canonical::encode(&status).map_err(|_| Error::Invalid)?;
-                crate::lifecycle::quarantine_custody(
-                    db,
-                    &self.config.projection_authority,
-                    listing,
-                    &super::game_wire::digest(&bytes),
-                )
-                .await?;
-                return Err(Error::CustodyDrift);
-            }
             if !worlds.contains(&world) {
                 return Err(Error::Unavailable);
             }
-            if completed_item
-                || (operation.is_none() && matches!(state, "locked" | "ESCROWED" | "INVALID"))
-            {
+            if operation.is_none() && matches!(state, "locked" | "ESCROWED" | "INVALID") {
                 continue;
             }
             let retained = if let Some(operation) = operation {
@@ -155,6 +123,7 @@ impl Authority {
                 }
             }
         }
+        sqlx::query("INSERT INTO bazaar_resync_progress(projection_epoch,recovery_generation,worlds) VALUES($1::text::numeric,$2::text::numeric,$3) ON CONFLICT DO NOTHING").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(&worlds_binding).execute(&mut **db).await?;
         if let Some(cursor) = next_listing {
             sqlx::query("UPDATE bazaar_resync_progress SET listing_cursor=$3 WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(cursor).execute(&mut **db).await?;
         }
@@ -290,38 +259,208 @@ impl Authority {
             && complete <= number(&watermark, "observed_at")?
             && now.saturating_sub(complete).saturating_add(1) <= 30)
     }
+    async fn resync_completed_delivery(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+        status: Option<&Value>,
+        worlds: &[Uuid],
+    ) -> Result<(), Error> {
+        let sale = self
+            .delivery_sale_id(db, listing)
+            .await?
+            .unwrap_or_else(Uuid::nil);
+        let key = super::game_store::issuance_key(listing, Command::Deliver, sale);
+        let (retries, reported): (i64, bool) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE after_row->>'action'='delivery_evidence_pending'),
+                    COALESCE(bool_or(after_row->>'action'='delivery_custody_drift'),false)
+             FROM bazaar_audit WHERE relation_name='bazaar_delivery_evidence' AND row_id=$1
+               AND after_row->>'issuance_key'=$2",
+        )
+        .bind(listing)
+        .bind(&key)
+        .fetch_one(&mut *db)
+        .await?;
+        if reported {
+            return Err(Error::CustodyDrift);
+        }
+
+        let evidence = self.completed_delivery(db, listing, sale).await?;
+        let reason = match (evidence, status) {
+            (DeliveryEvidence::Drift(reason), _) => Some(reason),
+            (DeliveryEvidence::Audited(intent, receipt), Some(status)) => {
+                let world = id(text(status, "world_id")?)?;
+                let delivered = text(status, "state")? == "DELIVERED"
+                    && text(status, "asset_kind")? == "ITEM"
+                    && status.get("last_operation_id") == receipt.value.get("operation_id")
+                    && text(status, "seller_account_id")?
+                        == text(&intent.value, "seller_account_id")?
+                    && text(status, "world_id")? == text(&intent.value, "world_id")?
+                    && item_custody_matches(
+                        status,
+                        receipt.value.get("result_data").ok_or(Error::Invalid)?,
+                    )?;
+                if transition(
+                    Current::Custody {
+                        completed_item: true,
+                    },
+                    Event::ResyncCustody,
+                    Context {
+                        delivered,
+                        ..Context::default()
+                    },
+                )
+                .is_ok()
+                {
+                    if worlds.contains(&world) {
+                        return Ok(());
+                    }
+                    None
+                } else {
+                    Some("status_contradicts_delivery")
+                }
+            }
+            _ => None,
+        };
+        let reason = match reason {
+            Some(reason) => reason,
+            None if retries >= DELIVERY_EVIDENCE_RETRIES => "evidence_retry_exhausted",
+            None => {
+                crate::lifecycle::audit_delivery_evidence(
+                    db,
+                    listing,
+                    &key,
+                    self.fence.recovery_generation,
+                    "delivery_evidence_pending",
+                    "missing_receipt_audit_or_status",
+                )
+                .await?;
+                return Err(Error::DeliveryEvidencePending);
+            }
+        };
+        let bytes = match status {
+            Some(status) => {
+                oteryn_internal_api::canonical::encode(status).map_err(|_| Error::Invalid)?
+            }
+            None => key.as_bytes().to_vec(),
+        };
+        crate::lifecycle::quarantine_custody(
+            db,
+            &self.config.projection_authority,
+            listing,
+            &super::game_wire::digest(&bytes),
+        )
+        .await?;
+        crate::lifecycle::audit_delivery_evidence(
+            db,
+            listing,
+            &key,
+            self.fence.recovery_generation,
+            "delivery_custody_drift",
+            reason,
+        )
+        .await?;
+        Err(Error::CustodyDrift)
+    }
+
+    pub(super) async fn delivery_sale_id(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+    ) -> Result<Option<Uuid>, Error> {
+        // Both item sale workers use their immutable sale ID as the Deliver step.
+        Ok(sqlx::query_scalar(
+            "SELECT s.id FROM bazaar_settlements s JOIN bazaar_listings l ON l.id=s.listing_id
+             WHERE l.id=$1 AND l.currency='coins'
+             UNION ALL
+             SELECT s.id FROM bazaar_authority_gold_sales s JOIN bazaar_listings l ON l.id=s.listing_id
+             WHERE l.id=$1 AND l.currency='gold'",
+        )
+        .bind(listing)
+        .fetch_optional(&mut *db)
+        .await?)
+    }
+
+    pub(super) async fn sale_delivery_operation(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+        sale: Uuid,
+    ) -> Result<Option<Uuid>, Error> {
+        Ok(sqlx::query_scalar(
+            "SELECT operation_id FROM bazaar_game_outbox
+             WHERE issuance_key=$1 AND listing_id=$2 AND command='DeliverBazaarItem'",
+        )
+        .bind(super::game_store::issuance_key(
+            listing,
+            Command::Deliver,
+            sale,
+        ))
+        .bind(listing)
+        .fetch_optional(db)
+        .await?)
+    }
+
     async fn completed_delivery(
         &self,
         db: &mut PgConnection,
         listing: Uuid,
-    ) -> Result<(PreparedIntent, Receipt, bool), Error> {
-        // The committed sale identifies its delivery even when STATUS is stale.
-        // An unpublished attempt has no committed receipt and cannot shadow it.
-        let operations: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT o.operation_id FROM bazaar_game_outbox o
-             WHERE o.listing_id=$1 AND o.command='DeliverBazaarItem'
-               AND EXISTS (SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id
-                    AND r.source_authority=$2 AND r.outcome='COMMITTED'
-                    AND r.recovery_generation<=$3::text::numeric)
-               AND (EXISTS (SELECT 1 FROM bazaar_settlements s WHERE s.listing_id=$1
-                             AND s.id::text=o.intent::jsonb->>'sale_id')
-                 OR EXISTS (SELECT 1 FROM bazaar_authority_gold_sales s WHERE s.listing_id=$1
-                             AND s.id::text=o.intent::jsonb->>'sale_id'))
-             LIMIT 2",
-        )
-        .bind(listing)
-        .bind(&self.config.receipt_authority)
-        .bind(self.fence.recovery_generation.to_string())
-        .fetch_all(&mut *db)
-        .await?;
-        let [operation] = operations.as_slice() else {
-            return Err(Error::Unavailable);
+        sale: Uuid,
+    ) -> Result<DeliveryEvidence, Error> {
+        let operation = self.sale_delivery_operation(db, listing, sale).await?;
+        let current = match operation {
+            Some(operation) => self.audited_receipt(db, operation, true).await?,
+            None => None,
         };
-        // Even a quarantined reversal must have a verified current audit before
-        // the listing is marked as drifted. Other callers cannot use it as proof.
-        self.audited_receipt(db, *operation, true)
-            .await?
-            .ok_or(Error::Unavailable)
+        if let Some((_, receipt, conflicted)) = &current
+            && (*conflicted || !receipt.committed)
+        {
+            return Ok(DeliveryEvidence::Drift("delivery_reversal_or_conflict"));
+        }
+
+        // A second operation can carry the same sale step under another key.
+        // An unchanged reattestation of the canonical operation carries the
+        // same commitment. Changed facts or a second operation are drift.
+        let commitments: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT o.operation_id,r.recovery_generation::text
+             FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
+             WHERE o.listing_id=$1 AND o.command='DeliverBazaarItem'
+               AND o.intent::jsonb->>'sale_id'=$2 AND r.outcome='COMMITTED'
+               AND r.source_authority=$3 AND r.recovery_generation<=$4::text::numeric
+               AND (o.operation_id IS DISTINCT FROM $5 OR r.recovery_generation<$4::text::numeric)
+               AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id
+                 AND d.recovery_generation=r.recovery_generation AND d.source_authority=$6)",
+        )
+        .bind(listing).bind(sale.to_string()).bind(&self.config.receipt_authority)
+        .bind(self.fence.recovery_generation.to_string()).bind(operation).bind(&self.config.projection_authority)
+        .fetch_all(&mut *db).await?;
+        for (candidate, generation) in commitments {
+            let generation = generation.parse().map_err(|_| Error::Invalid)?;
+            let Some((_, receipt, _)) = self
+                .audited_receipt_at(db, candidate, generation, true)
+                .await?
+            else {
+                continue;
+            };
+            if Some(candidate) != operation {
+                return Ok(DeliveryEvidence::Drift("second_delivery_commitment"));
+            }
+            if let Some((_, receipt_now, _)) = &current
+                && receipt.value.get("result_data") != receipt_now.value.get("result_data")
+            {
+                return Ok(DeliveryEvidence::Drift("changed_delivery_commitment"));
+            }
+        }
+        match current {
+            Some((intent, receipt, _))
+                if id(text(&intent.value, "sale_id")?)? == sale
+                    && id(text(&intent.value, "listing_id")?)? == listing =>
+            {
+                Ok(DeliveryEvidence::Audited(intent, receipt))
+            }
+            Some(_) => Ok(DeliveryEvidence::Drift("invalid_delivery_binding")),
+            None => Ok(DeliveryEvidence::Pending),
+        }
     }
 
     pub(super) async fn retained(
@@ -345,6 +484,22 @@ impl Authority {
         operation: Uuid,
         include_conflicts: bool,
     ) -> Result<Option<(PreparedIntent, Receipt, bool)>, Error> {
+        self.audited_receipt_at(
+            db,
+            operation,
+            self.fence.recovery_generation,
+            include_conflicts,
+        )
+        .await
+    }
+
+    async fn audited_receipt_at(
+        &self,
+        db: &mut PgConnection,
+        operation: Uuid,
+        generation: u64,
+        include_conflicts: bool,
+    ) -> Result<Option<(PreparedIntent, Receipt, bool)>, Error> {
         let row = sqlx::query(
             "SELECT o.intent,o.binding_digest,r.receipt,r.receipt_digest,d.payload AS audit_payload,
                     c.conflicted
@@ -361,7 +516,7 @@ impl Authority {
                AND ($5 OR NOT c.conflicted)",
         )
         .bind(operation)
-        .bind(self.fence.recovery_generation.to_string())
+        .bind(generation.to_string())
         .bind(&self.config.receipt_authority)
         .bind(&self.config.projection_authority)
         .bind(include_conflicts)
@@ -385,8 +540,8 @@ impl Authority {
         };
         let decision = super::BazaarAuthorityDecisionV1::decode(payload.as_slice())
             .map_err(|_| Error::Invalid)?;
-        decision.verify(i.bytes(), r.bytes(), self.fence.recovery_generation)?;
-        if r.generation != self.fence.recovery_generation
+        decision.verify(i.bytes(), r.bytes(), generation)?;
+        if r.generation != generation
             || r.operation != operation
             || r.command != i.command()
             || text(&r.value, "source_authority")? != self.config.receipt_authority
@@ -623,14 +778,21 @@ impl Evidence for Authority {
                 .map_err(domain);
         }
 
-        let Some((_, i, _)) = self
+        let Some((_, i, receipt)) = self
             .custody(db, &listing, "DELIVERED")
             .await
             .map_err(domain)?
         else {
             return Ok(false);
         };
-        if sale.seller != listing.owner || sale.buyer == sale.seller {
+        if sale.seller != listing.owner
+            || sale.buyer == sale.seller
+            || self
+                .sale_delivery_operation(db, sale.listing_id, sale.id)
+                .await
+                .map_err(domain)?
+                != Some(receipt.operation)
+        {
             return Ok(false);
         }
         let v = &i.value;

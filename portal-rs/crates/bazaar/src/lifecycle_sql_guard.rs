@@ -1,4 +1,9 @@
-use std::{borrow::Cow, path::Path};
+use std::path::{Path, PathBuf};
+use syn::{
+    Attribute, Expr, ImplItem, Item, Lit, Meta, TraitItem,
+    buffer::{Cursor, TokenBuffer},
+    visit::{self, Visit},
+};
 
 // Inline PostgreSQL fixtures seed catalogue rows, model a completed CC1
 // handoff, or build a worker backlog. Exempt only these statements in the
@@ -38,8 +43,7 @@ const FIXTURE_WRITES: &[(&str, &str)] = &[
 enum Token<'a> {
     Word(&'a str),
     Symbol(char),
-    Literal(&'a str),
-    RustString(&'a str),
+    Literal,
 }
 
 impl Token<'_> {
@@ -55,7 +59,7 @@ fn quoted(source: &str, quote: u8, escapes: bool) -> (&str, &str) {
         if escapes && bytes[end] == b'\\' {
             end += 2;
         } else if bytes[end] == quote {
-            if !escapes && bytes.get(end + 1) == Some(&quote) {
+            if bytes.get(end + 1) == Some(&quote) {
                 end += 2;
             } else {
                 return (&source[1..end], &source[end + 1..]);
@@ -85,14 +89,6 @@ fn block_comment(mut source: &str) -> &str {
     ""
 }
 
-fn raw_string(source: &str) -> Option<(&str, &str)> {
-    let after_r = source.strip_prefix('r')?;
-    let body_with_quote = after_r.trim_start_matches('#');
-    let body = body_with_quote.strip_prefix('"')?;
-    let delimiter = format!("\"{}", &after_r[..after_r.len() - body_with_quote.len()]);
-    body.split_once(&delimiter)
-}
-
 fn dollar_string(source: &str) -> Option<(&str, &str)> {
     let (tag, body) = source.strip_prefix('$')?.split_once('$')?;
     if !tag.is_empty()
@@ -104,42 +100,34 @@ fn dollar_string(source: &str) -> Option<(&str, &str)> {
     body.split_once(&source[..tag.len() + 2])
 }
 
-// Tokenize comments, strings and identifier boundaries before recognizing
-// statement targets or Rust item delimiters.
-fn tokens(mut source: &str, rust: bool) -> Vec<Token<'_>> {
+// PostgreSQL token boundaries keep write targets outside string literals and comments.
+fn sql_tokens(mut source: &str) -> Vec<Token<'_>> {
     let mut tokens = Vec::new();
     while let Some(first) = source.chars().next() {
         if first.is_whitespace() {
             source = source.trim_start();
-        } else if source.starts_with(if rust { "//" } else { "--" }) {
+        } else if source.starts_with("--") {
             source = source.split_once('\n').map_or("", |(_, rest)| rest);
         } else if let Some(comment) = source.strip_prefix("/*") {
             source = block_comment(comment);
-        } else if let Some((body, rest)) = if rust {
-            raw_string(source)
-        } else {
-            dollar_string(source)
-        } {
-            tokens.push(Token::Literal(body));
+        } else if let Some((_, rest)) = dollar_string(source) {
+            tokens.push(Token::Literal);
             source = rest;
-        } else if first == '"' || (!rust && first == '\'') {
-            let (body, rest) = quoted(source, first as u8, rust);
-            tokens.push(if rust {
-                Token::RustString(body)
-            } else if first == '"' {
+        } else if source.starts_with("E'") || source.starts_with("e'") {
+            let (_, rest) = quoted(&source[1..], b'\'', true);
+            tokens.push(Token::Literal);
+            source = rest;
+        } else if first == '"' || first == '\'' {
+            let (body, rest) = quoted(source, first as u8, false);
+            tokens.push(if first == '"' {
                 Token::Word(body)
             } else {
-                Token::Literal(body)
+                Token::Literal
             });
-            source = rest;
-        } else if rust
-            && first == '\''
-            && let Some(rest) = rust_character(source)
-        {
             source = rest;
         } else if first.is_alphanumeric() || first == '_' {
             let end = source
-                .find(|c: char| !c.is_alphanumeric() && c != '_')
+                .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '$')
                 .unwrap_or(source.len());
             tokens.push(Token::Word(&source[..end]));
             source = &source[end..];
@@ -149,63 +137,6 @@ fn tokens(mut source: &str, rust: bool) -> Vec<Token<'_>> {
         }
     }
     tokens
-}
-
-fn rust_character(source: &str) -> Option<&str> {
-    let body = source.strip_prefix('\'')?;
-    if body.starts_with('\\') {
-        // Escaped character literals have no newline or whitespace in the
-        // escape itself. Skip their punctuation before counting braces.
-        let end = body[2..].find('\'')? + 2;
-        return Some(&body[end + 1..]);
-    }
-    let first = body.chars().next()?;
-    body[first.len_utf8()..].strip_prefix('\'')
-}
-
-fn string_value(token: Token<'_>) -> Option<Cow<'_, str>> {
-    let Token::RustString(source) = token else {
-        return match token {
-            Token::Literal(raw) => Some(Cow::Borrowed(raw)),
-            _ => None,
-        };
-    };
-    if !source.contains('\\') {
-        return Some(Cow::Borrowed(source));
-    }
-
-    let mut decoded = String::new();
-    let mut chars = source.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            decoded.push(c);
-            continue;
-        }
-        let ch = match chars.next()? {
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            '0' => '\0',
-            '\n' => {
-                while chars.peek().is_some_and(|c| c.is_whitespace()) {
-                    chars.next();
-                }
-                continue;
-            }
-            'x' => char::from_u32(chars.next()?.to_digit(16)? * 16 + chars.next()?.to_digit(16)?)?,
-            'u' if chars.next()? == '{' => {
-                let digits: String = chars
-                    .by_ref()
-                    .take_while(|c| *c != '}')
-                    .filter(|c| *c != '_')
-                    .collect();
-                char::from_u32(u32::from_str_radix(&digits, 16).ok()?)?
-            }
-            c => c,
-        };
-        decoded.push(ch);
-    }
-    Some(Cow::Owned(decoded))
 }
 
 fn target<'a, 'sql>(mut tokens: &'a [Token<'sql>]) -> Option<(&'sql str, &'a [Token<'sql>])> {
@@ -281,7 +212,7 @@ fn forbidden_state_write(sql: &str) -> bool {
         "bazaar_authority_transfer_retirements",
         "character_commands",
     ];
-    let tokens = tokens(sql, false);
+    let tokens = sql_tokens(sql);
     tokens.iter().enumerate().any(|(index, token)| {
         let rest = &tokens[index + 1..];
         if (token.word("insert") || token.word("merge"))
@@ -312,140 +243,233 @@ fn normalize_sql(sql: &str) -> String {
     sql.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-#[derive(Default)]
-struct ItemAttributes<'a> {
-    test: bool,
-    path: Option<&'a str>,
+fn test_only(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        attr.path().is_ident("cfg")
+            && attr
+                .parse_args::<syn::Ident>()
+                .is_ok_and(|cfg| cfg == "test")
+    })
 }
 
-fn inspect<'a>(
-    path: &Path,
-    source: &'a [Token<'a>],
-    inside_test: bool,
-    modules: &mut Vec<(&'a str, Option<&'a str>)>,
-    offenders: &mut Vec<String>,
-) {
-    use Token::{Literal, RustString, Symbol, Word};
-    let mut remaining = source;
-    let mut attributes = ItemAttributes::default();
-    while let Some((token, rest)) = remaining.split_first() {
-        remaining = rest;
-        match token {
-            Symbol('#') if rest.first() == Some(&Symbol('[')) => {
-                let (args, after) = group(&rest[1..], ']');
-                remaining = after;
-                match args {
-                    [Word("cfg"), Symbol('('), Word("test"), Symbol(')')] => attributes.test = true,
-                    [Word("path"), Symbol('='), Literal(file) | RustString(file)] => {
-                        attributes.path = Some(file)
-                    }
-                    _ => {}
-                }
-            }
-            Word("mod") if let [Word(name), Symbol(';'), after @ ..] = rest => {
-                if !inside_test && !attributes.test {
-                    modules.push((name, attributes.path));
-                }
-                remaining = after;
-                attributes = ItemAttributes::default();
-            }
-            Symbol(open @ ('{' | '(' | '[')) => {
-                let close = match open {
-                    '{' => '}',
-                    '(' => ')',
-                    _ => ']',
-                };
-                let (body, after) = group(rest, close);
-                inspect(
-                    path,
-                    body,
-                    inside_test || attributes.test,
-                    modules,
-                    offenders,
-                );
-                remaining = after;
-                if *open == '{' {
-                    attributes = ItemAttributes::default();
-                }
-            }
-            Symbol(';') => attributes = ItemAttributes::default(),
-            Literal(_) | RustString(_)
-                if let Some(sql) = string_value(*token)
-                    && forbidden_state_write(&sql) =>
+macro_rules! attributes {
+    ($node:expr, $syntax:ident, $($variant:ident),+ $(,)?) => {
+        match $node {
+            $($syntax::$variant(node) => node.attrs.as_slice(),)+
+            _ => &[],
+        }
+    };
+}
+
+struct SourceGuard<'a> {
+    path: &'a Path,
+    test_scope: bool,
+    modules: Vec<PathBuf>,
+    module_dir: PathBuf,
+    physical_dir: PathBuf,
+    offenders: &'a mut Vec<String>,
+}
+
+impl SourceGuard<'_> {
+    fn scoped(&mut self, attrs: &[Attribute], visit: impl FnOnce(&mut Self)) {
+        let enclosing = self.test_scope;
+        self.test_scope |= test_only(attrs);
+        visit(self);
+        self.test_scope = enclosing;
+    }
+
+    fn sql(&mut self, literal: &syn::LitStr) {
+        let sql = literal.value();
+        if !forbidden_state_write(&sql) {
+            return;
+        }
+        let normalized = normalize_sql(&sql);
+        if self.test_scope
+            && FIXTURE_WRITES
+                .iter()
+                .any(|(file, known)| self.path == Path::new(file) && normalized == *known)
+        {
+            return;
+        }
+        self.offenders
+            .push(format!("{}: {normalized}", self.path.display()));
+    }
+
+    fn macro_tokens(&mut self, mut tokens: Cursor<'_>) {
+        // Macro arguments are token trees. Exempt only when the Rust AST places
+        // the entire macro in test scope.
+        while let Some((_, next)) = tokens.token_tree() {
+            if let Some((inside, _, _, _)) = tokens.any_group() {
+                self.macro_tokens(inside);
+            } else if let Some((literal, _)) = tokens.literal()
+                && let Ok(sql) = syn::parse_str::<syn::LitStr>(&literal.to_string())
             {
-                let normalized = normalize_sql(&sql);
-                if !(inside_test || attributes.test)
-                    || !FIXTURE_WRITES
-                        .iter()
-                        .any(|(file, known)| path == Path::new(file) && normalized == *known)
-                {
-                    offenders.push(format!("{}: {normalized}", path.display()));
-                }
+                self.sql(&sql);
             }
-            _ => {}
+            tokens = next;
         }
     }
 }
 
-fn group<'a>(source: &'a [Token<'a>], close: char) -> (&'a [Token<'a>], &'a [Token<'a>]) {
-    let mut depth = 0;
-    for (index, token) in source.iter().enumerate() {
-        match token {
-            Token::Symbol('{' | '(' | '[') => depth += 1,
-            Token::Symbol(c) if *c == close && depth == 0 => {
-                return (&source[..index], &source[index + 1..]);
-            }
-            Token::Symbol('}' | ')' | ']') => depth -= 1,
-            _ => {}
+impl<'ast> Visit<'ast> for SourceGuard<'_> {
+    fn visit_item(&mut self, item: &'ast Item) {
+        let attrs = attributes!(
+            item,
+            Item,
+            Const,
+            Enum,
+            ExternCrate,
+            Fn,
+            ForeignMod,
+            Impl,
+            Macro,
+            Mod,
+            Static,
+            Struct,
+            Trait,
+            TraitAlias,
+            Type,
+            Union,
+            Use
+        );
+        self.scoped(attrs, |guard| visit::visit_item(guard, item));
+    }
+
+    fn visit_impl_item(&mut self, item: &'ast ImplItem) {
+        let attrs = attributes!(item, ImplItem, Const, Fn, Type, Macro);
+        self.scoped(attrs, |guard| visit::visit_impl_item(guard, item));
+    }
+
+    fn visit_trait_item(&mut self, item: &'ast TraitItem) {
+        let attrs = attributes!(item, TraitItem, Const, Fn, Type, Macro);
+        self.scoped(attrs, |guard| visit::visit_trait_item(guard, item));
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        let attrs = attributes!(
+            expr, Expr, Array, Assign, Async, Await, Binary, Block, Break, Call, Cast, Closure,
+            Const, Continue, Field, ForLoop, Group, If, Index, Infer, Let, Lit, Loop, Macro, Match,
+            MethodCall, Paren, Path, Range, RawAddr, Reference, Repeat, Return, Struct, Try,
+            TryBlock, Tuple, Unary, Unsafe, While, Yield
+        );
+        self.scoped(attrs, |guard| visit::visit_expr(guard, expr));
+    }
+
+    fn visit_local(&mut self, local: &'ast syn::Local) {
+        self.scoped(&local.attrs, |guard| visit::visit_local(guard, local));
+    }
+
+    fn visit_stmt_macro(&mut self, mac: &'ast syn::StmtMacro) {
+        self.scoped(&mac.attrs, |guard| visit::visit_stmt_macro(guard, mac));
+    }
+
+    fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
+        self.sql(literal);
+    }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        let tokens = TokenBuffer::new2(mac.tokens.clone());
+        self.macro_tokens(tokens.begin());
+    }
+
+    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+        let explicit = module.attrs.iter().find_map(|attr| {
+            let Meta::NameValue(value) = &attr.meta else {
+                return None;
+            };
+            let Expr::Lit(expr) = &value.value else {
+                return None;
+            };
+            let Lit::Str(path) = &expr.lit else {
+                return None;
+            };
+            value.path.is_ident("path").then(|| path.value())
+        });
+        if module.content.is_some() {
+            let directory = explicit.map_or_else(
+                || self.module_dir.join(module.ident.to_string()),
+                |path| self.physical_dir.join(path),
+            );
+            let old_module = std::mem::replace(&mut self.module_dir, directory.clone());
+            let old_physical = std::mem::replace(&mut self.physical_dir, directory);
+            visit::visit_item_mod(self, module);
+            self.module_dir = old_module;
+            self.physical_dir = old_physical;
+        } else if !self.test_scope {
+            self.modules.push(match explicit {
+                Some(file) => self.physical_dir.join(file),
+                None => self.module_dir.join(module.ident.to_string()),
+            });
         }
     }
-    (source, &[])
+}
+
+fn inspect(
+    root: &Path,
+    path: &Path,
+    file: &syn::File,
+    offenders: &mut Vec<String>,
+) -> Vec<PathBuf> {
+    if path == Path::new("lifecycle.rs") {
+        return Vec::new();
+    }
+    let parent = path.parent().unwrap_or(Path::new(""));
+    let directory = if matches!(
+        path.file_name().and_then(std::ffi::OsStr::to_str),
+        Some("lib.rs" | "mod.rs")
+    ) {
+        parent.to_path_buf()
+    } else {
+        path.with_extension("")
+    };
+    let mut guard = SourceGuard {
+        path,
+        test_scope: test_only(&file.attrs),
+        modules: Vec::new(),
+        module_dir: directory,
+        physical_dir: parent.to_path_buf(),
+        offenders,
+    };
+    guard.visit_file(file);
+    guard
+        .modules
+        .into_iter()
+        .map(|path| {
+            if path.extension().is_some() {
+                path
+            } else {
+                let flat = path.with_extension("rs");
+                if root.join(&flat).is_file() {
+                    flat
+                } else {
+                    path.join("mod.rs")
+                }
+            }
+        })
+        .collect()
 }
 
 pub(super) fn scan_source(path: &Path, source: &str, offenders: &mut Vec<String>) {
-    if path != Path::new("lifecycle.rs") {
-        inspect(
-            path,
-            &tokens(source, true),
-            false,
-            &mut Vec::new(),
-            offenders,
-        );
+    let parsed =
+        syn::parse_file(source).or_else(|_| syn::parse_file(&format!("fn check() {{ {source} }}")));
+    assert!(
+        parsed.is_ok(),
+        "invalid source fixture: {:?}",
+        parsed.as_ref().err()
+    );
+    if let Ok(file) = parsed {
+        inspect(Path::new(""), path, &file, offenders);
     }
 }
 
 pub(super) fn scan(root: &Path) -> std::io::Result<Vec<String>> {
-    let mut pending = vec![Path::new("lib.rs").to_path_buf()];
+    let mut pending = vec![PathBuf::from("lib.rs")];
     let mut offenders = Vec::new();
     while let Some(path) = pending.pop() {
-        if path == Path::new("lifecycle.rs") {
-            continue;
-        }
         let source = std::fs::read_to_string(root.join(&path))?;
-        let mut modules = Vec::new();
-        let source_tokens = tokens(&source, true);
-        inspect(&path, &source_tokens, false, &mut modules, &mut offenders);
-        let parent = path.parent().unwrap_or(Path::new(""));
-        let directory = if matches!(
-            path.file_name().and_then(std::ffi::OsStr::to_str),
-            Some("lib.rs" | "mod.rs")
-        ) {
-            parent.to_path_buf()
-        } else {
-            path.with_extension("")
-        };
-        for (module, explicit) in modules {
-            if let Some(file) = explicit {
-                pending.push(parent.join(file));
-            } else {
-                let default = directory.join(format!("{module}.rs"));
-                pending.push(if root.join(&default).is_file() {
-                    default
-                } else {
-                    directory.join(module).join("mod.rs")
-                });
-            }
-        }
+        let file = syn::parse_file(&source)
+            .map_err(|error| std::io::Error::other(format!("{}: {error}", path.display())))?;
+        pending.extend(inspect(root, &path, &file, &mut offenders));
     }
     Ok(offenders)
 }

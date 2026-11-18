@@ -262,15 +262,29 @@ pub(crate) async fn validate_release(
     }
     Ok(())
 }
+async fn sale_delivery_receipt(
+    a: &Authority,
+    db: &mut PgConnection,
+    listing: Uuid,
+) -> Result<Option<super::super::Receipt>, Error> {
+    let Some(sale) = a.delivery_sale_id(db, listing).await? else {
+        return Ok(None);
+    };
+    let Some(operation) = a.sale_delivery_operation(db, listing, sale).await? else {
+        return Ok(None);
+    };
+    Ok(a.retained(db, operation).await?.map(|(_, receipt)| receipt))
+}
+
 async fn reattested_return(
     a: &Authority,
     db: &mut PgConnection,
     listing: &Listing,
 ) -> Result<bool, Error> {
     match listing.kind {
-        Kind::Item => Ok(record(a, db, listing.id, Command::Deliver)
+        Kind::Item => Ok(sale_delivery_receipt(a, db, listing.id)
             .await?
-            .is_some_and(|(_, r)| !r.committed)
+            .is_some_and(|r| !r.committed)
             && a.delivery_refused(db, listing.id).await?
             && record(a, db, listing.id, Command::Return)
                 .await?
@@ -302,9 +316,9 @@ async fn compensated_return(
         return Ok(true);
     }
     match listing.kind {
-        Kind::Item => Ok(record(a, db, listing.id, Command::Deliver)
+        Kind::Item => Ok(sale_delivery_receipt(a, db, listing.id)
             .await?
-            .is_some_and(|(_, r)| !r.committed)),
+            .is_some_and(|r| !r.committed)),
         Kind::Character => Ok(a.settlement_bind_refused(db, listing.id).await?.is_some()),
     }
 }
@@ -356,7 +370,8 @@ pub(crate) async fn validate_payout(
         let Some((intent, current)) = a.retained(db, expected_operation).await? else {
             return Err(Error::Unavailable);
         };
-        if current.digest() != r.digest()
+        if a.sale_delivery_operation(db, listing, s.id).await? != Some(expected_operation)
+            || current.digest() != r.digest()
             || !current.committed
             || current.command != Command::Deliver
             || text(&intent.value, "sale_id")? != s.id.to_string()
@@ -441,7 +456,7 @@ pub(crate) async fn delivery(
             digest(&canonical::encode(&receipt).map_err(|_| Error::Invalid)?),
         ));
     }
-    let Some((_, receipt)) = record(a, db, l.id, Command::Deliver).await? else {
+    let Some(receipt) = sale_delivery_receipt(a, db, l.id).await? else {
         return Err(Error::Unavailable);
     };
     if !receipt.committed {

@@ -817,6 +817,48 @@ pub(crate) async fn quarantine_custody(
     Ok(())
 }
 
+/// The issuer lock serializes retry records and the terminal report.
+pub(crate) async fn audit_delivery_evidence(
+    db: &mut PgConnection,
+    listing: Uuid,
+    key: &str,
+    generation: u64,
+    action: &str,
+    reason: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO bazaar_audit(relation_name,row_id,after_row)
+         VALUES('bazaar_delivery_evidence',$1,jsonb_build_object(
+                    'issuance_key',$2::text,'generation',$3::text,'action',$4::text,'reason',$5::text))",
+    )
+    .bind(listing).bind(key).bind(generation.to_string()).bind(action).bind(reason)
+    .execute(db).await?;
+    Ok(())
+}
+
+/// The listing lock serializes the operator report with transfer recovery.
+pub(crate) async fn report_refused_unpublished_bind(
+    db: &mut PgConnection,
+    listing: Uuid,
+    bind: Uuid,
+    transfer: Uuid,
+    generation: u64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO bazaar_audit(relation_name,row_id,after_row)
+         SELECT 'bazaar_authority_transfers',$1,jsonb_build_object(
+            'action','refused_unpublished_bind_conflict','bind_operation_id',$2::text,
+            'transfer_operation_id',$3::text,'generation',$4::text)
+         WHERE NOT EXISTS(SELECT 1 FROM bazaar_audit WHERE relation_name='bazaar_authority_transfers'
+            AND row_id=$1 AND after_row->>'action'='refused_unpublished_bind_conflict'
+            AND after_row->>'transfer_operation_id'=$3::text
+            AND after_row->>'generation'=$4::text)",
+    )
+    .bind(listing).bind(bind.to_string()).bind(transfer.to_string()).bind(generation.to_string())
+    .execute(db).await?;
+    Ok(())
+}
+
 pub(crate) struct TransferStage<'a> {
     pub operation: Uuid,
     pub listing: Uuid,
