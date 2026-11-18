@@ -39,7 +39,10 @@ pub fn configured(pool: PgPool) -> Result<Runtime, Box<dyn std::error::Error>> {
         true,
     )?;
     let boundary: Arc<dyn termination::Boundary> = game.as_ref().map_or_else(
-        || Arc::new(termination::UnavailableBoundary) as Arc<dyn termination::Boundary>,
+        || {
+            Arc::new(crate::account_lifecycle_http::TerminationBoundary)
+                as Arc<dyn termination::Boundary>
+        },
         |game| game.clone(),
     );
     let terminations = termination::Terminations::new(pool, termination, boundary)?;

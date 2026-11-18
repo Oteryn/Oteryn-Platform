@@ -343,7 +343,7 @@ async fn postgres_unknown_dependencies_and_disabled_flag_deny() -> TestResult {
                 "termination test password"
             )
             .await,
-        Err(Error::Disabled)
+        Err(Error::NoPending)
     ));
     let ready = service(&db, Arc::new(BoundaryFixture::default()))?;
     let termination = request(&ready, account).await?;

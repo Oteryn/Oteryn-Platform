@@ -24,7 +24,7 @@ use uuid::Uuid;
 struct Services {
     limiter: RateLimiter,
     pool: PgPool,
-    notifications: Arc<oteryn_notify::Notifications>,
+    notifications: Option<Arc<oteryn_notify::Notifications>>,
     termination: termination::Terminations,
 }
 #[derive(Debug)]
@@ -43,6 +43,28 @@ impl termination::Boundary for TerminationBoundary {
             } else {
                 Err(termination::Error::Unauthorized)
             }
+        })
+    }
+    fn requested<'a>(
+        &'a self,
+        _: &'a mut Transaction<'_, Postgres>,
+        _: &'a termination::Termination,
+    ) -> BoundaryFuture<'a> {
+        // Only Game can initialize new closure work.
+        Box::pin(async { Err(termination::Error::UnknownState) })
+    }
+    fn cancelled<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'_, Postgres>,
+        termination: &'a termination::Termination,
+    ) -> BoundaryFuture<'a> {
+        Box::pin(async move {
+            let issued: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plat3_closure_work WHERE termination_id=$1 AND close_operation_id IS NOT NULL)")
+                .bind(termination.id).fetch_one(&mut **tx).await?;
+            if issued {
+                return Err(termination::Error::UnknownState);
+            }
+            Ok(())
         })
     }
     fn check_blockers<'a>(
@@ -85,19 +107,17 @@ impl termination::Boundary for TerminationBoundary {
 }
 pub fn configured_router(pool: PgPool, termination: termination::Terminations) -> Router {
     let key = std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY").unwrap_or_default();
-    let Ok(signing) = oteryn_notify::Unsubscribe::new(
+    let notifications = oteryn_notify::Unsubscribe::new(
         key.into_bytes(),
         std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_URL").unwrap_or_default(),
-    ) else {
-        return Router::new();
-    };
-    let Ok(config) = termination::Config::from_env() else {
-        return Router::new();
-    };
-    let notifications = Arc::new(oteryn_notify::Notifications {
-        pool: pool.clone(),
-        accounts: Arc::new(AccountState(pool.clone())),
-        unsubscribe: signing,
+    )
+    .ok()
+    .map(|unsubscribe| {
+        Arc::new(oteryn_notify::Notifications {
+            pool: pool.clone(),
+            accounts: Arc::new(AccountState(pool.clone())),
+            unsubscribe,
+        })
     });
     let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
@@ -105,22 +125,31 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
         .into_iter()
         .collect();
     let mut routes = Router::new()
-        .route("/{lang}/account/notifications", get(preferences).post(save))
-        .route("/{lang}/unsubscribe", get(unsubscribe_page));
-    if config.enabled {
+        .route("/{lang}/account/privacy/delete", get(deletion))
+        .route(
+            "/{lang}/account/privacy/delete/cancel",
+            axum::routing::post(cancel),
+        );
+    if termination.accepts_requests() {
+        routes = routes.route(
+            "/{lang}/account/privacy/delete",
+            axum::routing::post(delete),
+        );
+    }
+    if notifications.is_some() {
         routes = routes
-            .route("/{lang}/account/privacy/delete", get(deletion).post(delete))
-            .route(
-                "/{lang}/account/privacy/delete/cancel",
-                axum::routing::post(cancel),
-            );
+            .route("/{lang}/account/notifications", get(preferences).post(save))
+            .route("/{lang}/unsubscribe", get(unsubscribe_page));
+    }
+    let mut routes = routes.route_layer(axum::middleware::from_fn_with_state(
+        sessions,
+        oteryn_web::session::middleware,
+    ));
+    if notifications.is_some() {
+        routes = routes
+            .merge(Router::new().route("/{lang}/unsubscribe", axum::routing::post(unsubscribe)));
     }
     let routes = routes
-        .route_layer(axum::middleware::from_fn_with_state(
-            sessions,
-            oteryn_web::session::middleware,
-        ))
-        .merge(Router::new().route("/{lang}/unsubscribe", axum::routing::post(unsubscribe)))
         .with_state(Services {
             limiter: RateLimiter::new(pool.clone()),
             pool,
@@ -238,11 +267,15 @@ async fn preferences(
     let mut p = page(l, &s, "", false, false, false, String::new()).await?;
     (p.news_email, p.news_portal) = st
         .notifications
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
         .preference(id, oteryn_notify::Category::News)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     (p.support_email, p.support_portal) = st
         .notifications
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
         .preference(id, oteryn_notify::Category::Support)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -348,6 +381,8 @@ async fn save(
         ),
     ] {
         st.notifications
+            .as_ref()
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
             .preferences(&mut tx, id, category, boolean(email)?, boolean(portal)?)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -400,6 +435,8 @@ async fn unsubscribe(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     st.notifications
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
         .unsubscribe(&mut tx, &q.token)
         .await
         .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
@@ -422,7 +459,10 @@ async fn deletion(
     Extension(s): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
-    let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_terminations WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL)").bind(id).fetch_one(&st.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+    let pending = st.termination.has_pending(id).await.map_err(failure)?;
+    if !pending && !st.termination.accepts_requests() {
+        return Err(StatusCode::NOT_FOUND);
+    }
     let action = if pending {
         format!("/{}/account/privacy/delete/cancel", l.code())
     } else {
@@ -457,6 +497,7 @@ fn failure(e: termination::Error) -> StatusCode {
     match e {
         termination::Error::InvalidInput => StatusCode::UNPROCESSABLE_ENTITY,
         termination::Error::Unauthorized => StatusCode::FORBIDDEN,
+        termination::Error::NoPending => StatusCode::NOT_FOUND,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
@@ -506,6 +547,9 @@ async fn cancel(
 ) -> Result<Response, StatusCode> {
     let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
+    if !st.termination.has_pending(id).await.map_err(failure)? {
+        return Err(StatusCode::NOT_FOUND);
+    }
     if let Err(r) = rate(
         &limiter,
         &headers,
@@ -523,7 +567,12 @@ async fn cancel(
         .cancel(id, &proof(&headers), &input.current_password)
         .await
         .map_err(failure)?;
-    Ok(Redirect::to(&format!("/{}/account/privacy/delete", l.code())).into_response())
+    let destination = if st.termination.accepts_requests() {
+        format!("/{}/account/privacy/delete", l.code())
+    } else {
+        format!("/{}/account/dashboard", l.code())
+    };
+    Ok(Redirect::to(&destination).into_response())
 }
 
 #[derive(Template)]
