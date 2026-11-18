@@ -100,6 +100,10 @@ async fn item_effect(db: &BrowserFixture, command: Command, refused: bool) {
             .replace("000000000014", "000000000021");
         status = status.replace("DELIVERED", "RETURNED");
     }
+    let raw = raw.replace(
+        r#""recovery_generation":"3""#,
+        &format!(r#""recovery_generation":"{}""#, a.fence.recovery_generation),
+    );
     assert_eq!(
         a.receive(&mut tx, &a.config.receipt_authority, raw.as_bytes(), now)
             .await
@@ -258,5 +262,187 @@ async fn r13_compensated_release() {
     db.runtime.tick().await.unwrap();
     assert_eq!(state(&db).await, crate::State::Cancelled);
     recover(&mut db).await;
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r14_lock_replay_after_epoch_change_finishes_resync() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let mut a = db.runtime.authority().clone();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'character','auction','gold',100,false,now())").bind(uid("30")).bind(uid("11")).execute(&mut *tx).await.unwrap();
+    commit_character_lock(&a, &mut tx, now).await;
+    a.fence.projection_epoch = 4;
+    a.fence.recovery_generation = 4;
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    replay(&a, &mut tx, uid("30")).await;
+    replay(&a, &mut tx, uid("20")).await;
+    let bodies: Vec<String> = sqlx::query_scalar(
+        "SELECT canonical_body FROM bazaar_game_projections WHERE projection_epoch=3",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    for body in bodies {
+        let body = body.replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#);
+        Outbox {
+            settings: Settings {
+                preparation_enabled: true,
+                game_enabled: false,
+            },
+        }
+        .ingest(
+            &mut tx,
+            &a.config.projection_authority,
+            body.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+    }
+    a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    assert!(a.resynced(&mut tx).await.unwrap());
+    tx.commit().await.unwrap();
+    db.end().await;
+}
+
+async fn finish_gold_payout(db: &BrowserFixture, listing: Uuid, revision: u64) {
+    let payout = newest_intent(db, listing, Command::Payout).await;
+    let field = |key| text(&payout.value, key).unwrap();
+    let data = format!(
+        r#"{{"hold_id":"{}","hold_revision":"{revision}","sale_id":"{}","gross_amount":"{}","fee_amount":"{}","seller_amount":"{}","remaining_held":"0","buyer_ledger_entry_id":"{}","seller_ledger_entry_id":"{}","burn_entry_id":"{}","delivery_operation_id":"{}","delivery_receipt_digest":"{}"}}"#,
+        field("hold_id"),
+        field("sale_id"),
+        field("gross_amount"),
+        field("fee_amount"),
+        field("seller_amount"),
+        uid("51"),
+        uid("52"),
+        uid("53"),
+        field("delivery_operation_id"),
+        field("delivery_receipt_digest")
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    committed_fact(db.runtime.authority(), &mut tx, &payout, &data, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let state: crate::State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(listing)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(state, crate::State::Completed);
+}
+
+#[tokio::test]
+async fn r14_excess_release_replays_before_delivery() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let buyer = uid("13");
+    let hold = uid("83");
+    gold_fact(&mut tx, Command::Hold, 10, uid("82"), hold, (0, 1, 10000)).await;
+    gold_fact(&mut tx, Command::Hold, 11, uid("82"), hold, (1, 2, 12000)).await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=11")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let listing: Listing = sqlx::query_as("UPDATE bazaar_listings SET currency='gold',leader=$1,leader_max=10000,reservation=id,ends_at=now()-interval '1 second' RETURNING *").bind(buyer).fetch_one(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO bazaar_authority_destinations(listing_id,buyer,character_id) VALUES($1,$2,$3)",
+    )
+    .bind(listing.id)
+    .bind(buyer)
+    .bind(uid("14"))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    db.runtime
+        .issue(
+            &mut tx,
+            &listing,
+            listing.owner,
+            None,
+            Command::Release,
+            uid("82"),
+            vec![
+                ("buyer_account_id", Value::String(buyer.to_string())),
+                ("hold_id", Value::String(hold.to_string())),
+                ("expected_hold_revision", Value::String("2".into())),
+                ("release_reason", Value::String("EXCESS".into())),
+                ("amount", Value::String("2000".into())),
+            ],
+        )
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let release = newest_intent(&db, listing.id, Command::Release).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let data = format!(
+        r#"{{"hold_id":"{hold}","hold_revision":"3","released_amount":"2000","remaining_held":"10000","hold_state":"ACTIVE"}}"#
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &release, &data, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(state(&db).await, crate::State::AwaitingDelivery);
+    recover(&mut db).await;
+    db.runtime.tick().await.unwrap();
+    item_effect(&db, Command::Deliver, false).await;
+    db.runtime.tick().await.unwrap();
+    finish_gold_payout(&db, listing.id, 4).await;
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r14_character_payout_retries_after_transfer_reattestation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = delivered_character_sale("gold").await;
+    let listing = uid("30");
+    let payout = newest_intent(&db, listing, Command::Payout).await;
+    reject_expired(&db, &payout).await;
+    recover(&mut db).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let receipts: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id,receipt_json FROM character_commands WHERE state='TERMINAL'")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    for (operation, raw) in receipts {
+        sqlx::query("UPDATE character_commands SET receipt_json=NULL,state='PENDING' WHERE id=$1")
+            .bind(operation)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let current = raw.replace(
+            r#""recovery_generation":"3""#,
+            r#""recovery_generation":"4""#,
+        );
+        sqlx::query("UPDATE character_commands SET receipt_json=$2,state='TERMINAL' WHERE id=$1")
+            .bind(operation)
+            .bind(current)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    replay(db.runtime.authority(), &mut tx, listing).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let retry = newest_intent(&db, listing, Command::Payout).await;
+    assert_ne!(
+        retry.value.get("operation_id"),
+        payout.value.get("operation_id")
+    );
+    assert_ne!(
+        retry.value.get("delivery_receipt_digest"),
+        payout.value.get("delivery_receipt_digest")
+    );
+    finish_gold_payout(&db, listing, 2).await;
     db.end().await;
 }
