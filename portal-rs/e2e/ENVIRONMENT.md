@@ -310,27 +310,36 @@ PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED
 ```
 
 
+## Shared Game mTLS listener
+
+The local harness serves account closure, Bazaar, and league on
+`https://127.0.0.1:18446`. Each Game producer presents its own pinned client
+certificate to that listener. The harness generates the server credentials and
+client CA in its scratch directory.
+
+| Variable | Local value |
+| --- | --- |
+| `OTERYN_INTERNAL_TLS_BIND` | `127.0.0.1:18446` |
+| `OTERYN_INTERNAL_TLS_CERT_FILE` | Scratch `cert.pem` |
+| `OTERYN_INTERNAL_TLS_KEY_FILE` | Scratch `key.pem` |
+| `OTERYN_INTERNAL_TLS_CLIENT_CA_FILE` | Scratch `ca.pem` |
+
 ## League — owner decision 2026-11-06
 
 `OTERYN_LEAGUE_ENABLED` is the sole feature flag; the launcher enables it.
-The private listener and worker use the same real admission path with disposable
+The shared listener and worker use the same real admission path with disposable
 Game publisher authority. Keys and certificates are generated into scratch.
 
 | Variable | Purpose |
 | --- | --- |
 | `OTERYN_LEAGUE_ENABLED` | Public routes, private ingress, worker, navigation |
-| `OTERYN_LEAGUE_BASE_URL` | Advertised HTTPS Platform publisher endpoint (no Game pull API) |
-| `OTERYN_LEAGUE_BIND` | Dedicated private TLS listener |
+| `OTERYN_LEAGUE_BASE_URL` | Shared HTTPS Platform publisher origin |
 | `OTERYN_LEAGUE_SOURCE_AUTHORITY` | Exact dedicated Game purpose namespace |
-| `OTERYN_LEAGUE_CLIENT_CA_DER` | Trusted client CA certificate file |
-| `OTERYN_LEAGUE_CERTIFICATE_DER` | Server certificate file |
-| `OTERYN_LEAGUE_PRIVATE_KEY_DER` | External PKCS8 key file; never committed |
 | `OTERYN_LEAGUE_CLIENT_SPKI_SHA256` | Dedicated Game leaf DER SubjectPublicKeyInfo SHA-256; `sha256:<64 lowercase hex>` (bare hex also accepted), bound only to `oteryn:game:primary` |
 | `OTERYN_LEAGUE_RECOVERY_FILE` | Operator-owned nonrollback epoch/generation file |
 | `OTERYN_LEAGUE_REQUESTS_PER_MINUTE` | Aggregate publisher cap (default 120) |
 | `PORTAL_E2E_LEAGUE_CONTROL` | Test-only producer control URL, never a production endpoint |
 | `OTERYN_LEAGUE_POLICY` | Optional accepted_* policy JSON; defaults follow owner acceptance |
-| `OTERYN_LEAGUE_CONNECTION_LIMIT` | Default/max 16 simultaneous private TLS connections; lower overrides allowed |
 | `OTERYN_LEAGUE_BATCH_LIMIT` | Default/max 64 queued requests per worker tick; lower overrides allowed |
 
 The T94 producer uses HTTP/1.1 with TLS1.3 and a verified dedicated mTLS
@@ -361,10 +370,7 @@ There is no additional Character/Item authority activation switch.
 | Variable | Meaning |
 | --- | --- |
 | `OTERYN_BAZAAR_ENABLED` | Select the real Bazaar runtime and worker (`true`) |
-| `OTERYN_BAZAAR_INTERNAL_BASE_URL` | Advertised HTTPS Platform exchange URL, polled by Game |
-| `OTERYN_BAZAAR_INTERNAL_BIND` | Separate private mTLS listener address |
-| `OTERYN_BAZAAR_TLS_CERT_FILE`, `OTERYN_BAZAAR_TLS_KEY_FILE` | Server certificate and private-key file paths |
-| `OTERYN_BAZAAR_CLIENT_CA_FILE` | CA used to authenticate Game client certificates |
+| `OTERYN_BAZAAR_INTERNAL_BASE_URL` | Shared HTTPS Platform exchange origin, polled by Game |
 | `OTERYN_BAZAAR_CLIENT_SPKI_SHA256` | Dedicated Bazaar client identity |
 | `OTERYN_BAZAAR_RECEIPT_CLIENT_SPKI_SHA256` | Separate Character receipt client identity |
 | `OTERYN_BAZAAR_SOURCE_AUTHORITY` | Configured projection/audit source namespace |
@@ -379,8 +385,9 @@ There is no additional Character/Item authority activation switch.
 The fixture producer is exclusively in `e2e/support/bazaar-game.mjs`. It uses the
 byte-exact pinned vectors, generates a disposable independent signing key, commits
 its simulated effect/receipt/outbox journal before publication, and uses the real
-mTLS pull, receipt, status and binary EventEnvelope transport. Its loopback control
-surface is reachable only through the local harness, never production Rust.
+mTLS pull, receipt, status and binary EventEnvelope transport through the shared
+listener. The harness serves browser fixture controls under `/__bazaar_game/` on
+the loopback HTTPS proxy.
 The auction E2E advances the disposable database's auction clock after a real
 browser bid; production has no clock-advance endpoint.
 
@@ -393,10 +400,7 @@ fixture-backed Game client. This stub is test support, not a production adapter.
 
 | Configuration | Default / local value |
 | --- | --- |
-| `PORTAL_ACCOUNT_CLOSURE_BASE_URL` | Required HTTPS **Platform** private origin (Game pulls); local `https://localhost:19443` |
-| `PORTAL_ACCOUNT_CLOSURE_BIND` | `127.0.0.1:8092`; local `127.0.0.1:19443` |
-| `PORTAL_ACCOUNT_CLOSURE_TLS_CA_FILE` | Required trust CA path |
-| `PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE`, `PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE` | Required server certificate/private-key paths; contents never committed |
+| `PORTAL_ACCOUNT_CLOSURE_BASE_URL` | Shared HTTPS Platform origin, polled by Game |
 | `PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256` | Required exact DER leaf SHA-256 for the dedicated Character client |
 | `PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256` | Required distinct DER leaf SHA-256 for the portfolio publisher |
 | `PORTAL_ACCOUNT_CLOSURE_KEY_ID`, `PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX` | Optional Ed25519 key for the detached-signature compatibility entry point; the private routes do not use it |

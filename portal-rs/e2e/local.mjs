@@ -79,8 +79,15 @@ openssl(['req','-x509','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/ca-ke
 openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/key.pem`,'-out',`${scratch}/leaf.csr`,'-subj','/CN=localhost']);
 fs.writeFileSync(`${scratch}/extensions`,'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n');
 openssl(['x509','-req','-in',`${scratch}/leaf.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/cert.pem`,'-days','2','-extfile',`${scratch}/extensions`]);
-const league=await leagueProducer({root,scratch,env,openssl});
-const bazaarConfig=prepareBazaar(env,scratch);
+Object.assign(env,{
+ OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18446',
+ OTERYN_INTERNAL_TLS_CERT_FILE:`${scratch}/cert.pem`,
+ OTERYN_INTERNAL_TLS_KEY_FILE:`${scratch}/key.pem`,
+ OTERYN_INTERNAL_TLS_CLIENT_CA_FILE:`${scratch}/ca.pem`,
+});
+const internalOrigin=`https://${env.OTERYN_INTERNAL_TLS_BIND}`;
+const league=await leagueProducer({root,scratch,env,openssl,internalOrigin});
+const bazaarConfig=prepareBazaar(env,scratch,internalOrigin);
 // Dedicated Character/portfolio certificates; neither is a browser identity.
 function gameCertificate(name){
  openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/${name}-key.pem`,'-out',`${scratch}/${name}.csr`,'-subj',`/CN=${name}`]);
@@ -89,10 +96,9 @@ function gameCertificate(name){
  return {cert:fs.readFileSync(`${scratch}/${name}.pem`),key:fs.readFileSync(`${scratch}/${name}-key.pem`)};
 }
 const character=gameCertificate('closure-character'),portfolio=gameCertificate('closure-portfolio');
-const gameProducer=createGameClosureProducer({baseURL:'https://localhost:19443',ca:fs.readFileSync(`${scratch}/ca.pem`),character,portfolio});
+const gameProducer=createGameClosureProducer({baseURL:internalOrigin,ca:fs.readFileSync(`${scratch}/ca.pem`),character,portfolio});
 Object.assign(env,{
- PORTAL_ACCOUNT_CLOSURE_ENABLED:'true',PORTAL_ACCOUNT_CLOSURE_BASE_URL:'https://localhost:19443',PORTAL_ACCOUNT_CLOSURE_BIND:'127.0.0.1:19443',
- PORTAL_ACCOUNT_CLOSURE_TLS_CA_FILE:`${scratch}/ca.pem`,PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE:`${scratch}/cert.pem`,PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE:`${scratch}/key.pem`,
+ PORTAL_ACCOUNT_CLOSURE_ENABLED:'true',PORTAL_ACCOUNT_CLOSURE_BASE_URL:internalOrigin,
  PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256:crypto.createHash('sha256').update(new crypto.X509Certificate(character.cert).raw).digest('hex'),
  PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256:crypto.createHash('sha256').update(new crypto.X509Certificate(portfolio.cert).raw).digest('hex'),
  PORTAL_ACCOUNT_CLOSURE_KEY_ID:gameProducer.keyId,PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX:gameProducer.publicKeyHex,PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION:'3',PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS:'1',
@@ -112,7 +118,7 @@ await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password
 // only in this disposable qualification database (the deployment flag is also required).
 await bazaarSeed.query("UPDATE referral_campaign_settings SET enabled=true WHERE singleton");
 await bazaarSeed.end();
-const bazaarGame=await startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
+const bazaarGame=startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
 const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
@@ -123,7 +129,11 @@ const starttls=new SMTPServer({...tls,secure:false,onAuth(auth,session,callback)
 starttls.on('error',error=>console.error('Local SMTP error:',error.code));
 starttls.listen(587,'127.0.0.1');
 const proxy=https.createServer(tls,(req,res)=>{
- if(req.url.startsWith('/__bazaar_game/')){const upstream=http.request({hostname:'127.0.0.1',port:18993,path:req.url.slice('/__bazaar_game'.length),method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);return;}
+ // Browser fixture controls invoke the producer, which makes the mTLS exchanges.
+ if(req.url.startsWith('/__bazaar_game/')){
+  void bazaarGame.control(req,res,req.url.slice('/__bazaar_game'.length));
+  return;
+ }
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
  const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
