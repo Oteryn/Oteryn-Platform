@@ -179,11 +179,11 @@ impl GameBoundary {
             return Err(Error::UnknownState);
         }
         let intent = Intent::parse(&intent_raw)?;
-        // A delayed CANCEL commit resolves the original operation. A delayed
+        // A delayed resolution commit acknowledges the original decision. A delayed
         // refusal records the terminal outcome for reconciliation.
         let decided_generation = wire::number(&receipt.recovery_generation, true)?;
-        let cancel = intent.decision.as_deref() == Some("CANCEL");
-        let historical = ((cancel && receipt.outcome == "COMMITTED")
+        let resolution = intent.command == "ResolveAccountClosure";
+        let historical = ((resolution && receipt.outcome == "COMMITTED")
             || receipt.outcome == "REJECTED")
             && decided_generation < current;
         receipt.bind(

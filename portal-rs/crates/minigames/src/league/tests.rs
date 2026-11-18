@@ -1506,3 +1506,27 @@ async fn locked_cannot_close_without_settlement() -> TestResult {
     assert_eq!(refused, 1);
     db.close().await
 }
+
+#[tokio::test]
+async fn reordered_correction_drains_after_predecessor() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    for name in ["correction", "settlement"] {
+        enqueue_publication(&db, &c, &publication(&c, admission::EVENT, wire(name)?)?).await?;
+    }
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    job.run_config(c.clone()).await?;
+    job.run_config(c).await?;
+    let done: i64 = sqlx::query_scalar("SELECT count(*) FROM league_feed_inbox WHERE state='done'")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(done, 2);
+    db.close().await
+}

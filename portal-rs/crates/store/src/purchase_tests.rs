@@ -2095,3 +2095,68 @@ async fn premium_time_checkout_grants_extends_replays_and_enforces_limits() {
     assert_eq!(db.count("premium_ledger").await, 12);
     db.finish().await;
 }
+
+#[tokio::test]
+async fn held_or_indebted_payer_cannot_purchase() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::new().await.unwrap();
+    let account = uuid(ACCOUNT).unwrap();
+    db.fund(ACCOUNT, 1000).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let quote = Uuid::now_v7();
+    let order = Uuid::now_v7();
+    let package = Uuid::now_v7();
+    sqlx::query("INSERT INTO coin_purchase_quotes (id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$3,100,100,'EUR',2,'testing',now(),now())")
+        .bind(quote).bind(account).bind(package).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_orders (id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code,review_required) VALUES ($1,$2,$3,$4,$5,100,100,'EUR',2,'testing',$6,'processing','processing',false)")
+        .bind(order).bind(account).bind(Uuid::now_v7()).bind(quote).bind(package).bind(Uuid::now_v7()).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')").bind(account).bind(order).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let service = db.service(settings());
+    let raw = request(&db.revision);
+    let answer = service.purchase(&raw).await.unwrap();
+    assert_eq!(string(&value(&answer), "result"), "ACCOUNT_RESTRICTED");
+    sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES($1,$2,$3,'chargeback','test','held',100,0,'held')").bind(Uuid::now_v7()).bind(order).bind(account).execute(&db.pool).await.unwrap();
+    let answer = service.purchase(&unique(&raw)).await.unwrap();
+    assert_eq!(string(&value(&answer), "result"), "ACCOUNT_RESTRICTED");
+    assert_eq!(db.count("store_orders").await, 0);
+    db.finish().await;
+}
+
+#[tokio::test]
+async fn rejected_delivery_allows_next_purchase() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::new().await.unwrap();
+    db.fund(ACCOUNT, 1000).await;
+    let service = db.service(settings());
+    let raw = request(&db.revision);
+    service.purchase(&raw).await.unwrap();
+    let row=sqlx::query("SELECT intent_bytes,binding_digest FROM store_operations WHERE operation_kind='DELIVER' LIMIT 1").fetch_one(&db.pool).await.unwrap();
+    let intent = value(&row.get::<Vec<u8>, _>("intent_bytes"));
+    let mut receipt = value(&fixture("receipt.deliver-item.committed.json"));
+    for field in ["operation_id", "account_id", "entitlement_id"] {
+        set(&mut receipt, field, intent.get(field).unwrap().clone());
+    }
+    set(
+        &mut receipt,
+        "binding_digest",
+        text(row.get::<String, _>("binding_digest")),
+    );
+    set(&mut receipt, "outcome", text("REJECTED"));
+    set(&mut receipt, "result_code", text("STORE_GRANT_UNKNOWN"));
+    if let Value::Object(fields) = &mut receipt {
+        fields.retain(|(key, _)| key != "delivered_quantity");
+    }
+    crate::delivery::Delivery::new(db.pool.clone(), settings())
+        .receipt(&canonical::encode(&receipt).unwrap())
+        .await
+        .unwrap();
+    let answer = service.purchase(&unique(&raw)).await.unwrap();
+    assert_eq!(string(&value(&answer), "result"), "ACCEPTED");
+    db.finish().await;
+}

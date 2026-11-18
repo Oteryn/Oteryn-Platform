@@ -308,6 +308,7 @@ async fn referrals_email_rate_limit_25_per_day() {
         .unwrap();
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     }
@@ -562,6 +563,7 @@ async fn referrals_buddy_premium_5_and_10_days_within_90() {
         );
         assert_eq!(purchases.purchase(&raw).await.unwrap(), answer);
         let worker = Worker {
+            premium_enabled: true,
             campaign: db.campaign.clone(),
             sender: None,
         };
@@ -1025,6 +1027,7 @@ async fn referrals_link_survives_real_session_rotation_and_reconciles_signup() {
     .unwrap();
     assert!(paid);
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     }
@@ -1083,6 +1086,7 @@ async fn nwave_completed_attribution_does_not_starve_later_batches() {
         attribution_session(&db, Some(account), &code).await;
     }
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     };
@@ -1353,10 +1357,12 @@ async fn nwave_mail_backlog_respects_delivery_budget_across_workers() {
     }
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     let first = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
     let second = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -1401,6 +1407,7 @@ async fn nwave_returning_mail_backlog_respects_monthly_delivery_budget() {
     }
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -1489,6 +1496,7 @@ async fn nwave_smtp_does_not_block_purchase_qualification() {
         .unwrap();
     let sender = Arc::new(PausedMail::default());
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -2182,6 +2190,7 @@ async fn nwave_snapshot_stream_campaign_and_worker_retry_fresh_transactions() {
     assert_eq!(db.campaign.invitation_kind(code).await.unwrap(), Kind::New);
     assert_retry_lock_restarted(&db).await;
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     }
@@ -2244,6 +2253,7 @@ async fn nwave_policy_read_failure_preserves_worker_attribution() {
     .await
     .unwrap();
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     };
@@ -2503,6 +2513,7 @@ async fn bzb_referral_delivery_rotates_failed_recipient() {
     }
     sqlx::query("UPDATE referral_email_attempts SET created_at=now()-interval '1 day' WHERE invitation_id IN (SELECT id FROM referral_email_invitations WHERE recipient='fail@example.test')").execute(&db.pool).await.unwrap();
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(Arc::new(RejectFirst)),
     }
@@ -2579,6 +2590,7 @@ async fn l6_01_pending_termination_refuses_campaign_rewards() {
     assert!(ledger.grant_referral_in(&mut tx, reward).await.is_err());
     tx.rollback().await.unwrap();
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     }
@@ -2677,6 +2689,7 @@ async fn w3_c06_008_queued_mail_requires_current_invitation_permission() {
     let owner = db.account().await;
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -2828,4 +2841,50 @@ async fn a3_l6_05_legacy_claim_without_qualification_denied() {
         "PG a3_l6_05_legacy_claim_without_qualification_denied {:.3}s",
         started.elapsed().as_secs_f64()
     );
+}
+
+#[tokio::test]
+async fn disabled_premium_leaves_referral_reward_pending() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open_with_catalog(PREMIUM_CATALOG).await.unwrap();
+    let owner = db.account().await;
+    let buddy = db.account().await;
+    db.inactive(buddy, 13).await;
+    db.campaign
+        .email(owner, &db.email(buddy).await, Kind::Returning)
+        .await
+        .unwrap();
+    record_premium_purchase(&db.pool, buddy, 30).await;
+    let worker = Worker {
+        premium_enabled: false,
+        campaign: db.campaign.clone(),
+        sender: None,
+    };
+    worker.process().await.unwrap();
+    let pending:bool=sqlx::query_scalar("SELECT applied_at IS NULL FROM referral_campaign_rewards WHERE account_id=$1 AND kind='premium'").bind(owner).fetch_one(&db.pool).await.unwrap();
+    assert!(pending);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn stalled_mail_enters_backoff_before_job_deadline() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let owner = db.account().await;
+    db.campaign
+        .email(owner, "stalled@example.test", Kind::New)
+        .await
+        .unwrap();
+    let worker = Worker {
+        premium_enabled: true,
+        campaign: db.campaign.clone(),
+        sender: Some(Arc::new(PausedMail::default())),
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(12), worker.process())
+        .await
+        .expect("SMTP attempt exceeded delivery budget")
+        .unwrap();
+    let deferred:bool=sqlx::query_scalar("SELECT next_attempt_at>now() AND delivered_at IS NULL FROM referral_email_attempts WHERE inviter_id=$1").bind(owner).fetch_one(&db.pool).await.unwrap();
+    assert!(deferred);
+    db.close().await;
 }

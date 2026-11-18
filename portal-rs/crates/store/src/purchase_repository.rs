@@ -195,7 +195,20 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
         sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
             .execute(&mut *tx)
             .await?;
-        let review: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM store_fulfilment_units WHERE account_id=$1 AND state IN ('MANUAL_REVIEW','REVERSAL_PARTIAL'))").bind(account).fetch_one(&mut *tx).await?;
+        // A rejected delivery needs fulfilment review but caused no reversal
+        // shortfall. Preserve the lock for partial reversals and unknown evidence.
+        let review: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+            SELECT 1 FROM store_fulfilment_units u WHERE u.account_id=$1 AND
+            (u.state='REVERSAL_PARTIAL' OR (u.state='MANUAL_REVIEW' AND COALESCE((
+                SELECT bool_or(r.operation_kind <> 'DELIVER' OR r.outcome <> 'REJECTED')
+                FROM store_operations o JOIN store_receipts r USING(operation_id)
+                WHERE o.entitlement_id=u.entitlement_id AND r.superseded_by_restore_event_id IS NULL
+            ),true))))",
+        )
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
         if restricted || review {
             return finish(tx, request, raw, "ACCOUNT_RESTRICTED", vec![]).await;
         }
@@ -279,11 +292,24 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
                 tracing::warn!("products_entitlements.store_wallet_idempotency_conflict");
                 return Err(Error::Unavailable.into());
             }
-            Err(oteryn_wallet::Error::Refused(Refusal::InsufficientFunds)) => {
+            Err(oteryn_wallet::Error::Refused(
+                reason @ (Refusal::InsufficientFunds | Refusal::DebtOutstanding),
+            )) => {
                 sqlx::query("ROLLBACK TO SAVEPOINT purchase_debit")
                     .execute(&mut *tx)
                     .await?;
-                return finish(tx, request, raw, "INSUFFICIENT_BALANCE", vec![]).await;
+                return finish(
+                    tx,
+                    request,
+                    raw,
+                    if reason == Refusal::DebtOutstanding {
+                        "ACCOUNT_RESTRICTED"
+                    } else {
+                        "INSUFFICIENT_BALANCE"
+                    },
+                    vec![],
+                )
+                .await;
             }
             Err(oteryn_wallet::Error::Storage(error)) => return Err(error.into()),
             Err(error) => {

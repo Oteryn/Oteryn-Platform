@@ -1095,3 +1095,19 @@ async fn non_rfc_v7_restore_event_never_changes_store_fence() {
         started.elapsed().as_secs_f64()
     );
 }
+
+#[tokio::test]
+async fn acknowledged_notice_binds_new_store_receipts() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Db::new().await.unwrap();
+    sqlx::query("INSERT INTO character_restore_notices(restore_event_id,notice_json,new_recovery_generation,acknowledged_at) VALUES($1,'{}','00000000000000000008',now())")
+        .bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    let (_, _, raw) = db.seed(true).await;
+    assert_eq!(db.delivery.receipt(&raw).await, Err(Error::Conflict));
+    assert_eq!(db.count("store_receipts").await, 0);
+    db.delivery
+        .receipt(&change(&raw, "recovery_generation", text("8")))
+        .await
+        .unwrap();
+    db.close().await;
+}

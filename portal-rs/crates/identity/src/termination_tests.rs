@@ -83,11 +83,13 @@ impl Boundary for BoundaryFixture {
     }
     fn check_blockers<'a>(
         &'a self,
-        _: &'a mut Transaction<'_, Postgres>,
-        _: AccountId,
+        tx: &'a mut Transaction<'_, Postgres>,
+        account: AccountId,
     ) -> BoundaryFuture<'a> {
         Box::pin(async move {
-            if self.blocked.load(Ordering::SeqCst) {
+            if self.blocked.load(Ordering::SeqCst)
+                || !game_closure::runtime::financial_obligations_clear(tx, account).await?
+            {
                 Err(Error::UnknownState)
             } else {
                 Ok(())
@@ -627,5 +629,69 @@ async fn reclaimed_backup_receives_password_reset_for_new_owner() -> TestResult 
         Some((new.id, email.to_owned())),
         "reset delivery missing for new owner"
     );
+    db.close().await
+}
+
+#[tokio::test]
+async fn finalization_closes_pending_support_tickets() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let account = db.account().await?;
+    sqlx::query("INSERT INTO tickets(account_id,request_key,category,subject) VALUES($1,uuidv7(),'technical','Pending question')").bind(account).execute(&db.pool).await?;
+    db.due(request(&s, account).await?.id).await?;
+    assert!(s.finalize(account).await?);
+    let closed: bool = sqlx::query_scalar(
+        "SELECT status='closed' AND closed_at IS NOT NULL FROM tickets WHERE account_id=$1",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(closed);
+    db.close().await
+}
+
+#[tokio::test]
+async fn last_admin_cannot_terminate() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let account = db.account().await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(account).execute(&db.pool).await?;
+    assert!(matches!(
+        request(&s, account).await,
+        Err(Error::UnknownState)
+    ));
+    let other = db.account().await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(other).execute(&db.pool).await?;
+    db.due(request(&s, account).await?.id).await?;
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        s.finalize(account).await,
+        Err(Error::UnknownState)
+    ));
+    db.close().await
+}
+
+#[tokio::test]
+async fn unpaid_browser_credit_blocks_termination() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let account = db.account().await?;
+    let intent = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($2,$1,'test','checkout',100,'PLN','succeeded')").bind(account).bind(intent).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,intended_payment_intent_id) VALUES(uuidv7(),$1,'test',100,100,'PLN',$2)").bind(account).bind(intent).execute(&db.pool).await?;
+    assert!(matches!(
+        request(&s, account).await,
+        Err(Error::UnknownState)
+    ));
     db.close().await
 }

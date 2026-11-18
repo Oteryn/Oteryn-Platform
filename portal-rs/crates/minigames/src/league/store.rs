@@ -172,7 +172,7 @@ impl<A: Authority> League<A> {
                 return Err(Error::Conflict);
             }
         } else if !s.correction().is_empty() {
-            return Err(Error::Unavailable);
+            return Err(Error::MissingPredecessor);
         }
         // Native occurrence cannot acquire a second question identity, including after expiry.
         if let Snapshot::Event(e) = &s

@@ -434,8 +434,12 @@ impl FeedJob {
         }
         let authority = GameAuthority::new(c.clone());
         let league = League::new(self.pool.clone(), config::owner_flags(true), authority);
+        let last_sequence: Option<i64> =
+            sqlx::query_scalar("SELECT max(sequence) FROM league_feed_inbox WHERE state='pending'")
+                .fetch_one(&self.pool)
+                .await?;
         for _ in 0..c.batch_limit()? {
-            let row=sqlx::query("SELECT request_id,path,body,meta,signature,peer_certificate_sha256 FROM league_feed_inbox WHERE state='pending' ORDER BY sequence LIMIT 1").fetch_optional(&self.pool).await?;
+            let row=sqlx::query("SELECT request_id,path,body,meta,signature,peer_certificate_sha256 FROM league_feed_inbox WHERE state='pending' AND sequence <= $1 ORDER BY sequence LIMIT 1").bind(last_sequence).fetch_optional(&self.pool).await?;
             let Some(row) = row else {
                 break;
             };
@@ -470,6 +474,10 @@ impl FeedJob {
                         .bind(id)
                         .execute(&self.pool)
                         .await?;
+                }
+                Err(Error::MissingPredecessor) => {
+                    sqlx::query("UPDATE league_feed_inbox SET sequence=DEFAULT WHERE request_id=$1 AND state='pending'")
+                        .bind(id).execute(&self.pool).await?;
                 }
                 Err(Error::Unavailable) | Err(Error::Database(_)) => break,
                 Err(_) => {

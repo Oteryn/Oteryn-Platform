@@ -275,6 +275,18 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         if claim(tx, &operation).await? {
             return receipt(tx, key, true).await;
         }
+        if self.adjustment_kind == AdjustmentKind::StorePurchase {
+            let held: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)",
+            )
+            .bind(account)
+            .fetch_one(&mut **tx)
+            .await?;
+            if held {
+                return Err(Refusal::DebtOutstanding.into());
+            }
+            crate::debt::unlocked(tx, account).await?;
+        }
         let before = balance(tx, account).await?;
         credit(tx, key, account, amount).await?;
         let after = balance(tx, account).await?;
