@@ -152,8 +152,7 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
         };
         listing.validate(now)?;
         let id = oteryn_core::new_id();
-        sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'character','auction',$3,$4,false,$5)")
-            .bind(id).bind(actor).bind(currency).bind(price).bind(listing.ends_at).execute(&mut *tx).await?;
+        crate::lifecycle::create_listing(&mut tx, id, &listing).await?;
         sqlx::query("INSERT INTO bazaar_character_intents(listing_id,owner,character_id,request_id,currency,starting_bid,duration_days,publication_consent) VALUES($1,$2,$3,$4,$5,$6,$7,true)")
             .bind(id).bind(actor).bind(character).bind(key).bind(&input.currency).bind(price).bind(i16::from(input.duration_days)).execute(&mut *tx).await?;
         tx.commit().await?;
@@ -208,11 +207,11 @@ impl<A: Accounts + Clone, R: Reservations + Clone, G: CharacterEvidence> Charact
         .bind(body)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(
-            "UPDATE bazaar_listings SET state='active',updated_at=clock_timestamp() WHERE id=$1",
+        crate::lifecycle::write_listing(
+            &mut tx,
+            id,
+            crate::lifecycle::Event::Listing(State::Active),
         )
-        .bind(id)
-        .execute(&mut *tx)
         .await?;
         tx.commit().await?;
         Ok(())

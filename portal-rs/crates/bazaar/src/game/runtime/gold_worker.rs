@@ -1,5 +1,6 @@
 use super::gold::{current_hold, delivery, record, sale};
 use super::*;
+use crate::lifecycle::{GoldBid, GoldPhase, create_gold_bid, write_gold_phase};
 use crate::{Evidence, Reservation, Reservations, State, proxy_bid};
 impl Runtime {
     #[allow(clippy::too_many_arguments)]
@@ -69,7 +70,18 @@ impl Runtime {
                 ],
             )
             .await?;
-        sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id) VALUES($1,$2,$3,$4,$5,$6)").bind(key).bind(l.id).bind(buyer).bind(character).bind(maximum).bind(operation).execute(&mut **tx).await?;
+        create_gold_bid(
+            tx,
+            GoldBid {
+                request: key,
+                listing: l.id,
+                buyer,
+                character,
+                maximum,
+                operation,
+            },
+        )
+        .await?;
         Ok(())
     }
     pub(in crate::game) async fn tick_gold_bids(&self) -> Result<(), Error> {
@@ -135,12 +147,12 @@ impl Runtime {
                 tx.commit().await?;
                 return Ok(());
             }
-            sqlx::query(
-                "UPDATE bazaar_authority_gold_bids SET phase=CASE WHEN release_accepted THEN 'accepted' ELSE 'refused' END WHERE request_id=$1",
-            )
-            .bind(request)
-            .execute(&mut *tx)
-            .await?;
+            let next = if row.try_get::<bool, _>("release_accepted")? {
+                GoldPhase::Accepted
+            } else {
+                GoldPhase::Refused
+            };
+            write_gold_phase(&mut tx, request, next, None, None).await?;
             tx.commit().await?;
             return Ok(());
         }
@@ -152,12 +164,7 @@ impl Runtime {
             return Ok(());
         };
         if !receipt.committed {
-            sqlx::query(
-                "UPDATE bazaar_authority_gold_bids SET phase='refused' WHERE request_id=$1",
-            )
-            .bind(request)
-            .execute(&mut *tx)
-            .await?;
+            write_gold_phase(&mut tx, request, GoldPhase::Refused, None, None).await?;
             tx.commit().await?;
             return Ok(());
         }
@@ -239,12 +246,12 @@ impl Runtime {
             if leader == buyer {
                 sqlx::query("INSERT INTO bazaar_authority_destinations(listing_id,buyer,character_id) VALUES($1,$2,$3) ON CONFLICT(listing_id,buyer) DO UPDATE SET character_id=EXCLUDED.character_id").bind(l.id).bind(buyer).bind(row.try_get::<Uuid,_>("character_id")?).execute(&mut *tx).await?;
             }
-            sqlx::query(
-                "UPDATE bazaar_authority_gold_bids SET phase=CASE WHEN $2::uuid IS NULL THEN 'accepted' ELSE 'releasing' END,release_operation_id=$2,release_accepted=true WHERE request_id=$1",
-            )
-            .bind(request).bind(release)
-            .execute(&mut *tx)
-            .await?;
+            let next = if release.is_none() {
+                GoldPhase::Accepted
+            } else {
+                GoldPhase::Releasing
+            };
+            write_gold_phase(&mut tx, request, next, release, Some(true)).await?;
         } else {
             let keep = if l.leader == Some(buyer) {
                 l.leader_max.ok_or(Error::Invalid)? as u64
@@ -255,17 +262,19 @@ impl Runtime {
                 return Err(Error::Denied);
             }
             if hold.amount == keep {
-                sqlx::query(
-                    "UPDATE bazaar_authority_gold_bids SET phase='refused' WHERE request_id=$1",
-                )
-                .bind(request)
-                .execute(&mut *tx)
-                .await?;
+                write_gold_phase(&mut tx, request, GoldPhase::Refused, None, None).await?;
             } else {
                 let operation = self
                     .gold_release(&mut tx, &l, buyer, hold.amount - keep, "EXCESS", request)
                     .await?;
-                sqlx::query("UPDATE bazaar_authority_gold_bids SET phase='releasing',release_operation_id=$2 WHERE request_id=$1").bind(request).bind(operation).execute(&mut *tx).await?;
+                write_gold_phase(
+                    &mut tx,
+                    request,
+                    GoldPhase::Releasing,
+                    Some(operation),
+                    None,
+                )
+                .await?;
             }
         }
         tx.commit().await?;
@@ -349,7 +358,13 @@ impl Runtime {
                 .settle(tx, &s)
                 .await
                 .map_err(core_error)?;
-                sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery',updated_at=now() WHERE id=$1").bind(l.id).execute(&mut **tx).await?;
+                crate::lifecycle::write_listing(
+                    tx,
+                    l.id,
+                    crate::lifecycle::Event::Listing(State::AwaitingDelivery),
+                )
+                .await
+                .map_err(core_error)?;
             }
             State::AwaitingDelivery => {
                 let s = sale(tx, l.id).await?;
@@ -455,12 +470,13 @@ impl Runtime {
                 .bind(s.id)
                 .execute(&mut **tx)
                 .await?;
-                sqlx::query(
-                    "UPDATE bazaar_listings SET state='completed',updated_at=now() WHERE id=$1",
+                crate::lifecycle::write_listing(
+                    tx,
+                    l.id,
+                    crate::lifecycle::Event::Listing(State::Completed),
                 )
-                .bind(l.id)
-                .execute(&mut **tx)
-                .await?;
+                .await
+                .map_err(core_error)?;
             }
             State::Completed | State::Cancelled if l.kind == Kind::Character => {
                 self.unlock(tx, l).await?;

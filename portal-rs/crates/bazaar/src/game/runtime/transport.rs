@@ -134,7 +134,7 @@ async fn event(
             .into_response(),
         Err(e) => guard::failure(match e {
             Error::Denied => StatusCode::UNAUTHORIZED,
-            Error::Conflict => StatusCode::CONFLICT,
+            Error::Conflict | Error::CustodyDrift => StatusCode::CONFLICT,
             Error::Invalid => body_failure.unwrap_or(StatusCode::BAD_REQUEST),
             Error::Backlog => StatusCode::TOO_MANY_REQUESTS,
             _ => StatusCode::SERVICE_UNAVAILABLE,

@@ -124,8 +124,20 @@ impl Outbox {
         if existing {
             return Err(Error::Conflict);
         }
-        let result=sqlx::query_as::<_,StagedCommand>("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,$9::text::numeric,$10::text::numeric) RETURNING operation_id,binding_digest,intent,state")
-            .bind(operation).bind(key).bind(listing).bind(actor).bind(intent.command.wire()).bind(revision.to_string()).bind(&intent.raw).bind(intent.binding_digest()).bind(epoch.to_string()).bind(generation.to_string()).fetch_one(&mut **db).await?;
+        let result = crate::lifecycle::write_intent(
+            db,
+            crate::lifecycle::Issuance {
+                operation,
+                key,
+                listing,
+                actor,
+                intent,
+                revision,
+                epoch,
+                generation,
+            },
+        )
+        .await?;
         sqlx::query(
             "UPDATE bazaar_game_issuer SET source_revision=$1::text::numeric WHERE singleton",
         )
@@ -147,15 +159,7 @@ impl Outbox {
         let row=sqlx::query("SELECT projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_game_issuer WHERE singleton FOR UPDATE").fetch_one(&mut **db).await?;
         let old_epoch = decimal(row.try_get("epoch")?, true, u64::MAX)?;
         let old_generation = decimal(row.try_get("generation")?, true, u64::MAX)?;
-        if epoch < old_epoch || generation < old_generation {
-            return Err(Error::Denied);
-        }
-        if epoch == old_epoch && generation == old_generation {
-            return Ok(());
-        }
-        sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=$1::text::numeric,recovery_generation=$2::text::numeric WHERE singleton").bind(epoch.to_string()).bind(generation.to_string()).execute(&mut **db).await?;
-        sqlx::query("UPDATE bazaar_game_outbox SET state='REOPENED',updated_at=now() WHERE projection_epoch<$1::text::numeric OR recovery_generation<$2::text::numeric").bind(epoch.to_string()).bind(generation.to_string()).execute(&mut **db).await?;
-        Ok(())
+        crate::lifecycle::reopen_intents(db, (old_epoch, old_generation), (epoch, generation)).await
     }
 }
 

@@ -178,8 +178,7 @@ impl Authority {
         let reversed = !receipt.committed && sqlx::query_scalar::<_,bool>(
             "SELECT EXISTS(SELECT 1 FROM bazaar_authority_receipts WHERE operation_id=$1 AND recovery_generation<$2::text::numeric AND outcome='COMMITTED')"
         ).bind(receipt.operation).bind(receipt.generation.to_string()).fetch_one(&mut **db).await?;
-        sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome) VALUES($1,$2::text::numeric,$3,$4,$5,$6,$7)")
-            .bind(receipt.operation).bind(receipt.generation.to_string()).bind(peer).bind(intent.binding_digest()).bind(receipt.digest()).bind(&receipt.raw).bind(if receipt.committed {"COMMITTED"}else{"REJECTED"}).execute(&mut **db).await?;
+        crate::lifecycle::write_receipt(db, peer, &intent, &receipt).await?;
         if reversed {
             sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(receipt.operation).bind(receipt.digest()).execute(&mut **db).await?;
             return Ok(ReceiptResult::Quarantined);

@@ -177,7 +177,7 @@ macro_rules! listing_cases {
     ($($name:ident, $state:ident, $event:ident, $outcome:expr;)*) => {
         $(
             #[tokio::test]
-            #[expect(non_snake_case, reason = "required test naming")]
+
             async fn $name() {
                 listing_event(State::$state, ListingEvent::$event, $outcome).await;
             }
@@ -186,32 +186,31 @@ macro_rules! listing_cases {
 }
 
 listing_cases! {
-    lifecycle__draft__bid, Draft, Bid, Err("bazaar authorization denied");
-    lifecycle__draft__cancel, Draft, Cancel, Ok(());
-    lifecycle__draft__suspend, Draft, Suspend, Ok(());
-    lifecycle__active__bid, Active, Bid, Ok(());
-    lifecycle__active__cancel, Active, Cancel, Ok(());
-    lifecycle__active__suspend, Active, Suspend, Ok(());
-    lifecycle__matched__bid, Matched, Bid, Err("bazaar authorization denied");
-    lifecycle__matched__cancel, Matched, Cancel, Err("bazaar authorization denied");
-    lifecycle__matched__suspend, Matched, Suspend, Ok(());
-    lifecycle__awaiting_delivery__bid, AwaitingDelivery, Bid, Err("bazaar authorization denied");
-    lifecycle__awaiting_delivery__cancel, AwaitingDelivery, Cancel, Err("bazaar authorization denied");
-    lifecycle__awaiting_delivery__suspend, AwaitingDelivery, Suspend, Err("illegal bazaar transition");
-    lifecycle__completed__bid, Completed, Bid, Err("bazaar game integration unavailable");
-    lifecycle__completed__cancel, Completed, Cancel, Err("bazaar authorization denied");
-    lifecycle__completed__suspend, Completed, Suspend, Err("illegal bazaar transition");
-    lifecycle__cancelled__bid, Cancelled, Bid, Err("bazaar authorization denied");
-    lifecycle__cancelled__cancel, Cancelled, Cancel, Err("bazaar authorization denied");
-    lifecycle__cancelled__suspend, Cancelled, Suspend, Err("illegal bazaar transition");
-    lifecycle__expired__bid, Expired, Bid, Err("bazaar authorization denied");
-    lifecycle__expired__cancel, Expired, Cancel, Err("bazaar authorization denied");
-    lifecycle__expired__suspend, Expired, Suspend, Err("illegal bazaar transition");
+    lifecycle_draft_bid, Draft, Bid, Err("bazaar authorization denied");
+    lifecycle_draft_cancel, Draft, Cancel, Ok(());
+    lifecycle_draft_suspend, Draft, Suspend, Ok(());
+    lifecycle_active_bid, Active, Bid, Ok(());
+    lifecycle_active_cancel, Active, Cancel, Ok(());
+    lifecycle_active_suspend, Active, Suspend, Ok(());
+    lifecycle_matched_bid, Matched, Bid, Err("bazaar authorization denied");
+    lifecycle_matched_cancel, Matched, Cancel, Err("bazaar authorization denied");
+    lifecycle_matched_suspend, Matched, Suspend, Ok(());
+    lifecycle_awaiting_delivery_bid, AwaitingDelivery, Bid, Err("bazaar authorization denied");
+    lifecycle_awaiting_delivery_cancel, AwaitingDelivery, Cancel, Err("bazaar authorization denied");
+    lifecycle_awaiting_delivery_suspend, AwaitingDelivery, Suspend, Err("illegal bazaar transition");
+    lifecycle_completed_bid, Completed, Bid, Err("bazaar game integration unavailable");
+    lifecycle_completed_cancel, Completed, Cancel, Err("bazaar authorization denied");
+    lifecycle_completed_suspend, Completed, Suspend, Err("illegal bazaar transition");
+    lifecycle_cancelled_bid, Cancelled, Bid, Err("bazaar authorization denied");
+    lifecycle_cancelled_cancel, Cancelled, Cancel, Err("bazaar authorization denied");
+    lifecycle_cancelled_suspend, Cancelled, Suspend, Err("illegal bazaar transition");
+    lifecycle_expired_bid, Expired, Bid, Err("bazaar authorization denied");
+    lifecycle_expired_cancel, Expired, Cancel, Err("bazaar authorization denied");
+    lifecycle_expired_suspend, Expired, Suspend, Err("illegal bazaar transition");
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__draft__advance_escrowed() {
+async fn lifecycle_draft_advance_escrowed() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Draft).await;
     authorize_seller(&db).await;
@@ -222,8 +221,7 @@ async fn lifecycle__draft__advance_escrowed() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__draft__advance_cancel_requested() {
+async fn lifecycle_draft_advance_cancel_requested() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Draft).await;
     db.runtime
@@ -247,8 +245,7 @@ async fn lifecycle__draft__advance_cancel_requested() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__active__expire_unbid() {
+async fn lifecycle_active_expire_unbid() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     expire_item(&db).await;
@@ -263,8 +260,7 @@ async fn lifecycle__active__expire_unbid() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__active__expire_held() {
+async fn lifecycle_active_expire_held() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     expire_item(&db).await;
@@ -278,8 +274,7 @@ async fn lifecycle__active__expire_held() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__active__expire_funded() {
+async fn lifecycle_active_expire_funded() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = expired_item_with_bid(1).await;
     db.runtime.tick().await.unwrap();
@@ -297,8 +292,7 @@ async fn pending_item_delivery() -> BrowserFixture {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__awaiting_delivery__commit_delivery() {
+async fn lifecycle_awaiting_delivery_commit_delivery() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
     recovery_tests::item_effect(&db, Command::Deliver, false).await;
@@ -317,8 +311,7 @@ async fn lifecycle__awaiting_delivery__commit_delivery() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__awaiting_delivery__refuse_delivery() {
+async fn lifecycle_awaiting_delivery_refuse_delivery() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
     recovery_tests::item_effect(&db, Command::Deliver, true).await;
@@ -341,8 +334,7 @@ async fn lifecycle__awaiting_delivery__refuse_delivery() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__active__invalidate() {
+async fn lifecycle_active_invalidate() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let request = Uuid::now_v7();
@@ -419,8 +411,7 @@ async fn create_item(db: &mut BrowserFixture) -> Uuid {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__absent__create() {
+async fn lifecycle_absent_create() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_in(State::Active).await;
     let listing = create_item(&mut db).await;
@@ -538,8 +529,7 @@ async fn rebuild_epoch(db: &BrowserFixture) -> Authority {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__fence_matching__new_epoch() {
+async fn lifecycle_fence_matching_new_epoch() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let next = rebuild_epoch(&db).await;
@@ -559,8 +549,7 @@ async fn lifecycle__fence_matching__new_epoch() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__receipt_committed__replay() {
+async fn lifecycle_receipt_committed_replay() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let a = db.runtime.authority();
@@ -592,8 +581,7 @@ async fn lifecycle__receipt_committed__replay() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__receipt_absent__stale_generation() {
+async fn lifecycle_receipt_absent_stale_generation() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
     let intent = newest_intent(&db, uid("20"), Command::Deliver).await;
@@ -632,8 +620,7 @@ async fn lifecycle__receipt_absent__stale_generation() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__completed__worker_tick() {
+async fn lifecycle_completed_worker_tick() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
     recovery_tests::item_effect(&db, Command::Deliver, false).await;
@@ -649,8 +636,7 @@ async fn lifecycle__completed__worker_tick() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__cancelled__worker_tick() {
+async fn lifecycle_cancelled_worker_tick() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     expire_item(&db).await;
@@ -668,8 +654,7 @@ async fn lifecycle__cancelled__worker_tick() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__draft__pending_lock() {
+async fn lifecycle_draft_pending_lock() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     authorize_seller(&db).await;
@@ -688,8 +673,7 @@ async fn lifecycle__draft__pending_lock() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__active__bid_foreign_destination() {
+async fn lifecycle_active_bid_foreign_destination() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     fund_buyer(&db).await;
@@ -709,8 +693,7 @@ async fn lifecycle__active__bid_foreign_destination() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__draft__refuse_escrow() {
+async fn lifecycle_draft_refuse_escrow() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let listing = uid("70");
@@ -763,8 +746,7 @@ async fn lifecycle__draft__refuse_escrow() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__completed__unlock_character() {
+async fn lifecycle_completed_unlock_character() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = delivered_character_sale("coins").await;
     db.runtime.tick().await.unwrap();
@@ -777,8 +759,7 @@ async fn lifecycle__completed__unlock_character() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__fence_stale__restore_notice() {
+async fn lifecycle_fence_stale_restore_notice() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     // The durable notice represents the coordinator committing its restore cut.
@@ -921,37 +902,37 @@ macro_rules! status_cases {
     ($($state:literal, $newer:ident, $older:ident, $replay:ident, $conflict:ident;)*) => {
         $(
             #[tokio::test]
-            #[expect(non_snake_case, reason = "required test naming")]
+
             async fn $newer() { custody_status_event($state, StatusEvent::Newer).await; }
 
             #[tokio::test]
-            #[expect(non_snake_case, reason = "required test naming")]
+
             async fn $older() { custody_status_event($state, StatusEvent::Older).await; }
 
             #[tokio::test]
-            #[expect(non_snake_case, reason = "required test naming")]
+
             async fn $replay() { custody_status_event($state, StatusEvent::Replay).await; }
 
             #[tokio::test]
-            #[expect(non_snake_case, reason = "required test naming")]
+
             async fn $conflict() { custody_status_event($state, StatusEvent::Conflict).await; }
         )*
     };
 }
 
 status_cases! {
-    "locked", lifecycle__locked__status_newer, lifecycle__locked__status_older,
-        lifecycle__locked__status_replay, lifecycle__locked__status_conflict;
-    "ESCROWED", lifecycle__escrowed__status_newer, lifecycle__escrowed__status_older,
-        lifecycle__escrowed__status_replay, lifecycle__escrowed__status_conflict;
-    "DELIVERED", lifecycle__delivered__status_newer, lifecycle__delivered__status_older,
-        lifecycle__delivered__status_replay, lifecycle__delivered__status_conflict;
-    "RETURNED", lifecycle__returned__status_newer, lifecycle__returned__status_older,
-        lifecycle__returned__status_replay, lifecycle__returned__status_conflict;
-    "UNLOCKED", lifecycle__unlocked__status_newer, lifecycle__unlocked__status_older,
-        lifecycle__unlocked__status_replay, lifecycle__unlocked__status_conflict;
-    "INVALID", lifecycle__invalid__status_newer, lifecycle__invalid__status_older,
-        lifecycle__invalid__status_replay, lifecycle__invalid__status_conflict;
+    "locked", lifecycle_locked_status_newer, lifecycle_locked_status_older,
+        lifecycle_locked_status_replay, lifecycle_locked_status_conflict;
+    "ESCROWED", lifecycle_escrowed_status_newer, lifecycle_escrowed_status_older,
+        lifecycle_escrowed_status_replay, lifecycle_escrowed_status_conflict;
+    "DELIVERED", lifecycle_delivered_status_newer, lifecycle_delivered_status_older,
+        lifecycle_delivered_status_replay, lifecycle_delivered_status_conflict;
+    "RETURNED", lifecycle_returned_status_newer, lifecycle_returned_status_older,
+        lifecycle_returned_status_replay, lifecycle_returned_status_conflict;
+    "UNLOCKED", lifecycle_unlocked_status_newer, lifecycle_unlocked_status_older,
+        lifecycle_unlocked_status_replay, lifecycle_unlocked_status_conflict;
+    "INVALID", lifecycle_invalid_status_newer, lifecycle_invalid_status_older,
+        lifecycle_invalid_status_replay, lifecycle_invalid_status_conflict;
 }
 
 async fn gold_bid(db: &BrowserFixture) -> Uuid {
@@ -980,8 +961,7 @@ async fn funding_state(db: &BrowserFixture, request: Uuid) -> (String, Option<Uu
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__active__bid_gold() {
+async fn lifecycle_active_bid_gold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let request = gold_bid(&db).await;
@@ -995,8 +975,7 @@ async fn lifecycle__active__bid_gold() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__gold_pending__refuse_hold() {
+async fn lifecycle_gold_pending_refuse_hold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let request = gold_bid(&db).await;
@@ -1012,8 +991,7 @@ async fn lifecycle__gold_pending__refuse_hold() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__gold_pending__commit_hold() {
+async fn lifecycle_gold_pending_commit_hold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let request = gold_bid(&db).await;
@@ -1092,8 +1070,7 @@ async fn command_state(db: &BrowserFixture, a: &Authority, operation: Uuid) -> O
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__intent_staged__read_state() {
+async fn lifecycle_intent_staged_read_state() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let operation = stage_item_escrow(&db).await;
@@ -1150,7 +1127,7 @@ macro_rules! intent_cases {
     ($($name:ident, $disposition:ident;)*) => {
         $(
             #[tokio::test]
-            #[expect(non_snake_case, reason = "required test naming")]
+
             async fn $name() {
                 published_deposit_state(PublishedIntent::$disposition).await;
             }
@@ -1159,15 +1136,14 @@ macro_rules! intent_cases {
 }
 
 intent_cases! {
-    lifecycle__intent_pending__read_state, Pending;
-    lifecycle__intent_rejected__read_state, Rejected;
-    lifecycle__intent_committed__read_state, Committed;
-    lifecycle__intent_reopened__read_state, Reopened;
+    lifecycle_intent_pending_read_state, Pending;
+    lifecycle_intent_rejected_read_state, Rejected;
+    lifecycle_intent_committed_read_state, Committed;
+    lifecycle_intent_reopened_read_state, Reopened;
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__draft__refuse_lock() {
+async fn lifecycle_draft_refuse_lock() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     authorize_seller(&db).await;
@@ -1191,8 +1167,7 @@ async fn lifecycle__draft__refuse_lock() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__intent_staged__resync() {
+async fn lifecycle_intent_staged_resync() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let staged = stage_item_escrow(&db).await;
@@ -1214,8 +1189,7 @@ async fn lifecycle__intent_staged__resync() {
 }
 
 #[tokio::test]
-#[expect(non_snake_case, reason = "required test naming")]
-async fn lifecycle__completed__resync_escrow_status() {
+async fn lifecycle_completed_resync_escrow_status() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Completed).await;
     let a = db.runtime.authority();

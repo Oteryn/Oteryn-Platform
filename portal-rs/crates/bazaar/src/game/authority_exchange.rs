@@ -157,7 +157,7 @@ impl Authority {
                         id(text(&i.value, "buyer_account_id")?)?,
                     )
                     .await?;
-                    sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
+                    crate::lifecycle::write_dispatch(db, operation, self.fence).await?;
                     return Ok(());
                 }
                 if text(f, "currency")? != "COINS" {
@@ -176,7 +176,7 @@ impl Authority {
                 }
             }
         }
-        sqlx::query("INSERT INTO bazaar_authority_dispatch(operation_id,projection_epoch,recovery_generation) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).execute(&mut **db).await?;
+        crate::lifecycle::write_dispatch(db, operation, self.fence).await?;
         Ok(())
     }
     /// Every published delivery must have current, audited terminal no-effect
@@ -345,8 +345,12 @@ impl Authority {
             .bind(listing.id)
             .execute(&mut *db)
             .await?;
-        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1 AND state='awaiting_delivery'")
-            .bind(listing.id).execute(db).await?;
+        crate::lifecycle::write_listing(db, listing.id, crate::lifecycle::Event::Compensated)
+            .await
+            .map_err(|error| match error {
+                crate::Error::Database(error) => Error::Database(error),
+                _ => Error::Denied,
+            })?;
         Ok(())
     }
     pub async fn exchange(
@@ -436,13 +440,20 @@ impl Authority {
             );
             if !pending {
                 let outcome: Option<String> = row.try_get("outcome")?;
-                let state = outcome.unwrap_or_else(|| {
-                    if row.try_get::<String, _>("state").ok().as_deref() == Some("REOPENED") {
-                        "REOPENED".into()
-                    } else {
-                        "PENDING".into()
-                    }
-                });
+                let Ok(crate::lifecycle::Outcome::Receipt(state)) = crate::lifecycle::transition(
+                    crate::lifecycle::Current::Intent {
+                        dispatched: true,
+                        admitted: outcome.is_some(),
+                    },
+                    crate::lifecycle::Event::ReadIntent,
+                    crate::lifecycle::Context {
+                        committed: outcome.as_deref() == Some("COMMITTED"),
+                        reopened: row.try_get::<String, _>("state")? == "REOPENED",
+                        ..Default::default()
+                    },
+                ) else {
+                    return Err(Error::Invalid);
+                };
                 let digest: Option<String> = row.try_get("receipt_digest")?;
                 let generation: Option<String> = row.try_get("generation")?;
                 value.push_str(&format!(

@@ -23,6 +23,10 @@ impl Runtime {
             .await
         {
             Ok(()) => resync.commit().await?,
+            Err(Error::CustodyDrift) => {
+                resync.commit().await?;
+                return Err(Error::CustodyDrift);
+            }
             Err(Error::Database(e)) => return Err(Error::Database(e)),
             Err(_) => resync.rollback().await?,
         }
@@ -153,13 +157,22 @@ impl Runtime {
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
-        if matches!(l.state, State::Draft | State::Active)
+        let held = matches!(l.state, State::Draft | State::Active)
             && sqlx::query_scalar::<_, bool>(
                 "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
             )
             .bind(id)
             .fetch_one(&mut *tx)
-            .await?
+            .await?;
+        if crate::lifecycle::transition(
+            crate::lifecycle::Current::Listing(l.state),
+            crate::lifecycle::Event::Advance,
+            crate::lifecycle::Context {
+                held,
+                ..Default::default()
+            },
+        )
+        .is_err()
         {
             return Ok(());
         }
@@ -212,16 +225,35 @@ impl Runtime {
                 .bind(text(&receipt.value, "result_code")?)
                 .execute(&mut *tx)
                 .await?;
-                if receipt.command == Command::Escrow
-                    && l.kind == Kind::Item
-                    && l.state == State::Draft
+                if l.state == State::Draft
+                    && (matches!((receipt.command, l.kind), (Command::Escrow, Kind::Item))
+                        || (matches!((receipt.command, l.kind), (Command::Lock, Kind::Character))
+                            && !sqlx::query_scalar::<_, bool>(
+                                "SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o
+                                 WHERE o.listing_id=$1 AND o.command='LockBazaarCharacter'
+                                   AND (
+                                     EXISTS (SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)
+                                     OR EXISTS (SELECT 1 FROM bazaar_authority_receipts r
+                                                WHERE r.operation_id=o.operation_id AND r.outcome='COMMITTED')
+                                     OR (EXISTS (SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                                         AND NOT EXISTS (SELECT 1 FROM bazaar_authority_receipts r
+                                            JOIN bazaar_authority_decisions d USING(operation_id,recovery_generation)
+                                            WHERE r.operation_id=o.operation_id AND r.outcome='REJECTED'
+                                              AND r.recovery_generation=$2::text::numeric))
+                                   ))",
+                            )
+                            .bind(id)
+                            .bind(self.authority().fence.recovery_generation.to_string())
+                            .fetch_one(&mut *tx)
+                            .await?))
                 {
-                    sqlx::query(
-                        "UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1",
+                    crate::lifecycle::write_listing(
+                        &mut tx,
+                        id,
+                        crate::lifecycle::Event::Listing(State::Cancelled),
                     )
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
+                    .await
+                    .map_err(core_error)?;
                 }
                 if receipt.command == Command::Deliver && l.state == State::AwaitingDelivery {
                     self.compensate_delivery(&mut tx, &l).await?;
@@ -246,7 +278,13 @@ impl Runtime {
                         .await?
                         .is_some_and(|(_, receipt)| receipt.committed)
                     {
-                        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
+                        crate::lifecycle::write_listing(
+                            &mut tx,
+                            id,
+                            crate::lifecycle::Event::Listing(State::Cancelled),
+                        )
+                        .await
+                        .map_err(core_error)?;
                     } else {
                         self.unlock(&mut tx, &l).await?;
                     }
@@ -370,7 +408,13 @@ impl Runtime {
                 if !state.allows_listing() {
                     return Err(Error::Denied);
                 }
-                sqlx::query("UPDATE bazaar_listings SET state='active',updated_at=now() WHERE id=$1 AND state='draft'").bind(id).execute(&mut *tx).await?;
+                crate::lifecycle::write_listing(
+                    &mut tx,
+                    id,
+                    crate::lifecycle::Event::Listing(State::Active),
+                )
+                .await
+                .map_err(core_error)?;
                 tx.commit().await?;
             }
             State::Active => {
@@ -557,8 +601,13 @@ impl Runtime {
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
             .execute(&mut **tx)
             .await?;
-        sqlx::query("INSERT INTO bazaar_authority_transfer_retirements(operation_id,evidence_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING")
-            .bind(transfer).bind(bind).bind(self.config.fence.recovery_generation.to_string()).execute(&mut **tx).await?;
+        crate::lifecycle::retire_transfer(
+            tx,
+            transfer,
+            bind,
+            self.authority().fence.recovery_generation,
+        )
+        .await?;
         Ok(())
     }
     /// Release the buyer's funds after a proven compensation. Returns false
@@ -684,25 +733,21 @@ impl Runtime {
             let binding =
                 String::from_utf8(canonical::encode(&binding).map_err(|_| Error::Invalid)?)
                     .map_err(|_| Error::Invalid)?;
-            let original:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_transfers WHERE listing_id=$1 AND purpose=$2)").bind(l.id).bind(purpose).fetch_one(&mut **tx).await?;
-            let insert = if original {
-                "INSERT INTO bazaar_authority_transfer_retries(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10::text::numeric)"
-            } else {
-                "INSERT INTO bazaar_authority_transfers(operation_id,listing_id,purpose,decision_id,source_revision,intent,intent_digest,binding,projection_epoch,recovery_generation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text::numeric,$10::text::numeric)"
-            };
-            sqlx::query(insert)
-                .bind(operation)
-                .bind(l.id)
-                .bind(purpose)
-                .bind(decision)
-                .bind(revision)
-                .bind(&intent)
-                .bind(digest(intent.as_bytes()))
-                .bind(binding)
-                .bind(self.config.fence.projection_epoch.to_string())
-                .bind(self.config.fence.recovery_generation.to_string())
-                .execute(&mut **tx)
-                .await?;
+            crate::lifecycle::stage_transfer(
+                tx,
+                crate::lifecycle::TransferStage {
+                    operation,
+                    listing: l.id,
+                    purpose,
+                    decision,
+                    revision,
+                    intent: &intent,
+                    digest: &digest(intent.as_bytes()),
+                    binding: &binding,
+                    fence: self.authority().fence,
+                },
+            )
+            .await?;
             operation
         };
         let transfer = staged(self.authority(), tx, operation).await?;
@@ -889,10 +934,13 @@ impl Runtime {
         if l.kind == Kind::Character {
             self.unlock(tx, l).await?;
         }
-        sqlx::query("UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1")
-            .bind(l.id)
-            .execute(&mut **tx)
-            .await?;
+        crate::lifecycle::write_listing(
+            tx,
+            l.id,
+            crate::lifecycle::Event::Listing(State::Cancelled),
+        )
+        .await
+        .map_err(core_error)?;
         Ok(())
     }
 }
@@ -961,8 +1009,20 @@ pub(crate) async fn publish_transfer(
     .bind(operation)
     .fetch_one(&mut **tx)
     .await?;
-    sqlx::query("INSERT INTO character_commands(id,source_revision,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json) OVERRIDING SYSTEM VALUE VALUES($1,$2,$3,$4,'TransferCharacterOwnership',$5,$6,$7,$8)")
-            .bind(operation).bind(revision as i64).bind(row.try_get::<Uuid,_>("decision_id")?).bind(format!("bazaar-transfer:{listing}:{purpose}:{operation}")).bind(id(text(transfer,"expected_from_account_id")?)?).bind(id(text(transfer,"to_account_id")?)?).bind(row.try_get::<String,_>("binding")?).bind(row.try_get::<String,_>("intent")?).execute(&mut **tx).await?;
+    crate::lifecycle::publish_transfer_intent(
+        tx,
+        crate::lifecycle::TransferPublication {
+            operation,
+            revision: i64::try_from(revision).map_err(|_| Error::Invalid)?,
+            decision: row.try_get("decision_id")?,
+            key: format!("bazaar-transfer:{listing}:{purpose}:{operation}"),
+            from: id(text(transfer, "expected_from_account_id")?)?,
+            to: id(text(transfer, "to_account_id")?)?,
+            binding: row.try_get("binding")?,
+            intent: row.try_get("intent")?,
+        },
+    )
+    .await?;
     Ok(())
 }
 

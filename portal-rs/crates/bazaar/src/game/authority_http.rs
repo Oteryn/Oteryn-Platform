@@ -124,7 +124,7 @@ fn result(value: Result<String, Error>) -> Response {
                 StatusCode::SERVICE_UNAVAILABLE
             }
             Error::Denied => StatusCode::UNAUTHORIZED,
-            Error::Conflict => StatusCode::CONFLICT,
+            Error::Conflict | Error::CustodyDrift => StatusCode::CONFLICT,
             Error::NotFound => StatusCode::NOT_FOUND,
             _ => StatusCode::BAD_REQUEST,
         }),

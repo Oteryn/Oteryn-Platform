@@ -28,8 +28,9 @@ state. For example, a completed character sale can still have a pending Unlock,
 and a draft can already hold a Game asset. A STATUS projection alone cannot
 prove that any movement committed.
 
-Paths in the tables are relative to this directory unless shown from the
-repository root. Line numbers refer to the base commit.
+Paths in the inventory are relative to this directory unless shown from the
+repository root. Inventory line numbers refer to Step A’s base. Step B uses
+`../lifecycle.rs` for transition decisions and state writes.
 
 ### State and write sites
 
@@ -61,10 +62,10 @@ repository root. Line numbers refer to the base commit.
 
 ### Transition outcomes
 
-CORRECT means the observed outcome follows the current contract, including
-refusals. DEFECT means the behavior at the base disagrees with the contract.
+CORRECT means the outcome follows the current contract, including refusals.
+Step B closes the three defects identified by the tests in Step A.
 The names below are the suffixes of the PostgreSQL tests
-`lifecycle__<state>__<event>`. Each table identifies the state dimension the
+`lifecycle_<state>_<event>`. Each table identifies the state dimension the
 entry point consumes. Where an event is shared, the event's preconditions
 identify the relevant custody, funding or moderation variant.
 
@@ -149,9 +150,9 @@ rows (`authority_exchange.rs:398–455`).
 | `completed` | `unlock_character` | Preserves completed and dispatches one Unlock after committed handoff (`runtime/worker.rs:468–470,783–822`). | CORRECT |
 | `fence_stale` | `restore_notice` | Refuses settlement work until the configured generation catches up with the accepted restore notice (`authority.rs:90–111`, `runtime/worker.rs:18–39`). | CORRECT |
 | `fence_matching` | `new_epoch` | Current projections advance issuer epoch and reopen prior intents. The old fence is unavailable and the new fence resyncs with retained same-generation receipts (`game_projection.rs:247–261`, `game_store.rs:139–158`, `authority_evidence.rs:45–127`). | CORRECT |
-| `draft` | `refuse_lock` | Records the refusal and leaves a character draft. The listing batch then excludes it. A terminal Lock with no effect should close the draft without Unlock (`runtime/worker.rs:208–225,254–255,908–910`). | DEFECT |
-| `intent_staged` | `resync` | The op scan requires a receipt for a never-dispatched intent, even though the public exchange never exposes it. Resync should reconcile only executable attempts and retain the staged bytes for audit (`authority_evidence.rs:110–118`, `authority_exchange.rs:428`). | DEFECT |
-| `completed` | `resync_escrow_status` | Status from the new epoch reports ESCROWED with no last operation, and the old same-generation delivery receipt still exists. The listing scan accepts the contradiction. Resync should flag the drift for operator reconciliation and keep the sale completed (`authority_evidence.rs:45–55,68–82,110–127`). | DEFECT |
+| `draft` | `refuse_lock` | Records the terminal refusal and closes the character draft when no Lock could have acquired custody (`runtime/worker.rs:208–225,254–255,908–910`). | CORRECT |
+| `intent_staged` | `resync` | The operation scan keeps the staged bytes and advances without a receipt when no dispatch or admitted receipt exists (`authority_evidence.rs:110–118`, `authority_exchange.rs:428`). | CORRECT |
+| `completed` | `resync_escrow_status` | Resync checks a completed item against its retained delivery proof. A contradiction quarantines the STATUS for operator reconciliation and preserves the completed sale (`authority_evidence.rs:45–55,68–82,110–127`). | CORRECT |
 
 | State | Event | Classification and reason |
 | --- | --- | --- |

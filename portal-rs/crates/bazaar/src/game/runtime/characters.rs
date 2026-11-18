@@ -630,7 +630,8 @@ pub(crate) async fn reconcile_transfer(
         }
     };
     if let Some(evidence) = evidence {
-        sqlx::query("INSERT INTO bazaar_authority_transfer_retirements(operation_id,evidence_operation_id,recovery_generation) VALUES($1,$2,$3::text::numeric) ON CONFLICT DO NOTHING").bind(operation).bind(evidence).bind(a.fence.recovery_generation.to_string()).execute(db).await?;
+        crate::lifecycle::retire_transfer(db, operation, evidence, a.fence.recovery_generation)
+            .await?;
         return Ok(None);
     }
     Ok(Some(operation))

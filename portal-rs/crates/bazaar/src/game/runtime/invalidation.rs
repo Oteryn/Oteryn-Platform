@@ -151,13 +151,14 @@ impl Runtime {
         .bind(request)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(
-            "UPDATE bazaar_listings SET state='cancelled',leader=NULL,leader_max=NULL,
-             reservation=NULL,updated_at=now() WHERE id=$1",
+        crate::lifecycle::write_listing_with(
+            &mut tx,
+            id,
+            crate::lifecycle::Event::Listing(State::Cancelled),
+            crate::lifecycle::ListingChange::Invalidate,
         )
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(core_error)?;
         sqlx::query("UPDATE bazaar_offers SET state='expired',updated_at=now() WHERE listing_id=$1 AND state='pending'")
             .bind(id).execute(&mut *tx).await?;
         tx.commit().await?;

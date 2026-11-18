@@ -171,7 +171,7 @@ fn failure(lang: &str, e: Error) -> Response {
             }
             Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
             Error::NotFound => StatusCode::NOT_FOUND,
-            Error::Conflict => StatusCode::CONFLICT,
+            Error::Conflict | Error::CustodyDrift => StatusCode::CONFLICT,
             _ => StatusCode::FORBIDDEN,
         },
     )

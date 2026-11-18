@@ -35,6 +35,8 @@ pub enum Error {
     Denied,
     #[error("immutable bazaar binding conflict")]
     Conflict,
+    #[error("completed item custody conflicts with Game projection")]
+    CustodyDrift,
     #[error("bazaar operation not found")]
     NotFound,
     #[error("bazaar command backlog full")]

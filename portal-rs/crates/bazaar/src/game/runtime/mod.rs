@@ -353,16 +353,14 @@ impl Runtime {
         };
         listing.validate(now).map_err(core_error)?;
         let listing_id = oteryn_core::new_id();
-        sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,$3,'auction',$4,$5,false,$6)").bind(listing_id).bind(actor).bind(kind).bind(currency).bind(input.starting_bid).bind(listing.ends_at).execute(&mut *tx).await?;
+        let stored = crate::lifecycle::create_listing(&mut tx, listing_id, &listing)
+            .await
+            .map_err(core_error)?;
         sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,definition_key,definition_revision,quantity,publication_consent,input_binding) VALUES($1,$2,$3,$4,$5,$6::text::numeric,$7,$8,$9,$10,true,$11)")
             .bind(listing_id).bind(input.request_id).bind(input.world_id).bind(input.seller_character_id).bind(input.asset_id).bind(&input.expected_revision).bind(session_hash.to_vec()).bind(&input.definition_key).bind(&input.definition_revision).bind(i64::from(input.quantity)).bind(binding).execute(&mut *tx).await?;
         if kind == Kind::Item {
             sqlx::query("INSERT INTO bazaar_item_details(id,definition_key,definition_revision,world_id,seller_character_id,item_instance_id,quantity,requested_price) VALUES($1,$2,$3,$4,$5,$6,$7,$8)").bind(listing_id).bind(&input.definition_key).bind(&input.definition_revision).bind(input.world_id).bind(input.seller_character_id).bind(input.asset_id).bind(i64::from(input.quantity)).bind(input.starting_bid).execute(&mut *tx).await?;
         }
-        let stored: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
-            .bind(listing_id)
-            .fetch_one(&mut *tx)
-            .await?;
         self.stage_deposit(&mut tx, &stored, Some(session_hash))
             .await?;
         tx.commit().await?;
@@ -587,11 +585,18 @@ impl Runtime {
                 .safe_return(&mut tx, actor)
                 .await
                 .map_err(core_error)?
-                || !matches!(l.state, crate::State::Draft | crate::State::Active)
-                || l.leader.is_some()
             {
                 return Err(Error::Denied);
             }
+            crate::lifecycle::transition(
+                crate::lifecycle::Current::Listing(l.state),
+                crate::lifecycle::Event::CancelRequest,
+                crate::lifecycle::Context {
+                    has_leader: l.leader.is_some(),
+                    ..Default::default()
+                },
+            )
+            .map_err(|_| Error::Denied)?;
             let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_authority_gold_bids WHERE listing_id=$1 AND phase IN ('pending','releasing'))").bind(listing).fetch_one(&mut *tx).await?;
             if pending {
                 return Err(Error::Unavailable);

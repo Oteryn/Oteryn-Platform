@@ -1,6 +1,7 @@
 use super::authority_wire::{decode, number, same};
 use super::game_wire::{id, text};
 use super::{Authority, Command, Error, PreparedIntent, Receipt};
+use crate::lifecycle::{Context, Current, Event, transition};
 use crate::{Currency, Evidence, Kind, Listing, Offer, Settlement};
 use oteryn_internal_api::canonical::Value;
 use sqlx::{PgConnection, Row};
@@ -42,16 +43,19 @@ impl Authority {
         }
         // The operation scan below independently verifies the audit for every
         // deposit. A refused or never-issued deposit has no custody ID for STATUS.
-        let listings: Vec<(Uuid, bool)> = sqlx::query_as(
+        let listings: Vec<(Uuid, bool, bool)> = sqlx::query_as(
             "SELECT l.id, (a.refusal_code IS NOT NULL OR l.state IN ('draft','cancelled'))
                 AND NOT EXISTS (
                     SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
                       AND o.command IN ('LockBazaarCharacter','EscrowBazaarItem')
+                      AND (EXISTS (SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+                           OR EXISTS (SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id))
                       AND (EXISTS (SELECT 1 FROM bazaar_authority_receipts r
                                    WHERE r.operation_id=o.operation_id AND r.outcome='COMMITTED')
                            OR NOT EXISTS (SELECT 1 FROM bazaar_authority_receipts r
                                    WHERE r.operation_id=o.operation_id AND r.outcome='REJECTED'
-                                     AND r.recovery_generation=$2::text::numeric)))
+                                     AND r.recovery_generation=$2::text::numeric))),
+                (l.state='completed' AND l.kind='item')
              FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id
              WHERE l.id>$1 ORDER BY l.id LIMIT 24",
         )
@@ -59,9 +63,9 @@ impl Authority {
         .bind(self.fence.recovery_generation.to_string())
         .fetch_all(&mut **db)
         .await?;
-        let next_listing = listings.last().map(|(id, _)| *id);
+        let next_listing = listings.last().map(|(id, _, _)| *id);
         let listing_count = listings.len();
-        for (listing, no_deposit_effect) in listings {
+        for (listing, no_deposit_effect, completed_item) in listings {
             if no_deposit_effect {
                 continue;
             }
@@ -73,13 +77,57 @@ impl Authority {
             if !worlds.contains(&world) {
                 return Err(Error::Unavailable);
             }
-            if status.get("last_operation_id") == Some(&Value::Null)
-                && matches!(text(&status, "state")?, "locked" | "ESCROWED" | "INVALID")
-            {
+            let state = text(&status, "state")?;
+            let operation = if status.get("last_operation_id") == Some(&Value::Null) {
+                None
+            } else {
+                Some(id(text(&status, "last_operation_id")?)?)
+            };
+            let retained = if let Some(operation) = operation {
+                self.retained(db, operation).await?
+            } else {
+                None
+            };
+            let delivered = if completed_item && state == "DELIVERED" {
+                if let Some((intent, receipt)) = &retained {
+                    let facts = receipt.value.get("result_data").ok_or(Error::Invalid)?;
+                    intent.command() == Command::Deliver
+                        && receipt.committed
+                        && id(text(&intent.value, "listing_id")?)? == listing
+                        && text(facts, "escrow_id")? == text(&status, "custody_id")?
+                        && text(facts, "escrow_revision")? == text(&status, "custody_revision")?
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Err(refusal) = transition(
+                Current::Custody { completed_item },
+                Event::ResyncCustody,
+                Context {
+                    delivered,
+                    ..Context::default()
+                },
+            ) {
+                if refusal != crate::lifecycle::Refusal::CustodyDrift {
+                    return Err(Error::Invalid);
+                }
+                let bytes =
+                    oteryn_internal_api::canonical::encode(&status).map_err(|_| Error::Invalid)?;
+                crate::lifecycle::quarantine_custody(
+                    db,
+                    &self.config.projection_authority,
+                    listing,
+                    &super::game_wire::digest(&bytes),
+                )
+                .await?;
+                return Err(Error::CustodyDrift);
+            }
+            if operation.is_none() && matches!(state, "locked" | "ESCROWED" | "INVALID") {
                 continue;
             }
-            let operation = id(text(&status, "last_operation_id")?)?;
-            if self.retained(db, operation).await?.is_none() {
+            if retained.is_none() {
                 // The existing CC1 ownership leg is not a v2 Bazaar receipt.
                 // Rebuild its proof from the unchanged receipt plus its v2 bind.
                 let l: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1")
@@ -107,15 +155,27 @@ impl Authority {
         if listing_count == 24 {
             return Ok(());
         }
-        let operations=sqlx::query("SELECT operation_id,source_revision::text AS revision FROM bazaar_game_outbox WHERE source_revision>$1::text::numeric ORDER BY source_revision LIMIT 24").bind(operation_cursor).fetch_all(&mut **db).await?;
+        let operations=sqlx::query("SELECT o.operation_id,o.source_revision::text AS revision, EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id) AS dispatched, EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id) AS admitted FROM bazaar_game_outbox o WHERE o.source_revision>$1::text::numeric ORDER BY o.source_revision LIMIT 24").bind(operation_cursor).fetch_all(&mut **db).await?;
         for operation in &operations {
-            if self
-                .retained(db, operation.try_get("operation_id")?)
-                .await?
-                .is_none()
-            {
-                return Err(Error::Unavailable);
-            }
+            let dispatched = operation.try_get("dispatched")?;
+            let admitted = operation.try_get("admitted")?;
+            let retained = admitted
+                && self
+                    .retained(db, operation.try_get("operation_id")?)
+                    .await?
+                    .is_some();
+            transition(
+                Current::Intent {
+                    dispatched,
+                    admitted,
+                },
+                Event::ResyncIntent,
+                Context {
+                    retained,
+                    ..Context::default()
+                },
+            )
+            .map_err(|_| Error::Unavailable)?;
         }
         if let Some(last) = operations.last() {
             sqlx::query("UPDATE bazaar_resync_progress SET operation_cursor=$3::text::numeric WHERE projection_epoch=$1::text::numeric AND recovery_generation=$2::text::numeric").bind(self.fence.projection_epoch.to_string()).bind(self.fence.recovery_generation.to_string()).bind(last.try_get::<String,_>("revision")?).execute(&mut **db).await?;
