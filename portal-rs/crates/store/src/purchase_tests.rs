@@ -1897,3 +1897,66 @@ async fn r9_purchase_respects_reserved_intent_id() {
     assert!(db.wallet().operation(id).await.unwrap().is_none());
     db.finish().await;
 }
+
+#[tokio::test]
+async fn package_credit_and_provider_reversal_history() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::new().await.expect("real PostgreSQL required");
+    let account = uuid(ACCOUNT).unwrap();
+    let credit = Uuid::now_v7();
+    let reversal = Uuid::now_v7();
+    db.fund(ACCOUNT, 1).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    db.wallet()
+        .with_adjustment_kind(oteryn_wallet::AdjustmentKind::TopUp)
+        .adjust_in(
+            &mut tx,
+            credit,
+            account,
+            100,
+            account,
+            &format!("wallet-top-up:{credit}"),
+        )
+        .await
+        .unwrap();
+    db.wallet()
+        .adjust_in(
+            &mut tx,
+            reversal,
+            account,
+            -100,
+            account,
+            &format!("coin-purchase-reversal:{reversal}"),
+        )
+        .await
+        .unwrap();
+    let quote = Uuid::now_v7();
+    let order = Uuid::now_v7();
+    let package = Uuid::now_v7();
+    sqlx::query("INSERT INTO coin_purchase_quotes (id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$3,100,100,'EUR',2,'testing',now(),now())")
+        .bind(quote).bind(account).bind(package).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_orders (id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code,review_required) VALUES ($1,$2,$3,$4,$5,100,100,'EUR',2,'testing',$6,'processing','processing',false)")
+        .bind(order).bind(account).bind(Uuid::now_v7()).bind(quote).bind(package).bind(Uuid::now_v7()).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO coin_purchase_reversals (id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$2,$3,'refund','test',$4,100,100,'debited')")
+        .bind(reversal).bind(order).bind(account).bind(reversal.to_string()).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let response = db
+        .service(settings())
+        .read(&read_request(true, ACCOUNT, "0", 32), true)
+        .await
+        .unwrap();
+    let response = value(&response);
+    let kinds: Vec<_> = array(&response, "entries")
+        .iter()
+        .map(|entry| string(entry, "kind"))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "COIN_PACKAGE_REVERSAL",
+            "COIN_PACKAGE_CREDIT",
+            "OPERATOR_ADJUSTMENT"
+        ]
+    );
+    db.finish().await;
+}
