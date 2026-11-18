@@ -1,7 +1,10 @@
 use super::*;
 use ed25519_dalek::Signer;
 use rcgen::{BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, KeyPair};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -16,9 +19,10 @@ impl Ca {
     fn issue(
         &self,
         usage: ExtendedKeyUsagePurpose,
+        names: Vec<String>,
     ) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>)> {
         let key = KeyPair::generate()?;
-        let mut params = CertificateParams::new(vec!["localhost".into()])?;
+        let mut params = CertificateParams::new(names)?;
         params.extended_key_usages = vec![usage];
         let cert = params.signed_by(&key, &self.0, &self.1)?;
         Ok((
@@ -73,21 +77,27 @@ async fn call(
 }
 
 #[tokio::test]
-async fn dedicated_closure_listener_refuses_untrusted_unpinned_and_cross_purpose_clients() -> Result
-{
+async fn shared_closure_listener_refuses_untrusted_unpinned_and_cross_purpose_clients() -> Result {
     let started = std::time::Instant::now();
     let db = crate::reset_http::tests::db::Database::open()
         .await?
         .ok_or("PORTAL_TEST_DATABASE_URL required")?;
     let ca = Ca::new()?;
-    let foreign = Ca::new()?.issue(ExtendedKeyUsagePurpose::ClientAuth)?;
-    let unpinned = ca.issue(ExtendedKeyUsagePurpose::ClientAuth)?;
-    let command = ca.issue(ExtendedKeyUsagePurpose::ClientAuth)?;
-    let portfolio = ca.issue(ExtendedKeyUsagePurpose::ClientAuth)?;
-    let (server, key) = ca.issue(ExtendedKeyUsagePurpose::ServerAuth)?;
+    let foreign = Ca::new()?.issue(ExtendedKeyUsagePurpose::ClientAuth, Vec::new())?;
+    let unpinned = ca.issue(ExtendedKeyUsagePurpose::ClientAuth, Vec::new())?;
+    let command = ca.issue(ExtendedKeyUsagePurpose::ClientAuth, Vec::new())?;
+    let portfolio = ca.issue(ExtendedKeyUsagePurpose::ClientAuth, Vec::new())?;
+    let other_san = ca.issue(
+        ExtendedKeyUsagePurpose::ClientAuth,
+        vec!["closure-character-authority".into()],
+    )?;
+    let (server, key) = ca.issue(
+        ExtendedKeyUsagePurpose::ServerAuth,
+        vec!["localhost".into()],
+    )?;
     let mut roots = rustls::RootCertStore::empty();
     roots.add(ca.0.der().clone())?;
-    let tls = tls_config(roots.clone(), vec![server], key)?;
+    let tls = crate::internal_tls::server_config(roots.clone(), vec![server], key)?;
     let ([character, portfolio_id], identities) = purpose_identities()?;
     let public_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]).verifying_key();
     let config = runtime::Config::load(|_| None)?;
@@ -115,16 +125,30 @@ async fn dedicated_closure_listener_refuses_untrusted_unpinned_and_cross_purpose
     );
     let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = socket.local_addr()?;
-    let listener = serve(
-        socket,
-        tls,
+    let ingress = Ingress::new(
         app,
         [
-            Sha256::digest(command.0.as_ref()).to_vec(),
-            Sha256::digest(portfolio.0.as_ref()).to_vec(),
+            Sha256::digest(command.0.as_ref()).into(),
+            Sha256::digest(portfolio.0.as_ref()).into(),
         ],
         [character, portfolio_id],
     );
+    let listener = tokio::spawn(crate::internal_tls::serve(
+        socket,
+        tls,
+        Router::new(),
+        None,
+        crate::game_ingress::GameIngress::closure_only(ingress),
+    ));
+    let wrong_purpose = call(
+        address,
+        roots.clone(),
+        Some(&other_san),
+        "/internal/v1/game-auth/account-closure",
+    )
+    .await?
+    .ok_or("expected pin refusal even when the SAN matches a synthetic identity")?;
+    assert!(wrong_purpose.starts_with("HTTP/1.1 401"), "{wrong_purpose}");
     let closure_paths = [
         "/internal/v1/game-auth/account-closure/lifecycle/read",
         "/internal/v1/game-auth/character-commands/pending",
@@ -178,7 +202,7 @@ async fn dedicated_closure_listener_refuses_untrusted_unpinned_and_cross_purpose
     listener.abort();
     db.close().await?;
     eprintln!(
-        "PG dedicated_closure_listener_refuses_untrusted_unpinned_and_cross_purpose_clients duration={:.3}s",
+        "PG shared_closure_listener_refuses_untrusted_unpinned_and_cross_purpose_clients duration={:.3}s",
         started.elapsed().as_secs_f64()
     );
     Ok(())

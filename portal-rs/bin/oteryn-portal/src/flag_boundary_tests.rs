@@ -20,7 +20,7 @@ mod flag_boundary {
     const CHILD: &str = "FLAG_BOUNDARY_CHILD";
     const ROUTE_PROFILE: &str = "FLAG_BOUNDARY_ROUTE_PROFILE";
     const ROUTE_PROFILES: &str = "FLAG_BOUNDARY_ROUTE_PROFILES";
-    const CLOSED_LISTENERS: &[&str] = &[
+    const RETIRED_BINDS: &[&str] = &[
         "OTERYN_BAZAAR_INTERNAL_BIND",
         "OTERYN_LEAGUE_BIND",
         "PORTAL_ACCOUNT_CLOSURE_BIND",
@@ -505,15 +505,6 @@ mod flag_boundary {
             .env("PORTAL_ACCOUNT_CLOSURE_KEY_ID", "boundary")
             .env("PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION", "1")
             .env("PORTAL_ACCOUNT_CLOSURE_BASE_URL", "https://localhost")
-            .env("PORTAL_ACCOUNT_CLOSURE_TLS_CA_FILE", tls.join("ca.pem"))
-            .env(
-                "PORTAL_ACCOUNT_CLOSURE_TLS_CERT_FILE",
-                tls.join("server.pem"),
-            )
-            .env(
-                "PORTAL_ACCOUNT_CLOSURE_TLS_KEY_FILE",
-                tls.join("server.key"),
-            )
             .env("PORTAL_ACCOUNT_CLOSURE_CLIENT_CERT_SHA256", client_pin)
             .env(
                 "PORTAL_ACCOUNT_CLOSURE_LCFA_CLIENT_CERT_SHA256",
@@ -528,9 +519,6 @@ mod flag_boundary {
             )
             .env("OTERYN_BAZAAR_CLIENT_SPKI_SHA256", spki_pin("bazaar")?)
             .env("OTERYN_BAZAAR_RECEIPT_CLIENT_SPKI_SHA256", "41".repeat(32))
-            .env("OTERYN_BAZAAR_TLS_CERT_FILE", tls.join("server.pem"))
-            .env("OTERYN_BAZAAR_TLS_KEY_FILE", tls.join("server.key"))
-            .env("OTERYN_BAZAAR_CLIENT_CA_FILE", tls.join("ca.pem"))
             .env("OTERYN_BAZAAR_FENCE_FILE", tls.join("bazaar-fence.json"))
             .env(
                 "OTERYN_BAZAAR_SNAPSHOT_KEYS_FILE",
@@ -538,9 +526,6 @@ mod flag_boundary {
             )
             .env("OTERYN_LEAGUE_SOURCE_AUTHORITY", "oteryn:game:primary")
             .env("OTERYN_LEAGUE_BASE_URL", "https://localhost")
-            .env("OTERYN_LEAGUE_CLIENT_CA_DER", tls.join("ca.der"))
-            .env("OTERYN_LEAGUE_CERTIFICATE_DER", tls.join("server.der"))
-            .env("OTERYN_LEAGUE_PRIVATE_KEY_DER", tls.join("server.key.der"))
             .env("OTERYN_LEAGUE_CLIENT_SPKI_SHA256", spki_pin("league")?)
             .env("OTERYN_LEAGUE_RECOVERY_FILE", tls.join("league-fence.json"));
         Ok(())
@@ -548,14 +533,36 @@ mod flag_boundary {
 
     async fn game_purposes_share_the_internal_mtls_address() -> TestResult {
         let address = std::env::var("OTERYN_INTERNAL_TLS_BIND")?.parse()?;
-        for (purpose, path) in [
+        let purposes = [
             ("client", "/internal/v1/game-auth/account-closure"),
             ("bazaar", "/internal/v1/game-events"),
             ("league", "/internal/v1/game-public/world-event-outcome"),
-        ] {
+        ];
+        let public = std::env::var("OTERYN_BIND")?.parse()?;
+        let native = std::env::var("OTERYN_NATIVE_TLS_BIND")?.parse()?;
+        for (purpose, path) in purposes {
+            for (name, _) in purposes {
+                let connector = client_tls_for(name)?;
+                let response = exchange(address, Some(&connector), "POST", path).await?;
+                let expected = if name == purpose { 400 } else { 401 };
+                assert!(
+                    response.starts_with(&format!("HTTP/1.1 {expected} ")),
+                    "{name} on {path}: {response}"
+                );
+            }
             let connector = client_tls_for(purpose)?;
-            let response = exchange(address, Some(&connector), "POST", path).await?;
-            assert!(response.starts_with("HTTP/1.1 400 "), "{path}: {response}");
+            for (address, tls) in [(public, None), (native, Some(&connector))] {
+                let response = exchange(address, tls, "POST", path).await?;
+                assert!(response.starts_with("HTTP/1.1 404 "), "{path}: {response}");
+            }
+        }
+        for key in RETIRED_BINDS {
+            let address: SocketAddr = std::env::var(key)?.parse()?;
+            let error = tokio::net::TcpStream::connect(address)
+                .await
+                .err()
+                .ok_or_else(|| format!("retired listener {key} accepted a connection"))?;
+            assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
         }
         Ok(())
     }
@@ -587,20 +594,23 @@ mod flag_boundary {
         let ca_key = KeyPair::generate()?;
         let ca = params.self_signed(&ca_key)?;
         fs::write(path.join("ca.pem"), ca.pem())?;
-        fs::write(path.join("ca.der"), ca.der())?;
         for (name, purpose) in [
             ("server", ExtendedKeyUsagePurpose::ServerAuth),
             ("client", ExtendedKeyUsagePurpose::ClientAuth),
             ("bazaar", ExtendedKeyUsagePurpose::ClientAuth),
             ("league", ExtendedKeyUsagePurpose::ClientAuth),
         ] {
-            let mut params = CertificateParams::new(vec!["localhost".into()])?;
+            let names = if matches!(name, "server" | "client") {
+                vec!["localhost".into()]
+            } else {
+                Vec::new()
+            };
+            let mut params = CertificateParams::new(names)?;
             params.extended_key_usages.push(purpose);
             let key = KeyPair::generate()?;
             let cert = params.signed_by(&key, &ca, &ca_key)?;
             fs::write(path.join(format!("{name}.pem")), cert.pem())?;
             fs::write(path.join(format!("{name}.der")), cert.der())?;
-            fs::write(path.join(format!("{name}.key.der")), key.serialize_der())?;
             fs::write(path.join(format!("{name}.key")), key.serialize_pem())?;
         }
         Ok(())
@@ -1993,15 +2003,14 @@ mod flag_boundary {
             match self {
                 Self::Public => "OTERYN_BIND",
                 Self::Native => "OTERYN_NATIVE_TLS_BIND",
-                Self::Internal => "OTERYN_INTERNAL_TLS_BIND",
+                Self::Internal | Self::Closure | Self::Bazaar | Self::League => {
+                    "OTERYN_INTERNAL_TLS_BIND"
+                }
                 Self::Admission => "PORTAL_NATIVE_ADMISSION_BIND",
-                Self::Closure => "PORTAL_ACCOUNT_CLOSURE_BIND",
-                Self::Bazaar => "OTERYN_BAZAAR_INTERNAL_BIND",
-                Self::League => "OTERYN_LEAGUE_BIND",
             }
         }
 
-        fn closes_when_disabled(self) -> bool {
+        fn purpose_routes_are_absent_when_disabled(self) -> bool {
             matches!(self, Self::Closure | Self::Bazaar | Self::League)
         }
     }
@@ -2452,19 +2461,19 @@ mod flag_boundary {
         let documented = route_probes()?;
         check_route_classifier(&documented, &all)?;
         let (probes, mut failures) = classify_routes(&documented, &all)?;
-        for key in CLOSED_LISTENERS {
+        for key in RETIRED_BINDS {
             let address: SocketAddr = std::env::var(key)?.parse()?;
             match tokio::net::TcpStream::connect(address).await {
                 Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => (),
                 Err(error) => return Err(error.into()),
-                Ok(_) => failures.push(format!("disabled listener {key} accepted a connection")),
+                Ok(_) => failures.push(format!("retired listener {key} accepted a connection")),
             }
         }
         for probe in &probes {
             let path = &probe.path;
             let method = http_method(probe.method)?;
-            if probe.listener.closes_when_disabled() {
-                // The closed-listener checks above cover these exact contracts.
+            if probe.listener.purpose_routes_are_absent_when_disabled() {
+                // The corresponding internal fallback probe covers the disabled purpose.
                 continue;
             }
             let address = std::env::var(probe.listener.bind_key())?.parse()?;
