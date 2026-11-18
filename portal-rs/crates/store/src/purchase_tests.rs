@@ -1556,7 +1556,34 @@ async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
         )
         .await
         .unwrap();
-    wallet.reserve(Uuid::now_v7(), account, 50).await.unwrap();
+    // Persist the original T26 reservation rows before applying the wire upgrade.
+    let reservation = Uuid::now_v7();
+    let mut seed = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'reserve',$2,50)",
+    )
+    .bind(reservation)
+    .bind(account)
+    .execute(&mut *seed)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta)
+         VALUES($1,$2,$3,-50,50)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(reservation)
+    .bind(account)
+    .execute(&mut *seed)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO wallet_reservations(id,account_id,amount) VALUES($1,$2,50)")
+        .bind(reservation)
+        .bind(account)
+        .execute(&mut *seed)
+        .await
+        .unwrap();
+    seed.commit().await.unwrap();
     let before = wallet
         .history(account, oteryn_wallet::HistoryPage::default())
         .await
@@ -1574,7 +1601,16 @@ async fn db_wallet_upgrade_preserves_existing_rows_and_uuid_history() {
             .unwrap(),
         before
     );
-    assert_eq!(wallet.balance(account).await.unwrap().available, 950);
+    let balance = wallet.balance(account).await.unwrap();
+    assert_eq!((balance.available, balance.reserved), (950, 50));
+    let retained = sqlx::query_as::<_, (Uuid, i64, String)>(
+        "SELECT account_id,amount,status FROM wallet_reservations WHERE id=$1",
+    )
+    .bind(reservation)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(retained, (account, 50, "active".into()));
     let mut tx = pool.begin().await.unwrap();
     let numeric = wallet
         .numeric_history_in(
