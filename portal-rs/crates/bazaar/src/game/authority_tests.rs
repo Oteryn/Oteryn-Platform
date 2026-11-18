@@ -1408,20 +1408,7 @@ async fn postgres_concurrent_receipt_publication_commits_one_immutable_decision(
         .connect(&url)
         .await
         .unwrap();
-    // This isolated concurrency harness creates only Bazaar/Wallet tables. The
-    // production migration also references account identities for browser keys.
-    sqlx::query("CREATE TABLE accounts(id uuid PRIMARY KEY)")
-        .execute(&pool)
-        .await
-        .unwrap();
-    for migration in [
-        include_str!("../../../../migrations/20261105151420_t26_wallet.sql"),
-        include_str!("../../../../migrations/20261105152830_t57_bazaar_core.sql"),
-        include_str!("../../../../migrations/20261105230101_t58_game_outbox.sql"),
-        include_str!("../../../../migrations/20261106090001_plat3_bazaar_authority.sql"),
-    ] {
-        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
-    }
+    oteryn_db::migrate(&pool).await.unwrap();
     let mut setup = pool.begin().await.unwrap();
     sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=3,recovery_generation=3")
         .execute(&mut *setup)
@@ -2894,20 +2881,25 @@ async fn committed_fact(
 }
 #[tokio::test]
 async fn postgres_browser_verified_character_snapshot_facts() {
-    character_snapshot_browser_scenario(false, &[]).await;
+    character_snapshot_browser_scenario(false, &[], false).await;
 }
 
 #[tokio::test]
 async fn postgres_browser_zero_magic_skill_snapshot() {
-    character_snapshot_browser_scenario(true, &[]).await;
+    character_snapshot_browser_scenario(true, &[], false).await;
 }
 
 #[tokio::test]
 async fn postgres_browser_preserves_signed_character_blessings() {
-    character_snapshot_browser_scenario(false, &["blessing:earth", "blessing:fire"]).await;
+    character_snapshot_browser_scenario(false, &["blessing:earth", "blessing:fire"], false).await;
 }
 
-async fn character_snapshot_browser_scenario(zero_magic: bool, blessings: &[&str]) {
+#[tokio::test]
+async fn recovered_character_does_not_hide_catalogue() {
+    character_snapshot_browser_scenario(false, &[], true).await;
+}
+
+async fn character_snapshot_browser_scenario(zero_magic: bool, blessings: &[&str], recover: bool) {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let started = std::time::Instant::now();
     let mut db = BrowserFixture::new().await;
@@ -2973,7 +2965,7 @@ async fn character_snapshot_browser_scenario(zero_magic: bool, blessings: &[&str
         "signed character snapshot must be accepted: {verified:?}"
     );
     let listing = uid("30");
-    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction','coins',100,false,'active',now()+interval '1 day')").bind(listing).bind(uid("11")).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,'active',now()+interval '1 day')").bind(listing).bind(uid("11")).bind(if recover {"gold"} else {"coins"}).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-browser')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
     let strval = |value: Uuid| Value::String(value.to_string());
     let lock = character_intent(
@@ -3133,6 +3125,13 @@ async fn character_snapshot_browser_scenario(zero_magic: bool, blessings: &[&str
     }
     if zero_magic {
         assert!(body.contains("magic: 0"));
+    }
+    if recover {
+        recovery_tests::recover_character(&mut db).await;
+        let (status, catalogue) = db.get("/en/bazaar").await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert!(catalogue.contains("fixture-sword"));
+        assert!(!catalogue.contains("Aldric"));
     }
     db.end().await;
     eprintln!(
@@ -5358,6 +5357,15 @@ async fn r9_fractional_gold_window() {
 
 #[tokio::test]
 async fn r9_retired_settlement_then_bind_refusal() {
+    retired_settlement_then_bind_refusal(false).await;
+}
+
+#[tokio::test]
+async fn reattested_retired_transfer_permits_compensation() {
+    retired_settlement_then_bind_refusal(true).await;
+}
+
+async fn retired_settlement_then_bind_refusal(restored: bool) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = settling_character_fixture("coins").await;
     db.runtime.tick().await.unwrap();
@@ -5389,6 +5397,40 @@ async fn r9_retired_settlement_then_bind_refusal() {
     let replacement = newest_intent(&db, uid("30"), Command::Bind).await;
     assert_ne!(replacement.bytes(), first.bytes());
     reject(&db, &replacement, "CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE").await;
+    if restored {
+        let mut a = db.runtime.authority().clone();
+        a.fence.recovery_generation = 4;
+        let mut tx = db.pool.begin().await.unwrap();
+        recovery_tests::replay(&a, &mut tx, uid("30")).await;
+        assert!(
+            a.settlement_bind_refused(&mut tx, uid("30"))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        sqlx::query("UPDATE character_commands SET state='PENDING',receipt_json=NULL WHERE id=$1")
+            .bind(transfer)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let current = receipt.replace(
+            r#""recovery_generation":"3""#,
+            r#""recovery_generation":"4""#,
+        );
+        sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
+            .bind(transfer)
+            .bind(current)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert!(
+            a.settlement_bind_refused(&mut tx, uid("30"))
+                .await
+                .unwrap()
+                .is_some()
+        );
+        tx.rollback().await.unwrap();
+    }
     db.runtime.tick().await.unwrap();
     let returning = newest_intent(&db, uid("30"), Command::Bind).await;
     assert_eq!(

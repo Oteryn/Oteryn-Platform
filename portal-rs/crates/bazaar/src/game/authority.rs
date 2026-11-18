@@ -90,6 +90,19 @@ impl Authority {
     pub(super) async fn lock(&self, db: &mut PgConnection) -> Result<(), Error> {
         self.enabled()?;
         crate::locking::listing_gate(db).await?;
+        sqlx::query("SELECT id FROM character_restore_locks WHERE id=1 FOR SHARE")
+            .fetch_optional(&mut *db)
+            .await?
+            .ok_or(Error::Unavailable)?;
+        let restored = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM character_restore_notices WHERE new_recovery_generation > $1)",
+        )
+        .bind(format!("{:020}", self.fence.recovery_generation))
+        .fetch_one(&mut *db)
+        .await?;
+        if restored {
+            return Err(Error::Unavailable);
+        }
         let row=sqlx::query("SELECT projection_epoch::text AS epoch,recovery_generation::text AS generation FROM bazaar_game_issuer WHERE singleton FOR UPDATE").fetch_one(&mut *db).await?;
         if decimal(row.try_get("epoch")?, false, u64::MAX)? != self.fence.projection_epoch
             || decimal(row.try_get("generation")?, false, u64::MAX)?
@@ -137,7 +150,14 @@ impl Authority {
         }
         receipt.bind(&intent, now)?;
         if receipt.committed {
-            self.verify_facts(db, &intent, &receipt, now).await?;
+            self.verify_facts(
+                db,
+                &intent,
+                &receipt,
+                decimal(row.try_get("epoch")?, false, self.fence.projection_epoch)?,
+                now,
+            )
+            .await?;
             if matches!(
                 receipt.command,
                 super::Command::Deliver | super::Command::Return
@@ -155,8 +175,15 @@ impl Authority {
                 }
             }
         }
+        let reversed = !receipt.committed && sqlx::query_scalar::<_,bool>(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_authority_receipts WHERE operation_id=$1 AND recovery_generation<$2::text::numeric AND outcome='COMMITTED')"
+        ).bind(receipt.operation).bind(receipt.generation.to_string()).fetch_one(&mut **db).await?;
         sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome) VALUES($1,$2::text::numeric,$3,$4,$5,$6,$7)")
             .bind(receipt.operation).bind(receipt.generation.to_string()).bind(peer).bind(intent.binding_digest()).bind(receipt.digest()).bind(&receipt.raw).bind(if receipt.committed {"COMMITTED"}else{"REJECTED"}).execute(&mut **db).await?;
+        if reversed {
+            sqlx::query("INSERT INTO bazaar_authority_conflicts(operation_id,incoming_digest,kind) VALUES($1,$2,'RECEIPT')").bind(receipt.operation).bind(receipt.digest()).execute(&mut **db).await?;
+            return Ok(ReceiptResult::Quarantined);
+        }
         Ok(ReceiptResult::Stored)
     }
     async fn verify_facts(
@@ -164,6 +191,7 @@ impl Authority {
         db: &mut PgConnection,
         intent: &PreparedIntent,
         receipt: &Receipt,
+        issuance_epoch: u64,
         now: u64,
     ) -> Result<(), Error> {
         use super::Command;
@@ -228,7 +256,7 @@ impl Authority {
                 lock_revision: number(d, "lock_revision")?,
                 character_revision: number(i, "expected_character_revision")?,
                 eligibility_revision: number(i, "eligibility_revision")?,
-                projection_epoch: self.fence.projection_epoch,
+                projection_epoch: issuance_epoch,
                 now,
             };
             verify_snapshot(

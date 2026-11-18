@@ -233,30 +233,50 @@ impl Authority {
             return Err(Error::Denied);
         }
         // A published or bound leg can still execute unless reconciliation
-        // retired it against its own current-generation terminal rejection.
-        let executable: bool = sqlx::query_scalar(
+        // retired it and its terminal rejection still holds in this generation.
+        let earlier = sqlx::query(
             "WITH candidates(operation_id) AS (
                 SELECT t.operation_id FROM bazaar_all_transfers t
                 JOIN character_commands c ON c.id=t.operation_id
                 WHERE t.listing_id=$1 AND t.purpose=$3
-                UNION ALL
+                UNION
                 SELECT (o.intent::jsonb->>'transfer_operation_id')::uuid
                 FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
                 WHERE o.listing_id=$1 AND o.command='BindBazaarCharacterTransfer'
                   AND o.intent::jsonb->>'purpose'=$3 AND r.outcome='COMMITTED'
             )
-            SELECT EXISTS(SELECT 1 FROM candidates c WHERE NOT EXISTS(
-                SELECT 1 FROM bazaar_authority_transfer_retirements t
-                WHERE t.operation_id=c.operation_id AND t.evidence_operation_id=t.operation_id
-                  AND t.recovery_generation=$2::text::numeric))",
+            SELECT c.operation_id, COALESCE(t.recovery_generation < $2::text::numeric, false) AS retired, cmd.intent_json, cmd.receipt_json
+            FROM candidates c LEFT JOIN bazaar_authority_transfer_retirements t
+              ON t.operation_id=c.operation_id AND t.evidence_operation_id=t.operation_id
+            LEFT JOIN character_commands cmd ON cmd.id=c.operation_id AND cmd.state='TERMINAL'
+            WHERE t.recovery_generation IS DISTINCT FROM $2::text::numeric",
         )
         .bind(listing)
         .bind(self.fence.recovery_generation.to_string())
         .bind(purpose)
-        .fetch_one(&mut *db)
+        .fetch_all(&mut *db)
         .await?;
-        if executable {
-            return Ok(None);
+        for row in earlier {
+            let Some(raw) = row.try_get::<Option<String>, _>("receipt_json")? else {
+                return Ok(None);
+            };
+            if !row.try_get::<bool, _>("retired")? {
+                return Ok(None);
+            }
+            let intent =
+                super::runtime::characters::staged(self, db, row.try_get("operation_id")?).await?;
+            let published: String = row.try_get("intent_json")?;
+            if published.as_bytes()
+                != oteryn_internal_api::canonical::encode(&intent).map_err(|_| Error::Invalid)?
+                || !super::runtime::characters::rejected_receipt(
+                    self,
+                    &decode(raw.as_bytes(), 1024)?,
+                    &intent,
+                    super::runtime::now(db).await?,
+                )?
+            {
+                return Ok(None);
+            }
         }
         Ok(Some((bind, transfer)))
     }

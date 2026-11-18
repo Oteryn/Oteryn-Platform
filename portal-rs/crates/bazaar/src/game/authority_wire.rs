@@ -277,7 +277,9 @@ impl Receipt {
             return Err(Error::Conflict);
         }
         let decided = number(&self.value, "decided_at")?;
-        if decided < number(i, "issued_at_source")? || decided > now.saturating_add(1) {
+        if decided < number(i, "issued_at_source")?.saturating_sub(5)
+            || decided > now.saturating_add(1)
+        {
             return Err(Error::Denied);
         }
         if !self.committed {
