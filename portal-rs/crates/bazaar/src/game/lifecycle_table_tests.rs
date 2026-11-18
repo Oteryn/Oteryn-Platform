@@ -2186,13 +2186,17 @@ async fn sale_effects_on(db: &mut sqlx::PgConnection) -> (i64, bool, bool, i64) 
 }
 
 async fn delivery_reports(db: &BrowserFixture, listing: Uuid, action: &str) -> i64 {
+    delivery_reports_on(&mut db.pool.acquire().await.unwrap(), listing, action).await
+}
+
+async fn delivery_reports_on(db: &mut sqlx::PgConnection, listing: Uuid, action: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT count(*) FROM bazaar_audit WHERE relation_name='bazaar_delivery_evidence'
          AND row_id=$1 AND after_row->>'action'=$2",
     )
     .bind(listing)
     .bind(action)
-    .fetch_one(&db.pool)
+    .fetch_one(db)
     .await
     .unwrap()
 }
@@ -3093,6 +3097,9 @@ async fn sale_status_table() {
         let db = sale_with_evidence(state).await;
         let before = sale_effects(&db).await;
         let listing_before = item_state(&db).await;
+        let listing = uid("20");
+        let attempts_before = delivery_reports(&db, listing, "delivery_evidence_pending").await;
+        let delivery_key = format!("delivery-dirty:{listing}");
         for (_, event, expected) in sale_status_rows().filter(|(s, ..)| *s == state) {
             let mut tx = db.pool.begin().await.unwrap();
             // Seed a restart at this fence. The event is applied by Game's
@@ -3111,6 +3118,22 @@ async fn sale_status_table() {
                 outcome => panic!("{state:?} × {event:?}: {outcome:?}"),
             };
             assert_eq!(observed, expected, "{state:?} × {event:?}");
+            let dirty: Option<Uuid> =
+                sqlx::query_scalar("SELECT cursor_id FROM bazaar_work_cursors WHERE queue=$1")
+                    .bind(&delivery_key)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .unwrap();
+            let attempts = delivery_reports_on(&mut tx, listing, "delivery_evidence_pending").await;
+            assert_eq!(dirty, (expected == Recheck::Waiting).then_some(listing));
+            assert_eq!(
+                attempts - attempts_before,
+                i64::from(expected == Recheck::Waiting)
+            );
+            assert_eq!(
+                a.resynced(&mut tx).await.unwrap(),
+                expected == Recheck::Certified
+            );
             let reports: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM bazaar_audit WHERE row_id=$1 AND after_row->>'action'='delivery_custody_drift'",
             ).bind(uid("20")).fetch_one(&mut *tx).await.unwrap();
