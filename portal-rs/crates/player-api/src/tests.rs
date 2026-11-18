@@ -411,7 +411,7 @@ async fn postgres_character_golden_owner_only_and_stale_refusal() -> TestResult 
             .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-    sqlx::query("UPDATE account_character_feed SET highest_epoch = '1', watermark_epoch = '1', source_authority = 'oteryn:character-authority:primary', complete_through = extract(epoch FROM clock_timestamp())::bigint, observed_at = extract(epoch FROM clock_timestamp())::bigint").execute(&db.pool).await?;
+    sqlx::query("UPDATE account_character_feed SET highest_epoch = '1', watermark_epoch = '1', source_authority = 'oteryn:character-authority:primary', complete_through = extract(epoch FROM statement_timestamp())::bigint, observed_at = extract(epoch FROM statement_timestamp())::bigint").execute(&db.pool).await?;
     let response = call(app.clone(), "GET", CHARACTERS, "", true).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(

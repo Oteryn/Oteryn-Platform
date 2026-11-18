@@ -17,7 +17,7 @@ async fn audit_w2_c04_real_t45_denial_cannot_become_home_population() -> Result 
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
         .execute(&d.db)
         .await?;
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='oteryn:game:primary',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1").execute(&d.db).await?;
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='oteryn:game:primary',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1").execute(&d.db).await?;
     let authority = Authority {
         service: Service::new(
             d.db.clone(),
