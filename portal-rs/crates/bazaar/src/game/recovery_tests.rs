@@ -628,8 +628,26 @@ fn escrow_receipt_accepts_five_seconds_of_issue_skew() {
     }
 }
 
+#[tokio::test]
+async fn gold_payout_ignores_newer_staged_delivery() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_sale(true, false).await;
+    item_effect(&db, Command::Deliver, false).await;
+    super::lifecycle_table_tests::stage_newer_delivery(&db).await;
+    db.runtime.tick().await.unwrap();
+    let payout_dispatched: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox o JOIN bazaar_authority_dispatch d USING(operation_id)
+         WHERE listing_id=$1 AND command='PayoutBazaarGold')",
+    ).bind(uid("20")).fetch_one(&db.pool).await.unwrap();
+    assert!(payout_dispatched);
+    finish_gold_payout(&db, uid("20"), 2).await;
+    assert_eq!(state(&db).await, crate::State::Completed);
+    db.end().await;
+}
+
 async fn reversed_sale(gold: bool) {
-    let db = item_sale(gold, false).await;
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_sale(gold, false).await;
     item_effect(&db, Command::Deliver, false).await;
     db.runtime.tick().await.unwrap();
     if gold {
@@ -642,8 +660,8 @@ async fn reversed_sale(gold: bool) {
         Command::Deliver
     };
     let intent = newest_intent(&db, uid("20"), command).await;
-    let mut a = db.runtime.authority().clone();
-    a.fence.recovery_generation = 4;
+    super::lifecycle_table_tests::set_resync_fence(&mut db, 3, 4);
+    let a = db.runtime.authority().clone();
     let mut tx = db.pool.begin().await.unwrap();
     sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
         .execute(&mut *tx)
@@ -670,6 +688,11 @@ async fn reversed_sale(gold: bool) {
         .await
         .unwrap()
     );
+    tx.commit().await.unwrap();
+    if !gold {
+        db.runtime.tick().await.unwrap();
+    }
+    let mut tx = db.pool.begin().await.unwrap();
     assert_eq!(
         audit(&a, &mut tx, &intent, &raw, now).await,
         ReceiptResult::Stored
@@ -680,7 +703,16 @@ async fn reversed_sale(gold: bool) {
             .unwrap()
             .is_none()
     );
-    tx.rollback().await.unwrap();
+    tx.commit().await.unwrap();
+    if !gold {
+        let result = db.runtime.tick().await;
+        let quarantined: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_game_quarantine WHERE kind='STATUS' AND subject=$1)",
+        ).bind(uid("20")).fetch_one(&db.pool).await.unwrap();
+        assert!(matches!(result, Err(Error::CustodyDrift)), "{result:?}");
+        assert!(quarantined);
+        assert_eq!(state(&db).await, crate::State::Completed);
+    }
     db.end().await;
 }
 

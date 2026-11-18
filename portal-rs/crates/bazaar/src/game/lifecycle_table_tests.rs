@@ -1167,9 +1167,9 @@ async fn lifecycle_draft_refuse_lock() {
 }
 
 #[tokio::test]
-async fn lifecycle_legacy_refused_lock_closes_draft() {
+async fn lifecycle_legacy_refused_lock_rejection_replay_closes_draft() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let db = item_in(State::Active).await;
+    let mut db = item_in(State::Active).await;
     authorize_seller(&db).await;
     let intent = new_character_draft(&db).await;
     let refusal = "CHAR_CMD_BAZAAR_STALE_REVISION";
@@ -1181,6 +1181,12 @@ async fn lifecycle_legacy_refused_lock_closes_draft() {
         .execute(&db.pool)
         .await
         .unwrap();
+    set_resync_fence(&mut db, 3, 4);
+    let mut tx = db.pool.begin().await.unwrap();
+    for listing in [uid("20"), uid("30")] {
+        recovery_tests::replay(db.runtime.authority(), &mut tx, listing).await;
+    }
+    tx.commit().await.unwrap();
     db.runtime.tick().await.unwrap();
     let state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
         .bind(uid("30"))
@@ -1215,7 +1221,7 @@ async fn lifecycle_intent_staged_resync() {
     );
 }
 
-fn set_resync_fence(db: &mut BrowserFixture, epoch: u64, generation: u64) {
+pub(super) fn set_resync_fence(db: &mut BrowserFixture, epoch: u64, generation: u64) {
     let config = std::sync::Arc::make_mut(&mut db.runtime.config);
     config.fence.projection_epoch = epoch;
     config.fence.recovery_generation = generation;
@@ -1404,4 +1410,167 @@ async fn lifecycle_completed_resync_quarantines_wrong_seller() {
         status.replace(&uid("11").to_string(), &uid("71").to_string())
     })
     .await;
+}
+
+pub(super) async fn stage_newer_delivery(db: &BrowserFixture) {
+    let delivery = newest_intent(db, uid("20"), Command::Deliver).await;
+    let newer = uid("72");
+    let raw = std::str::from_utf8(delivery.bytes())
+        .unwrap()
+        .replace(
+            text(&delivery.value, "operation_id").unwrap(),
+            &newer.to_string(),
+        )
+        .replace(
+            &format!(
+                r#""source_revision":"{}""#,
+                text(&delivery.value, "source_revision").unwrap()
+            ),
+            r#""source_revision":"1000""#,
+        );
+    let mut tx = db.pool.begin().await.unwrap();
+    store_intent_with_key(
+        &mut tx,
+        &PreparedIntent::parse(&raw).unwrap(),
+        "different-delivery-step",
+    )
+    .await;
+    tx.commit().await.unwrap();
+}
+
+#[tokio::test]
+async fn lifecycle_completed_resync_ignores_newer_staged_delivery() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Completed).await;
+    stage_newer_delivery(&db).await;
+    assert_eq!(dispatched(&db, uid("20"), Command::Deliver).await, 1);
+    let next = rebuild_epoch(&db).await;
+    set_resync_fence(
+        &mut db,
+        next.fence.projection_epoch,
+        next.fence.recovery_generation,
+    );
+    let tick = db.runtime.tick().await;
+    let progress = resync_progress(&db).await;
+    let quarantines = quarantine_count(&db).await;
+    db.end().await;
+    tick.unwrap();
+    assert_eq!(progress, (true, true));
+    assert_eq!(quarantines, 0);
+}
+
+#[tokio::test]
+async fn lifecycle_legacy_refused_lock_recovery_only() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_in(State::Active).await;
+    authorize_seller(&db).await;
+    let config = std::sync::Arc::make_mut(&mut db.runtime.config);
+    config.authority.config.escrow_account_id = Some(uid("40"));
+    config.escrow_account = Some(uid("40"));
+    let intent = new_character_draft(&db).await;
+    let refusal = "CHAR_CMD_BAZAAR_STALE_REVISION";
+    reject(&db, &intent, refusal).await;
+    sqlx::query("UPDATE bazaar_authority_assets SET refusal_code=$2 WHERE listing_id=$1")
+        .bind(uid("30"))
+        .bind(refusal)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    set_resync_fence(&mut db, 3, 4);
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    recovery_tests::replay(a, &mut tx, uid("20")).await;
+    sqlx::query("UPDATE bazaar_game_issuer SET source_revision=101")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let operation = id(text(&intent.value, "operation_id").unwrap()).unwrap();
+    let data = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"1","eligibility_revision":"4","signed_snapshot":{}}}"#,
+        uid("31"),
+        uid("32"),
+        vector("locked_character_snapshot")
+    );
+    committed_fact(a, &mut tx, &intent, &data, now).await;
+    character_status(&db, &mut tx, "locked", operation, ("1", "1"), now).await;
+    tx.commit().await.unwrap();
+
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let staged_escrow: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_LISTING_ESCROW'")
+        .bind(uid("30")).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(staged_escrow, 0);
+    assert_eq!(dispatched(&db, uid("30"), Command::Unlock).await, 1);
+
+    let unlock = newest_intent(&db, uid("30"), Command::Unlock).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let data = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"2","current_account_id":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        uid("11")
+    );
+    committed_fact(a, &mut tx, &unlock, &data, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let state: State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+        .bind(uid("30"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(state, State::Cancelled);
+    assert_eq!(dispatched(&db, uid("30"), Command::Unlock).await, 1);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn lifecycle_matched_legacy_hold_retires_once() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    let listing = uid("20");
+    let original: Uuid = sqlx::query_scalar(
+        "UPDATE bazaar_listings SET state='matched', form='fixed_price' WHERE id=$1 RETURNING reservation",
+    ).bind(listing).fetch_one(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,2,$2,'Legacy suspension')")
+        .bind(listing).bind(uid("81")).execute(&db.pool).await.unwrap();
+    let a = db.runtime.authority().clone();
+    let core = crate::Bazaar::new(
+        db.pool.clone(),
+        PlatformAccounts {
+            enabled: true,
+            session_hash: None,
+        },
+        CoinReservations {
+            authority: a.clone(),
+        },
+        a,
+        crate::Flags {
+            enabled: true,
+            gold_enabled: true,
+        },
+    );
+    assert!(core.settle(listing, "legacy-match").await.is_err());
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let settle = core.settle(listing, "legacy-match").await;
+    assert!(settle.is_ok(), "{settle:?}");
+    let sale = settle.unwrap();
+    let replay = core.settle(listing, "legacy-match").await.unwrap();
+    assert_eq!(sale.reservation, original);
+    assert_eq!(replay.id, sale.id);
+    let effects: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM bazaar_audit WHERE relation_name='bazaar_moderation_holds'
+                 AND row_id=$1 AND before_row->>'revision'='2'
+                 AND after_row->>'action'='release_legacy_matched_hold'),
+                (SELECT count(*) FROM bazaar_settlements WHERE listing_id=$1 AND reservation=$2)",
+    )
+    .bind(listing)
+    .bind(original)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(effects, (1, 1));
+    db.end().await;
 }

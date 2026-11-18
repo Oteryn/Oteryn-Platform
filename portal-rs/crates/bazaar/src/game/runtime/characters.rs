@@ -11,7 +11,7 @@ pub(crate) async fn lock_record(
     db: &mut PgConnection,
     listing: Uuid,
 ) -> Result<Option<(PreparedIntent, Receipt, Value)>, Error> {
-    let operation:Option<(Uuid,String)>=sqlx::query_as("SELECT operation_id,projection_epoch::text FROM bazaar_game_outbox WHERE listing_id=$1 AND command='LockBazaarCharacter' ORDER BY source_revision DESC LIMIT 1").bind(listing).fetch_optional(&mut *db).await?;
+    let operation:Option<(Uuid,String)>=sqlx::query_as("SELECT operation_id,projection_epoch::text FROM bazaar_game_outbox WHERE listing_id=$1 AND command='LockBazaarCharacter' AND EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=bazaar_game_outbox.operation_id AND r.outcome='COMMITTED') ORDER BY source_revision DESC LIMIT 1").bind(listing).fetch_optional(&mut *db).await?;
     let Some((operation, epoch)) = operation else {
         return Ok(None);
     };
@@ -509,8 +509,8 @@ pub(crate) async fn verify_unlock(
         if !refused_escrow && !never_transferred(db, listing).await? {
             return Err(Error::Unavailable);
         }
-        // A refused escrow bind or approved invalidation authorizes cleanup. Receipt
-        // admission follows its durable dispatch even if staff revise the hold.
+        // A refused draft can release an acquired lock when ownership never moved.
+        // Receipt admission follows the durable dispatch even after the draft closes.
         let authorized = if current.is_some() {
             sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch WHERE operation_id=$1)",
@@ -519,7 +519,16 @@ pub(crate) async fn verify_unlock(
             .fetch_one(&mut *db)
             .await?
         } else {
-            refused_escrow || super::invalidation::approved(db, listing).await?
+            refused_escrow
+                || super::invalidation::approved(db, listing).await?
+                || sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM bazaar_authority_assets a
+                     JOIN bazaar_listings l ON l.id=a.listing_id
+                     WHERE l.id=$1 AND l.state='draft' AND l.kind='character' AND a.refusal_code IS NOT NULL)",
+                )
+                .bind(listing)
+                .fetch_one(&mut *db)
+                .await?
         };
         if !authorized {
             return Err(Error::Denied);

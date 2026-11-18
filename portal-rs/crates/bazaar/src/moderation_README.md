@@ -45,6 +45,9 @@ requests and is never dispatched to Game as a wire command.
 Suspension retains custody, reservations and proceeds. Database triggers fence
 trading writes, including offer acceptance and settlement. Staff suspension
 refuses Matched listings because invalidation cannot release their reservations.
+The worker removes pre-existing Matched holds in bounded batches and records the
+removed revision in the Bazaar audit. The original reservation remains available
+to the usual settlement path.
 Invalidation approval
 requires a different currently permitted, MFA-verified staff member and an
 unchanged hold revision. Approval records a reconciliation request. The Game

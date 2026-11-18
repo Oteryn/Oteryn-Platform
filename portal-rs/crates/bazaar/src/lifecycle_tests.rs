@@ -222,128 +222,14 @@ fn authority_transition_table() {
     }
 }
 
-fn normalize_sql(sql: &str) -> String {
-    sql.to_ascii_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn forbidden_state_write(sql: &str) -> bool {
-    let insert = [
-        "bazaar_listings",
-        "bazaar_game_outbox",
-        "bazaar_game_projections",
-        "bazaar_authority_dispatch",
-        "bazaar_authority_receipts",
-        "bazaar_game_quarantine",
-        "bazaar_authority_gold_bids",
-        "bazaar_authority_transfers",
-        "bazaar_authority_transfer_retries",
-        "bazaar_authority_transfer_retirements",
-        "character_commands",
-    ];
-    sql.split_once("insert into ").is_some_and(|(_, tail)| {
-        tail.split_once('(')
-            .is_some_and(|(table, _)| insert.contains(&table.trim_end()))
-    }) || sql.contains("update bazaar_game_outbox ")
-        || sql.contains("update bazaar_game_projections ")
-        || sql.contains("update bazaar_authority_gold_bids set phase")
-        || sql
-            .split_once("update bazaar_listings set ")
-            .is_some_and(|(_, set)| {
-                let assignments = set
-                    .split_once(" where ")
-                    .map_or(set, |(assignments, _)| assignments);
-                assignments.split(',').any(|assignment| {
-                    assignment
-                        .split_once('=')
-                        .is_some_and(|(column, _)| column.trim() == "state")
-                })
-            })
-}
-
-// Inline PostgreSQL fixtures seed catalogue rows, model a completed CC1
-// handoff, or build a worker backlog. Exempt only these statements in the
-// cfg(test) portion of their source files.
-const FIXTURE_WRITES: &[(&str, &str)] = &[
-    (
-        "game/runtime/browser.rs",
-        "INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at,created_at) VALUES($1,$2,'item','auction','coins',100,false,CASE WHEN $3=0 THEN 'active'::bazaar_state ELSE 'completed'::bazaar_state END,now()+interval '1 day',now()+make_interval(secs=>$3))",
-    ),
-    (
-        "game/runtime/browser.rs",
-        "UPDATE bazaar_listings SET state='active'",
-    ),
-    (
-        "game/runtime/browser.rs",
-        "UPDATE bazaar_listings SET state='awaiting_delivery'",
-    ),
-    (
-        "game/runtime/browser.rs",
-        "UPDATE bazaar_listings SET state='completed',kind='character'",
-    ),
-    (
-        "game/runtime/worker.rs",
-        "INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at) VALUES($1,$2,'item','auction','coins',100,false,'awaiting_delivery',now())",
-    ),
-    (
-        "game/runtime/worker.rs",
-        "INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id) VALUES($1,$1,$1,$1,100,$1)",
-    ),
-    (
-        "game/runtime/mod.rs",
-        "INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'item','auction','coins',100,false,now()+interval '1 day')",
-    ),
-];
-
-fn scan_source(path: &std::path::Path, source: &str, offenders: &mut Vec<String>) {
-    if path == std::path::Path::new("lifecycle.rs") {
-        return;
-    }
-    let (production, fixtures) = source.split_once("#[cfg(test)]").unwrap_or((source, ""));
-    for (source, may_exempt_fixture) in [(production, false), (fixtures, true)] {
-        for sql in source.split('"').skip(1).step_by(2) {
-            let normalized = normalize_sql(sql);
-            if forbidden_state_write(&normalized)
-                && !(may_exempt_fixture
-                    && FIXTURE_WRITES.iter().any(|(file, fixture)| {
-                        path == std::path::Path::new(file) && normalized == normalize_sql(fixture)
-                    }))
-            {
-                offenders.push(format!("{}: {normalized}", path.display()));
-            }
-        }
-    }
-}
-
-fn scan(
-    root: &std::path::Path,
-    dir: &std::path::Path,
-    offenders: &mut Vec<String>,
-) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(root.join(dir))? {
-        let entry = entry?;
-        let path = dir.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            scan(root, &path, offenders)?;
-            continue;
-        }
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        if name.ends_with(".rs") && !name.ends_with("tests.rs") {
-            scan_source(&path, &std::fs::read_to_string(entry.path())?, offenders);
-        }
-    }
-    Ok(())
-}
+#[path = "lifecycle_sql_guard.rs"]
+mod sql_guard;
+use sql_guard::scan_source;
 
 #[test]
 fn lifecycle_state_writes_use_writers() -> std::io::Result<()> {
-    let mut offenders = Vec::new();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    scan(&root, std::path::Path::new(""), &mut offenders)?;
+    let offenders = sql_guard::scan(&root)?;
     assert!(offenders.is_empty(), "{offenders:#?}");
     Ok(())
 }
@@ -383,4 +269,53 @@ fn lifecycle_guard_detects_forbidden_sql_and_accepts_writer() {
     assert!(offenders.is_empty());
     scan_source(Path::new("outside_writer.rs"), writer, &mut offenders);
     assert!(!offenders.is_empty());
+}
+
+#[test]
+fn lifecycle_guard_checks_aliases_and_every_cte_write() {
+    let mut misses = Vec::new();
+    for sql in [
+        "UPDATE bazaar_listings AS l SET state=$1 WHERE l.id=$2",
+        r#"UPDATE ONLY public."bazaar_listings" l SET (leader,state)=($1,$2) WHERE l.id=$3"#,
+        "WITH moved AS (UPDATE bazaar_listings l SET state=$1 RETURNING id)
+         INSERT INTO other_table (id) SELECT id FROM moved",
+        "WITH log AS (INSERT INTO other_table (id) VALUES($1) RETURNING id)
+         INSERT INTO bazaar_listings (id) SELECT id FROM log",
+    ] {
+        let mut offenders = Vec::new();
+        scan_source(
+            std::path::Path::new("outside_writer.rs"),
+            &format!("query(r##\"{sql}\"##)"),
+            &mut offenders,
+        );
+        if offenders.len() != 1 {
+            misses.push(sql);
+        }
+    }
+    assert!(misses.is_empty(), "{misses:?}");
+    let mut offenders = Vec::new();
+    scan_source(
+        std::path::Path::new("outside_writer.rs"),
+        r#"query("UPDATE \"bazaar_listings\" AS l\nSET state=$1")"#,
+        &mut offenders,
+    );
+    assert_eq!(offenders.len(), 1);
+}
+
+#[test]
+fn lifecycle_guard_limits_fixture_exemption_to_test_item() {
+    let sql = "UPDATE bazaar_listings SET state='active'";
+    let fixture = format!(
+        r#"
+        #[cfg(test)]
+        mod tests {{ fn seed() {{ query("{sql}"); }} }}
+        "#
+    );
+    let path = std::path::Path::new("game/runtime/browser.rs");
+    let mut offenders = Vec::new();
+    scan_source(path, &fixture, &mut offenders);
+    assert!(offenders.is_empty());
+    let source = format!(r#"{fixture} fn production() {{ query("{sql}"); }}"#);
+    scan_source(path, &source, &mut offenders);
+    assert_eq!(offenders.len(), 1);
 }

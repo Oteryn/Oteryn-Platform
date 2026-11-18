@@ -81,14 +81,9 @@ impl Authority {
                 Some(id(text(&status, "last_operation_id")?)?)
             };
             let delivered = if completed_item {
-                // STATUS can arrive before the receipt replay or its audit. Find
-                // the listing's delivery independently so even a STATUS with a
-                // different (or missing) operation can be checked once it is known.
-                let (intent, receipt) =
-                    super::runtime::gold::record(self, db, listing, Command::Deliver)
-                        .await?
-                        .ok_or(Error::Unavailable)?;
-                state == "DELIVERED"
+                let (intent, receipt, conflicted) = self.completed_delivery(db, listing).await?;
+                !conflicted
+                    && state == "DELIVERED"
                     && text(&status, "asset_kind")? == "ITEM"
                     && operation == Some(receipt.operation)
                     && receipt.committed
@@ -295,12 +290,83 @@ impl Authority {
             && complete <= number(&watermark, "observed_at")?
             && now.saturating_sub(complete).saturating_add(1) <= 30)
     }
+    async fn completed_delivery(
+        &self,
+        db: &mut PgConnection,
+        listing: Uuid,
+    ) -> Result<(PreparedIntent, Receipt, bool), Error> {
+        // The committed sale identifies its delivery even when STATUS is stale.
+        // An unpublished attempt has no committed receipt and cannot shadow it.
+        let operations: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT o.operation_id FROM bazaar_game_outbox o
+             WHERE o.listing_id=$1 AND o.command='DeliverBazaarItem'
+               AND EXISTS (SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id
+                    AND r.source_authority=$2 AND r.outcome='COMMITTED'
+                    AND r.recovery_generation<=$3::text::numeric)
+               AND (EXISTS (SELECT 1 FROM bazaar_settlements s WHERE s.listing_id=$1
+                             AND s.id::text=o.intent::jsonb->>'sale_id')
+                 OR EXISTS (SELECT 1 FROM bazaar_authority_gold_sales s WHERE s.listing_id=$1
+                             AND s.id::text=o.intent::jsonb->>'sale_id'))
+             LIMIT 2",
+        )
+        .bind(listing)
+        .bind(&self.config.receipt_authority)
+        .bind(self.fence.recovery_generation.to_string())
+        .fetch_all(&mut *db)
+        .await?;
+        let [operation] = operations.as_slice() else {
+            return Err(Error::Unavailable);
+        };
+        // Even a quarantined reversal must have a verified current audit before
+        // the listing is marked as drifted. Other callers cannot use it as proof.
+        self.audited_receipt(db, *operation, true)
+            .await?
+            .ok_or(Error::Unavailable)
+    }
+
     pub(super) async fn retained(
         &self,
         db: &mut PgConnection,
         operation: Uuid,
     ) -> Result<Option<(PreparedIntent, Receipt)>, Error> {
-        let row=sqlx::query("SELECT o.intent,o.binding_digest,r.receipt,r.receipt_digest,(SELECT d.payload FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation AND d.source_authority=$4 LIMIT 1) AS audit_payload FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r ON r.operation_id=o.operation_id WHERE o.operation_id=$1 AND r.recovery_generation=$2::text::numeric AND r.source_authority=$3 AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id) AND EXISTS(SELECT 1 FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id AND d.recovery_generation=r.recovery_generation AND d.source_authority=$4)").bind(operation).bind(self.fence.recovery_generation.to_string()).bind(&self.config.receipt_authority).bind(&self.config.projection_authority).fetch_optional(&mut *db).await?;
+        let Some((intent, receipt, _)) = self.audited_receipt(db, operation, false).await? else {
+            return Ok(None);
+        };
+        // Row-level conflict state prevents a concurrent quarantine from being
+        // overwritten by a reader that verified an earlier snapshot.
+        sqlx::query("UPDATE bazaar_disposition_fences SET no_effect_generation=$2::text::numeric,terminal_committed=$3 WHERE operation_id=$1 AND NOT quarantined")
+            .bind(operation).bind(if receipt.committed { "0".to_owned() } else { self.fence.recovery_generation.to_string() }).bind(receipt.committed).execute(&mut *db).await?;
+        Ok(Some((intent, receipt)))
+    }
+
+    async fn audited_receipt(
+        &self,
+        db: &mut PgConnection,
+        operation: Uuid,
+        include_conflicts: bool,
+    ) -> Result<Option<(PreparedIntent, Receipt, bool)>, Error> {
+        let row = sqlx::query(
+            "SELECT o.intent,o.binding_digest,r.receipt,r.receipt_digest,d.payload AS audit_payload,
+                    c.conflicted
+             FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
+             CROSS JOIN LATERAL (
+                SELECT payload FROM bazaar_authority_decisions d WHERE d.operation_id=o.operation_id
+                 AND d.recovery_generation=r.recovery_generation AND d.source_authority=$4 LIMIT 1
+             ) d
+             CROSS JOIN LATERAL (
+                SELECT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id)
+                 AS conflicted
+             ) c
+             WHERE o.operation_id=$1 AND r.recovery_generation=$2::text::numeric AND r.source_authority=$3
+               AND ($5 OR NOT c.conflicted)",
+        )
+        .bind(operation)
+        .bind(self.fence.recovery_generation.to_string())
+        .bind(&self.config.receipt_authority)
+        .bind(&self.config.projection_authority)
+        .bind(include_conflicts)
+        .fetch_optional(&mut *db)
+        .await?;
         let Some(row) = row else {
             return Ok(None);
         };
@@ -327,11 +393,7 @@ impl Authority {
         {
             return Err(Error::Denied);
         }
-        // Row-level conflict state prevents a concurrent quarantine from being
-        // overwritten by a reader that verified an earlier snapshot.
-        sqlx::query("UPDATE bazaar_disposition_fences SET no_effect_generation=$2::text::numeric,terminal_committed=$3 WHERE operation_id=$1 AND NOT quarantined")
-            .bind(operation).bind(if r.committed { "0".to_owned() } else { self.fence.recovery_generation.to_string() }).bind(r.committed).execute(&mut *db).await?;
-        Ok(Some((i, r)))
+        Ok(Some((i, r, row.try_get("conflicted")?)))
     }
     pub(super) async fn custody(
         &self,

@@ -275,11 +275,7 @@ impl Runtime {
         listing: Uuid,
         command: Command,
     ) -> Result<Option<(PreparedIntent, super::Receipt)>, Error> {
-        let operation:Option<Uuid>=sqlx::query_scalar("SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command=$2 ORDER BY source_revision DESC LIMIT 1").bind(listing).bind(command.wire()).fetch_optional(&mut *db).await?;
-        match operation {
-            Some(operation) => self.authority().retained(db, operation).await,
-            None => Ok(None),
-        }
+        gold::record(self.authority(), db, listing, command).await
     }
     pub async fn create(
         &self,

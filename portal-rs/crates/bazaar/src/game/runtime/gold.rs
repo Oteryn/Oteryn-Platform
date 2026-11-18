@@ -142,7 +142,20 @@ pub(crate) async fn record(
     listing: Uuid,
     command: Command,
 ) -> Result<Option<(PreparedIntent, super::super::Receipt)>, Error> {
-    let op:Option<Uuid>=sqlx::query_scalar("SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command=$2 ORDER BY source_revision DESC LIMIT 1").bind(listing).bind(command.wire()).fetch_optional(&mut *db).await?;
+    // An unpublished intent without an admitted result cannot shadow an
+    // executable attempt. A dispatched attempt still waits for its own proof.
+    let op: Option<Uuid> = sqlx::query_scalar(
+        "SELECT o.operation_id FROM bazaar_game_outbox o
+         WHERE o.listing_id=$1 AND o.command=$2
+           AND (EXISTS(SELECT 1 FROM bazaar_authority_dispatch d WHERE d.operation_id=o.operation_id)
+             OR EXISTS(SELECT 1 FROM bazaar_authority_receipts r WHERE r.operation_id=o.operation_id)
+             OR EXISTS(SELECT 1 FROM bazaar_authority_conflicts c WHERE c.operation_id=o.operation_id))
+         ORDER BY o.source_revision DESC LIMIT 1",
+    )
+    .bind(listing)
+    .bind(command.wire())
+    .fetch_optional(&mut *db)
+    .await?;
     match op {
         Some(op) => a.retained(db, op).await,
         None => Ok(None),
