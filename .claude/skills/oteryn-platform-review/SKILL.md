@@ -8,6 +8,28 @@ description: Reviewing an Oteryn-Platform diff before it lands (a returned subag
 A review reads code, not reports. The worker's summary, the PR body and a
 green check are claims; the diff and the merged tree are the evidence.
 
+## 0. Gate before any review is requested
+
+Review is for what a command cannot find. Before a review is requested on a
+head, that head has:
+
+- the local checks for its changed paths green, with the commands of
+  `oteryn-platform-dev` `references/local-checks.md` (which win): for
+  `portal-rs/**`, `cargo fmt --all --check`,
+  `cargo clippy --locked -q --workspace --all-targets -- -D warnings` and
+  `cargo test --locked -p oteryn-<crate>` for each changed crate, with
+  `PORTAL_TEST_DATABASE_URL` set to a scratch PostgreSQL 18.6; a
+  PostgreSQL test that printed `SKIPPED` was not run;
+- the real caller run red before the fix and green after: the handler
+  through the `crates/web` router, the repository on real PostgreSQL, the
+  worker job, or the `crates/internal-api` contract test against
+  `docs/contracts/fixtures/`. Where the session has no PostgreSQL, say so
+  and leave it to CI as not run;
+- one frozen head: only the final head SHA is reviewed; a later push makes
+  it a new head.
+
+A head that fails the gate goes back to its author, not to review.
+
 ## 1. Gather the whole input
 
 - The diff against the exact base: `git diff <base>...<head>` (the base SHA
@@ -95,6 +117,16 @@ with the diff and step 3 as the checklist.
 
 ## 6. Receiving findings
 
+- Give every finding one verdict, with `file:line`, before any fix:
+  - `REAL-P0`..`REAL-P3`: a real defect; a `REAL-P0/P1` names the reachable
+    caller you traced;
+  - `BY DESIGN`: the code does what the plan, contract or task says, and
+    you cite where;
+  - `DUPLICATE`: the same defect as an earlier finding, which you name;
+  - `FALSE`: not a defect; name the trace or test that disproved it;
+  - `OUT OF SCOPE`: the fix needs a path outside the branch's owned paths;
+    it keeps its severity and goes to the owning task or lead (a P0/P1 as
+    a blocker), never into this fix run.
 - Verify each finding against the code: trace a real caller or input to
   the failure.
 - Real and in proportion: fix it in the next push and reply in one line
@@ -103,9 +135,39 @@ with the diff and step 3 as the checklist.
 - No performative agreement; actions and evidence only.
 - Collect all fixes of one review round into one push.
 
+## 7. The fix packet
+
+One packet for all confirmed findings of a round, never one per finding
+(`references/batch-review.md` §4):
+
+- the findings numbered, each needing a status in the report:
+  `FIXED <test>`, `NOT REPRODUCED` or `BLOCKED <why>`;
+- the sweep list: every sibling site of each class as `file:line`; sites
+  inside the packet's owned paths are fixed, the others are `OUT OF SCOPE`;
+- a red test first, through the real caller (§0), not only a unit test of
+  the patched helper.
+
+## 8. When a P0/P1 class recurs
+
+When a round finds more P0/P1 than the one before, the same P0/P1 class
+comes back in the same module or flow, or a P0/P1 is a regression or a
+second site of an earlier fix: stop patching and propose a redesign to the
+owner, a rule the code can check. It lands as its own PR with its own
+review. Details and the example are in `references/batch-review.md` §5.
+
+## 9. Per-PR review and the owner's review loop
+
+§0-§8 are the per-PR review (at most 2 rounds). An owner-requested review
+loop reviews a whole area of merged code on `main` in rounds; it never
+counts as, or replaces, the review of an open PR, and each fix PR it makes
+gets its own per-PR review. Only the coordinator runs it, for a loop the
+owner asked for. Read `references/review-loop.md` only when running one;
+it also holds the flag boundary rule for off-flag features.
+
 ## Sources
 
-Adapted, not copied verbatim: the Oteryn-Game `oteryn-review` skill;
+Adapted, not copied verbatim: the Oteryn-Game `oteryn-review` skill (§0
+and §6-§9 at Game commit `f64e785ee1e3c81361bbe4b958e5b2ee8ba13c2a`);
 getsentry/skills `find-bugs` (Apache-2.0); obra/superpowers
 `receiving-code-review` (MIT); root `AGENTS.md`, *Security and data
 invariants*; `portal-rs/README.md`.

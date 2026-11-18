@@ -17,7 +17,14 @@ required or who starts it (SKILL.md §5). Three limits hold:
 - The batch fix runs at reasoning effort `medium`.
 
 Adapted from the Oteryn-Game `oteryn-review` skill
-(`references/batch-review.md`, Game `main` 203f9222, Oteryn/Oteryn-Game#3130).
+(`references/batch-review.md`, Game `main` 203f9222, Oteryn/Oteryn-Game#3130;
+the gate, verdicts, fix packet and redesign rule at Game commit
+`f64e785ee1e3c81361bbe4b958e5b2ee8ba13c2a`).
+
+Before a round starts, the head passes the gate of SKILL.md §0; a head that
+fails it is not reviewed. The lens list of a PR is frozen when its first
+round starts; the second round runs only the lenses that had confirmed
+findings.
 
 ## 1. One round = several lens runs over the same head
 
@@ -74,31 +81,52 @@ Every lens prompt contains:
 ## 3. Merge, verify, sweep
 
 1. Merge the lens outputs. Remove duplicates by `path:line` and defect class.
-2. Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
+2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
    - For a finding that is hard to call, run a second check with the
      opposite brief: a fresh run told "try to refute this finding; default
      to refuted when unsure".
    - Keep the finding when the refute attempt fails.
-3. Pattern sweep. For every confirmed finding, grep the whole diff, and the
-   files it touches, for the same class: the same call, the same lock, the
-   same `_ =>`, the same unchecked add, the same missing permission check.
-   Add each instance to the confirmed list. A class fixed at one site and
-   left at another is the main cause of the next round.
+3. Pattern sweep. For every confirmed finding, grep the diff, the files it
+   touches and the rest of `portal-rs/` for the same class: the same call,
+   the same lock, the same `_ =>`, the same unchecked add, the same missing
+   permission check, and every test that asserts the changed value. Verify
+   each hit as in step 2 and list it as `file:line`. Hits inside the
+   packet's owned paths join the confirmed list; the others are
+   `OUT OF SCOPE` with their severity and go to the lead. A class fixed at
+   one site and left at another is the main cause of the next round.
 4. P2/P3 findings do not start a fix now. They are fixed in the same push
    when cheap, otherwise noted for the module's next task (SKILL.md §4).
 
 ## 4. One batch fix, one delta review, one CI cycle
 
 1. Write all confirmed P0/P1 findings, sweep instances included, to one file,
-   one per line as `P0|P1 path:line - problem - failure path`. Hand that file
-   to one code-writing run at reasoning effort `medium`. Never use one fix run
-   per finding. For each finding, that run:
-   - writes a red test first, and reports `NOT REPRODUCED` without a code
-     change when the test cannot fail;
-   - makes the smallest fix and reruns the test green;
-   - changes no existing assertion, timeout or budget, and nothing outside
-     the listed findings.
+   numbered, one per line as `N. P0|P1 path:line - problem - failure path`.
+   Hand that file to one code-writing run at reasoning effort `medium`. Never
+   use one fix run per finding. The packet (SKILL.md §7) states:
+   - **Statuses.** The report gives every number one status: `FIXED <test>`,
+     `NOT REPRODUCED` or `BLOCKED <why>`. Runs handed a list tend to stop
+     after the first item; a missing number is visible.
+   - **Sweep list.** Every verified sibling site as `file:line`, including
+     tests in other crates that assert the same value. Only sites inside
+     the packet's owned paths (`crates/<module>`, its migration,
+     `templates/<module>/`, its router line in `crates/web`, its
+     `docs/agents/tasks/` packet) are in scope; the rest are `OUT OF SCOPE`.
+   - **Red test through the real caller.** Per finding, a test that fails
+     first: the handler through the `crates/web` router, the repository or
+     transaction on real PostgreSQL (no `SKIPPED` line), the worker job, or
+     the `crates/internal-api` contract test on `docs/contracts/fixtures/`;
+     not only a unit test of the patched helper. A test that cannot fail is
+     reported `NOT REPRODUCED` with no code change.
+   - **Smallest fix.** The test reruns green; no existing assertion,
+     timeout, budget or fixture changes, and nothing outside the listed
+     findings.
+   - **Class guard.** For a P0/P1 class that recurred across PRs, when it is
+     smaller than the next round: one choke-point function and a
+     source-scan or invariant test.
+   - **Forbidden paths.** A fix diff outside the owned paths is rejected
+     whole; `.github/workflows/**`, `scripts/ci/**` and `tests/ci/**` change
+     only in a task that owns them.
 2. Review the fix diff yourself (SKILL.md §2–§3) and run the local checks
    (`oteryn-platform-dev`, step 5).
 3. Push once. One CI cycle covers the whole batch.
@@ -115,6 +143,33 @@ no P0/P1. Two lenses in the same round count.
 
 If the second round still finds a P0/P1, the design of the change is wrong:
 stop and report to the owner. Never start a third round.
+
+### Redesign instead of another patch
+
+Patching stops, before the round limit, when any of these holds (P2/P3 never
+trigger it):
+
+- a round finds more P0/P1 than the round before;
+- the same P0/P1 class in the same module or flow comes back in a second PR
+  or round;
+- a P0/P1 is a regression or a second site of an earlier P0/P1 fix.
+
+Then report to the owner with a proposed redesign: a rule the code can
+check, such as a transition table with one test per state and event, one
+transaction for a durable value, or one shared source for a policy plus a
+parity test. It is implemented after the owner agrees, as its own PR with
+its own review, never as a further push to a PR whose rounds are used up.
+
+Example of a proposal (a shape, not a claim about today's code): when bid,
+settle and cancel defects keep returning in the Bazaar lifecycle, propose a
+state machine for `crates/bazaar`:
+
+1. A transition table, one row per (state, event): the next state or the
+   refusal. Each row gets one test on real PostgreSQL that drives the event
+   through the real caller and asserts the stored state and the refusal.
+2. Then one transition function that every writer calls, inside the
+   transaction that locks the row, plus a source-scan test that fails when
+   any other code in the crate writes the state column.
 
 ## 6. For subagents and child sessions
 
