@@ -293,7 +293,7 @@ async fn r14_lock_replay_after_epoch_change_finishes_resync() {
     db.end().await;
 }
 
-async fn finish_gold_payout(db: &BrowserFixture, listing: Uuid, revision: u64) {
+async fn admit_gold_payout(db: &BrowserFixture, listing: Uuid, revision: u64) {
     let payout = newest_intent(db, listing, Command::Payout).await;
     let field = |key| text(&payout.value, key).unwrap();
     let data = format!(
@@ -313,6 +313,10 @@ async fn finish_gold_payout(db: &BrowserFixture, listing: Uuid, revision: u64) {
     let now = runtime::now(&mut tx).await.unwrap();
     committed_fact(db.runtime.authority(), &mut tx, &payout, &data, now).await;
     tx.commit().await.unwrap();
+}
+
+async fn finish_gold_payout(db: &BrowserFixture, listing: Uuid, revision: u64) {
+    admit_gold_payout(db, listing, revision).await;
     db.runtime.tick().await.unwrap();
     let state: crate::State = sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
         .bind(listing)
@@ -382,14 +386,7 @@ async fn r14_excess_release_replays_before_delivery() {
     db.end().await;
 }
 
-#[tokio::test]
-async fn r14_character_payout_retries_after_transfer_reattestation() {
-    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let mut db = delivered_character_sale("gold").await;
-    let listing = uid("30");
-    let payout = newest_intent(&db, listing, Command::Payout).await;
-    reject_expired(&db, &payout).await;
-    recover(&mut db).await;
+async fn reattest_transfers(db: &BrowserFixture, listing: Uuid) {
     let mut tx = db.pool.begin().await.unwrap();
     let receipts: Vec<(Uuid, String)> =
         sqlx::query_as("SELECT id,receipt_json FROM character_commands WHERE state='TERMINAL'")
@@ -415,6 +412,17 @@ async fn r14_character_payout_retries_after_transfer_reattestation() {
     }
     replay(db.runtime.authority(), &mut tx, listing).await;
     tx.commit().await.unwrap();
+}
+
+#[tokio::test]
+async fn r14_character_payout_retries_after_transfer_reattestation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = delivered_character_sale("gold").await;
+    let listing = uid("30");
+    let payout = newest_intent(&db, listing, Command::Payout).await;
+    reject_expired(&db, &payout).await;
+    recover(&mut db).await;
+    reattest_transfers(&db, listing).await;
     db.runtime.tick().await.unwrap();
     let retry = newest_intent(&db, listing, Command::Payout).await;
     assert_ne!(
@@ -716,6 +724,28 @@ async fn rejected_deposit_rebuild_needs_no_custody_status() {
 }
 
 #[tokio::test]
+async fn first_release_after_return_reattestation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = item_sale(true, false).await;
+    item_effect(&db, Command::Deliver, true).await;
+    db.runtime.tick().await.unwrap();
+    item_effect(&db, Command::Return, false).await;
+    db.runtime.tick().await.unwrap();
+    recover(&mut db).await;
+    let i = newest_intent(&db, uid("20"), Command::Release).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let data = format!(
+        r#"{{"hold_id":"{}","hold_revision":"2","released_amount":"10000","remaining_held":"0","hold_state":"RELEASED"}}"#,
+        uid("83")
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &i, &data, now).await;
+    tx.commit().await.unwrap();
+
+    db.end().await;
+}
+
+#[tokio::test]
 async fn gold_hold_accepts_decision_before_platform_issue_time() {
     let db = BrowserFixture::new().await;
     let mut tx = db.pool.begin().await.unwrap();
@@ -758,4 +788,38 @@ fn transfer_rejection_accepts_five_seconds_of_issue_skew() {
             skew <= 5
         );
     }
+}
+
+#[tokio::test]
+async fn first_payout_after_transfer_reattestation() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = delivered_character_sale("gold").await;
+    let listing = uid("30");
+
+    recover(&mut db).await;
+    reattest_transfers(&db, listing).await;
+    admit_gold_payout(&db, listing, 2).await;
+    db.end().await;
+}
+
+#[tokio::test]
+async fn first_gold_bind_after_restore() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = settling_character_fixture("gold").await;
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, uid("30"), Command::Bind).await;
+    let transfer = id(text(&bind.value, "transfer_operation_id").unwrap()).unwrap();
+    recover(&mut db).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    replay(db.runtime.authority(), &mut tx, uid("30")).await;
+    let now = runtime::now(&mut tx).await.unwrap();
+    let data = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"3","transfer_operation_id":"{transfer}","transfer_binding_digest":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        text(&bind.value, "transfer_binding_digest").unwrap()
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &bind, &data, now).await;
+    tx.commit().await.unwrap();
+    db.end().await;
 }

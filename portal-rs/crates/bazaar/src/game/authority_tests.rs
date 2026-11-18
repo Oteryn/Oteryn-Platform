@@ -2243,6 +2243,9 @@ pub(super) struct BrowserFixture {
 }
 impl BrowserFixture {
     pub(super) async fn new() -> Self {
+        Self::deposited_item(true).await
+    }
+    pub(super) async fn deposited_item(active: bool) -> Self {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL").unwrap();
         let admin = PgPoolOptions::new()
             .max_connections(2)
@@ -2288,6 +2291,14 @@ impl BrowserFixture {
             (uid("13"), "plat3-buyer@invalid.test"),
         ] {
             sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,$2,now(),'synthetic','active','en')").bind(who).bind(email).execute(&mut *tx).await.unwrap();
+        }
+        sqlx::query("UPDATE account_character_feed SET highest_epoch='3', watermark_epoch='3',source_authority=$1,complete_through=$2,observed_at=$2 WHERE id=1")
+            .bind(&a.config.receipt_authority).bind(now as i64).execute(&mut *tx).await.unwrap();
+        for (account, character) in [(uid("11"), uid("21")), (uid("13"), uid("14"))] {
+            sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'3','1',$3,$4)")
+                .bind(account).bind(&a.config.receipt_authority).bind(now as i64).bind([0_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+            sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Fixture','AVAILABLE')")
+                .bind(account).bind(character).bind(uid("12")).execute(&mut *tx).await.unwrap();
         }
         sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'item','auction','coins',10000,false,now()+interval '2 days')").bind(uid("20")).bind(uid("11")).execute(&mut *tx).await.unwrap();
         sqlx::query("INSERT INTO bazaar_item_details(id,definition_key,definition_revision,world_id,seller_character_id,item_instance_id,quantity) VALUES($1,'fixture-sword','v1',$2,$3,$4,1)").bind(uid("20")).bind(uid("12")).bind(uid("21")).bind(uid("22")).execute(&mut *tx).await.unwrap();
@@ -2366,8 +2377,9 @@ impl BrowserFixture {
 
         sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$4,7,$5,1,true,'browser-fixture')")
             .bind(listing.id).bind(uid("12")).bind(uid("21")).bind(uid("22")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
-        sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1")
+        sqlx::query("UPDATE bazaar_listings SET state='active' WHERE id=$1 AND $2")
             .bind(listing.id)
+            .bind(active)
             .execute(&mut *tx)
             .await
             .unwrap();

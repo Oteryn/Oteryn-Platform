@@ -24,13 +24,20 @@ pub(crate) async fn lock_record(
     let d = r.value.get("result_data").ok_or(Error::Invalid)?;
     let signed = d.get("signed_snapshot").ok_or(Error::Invalid)?;
     let kid = text(signed, "kid")?;
-    let key = &a
-        .config
-        .snapshot_keys
-        .iter()
-        .find(|(key, _)| key == kid)
-        .ok_or(Error::Unavailable)?
-        .1;
+    let key = if let Some((_, key)) = a.config.snapshot_keys.iter().find(|(name, _)| name == kid) {
+        *key
+    } else {
+        // Historical verification is limited to a retained, already admitted Lock.
+        let bytes: Vec<u8> = sqlx::query_scalar(
+            "SELECT public_key FROM bazaar_authority_snapshot_keys WHERE kid=$1 AND revoked",
+        )
+        .bind(kid)
+        .fetch_optional(&mut *db)
+        .await?
+        .ok_or(Error::Unavailable)?;
+        ed25519_dalek::VerifyingKey::from_bytes(&bytes.try_into().map_err(|_| Error::Invalid)?)
+            .map_err(|_| Error::Invalid)?
+    };
     let e = SnapshotBinding {
         source_authority: &a.config.projection_authority,
         listing,
@@ -48,7 +55,7 @@ pub(crate) async fn lock_record(
         &canonical::encode(signed).map_err(|_| Error::Invalid)?,
         &e,
         kid,
-        key,
+        &key,
     )?;
     let signed = signed.clone();
     Ok(Some((i, r, signed)))
@@ -598,7 +605,16 @@ pub(crate) async fn reconcile_transfer(
         if let Some(bind) = bind {
             if let Some((intent, receipt)) = a.retained(db, bind).await? {
                 if !receipt.committed
-                    && text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED"
+                    && (text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED"
+                        || (purpose == "BAZAAR_ESCROW_RETURN"
+                            && text(&receipt.value, "result_code")?
+                                == "CHAR_CMD_BAZAAR_STALE_REVISION"
+                            && a.projection(db, "STATUS", listing)
+                                .await?
+                                .is_some_and(|status| {
+                                    status.get("custody_revision")
+                                        != intent.value.get("expected_lock_revision")
+                                })))
                     && text(&intent.value, "transfer_binding_digest")?
                         == digest(&canonical::encode(&transfer).map_err(|_| Error::Invalid)?)
                 {

@@ -98,7 +98,13 @@ pub(crate) async fn funded(
     i: &Value,
     buyer: Uuid,
 ) -> Result<(), Error> {
-    if !a.fresh(db).await? {
+    // Publication requires matching issuer fences. A dispatched Bind from an
+    // older generation can reach this check only through receipt admission.
+    let recovering = i.get("command") == Some(&string(Command::Bind.wire()))
+        && !a.resynced(db).await?
+        && sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch WHERE operation_id=$1 AND recovery_generation<$2::text::numeric)")
+            .bind(id(text(i,"operation_id")?)?).bind(a.fence.recovery_generation.to_string()).fetch_one(&mut *db).await?;
+    if !recovering && !a.fresh(db).await? {
         return Err(Error::Unavailable);
     }
     let f = i.get("funding").ok_or(Error::Invalid)?;
@@ -111,7 +117,12 @@ pub(crate) async fn funded(
     {
         return Err(Error::Denied);
     }
-    let hold = current_hold(a, db, id(text(i, "listing_id")?)?, buyer, None)
+    let cutoff = if recovering {
+        Some(text(i, "source_revision")?)
+    } else {
+        None
+    };
+    let hold = current_hold(a, db, id(text(i, "listing_id")?)?, buyer, cutoff)
         .await?
         .ok_or(Error::Unavailable)?;
     if hold.id != row.try_get::<Uuid, _>("hold_id")?
@@ -217,6 +228,9 @@ pub(crate) async fn validate_release(
             .await?;
         let compensation = text(&i.value, "release_reason")? == "TERMINAL_REFUSAL"
             && (a.compensation_ready(db, &listing_row).await?
+                || (facts.is_some()
+                    && !a.resynced(db).await?
+                    && reattested_return(a, db, &listing_row).await?)
                 || (facts.is_some() && compensated_return(a, db, &listing_row).await?));
         if !compensation {
             let Some((_, payout)) = record(a, db, listing, Command::Payout).await? else {
@@ -234,6 +248,25 @@ pub(crate) async fn validate_release(
         return Err(Error::Denied);
     }
     Ok(())
+}
+async fn reattested_return(
+    a: &Authority,
+    db: &mut PgConnection,
+    listing: &Listing,
+) -> Result<bool, Error> {
+    match listing.kind {
+        Kind::Item => Ok(record(a, db, listing.id, Command::Deliver)
+            .await?
+            .is_some_and(|(_, r)| !r.committed)
+            && a.delivery_refused(db, listing.id).await?
+            && record(a, db, listing.id, Command::Return)
+                .await?
+                .is_some_and(|(_, r)| r.committed)),
+        Kind::Character => Ok(a.settlement_bind_refused(db, listing.id).await?.is_some()
+            && super::characters::proof(a, db, listing.id, "BAZAAR_ESCROW_RETURN")
+                .await?
+                .is_some()),
+    }
 }
 async fn compensated_return(
     a: &Authority,
@@ -336,8 +369,34 @@ pub(crate) async fn validate_payout(
         .fetch_optional(&mut *db)
         .await?
         .ok_or(Error::Unavailable)?;
-        if transfer != expected_operation || digest(raw.as_bytes()) != expected_hash {
+        if transfer != expected_operation {
             return Err(Error::Denied);
+        }
+        if digest(raw.as_bytes()) != expected_hash {
+            // Reconstruct the exact CC1 bytes from the generation in which
+            // this immutable payout was issued. Only the attestation fence changes.
+            let generation: String = sqlx::query_scalar(
+                "SELECT recovery_generation::text FROM bazaar_game_outbox WHERE operation_id=$1",
+            )
+            .bind(id(text(&i.value, "operation_id")?)?)
+            .fetch_one(&mut *db)
+            .await?;
+            let Value::Object(mut fields) = decode(raw.as_bytes(), 1024)? else {
+                return Err(Error::Denied);
+            };
+            let (_, fence) = fields
+                .iter_mut()
+                .find(|(name, _)| name == "recovery_generation")
+                .ok_or(Error::Invalid)?;
+            if *fence != string(a.fence.recovery_generation) {
+                return Err(Error::Denied);
+            }
+            *fence = string(generation);
+            if digest(&canonical::encode(&Value::Object(fields)).map_err(|_| Error::Invalid)?)
+                != expected_hash
+            {
+                return Err(Error::Denied);
+            }
         }
     } else {
         let (operation, hash) = delivery(a, db, &l).await?;

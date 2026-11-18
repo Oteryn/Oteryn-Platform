@@ -208,6 +208,21 @@ impl Runtime {
                         && super::characters::never_transferred(tx, listing.id).await?
                     {
                         self.unlock(tx, listing).await?;
+                    } else if receipt.command == Command::Lock
+                        && let Some((bind, decision)) =
+                            self.latest(tx, listing.id, Command::Bind).await?
+                        && decision.committed
+                        && text(&bind.value, "purpose")? == "BAZAAR_LISTING_ESCROW"
+                        && sqlx::query_scalar::<_, bool>(
+                            "SELECT EXISTS(SELECT 1 FROM bazaar_current_transfers t
+                             WHERE t.operation_id=$1 AND t.listing_id=$2
+                               AND NOT EXISTS(SELECT 1 FROM character_commands c WHERE c.id=t.operation_id))",
+                        )
+                        .bind(id(text(&bind.value,"transfer_operation_id")?)?).bind(listing.id)
+                        .fetch_one(&mut **tx).await?
+                    {
+                        self.transfer(tx, listing, "BAZAAR_LISTING_ESCROW", None)
+                            .await?;
                     } else {
                         self.stage_return(tx, listing).await?;
                     }
