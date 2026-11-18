@@ -262,19 +262,17 @@ impl<P: PaymentProvider, A: AccountReader> Payments<P, A> {
             tx.commit().await?;
             return Ok(WebhookOutcome::Replay);
         }
-        if event.state == IntentState::Refunded {
-            // Delivery takes this same intent lock before crediting. A refund
-            // may win before delivery, but cannot erase an existing coin credit.
-            // Generic top-ups without a browser checkout have no reconciliation
-            // or reversal consumer, so their refunds are never acknowledged.
-            let refundable: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM store_web_topups t WHERE t.payment_intent_id=$1) \
-                 AND NOT EXISTS(SELECT 1 FROM store_web_topups t JOIN wallet_operations w ON w.id=t.payment_intent_id AND w.kind='top_up' WHERE t.payment_intent_id=$1)",
+        if matches!(event.state, IntentState::Refunded | IntentState::Chargeback) {
+            // The delivery worker takes the same intent lock before crediting.
+            // A delivered browser credit needs reconciliation before reversal.
+            let (browser, delivered): (bool, bool) = sqlx::query_as(
+                "SELECT EXISTS(SELECT 1 FROM store_web_topups WHERE payment_intent_id=$1),
+                        EXISTS(SELECT 1 FROM wallet_operations WHERE id=$1 AND kind='top_up')",
             )
             .bind(event.intent_id)
             .fetch_one(&mut *tx)
             .await?;
-            if !refundable {
+            if (browser && delivered) || (!browser && event.state == IntentState::Refunded) {
                 return Err(Error::IllegalTransition);
             }
         }
@@ -349,12 +347,24 @@ async fn check_wallet_capacity(
         .bind(account)
         .fetch_one(&mut *tx)
         .await?;
+    let held: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)")
+            .bind(account)
+            .fetch_one(&mut *tx)
+            .await?;
+    if held {
+        return Err(Error::AccountDenied);
+    }
+    let debt = oteryn_wallet::outstanding_debt(tx, account)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    let net_credit = coins - coins.min(debt);
     let incoming = oteryn_wallet::incoming_capacity_in(tx, account)
         .await
         .map_err(|_| Error::Unavailable)?;
     let fits: bool = sqlx::query_scalar(
         "SELECT COALESCE(sum(available_delta),0) + COALESCE(sum(reserved_delta),0) + $2::bigint + $3::bigint <= $4::bigint FROM wallet_entries WHERE account_id=$1",
-    ).bind(account).bind(incoming).bind(coins).bind(oteryn_wallet::MAX_BALANCE).fetch_one(tx).await?;
+    ).bind(account).bind(incoming).bind(net_credit).bind(oteryn_wallet::MAX_BALANCE).fetch_one(tx).await?;
     if !fits {
         return Err(Error::InvalidInput);
     }

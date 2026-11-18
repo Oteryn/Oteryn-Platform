@@ -759,3 +759,105 @@ async fn restricted_at_creation_leaves_no_intent() -> TestResult {
     );
     h.finish().await
 }
+
+async fn browser_intent(h: &Harness, account: Uuid) -> Result<Intent, Box<dyn std::error::Error>> {
+    let intent = h.service(true).create_intent(account, amount()).await?;
+    sqlx::query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES($1,$2,'test-package',25,$3,$4,$1)")
+        .bind(intent.id).bind(account).bind(intent.amount.minor_units).bind(&intent.amount.currency).execute(&h.pool).await?;
+    Ok(intent)
+}
+
+async fn credit(h: &Harness, account: Uuid, operation: Uuid, coins: i64) -> TestResult {
+    let mut tx = h.pool.begin().await?;
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
+        .bind(account)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount,reference_id,reason) VALUES($1,'top_up',$2,$3,$2,$4)").bind(operation).bind(account).bind(coins).bind(format!("wallet-top-up:{operation}")).execute(&mut *tx).await?;
+    oteryn_wallet::credit_in(&mut tx, operation, account, coins).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn held_reversal(h: &Harness, account: Uuid) -> TestResult {
+    let order = Uuid::now_v7();
+    sqlx::query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at) VALUES ($1,$2,$1,25,100,'EUR',2,'testing',now(),now())").bind(order).bind(account).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code) VALUES ($1,$2,$1,$1,$1,25,100,'EUR',2,'testing',$1,'processing','review')").bind(order).bind(account).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES ($1,$1,$2,'chargeback','test','reversal',25,0,'held')").bind(order).bind(account).execute(&h.pool).await?;
+    sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')").bind(account).bind(order).execute(&h.pool).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn browser_delivered_chargeback() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    let intent = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    h.service(true).webhook(&body, &sig).await?;
+    credit(&h, account, intent.id, 25).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Chargeback))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::IllegalTransition)
+        ),
+        "delivered chargeback must be refused"
+    );
+    assert_eq!(
+        h.service(true).intent(intent.id).await?.state,
+        IntentState::Succeeded
+    );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn browser_hold_after_repayment() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    held_reversal(&h, account).await?;
+    credit(&h, account, Uuid::now_v7(), 25).await?;
+    let intent = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Err(Error::AccountDenied)
+        ),
+        "active purchase hold must block checkout"
+    );
+    h.finish().await
+}
+
+#[tokio::test]
+async fn browser_checkout_repays_debt_at_ceiling() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    credit(&h, account, Uuid::now_v7(), oteryn_wallet::MAX_BALANCE).await?;
+    held_reversal(&h, account).await?;
+    sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+        .bind(account)
+        .execute(&h.pool)
+        .await?;
+    let intent = browser_intent(&h, account).await?;
+    let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
+    assert!(
+        matches!(
+            h.service(true).webhook(&body, &sig).await,
+            Ok(WebhookOutcome::Applied)
+        ),
+        "debt-covered checkout must settle"
+    );
+    credit(&h, account, intent.id, 25).await?;
+    h.finish().await
+}
