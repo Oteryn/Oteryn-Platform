@@ -1201,22 +1201,7 @@ impl GrantSigner for PausingSigner {
     }
 }
 
-/// Round 4 `grant.rs:698`: protocol 3 selected and share-locked A, then waited
-/// in signer preparation; a route write gives another record A's endpoint and
-/// commits. A shared endpoint routes nowhere (§19.2.3 M1), so no grant is
-/// signed for A.
-#[tokio::test]
-async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult {
-    let mut f = Fixture::new().await?;
-    let world: Uuid = runtime::tests::WORLD.parse()?;
-    let reached = Arc::new(tokio::sync::Notify::new());
-    let resume = Arc::new(tokio::sync::Notify::new());
-    let signer: Arc<dyn GrantSigner> = Arc::new(PausingSigner {
-        inner: f.signer.clone(),
-        reached: reached.clone(),
-        resume: resume.clone(),
-    });
-    f.authority.issuance.signer = Some(signer.clone());
+async fn add_fresh_gamma(f: &mut Fixture, world: Uuid) -> TestResult {
     // A third, fresh candidate C keeps the response's channel list non-empty.
     let third = Uuid::now_v7();
     let third_revision = grant::route_revision(
@@ -1256,6 +1241,26 @@ async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult
         runtime::ingest(&f.db.pool, "node", &report).await,
         Ok("accepted")
     );
+    Ok(())
+}
+
+/// Round 4 `grant.rs:698`: protocol 3 selected and share-locked A, then waited
+/// in signer preparation; a route write gives another record A's endpoint and
+/// commits. A shared endpoint routes nowhere (§19.2.3 M1), so no grant is
+/// signed for A.
+#[tokio::test]
+async fn r4_protocol3_refuses_an_endpoint_shared_after_selection() -> TestResult {
+    let mut f = Fixture::new().await?;
+    let world: Uuid = runtime::tests::WORLD.parse()?;
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let signer: Arc<dyn GrantSigner> = Arc::new(PausingSigner {
+        inner: f.signer.clone(),
+        reached: reached.clone(),
+        resume: resume.clone(),
+    });
+    f.authority.issuance.signer = Some(signer.clone());
+    add_fresh_gamma(&mut f, world).await?;
     let mut request = f.request.clone();
     request.protocol = 3;
     let settings = Protocol3 {
@@ -1392,9 +1397,135 @@ async fn ipv6_endpoint_collision() -> TestResult {
         "shared IPv6 endpoint remained eligible"
     );
     assert_eq!(
-        grant::unshared(&mut conn, world, &candidate.route).await,
+        grant::unshared(
+            &mut conn,
+            world,
+            candidate.route.channel,
+            &candidate.route.endpoint
+        )
+        .await,
         Err(Error::RouteUnavailable)
     );
     drop(conn);
+    f.close().await
+}
+
+async fn publish_beta(
+    db: &mut PgConnection,
+    world: Uuid,
+    channel: Uuid,
+    host: &str,
+) -> Result<(), Error> {
+    let revision = grant::route_revision(1, world, channel, host, 7172, host)?;
+    sqlx::query("INSERT INTO game_channels(world_id,channel_id,channel_key,native_login_enabled,native_route_host,native_route_port,native_route_tls_server_name,native_route_version,native_route_revision) VALUES($1,$2,'beta',true,$3,7172,$3,1,$4) ON CONFLICT (world_id,channel_id) DO UPDATE SET native_route_host=excluded.native_route_host,native_route_tls_server_name=excluded.native_route_tls_server_name,native_route_revision=excluded.native_route_revision")
+        .bind(world).bind(channel).bind(host).bind(revision).execute(db).await.map_err(|_| Error::Unavailable)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn replay_refuses_shared_endpoint() -> TestResult {
+    let mut f = Fixture::new().await?;
+    let world = runtime::tests::WORLD.parse()?;
+    add_fresh_gamma(&mut f, world).await?;
+    let beta = Uuid::now_v7();
+    let mut db = f.db.pool.acquire().await?;
+    publish_beta(&mut db, world, beta, "beta.example.test").await?;
+    f.request.protocol = 3;
+    f.request.channel_id = Some(runtime::tests::CHANNEL.parse()?);
+    let settings = Protocol3 {
+        runtime: f.authority.issuance.runtime.clone(),
+        handles: Handles::Off,
+    };
+    let admit = || {
+        store::admit(
+            &f.db.pool,
+            &f.request,
+            &Accounts,
+            &f.authority,
+            Some(f.signer.as_ref()),
+            Some(&settings),
+        )
+    };
+    assert!(admit().await.is_ok());
+    publish_beta(&mut db, world, beta, "node.example.test").await?;
+    drop(db);
+    assert_eq!(
+        admit().await.err().map(|r| r.error),
+        Some(Error::RouteUnavailable)
+    );
+    f.close().await
+}
+
+#[derive(Debug)]
+enum PreparationChange {
+    ShareEndpoint(Uuid),
+    AgeWatermark,
+}
+#[derive(Debug)]
+struct ChangingSigner(Arc<dyn GrantSigner>, PreparationChange);
+impl GrantSigner for ChangingSigner {
+    fn prepare(&self) -> Future<'_, ()> {
+        self.0.prepare()
+    }
+    fn prepare_on<'a>(&'a self, db: &'a mut PgConnection) -> Future<'a, ()> {
+        Box::pin(async move {
+            match self.1 {
+                PreparationChange::ShareEndpoint(world) => {
+                    publish_beta(db, world, Uuid::now_v7(), "node.example.test").await?
+                }
+                PreparationChange::AgeWatermark => {
+                    sqlx::query("UPDATE account_character_feed SET complete_through=floor(extract(epoch FROM transaction_timestamp()))-31 WHERE id=1").execute(&mut *db).await.map_err(|_| Error::Unavailable)?;
+                }
+            }
+            self.0.prepare_on(db).await
+        })
+    }
+    fn sign(&self, payload: &[u8], expires: u64, now: u64) -> Result<String, Error> {
+        self.0.sign(payload, expires, now)
+    }
+    fn resign(&self, input: &str, expires: u64, now: u64) -> Result<String, Error> {
+        self.0.resign(input, expires, now)
+    }
+}
+
+#[tokio::test]
+async fn recovery_refuses_shared_endpoint_after_selection() -> TestResult {
+    let f = Fixture::new().await?;
+    let (request, mut issuer) = recovery_fixture(&f).await?;
+    issuer.signer = Some(Arc::new(ChangingSigner(
+        issuer.signer.take().ok_or("missing recovery signer")?,
+        PreparationChange::ShareEndpoint(runtime::tests::WORLD.parse()?),
+    )));
+    let result = recovery::recover(
+        &f.db.pool,
+        &request,
+        &Accounts,
+        &issuer,
+        &f.authority.issuance.runtime,
+    )
+    .await;
+    assert_eq!(
+        result.err().map(|r| r.error),
+        Some(recovery::RecoveryError::RouteUnavailable)
+    );
+    f.close().await
+}
+#[tokio::test]
+async fn admission_refuses_stale_watermark_after_preparation() -> TestResult {
+    let mut f = Fixture::new().await?;
+    f.authority.issuance.signer = Some(Arc::new(ChangingSigner(
+        f.signer.clone(),
+        PreparationChange::AgeWatermark,
+    )));
+    let result = store::admit(
+        &f.db.pool,
+        &f.request,
+        &Accounts,
+        &f.authority,
+        Some(f.signer.as_ref()),
+        None,
+    )
+    .await;
+    assert_eq!(result.err().map(|r| r.error), Some(Error::RouteUnavailable));
     f.close().await
 }

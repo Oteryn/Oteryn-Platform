@@ -223,6 +223,14 @@ fn source_of(req: &Request, trusted: &[IpAddr]) -> Result<String, ()> {
         _ => Ok(peer.to_string()),
     }
 }
+fn json_content_type(headers: &axum::http::HeaderMap) -> bool {
+    let mut types = headers.get_all("content-type").iter();
+    types.next().and_then(|v| v.to_str().ok()).is_some_and(|v| {
+        v.split(';')
+            .next()
+            .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"))
+    }) && types.next().is_none()
+}
 async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
     let Ok(source) = source_of(&req, &s.trusted_proxies) else {
         let mut response = StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -230,12 +238,7 @@ async fn login(State(s): State<Arc<StateData>>, req: Request) -> Response {
         return response;
     };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
-    let mut types = req.headers().get_all("content-type").iter();
-    let json = types.next().and_then(|v| v.to_str().ok()).is_some_and(|v| {
-        v.split(';')
-            .next()
-            .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"))
-    }) && types.next().is_none();
+    let json = json_content_type(req.headers());
     let mut response = if query {
         invalid()
     } else {
@@ -289,6 +292,7 @@ fn no_store(response: &mut Response) {
 async fn recovery_front(
     s: &StateData,
     req: Request,
+    malformed_media_type: bool,
     echo_of: fn(&[u8]) -> Option<String>,
 ) -> Result<(String, Vec<u8>), Box<Response>> {
     if !s.enabled {
@@ -310,7 +314,7 @@ async fn recovery_front(
             echo.as_deref(),
         )));
     }
-    if query {
+    if query || malformed_media_type {
         return Err(Box::new(refuse_recovery(
             RecoverCode::Malformed.into(),
             echo.as_deref(),
@@ -319,7 +323,9 @@ async fn recovery_front(
     Ok((source, body))
 }
 async fn recover_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
-    let mut response = match recovery_front(&s, req, wire::attempt_echo).await {
+    let malformed_media_type = !json_content_type(req.headers());
+    let mut response = match recovery_front(&s, req, malformed_media_type, wire::attempt_echo).await
+    {
         Ok((source, body)) => recovery(&s, &source, &body).await,
         Err(refused) => *refused,
     };
@@ -385,7 +391,7 @@ fn recover_limit(r: Refusal) -> RecoverRefusal {
     }
 }
 async fn revoke_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
-    let mut response = match recovery_front(&s, req, |_| None).await {
+    let mut response = match recovery_front(&s, req, false, |_| None).await {
         Ok((source, body)) => revocation(&s, &source, &body).await,
         Err(refused) => *refused,
     };

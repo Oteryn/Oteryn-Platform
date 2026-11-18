@@ -768,6 +768,13 @@ pub(super) async fn prepare_recovery(
         iat as i64,
     )
     .await?;
+    grant::unshared(
+        &mut tx,
+        bound.world,
+        candidate.route.channel,
+        &candidate.route.endpoint,
+    )
+    .await?;
     let payload = payload(&Claims {
         iat,
         ttl: issuer.ttl_seconds,
@@ -789,6 +796,13 @@ pub(super) async fn prepare_recovery(
         &candidate.route,
         &candidate.report,
         signed_at,
+    )
+    .await?;
+    grant::unshared(
+        &mut tx,
+        bound.world,
+        candidate.route.channel,
+        &candidate.route.endpoint,
     )
     .await?;
     let input = token
