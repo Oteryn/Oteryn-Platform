@@ -396,6 +396,12 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         .await?;
         self.check_in(&mut tx, context, Permission::KickAccountSessions)
             .await?;
+        // A self-kick intentionally advances the generation in the retained proof.
+        let expiry = if id == context.account {
+            Some(crate::rbac::SessionExpiry::capture(&mut tx, context).await?)
+        } else {
+            None
+        };
         let generation = oteryn_identity::security_revocations::staff_kick(&mut tx, id)
             .await
             .map_err(|error| match error {
@@ -406,10 +412,10 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
                 oteryn_identity::security_revocations::Error::Encoding => Error::Unavailable,
             })?
             .ok_or(Error::NotFound)?;
-        // The revocation append trigger can wait on its global counter. Expiry
-        // must be evaluated after that wait, even while RBAC remains retained.
-        self.check_in(&mut tx, context, Permission::KickAccountSessions)
-            .await?;
+        if expiry.is_none() {
+            self.check_in(&mut tx, context, Permission::KickAccountSessions)
+                .await?;
+        }
         append(
             &mut tx,
             context,
@@ -418,8 +424,12 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             json!({"reason":reason.trim(),"native_security_generation":generation}),
         )
         .await?;
-        self.check_in(&mut tx, context, Permission::KickAccountSessions)
-            .await?;
+        if let Some(expiry) = expiry {
+            expiry.check(&mut tx).await?;
+        } else {
+            self.check_in(&mut tx, context, Permission::KickAccountSessions)
+                .await?;
+        }
         tx.commit().await?;
         Ok(generation)
     }

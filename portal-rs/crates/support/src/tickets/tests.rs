@@ -1209,7 +1209,7 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
     for n in 0..51 {
         sqlx::query("INSERT INTO ticket_messages(id,ticket_id,author_account_id,author_kind,body,internal) VALUES($1,$2,$3,$4,$5,false)").bind(Uuid::now_v7()).bind(id).bind(if n==50 {staff} else {owner}).bind(if n==50 {"staff"} else {"user"}).bind(format!("Message {n}")).execute(&db.pool).await?;
     }
-    let (cookie, _) = db.cookie(owner).await?;
+    let (cookie, csrf) = db.cookie(owner).await?;
     let cursor: Uuid = sqlx::query_scalar(
         "SELECT id FROM ticket_messages WHERE ticket_id=$1 ORDER BY id OFFSET 49 LIMIT 1",
     )
@@ -1219,11 +1219,37 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
     let response = router(tickets.clone(), "http://localhost:3000")
         .oneshot(
             Request::head(format!("/en/support/tickets/{id}?after={cursor}"))
-                .header("cookie", cookie)
+                .header("cookie", &cookie)
                 .body(Body::empty())?,
         )
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
+    let response = router(tickets.clone(), "http://localhost:3000")
+        .oneshot(
+            Request::get(format!("/en/support/tickets/{id}?after={cursor}"))
+                .header("sec-purpose", "prefetch")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    let displayed = html
+        .split("name=\"reply\" value=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .ok_or("missing read form")?;
+    let acknowledge = |reply: &str| {
+        let app = router(tickets.clone(), "http://localhost:3000");
+        let req = Request::post(format!("/en/support/tickets/{id}/read"))
+            .header("cookie", &cookie)
+            .header("origin", "http://localhost:3000")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "_csrf={csrf}&after={cursor}&reply={reply}"
+            )));
+        async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(req?).await?) }
+    };
     let (_, first) = tickets.show(owner, false, id).await?;
     let unread = || {
         sqlx::query_scalar::<_, bool>("SELECT unread_reply FROM tickets WHERE id=$1")
@@ -1262,6 +1288,14 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
         .await?;
     tickets.show(owner, false, id).await?;
     assert!(unread().await?);
+    assert_eq!(acknowledge(displayed).await?.status(), StatusCode::FOUND);
+    assert!(unread().await?);
+    let latest:Uuid=sqlx::query_scalar("SELECT id FROM ticket_messages WHERE ticket_id=$1 AND author_kind='staff' ORDER BY id DESC LIMIT 1").bind(id).fetch_one(&db.pool).await?;
+    assert_eq!(
+        acknowledge(&latest.to_string()).await?.status(),
+        StatusCode::FOUND
+    );
+    assert!(!unread().await?);
     db.finish().await?;
     eprintln!(
         "postgres_read_acknowledgement_requires_displayed_reply duration: {:?}",
@@ -1369,6 +1403,15 @@ async fn audit_w3_02_changed_payload_draft_recovers_on_postgres() -> TestResult 
         )
         .await?;
     assert_eq!(head.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/en/support/tickets/create")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
     let response = app
         .clone()
         .oneshot(

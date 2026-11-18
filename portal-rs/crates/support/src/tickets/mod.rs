@@ -73,6 +73,12 @@ fn valid_text(value: &str, max: usize) -> bool {
 fn active(status: &str) -> bool {
     matches!(status, "open" | "waiting_user" | "waiting_staff")
 }
+enum Acknowledge {
+    Never,
+    DisplayedPage,
+    Reply(Uuid),
+}
+
 impl Tickets {
     fn enabled(&self) -> Result<()> {
         if !self.enabled || self.open_limit == 0 {
@@ -413,7 +419,9 @@ impl Tickets {
         id: Uuid,
         after: Option<Uuid>,
     ) -> Result<(Ticket, Vec<Message>)> {
-        self.load_page(account, staff, id, after, true).await
+        self.load_page(account, staff, id, after, Acknowledge::DisplayedPage)
+            .await
+            .map(|(ticket, messages, _)| (ticket, messages))
     }
 
     async fn load_page(
@@ -422,11 +430,11 @@ impl Tickets {
         staff: bool,
         id: Uuid,
         after: Option<Uuid>,
-        acknowledge: bool,
-    ) -> Result<(Ticket, Vec<Message>)> {
+        acknowledge: Acknowledge,
+    ) -> Result<(Ticket, Vec<Message>, Option<Uuid>)> {
         self.enabled()?;
         let mut tx = self.pool.begin().await?;
-        let ticket = sqlx::query_as(
+        let ticket: Ticket = sqlx::query_as(
             "SELECT * FROM tickets WHERE id=$1 AND ($2 OR account_id=$3) FOR UPDATE",
         )
         .bind(id)
@@ -443,19 +451,27 @@ impl Tickets {
         .bind(after)
         .fetch_all(&mut *tx)
         .await?;
-        if acknowledge && !staff {
+        let mut read_reply = None;
+        if ticket.unread_reply && !staff {
             // The ticket lock fences concurrent replies. A durable message ID
             // identifies the newest public reply; only its displayed page may
             // acknowledge it. Owner mutations establish no viewing boundary.
             let boundary: Option<Uuid> = sqlx::query_scalar("SELECT id FROM ticket_messages WHERE ticket_id=$1 AND author_kind='staff' AND NOT internal ORDER BY id DESC LIMIT 1")
                 .bind(id).fetch_optional(&mut *tx).await?;
-            if let Some(boundary) = boundary.filter(|id| messages.iter().any(|m| m.id == *id)) {
+            read_reply = boundary.filter(|id| messages.iter().any(|m| m.id == *id));
+            if let Some(boundary) = read_reply
+                && match acknowledge {
+                    Acknowledge::Never => false,
+                    Acknowledge::DisplayedPage => true,
+                    Acknowledge::Reply(reply) => reply == boundary,
+                }
+            {
                 sqlx::query("UPDATE tickets SET unread_reply=false WHERE id=$1 AND account_id=$2 AND NOT EXISTS (SELECT 1 FROM ticket_messages WHERE ticket_id=$1 AND author_kind='staff' AND NOT internal AND id>$3)")
                     .bind(id).bind(account).bind(boundary).execute(&mut *tx).await?;
             }
         }
         tx.commit().await?;
-        Ok((ticket, messages))
+        Ok((ticket, messages, read_reply))
     }
 }
 #[derive(Debug, Clone, Copy)]
