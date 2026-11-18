@@ -744,8 +744,12 @@ async fn wave2_01_unrelated_account_lock_does_not_block_recovery() -> TestResult
         .bind(other)
         .execute(&mut *blocker)
         .await?;
+    // recover() sets lock_timeout=2s, so waiting on B's row lock returns an
+    // error that the is_ok assertions reject. The outer guard only bounds a hang
+    // and stays above that lock timeout so CI load cannot cause a false failure.
+    const RECOVERY_GUARD: Duration = Duration::from_secs(10);
     let response = tokio::time::timeout(
-        Duration::from_secs(2),
+        RECOVERY_GUARD,
         recovery::recover(
             &f.db.pool,
             &request,
@@ -758,7 +762,7 @@ async fn wave2_01_unrelated_account_lock_does_not_block_recovery() -> TestResult
     assert!(response.is_ok(), "{response:?}");
     // Retry authentication must also stay independent of B.
     let retry = tokio::time::timeout(
-        Duration::from_secs(2),
+        RECOVERY_GUARD,
         recovery::recover(
             &f.db.pool,
             &request,
