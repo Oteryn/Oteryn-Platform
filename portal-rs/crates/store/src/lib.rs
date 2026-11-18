@@ -16,3 +16,6 @@ pub mod navigation;
 
 #[cfg(test)]
 mod begin_guard_tests;
+
+#[cfg(test)]
+mod property_tests;

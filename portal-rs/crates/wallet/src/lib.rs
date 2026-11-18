@@ -16,3 +16,5 @@ pub use ledger::{incoming_capacity_in, incoming_capacity_with_topup_in, reserve_
 
 #[cfg(test)]
 mod payer_guard_tests;
+#[cfg(test)]
+mod property_tests;
