@@ -121,6 +121,9 @@ async fn database() -> Result<Option<Database>, Box<dyn std::error::Error>> {
         include_str!("../../../migrations/20261105144852_t02_web_sessions.sql"),
         include_str!("../../../migrations/20261105220221_t08_sessions.sql"),
         include_str!("../../../migrations/20261105153000_t31_payments.sql"),
+        include_str!("../../../migrations/20261105220215_t16_oauth.sql"),
+        include_str!("../../../migrations/20261112100005_coin_native_orders.sql"),
+        include_str!("../../../migrations/20261112100010_coin_native_reversals.sql"),
         include_str!("../../../migrations/20261105160000_t27_premium_ledger.sql"),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await?;
@@ -441,4 +444,25 @@ async fn db_browser_layout_labels_and_keyboard_at_360px() -> TestResult {
     database.finish().await?;
     assert!(result?.success());
     Ok(())
+}
+
+#[tokio::test]
+async fn localized_chargeback_history() -> TestResult {
+    let Some(pool) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    let (intent, _) = seed(&pool, account).await?;
+    sqlx::query("UPDATE payment_intents SET state='chargeback' WHERE id=$1")
+        .bind(intent)
+        .execute(&*pool)
+        .await?;
+    let cookie = cookie(&pool, account).await?;
+    for (lang, label) in [("en", "Chargeback"), ("pl", "Obciążenie zwrotne")] {
+        let response = request(&pool, &cookie, &format!("/{lang}/panel/payments")).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+        assert!(html.contains(label), "missing history status {label}");
+    }
+    pool.finish().await
 }
