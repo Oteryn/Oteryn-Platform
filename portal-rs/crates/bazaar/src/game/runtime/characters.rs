@@ -115,6 +115,21 @@ pub(crate) async fn staged(
     }
     Ok(v)
 }
+pub(crate) async fn settlement_buyer(
+    db: &mut PgConnection,
+    i: &PreparedIntent,
+) -> Result<Uuid, Error> {
+    sqlx::query_scalar(
+                "SELECT buyer FROM bazaar_settlements WHERE id=$1 AND listing_id=$2 AND seller=$3 UNION ALL SELECT buyer FROM bazaar_authority_gold_sales WHERE id=$1 AND listing_id=$2 AND seller=$3",
+            )
+            .bind(id(text(&i.value, "sale_id")?)?)
+            .bind(id(text(&i.value, "listing_id")?)?)
+            .bind(id(text(&i.value, "seller_account_id")?)?)
+            .fetch_optional(db)
+            .await?
+            .ok_or(Error::Unavailable)
+}
+
 pub(crate) async fn validate_bind(
     a: &Authority,
     db: &mut PgConnection,
@@ -148,16 +163,7 @@ pub(crate) async fn validate_bind(
         "BAZAAR_LISTING_ESCROW" => (seller, escrow),
         "BAZAAR_ESCROW_RETURN" => (escrow, seller),
         "BAZAAR_SETTLEMENT" => {
-            let sale = id(text(&i.value, "sale_id")?)?;
-            let buyer: Uuid = sqlx::query_scalar(
-                "SELECT buyer FROM bazaar_settlements WHERE id=$1 AND listing_id=$2 AND seller=$3 UNION ALL SELECT buyer FROM bazaar_authority_gold_sales WHERE id=$1 AND listing_id=$2 AND seller=$3",
-            )
-            .bind(sale)
-            .bind(listing)
-            .bind(seller)
-            .fetch_optional(&mut *db)
-            .await?
-            .ok_or(Error::Unavailable)?;
+            let buyer = settlement_buyer(db, i).await?;
             funded(a, db, &i.value, buyer).await?;
             (escrow, buyer)
         }
