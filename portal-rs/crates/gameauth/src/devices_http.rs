@@ -322,7 +322,7 @@ mod tests {
 }
 
 fn source_prefix(source: std::net::IpAddr) -> String {
-    match source {
+    match source.to_canonical() {
         std::net::IpAddr::V4(ip) => ip.to_string(),
         std::net::IpAddr::V6(ip) => {
             let prefix = u128::from(ip) & (u128::MAX << 64);
