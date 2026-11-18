@@ -997,7 +997,12 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
 /// Capacity promised to irreversible incoming payouts. Caller holds the wallet
 /// row lock, as do all credits and reservation writers.
 pub async fn incoming_capacity_in(db: &mut PgConnection, account: Uuid) -> Result<i64, Error> {
-    incoming_capacity_with_topup_in(db, account, 0).await
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE(sum(amount),0)::bigint FROM wallet_incoming_capacity WHERE account_id=$1",
+    )
+    .bind(account)
+    .fetch_one(db)
+    .await?)
 }
 
 /// Project incoming capacity under the wallet lock, including a proposed
