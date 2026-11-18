@@ -2481,3 +2481,71 @@ async fn r11_character_replay_expiry() -> std::result::Result<(), Box<dyn std::e
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_superseded_progress_epoch_payload_expires()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let Some(db) = Db::open().await? else {
+        return Ok(());
+    };
+    let authority = TestAuthority::default();
+    let store = db.store(&authority);
+    let mut keys = Vec::new();
+    for epoch in [1, 2] {
+        let bytes = String::from_utf8(family_bytes(
+            "premium_end",
+            "premium",
+            r#"{"observed_state":"EXPIRED","effective_until_unix_us":"0","authority_revision":"12"}"#,
+            true,
+        ))?
+        .replace(
+            r#""projection_epoch":"1""#,
+            &format!(r#""projection_epoch":"{epoch}""#),
+        );
+        let record = playerdata::progress(bytes.as_bytes())?;
+        authority.allow(record.scope.clone()).await;
+        authority.allow(watermark_scope(&record.scope)).await;
+        keys.push(stream_key(&record.scope));
+        store.ingest(record, clock()).await?;
+        let watermark = String::from_utf8(watermark_for("premium_end", 1).bytes)?.replace(
+            r#""projection_epoch":"1""#,
+            &format!(r#""projection_epoch":"{epoch}""#),
+        );
+        store
+            .watermark(playerdata::watermark(watermark.as_bytes())?, clock())
+            .await?;
+    }
+    let deadline = NOW + 7 * 86400000;
+    let expires = sqlx::query_scalar::<_, i64>(
+        "SELECT expires_ms FROM pd_records WHERE stream_key=ANY($1) ORDER BY stream_key",
+    )
+    .bind(&keys)
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(expires.len(), 2);
+    assert!(
+        expires[0] as u64 <= deadline,
+        "epoch 1 expires at {}",
+        expires[0]
+    );
+    assert_eq!(expires[1] as u64, NOW + 36500 * 86400000);
+
+    assert_eq!(
+        store
+            .expire(TrustedTime {
+                unix_ms: deadline + 1,
+                uncertainty_ms: 0
+            })
+            .await?,
+        1
+    );
+    let has_payload = sqlx::query_scalar::<_, bool>(
+        "SELECT payload IS NOT NULL FROM pd_records WHERE stream_key=ANY($1) ORDER BY stream_key",
+    )
+    .bind(&keys)
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(has_payload, [false, true]);
+    db.close().await?;
+    Ok(())
+}
