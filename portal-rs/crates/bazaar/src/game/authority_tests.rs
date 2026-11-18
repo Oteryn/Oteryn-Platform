@@ -5241,6 +5241,73 @@ async fn r8_stale_coin_pull() {
     db.end().await;
 }
 #[tokio::test]
+async fn unresynced_deliver_pull_requires_expiry_plus_skew_and_allows_receipt_replay() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let original = newest_intent(&db, uid("20"), Command::Deliver).await;
+    let op = text(&original.value, "operation_id").unwrap();
+    let a = db.runtime.authority();
+    let peer = &a.config.projection_authority;
+    let request = format!(
+        r#"{{"contract_version":2,"operation":"ReadBazaarCommandIntentV1","source_authority":"{peer}","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","command":"DeliverBazaarItem","operation_id":"{op}"}}"#
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM bazaar_authority_resync")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(matches!(
+        a.finish_resync(&mut tx, &[uid("12")]).await,
+        Err(Error::Unavailable)
+    ));
+    assert!(matches!(
+        a.exchange(&mut tx, peer, request.as_bytes()).await,
+        Err(Error::Unavailable)
+    ));
+    for age in [1, 6] {
+        let now = runtime::now(&mut tx).await.unwrap();
+        let mut value = original.value.clone();
+        let Value::Object(fields) = &mut value else {
+            panic!("expected intent object")
+        };
+        for (name, field) in fields {
+            match name.as_str() {
+                "issued_at_source" => *field = Value::String((now - 60).to_string()),
+                "expires_at_source" => *field = Value::String((now - age).to_string()),
+                _ => {}
+            }
+        }
+        let raw = String::from_utf8(canonical::encode(&value).unwrap()).unwrap();
+        let intent = PreparedIntent::parse(&raw).unwrap();
+        sqlx::query(
+            "UPDATE bazaar_game_outbox SET intent=$2,binding_digest=$3 WHERE operation_id=$1",
+        )
+        .bind(id(op).unwrap())
+        .bind(&raw)
+        .bind(intent.binding_digest())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let result = a.exchange(&mut tx, peer, request.as_bytes()).await;
+        if age < 5 {
+            assert!(matches!(result, Err(Error::Unavailable)));
+        } else {
+            assert_eq!(result.unwrap(), raw);
+        }
+    }
+    tx.commit().await.unwrap();
+    let expired = newest_intent(&db, uid("20"), Command::Deliver).await;
+    reject_expired(&db, &expired).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    assert!(a.resynced(&mut tx).await.unwrap());
+    tx.commit().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
 async fn r9_fractional_gold_window() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = BrowserFixture::new().await;
