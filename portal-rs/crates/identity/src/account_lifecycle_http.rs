@@ -611,13 +611,21 @@ pub(crate) async fn request_test_termination(
 ) -> Result<termination::Result<termination::Termination>, Box<dyn std::error::Error>> {
     let password = "closure financial fixture password";
     let actor = test_termination_actor(pool, account, password).await?;
+    // Accepting a request must initialize Game closure work in the same transaction.
+    let boundary = termination::game_closure::runtime::Config::load(|key| match key {
+        "PORTAL_ACCOUNT_CLOSURE_ENABLED" => Some("true".into()),
+        "PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION" => Some("3".into()),
+        _ => None,
+    })?
+    .boundary(Arc::new(TerminationBoundary), true)?
+    .ok_or("closure boundary disabled")?;
     let service = termination::Terminations::new(
         pool.clone(),
         termination::Config {
             enabled: true,
             ..Default::default()
         },
-        Arc::new(TerminationBoundary),
+        boundary,
     )?;
     Ok(service
         .request(account, &actor, password, "TERMINATE")
