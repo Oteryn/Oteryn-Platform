@@ -237,6 +237,7 @@ impl Services {
 pub async fn router_with_restore(
     services: Services,
     mut restore_settings: crate::restore::Settings,
+    store_reconciliation: Option<Arc<dyn crate::restore::StoreReconciliation>>,
     command_settings: commands::Settings,
     identities: Arc<IdentityMap>,
 ) -> Router {
@@ -256,7 +257,8 @@ pub async fn router_with_restore(
         && services.settings.command_authority == command_settings.source_authority
         && services.settings.command_authority == restore_settings.source_authority;
     crate::restore::router(
-        crate::restore::Restore::new(services.pool.clone(), restore_settings),
+        crate::restore::Restore::new(services.pool.clone(), restore_settings)
+            .with_store_reconciliation(store_reconciliation),
         command_settings,
         identities,
     )

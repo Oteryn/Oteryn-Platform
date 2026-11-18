@@ -581,9 +581,36 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
         .ok_or("missing session cookie")?
         .to_owned();
     let csrf = String::from_utf8(to_bytes(response.into_body(), 4096).await?.to_vec())?;
+    let ledger = oteryn_wallet::Ledger::new(
+        db.pool.clone(),
+        oteryn_wallet::WalletFlags { enabled: true },
+        WalletAuthority,
+        WalletAuthority,
+        WalletAuthority,
+    );
+    ledger
+        .adjust(
+            Uuid::now_v7(),
+            db.account,
+            200,
+            db.account,
+            "Synthetic pass fixture",
+        )
+        .await?;
+    let service = Passes::new(
+        db.pool.clone(),
+        Flags {
+            enabled: true,
+            paid: true,
+            rewards: true,
+        },
+        Trusted,
+        Wallet::new(ledger.clone()),
+        Wire,
+    );
     let router = web::router(
         db.pool.clone(),
-        db.service(),
+        service,
         Flags {
             enabled: true,
             paid: true,
@@ -624,6 +651,35 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
         .await?;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert!(!db.service().progress(db.account, db.season.id).await?.paid);
+    oteryn_db::test_support::coin_chargeback_hold(&db.pool, db.account).await?;
+    for held in [true, false] {
+        if !held {
+            sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+                .bind(db.account)
+                .execute(&db.pool)
+                .await?;
+        }
+        let response = router
+            .clone()
+            .oneshot(
+                Request::post(&uri)
+                    .header(header::COOKIE, &cookie)
+                    .header(header::ORIGIN, "https://portal.example.invalid")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={csrf}&operation={operation}")))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    ledger
+        .adjust(
+            Uuid::now_v7(),
+            db.account,
+            10,
+            db.account,
+            "Synthetic debt repayment",
+        )
+        .await?;
     let response = router
         .clone()
         .oneshot(

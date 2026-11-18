@@ -666,11 +666,13 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     for permission in [Permission::Access, Permission::ManageRoles] {
         s.auth.check_in(&mut tx, context, permission).await?;
     }
-    let key: Option<String> = sqlx::query_scalar("SELECT key FROM roles WHERE id=$1")
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM roles WHERE id=$1)")
         .bind(role)
-        .fetch_optional(&mut *tx)
+        .fetch_one(&mut *tx)
         .await?;
-    let key = key.ok_or(Error::RoleNotFound)?;
+    if !exists {
+        return Err(Error::RoleNotFound);
+    }
     let assigned: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
     )
@@ -678,22 +680,8 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     .bind(role)
     .fetch_one(&mut *tx)
     .await?;
-    if assigned && matches!(key.as_str(), "owner" | "platform_admin") {
-        let others = if let Some(candidate) = survivor {
-            let member: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
-            )
-            .bind(role)
-            .bind(candidate)
-            .fetch_one(&mut *tx)
-            .await?;
-            member && s.auth.account_active_in(&mut tx, candidate).await
-        } else {
-            false
-        };
-        if !others {
-            return Err(Error::Denied);
-        }
+    if assigned && !oteryn_db::protected_role_survives(&mut tx, account, Some(role)).await? {
+        return Err(Error::Denied);
     }
     if assigned {
         sqlx::query("DELETE FROM account_roles WHERE account_id=$1 AND role_id=$2")

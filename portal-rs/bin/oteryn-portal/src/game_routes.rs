@@ -150,7 +150,7 @@ pub async fn mount(
     routes.mount(app)
 }
 
-/// Restore does not yet reconcile Store receipts or include them in its fence.
+/// A Store-enabled restore must identify the trusted notice source.
 fn validate_store_restore(values: &Values) -> Result<(), ConfigError> {
     if values
         .get("PORTAL_GAME_RESTORE_NOTICE_ENABLED")
@@ -160,10 +160,36 @@ fn validate_store_restore(values: &Values) -> Result<(), ConfigError> {
             .get("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED")
             .map(String::as_str)
             == Some("true")
+        && values
+            .get("PORTAL_GAME_RESTORE_NOTICE_SOURCE_AUTHORITY")
+            .is_none_or(String::is_empty)
     {
         return Err(ConfigError);
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct StoreRestore(delivery::Delivery);
+
+impl restore::StoreReconciliation for StoreRestore {
+    fn reopen<'a>(
+        &'a self,
+        tx: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event: uuid::Uuid,
+        restored: u64,
+        generation: u64,
+    ) -> restore::ReopenFuture<'a> {
+        Box::pin(async move {
+            self.0
+                .reopen_in(tx, event, restored, generation)
+                .await
+                .map_err(|error| match error {
+                    delivery::Error::Conflict => restore::Error::Conflict,
+                    _ => restore::Error::Unavailable,
+                })
+        })
+    }
 }
 
 /// Built routers; `stats` and `families` also answer their own families on the
@@ -226,9 +252,25 @@ impl Routes {
             exchange_available: qualified,
             ..restore::Settings::default()
         };
+        let mut store_settings = purchase::Settings::from_lookup(get);
+        // Store's domain settings use the contract's legacy environment labels.
+        // Adapt the parsed process environment here, never the raw OTERYN_ENV.
+        store_settings.environment = match environment {
+            oteryn_core::Environment::Local => "local",
+            oteryn_core::Environment::Testing => "testing",
+            oteryn_core::Environment::Preprod => "preproduction",
+            oteryn_core::Environment::Production => "production",
+        }
+        .into();
+        store_settings.delivery_enabled &= valid;
+        let store_delivery = delivery::Delivery::new(pool.clone(), store_settings.clone());
+        let store_reconciliation = store_delivery.enabled().then(|| {
+            Arc::new(StoreRestore(store_delivery.clone())) as Arc<dyn restore::StoreReconciliation>
+        });
         let characters = oteryn_web::internal_character_services_router(
             services::Services::new(pool.clone(), service_settings),
             restore_settings,
+            store_reconciliation,
             command_settings,
             identities.clone(),
         )
@@ -281,17 +323,6 @@ impl Routes {
             identities.clone(),
         );
 
-        let mut store_settings = purchase::Settings::from_lookup(get);
-        // Store's domain settings use the contract's legacy environment labels.
-        // Adapt the parsed process environment here, never the raw OTERYN_ENV.
-        store_settings.environment = match environment {
-            oteryn_core::Environment::Local => "local",
-            oteryn_core::Environment::Testing => "testing",
-            oteryn_core::Environment::Preprod => "preproduction",
-            oteryn_core::Environment::Production => "production",
-        }
-        .into();
-        store_settings.delivery_enabled &= valid;
         let mut purchase_settings = store_settings.clone();
         purchase_settings.purchase_enabled &= qualified
             && matches!(
@@ -317,10 +348,7 @@ impl Routes {
             .into_iter()
             .filter(|binding| binding.group != delivery::http::GROUP)
             .collect();
-        let delivery = delivery::http::router(
-            delivery::Delivery::new(pool.clone(), store_settings),
-            others,
-        );
+        let delivery = delivery::http::router(store_delivery, others);
 
         let mut sessions_settings = sessions::Settings::from_lookup(get);
         sessions_settings.ingest &= valid && qualified;

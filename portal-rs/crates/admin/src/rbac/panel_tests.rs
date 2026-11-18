@@ -502,6 +502,17 @@ async fn postgres_role_pages_and_survivor_batches_are_bounded() -> TestResult {
     assert_eq!(batch.len(), 50);
     assert_eq!(batch, holders[..50]);
     let (cookie, csrf) = browser(&db).await?;
+    sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')")
+        .bind(holders[124]).execute(&db.pool).await?;
+    let revoke = format!("action=revoke&account={}&role={role}", db.actor.account);
+    assert_eq!(
+        post(&db, &cookie, &csrf, revoke).await?,
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("UPDATE account_terminations SET cancelled_at=now() WHERE account_id=$1")
+        .bind(holders[124])
+        .execute(&db.pool)
+        .await?;
     assert_eq!(
         post(
             &db,
@@ -768,4 +779,77 @@ async fn postgres_a3_role_writer_rechecks_current_session_mfa_binding() -> TestR
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn generic_role_revocation_requires_a_nonterminating_survivor() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Fixture::open(3).await?;
+    insert_account(&db, db.actor.account, "active").await?;
+    let target = db.actor.account;
+    let pending = Uuid::now_v7();
+    let actor = Uuid::now_v7();
+    insert_account(&db, pending, "active").await?;
+    insert_account(&db, actor, "active").await?;
+    let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(pending)
+        .bind(role)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')")
+        .bind(pending).execute(&db.pool).await?;
+    let manager: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES('delegated_role_manager') RETURNING id")
+            .fetch_one(&db.pool)
+            .await?;
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage')")
+        .bind(manager)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(actor)
+        .bind(manager)
+        .execute(&db.pool)
+        .await?;
+    let context = CheckContext {
+        account: actor,
+        session_proof: Some(crate::test_staff::proof(&db.pool, actor).await?),
+        ..db.actor
+    };
+    let authorizer = Authorizer::new(db.pool.clone(), PortalIdentity::configured(db.pool.clone()));
+    authorizer.check(context, Permission::ManageRoles).await?;
+    assert!(matches!(
+        authorizer
+            .change(
+                context,
+                Uuid::now_v7(),
+                super::Change::Revoke {
+                    account: target,
+                    role
+                }
+            )
+            .await,
+        Err(super::Error::Denied)
+    ));
+    sqlx::query("UPDATE account_terminations SET cancelled_at=now() WHERE account_id=$1")
+        .bind(pending)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        authorizer
+            .change(
+                context,
+                Uuid::now_v7(),
+                super::Change::Revoke {
+                    account: target,
+                    role
+                }
+            )
+            .await?,
+        Some(role)
+    );
+    db.close().await
 }

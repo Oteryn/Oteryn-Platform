@@ -179,7 +179,7 @@ impl Delivery {
             return Err(Error::Unavailable);
         }
         let stale: bool = sqlx::query_scalar(
-            "SELECT new_recovery_generation > $1::text::numeric OR COALESCE((SELECT max(new_recovery_generation)::numeric <> $1::text::numeric FROM character_restore_notices WHERE acknowledged_at IS NOT NULL), false) FROM store_delivery_fence WHERE id=1",
+            "SELECT new_recovery_generation > $1::text::numeric OR COALESCE((SELECT max(new_recovery_generation)::numeric <> $1::text::numeric FROM character_restore_notices), false) FROM store_delivery_fence WHERE id=1",
         )
         .bind(get(&v, "recovery_generation")?)
         .fetch_one(&mut *tx)
@@ -254,6 +254,19 @@ impl Delivery {
         sqlx::query("SELECT pg_advisory_xact_lock(29,1)")
             .execute(&mut **tx)
             .await?;
+        let ambiguous: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM store_operations o
+                LEFT JOIN store_receipts r ON r.operation_id=o.operation_id AND r.superseded_by_restore_event_id IS NULL
+                WHERE (o.state IN ('COMMITTED','REJECTED')) IS DISTINCT FROM (r.receipt_id IS NOT NULL)
+                   OR (r.receipt_id IS NOT NULL AND o.state<>r.outcome)
+            )",
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+        if ambiguous {
+            return Err(Error::Unavailable);
+        }
         let rows = sqlx::query("SELECT o.operation_id,o.entitlement_id,o.operation_kind FROM store_operations o LEFT JOIN store_receipts r ON r.operation_id=o.operation_id AND r.superseded_by_restore_event_id IS NULL WHERE r.recovery_generation >= $1::text::numeric OR o.state='REOPENED' ORDER BY o.source_revision LIMIT 129 FOR UPDATE OF o")
             .bind(restored.to_string()).fetch_all(&mut **tx).await?;
         // Refuse atomically; the caller rolls back without a partial generation.

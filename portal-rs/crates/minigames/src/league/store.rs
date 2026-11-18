@@ -152,10 +152,11 @@ impl<A: Authority> League<A> {
             if !recovery && next_revision < old_revision {
                 return Err(Error::Conflict);
             }
+            if !recovery && next_revision > old_revision.saturating_add(1) {
+                return Err(Error::MissingPredecessor);
+            }
             let conflict = if !recovery && next_revision == old_revision {
                 content_hash != old.try_get::<String, _>("content_hash")?
-            } else if !recovery && next_revision != old_revision.saturating_add(1) {
-                true
             } else if record_hash == old.try_get::<String, _>("record_hash")? {
                 false
             } else if old.try_get::<bool, _>("final_state")? {

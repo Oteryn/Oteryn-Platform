@@ -5,7 +5,7 @@ mod http;
 mod storage;
 mod wire;
 pub use http::router;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -58,13 +58,36 @@ impl From<sqlx::Error> for Error {
 pub struct Restore {
     pool: PgPool,
     settings: Arc<Settings>,
+    store: Option<Arc<dyn StoreReconciliation>>,
 }
+pub type ReopenFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64, Error>> + Send + 'a>>;
+
+/// Store supplies this adapter only when its receipt exchange is available.
+pub trait StoreReconciliation: std::fmt::Debug + Send + Sync {
+    fn reopen<'a>(
+        &'a self,
+        tx: &'a mut Transaction<'_, Postgres>,
+        event: Uuid,
+        restored: u64,
+        generation: u64,
+    ) -> ReopenFuture<'a>;
+}
+
 impl Restore {
     pub fn new(pool: PgPool, settings: Settings) -> Self {
         Self {
             pool,
             settings: Arc::new(settings),
+            store: None,
         }
+    }
+    pub fn with_store_reconciliation(
+        mut self,
+        store: Option<Arc<dyn StoreReconciliation>>,
+    ) -> Self {
+        self.store = store;
+        self
     }
     /// Accept a trusted notice. Network callers must use the dedicated guarded router.
     pub async fn notice(&self, raw: &[u8]) -> Result<String, Error> {

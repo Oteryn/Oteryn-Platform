@@ -49,10 +49,7 @@ impl DeathRetention {
         sqlx::query("SELECT pg_advisory_xact_lock(65001)")
             .execute(&mut *tx)
             .await?;
-        let n = sqlx::query("DELETE FROM stats_character_events WHERE kind='death' AND details->>'occurred_at' ~ '^[0-9]{1,18}$' AND (details->>'occurred_at')::bigint < extract(epoch FROM now())::bigint-30*86400")
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
+        let n = purge_death_details(&mut tx, false).await?;
         tx.commit().await?;
         Ok(n)
     }
@@ -67,6 +64,33 @@ impl oteryn_db::outbox::Cleanup for DeathRetention {
         })
     }
 }
+/// The UTC event day bounds retention even if copied details cannot supply
+/// a timestamp. Use the end of that day to preserve the full 30-day window.
+async fn purge_death_details(
+    tx: &mut sqlx::PgConnection,
+    remove_other_epochs: bool,
+) -> Result<u64, sqlx::Error> {
+    Ok(sqlx::query(
+        "DELETE FROM stats_character_events WHERE kind='death' AND (
+            COALESCE(
+                CASE WHEN details->>'occurred_at' ~ '^[1-9][0-9]{0,11}$' THEN
+                    CASE WHEN (details->>'occurred_at')::bigint <= 253402300799
+                         THEN (details->>'occurred_at')::bigint END
+                END,
+                extract(epoch FROM (day + 1)::timestamp)::bigint
+            ) < extract(epoch FROM now())::bigint - 30*86400
+            OR ($1 AND details ? '_statistics_epoch' AND
+                CASE WHEN details->>'_statistics_epoch' ~ '^[0-9]{1,20}$'
+                     THEN (details->>'_statistics_epoch')::numeric END
+                IS DISTINCT FROM (SELECT highest_epoch FROM public_projection_state WHERE id=1))
+        )",
+    )
+    .bind(remove_other_epochs)
+    .execute(tx)
+    .await?
+    .rows_affected())
+}
+
 impl StatisticsJob {
     /// Disabled jobs do not connect to the database.
     pub async fn run(&self) -> Result<usize, sqlx::Error> {
@@ -85,8 +109,7 @@ impl StatisticsJob {
         sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
             .fetch_one(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM stats_character_events WHERE kind='death' AND details ? '_statistics_epoch' AND ((details->>'_statistics_epoch')::numeric IS DISTINCT FROM (SELECT highest_epoch FROM public_projection_state WHERE id=1) OR (details->>'occurred_at')::bigint < extract(epoch FROM now())::bigint-30*86400)")
-            .execute(&mut *tx).await?;
+        purge_death_details(&mut tx, true).await?;
         // New/revised subjects precede watermark-only refreshes. Refresh the
         // oldest saved cut first so an advancing family watermark cannot keep
         // the same first batch ahead of unfinished or completeness-held deaths.

@@ -534,10 +534,12 @@ impl FeedJob {
                 let next_epoch = schema::number(s.epoch(), false)?;
                 let old_revision = schema::number(&revision, false)?;
                 let next_revision = schema::number(s.revision(), false)?;
+                if next_epoch == old_epoch && next_revision > old_revision.saturating_add(1) {
+                    return Err(Error::MissingPredecessor);
+                }
                 if next_epoch < old_epoch
                     || (next_epoch == old_epoch
                         && (next_revision < old_revision
-                            || next_revision > old_revision.saturating_add(1)
                             || (next_revision == old_revision
                                 && hash != schema::hash(&s.record()?))))
                 {

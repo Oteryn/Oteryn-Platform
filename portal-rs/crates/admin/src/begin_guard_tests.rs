@@ -98,3 +98,29 @@ fn every_transaction_bounds_its_lock_waits() -> Result<(), Box<dyn std::error::E
     );
     Ok(())
 }
+
+#[test]
+fn account_role_deletions_check_protected_role_survival() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    sources(&root, &root, &mut files)?;
+    let mut checked = Vec::new();
+    for (name, source) in &files {
+        for (index, _) in source.match_indices("DELETE FROM account_roles") {
+            let prior = &source[..index];
+            let guard = prior
+                .rsplit("protected_role_survives")
+                .next()
+                .unwrap_or_default();
+            assert!(
+                prior.contains("protected_role_survives") && guard.lines().count() < 12,
+                "{name}"
+            );
+            checked.push(name.as_str());
+        }
+    }
+    checked.sort_unstable();
+    assert_eq!(checked, ["rbac/storage.rs", "web.rs"]);
+    Ok(())
+}

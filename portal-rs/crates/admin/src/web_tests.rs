@@ -463,6 +463,12 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     // Two competing removals cannot both discard the last full-access holder.
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+        SELECT id,id::text||'@example.test','unused','active',now(),'en' FROM unnest($1::uuid[]) AS candidates(id)")
+        .bind(vec![actor, other])
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
         .bind(other)
         .bind(owner)

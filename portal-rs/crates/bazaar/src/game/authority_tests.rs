@@ -2487,6 +2487,34 @@ async fn postgres_browser_typed_bans_unknown_states_and_lifted_expired_bids() {
     .await
     .unwrap();
     sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,20000,0)").bind(Uuid::now_v7()).bind(seed).bind(uid("13")).execute(&db.pool).await.unwrap();
+    oteryn_db::test_support::coin_chargeback_hold(&db.pool, uid("13"))
+        .await
+        .unwrap();
+    let mut credit = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(uid("13"))
+        .execute(&mut *credit)
+        .await
+        .unwrap();
+    let operation = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'top_up',$2,10)",
+    )
+    .bind(operation)
+    .bind(uid("13"))
+    .execute(&mut *credit)
+    .await
+    .unwrap();
+    oteryn_wallet::credit_in(&mut credit, operation, uid("13"), 10)
+        .await
+        .unwrap();
+    credit.commit().await.unwrap();
+    assert_eq!(db.bid(10000).await, axum::http::StatusCode::FORBIDDEN);
+    sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+        .bind(uid("13"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
     let ban = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO support_sanction_identities(sanction_id,account_id,kind) VALUES($1,$2,'ban')",

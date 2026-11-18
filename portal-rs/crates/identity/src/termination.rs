@@ -198,15 +198,7 @@ async fn check_role_survivors(
     sqlx::query("SELECT pg_advisory_xact_lock(71010)")
         .execute(&mut **tx)
         .await?;
-    let last_holder:bool = sqlx::query_scalar("SELECT EXISTS (
-        SELECT 1 FROM account_roles mine JOIN roles r ON r.id=mine.role_id
-        WHERE mine.account_id=$1 AND r.key IN ('owner','platform_admin') AND NOT EXISTS (
-            SELECT 1 FROM account_roles other JOIN accounts a ON a.id=other.account_id
-            WHERE other.role_id=r.id AND a.id<>$1 AND a.status='active'
-            AND NOT EXISTS (SELECT 1 FROM account_terminations t WHERE t.account_id=a.id AND t.cancelled_at IS NULL AND t.finalized_at IS NULL)
-        )
-    )").bind(account).fetch_one(&mut **tx).await?;
-    if last_holder {
+    if !oteryn_db::protected_role_survives(tx, account, None).await? {
         return Err(Error::UnknownState);
     }
     Ok(())
