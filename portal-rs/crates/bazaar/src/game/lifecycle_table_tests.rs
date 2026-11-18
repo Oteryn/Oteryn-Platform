@@ -2356,7 +2356,15 @@ async fn publish_next_policy(db: &BrowserFixture) {
     .await
     .unwrap();
     let next = revision.parse::<u64>().unwrap() + 1;
-    let policy = policy.replace(&format!(r#""{revision}""#), &format!(r#""{next}""#));
+    let policy = policy
+        .replace(
+            &format!(r#""projection_revision":"{revision}""#),
+            &format!(r#""projection_revision":"{next}""#),
+        )
+        .replace(
+            &format!(r#""eligibility_revision":"{revision}""#),
+            &format!(r#""eligibility_revision":"{next}""#),
+        );
     let now = runtime::now(&mut tx).await.unwrap();
     assert_eq!(
         projection_ingest()
@@ -2378,10 +2386,11 @@ async fn bz19_moved_evidence_epoch_restarts_and_bounds_rebuild() {
     let (db, _, checkpoint) = operation_page_fixture().await;
     for attempt in 1..=3 {
         publish_next_policy(&db).await;
-        assert!(matches!(
-            db.runtime.tick().await,
-            Err(Error::ResyncEvidenceChanged)
-        ));
+        let result = db.runtime.tick().await;
+        assert!(
+            matches!(result, Err(Error::ResyncEvidenceChanged)),
+            "scan {attempt}: {result:?}"
+        );
         assert_eq!(operation_checkpoint(&db).await, (Uuid::nil(), 0));
         assert_eq!(resync_progress(&db).await, (false, true));
         if attempt < 3 {
