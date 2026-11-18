@@ -5655,7 +5655,9 @@ mod worker_tests {
             .execute(&db.pool)
             .await
             .unwrap();
-        db.runtime.advance(uid("20")).await.unwrap();
+        db.runtime.tick().await.unwrap();
+        let issued:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox JOIN bazaar_authority_dispatch USING(operation_id) WHERE command='DeliverBazaarItem' AND listing_id=$1)").bind(uid("20")).fetch_one(&db.pool).await.unwrap();
+        assert!(issued, "seller suspension blocked delivery publication");
         recovery_tests::item_effect(&db, Command::Deliver, false).await;
         db.runtime.tick().await.unwrap();
         db.runtime.tick().await.unwrap();
@@ -5674,6 +5676,31 @@ mod worker_tests {
         .await
         .unwrap();
         assert_eq!(count, 1);
+        db.end().await;
+    }
+
+    #[tokio::test]
+    async fn restricted_buyer_before_delivery_gets_refund_after_return() {
+        let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+        let db = expired_item_with_bid(1).await;
+        db.runtime.tick().await.unwrap();
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(uid("13"))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.runtime.tick().await.unwrap();
+        recovery_tests::item_effect(&db, Command::Return, false).await;
+        db.runtime.tick().await.unwrap();
+        let state: crate::State =
+            sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+                .bind(uid("20"))
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(state, crate::State::Cancelled);
+        let balance:(i64,i64)=sqlx::query_as("SELECT sum(available_delta)::bigint,sum(reserved_delta)::bigint FROM wallet_entries WHERE account_id=$1").bind(uid("13")).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(balance, (10000, 0));
         db.end().await;
     }
 }
