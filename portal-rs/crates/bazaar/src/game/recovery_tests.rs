@@ -189,7 +189,13 @@ async fn payout(rebid: bool) {
                 .unwrap(),
             ReceiptResult::Stored
         );
-        tx.rollback().await.unwrap();
+        assert_eq!(
+            audit(a, &mut tx, &i, &raw, now).await,
+            ReceiptResult::Stored
+        );
+        tx.commit().await.unwrap();
+        db.runtime.tick().await.unwrap();
+        assert_eq!(state(&db).await, crate::State::Completed);
     }
     db.end().await;
 }
