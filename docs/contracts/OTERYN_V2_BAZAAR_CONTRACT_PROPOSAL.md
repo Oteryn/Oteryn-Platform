@@ -346,6 +346,8 @@ A higher epoch in **any** status, policy or watermark immediately invalidates al
 
 Game restore uses the existing `/internal/v1/game-auth/game-restore/notice` exchange and its original wire/identity. Extend its affected-saga handling to Bazaar under the same restore lock: receipts below the new `recovery_generation` are historical, affected operations reopen REOPENED, and listing/funding/settlement pause. Game proves its recovery fence before replay, publishes reconciled stored or terminal replacement outcomes as that contract permits, and resyncs lock/escrow/hold/status state. Old-generation receipts cannot authorize payout/unlock. A restored buyer bank or item store cannot be repaired by blindly replaying an irreversible payout/delivery; drift requires operator reconciliation with both ledgers. Any missing external epoch/generation fence denies authority. Rollback cannot lower these floors.
 
+While Bazaar authority is not resynced after a restore, Platform serves a DeliverBazaarItem intent body only when expires_at_source + 5 s <= Platform time, so Game can return a stored receipt or durably reject it CHAR_CMD_INTENT_EXPIRED; unexpired Deliver bodies stay 503 (owner decision 2026-11-18).
+
 ## 9. Saga failure, timeout, privacy and rollout
 
 ### Required saga ordering

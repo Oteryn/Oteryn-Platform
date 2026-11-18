@@ -2877,8 +2877,9 @@ async fn committed_fact(
     }
     let operation = text(&intent.value, "operation_id").unwrap();
     let receipt = format!(
-        "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"{}\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"result_data\":{data},\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}",
-        intent.command().wire()
+        "{{\"contract_version\":2,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"{}\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"result_data\":{data},\"recovery_generation\":\"{}\",\"decided_at\":\"{now}\"}}",
+        intent.command().wire(),
+        a.fence.recovery_generation
     );
     assert_eq!(
         a.receive(tx, &a.config.receipt_authority, receipt.as_bytes(), now)
@@ -3630,23 +3631,11 @@ async fn escrow_character(
     committed_fact(a, tx, &bind, &data, now).await;
     character_status(db, tx, "locked", operation, ("2", "2"), now).await;
 }
-async fn settling_character_fixture(currency: &str) -> BrowserFixture {
-    use crate::{Currency, Reservation, Reservations, Settlement};
-    let mut db = BrowserFixture::new().await;
-    let config = std::sync::Arc::make_mut(&mut db.runtime.config);
-    config.authority.config.escrow_account_id = Some(uid("40"));
-    config.escrow_account = Some(uid("40"));
-    let a = db.runtime.authority();
-    let mut tx = db.pool.begin().await.unwrap();
-    let now = runtime::now(&mut tx).await.unwrap();
-    let listing = uid("30");
-    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at,leader,leader_max,reservation) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,'active',now()-interval '1 second',$4,100,$1)").bind(listing).bind(uid("11")).bind(currency).bind(uid("13")).execute(&mut *tx).await.unwrap();
-    sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
-        .bind(listing)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-settlement')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+async fn commit_character_lock(
+    a: &Authority,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    now: u64,
+) {
     let strval = |value: Uuid| Value::String(value.to_string());
     let lock = character_intent(
         Command::Lock,
@@ -3665,7 +3654,27 @@ async fn settling_character_fixture(currency: &str) -> BrowserFixture {
         uid("32"),
         vector("locked_character_snapshot")
     );
-    committed_fact(a, &mut tx, &lock, &data, now).await;
+    committed_fact(a, tx, &lock, &data, now).await;
+}
+async fn settling_character_fixture(currency: &str) -> BrowserFixture {
+    use crate::{Currency, Reservation, Reservations, Settlement};
+    let mut db = BrowserFixture::new().await;
+    let config = std::sync::Arc::make_mut(&mut db.runtime.config);
+    config.authority.config.escrow_account_id = Some(uid("40"));
+    config.escrow_account = Some(uid("40"));
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let listing = uid("30");
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at,leader,leader_max,reservation) VALUES($1,$2,'character','auction',$3::text::bazaar_currency,100,false,'active',now()-interval '1 second',$4,100,$1)").bind(listing).bind(uid("11")).bind(currency).bind(uid("13")).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='awaiting_delivery' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding) VALUES($1,$1,$2,$3,$3,7,$4,1,true,'character-settlement')").bind(listing).bind(uid("12")).bind(uid("31")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+    commit_character_lock(a, &mut tx, now).await;
+    let strval = |value: Uuid| Value::String(value.to_string());
     escrow_character(&db, &mut tx, listing, now).await;
     let funds = CoinReservations {
         authority: a.clone(),
@@ -5231,6 +5240,73 @@ async fn r8_stale_coin_pull() {
     tx.rollback().await.unwrap();
     db.end().await;
 }
+#[tokio::test]
+async fn unresynced_deliver_pull_requires_expiry_plus_skew_and_allows_receipt_replay() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = expired_item_with_bid(1).await;
+    db.runtime.tick().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let original = newest_intent(&db, uid("20"), Command::Deliver).await;
+    let op = text(&original.value, "operation_id").unwrap();
+    let a = db.runtime.authority();
+    let peer = &a.config.projection_authority;
+    let request = format!(
+        r#"{{"contract_version":2,"operation":"ReadBazaarCommandIntentV1","source_authority":"{peer}","issuer_authority":"OTERYN_PLATFORM_BAZAAR_AUTHORITY","command":"DeliverBazaarItem","operation_id":"{op}"}}"#
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM bazaar_authority_resync")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(matches!(
+        a.finish_resync(&mut tx, &[uid("12")]).await,
+        Err(Error::Unavailable)
+    ));
+    assert!(matches!(
+        a.exchange(&mut tx, peer, request.as_bytes()).await,
+        Err(Error::Unavailable)
+    ));
+    for age in [1, 6] {
+        let now = runtime::now(&mut tx).await.unwrap();
+        let mut value = original.value.clone();
+        let Value::Object(fields) = &mut value else {
+            panic!("expected intent object")
+        };
+        for (name, field) in fields {
+            match name.as_str() {
+                "issued_at_source" => *field = Value::String((now - 60).to_string()),
+                "expires_at_source" => *field = Value::String((now - age).to_string()),
+                _ => {}
+            }
+        }
+        let raw = String::from_utf8(canonical::encode(&value).unwrap()).unwrap();
+        let intent = PreparedIntent::parse(&raw).unwrap();
+        sqlx::query(
+            "UPDATE bazaar_game_outbox SET intent=$2,binding_digest=$3 WHERE operation_id=$1",
+        )
+        .bind(id(op).unwrap())
+        .bind(&raw)
+        .bind(intent.binding_digest())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let result = a.exchange(&mut tx, peer, request.as_bytes()).await;
+        if age < 5 {
+            assert!(matches!(result, Err(Error::Unavailable)));
+        } else {
+            assert_eq!(result.unwrap(), raw);
+        }
+    }
+    tx.commit().await.unwrap();
+    let expired = newest_intent(&db, uid("20"), Command::Deliver).await;
+    reject_expired(&db, &expired).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    assert!(a.resynced(&mut tx).await.unwrap());
+    tx.commit().await.unwrap();
+    db.end().await;
+}
+
 #[tokio::test]
 async fn r9_fractional_gold_window() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();

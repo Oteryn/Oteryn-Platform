@@ -344,7 +344,12 @@ impl Authority {
                 return Err(Error::Conflict);
             }
             if text(&v, "command")? == Command::Deliver.wire() && !self.fresh(db).await? {
-                return Err(Error::Unavailable);
+                let intent = PreparedIntent::parse(row.try_get("intent")?)?;
+                let expires = number(&intent.value, "expires_at_source")?;
+                let now = super::runtime::now(db).await?;
+                if now.checked_sub(expires).is_none_or(|age| age < 5) {
+                    return Err(Error::Unavailable);
+                }
             }
             return Ok(row.try_get("intent")?);
         }

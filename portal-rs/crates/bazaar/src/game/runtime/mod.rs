@@ -158,6 +158,18 @@ impl Runtime {
                         "delivery_receipt_digest" if listing.kind == Kind::Item => {
                             Some(Command::Deliver)
                         }
+                        "delivery_receipt_digest"
+                            if command == Command::Payout && listing.kind == Kind::Character =>
+                        {
+                            let (operation, digest) =
+                                gold::delivery(self.authority(), tx, listing).await?;
+                            if id(text(&intent.value, "delivery_operation_id")?)? == operation
+                                && string(digest) == *v
+                            {
+                                continue;
+                            }
+                            return Err(Error::Conflict);
+                        }
                         _ => None,
                     };
                     if let Some(command) = prerequisite {

@@ -200,6 +200,32 @@ impl Ledger {
         )
         .await
     }
+    pub(crate) fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub(crate) async fn grant_store_purchase_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+        request: Uuid,
+        days: u16,
+    ) -> Result<Entitlement, Error> {
+        let purchase: Uuid = sqlx::query_scalar("SELECT o.purchase_request_id FROM store_fulfilment_units u JOIN store_order_lines l USING(line_id) JOIN store_orders o USING(order_id) WHERE u.entitlement_id=$1 AND u.account_id=$2 AND u.unit_kind='PREMIUM_TIME' AND u.quantity=$3")
+            .bind(request).bind(account).bind(i32::from(days)).fetch_optional(&mut **tx).await?.ok_or(Error::Denied)?;
+        self.authorized_in(
+            tx,
+            account,
+            &Mutation {
+                account,
+                request,
+                change: Change::Grant(days),
+                reason: format!("store-purchase:{purchase}"),
+            },
+        )
+        .await
+    }
+
     async fn authorized_in(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

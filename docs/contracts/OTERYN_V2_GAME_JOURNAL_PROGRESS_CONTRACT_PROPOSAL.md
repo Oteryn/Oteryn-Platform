@@ -132,6 +132,20 @@ identity, authority or route binding disables the surface. Limits: 600 requests 
 minute per peer, 60 per minute per account, 32 in-flight exchanges per peer; excess
 is `429`, no watermark change. These numbers require coordinator acceptance.
 
+**Account partition and stream identity (owner decision 2026-11-18).** The
+permitted account partition of a G-11 peer is the whole account space of its one
+configured `source_authority`; Platform does not shard accounts between peers, and
+the account of every record is taken from `account_id` and proven against current
+ownership. A private stream is exactly (`source_authority`, `account_id`,
+`projection_epoch`, `family`); `character_id`, `world_id` and `recovery_generation`
+are not members of it, and account-only records (`character_id` null) share their
+family's stream and `source_revision` sequence with character records. Platform's
+internal stream key is the `|`-joined, length-prefixed form `<byte length>:<value>`
+of those four members. `projection_epoch` must equal the account's current
+projection epoch; a `recovery_generation` above the stream's accepted high-water is
+`409` within the same epoch, so Game starts a new epoch (new stream, `source_revision`
+1) after a restore notice.
+
 Canonical encoding is aligned with the proposed Store wire §2: one UTF-8 JSON object, exact listed member
 order, no BOM/newline/whitespace/backslash escapes, no extra/missing/duplicate members,
 no floats, `Content-Type: application/json`. All strings below are restricted ASCII.

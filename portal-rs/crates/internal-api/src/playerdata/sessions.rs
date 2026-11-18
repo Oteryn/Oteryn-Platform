@@ -146,8 +146,7 @@ fn segment(r: &Value) -> Result<()> {
         positive_counter(k, "count")?;
     }
     num(r, "rare_drop_count", 0, 65535)?;
-    if start == end {
-        require(s(r, "end_reason")? == "SESSION_END")?;
+    if start == end && s(r, "end_reason")? == "SESSION_END" {
         for k in [
             "experience_gained",
             "experience_lost",

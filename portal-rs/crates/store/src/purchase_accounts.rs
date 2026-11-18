@@ -97,7 +97,7 @@ impl AuditHook for DatabaseAccounts {
 
 /// The Wallet is on exactly when the purchase surface is valid; the route
 /// refuses before the Wallet otherwise.
-pub fn database(pool: PgPool, settings: Settings) -> DatabasePurchases {
+pub fn database(pool: PgPool, settings: Settings, premium_enabled: bool) -> DatabasePurchases {
     let wallet = Ledger::new(
         pool.clone(),
         WalletFlags {
@@ -107,5 +107,10 @@ pub fn database(pool: PgPool, settings: Settings) -> DatabasePurchases {
         DatabaseAccounts,
         DatabaseAccounts,
     );
-    Purchases::new(pool, settings, wallet, DatabaseAccounts)
+    let premium = crate::premium::repository::Ledger::new(
+        pool.clone(),
+        std::sync::Arc::new(crate::loyalty::stream::http::DatabaseAccounts),
+        premium_enabled,
+    );
+    Purchases::new(pool, settings, wallet, DatabaseAccounts, premium)
 }

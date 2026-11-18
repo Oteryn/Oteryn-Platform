@@ -2334,6 +2334,15 @@ async fn r8_bank_restore_generation() {
     );
     assert_eq!(
         post(&app, ITEMS_SAN, http::RECORDS_PATH, &body).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
+    let stale = bank.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"2""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &stale).await.0,
         StatusCode::CONFLICT
     );
     assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
@@ -2530,6 +2539,15 @@ async fn pd2_bank_generation_requires_admission() {
         .scope;
     db.account(&scope.account, "1", "1").await;
     let app = app(&db, Arc::new(FixedClock(ITEMS_NOW)), true);
+    let future = bank.replace(
+        r#""recovery_generation":"1""#,
+        r#""recovery_generation":"2""#,
+    );
+    assert_eq!(
+        post(&app, ITEMS_SAN, http::RECORDS_PATH, &future).await.0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(db.count("SELECT count(*) FROM pd_streams").await, 0);
     assert_eq!(
         post(&app, ITEMS_SAN, http::RECORDS_PATH, &bank).await.0,
         StatusCode::OK
@@ -2539,7 +2557,7 @@ async fn pd2_bank_generation_requires_admission() {
     scope.recovery = "2".into();
     assert_eq!(
         admit(&mut tx, &scope).await,
-        Err(Error::Conflict),
+        Err(Error::Unavailable),
         "generation switch without restore"
     );
     tx.rollback().await.unwrap();
@@ -2617,5 +2635,119 @@ async fn pd2_skull_expiry_uses_ownership_cut() {
             .await,
         4943600000000
     );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_buyback_refuses_delayed_deleted_period_and_advances() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    let now = db_now(&db).await;
+    db.account(SELLER, "1", "12").await;
+    db.account(BUYER, "1", "13").await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.create(
+        SELLER,
+        CHARACTER,
+        WORLD,
+        ["9", "12", &(now / 1000 - 100).to_string()],
+    )
+    .await;
+    db.transfer(
+        CHARACTER,
+        SELLER,
+        BUYER,
+        ["10", "12", "13", &(now / 1000 - 30).to_string()],
+    )
+    .await;
+    db.transfer(
+        CHARACTER,
+        BUYER,
+        SELLER,
+        ["11", "13", "14", &(now / 1000 - 10).to_string()],
+    )
+    .await;
+    db.exec(
+        "UPDATE account_character_snapshots SET projection_revision='14' WHERE account_id=$1::uuid",
+        &[SELLER],
+    )
+    .await;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await
+        .unwrap();
+    assert_eq!(db.count("SELECT count(*) FROM pd_erasure_jobs").await, 0);
+
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    let delayed = login_record(
+        SELLER,
+        CHARACTER,
+        ["12", "9"],
+        1,
+        Uuid::now_v7(),
+        now - 60_000,
+    );
+    let (status, body) = record(&app, &delayed).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let refusal: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(refusal["result"], "refused");
+    assert_eq!(refusal["reason"], "CHARACTER_SCOPE_DELETED");
+    assert_eq!(refusal["consumed_source_revision"], "1");
+    let event = Uuid::now_v7();
+    let fresh = login_record(SELLER, CHARACTER, ["14", "11"], 2, event, now - 1000);
+    assert_eq!(record(&app, &fresh).await.0, StatusCode::OK);
+    login_watermark(&app, &db, SELLER, 2).await;
+    assert_eq!(history(&db, SELLER).await, vec![event]);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_login_promotion_keeps_start_of_transaction_feed_proof() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let now = db_now(&db).await;
+    db.create(
+        SELLER,
+        CHARACTER,
+        WORLD,
+        ["9", "12", &(now / 1000 - 10).to_string()],
+    )
+    .await;
+    let app = app(&db, Arc::new(DbClock::new(db.pool.clone())), true);
+    for revision in 1..=3 {
+        let login = login_record(
+            SELLER,
+            CHARACTER,
+            ["12", "9"],
+            revision,
+            Uuid::now_v7(),
+            now - 1000,
+        );
+        assert_eq!(record(&app, &login).await.0, StatusCode::OK);
+    }
+
+    // Make the LCFA watermark look 31 seconds older after the first insert.
+    // The trigger runs in the promotion transaction, so no concurrent writer
+    // or wall-clock wait is needed to reproduce a feed that ages mid-promotion.
+    db.exec(
+        "CREATE FUNCTION age_login_promotion_feed() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.source_revision=1 THEN
+                UPDATE account_character_feed SET complete_through=complete_through-31 WHERE id=1;
+            END IF;
+            RETURN NEW;
+        END $$",
+        &[],
+    )
+    .await;
+    db.exec(
+        "CREATE TRIGGER age_login_promotion_feed AFTER INSERT ON pd_game_logins FOR EACH ROW EXECUTE FUNCTION age_login_promotion_feed()",
+        &[],
+    ).await;
+
+    login_watermark(&app, &db, SELLER, 3).await;
+    assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 3);
+    assert_eq!(db.count("SELECT count(*) FROM account_character_feed WHERE complete_through < extract(epoch FROM clock_timestamp())-30").await, 1);
     db.close().await;
 }
