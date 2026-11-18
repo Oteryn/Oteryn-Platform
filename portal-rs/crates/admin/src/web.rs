@@ -129,6 +129,12 @@ pub struct PanelConfig {
     pub admin_panel: bool,
     pub host: String,
 }
+impl PanelConfig {
+    pub(crate) fn csrf_origin(&self) -> String {
+        format!("https://{}", self.host.to_ascii_lowercase())
+    }
+}
+
 struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
@@ -206,7 +212,7 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     permission: Permission,
 ) -> Router {
     let mut session = SessionLayer::new(pool.clone());
-    session.csrf.trusted_origins = vec![format!("https://{}", config.host)];
+    session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
@@ -235,7 +241,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
 ) -> Router {
     let mut session = SessionLayer::new(pool.clone());
-    session.csrf.trusted_origins = vec![format!("https://{}", config.host)];
+    session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,

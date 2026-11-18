@@ -2200,3 +2200,25 @@ async fn r8_self_logout_revokes_operator_session() {
     assert_eq!(remaining, 0);
     db.close().await;
 }
+
+#[tokio::test]
+async fn self_kick_commits_with_live_session() {
+    let db = Db::open().await.expect("PostgreSQL required");
+    let kicker = kick_fixture(&db).await;
+    sqlx::query("UPDATE account_roles SET account_id=$1 WHERE account_id=$2")
+        .bind(db.target)
+        .bind(kicker)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut actor = context(db.target);
+    actor.session_proof = Some(crate::test_staff::proof(&db.pool, db.target).await.unwrap());
+    let before = kick_state(&db).await.0;
+    let result = db
+        .service()
+        .kick(actor, db.target, "Own native sessions")
+        .await;
+    assert_eq!(result.expect("authorized self kick"), before + 1);
+    assert_eq!(kick_state(&db).await.0, before + 1);
+    db.close().await;
+}

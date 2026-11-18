@@ -36,7 +36,7 @@ fn app(pool: PgPool, identity: Option<StaffIdentity>, enabled: bool) -> Router {
         pool,
         PanelConfig {
             admin_panel: enabled,
-            host: "staff.test".into(),
+            host: "Staff.Test".into(),
         },
         Identity(identity),
         Identity(identity),
@@ -52,7 +52,7 @@ fn feature(pool: PgPool, identity: Option<StaffIdentity>, enabled: bool) -> Rout
         pool,
         PanelConfig {
             admin_panel: enabled,
-            host: "staff.test".into(),
+            host: "Staff.Test".into(),
         },
         Identity(identity),
         Identity(identity),

@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{OriginalUri, Path, Query, Request, State},
-    http::{Method, StatusCode, header},
+    http::{StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -99,6 +99,10 @@ pub fn router(tickets: Tickets, origin: &str) -> Router {
         .route("/{lang}/support/tickets", get(index).post(create))
         .route("/{lang}/support/tickets/create", get(new_ticket))
         .route("/{lang}/support/tickets/{id}", get(show))
+        .route(
+            "/{lang}/support/tickets/{id}/read",
+            axum::routing::post(mark_read),
+        )
         .route(
             "/{lang}/support/tickets/{id}/reply",
             axum::routing::post(reply),
@@ -292,6 +296,9 @@ struct Page {
     statuses: Vec<OptionText>,
     messages: Vec<DisplayMessage>,
     message_after: String,
+    read_reply: Option<Uuid>,
+    read_after: Option<Uuid>,
+    mark_read_text: String,
     request_key: Uuid,
     subject: String,
     draft_body: String,
@@ -347,6 +354,9 @@ impl Page {
             statuses: options(if staff { STATUSES } else { &["open", "closed"] }),
             messages: vec![],
             message_after: String::new(),
+            read_reply: None,
+            read_after: None,
+            mark_read_text: tr("mark-read"),
             request_key: Uuid::now_v7(),
             subject: String::new(),
             draft_body: String::new(),
@@ -414,7 +424,6 @@ async fn index(
     page.response()
 }
 async fn new_ticket(
-    method: Method,
     State(t): State<Tickets>,
     Path(language): Path<String>,
     Extension(session): Extension<BrowserSession>,
@@ -434,9 +443,6 @@ async fn new_ticket(
             page.subject = draft.subject;
             page.draft_body = draft.body;
             page.selected_category = draft.category;
-            if method == Method::GET && session.set(DRAFT, &None::<Create>).await.is_err() {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            }
         }
         Ok(_) => {}
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -451,8 +457,33 @@ async fn new_ticket(
 struct MessagePage {
     after: Option<Uuid>,
 }
+#[derive(Deserialize)]
+struct ReadForm {
+    reply: Uuid,
+    after: Option<Uuid>,
+}
+async fn mark_read(
+    State(t): State<Tickets>,
+    Path((language, id)): Path<(String, Uuid)>,
+    Extension(session): Extension<BrowserSession>,
+    Form(form): Form<ReadForm>,
+) -> Response {
+    if let Err(e) = lang(&language) {
+        return e.into_response();
+    }
+    let (owner, _) = match account(&t, &session, None).await {
+        Ok(v) => v,
+        Err(e) => return e.into_response(),
+    };
+    match t
+        .load_page(owner, false, id, form.after, Acknowledge::Reply(form.reply))
+        .await
+    {
+        Ok(_) => redirect(&language, false, id),
+        Err(e) => fail(e, &language),
+    }
+}
 async fn show(
-    method: Method,
     State(t): State<Tickets>,
     OriginalUri(uri): OriginalUri,
     Path((language, id)): Path<(String, Uuid)>,
@@ -470,13 +501,13 @@ async fn show(
         Ok(Query(value)) => value,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
-    let (ticket, messages) = match t
+    let (ticket, messages, read_reply) = match t
         .load_page(
             account,
             staff.is_some(),
             id,
             cursor.after,
-            method == Method::GET,
+            Acknowledge::Never,
         )
         .await
     {
@@ -489,6 +520,8 @@ async fn show(
         .filter(|_| messages.len() == 50)
         .map(|m| m.id.to_string())
         .unwrap_or_default();
+    page.read_reply = read_reply;
+    page.read_after = cursor.after;
     page.showing = true;
     page.subject = ticket.subject;
     page.status = text::text(&language, &ticket.status);
@@ -553,7 +586,13 @@ async fn create(
         )
         .await
     {
-        Ok(ticket) => redirect(&language, false, ticket.id),
+        Ok(ticket) => {
+            if sqlx::query("UPDATE web_sessions SET data=data-'support.ticket.draft' WHERE id_hash=$1 AND data #>> '{support.ticket.draft,request_key}'=$2")
+                .bind(session.identity_hash().await).bind(form.request_key.to_string()).execute(&t.pool).await.is_err() {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            redirect(&language, false, ticket.id)
+        }
         Err(error @ (Error::Conflict | Error::RequestKeyConflict)) => {
             let mut form = form;
             if matches!(error, Error::RequestKeyConflict) {

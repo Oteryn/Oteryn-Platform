@@ -455,6 +455,11 @@ async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() 
     *head.method_mut() = axum::http::Method::HEAD;
     let response = app.clone().oneshot(head).await?;
     assert_eq!(response.status(), StatusCode::OK);
+    let lost = app
+        .clone()
+        .oneshot(get("/en/support/reports/create", &cookie))
+        .await?;
+    assert_eq!(lost.status(), StatusCode::OK);
     let html = body(
         app.clone()
             .oneshot(get("/en/support/reports/create", &cookie))

@@ -406,20 +406,23 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             return Ok(());
         }
         complete(&mut tx, id, Some(context.account), cancelled).await?;
+        let request = Request {
+            request_id: id,
+            target,
+            reason: String::new(),
+            command,
+        };
         record(
             &mut tx,
             context.account,
-            &Request {
-                request_id: id,
-                target,
-                reason: String::new(),
-                command,
-            },
+            &request,
             "commerce.cancelled",
             json!({"pending":true}),
             json!({"requested_by":original,"pending":false,"status":"cancelled"}),
         )
         .await?;
+        self.authorize_in(&mut tx, context, &request.command)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
