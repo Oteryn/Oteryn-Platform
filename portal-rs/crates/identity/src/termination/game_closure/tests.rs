@@ -1580,3 +1580,59 @@ async fn delayed_closure_rejections_retry_under_current_generation() -> TestResu
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn delayed_cancel_resolution_conflict_allows_new_closure() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
+    let s = service(&db, b.clone());
+    let account = db.account().await?;
+    let (termination, close) = issue(&db, &s, account).await;
+    s.cancel(
+        account,
+        &ActorProof(account.to_string()),
+        "termination test password",
+    )
+    .await?;
+    let cancel_raw: Vec<u8> = sqlx::query_scalar(
+        "SELECT intent FROM plat3_closure_commands
+         WHERE termination_id=$1 AND command='ResolveAccountClosure'",
+    )
+    .bind(termination.id)
+    .fetch_one(&db.pool)
+    .await?;
+    let cancel = Intent::parse(&cancel_raw)?;
+    assert_eq!(cancel.decision.as_deref(), Some("CANCEL"));
+    assert_eq!(cancel.expected_recovery_generation, "3");
+
+    let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+    receipt.command = cancel.command;
+    receipt.operation_id = cancel.operation_id;
+    receipt.outcome = "REJECTED".into();
+    receipt.result_code = "CHAR_CMD_ACCOUNT_CLOSE_RESOLUTION_CONFLICT".into();
+    receipt.result_data = None;
+    receipt.recovery_generation = "3".into();
+    receipt.decided_at = cancel.issued_at_source;
+    let raw = serde_json::to_vec(&receipt)?;
+    recovery.0.store(4, Ordering::SeqCst);
+    let result = b
+        .ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await;
+    assert!(result.is_ok(), "delayed CANCEL rejection: {result:?}");
+    let stored: Vec<u8> =
+        sqlx::query_scalar("SELECT receipt FROM plat3_closure_receipts WHERE operation_id=$1")
+            .bind(wire::id(&receipt.operation_id)?)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(stored, raw);
+
+    let (next, fresh) = issue(&db, &s, account).await;
+    assert_ne!(next.id, termination.id);
+    assert_ne!(fresh.operation_id, close.operation_id);
+    assert_eq!(fresh.command, "CloseAccount");
+    assert_eq!(fresh.expected_recovery_generation, "4");
+    db.close().await
+}
