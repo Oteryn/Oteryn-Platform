@@ -245,21 +245,45 @@ impl GameBoundary {
         let account = wire::id(&projection.account_id)?;
         lock(&mut tx, account).await?.ok_or(Error::UnknownState)?;
         // Cancellation, finalization and publication serialize on this account.
+        // Keep collecting proof for issued resolutions until Game has confirmed them.
         let has_work: bool = sqlx::query_scalar(
             "SELECT EXISTS(
                  SELECT 1 FROM plat3_closure_work w
-                 JOIN account_terminations t ON t.id=w.termination_id
+                 JOIN account_terminations t ON t.id=w.termination_id AND t.account_id=w.account_id
                  WHERE w.account_id=$1
                    AND w.generation=(SELECT max(latest.generation) FROM plat3_closure_work latest WHERE latest.account_id=$1)
                    AND ((t.cancelled_at IS NULL AND t.finalized_at IS NULL AND w.resolution IS NULL)
-                        OR (w.resolution IS NOT NULL AND w.close_operation_id IS NOT NULL))
+                        OR (w.resolution IS NOT NULL AND w.close_operation_id IS NOT NULL
+                            AND NOT EXISTS (
+                               SELECT 1 FROM plat3_closure_commands c
+                               JOIN plat3_closure_receipts r USING(operation_id)
+                               JOIN plat3_closure_snapshots s ON s.account_id=w.account_id
+                               WHERE c.termination_id=w.termination_id
+                                 AND c.command='ResolveAccountClosure'
+                                 AND NOT s.invalid
+                                 AND convert_from(r.receipt,'UTF8')::jsonb->>'outcome'='COMMITTED'
+                                 AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'operation_id'=c.operation_id::text
+                                 AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'receipt_digest'=encode(r.receipt_sha256,'hex')
+                            )))
              )",
         )
         .bind(account)
         .fetch_one(&mut *tx)
         .await?;
         if !has_work {
-            return Err(Error::NoPending);
+            let replay: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM plat3_closure_snapshots WHERE account_id=$1
+                  AND NOT invalid AND snapshot=$2)",
+            )
+            .bind(account)
+            .bind(raw)
+            .fetch_one(&mut *tx)
+            .await?;
+            return if replay {
+                Ok(())
+            } else {
+                Err(Error::NoPending)
+            };
         }
         let now = now(&mut tx).await?;
         if wire::number(&projection.source_observed_at, false)? > now + 5 {
