@@ -700,7 +700,17 @@ async fn postgres_http_ack_cursor_conflict_and_length()
         return Ok(());
     };
     let a = TestAuthority::default();
-    let raw = bank(1, None, 0, 100);
+    let occurred_in = |body, seconds: u64| {
+        String::from_utf8(body)
+            .unwrap()
+            .replacen(
+                &(NOW / 1000).to_string(),
+                &(NOW / 1000 + seconds).to_string(),
+                1,
+            )
+            .into_bytes()
+    };
+    let raw = occurred_in(bank(1, None, 0, 100), 2);
     let r = playerdata::items(&raw)?;
     a.allow(r.scope.clone()).await;
     let identity = Identity::san("journal-test")?;
@@ -732,6 +742,12 @@ async fn postgres_http_ack_cursor_conflict_and_length()
             b"{\"contract_version\":1,\"result\":\"accepted\"}"
         );
     }
+    let too_far = occurred_in(bank(2, Some(&r.entity), 100, 50), 31);
+    assert_eq!(
+        app.clone().oneshot(request(too_far)).await?.status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(db.store(&a).cursor(&r.scope).await?.0.stored, 1);
     let changed = String::from_utf8(raw.clone())?
         .replace("\"amount\":\"100\"", "\"amount\":\"101\"")
         .replace("\"balance_after\":\"100\"", "\"balance_after\":\"101\"");
