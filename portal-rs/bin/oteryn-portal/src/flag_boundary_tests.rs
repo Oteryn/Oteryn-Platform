@@ -491,6 +491,12 @@ mod flag_boundary {
             tls.join("league-fence.json"),
             r#"{"source_authority":"oteryn:game:primary","projection_epoch":"1","recovery_generation":"1"}"#,
         )?;
+        let spki_pin = |name: &str| -> TestResult<String> {
+            use x509_parser::prelude::{FromDer, X509Certificate};
+            let der = fs::read(tls.join(format!("{name}.der")))?;
+            let (_, cert) = X509Certificate::from_der(&der)?;
+            Ok(format!("{:x}", Sha256::digest(cert.public_key().raw)))
+        };
         let client_pin = format!("{:x}", Sha256::digest(fs::read(tls.join("client.der"))?));
         command
             .env("OTERYN_ATLAS_DIRECTORY", tls)
@@ -520,7 +526,7 @@ mod flag_boundary {
                 "OTERYN_BAZAAR_WORLD_IDS",
                 "019ad000-0000-7000-8000-000000000001",
             )
-            .env("OTERYN_BAZAAR_CLIENT_SPKI_SHA256", "31".repeat(32))
+            .env("OTERYN_BAZAAR_CLIENT_SPKI_SHA256", spki_pin("bazaar")?)
             .env("OTERYN_BAZAAR_RECEIPT_CLIENT_SPKI_SHA256", "41".repeat(32))
             .env("OTERYN_BAZAAR_TLS_CERT_FILE", tls.join("server.pem"))
             .env("OTERYN_BAZAAR_TLS_KEY_FILE", tls.join("server.key"))
@@ -535,8 +541,22 @@ mod flag_boundary {
             .env("OTERYN_LEAGUE_CLIENT_CA_DER", tls.join("ca.der"))
             .env("OTERYN_LEAGUE_CERTIFICATE_DER", tls.join("server.der"))
             .env("OTERYN_LEAGUE_PRIVATE_KEY_DER", tls.join("server.key.der"))
-            .env("OTERYN_LEAGUE_CLIENT_SPKI_SHA256", "51".repeat(32))
+            .env("OTERYN_LEAGUE_CLIENT_SPKI_SHA256", spki_pin("league")?)
             .env("OTERYN_LEAGUE_RECOVERY_FILE", tls.join("league-fence.json"));
+        Ok(())
+    }
+
+    async fn game_purposes_share_the_internal_mtls_address() -> TestResult {
+        let address = std::env::var("OTERYN_INTERNAL_TLS_BIND")?.parse()?;
+        for (purpose, path) in [
+            ("client", "/internal/v1/game-auth/account-closure"),
+            ("bazaar", "/internal/v1/game-events"),
+            ("league", "/internal/v1/game-public/world-event-outcome"),
+        ] {
+            let connector = client_tls_for(purpose)?;
+            let response = exchange(address, Some(&connector), "POST", path).await?;
+            assert!(response.starts_with("HTTP/1.1 400 "), "{path}: {response}");
+        }
         Ok(())
     }
 
@@ -544,6 +564,9 @@ mod flag_boundary {
         let serve = tokio::task::spawn_local(async { crate::run(crate::Role::Serve).await });
         let result = async {
             wait_for_serve(&serve, std::env::var("OTERYN_BIND")?.parse()?).await?;
+            if profile == "enabled" {
+                game_purposes_share_the_internal_mtls_address().await?;
+            }
             if !profile.starts_with("enabled") {
                 exercise_prerequisite(pool, profile).await?;
             }
@@ -568,6 +591,8 @@ mod flag_boundary {
         for (name, purpose) in [
             ("server", ExtendedKeyUsagePurpose::ServerAuth),
             ("client", ExtendedKeyUsagePurpose::ClientAuth),
+            ("bazaar", ExtendedKeyUsagePurpose::ClientAuth),
+            ("league", ExtendedKeyUsagePurpose::ClientAuth),
         ] {
             let mut params = CertificateParams::new(vec!["localhost".into()])?;
             params.extended_key_usages.push(purpose);
@@ -2356,19 +2381,24 @@ mod flag_boundary {
     }
 
     fn client_tls() -> TestResult<tokio_rustls::TlsConnector> {
+        client_tls_for("client")
+    }
+
+    fn client_tls_for(name: &str) -> TestResult<tokio_rustls::TlsConnector> {
         use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
         let path = std::path::PathBuf::from(std::env::var_os(CHILD).ok_or("TLS fixture path")?);
         let mut roots = rustls::RootCertStore::empty();
         roots.add(CertificateDer::from_pem_file(path.join("ca.pem"))?)?;
-        let client = rustls::ClientConfig::builder_with_provider(Arc::new(
+        let mut client = rustls::ClientConfig::builder_with_provider(Arc::new(
             rustls::crypto::ring::default_provider(),
         ))
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .with_root_certificates(roots)
         .with_client_auth_cert(
-            vec![CertificateDer::from_pem_file(path.join("client.pem"))?],
-            PrivateKeyDer::from_pem_file(path.join("client.key"))?,
+            vec![CertificateDer::from_pem_file(path.join(format!("{name}.pem")))?],
+            PrivateKeyDer::from_pem_file(path.join(format!("{name}.key")))?,
         )?;
+        client.alpn_protocols = vec![b"http/1.1".to_vec()];
         Ok(tokio_rustls::TlsConnector::from(Arc::new(client)))
     }
 
