@@ -209,7 +209,7 @@ fn single_header(
         .map(|v| v.to_str().map_err(|_| StatusCode::BAD_REQUEST))
         .transpose()
 }
-fn transport(headers: &HeaderMap, max: usize) -> Result<(), StatusCode> {
+fn transport(headers: &HeaderMap, policy: &RoutePolicy) -> Result<(), StatusCode> {
     if single_header(headers, header::CONTENT_TYPE)? != Some("application/json")
         || headers.contains_key(header::TRANSFER_ENCODING)
         || !matches!(
@@ -220,11 +220,22 @@ fn transport(headers: &HeaderMap, max: usize) -> Result<(), StatusCode> {
         return Err(StatusCode::BAD_REQUEST);
     }
     if let Some(length) = single_header(headers, header::CONTENT_LENGTH)? {
+        if policy.group == crate::playerdata::PROGRESS_GROUP
+            && (length.is_empty()
+                || !length.bytes().all(|b| b.is_ascii_digit())
+                || (length.len() > 1 && length.starts_with('0')))
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
         let valid = length == "0"
             || (length.len() <= 10
                 && !length.starts_with('0')
                 && length.bytes().all(|b| b.is_ascii_digit()));
-        if !valid || length.parse::<usize>().map_or(true, |n| n > max) {
+        if !valid
+            || length
+                .parse::<usize>()
+                .map_or(true, |n| n > policy.max_body_bytes)
+        {
             return Err(StatusCode::PAYLOAD_TOO_LARGE);
         }
     }
@@ -270,7 +281,7 @@ pub async fn check_body(
     request: Request,
     next: Next,
 ) -> Response {
-    if let Err(status) = transport(request.headers(), policy.max_body_bytes) {
+    if let Err(status) = transport(request.headers(), &policy) {
         return failure(status);
     }
     let (mut parts, body) = request.into_parts();

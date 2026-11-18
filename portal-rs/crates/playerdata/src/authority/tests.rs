@@ -455,6 +455,11 @@ async fn postgres_pending_transfer_then_committed_transfer_moves_every_read() {
         body.contains("\"result\":\"refused\"") && body.contains("CHARACTER_SCOPE_DELETED"),
         "{body}"
     );
+    assert_eq!(
+        record(&app, &stamina_at("2", "b3")).await,
+        (status, body),
+        "terminal retry"
+    );
     // The buyer is admitted at the new cut only.
     let buyer = |pr: &str, cr: &str| {
         progress("record-stamina.valid.json")
@@ -1377,6 +1382,28 @@ async fn postgres_pd2_01_lifecycle_purges_recent_promoted_logins() {
             "close" => db.exec("UPDATE accounts SET status='closed' WHERE id=$1::uuid", &[SELLER]).await,
             "delete" => db.exec("INSERT INTO character_service_states(account_id,character_id,epoch,revision,character_revision,snapshot_json) VALUES($1::uuid,$2::uuid,1,1,'10','{\"lifecycle\":\"DELETED\"}')", &[SELLER, CHARACTER]).await,
             _ => db.transfer(CHARACTER, SELLER, BUYER, ["10", "12", "13", &(now/1000).to_string()]).await,
+        }
+        if action == "transfer" {
+            db.exec("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms)
+                SELECT stream_key,i,authority,recovery_generation,uuidv7()::text,entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms
+                FROM pd_records CROSS JOIN generate_series(2,513) i WHERE character_id=$1", &[CHARACTER]).await;
+            db.exec("INSERT INTO pd_game_logins SELECT account_id,uuidv7(),character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,i,entered_at,left_at,end_reason,created_at,updated_at FROM pd_game_logins CROSS JOIN generate_series(2,513) i WHERE character_id=$1::uuid",&[CHARACTER]).await;
+            crate::retention::Retention(db.pool.clone())
+                .expire_batch()
+                .await
+                .unwrap();
+            assert_eq!(
+                db.count("SELECT count(*) FROM pd_erasure_jobs").await,
+                1,
+                "oversized character job completed in one pass"
+            );
+            // One seller row remains in each table alongside the buyer's row.
+            assert_eq!(db.count("SELECT count(*) FROM pd_game_logins").await, 2);
+            assert_eq!(
+                db.count("SELECT count(*) FROM pd_records WHERE character_id IS NOT NULL")
+                    .await,
+                2
+            );
         }
         crate::retention::Retention(db.pool.clone())
             .expire_batch()

@@ -460,3 +460,65 @@ fn coin_contract_vectors_have_stable_hashes_and_route_coverage() -> Result<(), B
     }
     Ok(())
 }
+
+#[test]
+fn r10_unchanged_skill() -> Result<(), Box<dyn Error>> {
+    use oteryn_internal_api::playerdata;
+    let record = include_str!(
+        "../../../../docs/contracts/fixtures/game-journal-progress-v1/record-stamina.valid.json"
+    );
+    let skill = include_str!(
+        "../../../../docs/contracts/fixtures/game-journal-progress-v1/payload-skill-history.valid.json"
+    );
+    let prefix = record
+        .split_once("\"payload\":")
+        .ok_or("payload")?
+        .0
+        .replace("\"family\":\"stamina\"", "\"family\":\"skill_history\"")
+        .replace(
+            "\"entity_key\":\"stamina\"",
+            "\"entity_key\":\"01934f10-7c04-7001-805b-3b1122334411\"",
+        );
+    let valid = format!("{prefix}\"payload\":{skill}}}");
+    playerdata::progress(valid.as_bytes())?;
+    let unchanged = valid.replace(
+        "\"level_after\":11,\"progress_after\":\"0\"",
+        "\"level_after\":10,\"progress_after\":\"9\"",
+    );
+    assert_eq!(
+        playerdata::progress(unchanged.as_bytes()).err(),
+        Some(playerdata::Error::Invalid)
+    );
+    Ok(())
+}
+
+#[test]
+fn r10_extra_generation() {
+    use oteryn_internal_api::playerdata;
+    let bank = include_str!(
+        "../../../../docs/contracts/fixtures/game-journal-items-v1/record-bank-entry.valid.json"
+    );
+    let extra = bank.replace(
+        "\"family\":",
+        "\"stream_generation\":\"01934f10-7c04-7001-805b-3b1122334411\",\"family\":",
+    );
+    assert_eq!(
+        playerdata::items(extra.as_bytes()).err(),
+        Some(playerdata::Error::Invalid)
+    );
+}
+
+#[tokio::test]
+async fn r10_progress_length() -> Result<(), Box<dyn Error>> {
+    let mut p = policy();
+    p.group = "playerdata-journal-progress".into();
+    let peer = san("progress.test.invalid")?;
+    let map = IdentityMap::new(vec![Binding {
+        identity: peer.clone(),
+        group: p.group.clone(),
+    }])?;
+    let mut req = request(BODY, Some(peer))?;
+    req.headers_mut()
+        .insert("content-length", format!("0{}", BODY.len()).parse()?);
+    assert_failure(app(p, map), req, StatusCode::BAD_REQUEST).await
+}

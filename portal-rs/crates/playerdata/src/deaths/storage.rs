@@ -312,7 +312,7 @@ impl<A: Authority> Deaths<A> {
     }
     pub async fn erase_account(&self, account: Uuid) -> Result<(), Failure> {
         let mut tx = self.pool.begin().await.map_err(db)?;
-        erase_scope(&mut tx, account, None, None)
+        erase_scope(&mut tx, account, None, None, 0)
             .await
             .map_err(db)?;
         tx.commit().await.map_err(db)?;
@@ -341,6 +341,7 @@ pub(crate) async fn erase_scope(
     account: Uuid,
     character: Option<Uuid>,
     limit: Option<i64>,
+    requested_ms: i64,
 ) -> std::result::Result<bool, sqlx::Error> {
     if character.is_none() {
         // The account-wide accepted cursor survives, so old revisions cannot
@@ -353,7 +354,7 @@ pub(crate) async fn erase_scope(
             .await?;
         return Ok(limit.is_none_or(|n| removed.rows_affected() < n as u64));
     }
-    sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0,erased_at_ms=GREATEST(erased_at_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2)")
-        .bind(account).bind(character).execute(&mut **tx).await?;
-    Ok(true)
+    let rows=sqlx::query("UPDATE pd_t78_records SET payload=NULL,entity_key='',occurred_at_ms=0,erased_at_ms=GREATEST(erased_at_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE ctid IN (SELECT ctid FROM pd_t78_records WHERE account_id=$1 AND character_id=$2 AND (erased_at_ms IS NULL OR erased_at_ms<$4 OR payload IS NOT NULL OR entity_key<>'' OR occurred_at_ms<>0) LIMIT $3 FOR UPDATE)")
+        .bind(account).bind(character).bind(limit).bind(requested_ms).execute(&mut **tx).await?;
+    Ok(limit.is_none_or(|cap| rows.rows_affected() < cap as u64))
 }

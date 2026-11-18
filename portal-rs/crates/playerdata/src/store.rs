@@ -470,7 +470,7 @@ impl Store {
         // terminal refusal that consumes its revision. A deleted account closes
         // the stream, and a G-10 stream with a character closes with it: both
         // fail closed without advance. A transfer cut is a fence first: G-10
-        // and every replay answer 409; a first G-11 delivery is refused.
+        // and prior acceptances conflict; G-11 terminal refusals replay.
         let terminal = match deleted(&mut tx, &r.scope).await? {
             Deleted::No if admission == Admission::Deleted => return Err(Error::Conflict),
             Deleted::No => None,
@@ -526,10 +526,12 @@ impl Store {
                 tx.commit().await?;
                 return Err(Error::Conflict);
             };
-            if transferred || (!r.progress && existing[0].try_get::<bool, _>("expired")?) {
+            let kind = existing[0].try_get::<String, _>("kind")?;
+            if (transferred && kind != CHARACTER_SCOPE_DELETED)
+                || (!r.progress && existing[0].try_get::<bool, _>("expired")?)
+            {
                 return Err(Error::Conflict);
             }
-            let kind = existing[0].try_get::<String, _>("kind")?;
             accept_recovery(&mut tx, &r.scope, r.progress).await?;
             tx.commit().await?;
             if let Some(reason) = TERMINAL_REFUSALS.iter().find(|reason| **reason == kind) {
@@ -871,8 +873,9 @@ impl Store {
         character: &str,
         time: TrustedTime,
     ) -> Result<()> {
-        self.erase_character_cut(account, character, time, None)
+        self.erase_character_cut(account, character, time, None, None, time.now(true)? as i64)
             .await
+            .map(|_| ())
     }
     pub(crate) async fn erase_character_cut(
         &self,
@@ -880,7 +883,9 @@ impl Store {
         character: &str,
         time: TrustedTime,
         closed_revision: Option<&str>,
-    ) -> Result<()> {
+        limit: Option<i64>,
+        requested_ms: i64,
+    ) -> Result<bool> {
         let now = time.now(true)?;
         let mut tx = self.pool.begin().await?;
         lock_account(&mut tx, account).await?;
@@ -893,14 +898,19 @@ impl Store {
         for authority in authorities {
             lock(&mut tx, &authority).await?;
         }
-        sqlx::query("UPDATE pd_streams SET history_coverage_ms=NULL WHERE account_id=$1 AND history_coverage_ms IS NOT NULL AND split_part(stream_key,'|',4)='36:'||$2")
-            .bind(account).bind(character).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT r.stream_key FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND r.character_id=$2)").bind(account).bind(character).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$3 WHERE character_id=$2 AND stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1)").bind(account).bind(character).bind(now.saturating_add(TOMBSTONE_MS-31*86400000) as i64).execute(&mut *tx).await?;
-        sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,expires_at=0,purged_at=GREATEST(purged_at,$3) WHERE account_id=$1::uuid AND character_id=$2::uuid").bind(account).bind(character).bind((now/1000) as i64).execute(&mut *tx).await?;
+        let streams = sqlx::query("UPDATE pd_streams SET history_coverage_ms=NULL WHERE stream_key IN (SELECT stream_key FROM pd_streams WHERE account_id=$1 AND history_coverage_ms IS NOT NULL AND split_part(stream_key,'|',4)='36:'||$2 LIMIT $3 FOR UPDATE)")
+            .bind(account).bind(character).bind(limit).execute(&mut *tx).await?.rows_affected();
+        let heads = sqlx::query("DELETE FROM pd_item_heads WHERE stream_key IN (SELECT h.stream_key FROM pd_item_heads h JOIN pd_streams s USING(stream_key) WHERE s.account_id=$1 AND split_part(h.stream_key,'|',4)='36:'||$2 LIMIT $3 FOR UPDATE OF h)")
+            .bind(account).bind(character).bind(limit).execute(&mut *tx).await?.rows_affected();
+        let records=sqlx::query("UPDATE pd_records SET payload=NULL,entity_key='',occurred_ms=0,coverage_ms=0,scope_key='',character_id=NULL,expires_ms=$3 WHERE ctid IN (SELECT r.ctid FROM pd_records r JOIN pd_streams s USING(stream_key) WHERE r.character_id=$2 AND s.account_id=$1 LIMIT $4 FOR UPDATE OF r)").bind(account).bind(character).bind(now.saturating_add(TOMBSTONE_MS-31*86400000) as i64).bind(limit).execute(&mut *tx).await?.rows_affected();
+        let segments=sqlx::query("UPDATE pd_g9_records SET canonical_bytes=NULL,record=NULL,expires_at=0,purged_at=GREATEST(purged_at,$3) WHERE ctid IN (SELECT ctid FROM pd_g9_records WHERE account_id=$1::uuid AND character_id=$2::uuid AND (purged_at IS NULL OR purged_at<$5 OR canonical_bytes IS NOT NULL OR record IS NOT NULL OR expires_at<>0) LIMIT $4 FOR UPDATE)").bind(account).bind(character).bind((now/1000) as i64).bind(limit).bind(requested_ms/1000).execute(&mut *tx).await?.rows_affected();
         tombstone(&mut tx, account, Some(character), now, closed_revision).await?;
         tx.commit().await?;
-        Ok(())
+        Ok(limit.is_none_or(|n| {
+            [records, segments, streams, heads]
+                .into_iter()
+                .all(|rows| rows < n as u64)
+        }))
     }
     /// Account lifecycle adapter calls this under its account erasure fence. Digest
     /// and sequence metadata remain to refuse resurrection by queued replay.
@@ -1027,13 +1037,26 @@ impl Store {
             let last = sqlx::query("SELECT entry_id,balance_after,coverage_ms FROM pd_bank_continuations WHERE stream_key=$1")
                 .bind(key).fetch_optional(&mut **tx).await?;
             if let Some(last) = last {
+                let previous = playerdata::text(playerdata::get(&r.payload, "previous_entry_id")?)?;
+                let before = playerdata::text(playerdata::get(&r.payload, "balance_before")?)?;
+                let adjacent = previous == last.try_get::<String, _>("entry_id")?;
+                let balance_continues = before == last.try_get::<String, _>("balance_after")?;
                 if last.try_get::<i64, _>("coverage_ms")? != r.coverage_ms as i64
-                    || playerdata::text(playerdata::get(&r.payload, "previous_entry_id")?)?
-                        != last.try_get::<String, _>("entry_id")?
-                    || playerdata::text(playerdata::get(&r.payload, "balance_before")?)?
-                        != last.try_get::<String, _>("balance_after")?
+                    || previous == r.entity
+                    || adjacent != balance_continues
                 {
                     return Err(Error::Conflict);
+                }
+                // A native fee can change both the predecessor and the opening
+                // balance. The intervening entry must not itself be an earlier
+                // export: that would fork the supported history.
+                if !adjacent {
+                    let exported: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM pd_records WHERE stream_key=$1 AND entity_key=$2)"
+                    ).bind(key).bind(previous).fetch_one(&mut **tx).await?;
+                    if exported {
+                        return Err(Error::Conflict);
+                    }
                 }
             } else {
                 // A pre-migration stream whose last payload was already erased

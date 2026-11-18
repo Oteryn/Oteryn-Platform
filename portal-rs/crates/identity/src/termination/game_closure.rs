@@ -175,7 +175,20 @@ impl GameBoundary {
             return Err(Error::UnknownState);
         }
         let intent = Intent::parse(&intent_raw)?;
-        receipt.bind(&intent, current)?;
+        // A committed CANCEL resolves its original operation even when its
+        // first authenticated delivery follows restore reconciliation.
+        let decided_generation = wire::number(&receipt.recovery_generation, true)?;
+        let historical_cancel = intent.decision.as_deref() == Some("CANCEL")
+            && receipt.outcome == "COMMITTED"
+            && decided_generation < current;
+        receipt.bind(
+            &intent,
+            if historical_cancel {
+                decided_generation
+            } else {
+                current
+            },
+        )?;
         if digest(&intent_raw) != intent_hash {
             return Err(Error::UnknownState);
         }
@@ -194,7 +207,7 @@ impl GameBoundary {
             intent_sha256: intent_hash,
             receipt: raw.to_vec(),
             receipt_sha256: hash,
-            recovery_generation: current,
+            recovery_generation: decided_generation,
         }
         .encode_to_vec();
         let decided_at = OffsetDateTime::from_unix_timestamp(wire::time(&receipt.decided_at)?)
