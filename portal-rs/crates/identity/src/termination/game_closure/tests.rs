@@ -1749,3 +1749,70 @@ async fn delayed_finalize_commit_resolves_original_command() -> TestResult {
         .await?;
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_lifecycle_waits_for_gold_release_to_previous_leader() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL is required")?;
+    let (account, seller, leader) = (
+        db.account().await?,
+        db.account().await?,
+        db.account().await?,
+    );
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let t = request(&service(&db, b.clone()), account).await;
+    let request = serde_json::to_vec(&wire::LifecycleRequest {
+        contract_version: 2,
+        operation: "ReadAccountClosureLifecycleV1".into(),
+        source_authority: "oteryn:character-authority:primary".into(),
+        account_id: account.to_string(),
+        termination_id: t.id.to_string(),
+        recovery_generation: "3".into(),
+        audience: "OTERYN_PLATFORM_CHARACTER_AUTHORITY".into(),
+    })?;
+    let listing = Uuid::now_v7();
+    let (previous_hold, new_hold, release) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    // State committed by the bid worker after the leader changes to B and
+    // before it consumes the audited release receipt for A.
+    let mut tx = db.pool.begin().await?;
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at,leader,leader_max,reservation)
+                 VALUES($1,$2,'item','auction','gold',20,false,'active',now()+interval '1 day',$3,30,$1)")
+        .bind(listing).bind(seller).bind(leader).execute(&mut *tx).await?;
+    for (operation, command, buyer, revision) in [
+        (previous_hold, "HoldBazaarGold", account, 1_i64),
+        (new_hold, "HoldBazaarGold", leader, 2),
+        (release, "ReleaseBazaarGold", account, 3),
+    ] {
+        sqlx::query("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation)
+                     VALUES($1,$1::uuid::text,$2,$3,$4,$5,jsonb_build_object('buyer_account_id',$6::uuid::text)::text,repeat('a',64),3,3)")
+            .bind(operation).bind(listing).bind(seller).bind(command).bind(revision).bind(buyer)
+            .execute(&mut *tx).await?;
+    }
+    sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id,phase,release_operation_id,release_accepted)
+                 VALUES($2,$1,$3,uuidv7(),20,$2,'accepted',NULL,false),
+                       ($4,$1,$5,uuidv7(),30,$4,'releasing',$6,true)")
+        .bind(listing).bind(previous_hold).bind(account).bind(new_hold).bind(leader).bind(release)
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    let pending: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &request).await?)?;
+    assert!(
+        !pending.financial_obligations_clear,
+        "Game still holds the previous leader's gold"
+    );
+
+    // The bid remains releasing until the worker accepts committed evidence.
+    let mut tx = db.pool.begin().await?;
+    sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome)
+                 VALUES($1,3,'oteryn:character-authority:primary',repeat('a',64),repeat('b',64),
+                        '{\"result_data\":{\"remaining_held\":\"0\",\"hold_state\":\"RELEASED\"}}','COMMITTED')")
+        .bind(release).execute(&mut *tx).await?;
+    sqlx::query("UPDATE bazaar_authority_gold_bids SET phase='accepted' WHERE request_id=$1")
+        .bind(new_hold)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let released: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &request).await?)?;
+    assert!(released.financial_obligations_clear);
+    db.close().await
+}

@@ -456,12 +456,12 @@ impl Worker {
             Arc::new(DatabasePolicy),
             self.premium_enabled,
         );
-        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE $1 AND r.kind='premium' AND r.applied_at IS NULL AND r.next_attempt_at<=statement_timestamp() AND account_value_eligible(a.id) ORDER BY r.next_attempt_at,r.created_at,r.id LIMIT 100").bind(self.premium_enabled).fetch_all(&self.campaign.pool).await?;
+        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE $1 AND r.kind='premium' AND r.applied_at IS NULL AND coalesce(r.next_attempt_at,r.created_at)<=statement_timestamp() AND account_value_eligible(a.id) ORDER BY coalesce(r.next_attempt_at,r.created_at),r.created_at,r.id LIMIT 100").bind(self.premium_enabled).fetch_all(&self.campaign.pool).await?;
         let mut premium_failed = false;
         for id in ids {
             let mut tx = self.campaign.pool.begin().await?;
             oteryn_db::mutation_budget(&mut tx).await?;
-            let locked: Option<Uuid>=sqlx::query_scalar("SELECT id FROM referral_campaign_rewards WHERE id=$1 AND applied_at IS NULL AND next_attempt_at<=statement_timestamp() FOR UPDATE SKIP LOCKED")
+            let locked: Option<Uuid>=sqlx::query_scalar("SELECT id FROM referral_campaign_rewards WHERE id=$1 AND applied_at IS NULL AND coalesce(next_attempt_at,created_at)<=statement_timestamp() FOR UPDATE SKIP LOCKED")
                 .bind(id).fetch_optional(&mut *tx).await?;
             if locked.is_none() {
                 continue;

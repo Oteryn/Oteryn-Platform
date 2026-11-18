@@ -1534,3 +1534,51 @@ async fn reordered_correction_drains_after_predecessor() -> TestResult {
     assert!(!conflicted);
     db.close().await
 }
+
+#[tokio::test]
+async fn same_epoch_recovery_drains_a_retained_revision_gap() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new().await?.ok_or("PostgreSQL is required")?;
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    for name in ["settlement", "correction", "final_freeze"] {
+        enqueue_publication(&db, &c, &publication(&c, admission::EVENT, wire(name)?)?).await?;
+    }
+    advance_watermarks(&db, &c, "3").await?;
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(c.clone()),
+    );
+    assert_eq!(league.read(runtime::now()?).await?.len(), 1);
+
+    write_recovery(&c, "2")?;
+    let recovered = String::from_utf8(wire("final_freeze")?)?.replace(
+        "\"projection_revision\":\"4\"",
+        "\"projection_revision\":\"7\"",
+    );
+    enqueue_publication(
+        &db,
+        &c,
+        &publication(&c, admission::EVENT, recovered.into_bytes())?,
+    )
+    .await?;
+    advance_watermarks(&db, &c, "3").await?;
+    assert_eq!(
+        sqlx::query_as::<_, (bool, bool)>("SELECT ready,conflicted FROM league_feed_state")
+            .fetch_one(&db.pool)
+            .await?,
+        (true, false)
+    );
+    assert_eq!(
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT revision::text,recovery_generation::text FROM league_subjects"
+        )
+        .fetch_one(&db.pool)
+        .await?,
+        ("7".into(), "2".into())
+    );
+    assert_eq!(league.read(runtime::now()?).await?.len(), 1);
+    db.close().await
+}

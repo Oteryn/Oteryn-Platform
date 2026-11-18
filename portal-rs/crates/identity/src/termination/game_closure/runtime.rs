@@ -282,6 +282,14 @@ pub async fn financial_obligations_clear(
                 SELECT 1 FROM bazaar_authority_compensations c JOIN bazaar_listings l ON l.id=c.listing_id
                 WHERE c.listing_id=s.listing_id AND l.state='cancelled'))
         OR EXISTS(SELECT 1 FROM bazaar_authority_gold_bids WHERE buyer=$1 AND phase IN ('pending','releasing'))
+        OR EXISTS(SELECT 1 FROM bazaar_authority_gold_bids b
+            LEFT JOIN bazaar_game_outbox o ON o.operation_id=b.release_operation_id
+                AND o.listing_id=b.listing_id AND o.command='ReleaseBazaarGold'
+            WHERE b.phase='releasing' AND (
+                (o.intent::jsonb->>'buyer_account_id')::uuid=$1
+                OR (o.intent::jsonb->>'buyer_account_id' IS NULL AND EXISTS (
+                    SELECT 1 FROM bazaar_authority_gold_bids prior
+                    WHERE prior.listing_id=b.listing_id AND prior.buyer=$1))))
         OR EXISTS(SELECT 1 FROM bazaar_authority_gold_sales s WHERE (s.buyer=$1 OR s.seller=$1)
             AND s.completed_at IS NULL AND NOT EXISTS (
                 SELECT 1 FROM bazaar_authority_compensations c JOIN bazaar_listings l ON l.id=c.listing_id
