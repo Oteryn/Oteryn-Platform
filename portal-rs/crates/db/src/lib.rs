@@ -1,9 +1,7 @@
 //! PostgreSQL pool and migrations for the Oteryn portal.
 
 use sqlx::{
-    PgConnection, Postgres,
-    migrate::MigrateError,
-    pool::PoolConnection,
+    PgConnection,
     postgres::{PgPool, PgPoolOptions},
 };
 
@@ -18,29 +16,8 @@ pub fn lazy_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
 }
 
 /// Applies pending migrations.
-pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
-    let mut connection = migration_connection(pool).await?;
-    MIGRATOR.run_direct(None, &mut *connection, false).await
-}
-
-/// Acquire SQLx's PostgreSQL migration lock without pinning a snapshot while
-/// waiting. Keep the connection checked out for the whole migration operation.
-pub async fn migration_connection(pool: &PgPool) -> Result<PoolConnection<Postgres>, MigrateError> {
-    let mut connection = pool.acquire().await?;
-    // Closing the session releases both this lock and any reentrant lock SQLx
-    // still owns after an error or cancellation.
-    connection.close_on_drop();
-    // SQLx 0.9 uses 0x3d32ad9e times the IEEE CRC32 of the database name.
-    // SQLx's own lock acquisition is then reentrant on this session.
-    while !sqlx::query_scalar::<_, bool>(
-        "SELECT pg_try_advisory_lock(0x3d32ad9e::bigint * crc32(convert_to(current_database(),'UTF8')))",
-    )
-    .fetch_one(&mut *connection)
-    .await?
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    Ok(connection)
+pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
+    MIGRATOR.run(pool).await
 }
 
 /// Readiness probe: one round trip to PostgreSQL.

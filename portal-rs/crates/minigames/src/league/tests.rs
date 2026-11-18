@@ -1582,3 +1582,83 @@ async fn same_epoch_recovery_drains_a_retained_revision_gap() -> TestResult {
     assert_eq!(league.read(runtime::now()?).await?.len(), 1);
     db.close().await
 }
+
+#[tokio::test]
+async fn same_epoch_recovery_binds_a_legacy_nonterminal_cursor() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new().await?.ok_or("PostgreSQL is required")?;
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let scheduled = String::from_utf8(wire("advance_schedule")?)?;
+    let original = scheduled.replace(
+        "\"projection_revision\":\"1\"",
+        "\"projection_revision\":\"4\"",
+    );
+    enqueue_publication(
+        &db,
+        &c,
+        &publication(&c, admission::EVENT, original.into_bytes())?,
+    )
+    .await?;
+    advance_watermarks(&db, &c, "3").await?;
+
+    // A nonterminal cursor written before the generation column existed.
+    sqlx::query("UPDATE league_feed_withdrawals SET recovery_generation=NULL")
+        .execute(&db.pool)
+        .await?;
+    let cursor = || {
+        sqlx::query_as::<_, (String, Option<String>, bool)>(
+            "SELECT revision::text, recovery_generation::text,
+                    EXISTS(SELECT 1 FROM league_subjects)
+             FROM league_feed_withdrawals",
+        )
+        .fetch_one(&db.pool)
+    };
+    assert_eq!(cursor().await?, ("4".into(), None, false));
+
+    write_recovery(&c, "2")?;
+    let recovered = scheduled
+        .replace(
+            "\"projection_revision\":\"1\"",
+            "\"projection_revision\":\"7\"",
+        )
+        .replace("\"state\":\"SCHEDULED\"", "\"state\":\"LOCKED\"");
+    enqueue_publication(
+        &db,
+        &c,
+        &publication(&c, admission::EVENT, recovered.clone().into_bytes())?,
+    )
+    .await?;
+    advance_watermarks(&db, &c, "3").await?;
+    assert_eq!(cursor().await?, ("7".into(), Some("2".into()), false));
+    assert_eq!(
+        sqlx::query_as::<_, (bool, bool)>("SELECT ready,conflicted FROM league_feed_state")
+            .fetch_one(&db.pool)
+            .await?,
+        (true, false)
+    );
+    // Once bound, a later gap in that same generation still waits.
+    let gap = recovered.replace(
+        "\"projection_revision\":\"7\"",
+        "\"projection_revision\":\"9\"",
+    );
+    enqueue_publication(
+        &db,
+        &c,
+        &publication(&c, admission::EVENT, gap.into_bytes())?,
+    )
+    .await?;
+    runtime::FeedJob {
+        pool: db.pool.clone(),
+    }
+    .run_config(c.clone())
+    .await?;
+    assert_eq!(cursor().await?, ("7".into(), Some("2".into()), false));
+    let pending: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM league_feed_inbox WHERE state='pending'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(pending, 1);
+    db.close().await
+}

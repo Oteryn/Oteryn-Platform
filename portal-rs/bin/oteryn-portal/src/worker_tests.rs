@@ -356,10 +356,7 @@ async fn paid_topup_and_refund_scenario() -> TestResult {
         }
     }
     // Empty reversible migration preserves all history through rollback/reapply.
-    {
-        let mut connection = oteryn_db::migration_connection(&db.pool).await?;
-        oteryn_db::MIGRATOR.undo(&mut *connection, 20261107170001).await?;
-    }
+    oteryn_db::MIGRATOR.undo(&db.pool, 20261107170001).await?;
     oteryn_db::migrate(&db.pool).await?;
     // Financial aggregation uses a closed fixture day, independent of UTC now.
     let day = 1_789_948_800_u64;

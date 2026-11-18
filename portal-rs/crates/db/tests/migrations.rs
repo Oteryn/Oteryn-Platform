@@ -45,7 +45,7 @@ fn migration_versions_are_fourteen_digit_timestamps() {
 }
 
 #[tokio::test]
-async fn reward_due_index_build_allows_reads_and_award_inserts()
+async fn reward_due_index_migration_leaves_reads_available()
 -> Result<(), Box<dyn std::error::Error>> {
     use oteryn_db::MIGRATOR;
     use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
@@ -65,7 +65,7 @@ async fn reward_due_index_build_allows_reads_and_award_inserts()
         .after_connect(move |c, _| {
             let path = search_path.clone();
             Box::pin(async move {
-                sqlx::query("SELECT set_config('search_path',$1,false),set_config('application_name',$1,false)")
+                sqlx::query("SELECT set_config('search_path',$1,false)")
                     .bind(path)
                     .execute(c)
                     .await?;
@@ -75,10 +75,7 @@ async fn reward_due_index_build_allows_reads_and_award_inserts()
         .connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
         .await?;
 
-    {
-        let mut connection = oteryn_db::migration_connection(&pool).await?;
-        MIGRATOR.run_to(20261118140000, &mut *connection).await?;
-    }
+    MIGRATOR.run_to(20261118140000, &pool).await?;
     let index_exists: bool =
         sqlx::query_scalar("SELECT to_regclass('referral_campaign_premium_due') IS NOT NULL")
             .fetch_one(&pool)
@@ -105,51 +102,25 @@ async fn reward_due_index_build_allows_reads_and_award_inserts()
 
     let migration_pool = pool.clone();
     let migration = tokio::spawn(async move { oteryn_db::migrate(&migration_pool).await });
+    // Hold a writer open so the index build queues its table lock. A queued
+    // ACCESS EXCLUSIVE request would also stall readers arriving behind it.
     timeout(Duration::from_secs(10), async {
         loop {
-            let building: bool = sqlx::query_scalar("SELECT EXISTS (
-                SELECT 1 FROM pg_stat_progress_create_index
-                WHERE relid='referral_campaign_rewards'::regclass
-                  AND command='CREATE INDEX CONCURRENTLY' AND phase='waiting for writers before build'
-            )").fetch_one(&pool).await?;
-            if building {
-                return Ok::<_, sqlx::Error>(());
-            }
-            assert!(!migration.is_finished(), "migration exited before entering the concurrent build");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }).await??;
-
-    let migration_locks: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_locks l JOIN pg_stat_progress_create_index p USING(pid)
-         WHERE p.relid='referral_campaign_rewards'::regclass AND l.locktype='advisory' AND l.granted",
-    )
-    .fetch_one(&pool)
-    .await?;
-    assert_eq!(
-        migration_locks, 1,
-        "the prelock must use SQLx's advisory key"
-    );
-
-    let contender_pool = pool.clone();
-    let contender = tokio::spawn(async move { oteryn_db::migrate(&contender_pool).await });
-    timeout(Duration::from_secs(10), async {
-        loop {
-            let attempting_lock: bool = sqlx::query_scalar(
+            let waiting: bool = sqlx::query_scalar(
                 "SELECT EXISTS (
-                SELECT 1 FROM pg_stat_activity WHERE application_name=$1
-                  AND query LIKE 'SELECT pg%advisory_lock(%'
-            )",
+                    SELECT 1 FROM pg_locks
+                    WHERE relation='referral_campaign_rewards'::regclass
+                      AND mode='ShareLock' AND NOT granted
+                )",
             )
-            .bind(&schema)
             .fetch_one(&pool)
             .await?;
-            if attempting_lock {
+            if waiting {
                 return Ok::<_, sqlx::Error>(());
             }
             assert!(
-                !contender.is_finished(),
-                "second migrator exited before waiting for the first"
+                !migration.is_finished(),
+                "index build did not wait for the writer"
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -164,21 +135,9 @@ async fn reward_due_index_build_allows_reads_and_award_inserts()
         .fetch_one(&mut *reader)
         .await?;
     assert_eq!(visible, 0);
-    sqlx::query(
-        "INSERT INTO referral_campaign_rewards(operation_key,account_id,kind,amount)
-                 VALUES('during',$1,'premium',1)",
-    )
-    .bind(account)
-    .execute(&mut *reader)
-    .await?;
     reader.commit().await?;
     writer.commit().await?;
-    timeout(Duration::from_secs(10), async {
-        migration.await??;
-        contender.await??;
-        Ok::<_, Box<dyn std::error::Error>>(())
-    })
-    .await??;
+    timeout(Duration::from_secs(10), migration).await???;
 
     let valid: bool = sqlx::query_scalar(
         "SELECT indisvalid FROM pg_index

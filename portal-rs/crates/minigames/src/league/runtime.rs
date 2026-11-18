@@ -545,10 +545,9 @@ impl FeedJob {
                 {
                     return Err(Error::Conflict);
                 }
-                // An unbound legacy cursor still requires continuity within
-                // its epoch until an authenticated publication binds it.
-                if old_epoch == original.0 && old_generation.is_none_or(|value| value == original.1)
-                {
+                // Revisions are comparable only within a proven generation.
+                // Applying an authenticated publication binds a legacy cursor.
+                if old_epoch == original.0 && old_generation == Some(original.1) {
                     let old_revision = schema::number(&revision, false)?;
                     let next_revision = schema::number(s.revision(), false)?;
                     if next_revision > old_revision.saturating_add(1) {
