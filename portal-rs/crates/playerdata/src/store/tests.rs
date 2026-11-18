@@ -2549,3 +2549,98 @@ async fn postgres_superseded_progress_epoch_payload_expires()
     db.close().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn erase_character_cut_keeps_later_ownership_period_records()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let a = TestAuthority::default();
+    let store = db.store(&a);
+    let first = playerdata::progress(&progress(1))?;
+    let second = playerdata::progress(
+        String::from_utf8(progress(2))?
+            .replace(
+                r#""character_revision":"9""#,
+                r#""character_revision":"10""#,
+            )
+            .as_bytes(),
+    )?;
+    let payload = canonical::encode(&second.payload)?;
+    for record in [first, second] {
+        a.allow(record.scope.clone()).await;
+        store.ingest(record, clock()).await?;
+    }
+    store
+        .erase_character_cut(
+            ACCOUNT,
+            CHARACTER,
+            clock(),
+            Some("9"),
+            Some(512),
+            NOW as i64,
+        )
+        .await?;
+    let rows: Vec<Option<Vec<u8>>> =
+        sqlx::query_scalar("SELECT payload FROM pd_records ORDER BY source_revision")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(rows, [None, Some(payload)]);
+    db.close().await?;
+    Ok(())
+}
+
+async fn assert_progress_tombstone(db: &Db) -> std::result::Result<(), sqlx::Error> {
+    let row: (i64, i64, String, Option<String>, bool) = sqlx::query_as("SELECT occurred_ms, coverage_ms, entity_key, character_id, payload IS NULL FROM pd_records").fetch_one(&db.pool).await?;
+    assert_eq!(row, (0, 0, String::new(), None, true));
+    Ok(())
+}
+
+#[tokio::test]
+async fn expired_first_delivery_stores_tombstone_form_only()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let a = TestAuthority::default();
+    let r = playerdata::progress(&skill_change(1, 11))?;
+    a.allow(r.scope.clone()).await;
+    let store = db.store(&a);
+    let time = TrustedTime {
+        unix_ms: NOW + 90 * 86400000,
+        ..clock()
+    };
+    let ack = store.ingest(r.clone(), time).await?;
+    assert_eq!(store.ingest(r, time).await?, ack);
+    assert_eq!(
+        store
+            .ingest(playerdata::progress(&skill_change(1, 12))?, time)
+            .await,
+        Err(Error::Conflict)
+    );
+    assert_progress_tombstone(&db).await?;
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn progress_expiry_clears_occurrence_time()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let db = Db::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let a = TestAuthority::default();
+    let r = playerdata::progress(&skill_change(1, 11))?;
+    a.allow(r.scope.clone()).await;
+    db.store(&a).ingest(r, clock()).await?;
+    sqlx::query("UPDATE pd_records SET expires_ms=0")
+        .execute(&db.pool)
+        .await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+    assert_progress_tombstone(&db).await?;
+    db.close().await?;
+    Ok(())
+}
