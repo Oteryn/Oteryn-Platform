@@ -178,8 +178,7 @@ async fn invalidation_unlocks_never_escrowed_character_once() {
 async fn invalidation_returns_escrowed_character_once() {
     character_invalidation(true).await;
 }
-async fn character_invalidation(escrowed: bool) {
-    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+async fn locked_character_fixture(escrowed: bool) -> BrowserFixture {
     let mut db = BrowserFixture::new().await;
     let config = std::sync::Arc::make_mut(&mut db.runtime.config);
     config.authority.config.escrow_account_id = Some(uid("40"));
@@ -225,6 +224,14 @@ async fn character_invalidation(escrowed: bool) {
             .unwrap();
     }
     tx.commit().await.unwrap();
+    db
+}
+
+async fn character_invalidation(escrowed: bool) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = locked_character_fixture(escrowed).await;
+    let listing = uid("30");
+    let a = db.runtime.authority();
     approve(&db, listing).await;
     db.runtime.tick().await.unwrap();
     db.runtime.tick().await.unwrap();
@@ -289,5 +296,35 @@ async fn character_invalidation(escrowed: bool) {
             if escrowed { 2 } else { 0 }
         );
     }
+    db.end().await;
+}
+
+#[tokio::test]
+async fn r10_refused_escrow_bind_unlocks() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = locked_character_fixture(false).await;
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, uid("30"), Command::Bind).await;
+    reject(&db, &bind, "CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE").await;
+    db.runtime.tick().await.unwrap();
+    assert_eq!(
+        count(&db, uid("30"), Command::Unlock).await,
+        1,
+        "refused escrow bind must unlock"
+    );
+    let unlock = newest_intent(&db, uid("30"), Command::Unlock).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let facts = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"2","current_account_id":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        uid("11")
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &unlock, &facts, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    assert_eq!(listing_state(&db).await, crate::State::Cancelled);
+    assert_eq!(count(&db, uid("30"), Command::Unlock).await, 1);
     db.end().await;
 }
