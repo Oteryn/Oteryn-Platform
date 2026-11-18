@@ -195,7 +195,16 @@ impl Authority {
                 .mark(db, id(text(&i.value, "listing_id")?)?)
                 .await?;
         } else if i.command == Command::Return {
-            super::delivery_work::mark_status(db, id(text(&i.value, "listing_id")?)?).await?;
+            let listing = id(text(&i.value, "listing_id")?)?;
+            let awaiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_listings WHERE id=$1 AND state='awaiting_delivery')",
+            )
+            .bind(listing)
+            .fetch_one(&mut **db)
+            .await?;
+            if awaiting {
+                super::delivery_work::DELIVERY.mark(db, listing).await?;
+            }
         }
         Ok(())
     }
