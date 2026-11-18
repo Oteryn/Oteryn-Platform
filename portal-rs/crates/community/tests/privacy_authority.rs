@@ -537,6 +537,7 @@ async fn stale_online_watermark_withholds_presence_with_fresh_profiles() -> Resu
             fixture.owner,
             "Aldric",
             Preferences {
+                hidden: false,
                 show_status: true,
                 ..Preferences::default()
             },
