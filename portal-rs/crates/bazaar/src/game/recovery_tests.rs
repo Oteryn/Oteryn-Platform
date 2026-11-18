@@ -77,7 +77,7 @@ async fn item_sale(gold: bool, rebid: bool) -> BrowserFixture {
     db
 }
 
-async fn item_effect(db: &BrowserFixture, command: Command, refused: bool) {
+pub(super) async fn item_effect(db: &BrowserFixture, command: Command, refused: bool) {
     let i = newest_intent(db, uid("20"), command).await;
     let op = text(&i.value, "operation_id").unwrap();
     let mut tx = db.pool.begin().await.unwrap();
@@ -444,5 +444,85 @@ async fn r14_character_payout_retries_after_transfer_reattestation() {
         payout.value.get("delivery_receipt_digest")
     );
     finish_gold_payout(&db, listing, 2).await;
+    db.end().await;
+}
+
+#[tokio::test]
+async fn character_sale_settles_after_projection_epoch_advance_with_reattested_lock() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let mut db = settling_character_fixture("coins").await;
+    let config = std::sync::Arc::make_mut(&mut db.runtime.config);
+    config.fence.projection_epoch = 4;
+    config.fence.recovery_generation = 4;
+    config.worlds = vec![uid("12")];
+    let fence = serde_json::json!({"projection_epoch":4,"recovery_generation":4,"incarnation":config.fence.incarnation,"character_history_complete_since":null});
+    std::fs::write(&config.fence_file, fence.to_string()).unwrap();
+    config.authority.fence.projection_epoch = 4;
+    config.authority.fence.recovery_generation = 4;
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let receipts: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id,receipt_json FROM character_commands WHERE state='TERMINAL'")
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+    for (operation, raw) in receipts {
+        sqlx::query("UPDATE character_commands SET receipt_json=NULL,state='PENDING' WHERE id=$1")
+            .bind(operation)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let current = raw
+            .replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#)
+            .replace(
+                r#""recovery_generation":"3""#,
+                r#""recovery_generation":"4""#,
+            );
+        sqlx::query("UPDATE character_commands SET receipt_json=$2,state='TERMINAL' WHERE id=$1")
+            .bind(operation)
+            .bind(current)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+
+    replay(a, &mut tx, uid("30")).await;
+    replay(a, &mut tx, uid("20")).await;
+    let bodies: Vec<String> = sqlx::query_scalar(
+        "SELECT canonical_body FROM bazaar_game_projections WHERE projection_epoch=3",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    for body in bodies {
+        let body = body.replace(r#""projection_epoch":"3""#, r#""projection_epoch":"4""#);
+        Outbox {
+            settings: Settings {
+                preparation_enabled: true,
+                game_enabled: false,
+            },
+        }
+        .ingest(
+            &mut tx,
+            &a.config.projection_authority,
+            body.as_bytes(),
+            now,
+        )
+        .await
+        .unwrap();
+    }
+    a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    assert!(a.resynced(&mut tx).await.unwrap());
+
+    tx.commit().await.unwrap();
+    finish_character_sale(&db).await;
+    assert_eq!(listing_state(&db).await, crate::State::Completed);
+    db.runtime.tick().await.unwrap();
+    assert_eq!(outbox_count(&db, Command::Unlock).await, 1);
     db.end().await;
 }

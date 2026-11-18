@@ -3525,6 +3525,7 @@ async fn character_status(
     for (name, value) in &mut status {
         *value = match name.as_str() {
             "listing_id" => Value::String(uid("30").to_string()),
+            "projection_epoch" => Value::String(a.fence.projection_epoch.to_string()),
             "projection_revision" => Value::String(revisions.0.into()),
             "asset_kind" => Value::String("CHARACTER".into()),
             "asset_id" => Value::String(uid("31").to_string()),
@@ -3554,8 +3555,14 @@ async fn character_transfer_receipt(
     (from, to): (Uuid, Uuid),
     now: u64,
 ) {
+    let (epoch, generation): (String, String) = sqlx::query_as(
+        "SELECT projection_epoch::text,recovery_generation::text FROM bazaar_game_issuer",
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .unwrap();
     let receipt = format!(
-        "{{\"contract_version\":1,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"character_id\":\"{}\",\"from_account_id\":\"{from}\",\"to_account_id\":\"{to}\",\"character_revision\":\"8\",\"projection_epoch\":\"3\",\"from_projection_revision\":\"5\",\"to_projection_revision\":\"6\",\"recovery_generation\":\"3\",\"decided_at\":\"{now}\"}}",
+        "{{\"contract_version\":1,\"operation\":\"PublishCharacterCommandReceiptV1\",\"source_authority\":\"oteryn:character-authority:primary\",\"command\":\"TransferCharacterOwnership\",\"operation_id\":\"{operation}\",\"outcome\":\"COMMITTED\",\"result_code\":\"CHAR_CMD_OK\",\"character_id\":\"{}\",\"from_account_id\":\"{from}\",\"to_account_id\":\"{to}\",\"character_revision\":\"8\",\"projection_epoch\":\"{epoch}\",\"from_projection_revision\":\"5\",\"to_projection_revision\":\"6\",\"recovery_generation\":\"{generation}\",\"decided_at\":\"{now}\"}}",
         uid("31")
     );
     sqlx::query("UPDATE character_commands SET state='TERMINAL',receipt_json=$2 WHERE id=$1")
@@ -5534,8 +5541,12 @@ async fn replay_sale_receipts(db: &BrowserFixture, commands: &[Command]) {
 
 async fn delivered_character_sale(currency: &str) -> BrowserFixture {
     let db = settling_character_fixture(currency).await;
+    finish_character_sale(&db).await;
+    db
+}
+async fn finish_character_sale(db: &BrowserFixture) {
     db.runtime.tick().await.unwrap();
-    let bind = newest_intent(&db, uid("30"), Command::Bind).await;
+    let bind = newest_intent(db, uid("30"), Command::Bind).await;
     let transfer = id(text(&bind.value, "transfer_operation_id").unwrap()).unwrap();
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
@@ -5551,10 +5562,9 @@ async fn delivered_character_sale(currency: &str) -> BrowserFixture {
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
     character_transfer_receipt(&mut tx, transfer, (uid("40"), uid("13")), now).await;
-    character_status(&db, &mut tx, "DELIVERED", transfer, ("3", "3"), now).await;
+    character_status(db, &mut tx, "DELIVERED", transfer, ("3", "3"), now).await;
     tx.commit().await.unwrap();
     db.runtime.tick().await.unwrap();
-    db
 }
 
 #[tokio::test]
@@ -5632,3 +5642,38 @@ async fn r13_replay_gold_bind() {
 
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
+
+mod worker_tests {
+    use super::*;
+    #[tokio::test]
+    async fn seller_ban_after_settlement_still_delivers() {
+        let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+        let db = expired_item_with_bid(1).await;
+        db.runtime.tick().await.unwrap();
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(uid("11"))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.runtime.advance(uid("20")).await.unwrap();
+        recovery_tests::item_effect(&db, Command::Deliver, false).await;
+        db.runtime.tick().await.unwrap();
+        db.runtime.tick().await.unwrap();
+        let state: crate::State =
+            sqlx::query_scalar("SELECT state FROM bazaar_listings WHERE id=$1")
+                .bind(uid("20"))
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(state, crate::State::Completed);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM wallet_entries WHERE account_id=$1 AND reserved_delta<0",
+        )
+        .bind(uid("13"))
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+        db.end().await;
+    }
+}
