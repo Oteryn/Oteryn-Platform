@@ -77,7 +77,16 @@ impl termination::Boundary for TerminationBoundary {
             {
                 return Err(termination::Error::UnknownState);
             }
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) OR EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1)").bind(account).fetch_one(&mut **tx).await?;
+            // Game's CloseAccount detaches characters after intake. Its finalization
+            // proof requires a committed receipt and an empty character projection.
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1
+                    AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL
+                    AND expires_at>clock_timestamp())",
+            )
+            .bind(account)
+            .fetch_one(&mut **tx)
+            .await?;
             if blocked {
                 Err(termination::Error::UnknownState)
             } else {
@@ -597,7 +606,7 @@ pub(crate) async fn test_termination_actor(
         .bind(hash)
         .execute(pool)
         .await?;
-    let token = Uuid::now_v7().to_string();
+    let token = oteryn_identity::mfa::random_token()?;
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,sudo_until)
                  VALUES($1,$2,$3,'closure financial fixture',now()+interval '1 hour',now()+interval '1 day',now()+interval '5 minutes')")
         .bind(Sha256::digest(token.as_bytes()).to_vec()).bind(account).bind(oteryn_identity::mfa::random_token()?).execute(pool).await?;
@@ -611,6 +620,16 @@ pub(crate) async fn request_test_termination(
 ) -> Result<termination::Result<termination::Termination>, Box<dyn std::error::Error>> {
     let password = "closure financial fixture password";
     let actor = test_termination_actor(pool, account, password).await?;
+    let service = test_game_terminations(pool)?;
+    Ok(service
+        .request(account, &actor, password, "TERMINATE")
+        .await)
+}
+
+#[cfg(test)]
+fn test_game_terminations(
+    pool: &PgPool,
+) -> Result<termination::Terminations, Box<dyn std::error::Error>> {
     // Accepting a request must initialize Game closure work in the same transaction.
     let boundary = termination::game_closure::runtime::Config::load(|key| match key {
         "PORTAL_ACCOUNT_CLOSURE_ENABLED" => Some("true".into()),
@@ -619,17 +638,109 @@ pub(crate) async fn request_test_termination(
     })?
     .boundary(Arc::new(TerminationBoundary), true)?
     .ok_or("closure boundary disabled")?;
-    let service = termination::Terminations::new(
+    Ok(termination::Terminations::new(
         pool.clone(),
         termination::Config {
             enabled: true,
             ..Default::default()
         },
         boundary,
-    )?;
-    Ok(service
-        .request(account, &actor, password, "TERMINATE")
-        .await)
+    )?)
+}
+
+#[cfg(test)]
+#[path = "privacy_test_support.rs"]
+mod privacy_test_support;
+
+#[cfg(test)]
+mod deletion_tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn postgres_delete_with_character_creates_pending_game_closure()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let Some(_guard) = oteryn_db::test_support::global_lock_guard().await? else {
+            eprintln!("SKIPPED PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
+            return Ok(());
+        };
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+        let (pool, admin, schema) = privacy_test_support::database(&url).await?;
+        let result = post_delete_with_character(&pool).await;
+        privacy_test_support::close(pool, admin, schema).await?;
+        result
+    }
+
+    async fn post_delete_with_character(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+        let account: Uuid = sqlx::query_scalar(
+            "INSERT INTO accounts(email,password_hash,status,locale)
+             VALUES('closure@example.test','!fixture','active','en') RETURNING id",
+        )
+        .fetch_one(pool)
+        .await?;
+        let character = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
+             VALUES($1,$2,$3,'Closure Fixture','AVAILABLE')",
+        )
+        .bind(account)
+        .bind(character)
+        .bind(Uuid::now_v7())
+        .execute(pool)
+        .await?;
+        let password = "closure fixture password";
+        let actor = test_termination_actor(pool, account, password).await?;
+        let csrf: String =
+            sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
+                .bind(Sha256::digest(actor.0.as_bytes()).to_vec())
+                .fetch_one(pool)
+                .await?;
+        let form = serde_urlencoded::to_string([
+            ("_csrf", csrf.as_str()),
+            ("current_password", password),
+            ("confirmation", "TERMINATE"),
+        ])?;
+        let peer: SocketAddr = "127.0.0.1:12345".parse()?;
+        let response = configured_router(pool.clone(), test_game_terminations(pool)?)
+            .layer(Extension(Language::En))
+            .layer(Extension(ConnectInfo(peer)))
+            .oneshot(
+                Request::post("/en/account/privacy/delete")
+                    .header(
+                        "cookie",
+                        format!("{}={}", oteryn_web::session::COOKIE_NAME, actor.0),
+                    )
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(form))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
+            Some("/en/login")
+        );
+        let work_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM account_terminations t JOIN plat3_closure_work w
+                 ON w.termination_id=t.id AND w.account_id=t.account_id
+             WHERE t.account_id=$1 AND t.cancelled_at IS NULL AND t.finalized_at IS NULL
+                 AND w.close_operation_id IS NULL AND w.resolution IS NULL AND NOT w.invalid",
+        )
+        .bind(account)
+        .fetch_one(pool)
+        .await?;
+        assert_eq!(work_count, 1);
+        let projected_character: Uuid =
+            sqlx::query_scalar("SELECT character_id FROM account_characters WHERE account_id=$1")
+                .bind(account)
+                .fetch_one(pool)
+                .await?;
+        assert_eq!(projected_character, character);
+        Ok(())
+    }
 }
 #[cfg(test)]
 mod proof_tests {
