@@ -424,8 +424,21 @@ impl Database {
             },
         )
     }
+    fn premium(&self, premium_enabled: bool) -> crate::premium::repository::Ledger {
+        crate::premium::repository::Ledger::new(
+            self.pool.clone(),
+            std::sync::Arc::new(crate::loyalty::stream::http::DatabaseAccounts),
+            premium_enabled,
+        )
+    }
     fn service(&self, s: Settings) -> TestPurchases {
-        Purchases::new(self.pool.clone(), s, self.wallet(), TestAccounts)
+        Purchases::new(
+            self.pool.clone(),
+            s,
+            self.wallet(),
+            TestAccounts,
+            self.premium(true),
+        )
     }
     async fn fund(&self, account: &str, amount: i64) {
         self.wallet()
@@ -860,9 +873,15 @@ async fn db_storage_and_audit_failures_roll_back_debit_answer_order_and_outbox()
         },
     );
     assert_eq!(
-        Purchases::new(db.pool.clone(), settings(), wallet, TestAccounts)
-            .purchase(&raw)
-            .await,
+        Purchases::new(
+            db.pool.clone(),
+            settings(),
+            wallet,
+            TestAccounts,
+            db.premium(false)
+        )
+        .purchase(&raw)
+        .await,
         Err(Error::Unavailable)
     );
     assert_eq!(db.count("store_purchase_requests").await, 0);
@@ -942,6 +961,7 @@ async fn db_catalog_activation_waits_for_purchase_decision() {
         settings(),
         wallet,
         TestAccounts,
+        db.premium(false),
     ));
     let input = request(&db.revision);
     let s = service.clone();
@@ -1360,6 +1380,13 @@ async fn db_offer_bounds_and_unit_flags_follow_first_refusal_order() {
             vec!["PREMIUM_TIME"],
         ),
         (
+            PRICE_LIST.replace("ITEM", "PREMIUM_TIME"),
+            "250",
+            1,
+            "PURCHASE_DISABLED",
+            vec!["ITEM"],
+        ),
+        (
             PRICE_LIST.replace("ITEM", "COSMETIC"),
             "250",
             1,
@@ -1644,7 +1671,13 @@ async fn postgres_shop_balance_and_production_purchase_identity_lock_order() {
         DatabaseAccounts,
         DatabaseAccounts,
     );
-    let purchases = Purchases::new(db.pool.clone(), settings(), wallet, barrier.clone());
+    let purchases = Purchases::new(
+        db.pool.clone(),
+        settings(),
+        wallet,
+        barrier.clone(),
+        db.premium(false),
+    );
     let raw = request(&db.revision);
     let purchase = tokio::spawn(async move { purchases.purchase(&raw).await });
     barrier.entered.wait().await;
@@ -1780,7 +1813,7 @@ async fn l6_01_pending_termination_refuses_store_purchase() {
     sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')").bind(account).execute(&db.pool).await.unwrap();
     db.fund(ACCOUNT, 1000).await;
     let before = db.count("wallet_entries").await;
-    let service = super::accounts::database(db.pool.clone(), settings());
+    let service = super::accounts::database(db.pool.clone(), settings(), false);
     let response = service.purchase(&request(&db.revision)).await.unwrap();
     assert_eq!(string(&value(&response), "result"), "ACCOUNT_RESTRICTED");
     assert_eq!(before, db.count("wallet_entries").await);
@@ -1985,21 +2018,66 @@ async fn premium_time_checkout_grants_extends_replays_and_enforces_limits() {
         ),
         "PURCHASE_DISABLED"
     );
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,'premium@example.invalid','test','active','en')").bind(actor).execute(&db.pool).await.unwrap();
+    let disabled = Purchases::new(
+        db.pool.clone(),
+        enabled.clone(),
+        db.wallet(),
+        TestAccounts,
+        db.premium(false),
+    );
+    assert_eq!(
+        string(
+            &value(&disabled.purchase(&unique(&raw)).await.unwrap()),
+            "result"
+        ),
+        "PURCHASE_DISABLED"
+    );
+    assert_eq!(db.wallet().balance(actor).await.unwrap().available, 50000);
     let service = db.service(enabled);
     let first = service.purchase(&raw).await.unwrap();
     assert_eq!(string(&value(&first), "result"), "ACCEPTED");
     assert_eq!(service.purchase(&raw).await.unwrap(), first);
     assert_eq!(db.wallet().balance(actor).await.unwrap().available, 49750);
-    assert_eq!(
-        db.count("store_operations WHERE operation_kind='DELIVER'")
-            .await,
-        1
-    );
+    assert_eq!(db.count("store_operations").await, 1);
     assert_eq!(db.count("premium_ledger").await, 1);
-    assert_eq!(db.count("premium_ledger JOIN store_fulfilment_units u ON u.entitlement_id=premium_ledger.request_id WHERE duration_days=30 AND lifecycle_revision=1").await, 1);
+    let reason = format!(
+        "store-purchase:{}",
+        string(&value(&raw), "purchase_request_id")
+    );
+    let recorded: bool = sqlx::query_scalar(
+        "SELECT p.duration_days=30 AND p.lifecycle_revision=1 AND p.actor_id=$1
+                AND p.account_id=$1 AND p.reason_sha256=$2 AND op.operation_kind='DELIVER'
+           FROM premium_ledger p
+           JOIN store_fulfilment_units u ON u.entitlement_id=p.request_id
+           JOIN store_operations op ON op.entitlement_id=u.entitlement_id",
+    )
+    .bind(actor)
+    .bind(Sha256::digest(reason.as_bytes()).to_vec())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(recorded);
     let second = service.purchase(&unique(&raw)).await.unwrap();
     assert_eq!(string(&value(&second), "result"), "ACCEPTED");
-    assert_eq!(db.count("premium_ledger a JOIN premium_ledger b ON b.lifecycle_revision=2 AND a.lifecycle_revision=1 WHERE a.effective_from=b.effective_from AND b.effective_until=a.effective_until+interval '30 days'").await, 1);
+    let extended: bool = sqlx::query_scalar(
+        "SELECT a.effective_from=b.effective_from
+                AND b.effective_until=a.effective_until+interval '30 days'
+           FROM premium_ledger a JOIN premium_ledger b USING(account_id)
+          WHERE a.lifecycle_revision=1 AND b.lifecycle_revision=2",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(extended);
+    let refused = change(&unique(&raw), "quantity", number(13));
+    assert_eq!(
+        string(&value(&service.purchase(&refused).await.unwrap()), "result"),
+        "OFFER_UNAVAILABLE"
+    );
+    assert_eq!(db.wallet().balance(actor).await.unwrap().available, 49500);
+    assert_eq!(db.count("store_operations").await, 2);
+    assert_eq!(db.count("premium_ledger").await, 2);
     for _ in 0..10 {
         let bulk = change(&unique(&raw), "quantity", number(12));
         assert_eq!(
@@ -2007,15 +2085,13 @@ async fn premium_time_checkout_grants_extends_replays_and_enforces_limits() {
             "ACCEPTED"
         );
     }
-    for quantity in [13, 1] {
-        let refused = change(&unique(&raw), "quantity", number(quantity));
-        assert_eq!(
-            string(&value(&service.purchase(&refused).await.unwrap()), "result"),
-            "OFFER_UNAVAILABLE"
-        );
-        assert_eq!(db.wallet().balance(actor).await.unwrap().available, 19500);
-        assert_eq!(db.count("store_operations").await, 12);
-        assert_eq!(db.count("premium_ledger").await, 12);
-    }
+    let refused = change(&unique(&raw), "quantity", number(1));
+    assert_eq!(
+        string(&value(&service.purchase(&refused).await.unwrap()), "result"),
+        "OFFER_UNAVAILABLE"
+    );
+    assert_eq!(db.wallet().balance(actor).await.unwrap().available, 19500);
+    assert_eq!(db.count("store_operations").await, 12);
+    assert_eq!(db.count("premium_ledger").await, 12);
     db.finish().await;
 }

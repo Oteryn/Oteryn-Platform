@@ -305,7 +305,11 @@ impl Routes {
             .cloned()
             .collect();
         let purchase = purchase::http::router(
-            purchase::database(pool.clone(), purchase_settings),
+            purchase::database(
+                pool.clone(),
+                purchase_settings,
+                on("OTERYN_PREMIUM_ENABLED"),
+            ),
             purchase_others,
         );
         // The factory adds the Store identity itself and refuses any other in its group.

@@ -1,5 +1,4 @@
-//! Premium time core. Paid issuance is intentionally unavailable in version 1;
-//! purchase settlement belongs to the store purchase task.
+//! Premium time authority and lifecycle transitions.
 use uuid::Uuid;
 
 #[path = "premium_http.rs"]

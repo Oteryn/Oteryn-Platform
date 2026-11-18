@@ -203,6 +203,11 @@ impl Database {
             },
             self.wallet(),
             Checks,
+            oteryn_store::premium::repository::Ledger::new(
+                self.pool.clone(),
+                Arc::new(DatabasePolicy),
+                true,
+            ),
         )
     }
     fn request(&self, account: Uuid, quantity: u8, key: Uuid) -> Vec<u8> {
