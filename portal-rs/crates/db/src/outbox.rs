@@ -109,7 +109,7 @@ pub async fn claim_excluding_with_deadline(
         .await?;
         let rows: Vec<(Uuid, String, String, i32)> = sqlx::query_as(
             "WITH due AS (
-           SELECT id FROM outbox WHERE NOT (kind = ANY($3)) AND (
+           SELECT id FROM outbox WHERE state IN ('pending','running') AND NOT (kind = ANY($3)) AND (
              (state = 'pending' AND run_after <= now()) OR
              (state = 'running' AND leased_until <= now() AND attempts < max_attempts))
            ORDER BY run_after, id FOR UPDATE SKIP LOCKED LIMIT $1
@@ -235,17 +235,20 @@ pub async fn schedule_with_deadline(
             .bind(kind)
             .execute(&mut *tx)
             .await?;
+        // Delete the locked tuple locations directly so the delete itself also
+        // stays bounded when the planner would favor a hash join on job IDs.
         sqlx::query(
             "WITH slot AS (
              SELECT floor(extract(epoch FROM statement_timestamp()) / $2)::bigint AS current_slot
          ), expired AS (
-             SELECT id FROM outbox, slot
-             WHERE kind = $1 AND state = 'done' AND (schedule_slot < current_slot
-                 OR (schedule_slot IS NULL AND payload = '{}'::jsonb
-                     AND substring(idempotency_key FROM '^schedule:([0-9]+)$')::numeric < current_slot))
-             ORDER BY schedule_slot LIMIT 1000 FOR UPDATE SKIP LOCKED
+             SELECT ctid FROM outbox
+             WHERE kind = $1 AND state = 'done' AND (schedule_slot IS NOT NULL OR payload = '{}'::jsonb)
+                 AND coalesce(schedule_slot::numeric, substring(idempotency_key FROM '^schedule:([0-9]+)$')::numeric)
+                     < (SELECT current_slot FROM slot)
+             ORDER BY coalesce(schedule_slot::numeric, substring(idempotency_key FROM '^schedule:([0-9]+)$')::numeric)
+             LIMIT 1000 FOR UPDATE SKIP LOCKED
          ), pruned AS (
-             DELETE FROM outbox USING expired WHERE outbox.id = expired.id
+             DELETE FROM outbox WHERE ctid = ANY(ARRAY(SELECT ctid FROM expired))
          )
          INSERT INTO outbox (kind, payload, idempotency_key, schedule_slot)
          SELECT $1, '{}'::jsonb, 'schedule:' || current_slot::text, current_slot FROM slot
