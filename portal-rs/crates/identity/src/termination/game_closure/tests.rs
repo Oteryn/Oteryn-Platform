@@ -355,6 +355,12 @@ async fn postgres_paused_intake_cancels_pending_termination() -> TestResult {
 
 #[tokio::test]
 async fn postgres_projection_requires_work_under_account_lock() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
+    use tower::ServiceExt;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -368,13 +374,29 @@ async fn postgres_projection_requires_work_under_account_lock() -> TestResult {
     projection.closures.clear();
     projection.projection_epoch = "4".into();
     let unrelated = serde_json::to_vec(&projection)?;
+    let peer = Identity::san("closure-proof-test")?;
+    let app = http::router(
+        db.pool.clone(),
+        b,
+        "closure-test".into(),
+        Arc::new(IdentityMap::new(vec![Binding {
+            identity: peer.clone(),
+            group: http::GROUP.into(),
+        }])?),
+    );
+    let proof = |payload: Vec<u8>| {
+        Request::builder()
+            .method("POST")
+            .uri("/internal/v1/game-auth/account-closure")
+            .header("content-type", "application/json")
+            .extension(VerifiedClient::from_verified_tls13_http11(peer.clone()))
+            .body(Body::from(payload))
+    };
     let before: String =
         sqlx::query_scalar("SELECT highest_epoch FROM plat3_closure_feed WHERE id=1")
             .fetch_one(&db.pool)
             .await?;
-    let refused = b
-        .ingest_projection(&db.pool, &unrelated, &seed().sign(&unrelated).to_bytes())
-        .await;
+    let refused = app.clone().oneshot(proof(unrelated)?).await?;
     let after: String =
         sqlx::query_scalar("SELECT highest_epoch FROM plat3_closure_feed WHERE id=1")
             .fetch_one(&db.pool)
@@ -382,14 +404,14 @@ async fn postgres_projection_requires_work_under_account_lock() -> TestResult {
     let snapshots: i64 = sqlx::query_scalar("SELECT count(*) FROM plat3_closure_snapshots")
         .fetch_one(&db.pool)
         .await?;
-    assert!(
-        matches!(refused, Err(Error::NoPending)),
-        "{refused:?}, epoch {after}, snapshots {snapshots}"
+    assert_eq!(
+        refused.status(),
+        StatusCode::NOT_FOUND,
+        "epoch {after}, snapshots {snapshots}"
     );
     assert_eq!(before, after);
     assert_eq!(snapshots, 0);
-    b.ingest_projection(&db.pool, &pending, &seed().sign(&pending).to_bytes())
-        .await?;
+    assert_eq!(app.oneshot(proof(pending)?).await?.status(), StatusCode::OK);
     db.close().await
 }
 
