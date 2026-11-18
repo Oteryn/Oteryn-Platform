@@ -178,8 +178,12 @@ impl Authority {
         }
         let settlement_bind =
             receipt.command == Command::Bind && text(i, "purpose")? == "BAZAAR_SETTLEMENT";
-        if matches!(receipt.command, Command::Hold | Command::Payout) || settlement_bind {
-            // A sale can consume the original funding and delivery preconditions.
+        if matches!(
+            receipt.command,
+            Command::Lock | Command::Hold | Command::Release | Command::Payout
+        ) || settlement_bind
+        {
+            // Recovery can advance the epoch, and a sale can consume its preconditions.
             // The immutable admission still identifies the exact committed effect.
             let prior: Option<bool> = sqlx::query_scalar(
                 "SELECT receipt::jsonb - 'recovery_generation' = $4::text::jsonb - 'recovery_generation'
