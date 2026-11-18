@@ -119,6 +119,18 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let league_listener =
                 oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
+            #[cfg(test)]
+            if std::env::var_os("FLAG_BOUNDARY_ROUTE_DIR").is_some() {
+                if league_listener.is_some() {
+                    let config = oteryn_minigames::league::config::Config::from_env()?;
+                    let app =
+                        oteryn_minigames::league::transport::private_router(db.clone(), config);
+                    record_route_registrations("league", &app)?;
+                }
+                if let Some(runtime) = &bazaar {
+                    record_route_registrations("bazaar", &runtime.private_router()?)?;
+                }
+            }
             let bazaar_listener = if let Some(runtime) = &bazaar {
                 Some(runtime.start_private_listener().await?)
             } else {
@@ -416,6 +428,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app =
                 game_routes::mount(app, db.clone(), config.environment, internal_configuration)
                     .await;
+            #[cfg(test)]
+            record_route_registrations("internal", &app)?;
+            #[cfg(test)]
+            record_route_registrations("public", &public_app)?;
             let internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
@@ -439,6 +455,14 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             })
             .await?;
         }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn record_route_registrations(name: &str, router: &axum::Router) -> std::io::Result<()> {
+    if let Some(dir) = std::env::var_os("FLAG_BOUNDARY_ROUTE_DIR") {
+        std::fs::write(std::path::Path::new(&dir).join(name), format!("{router:?}"))?;
     }
     Ok(())
 }

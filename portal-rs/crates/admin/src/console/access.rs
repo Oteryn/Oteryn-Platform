@@ -467,6 +467,9 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     let flags = Flags {
         console: std::env::var("OTERYN_ADMIN_CONSOLE").is_ok_and(|v| v == "true"),
     };
+    if !flags.console {
+        return Ok(Router::new());
+    }
     let panel = crate::web::PanelConfig {
         admin_panel: std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|v| v == "true"),
         host: std::env::var("OTERYN_ADMIN_HOST").unwrap_or_default(),

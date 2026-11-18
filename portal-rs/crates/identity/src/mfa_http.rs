@@ -91,9 +91,15 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
         ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
         .with_state(context);
+    let app = app.merge(oteryn_web::ratelimit::finish_routes(routes));
+    #[cfg(test)]
+    {
+        let recorded = crate::record_route_registrations("mfa-fallback", &app);
+        assert!(recorded.is_ok(), "MFA route registrations: {recorded:?}");
+    }
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()
-        .fallback_service(app.merge(oteryn_web::ratelimit::finish_routes(routes)))
+        .fallback_service(app)
         .layer(axum::middleware::from_fn(rewrite_login))
 }
 async fn mfa_session(
