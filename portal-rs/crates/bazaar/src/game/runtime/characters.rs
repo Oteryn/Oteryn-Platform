@@ -200,7 +200,7 @@ pub(crate) async fn proof(
     listing: Uuid,
     purpose: &str,
 ) -> Result<Option<(Value, Value, PreparedIntent, Receipt)>, Error> {
-    let row=sqlx::query("SELECT t.operation_id,t.intent,t.intent_digest,c.intent_json,c.receipt_json FROM bazaar_current_transfers t JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose=$2 AND c.state='TERMINAL'").bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
+    let row=sqlx::query("SELECT t.operation_id,t.intent,t.projection_epoch::text AS epoch,t.intent_digest,c.intent_json,c.receipt_json FROM bazaar_current_transfers t JOIN character_commands c ON c.id=t.operation_id WHERE t.listing_id=$1 AND t.purpose=$2 AND c.state='TERMINAL'").bind(listing).bind(purpose).fetch_optional(&mut *db).await?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -245,7 +245,8 @@ pub(crate) async fn proof(
         || text(&r, "outcome")? != "COMMITTED"
         || text(&r, "result_code")? != "CHAR_CMD_OK"
         || number(&r, "recovery_generation")? != a.fence.recovery_generation
-        || number(&r, "projection_epoch")? != a.fence.projection_epoch
+        || !(decimal(row.try_get("epoch")?, false, u64::MAX)?..=a.fence.projection_epoch)
+            .contains(&number(&r, "projection_epoch")?)
     {
         return Err(Error::Denied);
     }
@@ -535,7 +536,7 @@ pub(crate) async fn verify_unlock(
     Ok(())
 }
 
-fn rejected_receipt(
+pub(crate) fn rejected_receipt(
     a: &Authority,
     receipt: &Value,
     intent: &Value,
@@ -554,7 +555,8 @@ fn rejected_receipt(
             && text(receipt, "command")? == "TransferCharacterOwnership"
             && text(receipt, "operation_id")? == text(intent, "operation_id")?
             && number(receipt, "recovery_generation")? == a.fence.recovery_generation
-            && number(receipt, "decided_at")? >= number(intent, "issued_at_source")?
+            && number(receipt, "decided_at")?
+                >= number(intent, "issued_at_source")?.saturating_sub(5)
             && number(receipt, "decided_at")? <= now.saturating_add(1),
     )
 }

@@ -1,6 +1,10 @@
 use super::*;
 
-async fn replay(a: &Authority, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, listing: Uuid) {
+pub(super) async fn replay(
+    a: &Authority,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing: Uuid,
+) {
     sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
         .execute(&mut **tx)
         .await
@@ -468,6 +472,11 @@ async fn replay_projections(
 
 async fn recovered_character_sale() -> BrowserFixture {
     let mut db = settling_character_fixture("coins").await;
+    recover_character(&mut db).await;
+    db
+}
+
+pub(super) async fn recover_character(db: &mut BrowserFixture) {
     let config = std::sync::Arc::make_mut(&mut db.runtime.config);
     config.fence.projection_epoch = 4;
     config.fence.recovery_generation = 4;
@@ -515,7 +524,6 @@ async fn recovered_character_sale() -> BrowserFixture {
     assert!(a.resynced(&mut tx).await.unwrap());
 
     tx.commit().await.unwrap();
-    db
 }
 
 #[tokio::test]
@@ -532,4 +540,222 @@ async fn restricted_character_buyer_after_epoch_advance_gets_refund_and_unlock()
     assert_eq!(coin_refunds(&db).await, (1, 100));
     assert_eq!(outbox_count(&db, Command::Unlock).await, 1);
     db.end().await;
+}
+
+#[tokio::test]
+async fn delayed_first_lock_uses_issuance_epoch() {
+    let db = BrowserFixture::new().await;
+    let mut a = db.runtime.authority().clone();
+    let mut tx = db.pool.begin().await.unwrap();
+    a.fence.projection_epoch = 4;
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    commit_character_lock(&a, &mut tx, now).await;
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
+async fn accepted_restore_notice_fences_bazaar() {
+    let db = BrowserFixture::new().await;
+    let a = db.runtime.authority();
+    let mut tx = db.pool.begin().await.unwrap();
+    a.lock(&mut tx).await.unwrap();
+    let mut notice = db.pool.begin().await.unwrap();
+    let waiting =
+        sqlx::query("SELECT id FROM character_restore_locks WHERE id=1 FOR UPDATE NOWAIT")
+            .execute(&mut *notice)
+            .await
+            .unwrap_err();
+    assert_eq!(
+        waiting.as_database_error().unwrap().code().as_deref(),
+        Some("55P03")
+    );
+    notice.rollback().await.unwrap();
+    sqlx::query("INSERT INTO character_restore_notices(restore_event_id,notice_json,new_recovery_generation) VALUES(gen_random_uuid(),'{}','00000000000000000004')").execute(&mut *tx).await.unwrap();
+    assert!(matches!(a.lock(&mut tx).await, Err(Error::Unavailable)));
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
+async fn epoch_rebuild_retains_character_transfer() {
+    let db = settling_character_fixture("coins").await;
+    let mut a = db.runtime.authority().clone();
+    a.fence.projection_epoch = 4;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    replay_projections(&a, &mut tx, now).await;
+    a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    assert!(a.resynced(&mut tx).await.unwrap());
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[test]
+fn escrow_receipt_accepts_five_seconds_of_issue_skew() {
+    let intent = PreparedIntent::parse(&vector("escrow_intent")).unwrap();
+    let issued = number(&intent.value, "issued_at_source").unwrap();
+    let raw = vector("escrow_receipt");
+    let decided = number(&Receipt::parse(raw.as_bytes()).unwrap().value, "decided_at").unwrap();
+    for skew in [6, 5, 1] {
+        let raw = raw.replace(
+            &format!(r#""decided_at":"{decided}""#),
+            &format!(r#""decided_at":"{}""#, issued - skew),
+        );
+        assert_eq!(
+            Receipt::parse(raw.as_bytes())
+                .unwrap()
+                .bind(&intent, issued)
+                .is_ok(),
+            skew <= 5
+        );
+    }
+}
+
+async fn reversed_sale(gold: bool) {
+    let db = item_sale(gold, false).await;
+    item_effect(&db, Command::Deliver, false).await;
+    db.runtime.tick().await.unwrap();
+    if gold {
+        finish_gold_payout(&db, uid("20"), 2).await;
+    }
+    assert_eq!(state(&db).await, crate::State::Completed);
+    let command = if gold {
+        Command::Payout
+    } else {
+        Command::Deliver
+    };
+    let intent = newest_intent(&db, uid("20"), command).await;
+    let mut a = db.runtime.authority().clone();
+    a.fence.recovery_generation = 4;
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let operation = text(&intent.value, "operation_id").unwrap();
+    let raw = format!(
+        r#"{{"contract_version":2,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"{}","operation_id":"{operation}","outcome":"REJECTED","result_code":"CHAR_CMD_INTENT_EXPIRED","result_data":null,"recovery_generation":"4","decided_at":"{now}"}}"#,
+        command.wire()
+    );
+    assert_eq!(
+        a.receive(&mut tx, &a.config.receipt_authority, raw.as_bytes(), now)
+            .await
+            .unwrap(),
+        ReceiptResult::Quarantined
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_authority_conflicts WHERE operation_id=$1)"
+        )
+        .bind(id(operation).unwrap())
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        audit(&a, &mut tx, &intent, &raw, now).await,
+        ReceiptResult::Stored
+    );
+    assert!(
+        a.retained(&mut tx, id(operation).unwrap())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
+async fn restored_coin_delivery_reversal_is_quarantined() {
+    reversed_sale(false).await;
+}
+#[tokio::test]
+async fn restored_gold_payout_reversal_is_quarantined() {
+    reversed_sale(true).await;
+}
+
+#[tokio::test]
+async fn rejected_deposit_rebuild_needs_no_custody_status() {
+    let db = BrowserFixture::new().await;
+    let listing = uid("90");
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at) VALUES($1,$2,'item','auction','coins',100,false,now())").bind(listing).bind(uid("11")).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO bazaar_authority_assets(listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,session_hash,quantity,publication_consent,input_binding,refusal_code) VALUES($1,$1,$2,$3,$1,7,$4,1,true,'refused','REFUSED')").bind(listing).bind(uid("12")).bind(uid("21")).bind([1_u8;32].as_slice()).execute(&mut *tx).await.unwrap();
+    let raw = vector("escrow_intent")
+        .replace(&uid("20").to_string(), &listing.to_string())
+        .replace(&uid("2").to_string(), &uid("91").to_string())
+        .replace(r#""source_revision":"18""#, r#""source_revision":"101""#);
+    let intent = PreparedIntent::parse(&raw).unwrap();
+    store_intent(&mut tx, &intent).await;
+    tx.commit().await.unwrap();
+    reject(&db, &intent, "CHAR_CMD_BAZAAR_STALE_REVISION").await;
+    let mut a = db.runtime.authority().clone();
+    a.fence.projection_epoch = 4;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    sqlx::query("UPDATE bazaar_game_issuer SET projection_epoch=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    replay_projections(&a, &mut tx, now).await;
+    a.finish_resync(&mut tx, &[uid("12")]).await.unwrap();
+    assert!(a.resynced(&mut tx).await.unwrap());
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[tokio::test]
+async fn gold_hold_accepts_decision_before_platform_issue_time() {
+    let db = BrowserFixture::new().await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let operation = gold_fact(
+        &mut tx,
+        Command::Hold,
+        100,
+        uid("82"),
+        uid("83"),
+        (0, 1, 10000),
+    )
+    .await;
+    let (i,r): (String,String) = sqlx::query_as("SELECT intent,receipt FROM bazaar_game_outbox JOIN bazaar_authority_receipts USING(operation_id) WHERE operation_id=$1")
+        .bind(operation).fetch_one(&mut *tx).await.unwrap();
+    let intent = PreparedIntent::parse(&i).unwrap();
+    let issued = number(&intent.value, "issued_at_source").unwrap();
+    let skewed = r.replace("1790000002", &(issued - 1).to_string());
+    Receipt::parse(skewed.as_bytes())
+        .unwrap()
+        .bind(&intent, issued)
+        .unwrap();
+    tx.rollback().await.unwrap();
+    db.end().await;
+}
+
+#[test]
+fn transfer_rejection_accepts_five_seconds_of_issue_skew() {
+    let a = authority();
+    let operation = uid("92");
+    let issued = 1790000000;
+    let transfer = transfer_fixture(operation, 17, issued);
+    for skew in [6, 5, 1] {
+        let decided = issued - skew;
+        let raw = format!(
+            r#"{{"contract_version":1,"operation":"PublishCharacterCommandReceiptV1","source_authority":"oteryn:character-authority:primary","command":"TransferCharacterOwnership","operation_id":"{operation}","outcome":"REJECTED","result_code":"CHAR_CMD_OWNER_MISMATCH","recovery_generation":"3","decided_at":"{decided}"}}"#
+        );
+        let receipt = decode(raw.as_bytes(), 1024).unwrap();
+        assert_eq!(
+            runtime::characters::rejected_receipt(&a, &receipt, &transfer, issued).unwrap(),
+            skew <= 5
+        );
+    }
 }
