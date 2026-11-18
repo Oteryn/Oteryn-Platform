@@ -1519,63 +1519,64 @@ async fn r9_audit_cleanup_commits_one_batch() -> TestResult {
 }
 
 #[tokio::test]
-async fn r11_delayed_cancel_rejections() -> TestResult {
-    let Some(db) = Database::new().await? else {
-        return Ok(());
-    };
-    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
-    let b = boundary(settings(), recovery.clone());
-    let s = service(&db, b.clone());
-    let decision = "CANCEL";
-    for rejection in [
-        "CHAR_CMD_INTENT_EXPIRED",
-        "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION",
-    ] {
-        recovery.0.store(3, Ordering::SeqCst);
-        let account = db.account().await?;
-        issue(&db, &s, account).await;
-        s.cancel(
-            account,
-            &ActorProof(account.to_string()),
-            "termination test password",
-        )
-        .await?;
-        let pending = b.pending_intents(&db.pool, 0, 40).await?;
-        let intent = pending
-            .iter()
-            .filter_map(|raw| Intent::parse(raw).ok())
-            .find(|i| {
-                i.account_id == account.to_string() && i.decision.as_deref() == Some(decision)
-            })
-            .ok_or("resolution")?;
-        let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
-        receipt.command = intent.command.clone();
-        receipt.operation_id = intent.operation_id.clone();
-        receipt.outcome = "REJECTED".into();
-        receipt.result_code = rejection.into();
-        receipt.result_data = None;
-        receipt.recovery_generation = "3".into();
-        receipt.decided_at = intent.issued_at_source.clone();
-        let raw = serde_json::to_vec(&receipt)?;
-        recovery.0.store(4, Ordering::SeqCst);
-        let result = b
-            .ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
-            .await;
-        assert!(result.is_ok(), "delayed rejection: {result:?}");
-        s.run_worker(100).await?;
-        let pending = b.pending_intents(&db.pool, 0, 40).await?;
-        let fresh = pending
-            .iter()
-            .filter_map(|raw| Intent::parse(raw).ok())
-            .find(|i| {
-                i.account_id == account.to_string() && i.decision.as_deref() == Some(decision)
-            })
-            .ok_or("fresh resolution")?;
-        assert_ne!(fresh.operation_id, intent.operation_id);
-        assert_eq!(fresh.decision, intent.decision);
-        assert_eq!(fresh.close_operation_id, intent.close_operation_id);
-        assert_eq!(fresh.expected_recovery_generation, "4");
+async fn delayed_closure_rejections_retry_under_current_generation() -> TestResult {
+    for decision in [Some("CANCEL"), Some("FINALIZE"), None] {
+        for rejection in [
+            "CHAR_CMD_INTENT_EXPIRED",
+            "CHAR_CMD_ACCOUNT_CLOSE_STALE_GENERATION",
+        ] {
+            let Some(db) = Database::new().await? else {
+                return Ok(());
+            };
+            let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+            let b = boundary(settings(), recovery.clone());
+            let s = service(&db, b.clone());
+            let account = db.account().await?;
+            let (_, close) = issue(&db, &s, account).await;
+            if decision == Some("CANCEL") {
+                s.cancel(
+                    account,
+                    &ActorProof(account.to_string()),
+                    "termination test password",
+                )
+                .await?;
+            } else if decision == Some("FINALIZE") {
+                publish(&db, &b, &close, true).await;
+                assert!(s.finalize(account).await?);
+            }
+            let pending = b.pending_intents(&db.pool, 0, 40).await?;
+            let intent = pending
+                .iter()
+                .filter_map(|raw| Intent::parse(raw).ok())
+                .find(|i| i.account_id == account.to_string() && i.decision.as_deref() == decision)
+                .ok_or("resolution")?;
+            let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+            receipt.command = intent.command.clone();
+            receipt.operation_id = intent.operation_id.clone();
+            receipt.outcome = "REJECTED".into();
+            receipt.result_code = rejection.into();
+            receipt.result_data = None;
+            receipt.recovery_generation = "3".into();
+            receipt.decided_at = intent.issued_at_source.clone();
+            let raw = serde_json::to_vec(&receipt)?;
+            recovery.0.store(4, Ordering::SeqCst);
+            let result = b
+                .ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+                .await;
+            assert!(result.is_ok(), "delayed rejection: {result:?}");
+            s.run_worker(100).await?;
+            let pending = b.pending_intents(&db.pool, 0, 40).await?;
+            let fresh = pending
+                .iter()
+                .filter_map(|raw| Intent::parse(raw).ok())
+                .find(|i| i.account_id == account.to_string() && i.decision.as_deref() == decision)
+                .ok_or("fresh resolution")?;
+            assert_ne!(fresh.operation_id, intent.operation_id);
+            assert_eq!(fresh.decision, intent.decision);
+            assert_eq!(fresh.close_operation_id, intent.close_operation_id);
+            assert_eq!(fresh.expected_recovery_generation, "4");
+            db.close().await?;
+        }
     }
-    db.close().await?;
     Ok(())
 }
