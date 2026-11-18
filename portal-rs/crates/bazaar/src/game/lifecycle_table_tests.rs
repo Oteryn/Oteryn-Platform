@@ -404,10 +404,14 @@ async fn lifecycle_awaiting_delivery_refuse_delivery() {
     let delivery = newest_intent(&db, uid("20"), Command::Deliver).await;
     let delivery = id(text(&delivery.value, "operation_id").unwrap()).unwrap();
     let mut tx = db.pool.begin().await.unwrap();
-    assert!(matches!(
-        crate::lifecycle::write_compensation(&mut tx, uid("20"), delivery, 3).await,
-        Err(crate::Error::IllegalTransition)
-    ));
+    crate::game::authority::register_writer(&mut tx)
+        .await
+        .unwrap();
+    let refused = crate::lifecycle::write_compensation(&mut tx, uid("20"), delivery, 3).await;
+    assert!(
+        matches!(refused, Err(crate::Error::IllegalTransition)),
+        "{refused:?}"
+    );
     assert_eq!(sale_effects_on(&mut tx).await.3, 0);
     tx.rollback().await.unwrap();
     recovery_tests::item_effect(&db, Command::Deliver, true).await;
@@ -419,6 +423,9 @@ async fn lifecycle_awaiting_delivery_refuse_delivery() {
     let operation = newest_intent(&db, uid("20"), Command::Return).await;
     let operation = id(text(&operation.value, "operation_id").unwrap()).unwrap();
     let mut tx = db.pool.begin().await.unwrap();
+    crate::game::authority::register_writer(&mut tx)
+        .await
+        .unwrap();
     assert!(matches!(
         crate::lifecycle::write_compensation(&mut tx, uid("20"), operation, 3).await,
         Err(crate::Error::IllegalTransition)
