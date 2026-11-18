@@ -435,6 +435,11 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         3600,
         Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
     )?;
+    registry.cleanup(
+        "stats.death-retention",
+        3600,
+        Arc::new(oteryn_stats::worker::DeathRetention { pool: pool.clone() }),
+    )?;
     // Known consumers without an enabled handler must keep their queued work.
     // Unknown kinds still reach execute() and are permanently refused.
     for kind in [

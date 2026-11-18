@@ -34,6 +34,39 @@ fn date(timestamp: i64) -> Result<Date, sqlx::Error> {
         .map(|v| v.date())
         .map_err(|_| invalid())
 }
+/// Copied death details expire after 30 days whether or not statistics is
+/// enabled, so turning the feature off never extends their retention.
+#[derive(Debug, Clone)]
+pub struct DeathRetention {
+    pub pool: PgPool,
+}
+impl DeathRetention {
+    pub async fn purge(&self) -> Result<u64, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(65001)")
+            .execute(&mut *tx)
+            .await?;
+        let n = sqlx::query("DELETE FROM stats_character_events WHERE kind='death' AND (details->>'occurred_at')::bigint < extract(epoch FROM now())::bigint-30*86400")
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        tx.commit().await?;
+        Ok(n)
+    }
+}
+impl oteryn_db::outbox::Cleanup for DeathRetention {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move {
+            self.purge()
+                .await
+                .map(|_| ())
+                .map_err(|_| "statistics death retention failed".to_owned())
+        })
+    }
+}
 impl StatisticsJob {
     /// Disabled jobs do not connect to the database.
     pub async fn run(&self) -> Result<usize, sqlx::Error> {
