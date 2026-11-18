@@ -32,10 +32,17 @@ impl AccountReader for Accounts {
 struct FlakyAccounts {
     calls: Arc<AtomicU8>,
     fail_on: u8,
+    restrict: bool,
 }
 impl AccountReader for FlakyAccounts {
+    async fn state_in(&self, _: &mut sqlx::PgConnection, id: Uuid) -> Result<AccountState, Error> {
+        self.state(id).await
+    }
     async fn state(&self, _: Uuid) -> Result<AccountState, Error> {
         if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.fail_on {
+            if self.restrict {
+                return Ok(AccountState::Restricted);
+            }
             return Err(Error::Database(sqlx::Error::PoolTimedOut));
         }
         Ok(AccountState::Active)
@@ -543,7 +550,7 @@ async fn l6_03_browser_checkout_refund_refused_twice_after_credit() -> TestResul
     let (body, sig) = h.signed(&h.event(&intent, IntentState::Succeeded))?;
     service.webhook(&body, &sig).await?;
     // Same ledger binding and exact persisted quantity as the top-up worker.
-    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
         .bind(intent.account_id)
         .execute(&h.pool)
         .await?;
@@ -634,11 +641,11 @@ async fn ensure_intent_reread_failure_is_unavailable_and_replay_returns_same_int
     let Some(h) = Harness::new().await? else {
         return Ok(());
     };
-    // Call 1 is the eligibility check before the provider; call 2 is the re-read
-    // after commit, which fails.
+    // The second eligibility read fails after provider creation.
     let flaky = FlakyAccounts {
         calls: Arc::new(AtomicU8::new(0)),
         fail_on: 2,
+        restrict: false,
     };
     let service = Payments::new(
         h.pool.clone(),
@@ -652,8 +659,10 @@ async fn ensure_intent_reread_failure_is_unavailable_and_replay_returns_same_int
         Err(Error::Unavailable)
     ));
     assert_eq!(flaky.calls.load(Ordering::SeqCst), 2);
-    assert_eq!(h.count("payment_intents").await?, 1);
+    assert_eq!(h.count("payment_intents").await?, 0);
+    let created = service.ensure_intent(id, account, amount()).await?;
     let replay = service.ensure_intent(id, account, amount()).await?;
+    assert_eq!(created, replay);
     assert_eq!(replay.id, id);
     assert_eq!(replay.account_id, account);
     assert_eq!(replay.state, IntentState::Pending);
@@ -718,5 +727,35 @@ async fn webhook_account_read_failure_is_unavailable_and_redelivery_applies_once
     );
     assert_eq!(h.count("payment_events").await?, 2);
     assert_eq!(h.count("outbox").await?, 1);
+    h.finish().await
+}
+
+#[tokio::test]
+async fn restricted_at_creation_leaves_no_intent() -> TestResult {
+    let Some(h) = Harness::new().await? else {
+        return Ok(());
+    };
+    let accounts = FlakyAccounts {
+        calls: Arc::new(AtomicU8::new(0)),
+        fail_on: 2,
+        restrict: true,
+    };
+    let payments = Payments::new(
+        h.pool.clone(),
+        h.provider.clone(),
+        accounts,
+        PaymentFlags { enabled: true },
+    );
+    assert!(matches!(
+        payments
+            .ensure_intent(Uuid::now_v7(), Uuid::now_v7(), amount())
+            .await,
+        Err(Error::AccountDenied)
+    ));
+    assert_eq!(
+        h.count("payment_intents").await?,
+        0,
+        "restricted creation persisted"
+    );
     h.finish().await
 }
