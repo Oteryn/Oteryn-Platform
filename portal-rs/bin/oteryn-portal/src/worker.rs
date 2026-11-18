@@ -331,13 +331,15 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
     register_journal_cleanup(&mut registry, &pool)?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
     crate::registration_delivery::register(&mut registry, pool.clone())?;
-    registry.cleanup(
-        "referrals.process",
-        60,
-        Arc::new(oteryn_community::referrals::campaign::Worker::configured(
-            pool.clone(),
-        )?),
-    )?;
+    if std::env::var("PORTAL_REFERRALS_ENABLED").as_deref() == Ok("true") {
+        registry.cleanup(
+            "referrals.process",
+            60,
+            Arc::new(oteryn_community::referrals::campaign::Worker::configured(
+                pool.clone(),
+            )?),
+        )?;
+    }
     let closure = crate::account_closure::configured(pool.clone())?;
     tracing::debug!(
         game_enabled = closure.game_enabled(),
@@ -350,25 +352,29 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
             pool.clone(),
         )),
     )?;
-    registry.cleanup(
-        "identity.finalize-terminations",
-        closure.worker_interval_seconds(),
-        Arc::new(closure.terminations),
-    )?;
+    if closure.termination_enabled {
+        registry.cleanup(
+            "identity.finalize-terminations",
+            closure.worker_interval_seconds(),
+            Arc::new(closure.terminations),
+        )?;
+    }
     register_security_notifications(&mut registry, pool.clone())?;
     registry.cleanup(
         "cleanup.deaths",
         3600,
         Arc::new(oteryn_community::deaths::Cleanup { pool: pool.clone() }),
     )?;
-    registry.cleanup(
-        "stats.poll",
-        60,
-        Arc::new(oteryn_stats::worker::StatisticsJob {
-            pool: pool.clone(),
-            enabled: std::env::var("PORTAL_STATS_ENABLED").as_deref() == Ok("true"),
-        }),
-    )?;
+    if std::env::var("PORTAL_STATS_ENABLED").as_deref() == Ok("true") {
+        registry.cleanup(
+            "stats.poll",
+            60,
+            Arc::new(oteryn_stats::worker::StatisticsJob {
+                pool: pool.clone(),
+                enabled: true,
+            }),
+        )?;
+    }
     registry.cleanup(
         "cleanup.sessions",
         3600,
@@ -407,14 +413,16 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         Arc::new(VerificationTokenCleanup(pool.clone())),
     )?;
     registry.cleanup("cleanup.support", 3600, Arc::new(NoopCleanup))?;
-    registry.cleanup(
-        "cleanup.support-tickets",
-        3600,
-        Arc::new(oteryn_support::tickets::Retention {
-            pool: pool.clone(),
-            enabled: std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true"),
-        }),
-    )?;
+    if std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true") {
+        registry.cleanup(
+            "cleanup.support-tickets",
+            3600,
+            Arc::new(oteryn_support::tickets::Retention {
+                pool: pool.clone(),
+                enabled: true,
+            }),
+        )?;
+    }
     if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
         registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
     }
@@ -453,6 +461,10 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "league.ingest",
         "identity.email-change",
         "admin.control.expire",
+        "cleanup.support-tickets",
+        "identity.finalize-terminations",
+        "referrals.process",
+        "stats.poll",
     ] {
         if !registry.handlers.contains_key(kind) {
             registry.disabled.push(kind.into());
@@ -518,6 +530,7 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     include!("worker_tests.rs");
+    include!("flag_boundary_tests.rs");
 
     #[tokio::test]
     async fn idle_token_cleanup_avoids_history_scan() -> TestResult {

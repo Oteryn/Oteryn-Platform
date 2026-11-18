@@ -152,7 +152,7 @@ async fn run_in(environment: Option<&str>, args: &[String]) -> Result<Value, See
     }
     let config = oteryn_core::Config::from_env()
         .map_err(|_| SeedError::Unavailable("OTERYN_DATABASE_URL is not configured"))?;
-    let pool = oteryn_db::lazy_pool(config.database_url())
+    let pool = oteryn_web::session::configured_pool(config.database_url())
         .map_err(|_| SeedError::Unavailable("database"))?;
     let settings = Settings {
         witness_directory: std::env::var_os(WITNESS_DIRECTORY).map(PathBuf::from),

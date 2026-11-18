@@ -62,20 +62,20 @@ where
     A: Clone + Send + Sync + 'static,
 {
     let flag = |key| std::env::var(key).is_ok_and(|v| v == "true");
-    router(
-        pool,
-        Settings {
-            enabled: flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED"),
-            commands: crate::commands::Settings {
-                enabled: flag("OTERYN_CHARACTER_COMMANDS_ENABLED"),
-                create_enabled: flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED"),
-                source_authority: std::env::var("OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY")
-                    .unwrap_or_default(),
-                ..Default::default()
-            },
+    let settings = Settings {
+        enabled: flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED"),
+        commands: crate::commands::Settings {
+            enabled: flag("OTERYN_CHARACTER_COMMANDS_ENABLED"),
+            create_enabled: flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED"),
+            source_authority: std::env::var("OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY")
+                .unwrap_or_default(),
+            ..Default::default()
         },
-        session,
-    )
+    };
+    if !settings.enabled || !settings.commands.enabled || !settings.commands.create_enabled {
+        return Router::new();
+    }
+    router(pool, settings, session)
 }
 pub fn router<S, F, Fut, A>(pool: PgPool, settings: Settings, session: F) -> Router<A>
 where

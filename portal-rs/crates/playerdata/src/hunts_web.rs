@@ -31,7 +31,7 @@ struct Web {
 /// Party capture remains off until its privacy scope has been accepted.
 pub fn router(pool: PgPool, flags: Flags, prices: Arc<dyn Pricing>) -> Router {
     let sessions = SessionLayer::new(pool.clone());
-    Router::new()
+    let mut app = Router::new()
         .route("/{lang}/account/hunts", get(index))
         .route("/{lang}/account/hunts/compare", get(comparison))
         .route("/{lang}/account/hunts/{id}", get(detail))
@@ -53,9 +53,11 @@ pub fn router(pool: PgPool, flags: Flags, prices: Arc<dyn Pricing>) -> Router {
                     next.run(request).await
                 }
             },
-        ))
-        .route("/static/playerdata/hunts.css", get(styles))
-        .layer(middleware::from_fn(private_headers))
+        ));
+    if flags.read {
+        app = app.route("/static/playerdata/hunts.css", get(styles));
+    }
+    app.layer(middleware::from_fn(private_headers))
 }
 
 pub fn configured_router(pool: PgPool) -> Router {
