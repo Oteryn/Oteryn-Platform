@@ -431,18 +431,32 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook, C: Accounts>
             let mut cursor = 0;
             for entry in entries.into_iter().take(usize::from(limit)) {
                 cursor = entry.sequence;
-                let order=sqlx::query("SELECT o.order_id,l.offer_key,l.quantity FROM store_orders o JOIN store_order_lines l USING(order_id) WHERE o.wallet_operation_id=$1 AND o.account_id=$2")
-                    .bind(entry.operation_id).bind(account).fetch_optional(&mut *tx).await?;
-                let store = entry.kind == "store_purchase";
-                if store && order.is_none() {
-                    return Err(Error::Unavailable);
-                }
                 let kind = match entry.kind.as_str() {
                     "store_purchase" => "STORE_PURCHASE",
-                    "adjustment" => "OPERATOR_ADJUSTMENT",
+                    "top_up" => "COIN_PACKAGE_CREDIT",
+                    "adjustment" => {
+                        let reversed: bool = sqlx::query_scalar(
+                            "SELECT EXISTS(SELECT 1 FROM coin_purchase_reversals WHERE id=$1 AND payer_account_id=$2 AND outcome='debited')",
+                        )
+                        .bind(entry.operation_id)
+                        .bind(account)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        if reversed {
+                            "COIN_PACKAGE_REVERSAL"
+                        } else {
+                            "OPERATOR_ADJUSTMENT"
+                        }
+                    }
                     _ => "OTHER",
                 };
-                let (order_id, offer_key, quantity) = match order.filter(|_| store) {
+                let order = if entry.kind == "store_purchase" {
+                    Some(sqlx::query("SELECT o.order_id,l.offer_key,l.quantity FROM store_orders o JOIN store_order_lines l USING(order_id) WHERE o.wallet_operation_id=$1 AND o.account_id=$2")
+                        .bind(entry.operation_id).bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?)
+                } else {
+                    None
+                };
+                let (order_id, offer_key, quantity) = match order {
                     Some(row) => (
                         text(row.try_get::<Uuid, _>("order_id")?),
                         text(row.try_get::<String, _>("offer_key")?),

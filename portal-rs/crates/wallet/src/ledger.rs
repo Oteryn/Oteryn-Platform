@@ -770,15 +770,19 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.enabled()?;
         valid_key(key)?;
         let mut tx = self.pool.begin().await?;
-        let account: Option<Uuid> =
-            sqlx::query_scalar("SELECT account_id FROM wallet_operations WHERE id=$1")
+        let operation: Option<(Uuid, String)> =
+            sqlx::query_as("SELECT account_id,kind FROM wallet_operations WHERE id=$1")
                 .bind(key)
                 .fetch_optional(&mut *tx)
                 .await?;
-        let Some(account) = account else {
+        let Some((account, kind)) = operation else {
             return Ok(None);
         };
-        self.active(&mut tx, account).await?;
+        if kind == "release" {
+            Self::active_state(self.accounts.safe_return(&mut tx, account).await)?;
+        } else {
+            self.active(&mut tx, account).await?;
+        }
         let result = receipt(&mut tx, key, false).await?;
         tx.commit().await?;
         Ok(Some(result))
