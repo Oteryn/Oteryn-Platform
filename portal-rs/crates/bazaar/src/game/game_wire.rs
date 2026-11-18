@@ -208,6 +208,20 @@ pub struct PreparedIntent {
     pub(super) command: Command,
 }
 impl PreparedIntent {
+    pub(super) fn is_sale_handoff(&self) -> Result<bool, Error> {
+        Ok(self.command == Command::Deliver
+            || (self.command == Command::Bind
+                && text(&self.value, "purpose")? == "BAZAAR_SETTLEMENT"))
+    }
+    pub(super) fn permits_safe_return(&self, party: Uuid, seller: Uuid) -> Result<bool, Error> {
+        Ok(matches!(
+            self.command,
+            Command::Return | Command::Unlock | Command::Release | Command::Payout
+        ) || (self.command == Command::Bind
+            && text(&self.value, "purpose")? == "BAZAAR_ESCROW_RETURN")
+            || (party == seller && self.is_sale_handoff()?))
+    }
+
     pub fn parse(raw: &str) -> Result<Self, Error> {
         let value = canonical::decode(raw.as_bytes(), 4096, 12).map_err(|_| Error::Invalid)?;
         if raw.contains('\\')

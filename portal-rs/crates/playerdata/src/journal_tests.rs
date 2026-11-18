@@ -1239,6 +1239,7 @@ async fn postgres_l8_source_revisions_supersede_current_state() {
         let next = next.replace(&PROGRESS_NOW.to_string(), &now.to_string());
         let a = playerdata::progress(body.as_bytes()).unwrap();
         let b = playerdata::progress(next.as_bytes()).unwrap();
+        let stream = crate::store::stream_key(&a.scope);
         let mut published = a.scope.clone();
         published.character = None;
         published.world = None;
@@ -1302,7 +1303,16 @@ async fn postgres_l8_source_revisions_supersede_current_state() {
             .expire_batch()
             .await
             .unwrap();
-        let rows: Vec<(String,bool)> = sqlx::query_as("SELECT source_revision::text,payload IS NOT NULL FROM pd_records WHERE entity_key=$1 ORDER BY source_revision").bind(entity).fetch_all(&db.pool).await.unwrap();
+        let rows: Vec<(String, bool)> = sqlx::query_as(
+            "SELECT source_revision::text, payload IS NOT NULL FROM pd_records
+             WHERE stream_key=$1 AND entity_key=CASE WHEN source_revision=1 THEN '' ELSE $2 END
+             ORDER BY pd_records.source_revision",
+        )
+        .bind(stream)
+        .bind(entity)
+        .fetch_all(&db.pool)
+        .await
+        .unwrap();
         assert_eq!(
             rows,
             vec![("1".into(), false), ("2".into(), true), ("3".into(), true)],
