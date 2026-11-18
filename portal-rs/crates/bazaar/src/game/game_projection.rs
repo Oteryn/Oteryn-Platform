@@ -299,7 +299,7 @@ impl Outbox {
         )
         .await?;
         if kind == "STATUS" && matches!(result, IngestResult::Applied | IngestResult::Quarantined) {
-            super::delivery_work::mark_status(db, subject).await?;
+            super::delivery_work::mark_status(db, subject, result).await?;
         }
         Ok(result)
     }

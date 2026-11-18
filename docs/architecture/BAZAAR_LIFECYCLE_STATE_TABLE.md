@@ -163,10 +163,10 @@ drift report is emitted by these controls.
 ### Game custody projection intake
 
 Game intake changes the durable projection independently of financial and
-listing effects. Applied or conflicting STATUS schedules a custody recheck
-in the same transaction. The conflict outcome creates a projection quarantine.
-The sale recheck determines whether conflicting sale evidence creates a drift
-report.
+listing effects. A conflict creates a projection quarantine and schedules a
+custody recheck in the same transaction. An applied change also requeues
+listings an unfinished rebuild has already scanned. The sale recheck
+determines whether conflicting sale evidence creates a drift report.
 
 | Current status | Incoming revision | Next status | Effects | Disposition |
 | --- | --- | --- | --- | --- |

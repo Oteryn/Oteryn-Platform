@@ -1,5 +1,6 @@
 //! Coalesced rechecks in the existing scheduling table. Evidence admission,
 //! queue changes and resync all run under the issuer lock.
+use super::IngestResult;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -21,16 +22,21 @@ pub(super) const LISTING: Queue = Queue {
     cursor: "resync-listing-scan",
 };
 
-pub(super) async fn mark_status(db: &mut PgConnection, listing: Uuid) -> Result<(), sqlx::Error> {
-    mark_custody_work(db, listing, true).await
+pub(super) async fn mark_status(
+    db: &mut PgConnection,
+    listing: Uuid,
+    result: IngestResult,
+) -> Result<(), sqlx::Error> {
+    mark_custody_work(db, listing, Some(result)).await
 }
 
 async fn mark_custody_work(
     db: &mut PgConnection,
     listing: Uuid,
-    status_changed: bool,
+    status: Option<IngestResult>,
 ) -> Result<(), sqlx::Error> {
-    // STATUS can invalidate custody that a rebuild page has already checked.
+    // Quarantine removes custody evidence. An applied STATUS can also invalidate
+    // a listing that an in-progress rebuild has already checked.
     // Delivery owns terminal item sales, as it does in the listing scan.
     sqlx::query(
         "WITH subject AS (
@@ -47,13 +53,23 @@ async fn mark_custody_work(
          SELECT $2 || id,id FROM subject WHERE delivery
          UNION ALL
          SELECT $3 || id,id FROM subject
-         WHERE $4 AND NOT (delivery AND state IN ('completed','cancelled'))
+         WHERE NOT (delivery AND state IN ('completed','cancelled'))
+           AND ($4 OR ($5 AND EXISTS (
+               SELECT 1 FROM bazaar_resync_progress p
+               JOIN bazaar_game_issuer i USING (projection_epoch,recovery_generation)
+               WHERE i.singleton AND subject.id<=p.listing_cursor
+                 AND NOT EXISTS (
+                     SELECT 1 FROM bazaar_authority_resync r
+                     WHERE r.projection_epoch=p.projection_epoch
+                       AND r.recovery_generation=p.recovery_generation)
+           )))
          ON CONFLICT DO NOTHING",
     )
     .bind(listing)
     .bind(DELIVERY.prefix)
     .bind(LISTING.prefix)
-    .bind(status_changed)
+    .bind(status == Some(IngestResult::Quarantined))
+    .bind(status == Some(IngestResult::Applied))
     .execute(db)
     .await?;
     Ok(())
@@ -69,7 +85,7 @@ pub(super) async fn mark_operation(
             .fetch_optional(&mut *db)
             .await?;
     if let Some(listing) = listing {
-        mark_custody_work(db, listing, false).await?;
+        mark_custody_work(db, listing, None).await?;
     }
     Ok(())
 }
