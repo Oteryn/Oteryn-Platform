@@ -690,8 +690,15 @@ fn items_payload(scope: &Scope, kind: &str, p: &Value) -> Result<String> {
                 "snapshot_id character_revision page_count item_count depots houses",
             )?;
             let snapshot = id(p, "snapshot_id")?;
-            dec(p, "character_revision", 1, u64::MAX)?;
-            require(scope.character_revision.as_deref() == Some(s(p, "character_revision")?))?;
+            // The envelope binds the stream to its ownership cut; the snapshot
+            // captures the character at logout and may have a later revision.
+            let ownership_revision = scope
+                .character_revision
+                .as_deref()
+                .ok_or(Error::Invalid)?
+                .parse::<u64>()
+                .map_err(|_| Error::Invalid)?;
+            dec(p, "character_revision", ownership_revision, u64::MAX)?;
             count_pair(p)?;
             let mut last = None;
             for v in array(get(p, "depots")?, 0, 256)? {
@@ -777,4 +784,43 @@ fn item_row(p: &Value) -> Result<()> {
         require(null(get(p, "house_id")?) && null(get(p, "spatial_position_hex")?))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn items_begin(payload_revision: u64) -> String {
+        let fixture = include_str!(
+            "../../../../docs/contracts/fixtures/game-journal-items-v1/record-items-begin.valid.json"
+        );
+        let (envelope, payload) = fixture.split_once(r#""payload":"#).unwrap_or((fixture, ""));
+        let envelope =
+            envelope.replace(r#""character_revision":"1""#, r#""character_revision":"7""#);
+        let payload = payload.replace(
+            r#""character_revision":"1""#,
+            &format!(r#""character_revision":"{payload_revision}""#),
+        );
+        format!(r#"{envelope}"payload":{payload}"#)
+    }
+
+    #[test]
+    fn items_begin_accepts_snapshot_at_or_after_ownership_revision() {
+        for revision in [7, 8, u64::MAX] {
+            let begin = items_begin(revision);
+            let record = items(begin.as_bytes()).map(|record| {
+                (
+                    record.scope.character_revision.clone(),
+                    dec(&record.payload, "character_revision", 1, u64::MAX),
+                )
+            });
+            assert_eq!(record, Ok((Some("7".to_owned()), Ok(revision))));
+        }
+    }
+
+    #[test]
+    fn items_begin_rejects_snapshot_older_than_ownership_revision() {
+        let begin = items_begin(6);
+        assert_eq!(items(begin.as_bytes()).err(), Some(Error::Invalid));
+    }
 }

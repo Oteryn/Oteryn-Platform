@@ -141,9 +141,8 @@ impl JournalLoginAuthority {
             world_id: None,
         };
         if let Some(owned) = owned {
-            if owned.epoch != epoch {
-                return Err(Error::Unavailable);
-            }
+            // The stream uses the live LCFA epoch. The receipt identifies the
+            // ownership period and still sets its revision and visibility floors.
             cut.projection_revision = Some(owned.to_projection_revision);
             cut.ownership_character_revision = Some(owned.character_revision);
             cut.world_id = Some(owned.world);

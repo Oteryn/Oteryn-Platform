@@ -303,20 +303,16 @@ async fn ownership_with_feed(
         }
         chain.push(cut);
     }
-    let projection = sqlx::query("SELECT c.account_id,c.world_id,s.projection_epoch,s.projection_revision,s.invalid FROM account_characters c JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 FOR SHARE OF c, s")
+    let projection = sqlx::query("SELECT c.account_id,c.world_id,s.projection_revision FROM account_characters c JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 FOR SHARE OF c, s")
         .bind(character)
         .fetch_all(&mut *tx)
         .await?;
     let [row] = projection.as_slice() else {
         return Err(Error::Unavailable);
     };
-    if row.try_get::<bool, _>("invalid")? {
-        return Err(Error::Unavailable);
-    }
     let owner: Uuid = row.try_get("account_id")?;
-    account_epoch_with_feed(tx, owner, feed).await?;
+    let epoch = account_epoch_with_feed(tx, owner, feed).await?;
     let world: Uuid = row.try_get("world_id")?;
-    let epoch = counter(&row.try_get::<String, _>("projection_epoch")?)?;
     let revision = counter(&row.try_get::<String, _>("projection_revision")?)?;
     // The initial cut names the world; transfer receipts carry none.
     if chain[0].world != world {
@@ -326,9 +322,10 @@ async fn ownership_with_feed(
         cut.world = world;
     }
     let current = chain.last().ok_or(Error::Unavailable)?;
+    // LCFA orders publications by (epoch, revision). A validated resync in a
+    // higher epoch can restart revisions while the receipt still proves lineage.
     if current.account != owner
-        || current.epoch != epoch
-        || revision < current.to_projection_revision
+        || (epoch, revision) < (current.epoch, current.to_projection_revision)
     {
         return Err(Error::Unavailable);
     }
@@ -342,10 +339,12 @@ async fn ownership_with_feed(
         )
         .bind(seller.account)
         .bind(&feed.source)
-        .bind(row.try_get::<String, _>("projection_epoch")?)
+        .bind(&feed.highest)
         .fetch_optional(&mut *tx)
         .await?;
-        if opt_counter(revision.as_deref())? < current.from_projection_revision {
+        if (epoch, opt_counter(revision.as_deref())?)
+            < (current.epoch, current.from_projection_revision)
+        {
             return Err(Error::Unavailable);
         }
     }
