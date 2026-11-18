@@ -244,6 +244,23 @@ impl GameBoundary {
         let mut tx = pool.begin().await?;
         let account = wire::id(&projection.account_id)?;
         lock(&mut tx, account).await?.ok_or(Error::UnknownState)?;
+        // Cancellation, finalization and publication serialize on this account.
+        let has_work: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM plat3_closure_work w
+                 JOIN account_terminations t ON t.id=w.termination_id
+                 WHERE w.account_id=$1
+                   AND w.generation=(SELECT max(latest.generation) FROM plat3_closure_work latest WHERE latest.account_id=$1)
+                   AND ((t.cancelled_at IS NULL AND t.finalized_at IS NULL AND w.resolution IS NULL)
+                        OR (w.resolution IS NOT NULL AND w.close_operation_id IS NOT NULL))
+             )",
+        )
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !has_work {
+            return Err(Error::NoPending);
+        }
         let now = now(&mut tx).await?;
         if wire::number(&projection.source_observed_at, false)? > now + 5 {
             return Err(Error::InvalidInput);
