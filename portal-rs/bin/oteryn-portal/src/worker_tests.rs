@@ -1561,9 +1561,10 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
         "identity.email-change",
         "admin.control.expire",
     ] {
-        assert!(
+        assert_eq!(
             registry.disabled.iter().any(|disabled| disabled == kind),
-            "{kind} should be disabled in the default configuration"
+            kind != "identity.account-closure-audit",
+            "unexpected default availability for {kind}"
         );
         db.enqueue(kind, "disabled", 1).await?;
     }
@@ -1579,6 +1580,11 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
     for _ in 0..3 {
         registry.batch(&db.pool).await?;
     }
+    let audit_state: String =
+        query_scalar("SELECT state FROM outbox WHERE kind='identity.account-closure-audit'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(audit_state, "done");
     let refund: (String, i32) =
         outbox::query_as("SELECT state,attempts FROM outbox WHERE kind='commerce.refund'")
             .fetch_one(&db.pool)
@@ -1736,5 +1742,33 @@ async fn delivered_checkout_releases_capacity() -> TestResult {
     assert_eq!(credited,1234);
     assert_eq!(oteryn_wallet::incoming_capacity_with_topup_in(&mut tx,account,0).await?,0);
     tx.commit().await?;
+    db.close().await
+}
+
+#[tokio::test]
+async fn retention_login_history_schedule_handles_thousand_expirations_per_hour() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let registry = configured(db.pool.clone()).await?;
+    let interval = registry.schedules["cleanup.game-logins"];
+    assert!(
+        3600 / interval * 512 >= 1000,
+        "cleanup interval {interval}s"
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn retention_closure_audit_scheduled_with_game_disabled() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    assert!(!crate::account_closure::configured(db.pool.clone())?.game_enabled());
+    let registry = configured(db.pool.clone()).await?;
+    assert_eq!(
+        registry.schedules.get("identity.account-closure-audit"),
+        Some(&3600)
+    );
     db.close().await
 }

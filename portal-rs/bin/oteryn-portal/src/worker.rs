@@ -325,7 +325,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
     )?;
     registry.cleanup(
         "cleanup.game-logins",
-        3600,
+        60,
         Arc::new(oteryn_playerdata::logins::Retention(pool.clone())),
     )?;
     register_journal_cleanup(&mut registry, &pool)?;
@@ -339,15 +339,17 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         )?),
     )?;
     let closure = crate::account_closure::configured(pool.clone())?;
-    if closure.game_enabled() {
-        registry.cleanup(
-            "identity.account-closure-audit",
-            3600,
-            Arc::new(oteryn_identity::termination::game_closure::AuditRetention(
-                pool.clone(),
-            )),
-        )?;
-    }
+    tracing::debug!(
+        game_enabled = closure.game_enabled(),
+        "configured account closure worker"
+    );
+    registry.cleanup(
+        "identity.account-closure-audit",
+        3600,
+        Arc::new(oteryn_identity::termination::game_closure::AuditRetention(
+            pool.clone(),
+        )),
+    )?;
     registry.cleanup(
         "identity.finalize-terminations",
         closure.worker_interval_seconds(),
@@ -444,7 +446,6 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         oteryn_notify::EMAIL_JOB,
         "bazaar.authority",
         "league.ingest",
-        "identity.account-closure-audit",
         "identity.email-change",
         "admin.control.expire",
     ] {
