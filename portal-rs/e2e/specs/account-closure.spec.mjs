@@ -21,10 +21,10 @@ test('verified Game receipt finalizes deletion after grace; finalized accounts c
   await login(page,lang,account);await expect(page).toHaveURL(/login/);await expect(page.locator('[role=alert]')).toBeVisible();
  }finally{await db.end();}
 });
-test('invalid Game signature stays pending; cancellation remains available after grace',async({page},info)=>{
+test('Game publication from an unauthenticated identity stays pending; cancellation remains available after grace',async({page},info)=>{
  const lang=info.project.metadata.locale,account=await register(page,lang),db=pool();
  try{
-  const id=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;await fault(id,'invalid_signature');
+  const id=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;await fault(id,'wrong_identity');
   await requestDeletion(page,lang,account);await advanceGrace(db,id);
   await expect.poll(async()=>Number((await db.query("SELECT count(*) AS n FROM plat3_closure_commands c JOIN plat3_closure_work w USING(termination_id) WHERE w.account_id=$1 AND c.command='CloseAccount'",[id])).rows[0].n),{timeout:90_000}).toBe(1);
   await page.waitForTimeout(6500); // At least one real producer publication/worker cycle.

@@ -19,12 +19,15 @@ export function createGameClosureProducer({baseURL,ca,character,portfolio,author
  const keys=crypto.generateKeyPairSync('ed25519');
  const publicKeyHex=keys.publicKey.export({type:'spki',format:'der'}).subarray(-32).toString('hex');
  const keyId='local-closure-fixture';
- const operations=new Map(),accounts=new Map(),faults=new Map();
+ const operations=new Map(),accounts=new Map(),portfolios=new Map(),faults=new Map();
  let stopped=false,busy=false,timer;
- const request=(route,body,identity=character,sign=false,account)=>new Promise((resolve,reject)=>{
+ // Closure publications are authenticated by the Character mTLS identity alone
+ // (termination/README.md). The wrong_identity fault presents the LCFA publisher
+ // certificate instead, which the Character command guard must refuse.
+ const request=(route,body,identity=character,publication=false,account)=>new Promise((resolve,reject)=>{
   const raw=typeof body==='string'?body:JSON.stringify(body);
   const headers={'content-type':'application/json','content-length':Buffer.byteLength(raw)};
-  if(sign){let signature=crypto.sign(null,Buffer.from(raw),keys.privateKey);if(faults.get(account)==='invalid_signature')signature[0]^=1;headers['x-oteryn-key-id']=keyId;headers['x-oteryn-signature']=signature.toString('hex');}
+  if(publication&&faults.get(account)==='wrong_identity')identity=portfolio;
   const req=https.request(new URL(route,baseURL),{method:'POST',headers,ca,cert:identity.cert,key:identity.key,minVersion:'TLSv1.3',maxVersion:'TLSv1.3',ALPNProtocols:['http/1.1'],timeout:3000},res=>{let result='';res.on('data',part=>{result+=part;});res.on('end',()=>resolve({status:res.statusCode,raw:result}));});
   req.on('error',reject);req.on('timeout',()=>req.destroy(new Error('Game fixture exchange timeout')));req.end(raw);
  });
@@ -68,9 +71,9 @@ export function createGameClosureProducer({baseURL,ca,character,portfolio,author
  async function tick(){
   if(stopped||busy)return;busy=true;
   try {
-   const pending=await request(`${prefix}/character-commands/pending`,{contract_version:2,operation:'ListPendingCharacterCommandsV1',source_authority:authority,after_source_revision:'0',after_operation_id:'00000000-0000-0000-0000-000000000000',max_entries:32});
+   const pending=await request(`${prefix}/character-commands/pending`,{contract_version:1,operation:'ListPendingCharacterCommandsV1',source_authority:authority,after_source_revision:'0',after_operation_id:'00000000-0000-0000-0000-000000000000',max_entries:32});
    if(pending.status!==200)return;
-   for(const entry of JSON.parse(pending.raw).pending){const read=await request(`${prefix}/character-commands/read`,{contract_version:2,operation:'ReadCharacterCommandIntentV1',source_authority:authority,issuer_authority:'OTERYN_PLATFORM_CHARACTER_AUTHORITY',command:entry.command,operation_id:entry.operation_id});if(read.status===200)await decide(read.raw);}
+   for(const entry of JSON.parse(pending.raw).pending){const read=await request(`${prefix}/character-commands/read`,{contract_version:1,operation:'ReadCharacterCommandIntentV1',source_authority:authority,issuer_authority:'OTERYN_PLATFORM_CHARACTER_AUTHORITY',command:entry.command,operation_id:entry.operation_id});if(read.status===200)await decide(read.raw);}
    let complete=true;
    for(const operation of operations.values()) {
     if(faults.get(operation.account)==='hold'){complete=false;continue;}
@@ -85,14 +88,31 @@ export function createGameClosureProducer({baseURL,ca,character,portfolio,author
     const snapshot=await request(`${prefix}/native-account-characters`,state.lcfa,portfolio);
     if(snapshot.status!==200)complete=false;
    }
-   if(complete&&accounts.size){const now=String(Math.floor(Date.now()/1000));await request(`${prefix}/native-account-characters/watermark`,{contract_version:1,operation:'PublishProjectionWatermarkV1',source_authority:authority,projection_epoch:'3',complete_through:now,observed_at:now},portfolio);await request(`${prefix}/account-closure/watermark`,{contract_version:2,operation:'PublishPublicProjectionWatermarkV1',source_authority:authority,family:'account_closure',projection_epoch:'3',complete_through:now,observed_at:now},character,true);}
+   for(const state of portfolios.values()) {
+    const snapshot=await request(`${prefix}/native-account-characters`,state.raw,portfolio);
+    state.accepted=snapshot.status===200;
+    if(!state.accepted)complete=false;
+   }
+   if(complete&&(accounts.size||portfolios.size)){const now=String(Math.floor(Date.now()/1000));const watermark=await request(`${prefix}/native-account-characters/watermark`,{contract_version:1,operation:'PublishProjectionWatermarkV1',source_authority:authority,projection_epoch:'3',complete_through:now,observed_at:now},portfolio);if(watermark.status===200)for(const state of portfolios.values())state.published||=state.accepted;await request(`${prefix}/account-closure/watermark`,{contract_version:2,operation:'PublishProjectionWatermarkV1',source_authority:authority,family:'account_closure',projection_epoch:'3',complete_through:now,observed_at:now},character,true);}
   }catch(error){if(!stopped&&error.code!=='ECONNREFUSED')console.error('Local Game fixture exchange:',error.code||error.message);}finally{busy=false;}
  }
  const control=http.createServer((req,res)=>{
   if(req.method==='GET'&&req.url==='/fixtures/account-deletion/closure.json'){res.setHeader('content-type','application/json');res.end(fixtureBytes);return;}
-  if(req.method==='POST'&&req.url==='/fault'){let body='';req.on('data',part=>{body+=part;if(body.length>512)req.destroy();});req.on('end',()=>{try{const input=JSON.parse(body);if(!['invalid_signature','missing_lcfa','hold','valid'].includes(input.mode))throw new Error('mode');faults.set(input.account_id,input.mode);res.end('{}');}catch{res.writeHead(400);res.end();}});return;}
+  if(req.method==='POST'&&req.url==='/fault'){let body='';req.on('data',part=>{body+=part;if(body.length>512)req.destroy();});req.on('end',()=>{try{const input=JSON.parse(body);if(!['wrong_identity','missing_lcfa','hold','valid'].includes(input.mode))throw new Error('mode');faults.set(input.account_id,input.mode);res.end('{}');}catch{res.writeHead(400);res.end();}});return;}
   if(req.method==='GET'&&req.url==='/health'){res.end('ok');return;}
   res.writeHead(404);res.end();
  });
- return {publicKeyHex,keyId,controlURL:`http://127.0.0.1:${controlPort}`,async start(){await new Promise(resolve=>control.listen(controlPort,'127.0.0.1',resolve));timer=setInterval(tick,5000);await tick();},async stop(){stopped=true;clearInterval(timer);await new Promise(resolve=>control.close(resolve));}};
+ // Publishes a synthetic character in the account's LCFA portfolio and waits for one
+ // complete exchange, so the portal holds a fresh snapshot and watermark for it.
+ async function publishCharacter({account_id,character_id,world_id}) {
+  const state=portfolios.get(account_id)||{revision:0,characters:new Map()};
+  state.characters.set(character_id,{character_id,world_id,name:`Fixture ${character_id.slice(-12)}`,availability:'AVAILABLE'});
+  state.revision+=1;state.accepted=false;state.published=false;
+  state.raw=JSON.stringify({contract_version:1,operation:'PublishAccountCharactersV1',source_authority:authority,account_id,projection_epoch:'3',projection_revision:String(state.revision),source_observed_at:String(Math.floor(Date.now()/1000)),characters:[...state.characters.values()].sort((a,b)=>a.character_id<b.character_id?-1:1)});
+  portfolios.set(account_id,state);
+  const deadline=Date.now()+20000;
+  while(!state.published&&Date.now()<deadline){if(busy)await new Promise(resolve=>setTimeout(resolve,100));else await tick();}
+  if(!state.published)throw new Error('LCFA portfolio publication refused');
+ }
+ return {publicKeyHex,keyId,publishCharacter,controlURL:`http://127.0.0.1:${controlPort}`,async start(){await new Promise(resolve=>control.listen(controlPort,'127.0.0.1',resolve));timer=setInterval(tick,5000);await tick();},async stop(){stopped=true;clearInterval(timer);await new Promise(resolve=>control.close(resolve));}};
 }

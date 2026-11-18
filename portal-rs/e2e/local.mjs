@@ -112,7 +112,7 @@ await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password
 // only in this disposable qualification database (the deployment flag is also required).
 await bazaarSeed.query("UPDATE referral_campaign_settings SET enabled=true WHERE singleton");
 await bazaarSeed.end();
-const bazaarGame=await startBazaarProducer(bazaarConfig);
+const bazaarGame=await startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
 const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
