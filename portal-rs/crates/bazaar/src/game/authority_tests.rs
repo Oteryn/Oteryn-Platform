@@ -5412,7 +5412,115 @@ async fn r10_suspend_settled_character() {
 }
 
 #[tokio::test]
+async fn r10_replay_winning_hold() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = settling_character_fixture("gold").await;
+    replay_sale_receipts(&db, &[Command::Hold]).await;
+    db.end().await;
+}
+
+async fn replay_sale_receipts(db: &BrowserFixture, commands: &[Command]) {
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let mut recovered = db.runtime.authority().clone();
+    recovered.fence.recovery_generation = 4;
+    sqlx::query("UPDATE bazaar_game_issuer SET recovery_generation=4")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    for &command in commands {
+        let intent = newest_intent(db, uid("30"), command).await;
+        let operation = id(text(&intent.value, "operation_id").unwrap()).unwrap();
+        let raw: String = sqlx::query_scalar("SELECT receipt FROM bazaar_authority_receipts WHERE operation_id=$1 AND recovery_generation=3").bind(operation).fetch_one(&mut *tx).await.unwrap();
+        let replay = raw.replace(
+            r#""recovery_generation":"3""#,
+            r#""recovery_generation":"4""#,
+        );
+        let result = recovered
+            .receive(
+                &mut tx,
+                &recovered.config.receipt_authority,
+                replay.as_bytes(),
+                now,
+            )
+            .await;
+        assert!(
+            matches!(result, Ok(ReceiptResult::Stored)),
+            "{command:?} reattestation: {result:?}"
+        );
+        assert_eq!(
+            audit(&recovered, &mut tx, &intent, &replay, now).await,
+            ReceiptResult::Stored
+        );
+    }
+    tx.rollback().await.unwrap();
+}
+
+async fn delivered_character_sale(currency: &str) -> BrowserFixture {
+    let db = settling_character_fixture(currency).await;
+    db.runtime.tick().await.unwrap();
+    let bind = newest_intent(&db, uid("30"), Command::Bind).await;
+    let transfer = id(text(&bind.value, "transfer_operation_id").unwrap()).unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let data = format!(
+        r#"{{"character_id":"{}","lock_id":"{}","lock_revision":"3","transfer_operation_id":"{transfer}","transfer_binding_digest":"{}"}}"#,
+        uid("31"),
+        uid("32"),
+        text(&bind.value, "transfer_binding_digest").unwrap()
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &bind, &data, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    character_transfer_receipt(&mut tx, transfer, (uid("40"), uid("13")), now).await;
+    character_status(&db, &mut tx, "DELIVERED", transfer, ("3", "3"), now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick().await.unwrap();
+    db
+}
+
+#[tokio::test]
+async fn r10_replay_captured_coin_bind() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = delivered_character_sale("coins").await;
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT completed FROM bazaar_coin_holds WHERE id=$1")
+            .bind(uid("30"))
+            .fetch_one(&db.pool)
+            .await
+            .unwrap()
+    );
+    replay_sale_receipts(&db, &[Command::Lock, Command::Bind]).await;
+    db.end().await;
+}
+
+#[tokio::test]
 async fn r10_held_item_refusal_refunds() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     item_wallet_scenario(true, false, ItemScenario::HeldSale).await;
+}
+
+#[tokio::test]
+async fn r10_replay_gold_payout_before_resync() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = delivered_character_sale("gold").await;
+    let payout = newest_intent(&db, uid("30"), Command::Payout).await;
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    let data = format!(
+        r#"{{"hold_id":"{}","hold_revision":"2","sale_id":"{}","gross_amount":"100","fee_amount":"3","seller_amount":"97","remaining_held":"0","buyer_ledger_entry_id":"{}","seller_ledger_entry_id":"{}","burn_entry_id":"{}","delivery_operation_id":"{}","delivery_receipt_digest":"{}"}}"#,
+        uid("34"),
+        uid("33"),
+        uid("51"),
+        uid("52"),
+        uid("53"),
+        text(&payout.value, "delivery_operation_id").unwrap(),
+        text(&payout.value, "delivery_receipt_digest").unwrap()
+    );
+    committed_fact(db.runtime.authority(), &mut tx, &payout, &data, now).await;
+    tx.commit().await.unwrap();
+    replay_sale_receipts(&db, &[Command::Payout]).await;
+    db.end().await;
 }
