@@ -34,6 +34,63 @@ fn date(timestamp: i64) -> Result<Date, sqlx::Error> {
         .map(|v| v.date())
         .map_err(|_| invalid())
 }
+/// Copied death details expire after 30 days whether or not statistics is
+/// enabled, so turning the feature off never extends their retention.
+#[derive(Debug, Clone)]
+pub struct DeathRetention {
+    pub pool: PgPool,
+}
+impl DeathRetention {
+    pub async fn purge(&self) -> Result<u64, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(65001)")
+            .execute(&mut *tx)
+            .await?;
+        let n = purge_death_details(&mut tx, false).await?;
+        tx.commit().await?;
+        Ok(n)
+    }
+}
+impl oteryn_db::outbox::Cleanup for DeathRetention {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move {
+            self.purge()
+                .await
+                .map(|_| ())
+                .map_err(|_| "statistics death retention failed".to_owned())
+        })
+    }
+}
+/// The UTC event day bounds retention even if copied details cannot supply
+/// a timestamp. Use the end of that day to preserve the full 30-day window.
+async fn purge_death_details(
+    tx: &mut sqlx::PgConnection,
+    remove_other_epochs: bool,
+) -> Result<u64, sqlx::Error> {
+    Ok(sqlx::query(
+        "DELETE FROM stats_character_events WHERE kind='death' AND (
+            COALESCE(
+                CASE WHEN details->>'occurred_at' ~ '^[1-9][0-9]{0,11}$' THEN
+                    CASE WHEN (details->>'occurred_at')::bigint <= 253402300799
+                         THEN (details->>'occurred_at')::bigint END
+                END,
+                extract(epoch FROM (day + 1)::timestamp)::bigint
+            ) < extract(epoch FROM now())::bigint - 30*86400
+            OR ($1 AND details ? '_statistics_epoch' AND
+                CASE WHEN details->>'_statistics_epoch' ~ '^[0-9]{1,20}$'
+                     THEN (details->>'_statistics_epoch')::numeric END
+                IS DISTINCT FROM (SELECT highest_epoch FROM public_projection_state WHERE id=1))
+        )",
+    )
+    .bind(remove_other_epochs)
+    .execute(tx)
+    .await?
+    .rows_affected())
+}
+
 impl StatisticsJob {
     /// Disabled jobs do not connect to the database.
     pub async fn run(&self) -> Result<usize, sqlx::Error> {
@@ -52,8 +109,7 @@ impl StatisticsJob {
         sqlx::query("SELECT highest_epoch FROM public_projection_state WHERE id=1 FOR SHARE")
             .fetch_one(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM stats_character_events WHERE kind='death' AND details ? '_statistics_epoch' AND ((details->>'_statistics_epoch')::numeric IS DISTINCT FROM (SELECT highest_epoch FROM public_projection_state WHERE id=1) OR (details->>'occurred_at')::bigint < extract(epoch FROM now())::bigint-30*86400)")
-            .execute(&mut *tx).await?;
+        purge_death_details(&mut tx, true).await?;
         // New/revised subjects precede watermark-only refreshes. Refresh the
         // oldest saved cut first so an advancing family watermark cannot keep
         // the same first batch ahead of unfinished or completeness-held deaths.
@@ -156,14 +212,39 @@ impl StatisticsJob {
             sqlx::query("INSERT INTO stats_projection_cursors (family,subject,epoch,version,watermark) VALUES ($1,$2,$3::text::numeric,$4::text::numeric,$5) ON CONFLICT (family,subject) DO UPDATE SET epoch=EXCLUDED.epoch,version=EXCLUDED.version,watermark=EXCLUDED.watermark").bind(family).bind(subject).bind(row.try_get::<String,_>("epoch")?).bind(row.try_get::<String,_>("version")?).bind(observed).execute(&mut *tx).await?;
         }
         tx.commit().await?;
-        self.retention().await?;
         Ok(count)
     }
-    /// One transaction per UTC day, including only samples older than 90 days.
+    /// Runs retention directly for callers of an enabled statistics job.
     pub async fn retention(&self) -> Result<usize, sqlx::Error> {
         if !self.enabled {
             return Ok(0);
         }
+        WorldSampleRetention {
+            pool: self.pool.clone(),
+        }
+        .roll_up()
+        .await
+    }
+}
+
+/// Aggregates and deletes expired raw samples independently of polling.
+#[derive(Debug, Clone)]
+pub struct WorldSampleRetention {
+    pub pool: PgPool,
+}
+impl oteryn_db::outbox::Cleanup for WorldSampleRetention {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move {
+            self.roll_up()
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+    }
+}
+impl WorldSampleRetention {
+    /// One transaction per UTC day, including only samples older than 90 days.
+    pub async fn roll_up(&self) -> Result<usize, sqlx::Error> {
         let mut days = 0;
         loop {
             let mut tx = self.pool.begin().await?;

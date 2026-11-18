@@ -154,7 +154,12 @@ impl Runtime {
             .fetch_one(&mut *tx)
             .await?;
         if matches!(l.state, State::Draft | State::Active)
-            && super::invalidation::approved(&mut tx, id).await?
+            && sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_moderation_holds WHERE listing_id=$1)",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?
         {
             return Ok(());
         }
@@ -184,7 +189,7 @@ impl Runtime {
         // A definite refusal is visible as refusal, never guessed from absence/timeout.
         let refusals:Vec<Uuid>=sqlx::query_scalar("SELECT latest.operation_id FROM (VALUES ('LockBazaarCharacter'),('BindBazaarCharacterTransfer'),('UnlockBazaarCharacter'),('EscrowBazaarItem'),('DeliverBazaarItem'),('ReturnBazaarItem'),('PayoutBazaarGold')) commands(command) CROSS JOIN LATERAL (SELECT operation_id FROM bazaar_game_outbox WHERE listing_id=$1 AND command=commands.command ORDER BY source_revision DESC LIMIT 1) latest").bind(id).fetch_all(&mut *tx).await?;
         for operation in refusals {
-            if let Some((_, receipt)) = self.authority().retained(&mut tx, operation).await?
+            if let Some((intent, receipt)) = self.authority().retained(&mut tx, operation).await?
                 && !receipt.committed
                 && !matches!(
                     receipt.command,
@@ -195,7 +200,10 @@ impl Runtime {
                         | Command::Payout
                 )
                 && !(receipt.command == Command::Bind
-                    && text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED")
+                    && (text(&receipt.value, "result_code")? == "CHAR_CMD_INTENT_EXPIRED"
+                        || (text(&receipt.value, "result_code")?
+                            == "CHAR_CMD_BAZAAR_STALE_REVISION"
+                            && text(&intent.value, "purpose")? == "BAZAAR_ESCROW_RETURN")))
             {
                 sqlx::query(
                     "UPDATE bazaar_authority_assets SET refusal_code=$2 WHERE listing_id=$1",
@@ -204,6 +212,17 @@ impl Runtime {
                 .bind(text(&receipt.value, "result_code")?)
                 .execute(&mut *tx)
                 .await?;
+                if receipt.command == Command::Escrow
+                    && l.kind == Kind::Item
+                    && l.state == State::Draft
+                {
+                    sqlx::query(
+                        "UPDATE bazaar_listings SET state='cancelled',updated_at=now() WHERE id=$1",
+                    )
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
                 if receipt.command == Command::Deliver && l.state == State::AwaitingDelivery {
                     self.compensate_delivery(&mut tx, &l).await?;
                 }
@@ -307,6 +326,17 @@ impl Runtime {
                         .map_err(core_error)?
                 {
                     self.finish_cancellation(&mut tx, &l).await?;
+                    tx.commit().await?;
+                    return Ok(());
+                }
+                if cancelling
+                    && l.kind == Kind::Item
+                    && self
+                        .latest(&mut tx, id, Command::Escrow)
+                        .await?
+                        .is_some_and(|(_, r)| r.committed)
+                {
+                    self.return_unsold(&mut tx, &l).await?;
                     tx.commit().await?;
                     return Ok(());
                 }

@@ -14,7 +14,7 @@ pub use grant::{
     RECOVERY_KEY_CUSTODY_FILE, RECOVERY_KEY_WRAPPING_FILE, WITNESS_DIRECTORY, clock_uncertainty,
     configured_recovery_signer, configured_signer, header, route_names_valid, route_revision,
 };
-pub use http::{AdmissionConfig, ServiceTokens, router, start_private_listener};
+pub use http::{AdmissionConfig, ServiceTokens, configured_router, router, start_private_listener};
 pub use protocol3::{
     HANDLE_LIFETIME_SECONDS, Handles, MAX_HANDLE_LIFETIME_SECONDS, PROTOCOL3_ENABLED, Protocol3,
     RECOVERY_ENABLED, REQUIRE_DEVICE_BINDING, handle_hash,

@@ -411,6 +411,32 @@ impl Runtime {
             tx.commit().await?;
             return Ok(());
         }
+        if row.kind == Kind::Item {
+            let owned: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM account_characters c
+                 JOIN account_character_snapshots s USING(account_id)
+                 JOIN account_character_feed f ON f.id=1 AND f.highest_epoch=s.projection_epoch
+                 JOIN bazaar_item_details d ON d.world_id=c.world_id
+                 WHERE d.id=$1 AND c.account_id=$2 AND c.character_id=$3 AND c.availability='AVAILABLE'
+                   AND NOT s.invalid AND s.projection_epoch=$4 AND f.watermark_epoch=f.highest_epoch
+                   AND f.source_authority=s.source_authority
+                   AND f.observed_at<=floor(extract(epoch FROM clock_timestamp()))+1
+                   AND f.complete_through>=floor(extract(epoch FROM clock_timestamp()))-29
+                   AND NOT EXISTS(SELECT 1 FROM character_commands t WHERE t.command='TransferCharacterOwnership'
+                       AND t.state='TERMINAL' AND t.account_id=c.account_id
+                       AND t.receipt_json::jsonb->>'character_id'=c.character_id::text
+                       AND t.receipt_json::jsonb->>'outcome'='COMMITTED'
+                       AND ((t.receipt_json::jsonb->>'projection_epoch')::numeric,
+                            (t.receipt_json::jsonb->>'from_projection_revision')::numeric)
+                           >(s.projection_epoch::numeric,s.projection_revision::numeric))
+                 FOR SHARE OF f,s,c)",
+            )
+            .bind(listing).bind(actor).bind(buyer_character)
+            .bind(self.config.fence.projection_epoch.to_string()).fetch_one(&mut *tx).await?;
+            if !owned {
+                return Err(Error::Denied);
+            }
+        }
         if !crate::Evidence::escrow_ready(self.authority(), &mut tx, &row)
             .await
             .map_err(core_error)?

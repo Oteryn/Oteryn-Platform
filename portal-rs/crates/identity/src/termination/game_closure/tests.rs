@@ -230,7 +230,7 @@ fn owner_gates_default_off_and_watermark_staleness() {
     }
     let wm = Watermark {
         contract_version: 2,
-        operation: "PublishPublicProjectionWatermarkV1".into(),
+        operation: "PublishProjectionWatermarkV1".into(),
         source_authority: "oteryn:character-authority:primary".into(),
         family: "account_closure".into(),
         projection_epoch: "3".into(),
@@ -254,12 +254,7 @@ async fn issue(db: &Database, s: &Terminations, account: Uuid) -> (Termination, 
             .unwrap();
     (t, Intent::parse(&raw).unwrap())
 }
-async fn publish(
-    db: &Database,
-    b: &GameBoundary,
-    intent: &Intent,
-    lcfa: bool,
-) -> (Vec<u8>, Projection) {
+fn publications(intent: &Intent, now: i64, authority: &str) -> (Vec<u8>, Projection, Watermark) {
     let mut receipt = Receipt::parse(&vectors().remove(1).1).unwrap();
     receipt.operation_id = intent.operation_id.clone();
     receipt.decided_at = intent.issued_at_source.clone();
@@ -279,12 +274,6 @@ async fn publish(
     result.proof_sha256 = wire::hex(&digest(&proof));
     let proof_hash = result.proof_sha256.clone();
     let raw = serde_json::to_vec(&receipt).unwrap();
-    b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
-        .await
-        .unwrap();
-    b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
-        .await
-        .unwrap();
     let mut projection = Projection::parse(&vectors().remove(2).1).unwrap();
     projection.account_id = intent.account_id.clone();
     projection.source_observed_at = intent.issued_at_source.clone();
@@ -294,32 +283,173 @@ async fn publish(
     record.lifecycle_generation = intent.lifecycle_generation.clone();
     record.receipt_digest = wire::hex(&digest(&raw));
     record.proof_sha256 = proof_hash;
-    let bytes = serde_json::to_vec(&projection).unwrap();
-    b.ingest_projection(&db.pool, &bytes, &seed().sign(&bytes).to_bytes())
-        .await
-        .unwrap();
-    let now = sqlx::query_scalar::<_, i64>("SELECT extract(epoch FROM clock_timestamp())::bigint")
-        .fetch_one(&db.pool)
-        .await
-        .unwrap();
     let wm = Watermark {
         contract_version: 2,
-        operation: "PublishPublicProjectionWatermarkV1".into(),
-        source_authority: b.authority.clone(),
+        operation: "PublishProjectionWatermarkV1".into(),
+        source_authority: authority.into(),
         family: "account_closure".into(),
         projection_epoch: "3".into(),
         complete_through: now.to_string(),
         observed_at: now.to_string(),
     };
+    (raw, projection, wm)
+}
+async fn publish_empty_portfolio(db: &Database, b: &GameBoundary, intent: &Intent, now: i64) {
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='3',watermark_epoch='3',source_authority=$1,complete_through=$2,observed_at=$2 WHERE id=1").bind(&b.authority).bind(now).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'3','12',$3,$4)").bind(wire::id(&intent.account_id).unwrap()).bind(&b.authority).bind(now).bind(digest(b"empty test portfolio")).execute(&db.pool).await.unwrap();
+}
+async fn publish(
+    db: &Database,
+    b: &GameBoundary,
+    intent: &Intent,
+    lcfa: bool,
+) -> (Vec<u8>, Projection) {
+    let now = sqlx::query_scalar::<_, i64>("SELECT extract(epoch FROM clock_timestamp())::bigint")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let (raw, projection, wm) = publications(intent, now, &b.authority);
+    b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await
+        .unwrap();
+    b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await
+        .unwrap();
+    let bytes = serde_json::to_vec(&projection).unwrap();
+    b.ingest_projection(&db.pool, &bytes, &seed().sign(&bytes).to_bytes())
+        .await
+        .unwrap();
     let bytes = serde_json::to_vec(&wm).unwrap();
     b.ingest_watermark(&db.pool, &bytes, &seed().sign(&bytes).to_bytes())
         .await
         .unwrap();
     if lcfa {
-        sqlx::query("UPDATE account_character_feed SET highest_epoch='3',watermark_epoch='3',source_authority=$1,complete_through=$2,observed_at=$2 WHERE id=1").bind(&b.authority).bind(now).execute(&db.pool).await.unwrap();
-        sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'3','12',$3,$4)").bind(wire::id(&intent.account_id).unwrap()).bind(&b.authority).bind(now).bind(digest(b"empty test portfolio")).execute(&db.pool).await.unwrap();
+        publish_empty_portfolio(db, b, intent, now).await;
     }
     (raw, projection)
+}
+#[tokio::test]
+async fn postgres_paused_intake_cancels_pending_termination() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let account = db.account().await?;
+    let pending = request(&service(&db, b.clone()), account).await;
+    db.due(pending.id).await?;
+    let paused = Terminations::new(db.pool.clone(), Config::default(), b)?;
+    let proof = ActorProof(account.to_string());
+    assert!(matches!(
+        paused.cancel(account, &proof, "wrong password").await,
+        Err(Error::Unauthorized)
+    ));
+    paused
+        .cancel(account, &proof, "termination test password")
+        .await?;
+    assert_eq!(paused.run_worker(100).await?, WorkerResult::default());
+    let cancelled: bool = sqlx::query_scalar("SELECT cancelled_at IS NOT NULL AND finalized_at IS NULL FROM account_terminations WHERE id=$1")
+        .bind(pending.id).fetch_one(&db.pool).await?;
+    assert!(cancelled);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_projection_requires_work_under_account_lock() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
+    use tower::ServiceExt;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let account = db.account().await?;
+    let unrelated = db.account().await?;
+    let (_, intent) = issue(&db, &service(&db, b.clone()), account).await;
+    let (_, mut projection, _) = publications(&intent, 0, &b.authority);
+    let pending = serde_json::to_vec(&projection)?;
+    projection.account_id = unrelated.to_string();
+    projection.closures.clear();
+    projection.projection_epoch = "4".into();
+    let unrelated = serde_json::to_vec(&projection)?;
+    let peer = Identity::san("closure-proof-test")?;
+    let app = http::router(
+        db.pool.clone(),
+        b,
+        "closure-test".into(),
+        Arc::new(IdentityMap::new(vec![Binding {
+            identity: peer.clone(),
+            group: http::GROUP.into(),
+        }])?),
+    );
+    let proof = |payload: Vec<u8>| {
+        Request::builder()
+            .method("POST")
+            .uri("/internal/v1/game-auth/account-closure")
+            .header("content-type", "application/json")
+            .extension(VerifiedClient::from_verified_tls13_http11(peer.clone()))
+            .body(Body::from(payload))
+    };
+    let before: String =
+        sqlx::query_scalar("SELECT highest_epoch FROM plat3_closure_feed WHERE id=1")
+            .fetch_one(&db.pool)
+            .await?;
+    let refused = app.clone().oneshot(proof(unrelated)?).await?;
+    let after: String =
+        sqlx::query_scalar("SELECT highest_epoch FROM plat3_closure_feed WHERE id=1")
+            .fetch_one(&db.pool)
+            .await?;
+    let snapshots: i64 = sqlx::query_scalar("SELECT count(*) FROM plat3_closure_snapshots")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(
+        refused.status(),
+        StatusCode::NOT_FOUND,
+        "epoch {after}, snapshots {snapshots}"
+    );
+    assert_eq!(before, after);
+    assert_eq!(snapshots, 0);
+    assert_eq!(app.oneshot(proof(pending)?).await?.status(), StatusCode::OK);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_due_termination_drains_after_intake_disabled() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let enabled = service(&db, b.clone());
+    let account = db.account().await?;
+    let accepted = request(&enabled, account).await;
+    let disabled = Terminations::new(db.pool.clone(), Config::default(), b.clone())?;
+    assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
+    db.due(accepted.id).await?;
+    assert_eq!(
+        disabled.run_worker(100).await?.blocked,
+        1,
+        "Game proof is still required"
+    );
+    let raw: Vec<u8> =
+        sqlx::query_scalar("SELECT intent FROM plat3_closure_commands WHERE termination_id=$1")
+            .bind(accepted.id)
+            .fetch_one(&db.pool)
+            .await?;
+    publish(&db, &b, &Intent::parse(&raw)?, true).await;
+    assert_eq!(disabled.run_worker(100).await?.finalized, 1);
+    assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
+    let closed: bool = sqlx::query_scalar(
+        "SELECT a.status='closed' AND a.password_hash='!closed' AND a.email_verified_at IS NULL
+                AND a.email='terminated+'||a.id::text AND t.finalized_at IS NOT NULL
+         FROM accounts a JOIN account_terminations t ON t.account_id=a.id WHERE t.id=$1",
+    )
+    .bind(accepted.id)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(closed);
+    db.close().await
 }
 #[tokio::test]
 async fn postgres_close_proof_requery_finalize_and_atomic_audit() -> TestResult {
@@ -743,7 +873,7 @@ async fn postgres_higher_watermark_epoch_withdraws_previously_usable_proof() -> 
         .await?;
     let watermark = Watermark {
         contract_version: 2,
-        operation: "PublishPublicProjectionWatermarkV1".into(),
+        operation: "PublishProjectionWatermarkV1".into(),
         source_authority: b.authority.clone(),
         family: "account_closure".into(),
         projection_epoch: "4".into(),
@@ -780,10 +910,6 @@ fn committed_resumable_close_can_complete_after_attempt_ttl() {
 fn runtime_config(enabled: bool) -> runtime::Config {
     runtime::Config::load(|key| match key {
         "PORTAL_ACCOUNT_CLOSURE_ENABLED" => Some(enabled.to_string()),
-        "PORTAL_ACCOUNT_CLOSURE_KEY_ID" => Some("closure-test".into()),
-        "PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX" => {
-            Some(wire::hex(seed().verifying_key().as_bytes()))
-        }
         "PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION" => Some("3".into()),
         _ => None,
     })
@@ -854,7 +980,7 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
         "closure-test".into(),
         identities,
     );
-    let pending=br#"{"contract_version":2,"operation":"ListPendingCharacterCommandsV1","source_authority":"oteryn:character-authority:primary","after_source_revision":"0","after_operation_id":"00000000-0000-0000-0000-000000000000","max_entries":32}"#;
+    let pending = include_bytes!("../fixtures/pending.json");
     let path = "/internal/v1/game-auth/character-commands/pending";
     let raw_request = |path: &str, raw: &[u8]| {
         Request::builder()
@@ -911,10 +1037,10 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
     let body = axum::body::to_bytes(response.into_body(), 8192).await?;
     let value: Value = serde_json::from_slice(&body)?;
     assert_eq!(value["pending"][0]["operation_id"], intent.operation_id);
-    let read_raw = format!(
-        r#"{{"contract_version":2,"operation":"ReadCharacterCommandIntentV1","source_authority":"oteryn:character-authority:primary","issuer_authority":"OTERYN_PLATFORM_CHARACTER_AUTHORITY","command":"CloseAccount","operation_id":"{}"}}"#,
-        intent.operation_id
-    );
+    assert_eq!(value["contract_version"], 1);
+    let read_raw = include_str!("../fixtures/read.json")
+        .replace("CreateCharacter", "CloseAccount")
+        .replace("0192a000-0000-7000-8000-000000000001", &intent.operation_id);
     let mut request = raw_request(
         "/internal/v1/game-auth/character-commands/read",
         read_raw.as_bytes(),
@@ -1013,12 +1139,38 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
                 .await?;
         assert_eq!(count, 0);
     }
-    let (receipt, _) = publish(&db, &b, &intent, true).await;
+    let now: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
+        .fetch_one(&db.pool)
+        .await?;
+    let (raw, snapshot, watermark) = publications(&intent, now, &b.authority);
+    for (path, body) in [
+        (
+            "/internal/v1/game-auth/character-commands/receipt",
+            raw.clone(),
+        ),
+        (
+            "/internal/v1/game-auth/account-closure",
+            serde_json::to_vec(&snapshot)?,
+        ),
+        (
+            "/internal/v1/game-auth/account-closure/watermark",
+            serde_json::to_vec(&watermark)?,
+        ),
+    ] {
+        let mut request = raw_request(path, &body);
+        request
+            .extensions_mut()
+            .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+        assert_eq!(
+            app.clone().oneshot(request).await?.status(),
+            StatusCode::OK,
+            "{path}"
+        );
+    }
+    publish_empty_portfolio(&db, &b, &intent, now).await;
+    let receipt = raw;
     let path = "/internal/v1/game-auth/character-commands/receipt";
-    let mut request = raw_request(path, &receipt);
-    request
-        .extensions_mut()
-        .insert(VerifiedClient::from_verified_tls13_http11(identity.clone()));
+    let request = raw_request(path, &receipt);
     assert_eq!(
         app.clone().oneshot(request).await?.status(),
         StatusCode::UNAUTHORIZED
@@ -1027,13 +1179,6 @@ async fn postgres_production_factory_and_guarded_http_pull_read_signed_receipt()
     request
         .extensions_mut()
         .insert(VerifiedClient::from_verified_tls13_http11(identity));
-    request
-        .headers_mut()
-        .insert("x-oteryn-key-id", "closure-test".parse()?);
-    request.headers_mut().insert(
-        "x-oteryn-signature",
-        wire::hex(&seed().sign(&receipt).to_bytes()).parse()?,
-    );
     assert_eq!(app.oneshot(request).await?.status(), StatusCode::OK);
     assert_eq!(s.run_worker(100).await?.finalized, 1);
     let mut tx = db.pool.begin().await?;
@@ -1058,6 +1203,7 @@ async fn postgres_owner_hold_policy_keeps_verified_closure_pending_and_cancellab
     };
     let mut config = runtime_config(true);
     config.final_disposition = FinalDisposition::Hold;
+    config.public_key = Some(seed().verifying_key());
     let b = config
         .boundary(Arc::new(Local), true)?
         .ok_or("missing configured boundary")?;
@@ -1638,5 +1784,158 @@ async fn delayed_cancel_resolution_conflict_allows_new_closure() -> TestResult {
     assert_ne!(fresh.operation_id, close.operation_id);
     assert_eq!(fresh.command, "CloseAccount");
     assert_eq!(fresh.expected_recovery_generation, "4");
+    db.close().await
+}
+
+#[test]
+fn game_closure_watermark_wire() {
+    let raw = include_bytes!("../fixtures/watermark.json");
+    let watermark = Watermark::parse(raw).unwrap();
+    assert_eq!(serde_json::to_vec(&watermark).unwrap(), raw);
+}
+
+#[tokio::test]
+async fn character_mtls_publications_reach_decoder_without_headers() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use oteryn_internal_api::guard::{Binding, Identity, IdentityMap, VerifiedClient};
+    use tower::ServiceExt;
+    let identity = Identity::san("closure-character")?;
+    let identities = Arc::new(IdentityMap::new(vec![Binding {
+        identity: identity.clone(),
+        group: http::GROUP.into(),
+    }])?);
+    let pool = sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://localhost/test")?;
+    let app = http::router(
+        pool,
+        boundary(settings(), Arc::new(Recovery(AtomicU64::new(3)))),
+        String::new(),
+        identities,
+    );
+    for path in [
+        "character-commands/receipt",
+        "account-closure",
+        "account-closure/watermark",
+    ] {
+        let request = Request::post(format!("/internal/v1/game-auth/{path}"))
+            .header("content-type", "application/json")
+            .extension(VerifiedClient::from_verified_tls13_http11(identity.clone()))
+            .body(Body::from("{}"))?;
+        assert_eq!(
+            app.clone().oneshot(request).await?.status(),
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn delayed_finalize_commit_resolves_original_command() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let recovery = Arc::new(Recovery(AtomicU64::new(3)));
+    let b = boundary(settings(), recovery.clone());
+    let s = service(&db, b.clone());
+    let account = db.account().await?;
+    let (t, close) = issue(&db, &s, account).await;
+    publish(&db, &b, &close, true).await;
+    assert!(s.finalize(account).await?);
+    let raw:Vec<u8>=sqlx::query_scalar("SELECT intent FROM plat3_closure_commands WHERE termination_id=$1 AND command='ResolveAccountClosure'").bind(t.id).fetch_one(&db.pool).await?;
+    let resolution = Intent::parse(&raw)?;
+    let mut receipt = Receipt::parse(&vectors().remove(1).1)?;
+    receipt.command = resolution.command.clone();
+    receipt.operation_id = resolution.operation_id.clone();
+    receipt.decided_at = resolution.issued_at_source.clone();
+
+    let result = receipt.result_data.as_mut().ok_or("receipt result")?;
+    result.account_id = resolution.account_id.clone();
+    result.termination_id = resolution.termination_id.clone();
+    result.lifecycle_generation = resolution.lifecycle_generation.clone();
+    result.closure_state = "FINALIZED".into();
+    let bytes = serde_json::to_vec(result)?;
+    let marker = b",\"proof_sha256\":";
+    let end = bytes
+        .windows(marker.len())
+        .position(|w| w == marker)
+        .ok_or("proof")?;
+    let mut body = bytes[..end].to_vec();
+    body.push(b'}');
+    result.proof_sha256 = wire::hex(&digest(&body));
+
+    let raw = serde_json::to_vec(&receipt)?;
+    recovery.0.store(4, Ordering::SeqCst);
+    b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
+        .await?;
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_lifecycle_waits_for_gold_release_to_previous_leader() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL is required")?;
+    let (account, seller, leader) = (
+        db.account().await?,
+        db.account().await?,
+        db.account().await?,
+    );
+    let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
+    let t = request(&service(&db, b.clone()), account).await;
+    let request = serde_json::to_vec(&wire::LifecycleRequest {
+        contract_version: 2,
+        operation: "ReadAccountClosureLifecycleV1".into(),
+        source_authority: "oteryn:character-authority:primary".into(),
+        account_id: account.to_string(),
+        termination_id: t.id.to_string(),
+        recovery_generation: "3".into(),
+        audience: "OTERYN_PLATFORM_CHARACTER_AUTHORITY".into(),
+    })?;
+    let listing = Uuid::now_v7();
+    let (previous_hold, new_hold, release) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    // State committed by the bid worker after the leader changes to B and
+    // before it consumes the audited release receipt for A.
+    let mut tx = db.pool.begin().await?;
+    sqlx::query("INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at,leader,leader_max,reservation)
+                 VALUES($1,$2,'item','auction','gold',20,false,'active',now()+interval '1 day',$3,30,$1)")
+        .bind(listing).bind(seller).bind(leader).execute(&mut *tx).await?;
+    for (operation, command, buyer, revision) in [
+        (previous_hold, "HoldBazaarGold", account, 1_i64),
+        (new_hold, "HoldBazaarGold", leader, 2),
+        (release, "ReleaseBazaarGold", account, 3),
+    ] {
+        sqlx::query("INSERT INTO bazaar_game_outbox(operation_id,issuance_key,listing_id,actor_id,command,source_revision,intent,binding_digest,projection_epoch,recovery_generation)
+                     VALUES($1,$1::uuid::text,$2,$3,$4,$5,jsonb_build_object('buyer_account_id',$6::uuid::text)::text,repeat('a',64),3,3)")
+            .bind(operation).bind(listing).bind(seller).bind(command).bind(revision).bind(buyer)
+            .execute(&mut *tx).await?;
+    }
+    sqlx::query("INSERT INTO bazaar_authority_gold_bids(request_id,listing_id,buyer,character_id,maximum,hold_operation_id,phase,release_operation_id,release_accepted)
+                 VALUES($2,$1,$3,uuidv7(),20,$2,'accepted',NULL,false),
+                       ($4,$1,$5,uuidv7(),30,$4,'releasing',$6,true)")
+        .bind(listing).bind(previous_hold).bind(account).bind(new_hold).bind(leader).bind(release)
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    let pending: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &request).await?)?;
+    assert!(
+        !pending.financial_obligations_clear,
+        "Game still holds the previous leader's gold"
+    );
+
+    // The bid remains releasing until the worker accepts committed evidence.
+    let mut tx = db.pool.begin().await?;
+    sqlx::query("INSERT INTO bazaar_authority_receipts(operation_id,recovery_generation,source_authority,intent_digest,receipt_digest,receipt,outcome)
+                 VALUES($1,3,'oteryn:character-authority:primary',repeat('a',64),repeat('b',64),
+                        '{\"result_data\":{\"remaining_held\":\"0\",\"hold_state\":\"RELEASED\"}}','COMMITTED')")
+        .bind(release).execute(&mut *tx).await?;
+    sqlx::query("UPDATE bazaar_authority_gold_bids SET phase='accepted' WHERE request_id=$1")
+        .bind(new_hold)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let released: wire::LifecycleObservation =
+        serde_json::from_slice(&b.read_lifecycle(&db.pool, &request).await?)?;
+    assert!(released.financial_obligations_clear);
     db.close().await
 }

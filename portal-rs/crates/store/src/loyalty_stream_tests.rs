@@ -53,10 +53,13 @@ impl Database {
             .after_connect(move |conn, _| {
                 let options = options.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path', $1, false)")
-                        .bind(options)
-                        .execute(conn)
-                        .await?;
+                    sqlx::query(
+                        "SELECT set_config('search_path', $1, false), \
+                         set_config('oteryn.referrals_enabled', 'true', false)",
+                    )
+                    .bind(options)
+                    .execute(conn)
+                    .await?;
                     Ok(())
                 })
             })

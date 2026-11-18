@@ -29,14 +29,15 @@ pub fn configured_router(pool: PgPool) -> Router {
     )
 }
 pub fn router(pool: PgPool, options: Options, world: WorldOptions) -> Router {
-    Router::new()
-        .route("/{lang}/atlas/delivery", get(page))
-        .route("/atlas/delivery.css", get(css))
-        .with_state(Service {
-            store: WorldStore::new(pool, world),
-            options,
-            computation: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
-        })
+    let mut app = Router::new().route("/{lang}/atlas/delivery", get(page));
+    if options.enabled {
+        app = app.route("/atlas/delivery.css", get(css));
+    }
+    app.with_state(Service {
+        store: WorldStore::new(pool, world),
+        options,
+        computation: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
+    })
 }
 async fn css() -> impl IntoResponse {
     (

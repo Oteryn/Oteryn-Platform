@@ -73,6 +73,16 @@ impl Fixture {
             actor,
         })
     }
+    async fn add_verified_platform_admin(&self) -> TestResult {
+        sqlx::query("WITH survivor AS (
+                        INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+                        VALUES(uuidv7(),'verified-admin@example.test','test-only','active',now(),'en')
+                        RETURNING id
+                     ) INSERT INTO account_roles(account_id,role_id)
+                     SELECT survivor.id,roles.id FROM survivor CROSS JOIN roles WHERE roles.key='platform_admin'")
+            .execute(&self.pool).await?;
+        Ok(())
+    }
     async fn close(self) -> TestResult {
         self.pool.close().await;
         sqlx::query(AssertSqlSafe(format!(
@@ -174,6 +184,7 @@ async fn world_refuses_revoked_prerequisite_with_action_retained() -> TestResult
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(3).await?;
+    db.add_verified_platform_admin().await?;
     let version = prepare(&db).await?;
     let auth = Authorizer::new(db.pool.clone(), Active);
     let manager = CheckContext {
@@ -259,6 +270,7 @@ async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResu
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let started = std::time::Instant::now();
     let db = Fixture::open(5).await?;
+    db.add_verified_platform_admin().await?;
     let version = prepare(&db).await?;
     let panel = Panel {
         pool: db.pool.clone(),

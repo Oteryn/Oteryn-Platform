@@ -190,6 +190,20 @@ pub struct Terminations {
     config: Config,
     boundary: Arc<dyn Boundary>,
 }
+async fn check_role_survivors(
+    tx: &mut Transaction<'_, Postgres>,
+    account: AccountId,
+) -> Result<()> {
+    // Role mutations take the same fence after locking the affected accounts.
+    sqlx::query("SELECT pg_advisory_xact_lock(71010)")
+        .execute(&mut **tx)
+        .await?;
+    if !oteryn_db::protected_role_survives(tx, account, None).await? {
+        return Err(Error::UnknownState);
+    }
+    Ok(())
+}
+
 impl Terminations {
     pub fn new(pool: PgPool, config: Config, boundary: Arc<dyn Boundary>) -> Result<Self> {
         Ok(Self {
@@ -197,6 +211,13 @@ impl Terminations {
             config: config.validate()?,
             boundary,
         })
+    }
+    pub fn accepts_requests(&self) -> bool {
+        self.config.enabled
+    }
+    pub async fn has_pending(&self, account: AccountId) -> Result<bool> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_terminations WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL)")
+            .bind(account).fetch_one(&self.pool).await?)
     }
     fn enabled(&self) -> Result<()> {
         if !self.config.enabled {
@@ -232,6 +253,7 @@ impl Terminations {
             return Ok(pending);
         }
         self.boundary.check_blockers(&mut tx, account).await?;
+        check_role_survivors(&mut tx, account).await?;
         let termination: Termination = sqlx::query_as("INSERT INTO account_terminations (account_id,scheduled_for) VALUES ($1,now()+make_interval(days=>$2)) RETURNING *")
             .bind(account).bind(self.config.grace_days).fetch_one(&mut *tx).await?;
         self.boundary.requested(&mut tx, &termination).await?;
@@ -249,7 +271,6 @@ impl Terminations {
         proof: &ActorProof,
         current_password: &str,
     ) -> Result<()> {
-        self.enabled()?;
         let mut tx = self.pool.begin().await?;
         oteryn_db::mutation_budget(&mut tx).await?;
         let locked = lock(&mut tx, account).await?.ok_or(Error::Unavailable)?;
@@ -272,7 +293,6 @@ impl Terminations {
     }
     /// Worker-only operation; retries and concurrent cancellation serialize on the account.
     async fn finalize(&self, account: AccountId) -> Result<bool> {
-        self.enabled()?;
         // Persist the immutable close intent independently of proof availability. Network
         // delivery is an outbox concern outside both account-lock transactions.
         {
@@ -313,11 +333,14 @@ impl Terminations {
             return Ok(false);
         }
         self.boundary.check_blockers(&mut tx, account).await?;
+        check_role_survivors(&mut tx, account).await?;
         self.boundary.revoke(&mut tx, account, true).await?;
         sqlx::query("DELETE FROM account_backup_emails WHERE account_id=$1")
             .bind(account)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("UPDATE tickets SET status='closed',closed_at=now(),updated_at=now(),lock_version=lock_version+1 WHERE account_id=$1 AND status IN ('open','waiting_staff','waiting_user')")
+            .bind(account).execute(&mut *tx).await?;
         // Closed status and a non-PHC password prevent credential use even after a retry.
         sqlx::query("UPDATE accounts SET email=$2,password_hash='!closed',status='closed',email_verified_at=NULL,public_account_association=false,public_status_visible=false,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
             .bind(account).bind(format!("terminated+{account}")).execute(&mut *tx).await?;
@@ -335,9 +358,6 @@ impl Terminations {
     pub async fn run_worker(&self, limit: i64) -> Result<WorkerResult> {
         if !(1..=1000).contains(&limit) {
             return Err(Error::InvalidInput);
-        }
-        if !self.config.enabled {
-            return Ok(WorkerResult::default());
         }
         self.boundary.reconcile(&self.pool, limit).await?;
         let accounts: Vec<AccountId> = sqlx::query_scalar("SELECT account_id FROM account_terminations WHERE cancelled_at IS NULL AND finalized_at IS NULL AND scheduled_for<=now() ORDER BY updated_at,account_id LIMIT $1")

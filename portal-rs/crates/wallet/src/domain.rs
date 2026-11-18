@@ -275,6 +275,13 @@ pub enum AdjustmentKind {
     TopUp,
 }
 impl AdjustmentKind {
+    pub(crate) fn is_purchase(self) -> bool {
+        match self {
+            Self::StorePurchase | Self::PassPurchase | Self::CardSetPurchase => true,
+            Self::Operator | Self::TopUp => false,
+        }
+    }
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Operator => "adjustment",

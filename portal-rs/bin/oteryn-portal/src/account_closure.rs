@@ -33,12 +33,16 @@ impl Runtime {
 pub fn configured(pool: PgPool) -> Result<Runtime, Box<dyn std::error::Error>> {
     let termination = termination::Config::from_env()?;
     let config = runtime::Config::from_env()?;
+    // Continue receiving Game proof for accepted closures while intake is off.
     let game = config.boundary(
         Arc::new(crate::account_lifecycle_http::TerminationBoundary),
-        termination.enabled,
+        true,
     )?;
     let boundary: Arc<dyn termination::Boundary> = game.as_ref().map_or_else(
-        || Arc::new(termination::UnavailableBoundary) as Arc<dyn termination::Boundary>,
+        || {
+            Arc::new(crate::account_lifecycle_http::TerminationBoundary)
+                as Arc<dyn termination::Boundary>
+        },
         |game| game.clone(),
     );
     let terminations = termination::Terminations::new(pool, termination, boundary)?;
@@ -95,6 +99,8 @@ pub async fn start_listener(
         identities,
         closure_projection(oteryn_core::Config::from_env()?.environment),
     );
+    #[cfg(test)]
+    crate::record_route_registrations("closure", &app)?;
     let bind =
         std::env::var("PORTAL_ACCOUNT_CLOSURE_BIND").unwrap_or_else(|_| "127.0.0.1:8092".into());
     let listener = tokio::net::TcpListener::bind(bind).await?;

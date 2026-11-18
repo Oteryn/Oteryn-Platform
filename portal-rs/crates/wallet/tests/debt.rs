@@ -327,6 +327,85 @@ async fn several_debts_are_settled_oldest_first_and_audited() {
 }
 
 #[tokio::test]
+async fn both_reservation_apis_refuse_new_debits_and_replay_existing_ones() {
+    let db = Database::open().await.expect("PostgreSQL is required");
+    let ledger = db.ledger();
+    for held in [false, true] {
+        let account = id();
+        ledger
+            .adjust(id(), account, 100, id(), "Funds")
+            .await
+            .unwrap();
+        let standalone = id();
+        let composed = id();
+        assert!(
+            !ledger
+                .reserve(standalone, account, 10)
+                .await
+                .unwrap()
+                .replayed
+        );
+        let mut tx = db.pool.begin().await.unwrap();
+        assert!(
+            !ledger
+                .reserve_in(&mut tx, composed, account, 10)
+                .await
+                .unwrap()
+                .replayed
+        );
+        tx.commit().await.unwrap();
+
+        let reversal = db.debt(account, 10, 0).await;
+        if held {
+            sqlx::query(
+                "INSERT INTO coin_purchase_holds(account_id,order_id,reason)
+                         SELECT payer_account_id,order_id,'reversal_insufficient_balance'
+                         FROM coin_purchase_reversals WHERE id=$1",
+            )
+            .bind(reversal)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+            // A hold alone also fences new reservations after the debt is repaid.
+            grant(&ledger, account, 10).await;
+            assert_eq!(db.owed(account).await, 0);
+        }
+
+        refused(
+            ledger.reserve(id(), account, 1).await,
+            Refusal::DebtOutstanding,
+        );
+        let mut tx = db.pool.begin().await.unwrap();
+        refused(
+            ledger.reserve_in(&mut tx, id(), account, 1).await,
+            Refusal::DebtOutstanding,
+        );
+        tx.rollback().await.unwrap();
+        assert_eq!(db.available(account).await, 80);
+        assert!(
+            ledger
+                .reserve(standalone, account, 10)
+                .await
+                .unwrap()
+                .replayed
+        );
+        let mut tx = db.pool.begin().await.unwrap();
+        assert!(
+            ledger
+                .reserve_in(&mut tx, composed, account, 10)
+                .await
+                .unwrap()
+                .replayed
+        );
+        tx.commit().await.unwrap();
+        ledger.capture(id(), account, standalone).await.unwrap();
+        ledger.release(id(), account, composed).await.unwrap();
+        assert_eq!(db.available(account).await, 90);
+    }
+    db.close().await;
+}
+
+#[tokio::test]
 async fn transfer_and_market_listing_wait_for_the_debt() {
     let Some(db) = Database::open().await else {
         return;
@@ -347,9 +426,8 @@ async fn transfer_and_market_listing_wait_for_the_debt() {
         Refusal::DebtOutstanding,
     );
     assert!(ledger.transfer(earlier, a, b, 10).await.unwrap().replayed);
-    // Spending on the platform is not a transfer and stays allowed.
-    ledger.reserve(id(), a, 5).await.unwrap();
-    assert_eq!(db.available(a).await, 85);
+    refused(ledger.reserve(id(), a, 5).await, Refusal::DebtOutstanding);
+    assert_eq!(db.available(a).await, 90);
     // The refused listing left no operation behind.
     let listings: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM wallet_operations WHERE account_id=$1 AND kind='reserve' AND reason LIKE 'gold-price:%'",
@@ -362,7 +440,7 @@ async fn transfer_and_market_listing_wait_for_the_debt() {
     // A transfer in pays the debt of its recipient first.
     ledger.adjust(id(), b, 50, id(), "Funds").await.unwrap();
     ledger.transfer(id(), b, a, 20).await.unwrap();
-    assert_eq!((db.owed(a).await, db.available(a).await), (5, 85));
+    assert_eq!((db.owed(a).await, db.available(a).await), (5, 90));
     refused(
         ledger.transfer(id(), a, b, 1).await,
         Refusal::DebtOutstanding,
@@ -374,9 +452,10 @@ async fn transfer_and_market_listing_wait_for_the_debt() {
     let fill = ledger.settle(id(), offer, buyer, 10).await.unwrap();
     assert_eq!(fill.account_id, b);
     assert_eq!((db.owed(buyer).await, db.available(buyer).await), (0, 6));
-    // Settled: both outgoing paths are open again.
+    // Settled: all three outgoing paths are open again.
     grant(&ledger, a, 5).await;
-    assert_eq!((db.owed(a).await, db.available(a).await), (0, 85));
+    assert_eq!((db.owed(a).await, db.available(a).await), (0, 90));
+    ledger.reserve(id(), a, 5).await.unwrap();
     ledger.transfer(id(), a, b, 10).await.unwrap();
     ledger.reserve_offer(id(), a, 10, 100).await.unwrap();
     assert_eq!(db.available(a).await, 65);

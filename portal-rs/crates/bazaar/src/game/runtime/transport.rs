@@ -21,7 +21,8 @@ struct EventState {
     rate: Arc<Mutex<(Instant, u32)>>,
 }
 impl Runtime {
-    pub(super) fn private_router(&self) -> Result<Router, Error> {
+    /// Builds the routes served by the dedicated Bazaar listener.
+    pub fn private_router(&self) -> Result<Router, Error> {
         let identities = Arc::new(
             IdentityMap::new(vec![
                 Binding {

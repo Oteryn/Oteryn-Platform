@@ -186,6 +186,10 @@ impl Services {
         if unseen {
             return Err(Error::Unavailable);
         }
+        let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_commands c WHERE (state='PENDING' OR EXISTS(SELECT 1 FROM character_restore_queue q WHERE q.operation_id=c.id AND q.reason='character_authority.operation_conflict' AND q.resolved_at IS NULL)) AND binding_json::jsonb->>'character_id'=$1)").bind(request.character_id.to_string()).fetch_one(&mut *tx).await?;
+        if pending {
+            return Err(Error::Conflict);
+        }
         let mut credit = None;
         let mut reservation = None;
         let mut price = None;
@@ -216,10 +220,6 @@ impl Services {
                 reservation = Some(id);
                 price = Some(p);
             }
-        }
-        let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_commands c WHERE state='PENDING' AND binding_json::jsonb->>'character_id'=$1)").bind(request.character_id.to_string()).fetch_one(&mut *tx).await?;
-        if pending {
-            return Err(Error::Conflict);
         }
         let intent = Intent {
             character_id: request.character_id,
@@ -275,7 +275,9 @@ impl Services {
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
             .execute(&mut *tx)
             .await?;
-        let row=sqlx::query("SELECT c.intent_json,c.receipt_json,o.account_id,o.character_id,o.reservation_id,o.settlement_id,o.financial_state,o.credit_from,o.credit_used_by FROM character_commands c JOIN character_service_orders o ON o.operation_id=c.id WHERE c.id=$1 FOR UPDATE OF c,o").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let row=sqlx::query("SELECT c.intent_json,c.receipt_json,o.account_id,o.character_id,o.reservation_id,o.settlement_id,o.financial_state,o.credit_from,o.credit_used_by,
+            EXISTS(SELECT 1 FROM character_restore_queue q WHERE q.operation_id=c.id AND q.reason='character_authority.operation_conflict' AND q.resolved_at IS NULL) AS held
+            FROM character_commands c JOIN character_service_orders o ON o.operation_id=c.id WHERE c.id=$1 FOR UPDATE OF c,o").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if row.try_get::<Uuid, _>("account_id")? != account {
             return Err(Error::Conflict);
         }
@@ -301,56 +303,69 @@ impl Services {
         let account: Uuid = row.try_get("account_id")?;
         let financial: String = row.try_get("financial_state")?;
         let mut next = financial.clone();
-        if financial == "RESERVED" {
-            let reservation: Uuid = row.try_get("reservation_id")?;
-            self.wallet()
-                .reconcile_reservation_in(
-                    &mut tx,
-                    row.try_get("settlement_id")?,
-                    account,
-                    reservation,
-                    committed,
-                )
-                .await
-                .map_err(wallet_error)?;
-            next = if committed { "SETTLED" } else { "RELEASED" }.into();
-        } else if financial == "SETTLED" && !committed {
-            // Only the existing restore trigger can reopen a terminal receipt.
-            let reopened:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_restore_reopens WHERE operation_id=$1 AND new_receipt_id IS NULL)").bind(id).fetch_one(&mut *tx).await?;
-            if !reopened {
-                return Err(Error::Conflict);
-            }
-            next = "RECOVERY_REQUIRED".into();
-        } else if financial == "RELEASED" && committed {
-            return Err(Error::Conflict);
+        let contradictory = wire::string(&v, "result_code")? == "CHAR_CMD_OPERATION_CONFLICT";
+        if contradictory {
+            sqlx::query("INSERT INTO character_restore_queue(operation_id,account_id,reason) VALUES ($1,$2,'character_authority.operation_conflict') ON CONFLICT (restore_event_id,operation_id,reason) DO UPDATE SET resolved_at=NULL")
+                .bind(id).bind(account).execute(&mut *tx).await?;
         }
-        if financial == "RECOVERY_REQUIRED" && committed {
-            if row.try_get::<Option<Uuid>, _>("credit_used_by")?.is_some() {
-                return Err(Error::Conflict);
+        if !contradictory && !row.try_get::<bool, _>("held")? {
+            if financial == "RESERVED" {
+                let reservation: Uuid = row.try_get("reservation_id")?;
+                self.wallet()
+                    .reconcile_reservation_in(
+                        &mut tx,
+                        row.try_get("settlement_id")?,
+                        account,
+                        reservation,
+                        committed,
+                    )
+                    .await
+                    .map_err(wallet_error)?;
+                next = if committed { "SETTLED" } else { "RELEASED" }.into();
+            } else if financial == "SETTLED" && !committed {
+                // Only the existing restore trigger can reopen a terminal receipt.
+                let reopened:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_restore_reopens WHERE operation_id=$1 AND new_receipt_id IS NULL)").bind(id).fetch_one(&mut *tx).await?;
+                if !reopened {
+                    return Err(Error::Conflict);
+                }
+                next = "RECOVERY_REQUIRED".into();
+            } else if financial == "RELEASED" && committed {
+                // Keep the actual wallet release. RECOVERY_REQUIRED grants a free
+                // replacement service, which a restored commit does not require.
+                let alarms = sqlx::query("INSERT INTO character_restore_queue(restore_event_id,operation_id,account_id,reason) SELECT restore_event_id,operation_id,$2,'character_authority.restore_outcome_reversed' FROM character_restore_reopens WHERE operation_id=$1 AND new_receipt_id IS NULL")
+                .bind(id).bind(account).execute(&mut *tx).await?;
+                if alarms.rows_affected() == 0 {
+                    return Err(Error::Conflict);
+                }
             }
-            next = "SETTLED".into();
-        }
-        if committed && let Some(credit) = row.try_get::<Option<Uuid>, _>("credit_from")? {
-            // A rejected replacement releases its claim, but restore may reopen
-            // that FREE order. Revalidate and reclaim its originating credit on
-            // every commit, atomically with the receipt and restore history.
-            let parent = sqlx::query("SELECT account_id,character_id,financial_state,credit_used_by FROM character_service_orders WHERE operation_id=$1 FOR UPDATE")
+            if financial == "RECOVERY_REQUIRED" && committed {
+                if row.try_get::<Option<Uuid>, _>("credit_used_by")?.is_some() {
+                    return Err(Error::Conflict);
+                }
+                next = "SETTLED".into();
+            }
+            if committed && let Some(credit) = row.try_get::<Option<Uuid>, _>("credit_from")? {
+                // A rejected replacement releases its claim, but restore may reopen
+                // that FREE order. Revalidate and reclaim its originating credit on
+                // every commit, atomically with the receipt and restore history.
+                let parent = sqlx::query("SELECT account_id,character_id,financial_state,credit_used_by FROM character_service_orders WHERE operation_id=$1 FOR UPDATE")
                 .bind(credit).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
-            if parent.try_get::<Uuid, _>("account_id")? != account
-                || parent.try_get::<Uuid, _>("character_id")?
-                    != row.try_get::<Uuid, _>("character_id")?
-                || parent.try_get::<String, _>("financial_state")? != "RECOVERY_REQUIRED"
-                || parent
-                    .try_get::<Option<Uuid>, _>("credit_used_by")?
-                    .is_some_and(|used| used != id)
-            {
-                return Err(Error::Conflict);
-            }
-            sqlx::query("UPDATE character_service_orders SET credit_used_by=$2,updated_at=now() WHERE operation_id=$1")
+                if parent.try_get::<Uuid, _>("account_id")? != account
+                    || parent.try_get::<Uuid, _>("character_id")?
+                        != row.try_get::<Uuid, _>("character_id")?
+                    || parent.try_get::<String, _>("financial_state")? != "RECOVERY_REQUIRED"
+                    || parent
+                        .try_get::<Option<Uuid>, _>("credit_used_by")?
+                        .is_some_and(|used| used != id)
+                {
+                    return Err(Error::Conflict);
+                }
+                sqlx::query("UPDATE character_service_orders SET credit_used_by=$2,updated_at=now() WHERE operation_id=$1")
                 .bind(credit).bind(id).execute(&mut *tx).await?;
-        }
-        if !committed && let Some(credit) = row.try_get::<Option<Uuid>, _>("credit_from")? {
-            sqlx::query("UPDATE character_service_orders SET credit_used_by=NULL,updated_at=now() WHERE operation_id=$1 AND credit_used_by=$2").bind(credit).bind(id).execute(&mut *tx).await?;
+            }
+            if !committed && let Some(credit) = row.try_get::<Option<Uuid>, _>("credit_from")? {
+                sqlx::query("UPDATE character_service_orders SET credit_used_by=NULL,updated_at=now() WHERE operation_id=$1 AND credit_used_by=$2").bind(credit).bind(id).execute(&mut *tx).await?;
+            }
         }
         let raw = std::str::from_utf8(raw).map_err(|_| Error::BadInput)?;
         // The existing history trigger enforces recovery generations and immutable replay.
@@ -362,7 +377,9 @@ impl Services {
 }
 fn wallet_error(e: oteryn_wallet::Error) -> Error {
     match e {
-        oteryn_wallet::Error::Refused(oteryn_wallet::Refusal::InsufficientFunds) => Error::Denied,
+        oteryn_wallet::Error::Refused(
+            oteryn_wallet::Refusal::InsufficientFunds | oteryn_wallet::Refusal::DebtOutstanding,
+        ) => Error::Denied,
         _ => Error::Unavailable,
     }
 }

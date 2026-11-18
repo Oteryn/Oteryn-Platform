@@ -54,11 +54,6 @@ const EXEMPT: &[(&str, usize, &str)] = &[
         1,
         "statistics: the policy check arms mutation_budget before any lock",
     ),
-    (
-        "referrals/campaign.rs",
-        2,
-        "delivery worker off the request path; SKIP LOCKED and worker-only advisory lock",
-    ),
 ];
 
 const BUDGETS: &[&str] = &["mutation_budget", "statement_timeout", "lock_timeout"];

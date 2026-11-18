@@ -7,7 +7,7 @@ use oteryn_store::web::{Error, Package, TopUps};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-struct Accounts(PgPool);
+pub(crate) struct Accounts(pub(crate) PgPool);
 impl AccountReader for Accounts {
     async fn state_in(
         &self,

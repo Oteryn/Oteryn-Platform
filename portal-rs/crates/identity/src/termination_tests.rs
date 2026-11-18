@@ -341,12 +341,11 @@ async fn postgres_unknown_dependencies_and_disabled_flag_deny() -> TestResult {
                 "termination test password"
             )
             .await,
-        Err(Error::Disabled)
+        Err(Error::NoPending)
     ));
     let ready = service(&db, Arc::new(BoundaryFixture::default()))?;
     let termination = request(&ready, account).await?;
     db.due(termination.id).await?;
-    assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
     assert_eq!(
         unavailable.run_worker(100).await?,
         WorkerResult {
@@ -355,6 +354,8 @@ async fn postgres_unknown_dependencies_and_disabled_flag_deny() -> TestResult {
         }
     );
     assert_eq!(events(&db).await?, 1);
+    assert_eq!(disabled.run_worker(100).await?.finalized, 1);
+    assert_eq!(events(&db).await?, 2);
     db.close().await
 }
 #[tokio::test]
@@ -627,5 +628,64 @@ async fn reclaimed_backup_receives_password_reset_for_new_owner() -> TestResult 
         Some((new.id, email.to_owned())),
         "reset delivery missing for new owner"
     );
+    db.close().await
+}
+
+#[tokio::test]
+async fn finalization_closes_pending_support_tickets() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let account = db.account().await?;
+    sqlx::query("INSERT INTO tickets(account_id,request_key,category,subject) VALUES($1,uuidv7(),'technical','Pending question')").bind(account).execute(&db.pool).await?;
+    db.due(request(&s, account).await?.id).await?;
+    assert!(s.finalize(account).await?);
+    let closed: bool = sqlx::query_scalar(
+        "SELECT status='closed' AND closed_at IS NOT NULL FROM tickets WHERE account_id=$1",
+    )
+    .bind(account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(closed);
+    db.close().await
+}
+
+#[tokio::test]
+async fn last_admin_cannot_terminate() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let s = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let account = db.account().await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(account).execute(&db.pool).await?;
+    assert!(matches!(
+        request(&s, account).await,
+        Err(Error::UnknownState)
+    ));
+    let other = db.account().await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(other).execute(&db.pool).await?;
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        request(&s, account).await,
+        Err(Error::UnknownState)
+    ));
+    sqlx::query("UPDATE accounts SET email_verified_at=now() WHERE id=$1")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    db.due(request(&s, account).await?.id).await?;
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        s.finalize(account).await,
+        Err(Error::UnknownState)
+    ));
     db.close().await
 }

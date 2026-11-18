@@ -61,9 +61,10 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '10 minutes')").bind(oteryn_identity::mfa::digest(&grant)).bind(actor).bind(generation).bind(oteryn_identity::mfa::digest("test-credential-hash")).execute(&pool).await?;
     sqlx::query("INSERT INTO web_sessions(id_hash,csrf_token,account_id,data,user_agent_summary,idle_expires_at,absolute_expires_at,authorization_generation) VALUES($1,$2,$3,$4,'code-dispatch-test',now()+interval '10 minutes',now()+interval '1 hour',(SELECT native_security_generation FROM accounts WHERE id=$3))").bind(Sha256::digest(cookie.as_bytes()).to_vec()).bind(&csrf).bind(actor).bind(serde_json::json!({"mfa_grant":grant})).execute(&pool).await?;
     let config = |key: &str| match key {
-        "OTERYN_STORE_CODES_ENABLED" | "OTERYN_ADMIN_PANEL" | "OTERYN_WALLET_ENABLED" => {
-            Some("true".into())
-        }
+        "OTERYN_STORE_CODES_ENABLED"
+        | "OTERYN_ADMIN_PANEL"
+        | "OTERYN_WALLET_ENABLED"
+        | "OTERYN_PREMIUM_ENABLED" => Some("true".into()),
         "OTERYN_ADMIN_HOST" => Some("admin.example.test".into()),
         "OTERYN_MFA_KEY" => Some("19".repeat(32)),
         _ => None,
@@ -103,7 +104,7 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
     let paused = oteryn_admin::web::guarded(
         Router::new()
             .route(GENERATE, post(generate))
-            .with_state(context(pool.clone(), true)),
+            .with_state(context(pool.clone(), true, true)),
         pool.clone(),
         oteryn_admin::web::PanelConfig {
             admin_panel: true,
@@ -286,9 +287,10 @@ async fn a3_l6_02_premium_code_route_refuses_restricted_acquisitions()
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '10 minutes')").bind(oteryn_identity::mfa::digest(&grant)).bind(actor).bind(generation).bind(oteryn_identity::mfa::digest("test-credential-hash")).execute(&pool).await?;
     sqlx::query("INSERT INTO web_sessions(id_hash,csrf_token,account_id,data,user_agent_summary,idle_expires_at,absolute_expires_at,authorization_generation) VALUES($1,$2,$3,$4,'code-dispatch-test',now()+interval '10 minutes',now()+interval '1 hour',(SELECT native_security_generation FROM accounts WHERE id=$3))").bind(Sha256::digest(cookie.as_bytes()).to_vec()).bind(&csrf).bind(actor).bind(serde_json::json!({"mfa_grant":grant})).execute(&pool).await?;
     let config = |key: &str| match key {
-        "OTERYN_STORE_CODES_ENABLED" | "OTERYN_ADMIN_PANEL" | "OTERYN_WALLET_ENABLED" => {
-            Some("true".into())
-        }
+        "OTERYN_STORE_CODES_ENABLED"
+        | "OTERYN_ADMIN_PANEL"
+        | "OTERYN_WALLET_ENABLED"
+        | "OTERYN_PREMIUM_ENABLED" => Some("true".into()),
         "OTERYN_ADMIN_HOST" => Some("admin.example.test".into()),
         "OTERYN_MFA_KEY" => Some("19".repeat(32)),
         _ => None,
@@ -343,6 +345,49 @@ async fn a3_l6_02_premium_code_route_refuses_restricted_acquisitions()
             .execute(&pool)
             .await?;
     }
+    let batch = serde_json::json!({"request_id":Uuid::now_v7(),"kind":"premium_days","amount":7,"count":1,"max_per_code":1,"max_per_account":1,"valid_from":now-60,"valid_until":now+3600,"note":"Premium flag regression"});
+    let response = send("/en/admin/store/codes", batch)?.await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let generated: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 8192).await?)?;
+    let redemption = serde_json::json!({"code":generated["codes"][0],"operation":Uuid::now_v7()});
+    let disabled = configured_from(pool.clone(), &|key| {
+        if key == "OTERYN_PREMIUM_ENABLED" {
+            Some("false".into())
+        } else {
+            config(key)
+        }
+    })?;
+    let request = Request::post("/en/shop/codes/redeem")
+        .header("host", "admin.example.test")
+        .header("cookie", format!("__Host-oteryn_session={cookie}"))
+        .header("x-csrf-token", &csrf)
+        .header("content-type", "application/json")
+        .body(Body::from(redemption.to_string()))?;
+    assert_eq!(
+        disabled.oneshot(request).await?.status(),
+        StatusCode::FORBIDDEN
+    );
+    let effects: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM code_redemptions), (SELECT count(*) FROM premium_ledger)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(effects, (0, 0));
+    sqlx::query("DELETE FROM web_rate_limits WHERE limiter_name='store-code-redeem'")
+        .execute(&pool)
+        .await?;
+
+    assert_eq!(
+        send("/en/shop/codes/redeem", redemption)?.await?.status(),
+        StatusCode::OK
+    );
+    let effects: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM code_redemptions), (SELECT count(*) FROM premium_ledger)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(effects, (1, 1));
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)

@@ -739,12 +739,16 @@ pub mod search;
 pub async fn internal_character_services_router(
     services: oteryn_characters::services::Services,
     restore_settings: oteryn_characters::restore::Settings,
+    store_reconciliation: Option<
+        std::sync::Arc<dyn oteryn_characters::restore::StoreReconciliation>,
+    >,
     command_settings: oteryn_characters::commands::Settings,
     identities: std::sync::Arc<oteryn_internal_api::guard::IdentityMap>,
 ) -> Router {
     oteryn_characters::services::router_with_restore(
         services,
         restore_settings,
+        store_reconciliation,
         command_settings,
         identities,
     )

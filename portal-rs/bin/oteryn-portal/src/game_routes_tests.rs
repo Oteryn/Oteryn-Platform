@@ -921,8 +921,10 @@ async fn global_registry_refuses_analytics_and_public_before_dispatch() -> TestR
 }
 
 #[test]
-fn binary_configuration_refuses_store_with_restore() -> TestResult {
+fn binary_configuration_refuses_store_with_unbound_restore() -> TestResult {
     let mut values = enabled();
+    assert!(Configuration::new(values.clone()).is_ok());
+    values.remove("PORTAL_GAME_RESTORE_NOTICE_SOURCE_AUTHORITY");
     assert!(Configuration::new(values.clone()).is_err());
     values.remove("PORTAL_GAME_RESTORE_NOTICE_ENABLED");
     assert!(Configuration::new(values.clone()).is_ok());

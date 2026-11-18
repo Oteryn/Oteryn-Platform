@@ -455,17 +455,9 @@ async fn postgres_retention_only_removes_old_terminal_tickets() -> TestResult {
         .bind(old.id)
         .execute(&db.pool)
         .await?;
-    Retention {
-        pool: db.pool.clone(),
-        enabled: false,
-    }
-    .clean()
-    .await
-    .map_err(std::io::Error::other)?;
     assert!(t.show(owner, false, old.id).await.is_ok());
     Retention {
         pool: db.pool.clone(),
-        enabled: true,
     }
     .clean()
     .await

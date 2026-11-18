@@ -1,13 +1,13 @@
 //! Pinned PLAT3 candidate adapter. Transport and owner acceptance remain explicit seams.
 //! No network I/O runs under an account lock. Commands/replay evidence are durable;
-//! timeouts, partial detach and unsigned input never establish closure eligibility.
+//! timeouts, partial detach and unauthenticated input never establish closure eligibility.
 pub mod http;
 pub mod runtime;
 mod wire;
 use super::*;
 use ed25519_dalek::{Signature, VerifyingKey};
 use prost::Message;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 pub use wire::{AccountClosureDecisionV1, Intent, Projection, Receipt, Watermark};
 
 /// Each owner question is independent. No environment flag silently answers one.
@@ -91,7 +91,7 @@ pub struct GameBoundary {
     final_disposition: FinalDisposition,
     local: Arc<dyn Boundary>,
     recovery: Arc<dyn RecoveryFence>,
-    publisher: VerifyingKey,
+    publisher: Option<VerifyingKey>,
     authority: String,
 }
 impl GameBoundary {
@@ -99,7 +99,7 @@ impl GameBoundary {
         settings: Settings,
         local: Arc<dyn Boundary>,
         recovery: Arc<dyn RecoveryFence>,
-        publisher: VerifyingKey,
+        publisher: impl Into<Option<VerifyingKey>>,
         authority: String,
     ) -> Result<Self> {
         if authority.is_empty()
@@ -116,7 +116,7 @@ impl GameBoundary {
             final_disposition: FinalDisposition::default(),
             local,
             recovery,
-            publisher,
+            publisher: publisher.into(),
             authority,
         })
     }
@@ -135,6 +135,8 @@ impl GameBoundary {
         }
         let signature = Signature::from_slice(signature).map_err(|_| Error::Unauthorized)?;
         self.publisher
+            .as_ref()
+            .ok_or(Error::Unauthorized)?
             .verify_strict(raw, &signature)
             .map_err(|_| Error::Unauthorized)
     }
@@ -145,11 +147,13 @@ impl GameBoundary {
         }
         Ok(generation)
     }
-    /// Authenticated internal transport supplies a detached signature over EXACT bytes.
-    /// This is not a new wire envelope and does not substitute for Character mTLS.
-    /// Requeries retain the first receipt; changed replay never overwrites it.
+    /// Compatibility entry point for callers that authenticate with a detached signature.
     pub async fn ingest_receipt(&self, pool: &PgPool, raw: &[u8], signature: &[u8]) -> Result<()> {
         self.verify(raw, signature, 2048)?;
+        self.store_receipt(pool, raw).await
+    }
+    async fn store_receipt(&self, pool: &PgPool, raw: &[u8]) -> Result<()> {
+        self.settings.ready()?;
         let receipt = Receipt::parse(raw)?;
         if receipt.source_authority != self.authority {
             return Err(Error::Unauthorized);
@@ -175,11 +179,11 @@ impl GameBoundary {
             return Err(Error::UnknownState);
         }
         let intent = Intent::parse(&intent_raw)?;
-        // A delayed CANCEL commit resolves the original operation. A delayed
+        // A delayed resolution commit acknowledges the original decision. A delayed
         // refusal records the terminal outcome for reconciliation.
         let decided_generation = wire::number(&receipt.recovery_generation, true)?;
-        let cancel = intent.decision.as_deref() == Some("CANCEL");
-        let historical = ((cancel && receipt.outcome == "COMMITTED")
+        let resolution = intent.command == "ResolveAccountClosure";
+        let historical = ((resolution && receipt.outcome == "COMMITTED")
             || receipt.outcome == "REJECTED")
             && decided_generation < current;
         receipt.bind(
@@ -203,7 +207,7 @@ impl GameBoundary {
         }
         let hash = digest(raw);
         sqlx::query("INSERT INTO plat3_closure_receipts(operation_id,receipt,signature,receipt_sha256,recovery_generation) VALUES($1,$2,$3,$4,$5)")
-            .bind(operation).bind(raw).bind(signature).bind(&hash).bind(&receipt.recovery_generation).execute(&mut *tx).await?;
+            .bind(operation).bind(raw).bind(publication_digest(raw)).bind(&hash).bind(&receipt.recovery_generation).execute(&mut *tx).await?;
         let payload = AccountClosureDecisionV1 {
             intent_sha256: intent_hash,
             receipt: raw.to_vec(),
@@ -229,6 +233,10 @@ impl GameBoundary {
         signature: &[u8],
     ) -> Result<()> {
         self.verify(raw, signature, 2048)?;
+        self.store_projection(pool, raw).await
+    }
+    async fn store_projection(&self, pool: &PgPool, raw: &[u8]) -> Result<()> {
+        self.settings.ready()?;
         let projection = Projection::parse(raw)?;
         if projection.source_authority != self.authority {
             return Err(Error::Unauthorized);
@@ -236,6 +244,47 @@ impl GameBoundary {
         let mut tx = pool.begin().await?;
         let account = wire::id(&projection.account_id)?;
         lock(&mut tx, account).await?.ok_or(Error::UnknownState)?;
+        // Cancellation, finalization and publication serialize on this account.
+        // Keep collecting proof for issued resolutions until Game has confirmed them.
+        let has_work: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM plat3_closure_work w
+                 JOIN account_terminations t ON t.id=w.termination_id AND t.account_id=w.account_id
+                 WHERE w.account_id=$1
+                   AND w.generation=(SELECT max(latest.generation) FROM plat3_closure_work latest WHERE latest.account_id=$1)
+                   AND ((t.cancelled_at IS NULL AND t.finalized_at IS NULL AND w.resolution IS NULL)
+                        OR (w.resolution IS NOT NULL AND w.close_operation_id IS NOT NULL
+                            AND NOT EXISTS (
+                               SELECT 1 FROM plat3_closure_commands c
+                               JOIN plat3_closure_receipts r USING(operation_id)
+                               JOIN plat3_closure_snapshots s ON s.account_id=w.account_id
+                               WHERE c.termination_id=w.termination_id
+                                 AND c.command='ResolveAccountClosure'
+                                 AND NOT s.invalid
+                                 AND convert_from(r.receipt,'UTF8')::jsonb->>'outcome'='COMMITTED'
+                                 AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'operation_id'=c.operation_id::text
+                                 AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'receipt_digest'=encode(r.receipt_sha256,'hex')
+                            )))
+             )",
+        )
+        .bind(account)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !has_work {
+            let replay: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM plat3_closure_snapshots WHERE account_id=$1
+                  AND NOT invalid AND snapshot=$2)",
+            )
+            .bind(account)
+            .bind(raw)
+            .fetch_one(&mut *tx)
+            .await?;
+            return if replay {
+                Ok(())
+            } else {
+                Err(Error::NoPending)
+            };
+        }
         let now = now(&mut tx).await?;
         if wire::number(&projection.source_observed_at, false)? > now + 5 {
             return Err(Error::InvalidInput);
@@ -289,7 +338,7 @@ impl GameBoundary {
             gap = invalid || (new.0 == pair.0 && new.1 != pair.1.saturating_add(1));
         }
         sqlx::query("INSERT INTO plat3_closure_snapshots(account_id,snapshot,signature,epoch,revision,invalid) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(account_id) DO UPDATE SET snapshot=EXCLUDED.snapshot,signature=EXCLUDED.signature,epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,invalid=EXCLUDED.invalid")
-            .bind(account).bind(raw).bind(signature).bind(&projection.projection_epoch).bind(&projection.projection_revision).bind(gap).execute(&mut *tx).await?;
+            .bind(account).bind(raw).bind(publication_digest(raw)).bind(&projection.projection_epoch).bind(&projection.projection_revision).bind(gap).execute(&mut *tx).await?;
         tx.commit().await?;
         if gap {
             Err(Error::UnknownState)
@@ -306,6 +355,10 @@ impl GameBoundary {
         signature: &[u8],
     ) -> Result<()> {
         self.verify(raw, signature, 512)?;
+        self.store_watermark(pool, raw).await
+    }
+    async fn store_watermark(&self, pool: &PgPool, raw: &[u8]) -> Result<()> {
+        self.settings.ready()?;
         let watermark = Watermark::parse(raw)?;
         if watermark.source_authority != self.authority {
             return Err(Error::Unauthorized);
@@ -341,7 +394,7 @@ impl GameBoundary {
         }
         sqlx::query("UPDATE plat3_closure_feed SET watermark=$1,signature=$2 WHERE id=1")
             .bind(raw)
-            .bind(signature)
+            .bind(publication_digest(raw))
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -549,7 +602,9 @@ impl GameBoundary {
             .bind(termination.id).bind(termination.account_id).fetch_optional(&mut **tx).await?.ok_or(Error::UnknownState)?;
         let (intent_raw,receipt_raw,signature,hash):(Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>)=sqlx::query_as("SELECT c.intent,r.receipt,r.signature,r.receipt_sha256 FROM plat3_closure_commands c JOIN plat3_closure_receipts r USING(operation_id) WHERE c.operation_id=$1")
             .bind(operation).fetch_optional(&mut **tx).await?.ok_or(Error::UnknownState)?;
-        self.verify(&receipt_raw, &signature, 2048)?;
+        if publication_digest(&receipt_raw) != signature.as_slice() {
+            return Err(Error::UnknownState);
+        }
         let intent = Intent::parse(&intent_raw)?;
         let receipt = Receipt::parse(&receipt_raw)?;
         receipt.bind(&intent, current)?;
@@ -572,7 +627,9 @@ impl GameBoundary {
             return Err(Error::UnknownState);
         }
         let wm_raw = watermark.ok_or(Error::UnknownState)?;
-        self.verify(&wm_raw, &signature.ok_or(Error::UnknownState)?, 512)?;
+        if publication_digest(&wm_raw) != signature.ok_or(Error::UnknownState)?.as_slice() {
+            return Err(Error::UnknownState);
+        }
         let wm = Watermark::parse(&wm_raw)?;
         let now = now(tx).await?;
         if wm.source_authority != self.authority
@@ -586,7 +643,9 @@ impl GameBoundary {
             return Err(Error::UnknownState);
         }
         let (raw,signature,invalid):(Vec<u8>,Vec<u8>,bool)=sqlx::query_as("SELECT snapshot,signature,invalid FROM plat3_closure_snapshots WHERE account_id=$1 FOR UPDATE").bind(termination.account_id).fetch_optional(&mut **tx).await?.ok_or(Error::UnknownState)?;
-        self.verify(&raw, &signature, 2048)?;
+        if publication_digest(&raw) != signature.as_slice() {
+            return Err(Error::UnknownState);
+        }
         let projection = Projection::parse(&raw)?;
         let record = projection.closures.first().ok_or(Error::UnknownState)?;
         if invalid
@@ -738,6 +797,12 @@ impl Boundary for GameBoundary {
         })
     }
 }
+// The existing signature columns are 64 bytes. They retain a checksum of the
+// authenticated publication for integrity checks when finalizing.
+fn publication_digest(raw: &[u8]) -> Vec<u8> {
+    Sha512::digest(raw).to_vec()
+}
+
 fn digest(raw: &[u8]) -> Vec<u8> {
     Sha256::digest(raw).to_vec()
 }

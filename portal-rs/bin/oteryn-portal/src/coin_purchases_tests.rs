@@ -2748,3 +2748,265 @@ async fn create_waiting_on_the_payer_claim_sees_a_reversal_hold() -> TestResult 
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn historical_fenced_native_refund_clears_only_matching_closure_obligation() -> TestResult {
+    use oteryn_identity::termination::Error;
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::open().await?.ok_or("PostgreSQL is required")?;
+    let payer = db.account().await?;
+    let token = db.token(payer).await?;
+    let service = db.service(vec![]);
+    let (order, intent, _) = awaiting_order(&db, &service, payer, &token).await?;
+    sqlx::query("UPDATE coin_purchase_orders SET state='processing',checkout_url=NULL,review_required=true WHERE id=$1")
+        .bind(order).execute(&db.pool).await?;
+    let mark_legacy_success = || async {
+        sqlx::query("UPDATE payment_intents SET state='succeeded' WHERE id=$1")
+            .bind(intent)
+            .execute(&db.pool)
+            .await
+    };
+    mark_legacy_success().await?;
+    assert!(matches!(
+        crate::account_lifecycle_http::request_test_termination(&db.pool, payer).await?,
+        Err(Error::UnknownState)
+    ));
+
+    let refund = coin_event(intent, "historical-refund", EventState::Refunded);
+    assert_eq!(deliver(&service, &refund).await?, WebhookOutcome::Applied);
+    assert_eq!(top_ups(&db, payer).await, 0);
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_reversals WHERE outcome='fenced'")
+            .await?,
+        1
+    );
+    // Recreate the historical intent state left by the old refund writer.
+    mark_legacy_success().await?;
+    crate::account_lifecycle_http::request_test_termination(&db.pool, payer).await??;
+    db.close().await
+}
+
+#[tokio::test]
+async fn finalized_closure_read_survives_a_chargeback_waiting_on_the_account() -> TestResult {
+    use ed25519_dalek::{Signer, SigningKey};
+    use oteryn_identity::termination::{
+        Config as TerminationConfig, Terminations, WorkerResult,
+        game_closure::{Intent, Projection, Receipt, Watermark, runtime},
+    };
+    const AUTHORITY: &str = "oteryn:character-authority:primary";
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::open().await?.ok_or("PostgreSQL is required")?;
+    let payer = db.account().await?;
+    let purchases = db.service(vec![]);
+    let (order, payment, _) = paid_order(&db, &purchases, payer).await?;
+    let host = Host {
+        pool: db.pool.clone(),
+        oauth: db.config.clone(),
+        projection: lcfa::Projection::new(
+            db.pool.clone(),
+            lcfa::Settings::default(),
+            Arc::new(lcfa::DenyAccounts),
+        ),
+    };
+    let reservation = Uuid::now_v7();
+    host.ledger().reserve(reservation, payer, 500).await?;
+    host.ledger()
+        .capture(Uuid::now_v7(), payer, reservation)
+        .await?;
+    assert_eq!(wallet_of(&purchases, payer).await.total_coins, 0);
+
+    let key = SigningKey::from_bytes(&[0x42; 32]);
+    let boundary = runtime::Config::load(|name| match name {
+        "PORTAL_ACCOUNT_CLOSURE_ENABLED" => Some("true".into()),
+        "PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION" => Some("3".into()),
+        "PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX" => Some(
+            key.verifying_key()
+                .to_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        ),
+        _ => None,
+    })?
+    .boundary(
+        Arc::new(crate::account_lifecycle_http::TerminationBoundary),
+        true,
+    )?
+    .ok_or("closure boundary disabled")?;
+    let terminations = Terminations::new(
+        db.pool.clone(),
+        TerminationConfig {
+            enabled: true,
+            ..Default::default()
+        },
+        boundary.clone(),
+    )?;
+    let password = "Closure race fixture password";
+    let actor =
+        crate::account_lifecycle_http::test_termination_actor(&db.pool, payer, password).await?;
+    let termination = terminations
+        .request(payer, &actor, password, "TERMINATE")
+        .await?;
+    sqlx::query("UPDATE account_terminations SET created_at=now()-interval '15 days',scheduled_for=now()-interval '1 day' WHERE id=$1")
+        .bind(termination.id).execute(&db.pool).await?;
+    assert_eq!(terminations.run_worker(100).await?.blocked, 1);
+    let intent: Vec<u8> = sqlx::query_scalar("SELECT intent FROM plat3_closure_commands WHERE termination_id=$1 AND command='CloseAccount'")
+        .bind(termination.id).fetch_one(&db.pool).await?;
+    let intent = Intent::parse(&intent)?;
+
+    let vectors: Value = serde_json::from_str(include_str!(
+        "../../../crates/identity/src/termination/fixtures/closure.json"
+    ))?;
+    let fixture = |name: &str| {
+        vectors["vectors"]
+            .as_array()
+            .and_then(|entries| entries.iter().find(|entry| entry["name"] == name))
+            .and_then(|entry| entry["wire"].as_str())
+            .map(str::as_bytes)
+            .ok_or("missing closure fixture")
+    };
+    let mut receipt = Receipt::parse(fixture("closed_receipt")?)?;
+    receipt.operation_id.clone_from(&intent.operation_id);
+    receipt.decided_at.clone_from(&intent.issued_at_source);
+    receipt
+        .recovery_generation
+        .clone_from(&intent.expected_recovery_generation);
+    let result = receipt
+        .result_data
+        .as_mut()
+        .ok_or("missing closure result")?;
+    result.account_id.clone_from(&intent.account_id);
+    result.termination_id.clone_from(&intent.termination_id);
+    result
+        .lifecycle_generation
+        .clone_from(&intent.lifecycle_generation);
+    let serialized = serde_json::to_string(result)?;
+    let mut proof = serialized
+        .split_once(",\"proof_sha256\":")
+        .ok_or("missing proof hash")?
+        .0
+        .to_owned();
+    proof.push('}');
+    result.proof_sha256 = format!("{:x}", Sha256::digest(proof.as_bytes()));
+    let proof_hash = result.proof_sha256.clone();
+    let raw = serde_json::to_vec(&receipt)?;
+    boundary
+        .ingest_receipt(&db.pool, &raw, &key.sign(&raw).to_bytes())
+        .await?;
+    let mut projection = Projection::parse(fixture("closure_projection")?)?;
+    projection.account_id.clone_from(&intent.account_id);
+    projection
+        .source_observed_at
+        .clone_from(&intent.issued_at_source);
+    let record = projection
+        .closures
+        .first_mut()
+        .ok_or("missing closure projection record")?;
+    record.termination_id.clone_from(&intent.termination_id);
+    record.operation_id.clone_from(&intent.operation_id);
+    record
+        .lifecycle_generation
+        .clone_from(&intent.lifecycle_generation);
+    record.receipt_digest = format!("{:x}", Sha256::digest(&raw));
+    record.proof_sha256 = proof_hash;
+    let raw = serde_json::to_vec(&projection)?;
+    boundary
+        .ingest_projection(&db.pool, &raw, &key.sign(&raw).to_bytes())
+        .await?;
+    let now: i64 = sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
+        .fetch_one(&db.pool)
+        .await?;
+    let raw = serde_json::to_vec(&Watermark {
+        contract_version: 2,
+        operation: "PublishProjectionWatermarkV1".into(),
+        source_authority: AUTHORITY.into(),
+        family: "account_closure".into(),
+        projection_epoch: "3".into(),
+        complete_through: now.to_string(),
+        observed_at: now.to_string(),
+    })?;
+    boundary
+        .ingest_watermark(&db.pool, &raw, &key.sign(&raw).to_bytes())
+        .await?;
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='3',watermark_epoch='3',source_authority=$1,complete_through=$2,observed_at=$2 WHERE id=1")
+        .bind(AUTHORITY).bind(now).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'3','12',$3,$4)")
+        .bind(payer).bind(AUTHORITY).bind(now).bind(Sha256::digest(b"empty test portfolio").to_vec()).execute(&db.pool).await?;
+
+    // Pause the real closure transaction just before commit, with the account
+    // row still locked. Observe the real webhook waiting on that transaction.
+    sqlx::raw_sql("CREATE FUNCTION test_pause_finalization() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN PERFORM pg_advisory_xact_lock(hashtextextended(current_schema(),691782004)); RETURN NEW; END $$;
+        CREATE TRIGGER test_pause_finalization BEFORE INSERT ON account_termination_events
+        FOR EACH ROW WHEN (NEW.kind='finalized') EXECUTE FUNCTION test_pause_finalization()")
+        .execute(&db.pool).await?;
+    let mut barrier = db.pool.begin().await?;
+    let controller: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *barrier)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(current_schema(),691782004))")
+        .execute(&mut *barrier)
+        .await?;
+    let closure = tokio::spawn(async move { terminations.run_worker(100).await });
+    let mut wait_for = async |blocker: i32| -> Result<i32, Box<dyn std::error::Error>> {
+        Ok(tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                sqlx::query("SELECT pg_stat_clear_snapshot()").execute(&mut *barrier).await?;
+                let blocked: Option<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) LIMIT 1")
+                    .bind(blocker).fetch_optional(&mut *barrier).await?;
+                if let Some(pid) = blocked {
+                    return Ok::<_, sqlx::Error>(pid);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        }).await??)
+    };
+    let closure_backend = wait_for(controller).await?;
+    let chargeback = coin_event(
+        payment,
+        "chargeback-after-finalization",
+        EventState::Chargeback,
+    );
+    let webhook = tokio::spawn(async move { deliver(&purchases, &chargeback).await });
+    assert_ne!(wait_for(closure_backend).await?, closure_backend);
+    barrier.commit().await?;
+    assert_eq!(
+        closure.await??,
+        WorkerResult {
+            finalized: 1,
+            blocked: 0
+        }
+    );
+    assert_eq!(webhook.await??, WebhookOutcome::Applied);
+    let debt: i64 = sqlx::query_scalar(
+        "SELECT owed FROM coin_outstanding_debts WHERE account_id=$1 AND order_id=$2",
+    )
+    .bind(payer)
+    .bind(order)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(debt, 500);
+    assert_eq!(
+        db.count("SELECT count(*) FROM coin_purchase_holds").await?,
+        1
+    );
+    assert_eq!(
+        db.count("SELECT count(*) FROM payment_events WHERE state='chargeback'")
+            .await?,
+        1
+    );
+    assert_eq!(audits(&db, "coin_purchase.reversal_recorded").await, 1);
+    assert_eq!(db.count("SELECT count(*) FROM account_terminations t JOIN accounts a ON a.id=t.account_id WHERE a.status='closed' AND t.finalized_at IS NOT NULL").await?, 1);
+    let request = format!(
+        r#"{{"contract_version":2,"operation":"ReadAccountClosureLifecycleV1","source_authority":"{AUTHORITY}","account_id":"{payer}","termination_id":"{}","recovery_generation":"3","audience":"OTERYN_PLATFORM_CHARACTER_AUTHORITY"}}"#,
+        termination.id,
+    );
+    let observation: Value = serde_json::from_slice(
+        &boundary
+            .read_lifecycle(&db.pool, request.as_bytes())
+            .await?,
+    )?;
+    assert_eq!(observation["phase"], "FINALIZE");
+    assert_eq!(observation["financial_obligations_clear"], true);
+    db.close().await
+}

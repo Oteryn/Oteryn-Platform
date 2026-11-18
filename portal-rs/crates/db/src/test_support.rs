@@ -39,3 +39,24 @@ pub async fn global_lock_guard() -> Result<Option<GlobalLockGuard>, sqlx::Error>
         _local: local,
     }))
 }
+
+/// Persist a chargeback hold and its unresolved reversal for an existing payer.
+pub async fn coin_chargeback_hold(
+    pool: &sqlx::PgPool,
+    account: sqlx::types::Uuid,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let order: sqlx::types::Uuid = sqlx::query_scalar("WITH quote AS (
+        INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at,consumed_at)
+        VALUES(uuidv7(),$1,uuidv7(),10,100,'EUR',2,'testing',now(),now())
+        RETURNING id,package_id
+    ) INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,code,review_required)
+      SELECT uuidv7(),$1,uuidv7(),id,package_id,10,100,'EUR',2,'testing',uuidv7(),'processing','review',true FROM quote RETURNING id")
+        .bind(account).fetch_one(&mut *tx).await?;
+    sqlx::query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome)
+                 VALUES(uuidv7(),$1,$2,'chargeback','test',$1::text,10,0,'held')")
+        .bind(order).bind(account).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES ($1,$2,'reversal_insufficient_balance')")
+        .bind(account).bind(order).execute(&mut *tx).await?;
+    tx.commit().await
+}

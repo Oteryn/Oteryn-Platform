@@ -223,13 +223,13 @@ impl Reservations for CoinReservations {
             return Ok(());
         }
         let delta = h.amount.checked_sub(amount).ok_or(Error::Overflow)?;
-        // Coins still owed never leave through the market (owner decision
-        // 2026-11-14); a lowered or replayed hold returns own coins.
+        // An increase spends new value. A lower or replayed hold keeps the
+        // existing reservation return path available.
         if delta > 0 {
             if !oteryn_wallet::value_eligible_in(db, h.account).await? {
                 return Err(Error::Denied);
             }
-            oteryn_wallet::unlocked_in(db, h.account)
+            oteryn_wallet::check_payer_in(db, h.account)
                 .await
                 .map_err(wallet_error)?;
         }

@@ -325,29 +325,33 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
     )?;
     registry.cleanup(
         "cleanup.game-logins",
-        3600,
+        60,
         Arc::new(oteryn_playerdata::logins::Retention(pool.clone())),
     )?;
     register_journal_cleanup(&mut registry, &pool)?;
     crate::reset_delivery::register(&mut registry, pool.clone())?;
     crate::registration_delivery::register(&mut registry, pool.clone())?;
-    registry.cleanup(
-        "referrals.process",
-        60,
-        Arc::new(oteryn_community::referrals::campaign::Worker::configured(
-            pool.clone(),
-        )?),
-    )?;
-    let closure = crate::account_closure::configured(pool.clone())?;
-    if closure.game_enabled() {
+    if std::env::var("PORTAL_REFERRALS_ENABLED").as_deref() == Ok("true") {
         registry.cleanup(
-            "identity.account-closure-audit",
-            3600,
-            Arc::new(oteryn_identity::termination::game_closure::AuditRetention(
+            "referrals.process",
+            60,
+            Arc::new(oteryn_community::referrals::campaign::Worker::configured(
                 pool.clone(),
-            )),
+            )?),
         )?;
     }
+    let closure = crate::account_closure::configured(pool.clone())?;
+    tracing::debug!(
+        game_enabled = closure.game_enabled(),
+        "configured account closure worker"
+    );
+    registry.cleanup(
+        "identity.account-closure-audit",
+        3600,
+        Arc::new(oteryn_identity::termination::game_closure::AuditRetention(
+            pool.clone(),
+        )),
+    )?;
     registry.cleanup(
         "identity.finalize-terminations",
         closure.worker_interval_seconds(),
@@ -359,14 +363,16 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         3600,
         Arc::new(oteryn_community::deaths::Cleanup { pool: pool.clone() }),
     )?;
-    registry.cleanup(
-        "stats.poll",
-        60,
-        Arc::new(oteryn_stats::worker::StatisticsJob {
-            pool: pool.clone(),
-            enabled: std::env::var("PORTAL_STATS_ENABLED").as_deref() == Ok("true"),
-        }),
-    )?;
+    if std::env::var("PORTAL_STATS_ENABLED").as_deref() == Ok("true") {
+        registry.cleanup(
+            "stats.poll",
+            60,
+            Arc::new(oteryn_stats::worker::StatisticsJob {
+                pool: pool.clone(),
+                enabled: true,
+            }),
+        )?;
+    }
     registry.cleanup(
         "cleanup.sessions",
         3600,
@@ -408,10 +414,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
     registry.cleanup(
         "cleanup.support-tickets",
         3600,
-        Arc::new(oteryn_support::tickets::Retention {
-            pool: pool.clone(),
-            enabled: std::env::var("OTERYN_SUPPORT_TICKETS").as_deref() == Ok("true"),
-        }),
+        Arc::new(oteryn_support::tickets::Retention { pool: pool.clone() }),
     )?;
     if let Some(worker) = oteryn_identity::email_change::Worker::configured(pool.clone())? {
         registry.cleanup("identity.email-change", 60, Arc::new(worker))?;
@@ -433,6 +436,16 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         3600,
         Arc::new(oteryn_stats::online::Retention { pool: pool.clone() }),
     )?;
+    registry.cleanup(
+        "stats.death-retention",
+        3600,
+        Arc::new(oteryn_stats::worker::DeathRetention { pool: pool.clone() }),
+    )?;
+    registry.cleanup(
+        "stats.world-sample-retention",
+        3600,
+        Arc::new(oteryn_stats::worker::WorldSampleRetention { pool: pool.clone() }),
+    )?;
     // Known consumers without an enabled handler must keep their queued work.
     // Unknown kinds still reach execute() and are permanently refused.
     for kind in [
@@ -444,9 +457,10 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         oteryn_notify::EMAIL_JOB,
         "bazaar.authority",
         "league.ingest",
-        "identity.account-closure-audit",
         "identity.email-change",
         "admin.control.expire",
+        "referrals.process",
+        "stats.poll",
     ] {
         if !registry.handlers.contains_key(kind) {
             registry.disabled.push(kind.into());
@@ -512,6 +526,7 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     include!("worker_tests.rs");
+    include!("flag_boundary_tests.rs");
 
     #[tokio::test]
     async fn idle_token_cleanup_avoids_history_scan() -> TestResult {

@@ -1497,6 +1497,8 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
     let intent = Uuid::now_v7();
     query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','succeeded')")
         .bind(intent).bind(buyer).bind(format!("test:{intent}")).execute(&db.pool).await?;
+    query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id) VALUES(uuidv7(),$1,'fixed',100,100,'PLN',$2)")
+        .bind(buyer).bind(intent).execute(&db.pool).await?;
     let adapter = || -> Result<TestPaymentAdapter, Box<dyn std::error::Error>> {
         Ok(TestPaymentAdapter::new(
             db.pool.clone(),
@@ -1561,9 +1563,10 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
         "identity.email-change",
         "admin.control.expire",
     ] {
-        assert!(
+        assert_eq!(
             registry.disabled.iter().any(|disabled| disabled == kind),
-            "{kind} should be disabled in the default configuration"
+            kind != "identity.account-closure-audit",
+            "unexpected default availability for {kind}"
         );
         db.enqueue(kind, "disabled", 1).await?;
     }
@@ -1579,6 +1582,11 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
     for _ in 0..3 {
         registry.batch(&db.pool).await?;
     }
+    let audit_state: String =
+        query_scalar("SELECT state FROM outbox WHERE kind='identity.account-closure-audit'")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(audit_state, "done");
     let refund: (String, i32) =
         outbox::query_as("SELECT state,attempts FROM outbox WHERE kind='commerce.refund'")
             .fetch_one(&db.pool)
@@ -1618,6 +1626,25 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(state, "done");
+    assert!(matches!(
+        crate::account_lifecycle_http::request_test_termination(&db.pool, buyer).await?,
+        Err(oteryn_identity::termination::Error::UnknownState)
+    ));
+    let provider = oteryn_payments::TestProvider::new(&[7; 32])?;
+    let payments = oteryn_payments::Payments::new(
+        db.pool.clone(), provider.clone(), crate::shop_web::Accounts(db.pool.clone()),
+        oteryn_payments::PaymentFlags { enabled: true },
+    );
+    let refund = serde_json::to_vec(&oteryn_payments::PaymentEvent {
+        event_id: "verified-refund".into(),
+        intent_id: intent,
+        provider_reference: format!("test:{intent}"),
+        amount: oteryn_payments::Amount { minor_units: 100, currency: "PLN".into() },
+        state: oteryn_payments::IntentState::Refunded,
+    })?;
+    payments.webhook(&refund, &provider.sign(&refund)?).await?;
+    crate::account_lifecycle_http::request_test_termination(&db.pool, buyer).await??;
+
     db.close().await?;
     eprintln!(
         "PG disabled_consumers_preserve_approved_refund_and_resume_once duration={:.3}s",
@@ -1736,5 +1763,177 @@ async fn delivered_checkout_releases_capacity() -> TestResult {
     assert_eq!(credited,1234);
     assert_eq!(oteryn_wallet::incoming_capacity_with_topup_in(&mut tx,account,0).await?,0);
     tx.commit().await?;
+    db.close().await
+}
+
+#[tokio::test]
+async fn retention_login_history_schedule_handles_thousand_expirations_per_hour() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let registry = configured(db.pool.clone()).await?;
+    let interval = registry.schedules["cleanup.game-logins"];
+    assert!(
+        3600 / interval * 512 >= 1000,
+        "cleanup interval {interval}s"
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn retention_closure_audit_scheduled_with_game_disabled() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    assert!(!crate::account_closure::configured(db.pool.clone())?.game_enabled());
+    let registry = configured(db.pool.clone()).await?;
+    assert_eq!(
+        registry.schedules.get("identity.account-closure-audit"),
+        Some(&3600)
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn configured_death_retention_expires_malformed_rows_with_statistics_disabled() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    assert_ne!(std::env::var("PORTAL_STATS_ENABLED").as_deref(), Ok("true"));
+    let character = Uuid::now_v7();
+    query(r#"INSERT INTO stats_character_events (character_ref,day,kind,event_key,details) VALUES
+        ($1,CURRENT_DATE-32,'death','old-invalid','{"occurred_at":"malformed","_statistics_epoch":"1"}'),
+        ($1,CURRENT_DATE-31,'death','old-missing','{"_statistics_epoch":"1"}'),
+        ($1,CURRENT_DATE,'death','recent-invalid','{"occurred_at":"malformed","_statistics_epoch":"1"}')"#)
+        .bind(character).execute(&db.pool).await?;
+    let registry = configured(db.pool.clone()).await?;
+    assert_eq!(registry.schedules.get("stats.death-retention"), Some(&3600));
+    let job = db.enqueue("stats.death-retention", "death-retention", 1).await?;
+    assert_eq!(registry.batch(&db.pool).await?, 1);
+    let state: String = query_scalar("SELECT state FROM outbox WHERE id=$1")
+        .bind(job).fetch_one(&db.pool).await?;
+    assert_eq!(state, "done");
+    let remaining: Vec<String> = query_scalar("SELECT event_key FROM stats_character_events WHERE character_ref=$1 ORDER BY event_key")
+        .bind(character).fetch_all(&db.pool).await?;
+    assert_eq!(remaining, ["recent-invalid"]);
+    db.close().await
+}
+
+#[tokio::test]
+async fn configured_referral_job_commits_stalled_delivery_backoffs_before_deadline() -> TestResult {
+    const TEST: &str = "worker::tests::configured_referral_job_commits_stalled_delivery_backoffs_before_deadline";
+    if std::env::var_os("PORTAL_TEST_REFERRAL_SMTP_CHILD").is_none() {
+        // The local server accepts TCP connections but never sends an SMTP greeting.
+        let smtp = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args(["--exact", TEST, "--nocapture"])
+            .env("PORTAL_TEST_REFERRAL_SMTP_CHILD", "1")
+            .env("PORTAL_REFERRALS_ENABLED", "true")
+            .env("OTERYN_ACCOUNT_EMAIL_CHANGE", "true")
+            .env("OTERYN_MFA_KEY", "19".repeat(32))
+            .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
+            .env("OTERYN_SMTP_HOST", "127.0.0.1")
+            .env("OTERYN_SMTP_TLS_MODE", "starttls")
+            .env("OTERYN_SMTP_PORT", smtp.local_addr()?.port().to_string())
+            .env("OTERYN_SMTP_USERNAME", "fake")
+            .env("OTERYN_SMTP_PASSWORD", "fake")
+            .env("OTERYN_MAIL_FROM", "sender@example.test")
+            .env("OTERYN_SMTP_FROM", "sender@example.test")
+            .output()?;
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        return Ok(());
+    }
+    let db = Database::new().await?.ok_or("PostgreSQL is required")?;
+    query("UPDATE referral_campaign_settings SET enabled=true").execute(&db.pool).await?;
+    let inviter: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('inviter@example.test','unused','active','en',now()) RETURNING id")
+        .fetch_one(&db.pool).await?;
+    query("WITH invitations AS (
+            INSERT INTO referral_email_invitations(inviter_id,recipient,kind)
+            SELECT $1,'recipient-'||n||'@example.test','new' FROM generate_series(1,8) n
+            RETURNING id,inviter_id
+        ) INSERT INTO referral_email_attempts(invitation_id,inviter_id) SELECT id,inviter_id FROM invitations")
+        .bind(inviter).execute(&db.pool).await?;
+    query("WITH change AS (
+        INSERT INTO account_email_changes(account_id,kind,old_email,new_email,confirmation_hash,revert_hash,immediate,apply_after,expires_at,revert_until)
+        VALUES($1,'primary','inviter@example.test','new@example.test',decode(repeat('ab',32),'hex'),decode(repeat('cd',32),'hex'),false,now()+interval '1 day',now()+interval '2 days',now()+interval '30 days')
+        RETURNING id
+    ) INSERT INTO account_email_change_mail(change_id,recipient,subject,body)
+      SELECT id,'change-'||n||'@example.test','Email change',E'Test body\n\nhttps://portal.example.test/email-change/fixture'
+      FROM change CROSS JOIN generate_series(1,8) n")
+      .bind(inviter).execute(&db.pool).await?;
+    let registry = configured(db.pool.clone()).await?;
+    let referrals = db.enqueue("referrals.process", "stalled-smtp", 1).await?;
+    let changes = db.enqueue("identity.email-change", "stalled-smtp", 1).await?;
+    assert_eq!(registry.batch(&db.pool).await?, 2);
+    let states: Vec<(String, String)> = outbox::query_as("SELECT kind,state FROM outbox WHERE id IN ($1,$2) ORDER BY kind")
+        .bind(referrals).bind(changes).fetch_all(&db.pool).await?;
+    assert_eq!(states, [
+        ("identity.email-change".into(), "done".into()),
+        ("referrals.process".into(), "done".into()),
+    ]);
+    let outcomes: Vec<(i64, i64)> = outbox::query_as("WITH attempts AS (
+        SELECT 'referral' AS kind,delivery_attempts,delivered_at,next_attempt_at FROM referral_email_attempts
+        UNION ALL
+        SELECT 'change',delivery_attempts,delivered_at,next_attempt_at FROM account_email_change_mail
+    ) SELECT
+        count(*) FILTER (WHERE delivery_attempts=1 AND delivered_at IS NULL AND next_attempt_at>now()),
+        count(*) FILTER (WHERE delivery_attempts=0 AND delivered_at IS NULL)
+    FROM attempts GROUP BY kind").fetch_all(&db.pool).await?;
+    assert_eq!(outcomes.len(), 2);
+    for (deferred, untouched) in outcomes {
+        assert!(deferred >= 3, "deferred {deferred}");
+        assert_eq!(deferred + untouched, 8);
+        assert!(untouched > 0);
+    }
+    db.close().await
+}
+
+#[tokio::test]
+async fn termination_boundary_blocks_chargeback_hold_and_debt_after_release() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL is required")?;
+    let account: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('chargeback@example.test','unused','active','en',now()) RETURNING id")
+        .fetch_one(&db.pool).await?;
+    oteryn_db::test_support::coin_chargeback_hold(&db.pool, account).await?;
+    for held in [true, false] {
+        if !held {
+            query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+                .bind(account).execute(&db.pool).await?;
+        }
+        assert!(matches!(
+            crate::account_lifecycle_http::request_test_termination(&db.pool, account).await?,
+            Err(oteryn_identity::termination::Error::UnknownState)
+        ), "held={held}");
+    }
+    let mut tx = db.pool.begin().await?;
+    query("INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING")
+        .bind(account).execute(&mut *tx).await?;
+    query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(account).execute(&mut *tx).await?;
+    let credit = Uuid::now_v7();
+    query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'top_up',$2,10)")
+        .bind(credit).bind(account).execute(&mut *tx).await?;
+    oteryn_wallet::credit_in(&mut tx, credit, account, 10).await?;
+    query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) SELECT $1,order_id,'reversal_insufficient_balance' FROM coin_purchase_reversals WHERE payer_account_id=$1")
+        .bind(account).execute(&mut *tx).await?;
+    tx.commit().await?;
+    assert!(matches!(
+        crate::account_lifecycle_http::request_test_termination(&db.pool, account).await?,
+        Err(oteryn_identity::termination::Error::UnknownState)
+    ));
+    db.close().await
+}
+
+#[tokio::test]
+async fn unpaid_browser_credit_blocks_termination() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL is required")?;
+    let account: Uuid = query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES ('uncredited@example.test','unused','active','en',now()) RETURNING id")
+        .fetch_one(&db.pool).await?;
+    let intent = Uuid::now_v7();
+    query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($2,$1,'test','checkout',100,'PLN','succeeded')").bind(account).bind(intent).execute(&db.pool).await?;
+    query("INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,intended_payment_intent_id) VALUES(uuidv7(),$1,'test',100,100,'PLN',$2)").bind(account).bind(intent).execute(&db.pool).await?;
+    assert!(matches!(
+        crate::account_lifecycle_http::request_test_termination(&db.pool, account).await?,
+        Err(oteryn_identity::termination::Error::UnknownState)
+    ));
     db.close().await
 }

@@ -32,24 +32,12 @@ impl Restore {
         let raw = std::str::from_utf8(raw).map_err(|_| Error::BadInput)?;
         let mut tx = self.pool.begin().await?;
         lock(&mut tx, true).await?;
-        // Store evidence survives feature switches. Until Store reconciliation is
-        // composed here, no notice may acknowledge a stack containing its intents.
         let store_installed: bool =
             sqlx::query_scalar("SELECT to_regclass('store_operations') IS NOT NULL")
                 .fetch_one(&mut *tx)
                 .await?;
-        let store_intents = if store_installed {
-            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM store_operations)")
-                .fetch_one(&mut *tx)
-                .await?
-        } else {
-            false
-        };
-        if store_intents {
-            return Err(Error::Unavailable);
-        }
         if let Some(row) = sqlx::query(
-            "SELECT notice_json FROM character_restore_notices WHERE restore_event_id=$1",
+            "SELECT notice_json,reopened_count,acknowledged_at IS NOT NULL AS acknowledged FROM character_restore_notices WHERE restore_event_id=$1",
         )
         .bind(notice.id)
         .fetch_optional(&mut *tx)
@@ -66,7 +54,29 @@ impl Restore {
                 .await?;
                 return Err(Error::Conflict);
             }
+            if row.try_get::<bool, _>("acknowledged")? {
+                let response = wire::status(notice.id, row.try_get("reopened_count")?, 0);
+                tx.commit().await?;
+                return Ok(response);
+            }
         } else {
+            if store_installed
+                && self.store.is_none()
+                && sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM store_operations)")
+                    .fetch_one(&mut *tx)
+                    .await?
+            {
+                return Err(Error::Unavailable);
+            }
+            // Game can have lost either closure operation at the restored generation.
+            let closure_installed: bool =
+                sqlx::query_scalar("SELECT to_regclass('plat3_closure_receipts') IS NOT NULL")
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if closure_installed && sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM plat3_closure_receipts WHERE recovery_generation::numeric >= $1::text::numeric)")
+                .bind(&notice.restored).fetch_one(&mut *tx).await? {
+                return Err(Error::Unavailable);
+            }
             let stale:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_restore_notices WHERE new_recovery_generation >= $1)").bind(&notice.new_generation).fetch_one(&mut *tx).await?;
             if stale {
                 tx.rollback().await?;
@@ -96,6 +106,18 @@ impl Restore {
                 return Err(Error::Unavailable);
             }
             sqlx::query("INSERT INTO character_restore_notices(restore_event_id,notice_json,new_recovery_generation) VALUES ($1,$2,$3)").bind(notice.id).bind(raw).bind(&notice.new_generation).execute(&mut *tx).await?;
+            let store_count = if let Some(store) = &self.store {
+                store
+                    .reopen(
+                        &mut tx,
+                        notice.id,
+                        notice.restored.parse().map_err(|_| Error::BadInput)?,
+                        notice.new_generation.parse().map_err(|_| Error::BadInput)?,
+                    )
+                    .await?
+            } else {
+                0
+            };
             sqlx::query("INSERT INTO character_restore_reopens(restore_event_id,operation_id,superseded_receipt_id) SELECT DISTINCT ON (r.operation_id) $1,r.operation_id,r.superseded_receipt_id FROM character_restore_reopens r JOIN character_commands c ON c.id=r.operation_id WHERE r.new_receipt_id IS NULL AND c.state='PENDING' ORDER BY r.operation_id,r.created_at,r.restore_event_id ON CONFLICT DO NOTHING").bind(notice.id).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO character_restore_reopens(restore_event_id,operation_id,superseded_receipt_id) SELECT $1,c.id,r.id FROM character_commands c JOIN character_restore_receipts r ON r.operation_id=c.id AND r.superseded_at IS NULL WHERE c.state='TERMINAL' AND r.recovery_generation >= $2 ON CONFLICT DO NOTHING").bind(notice.id).bind(&notice.restored).execute(&mut *tx).await?;
             let count: i64 = sqlx::query_scalar(
@@ -120,12 +142,16 @@ impl Restore {
                 "UPDATE character_restore_notices SET reopened_count=$2 WHERE restore_event_id=$1",
             )
             .bind(notice.id)
-            .bind(count)
+            .bind(count + i64::try_from(store_count).map_err(|_| Error::Unavailable)?)
             .execute(&mut *tx)
             .await?;
         }
         let row=sqlx::query("SELECT reopened_count,(SELECT count(*) FROM character_restore_reopens WHERE restore_event_id=$1 AND new_receipt_id IS NULL) AS outstanding FROM character_restore_notices WHERE restore_event_id=$1").bind(notice.id).fetch_one(&mut *tx).await?;
-        let outstanding: i64 = row.try_get("outstanding")?;
+        let mut outstanding: i64 = row.try_get("outstanding")?;
+        if store_installed {
+            outstanding += sqlx::query_scalar::<_, i64>("SELECT count(*) FROM store_reconcile_state WHERE restore_event_id=$1 AND resolved_receipt_id IS NULL")
+                .bind(notice.id).fetch_one(&mut *tx).await?;
+        }
         if outstanding == 0 {
             sqlx::query("UPDATE character_restore_notices SET acknowledged_at=coalesce(acknowledged_at,clock_timestamp()) WHERE restore_event_id=$1").bind(notice.id).execute(&mut *tx).await?;
         }

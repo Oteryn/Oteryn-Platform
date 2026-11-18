@@ -20,6 +20,25 @@ use tokio::sync::Mutex;
 
 pub const COOKIE_NAME: &str = "__Host-oteryn_session";
 
+fn referral_activity_enabled() -> bool {
+    std::env::var("PORTAL_REFERRALS_ENABLED").as_deref() == Ok("true")
+}
+
+/// Use the same deployment flag for session activity and referral callbacks
+/// reached through shared database connections.
+pub fn configured_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    let pool = oteryn_db::lazy_pool(database_url)?;
+    let options = (*pool.connect_options()).clone().options([(
+        "oteryn.referrals_enabled",
+        if referral_activity_enabled() {
+            "true"
+        } else {
+            "false"
+        },
+    )]);
+    Ok(pool.options().clone().connect_lazy_with(options))
+}
+
 /// Durations in seconds; absolute lifetime is never extended by activity or rotation.
 #[derive(Clone, Copy, Debug)]
 pub struct SessionConfig {
@@ -458,8 +477,17 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         if !valid_id(id) || identifiers.next().is_some() {
             return Err(sqlx::Error::Protocol("invalid session cookie".into()));
         }
-        let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as("UPDATE web_sessions SET last_seen_at=now(), updated_at=now(), idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2)) WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp() RETURNING session_id, csrf_token, account_id")
-            .bind(hash(id)).bind(f64::from(layer.config.idle_seconds)).fetch_optional(&layer.pool).await?;
+        let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
+            "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
+                idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
+             WHERE id_hash=$1 AND idle_expires_at>clock_timestamp()
+                AND absolute_expires_at>clock_timestamp()
+             RETURNING session_id,csrf_token,account_id",
+        )
+        .bind(hash(id))
+        .bind(f64::from(layer.config.idle_seconds))
+        .fetch_optional(&layer.pool)
+        .await?;
         if let Some((session_id, csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
                 session_id,

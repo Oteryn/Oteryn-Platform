@@ -59,3 +59,32 @@ pub async fn mutation_budget(connection: &mut PgConnection) -> Result<(), sqlx::
 pub mod test_support;
 
 pub mod ingest_budget;
+
+/// The caller holds the RBAC writer fence after locking the affected accounts.
+/// Every protected membership being removed needs an eligible survivor.
+pub async fn protected_role_survives(
+    connection: &mut PgConnection,
+    account: sqlx::types::Uuid,
+    role: Option<sqlx::types::Uuid>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT NOT EXISTS (
+            SELECT 1 FROM account_roles mine JOIN roles r ON r.id=mine.role_id
+            WHERE mine.account_id=$1 AND ($2::uuid IS NULL OR r.id=$2)
+              AND r.key IN ('owner','platform_admin')
+              AND NOT EXISTS (
+                SELECT 1 FROM account_roles other JOIN accounts a ON a.id=other.account_id
+                WHERE other.role_id=r.id AND a.id<>$1
+                  AND a.status='active' AND a.email_verified_at IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM account_terminations t
+                    WHERE t.account_id=a.id AND t.cancelled_at IS NULL AND t.finalized_at IS NULL
+                  )
+              )
+        )",
+    )
+    .bind(account)
+    .bind(role)
+    .fetch_one(connection)
+    .await
+}

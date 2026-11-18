@@ -561,6 +561,58 @@ async fn postgres_store_wallet_receipt_cannot_buy_a_set()
         .await?;
     assert_eq!(grants, 0);
     assert_eq!(ledger.balance(owner).await?.available, 190);
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use sha2::{Digest, Sha256};
+    use tower::ServiceExt;
+    let token = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at)
+        VALUES($1,$2,$3,'card set test',now()+interval '1 hour',now()+interval '1 day')")
+        .bind(Sha256::digest(token.as_bytes()).to_vec()).bind(owner).bind(&csrf).execute(&pool).await?;
+    oteryn_db::test_support::coin_chargeback_hold(&pool, owner).await?;
+    let app = http::router(
+        Service::new(
+            pool.clone(),
+            Flags {
+                pvp: false,
+                sets: true,
+            },
+            Rules,
+            WalletPayment::new(ledger.clone()),
+        ),
+        oteryn_web::csrf::CsrfConfig {
+            trusted_origins: vec!["https://portal.example.invalid".into()],
+            ..Default::default()
+        },
+    );
+    for held in [true, false] {
+        if !held {
+            sqlx::query("DELETE FROM coin_purchase_holds WHERE account_id=$1")
+                .bind(owner)
+                .execute(&pool)
+                .await?;
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/en/collection-pvp")
+                    .header("cookie", format!("__Host-oteryn_session={token}"))
+                    .header("origin", "https://portal.example.invalid")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "_csrf={csrf}&op=buy&id={set}&version=1&price=10&request={}",
+                        Uuid::now_v7()
+                    )))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    ledger
+        .adjust(Uuid::now_v7(), owner, 10, owner, "Synthetic debt repayment")
+        .await?;
     // A fresh local purchase and its own retry remain valid.
     let fresh = Uuid::now_v7();
     service.buy_set(owner, set, 1, 10, fresh).await?;

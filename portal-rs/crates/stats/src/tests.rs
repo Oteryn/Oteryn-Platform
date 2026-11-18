@@ -933,6 +933,8 @@ async fn poll_records_unsigned_profile_levels() -> Result {
     let payload = json!({"character_id":character,"profile":[{"name":"First","vocation":1,"world_id":Uuid::now_v7(),"level":"9223372036854775808","guild":[],"guild_visible":true}]});
     sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('character_profile',$1,false,1,1,$2,$3),('character_profile','',true,1,1,$2,'{}')")
         .bind(character.to_string()).bind(now).bind(payload).execute(&db).await?;
+    sqlx::query(r#"INSERT INTO stats_character_events (character_ref,day,kind,event_key,details) VALUES ($1,CURRENT_DATE-31,'death','malformed','{"occurred_at":"invalid","_statistics_epoch":"1"}')"#)
+        .bind(Uuid::now_v7()).execute(&db).await?;
     let job = StatisticsJob {
         pool: db.clone(),
         enabled: true,
@@ -942,6 +944,12 @@ async fn poll_records_unsigned_profile_levels() -> Result {
         matches!(processed, Ok(1)),
         "poll must accept an unsigned level: {processed:?}"
     );
+    let malformed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM stats_character_events WHERE event_key='malformed'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(malformed, 0);
     assert_eq!(job.run().await?, 0);
     let level: String =
         sqlx::query_scalar("SELECT level::text FROM stats_character_daily WHERE character_ref=$1")
@@ -949,5 +957,40 @@ async fn poll_records_unsigned_profile_levels() -> Result {
             .fetch_one(&db)
             .await?;
     assert_eq!(level, "9223372036854775808");
+    dispose(db).await
+}
+
+#[tokio::test]
+async fn death_details_expire_while_statistics_disabled() -> Result {
+    let Some(db) = database().await? else {
+        return Ok(());
+    };
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let character = Uuid::now_v7();
+    for (key, at) in [
+        ("old", (now - 31 * 86400).to_string()),
+        ("new", (now - 10).to_string()),
+        ("odd", "not-a-number".to_owned()),
+    ] {
+        sqlx::query("INSERT INTO stats_character_events (character_ref,day,kind,event_key,details) VALUES ($1,CURRENT_DATE,'death',$2,$3)")
+            .bind(character)
+            .bind(key)
+            .bind(json!({"occurred_at": at, "killers": ["Beren"]}))
+            .execute(&db)
+            .await?;
+    }
+    let disabled = StatisticsJob {
+        pool: db.clone(),
+        enabled: false,
+    };
+    assert_eq!(disabled.run().await?, 0);
+    let retention = crate::worker::DeathRetention { pool: db.clone() };
+    assert_eq!(retention.purge().await?, 1);
+    let keys: Vec<String> = sqlx::query_scalar(
+        "SELECT event_key FROM stats_character_events WHERE kind='death' ORDER BY event_key",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(keys, vec!["new".to_owned(), "odd".to_owned()]);
     dispose(db).await
 }

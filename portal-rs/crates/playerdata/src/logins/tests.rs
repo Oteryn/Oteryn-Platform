@@ -112,7 +112,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path',$1,false), set_config('oteryn.referrals_enabled','true',false)")
                         .bind(path)
                         .execute(conn)
                         .await?;
@@ -540,6 +540,8 @@ async fn postgres_authorized_epoch_rebuild_reuses_retained_occurrence() {
         return;
     };
     let (mut service, mut record) = fixture(&db.pool).await;
+    record.login.left_at = Some(record.cut.observed_at_ms.to_string());
+    record.login.end_reason = Some(EndReason::Logout);
     let mut tx = db.pool.begin().await.unwrap();
     service.apply(&mut tx, &record).await.unwrap();
     tx.commit().await.unwrap();
@@ -547,6 +549,8 @@ async fn postgres_authorized_epoch_rebuild_reuses_retained_occurrence() {
     let omitted = Uuid::now_v7();
     sqlx::query("INSERT INTO pd_game_logins SELECT account_id,$2,character_id,world_id,projection_epoch,recovery_generation,projection_revision,character_revision,source_revision,entered_at,left_at,end_reason,created_at,updated_at FROM pd_game_logins WHERE account_id=$1")
         .bind(record.account).bind(omitted).execute(&db.pool).await.unwrap();
+    record.login.left_at = None;
+    record.login.end_reason = None;
     record.cut.epoch = 2;
     service.authority = Arc::new(TestAuthority {
         account: record.account,
@@ -561,6 +565,8 @@ async fn postgres_authorized_epoch_rebuild_reuses_retained_occurrence() {
     let history = service.history(record.account).await.expect("new history");
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].login_event_id, record.login.login_event_id);
+    assert_eq!(history[0].left_at, None);
+    assert_eq!(history[0].end_reason, None);
     db.close().await;
     eprintln!(
         "PG postgres_authorized_epoch_rebuild_reuses_retained_occurrence {:?}",

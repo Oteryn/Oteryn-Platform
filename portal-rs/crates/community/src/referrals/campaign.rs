@@ -1,8 +1,9 @@
 //! Default-off tell-a-friend campaigns. Store callbacks own paid evidence.
 use super::{Error, Flags, Kind, Policy, Stage, valid};
 use oteryn_db::retry::TransactionError;
-use sqlx::{PgConnection, PgPool, Row};
-use std::sync::Arc;
+use sqlx::{Acquire, PgConnection, PgPool, Row};
+use std::{sync::Arc, time::Duration};
+use tokio::time::{Instant, timeout_at};
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -54,6 +55,16 @@ impl Policy for DatabasePolicy {
             return Ok(false);
         }
         if matches!(stage, Stage::Invite) && kind == Kind::Returning {
+            let covered: bool = sqlx::query_scalar(
+                "SELECT referral_deployment_enabled() AND
+                        COALESCE(covered_since<=clock_timestamp()-interval '12 months',false)
+                 FROM portal_referral_coverage WHERE id FOR SHARE",
+            )
+            .fetch_one(&mut *conn)
+            .await?;
+            if !covered {
+                return Ok(false);
+            }
             return Ok(sqlx::query_scalar("SELECT last_activity<=clock_timestamp()-interval '12 months' AND created_at<=clock_timestamp()-interval '12 months' FROM referral_activity WHERE account_id=$1 FOR UPDATE")
                 .bind(other).fetch_optional(&mut *conn).await? == Some(true));
         }
@@ -365,6 +376,7 @@ impl<P: Policy> Campaign<P> {
 /// Periodic reconciliation uses the same premium ledger as other store grants.
 #[derive(Debug)]
 pub struct Worker {
+    premium_enabled: bool,
     pub campaign: Campaign,
     pub sender: Option<Arc<dyn oteryn_notify::EmailSender>>,
 }
@@ -393,6 +405,7 @@ impl Worker {
             None
         };
         Ok(Self {
+            premium_enabled: std::env::var("OTERYN_PREMIUM_ENABLED").as_deref() == Ok("true"),
             campaign: Campaign::new(pool, Flags { enabled }, DatabasePolicy, origin)?,
             sender,
         })
@@ -401,13 +414,40 @@ impl Worker {
         if !self.campaign.flags.enabled {
             return Ok(());
         }
-        let enabled: bool =
+        // The outbox allows 30 seconds for execution and acknowledgement.
+        let deadline = Instant::now() + Duration::from_secs(25);
+        let enabled: bool = timeout_at(
+            deadline,
             sqlx::query_scalar("SELECT enabled FROM referral_campaign_settings WHERE singleton")
-                .fetch_one(&self.campaign.pool)
-                .await?;
+                .fetch_one(&self.campaign.pool),
+        )
+        .await
+        .map_err(|_| Error::Unavailable)??;
         if !enabled {
             return Ok(());
         }
+        let premium_failed = timeout_at(deadline, self.process_rewards())
+            .await
+            .map_err(|_| Error::Unavailable)??;
+        if let Some(sender) = &self.sender {
+            let last_send = deadline - Duration::from_secs(3);
+            for _ in 0..25 {
+                if Instant::now() >= last_send
+                    || !timeout_at(deadline, self.deliver_one(sender.as_ref(), last_send))
+                        .await
+                        .map_err(|_| Error::Unavailable)??
+                {
+                    break;
+                }
+            }
+        }
+        if premium_failed {
+            return Err(Error::Unavailable);
+        }
+        Ok(())
+    }
+
+    async fn process_rewards(&self) -> Result<bool, Error> {
         let candidates: Vec<(Uuid,String)>=sqlx::query_as("SELECT DISTINCT s.account_id,s.data->>'referral.code' FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.data ? 'referral.code' AND account_value_eligible(a.id) ORDER BY s.account_id,s.data->>'referral.code' LIMIT 100").fetch_all(&self.campaign.pool).await?;
         for (account, code) in candidates {
             if let Ok(code) = Uuid::parse_str(&code) {
@@ -424,70 +464,81 @@ impl Worker {
         let ledger = oteryn_store::premium::repository::Ledger::new(
             self.campaign.pool.clone(),
             Arc::new(DatabasePolicy),
-            true,
+            self.premium_enabled,
         );
-        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE r.kind='premium' AND r.applied_at IS NULL AND account_value_eligible(a.id) ORDER BY r.created_at LIMIT 100").fetch_all(&self.campaign.pool).await?;
+        let ids: Vec<Uuid>=sqlx::query_scalar("SELECT r.id FROM referral_campaign_rewards r JOIN accounts a ON a.id=r.account_id WHERE $1 AND r.kind='premium' AND r.applied_at IS NULL AND coalesce(r.next_attempt_at,r.created_at)<=statement_timestamp() AND account_value_eligible(a.id) ORDER BY coalesce(r.next_attempt_at,r.created_at),r.created_at,r.id LIMIT 100").bind(self.premium_enabled).fetch_all(&self.campaign.pool).await?;
         let mut premium_failed = false;
         for id in ids {
             let mut tx = self.campaign.pool.begin().await?;
-            let locked: Option<Uuid>=sqlx::query_scalar("SELECT id FROM referral_campaign_rewards WHERE id=$1 AND applied_at IS NULL FOR UPDATE SKIP LOCKED")
+            oteryn_db::mutation_budget(&mut tx).await?;
+            let locked: Option<Uuid>=sqlx::query_scalar("SELECT id FROM referral_campaign_rewards WHERE id=$1 AND applied_at IS NULL AND coalesce(next_attempt_at,created_at)<=statement_timestamp() FOR UPDATE SKIP LOCKED")
                 .bind(id).fetch_optional(&mut *tx).await?;
             if locked.is_none() {
                 continue;
             }
-            if ledger.grant_referral_in(&mut tx, id).await.is_err() {
+            let mut grant = tx.begin().await?;
+            oteryn_db::mutation_budget(&mut grant).await?;
+            if ledger.grant_referral_in(&mut grant, id).await.is_err() {
+                grant.rollback().await?;
+                sqlx::query("UPDATE referral_campaign_rewards SET next_attempt_at=clock_timestamp()+interval '5 minutes',updated_at=clock_timestamp() WHERE id=$1")
+                    .bind(id).execute(&mut *tx).await?;
                 premium_failed = true;
-                continue;
+            } else {
+                grant.commit().await?;
+                sqlx::query("UPDATE referral_campaign_rewards SET applied_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1")
+                    .bind(id).execute(&mut *tx).await?;
             }
-            sqlx::query("UPDATE referral_campaign_rewards SET applied_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await?;
             tx.commit().await?;
         }
-        if let Some(sender) = &self.sender {
-            for _ in 0..25 {
-                let mut tx = self.campaign.pool.begin().await?;
-                // Serialize delivery budgets across workers without holding the
-                // referral qualification lock (5600) during SMTP I/O.
-                sqlx::query("SELECT pg_advisory_xact_lock(5601)")
-                    .execute(&mut *tx)
-                    .await?;
-                let row=sqlx::query("SELECT a.id,i.id AS code,i.recipient,owner.locale FROM referral_email_attempts a JOIN referral_email_invitations i ON i.id=a.invitation_id JOIN accounts owner ON owner.id=i.inviter_id WHERE a.delivered_at IS NULL AND a.next_attempt_at<=clock_timestamp() AND community_invitation_delivery_eligible(owner.id) AND (SELECT count(*) FROM referral_email_attempts sent WHERE sent.inviter_id=a.inviter_id AND sent.delivered_at>clock_timestamp()-interval '24 hours')<25 AND (i.kind<>'returning' OR (SELECT count(*) FROM referral_email_attempts sent JOIN referral_email_invitations invitation ON invitation.id=sent.invitation_id WHERE sent.inviter_id=a.inviter_id AND invitation.kind='returning' AND sent.delivered_at>clock_timestamp()-interval '30 days')<20) ORDER BY a.created_at FOR UPDATE OF a SKIP LOCKED LIMIT 1")
-                    .fetch_optional(&mut *tx).await?;
-                let Some(row) = row else {
-                    break;
-                };
-                let id: Uuid = row.try_get("id")?;
-                let lang: String = row.try_get("locale")?;
-                let url = format!(
-                    "{}/{lang}/referrals/{}",
-                    self.campaign.origin,
-                    row.try_get::<Uuid, _>("code")?
-                );
-                let subject = web::translate(&lang, "mail-title")?;
-                let body = format!("{}\n\n{url}", web::translate(&lang, "mail-body")?);
-                let sent = sender
-                    .send(&oteryn_notify::Email {
-                        id,
-                        recipient: row.try_get("recipient")?,
-                        subject,
-                        text: body.clone(),
-                        html: format!("<p>{}</p><p>{url}</p>", web::translate(&lang, "mail-body")?),
-                        unsubscribe: None,
-                    })
-                    .await;
-                if sent.is_err() {
-                    sqlx::query("UPDATE referral_email_attempts SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await?;
-                    tx.commit().await?;
-                    continue;
-                }
-                sqlx::query("UPDATE referral_email_attempts SET delivered_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await?;
-                tx.commit().await?;
-            }
+        Ok(premium_failed)
+    }
+
+    async fn deliver_one(
+        &self,
+        sender: &dyn oteryn_notify::EmailSender,
+        last_send: Instant,
+    ) -> Result<bool, Error> {
+        let mut tx = self.campaign.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        // Serialize delivery budgets across workers without holding the
+        // referral qualification lock (5600) during SMTP I/O.
+        sqlx::query("SELECT pg_advisory_xact_lock(5601)")
+            .execute(&mut *tx)
+            .await?;
+        let row=sqlx::query("SELECT a.id,i.id AS code,i.recipient,owner.locale FROM referral_email_attempts a JOIN referral_email_invitations i ON i.id=a.invitation_id JOIN accounts owner ON owner.id=i.inviter_id WHERE a.delivered_at IS NULL AND a.next_attempt_at<=clock_timestamp() AND community_invitation_delivery_eligible(owner.id) AND (SELECT count(*) FROM referral_email_attempts sent WHERE sent.inviter_id=a.inviter_id AND sent.delivered_at>clock_timestamp()-interval '24 hours')<25 AND (i.kind<>'returning' OR (SELECT count(*) FROM referral_email_attempts sent JOIN referral_email_invitations invitation ON invitation.id=sent.invitation_id WHERE sent.inviter_id=a.inviter_id AND invitation.kind='returning' AND sent.delivered_at>clock_timestamp()-interval '30 days')<20) ORDER BY a.created_at,a.id FOR UPDATE OF a SKIP LOCKED LIMIT 1")
+            .fetch_optional(&mut *tx).await?;
+        let Some(row) = row else {
+            return Ok(false);
+        };
+        if Instant::now() >= last_send {
+            return Ok(false);
         }
-        if premium_failed {
-            Err(Error::Unavailable)
+        let id: Uuid = row.try_get("id")?;
+        let lang: String = row.try_get("locale")?;
+        let url = format!(
+            "{}/{lang}/referrals/{}",
+            self.campaign.origin,
+            row.try_get::<Uuid, _>("code")?
+        );
+        let subject = web::translate(&lang, "mail-title")?;
+        let body = format!("{}\n\n{url}", web::translate(&lang, "mail-body")?);
+        let email = oteryn_notify::Email {
+            id,
+            recipient: row.try_get("recipient")?,
+            subject,
+            text: body.clone(),
+            html: format!("<p>{}</p><p>{url}</p>", web::translate(&lang, "mail-body")?),
+            unsubscribe: None,
+        };
+        let send_deadline = last_send.min(Instant::now() + Duration::from_secs(5));
+        let sent = timeout_at(send_deadline, sender.send(&email)).await;
+        if !matches!(sent, Ok(Ok(()))) {
+            sqlx::query("UPDATE referral_email_attempts SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await?;
         } else {
-            Ok(())
+            sqlx::query("UPDATE referral_email_attempts SET delivered_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await?;
         }
+        tx.commit().await?;
+        Ok(true)
     }
 }
 impl oteryn_db::outbox::Cleanup for Worker {

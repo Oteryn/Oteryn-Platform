@@ -1,5 +1,7 @@
 use super::*;
 use fluent_bundle::{FluentBundle, FluentResource};
+use std::time::Duration;
+use tokio::time::{Instant, timeout_at};
 
 const EN: &str = "title = Email security\nconfirm = Confirm your new email address. Without a recovery key the change takes seven days.\nrevert = This was not me: cancel or revert this email change. This link expires after 30 days.\nemail = New email\nrepeat = Repeat email\npassword = Current password\nproof = MFA code or recovery key\nrecovery = Use recovery key\nbackup = Set backup email\nsubmit = Continue\nfailed = Request refused or invalid input.\nrequested = Check both email addresses for confirmation and cancellation links.\nconfirmed = Address confirmed. The change will take effect after the waiting period.\nchanged = Email updated. Sign in again. Trading and further email changes are blocked for 72 hours.\ncancelled = Email change cancelled.\nreverted = Email change reverted. Sign in again.\n";
 const PL: &str = "title = Bezpieczeństwo adresu e-mail\nconfirm = Potwierdź nowy adres e-mail. Bez klucza odzyskiwania zmiana nastąpi po siedmiu dniach.\nrevert = To nie ja: anuluj lub cofnij zmianę adresu e-mail. Link wygasa po 30 dniach.\nemail = Nowy adres e-mail\nrepeat = Powtórz adres e-mail\npassword = Obecne hasło\nproof = Kod 2FA lub klucz odzyskiwania\nrecovery = Użyj klucza odzyskiwania\nbackup = Ustaw zapasowy e-mail\nsubmit = Kontynuuj\nfailed = Odmowa lub nieprawidłowe dane.\nrequested = Sprawdź oba adresy e-mail, aby potwierdzić lub anulować zmianę.\nconfirmed = Adres potwierdzony. Zmiana nastąpi po okresie oczekiwania.\nchanged = E-mail zmieniony. Zaloguj się ponownie. Handel i kolejna zmiana adresu są zablokowane przez 72 godziny.\ncancelled = Zmiana adresu anulowana.\nreverted = Zmiana adresu cofnięta. Zaloguj się ponownie.\n";
@@ -83,60 +85,74 @@ impl Worker {
         if !self.service.ready() {
             return Err("email changes disabled or misconfigured".into());
         }
-        self.service
-            .apply_due()
+        // The outbox has 30 seconds for execution and acknowledgement.
+        let deadline = Instant::now() + Duration::from_secs(25);
+        timeout_at(deadline, self.service.apply_due())
             .await
+            .map_err(|_| "email change application deadline exceeded".to_owned())?
             .map_err(|_| "email change application failed".to_owned())?;
-        // At-least-once SMTP, with a stable Message-ID. Row locks prevent concurrent sends.
+        let last_send = deadline - Duration::from_secs(3);
         for _ in 0..100 {
-            let mut tx = self
-                .service
-                .pool
-                .begin()
-                .await
-                .map_err(|_| "email delivery unavailable".to_owned())?;
-            let row:Option<(Uuid,String,String,String)>=sqlx::query_as("SELECT m.id,m.recipient,m.subject,m.body FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id WHERE m.delivered_at IS NULL AND m.next_attempt_at<=clock_timestamp() AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL ORDER BY m.created_at LIMIT 1 FOR UPDATE OF m SKIP LOCKED").fetch_optional(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
-            let Some((id, recipient, subject, text)) = row else {
-                break;
-            };
-            let (message, url) = text
-                .rsplit_once("\n\n")
-                .ok_or_else(|| "invalid email payload".to_owned())?;
-            if !url.starts_with(&format!("{}/email-change/", self.service.origin)) {
-                return Err("invalid email link".into());
-            }
-            let escape = |value: &str| {
-                value
-                    .replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;")
-                    .replace('"', "&quot;")
-            };
-            let html = format!("<p><a href=\"{}\">{}</a></p>", escape(url), escape(message));
-            let sent = self
-                .sender
-                .send(&oteryn_notify::Email {
-                    id,
-                    recipient,
-                    subject,
-                    text,
-                    html,
-                    unsubscribe: None,
-                })
-                .await;
-            if sent.is_err() {
-                sqlx::query("UPDATE account_email_change_mail SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_| "email delivery unavailable".to_owned())?;
-                tx.commit()
+            if Instant::now() >= last_send
+                || !timeout_at(deadline, self.deliver_one(last_send))
                     .await
-                    .map_err(|_| "email delivery unavailable".to_owned())?;
-                continue;
+                    .map_err(|_| "email delivery deadline exceeded".to_owned())??
+            {
+                break;
             }
-            sqlx::query("UPDATE account_email_change_mail SET delivered_at=now(),body='',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
-            tx.commit()
-                .await
-                .map_err(|_| "email delivery unavailable".to_owned())?;
         }
         Ok(())
+    }
+
+    /// At-least-once SMTP with a stable Message-ID. The row lock
+    /// prevents concurrent sends while a bounded delivery is in progress.
+    async fn deliver_one(&self, last_send: Instant) -> Result<bool, String> {
+        let mut tx = self
+            .service
+            .pool
+            .begin()
+            .await
+            .map_err(|_| "email delivery unavailable".to_owned())?;
+        let row:Option<(Uuid,String,String,String)>=sqlx::query_as("SELECT m.id,m.recipient,m.subject,m.body FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id WHERE m.delivered_at IS NULL AND m.next_attempt_at<=clock_timestamp() AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL ORDER BY m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED").fetch_optional(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
+        let Some((id, recipient, subject, text)) = row else {
+            return Ok(false);
+        };
+        if Instant::now() >= last_send {
+            return Ok(false);
+        }
+        let (message, url) = text
+            .rsplit_once("\n\n")
+            .ok_or_else(|| "invalid email payload".to_owned())?;
+        if !url.starts_with(&format!("{}/email-change/", self.service.origin)) {
+            return Err("invalid email link".into());
+        }
+        let escape = |value: &str| {
+            value
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;")
+        };
+        let html = format!("<p><a href=\"{}\">{}</a></p>", escape(url), escape(message));
+        let email = oteryn_notify::Email {
+            id,
+            recipient,
+            subject,
+            text,
+            html,
+            unsubscribe: None,
+        };
+        let send_deadline = last_send.min(Instant::now() + Duration::from_secs(5));
+        let sent = timeout_at(send_deadline, self.sender.send(&email)).await;
+        if !matches!(sent, Ok(Ok(()))) {
+            sqlx::query("UPDATE account_email_change_mail SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_| "email delivery unavailable".to_owned())?;
+        } else {
+            sqlx::query("UPDATE account_email_change_mail SET delivered_at=now(),body='',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
+        }
+        tx.commit()
+            .await
+            .map_err(|_| "email delivery unavailable".to_owned())?;
+        Ok(true)
     }
 }
 impl oteryn_db::outbox::Cleanup for Worker {

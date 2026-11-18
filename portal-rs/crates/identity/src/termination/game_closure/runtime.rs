@@ -38,14 +38,7 @@ impl Config {
         let worker_interval_seconds = get("PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS")
             .map_or(Ok(5), |s| s.parse().map_err(|_| Error::InvalidInput))?;
         if !(1..=60).contains(&worker_interval_seconds)
-            || (enabled
-                && (public_key.is_none()
-                    || recovery_generation.is_none()
-                    || key_id.is_empty()
-                    || key_id.len() > 128
-                    || !key_id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))))
+            || (enabled && recovery_generation.is_none())
         {
             return Err(Error::InvalidInput);
         }
@@ -97,7 +90,7 @@ impl Config {
             Arc::new(DurableRecoveryFence {
                 generation: self.recovery_generation.ok_or(Error::InvalidInput)?,
             }),
-            self.public_key.ok_or(Error::InvalidInput)?,
+            self.public_key,
             self.authority.clone(),
         )?;
         Ok(Some(Arc::new(
@@ -193,13 +186,18 @@ impl GameBoundary {
         ) {
             return Err(Error::UnknownState);
         }
-        // Wallet writers use this lock. Credential and Character state are
-        // separate from the current financial attestation.
-        sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
-            .bind(account)
-            .execute(&mut *tx)
+        // The finalized event and the financial disposition commit together.
+        // A later verified reversal remains a reconciliation obligation, but
+        // cannot revoke the disposition Game needs to finish the closure.
+        let finalized = phase == "FINALIZE"
+            && sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM account_termination_events WHERE termination_id=$1 AND kind='finalized')",
+            )
+            .bind(t.id)
+            .fetch_one(&mut *tx)
             .await?;
-        let financial_obligations_clear: bool = sqlx::query_scalar("SELECT NOT (EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active') OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery')))").bind(account).fetch_one(&mut *tx).await?;
+        let financial_obligations_clear =
+            finalized || financial_obligations_clear(&mut tx, account).await?;
         let observed: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&mut *tx)
@@ -255,4 +253,75 @@ pub(super) fn lifecycle_observation(
             .to_string(),
     };
     Ok(observation)
+}
+
+/// Shared financial check for local termination and Game lifecycle attestation.
+/// The caller holds the account lock.
+pub async fn financial_obligations_clear(
+    tx: &mut Transaction<'_, Postgres>,
+    account: Uuid,
+) -> Result<bool> {
+    // Restore/publication fences precede wallet locks, as in the Game lifecycle read.
+    sqlx::query("SELECT id FROM character_restore_locks WHERE id=1 FOR SHARE")
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or(Error::UnknownState)?;
+    sqlx::query("SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE")
+        .bind(account)
+        .execute(&mut **tx)
+        .await?;
+    Ok(sqlx::query_scalar("SELECT NOT (
+        EXISTS(SELECT 1 FROM wallet_reservations WHERE account_id=$1 AND status='active')
+        OR EXISTS(SELECT 1 FROM coin_purchase_holds WHERE account_id=$1)
+        OR EXISTS(SELECT 1 FROM coin_outstanding_debts WHERE account_id=$1 AND owed>0)
+        OR EXISTS(SELECT 1 FROM wallet_incoming_capacity WHERE account_id=$1)
+        OR EXISTS(SELECT 1 FROM bazaar_coin_holds WHERE account_id=$1 AND amount>0)
+        OR EXISTS(SELECT 1 FROM bazaar_listings WHERE (owner=$1 OR leader=$1) AND state IN ('draft','active','matched','awaiting_delivery'))
+        OR EXISTS(SELECT 1 FROM bazaar_settlements s WHERE (s.buyer=$1 OR s.seller=$1)
+            AND s.completed_at IS NULL AND NOT EXISTS (
+                SELECT 1 FROM bazaar_authority_compensations c JOIN bazaar_listings l ON l.id=c.listing_id
+                WHERE c.listing_id=s.listing_id AND l.state='cancelled'))
+        OR EXISTS(SELECT 1 FROM bazaar_authority_gold_bids WHERE buyer=$1 AND phase IN ('pending','releasing'))
+        OR EXISTS(SELECT 1 FROM bazaar_authority_gold_bids b
+            LEFT JOIN bazaar_game_outbox o ON o.operation_id=b.release_operation_id
+                AND o.listing_id=b.listing_id AND o.command='ReleaseBazaarGold'
+            WHERE b.phase='releasing' AND (
+                (o.intent::jsonb->>'buyer_account_id')::uuid=$1
+                OR (o.intent::jsonb->>'buyer_account_id' IS NULL AND EXISTS (
+                    SELECT 1 FROM bazaar_authority_gold_bids prior
+                    WHERE prior.listing_id=b.listing_id AND prior.buyer=$1))))
+        OR EXISTS(SELECT 1 FROM bazaar_authority_gold_sales s WHERE (s.buyer=$1 OR s.seller=$1)
+            AND s.completed_at IS NULL AND NOT EXISTS (
+                SELECT 1 FROM bazaar_authority_compensations c JOIN bazaar_listings l ON l.id=c.listing_id
+                WHERE c.listing_id=s.listing_id AND l.state='cancelled'))
+        OR EXISTS(
+            SELECT 1 FROM payment_intents p
+            JOIN LATERAL (
+                SELECT account_id,coins,NULL::uuid AS uncredited_native_order FROM store_web_topups
+                WHERE p.id IN (payment_intent_id,intended_payment_intent_id)
+                UNION ALL
+                SELECT payer_account_id,coins,CASE WHEN receipt_id IS NULL THEN id END
+                FROM coin_purchase_orders WHERE payment_intent_id=p.id
+            ) checkout ON p.account_id=$1 OR checkout.account_id=$1
+            WHERE p.state IN ('succeeded','refunded','chargeback') AND (
+                checkout.account_id<>p.account_id OR NOT (
+                    EXISTS (SELECT 1 FROM wallet_operations o JOIN wallet_entries e ON e.operation_id=o.id
+                        WHERE o.id=p.id AND o.account_id=p.account_id AND o.kind='top_up'
+                          AND o.amount=checkout.coins AND e.account_id=p.account_id
+                          AND e.available_delta=checkout.coins AND e.reserved_delta=0)
+                    OR (p.state IN ('refunded','chargeback') AND EXISTS (
+                        SELECT 1 FROM payment_events e
+                        WHERE e.intent_id=p.id AND e.provider=p.provider AND e.state=p.state))
+                    OR (p.state='succeeded' AND EXISTS (
+                        SELECT 1 FROM coin_purchase_reversals r JOIN payment_events e
+                          ON (e.provider,e.provider_event_id)=(r.provider,r.provider_event_id)
+                        WHERE r.order_id=checkout.uncredited_native_order
+                          AND r.payer_account_id=p.account_id AND r.coins=checkout.coins
+                          AND r.outcome='fenced' AND r.debited=0
+                          AND e.intent_id=p.id AND e.provider=p.provider
+                          AND (r.kind,e.state) IN (('refund','refunded'),('chargeback','chargeback'))))
+                )
+            )
+        )
+    )").bind(account).fetch_one(&mut **tx).await?)
 }

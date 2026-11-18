@@ -117,7 +117,7 @@ impl Database {
             .after_connect(move |conn, _| {
                 let path = path.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path',$1,false), set_config('oteryn.referrals_enabled','true',false)")
                         .bind(path)
                         .execute(conn)
                         .await?;
@@ -167,6 +167,8 @@ impl Database {
             .unwrap()
     }
     async fn inactive(&self, account: Uuid, months: i32) {
+        sqlx::query("UPDATE portal_referral_coverage SET covered_since=clock_timestamp()-interval '13 months'")
+            .execute(&self.pool).await.unwrap();
         sqlx::query("UPDATE accounts SET created_at=clock_timestamp()-make_interval(months=>$2+1) WHERE id=$1").bind(account).bind(months).execute(&self.pool).await.unwrap();
         sqlx::query("UPDATE referral_activity SET last_activity=clock_timestamp()-make_interval(months=>$2)-interval '1 minute',created_at=clock_timestamp()-make_interval(months=>$2)-interval '1 minute' WHERE account_id=$1").bind(account).bind(months).execute(&self.pool).await.unwrap();
     }
@@ -308,6 +310,7 @@ async fn referrals_email_rate_limit_25_per_day() {
         .unwrap();
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     }
@@ -562,6 +565,7 @@ async fn referrals_buddy_premium_5_and_10_days_within_90() {
         );
         assert_eq!(purchases.purchase(&raw).await.unwrap(), answer);
         let worker = Worker {
+            premium_enabled: true,
             campaign: db.campaign.clone(),
             sender: None,
         };
@@ -672,6 +676,106 @@ async fn referrals_self_referral_denied() {
     assert_eq!(off.link(owner).await, Err(Error::Disabled));
     db.close().await;
 }
+#[tokio::test]
+async fn disabled_login_preserves_deployment_coverage() {
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let account = db.account().await;
+    db.inactive(account, 13).await;
+    let mut writer = db.pool.acquire().await.unwrap();
+    let coverage = "SELECT covered_since FROM portal_referral_coverage";
+    let before: sqlx::types::time::OffsetDateTime = sqlx::query_scalar(coverage)
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('oteryn.referrals_enabled','false',false)")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO security_events(account_id,kind) VALUES($1,'login_succeeded')")
+        .bind(account)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let after: Option<sqlx::types::time::OffsetDateTime> = sqlx::query_scalar(coverage)
+        .fetch_one(&mut *writer)
+        .await
+        .unwrap();
+    assert_eq!(after, Some(before), "disabled activity changed coverage");
+    drop(writer);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn returning_referral_requires_coverage_across_off_login() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let buddy = db.account().await;
+    let uninterrupted = db.account().await;
+    db.inactive(buddy, 13).await;
+    db.inactive(uninterrupted, 13).await;
+    db.campaign
+        .email(owner, &db.email(uninterrupted).await, Kind::Returning)
+        .await
+        .unwrap();
+    sqlx::query("SELECT referral_transition_coverage(false)")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut off = db.pool.acquire().await.unwrap();
+    sqlx::query("SELECT set_config('oteryn.referrals_enabled','false',false)")
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO security_events(account_id,kind) VALUES($1,'login_succeeded')")
+        .bind(buddy)
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    let old: bool = sqlx::query_scalar("SELECT last_activity < now()-interval '12 months' FROM referral_activity WHERE account_id=$1")
+        .bind(buddy).fetch_one(&mut *off).await.unwrap();
+    assert!(old, "disabled login must not update referral_activity");
+    let generation: Uuid = sqlx::query_scalar("SELECT referral_transition_coverage(true)")
+        .fetch_one(&mut *off)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('oteryn.referrals_enabled','true',false)")
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT referral_deployment_enabled()")
+            .fetch_one(&mut *off)
+            .await
+            .unwrap(),
+        "a stale enabled connection must stay fenced"
+    );
+    sqlx::query("SELECT set_config('oteryn.referrals_generation',$1,false)")
+        .bind(generation.to_string())
+        .execute(&mut *off)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT referral_deployment_enabled()")
+            .fetch_one(&mut *off)
+            .await
+            .unwrap()
+    );
+    drop(off);
+    assert_eq!(
+        db.campaign
+            .email(owner, &db.email(buddy).await, Kind::Returning)
+            .await,
+        Err(Error::Denied),
+        "a stale activity row cannot prove inactivity through a disabled login"
+    );
+    db.close().await;
+}
+
 #[tokio::test]
 async fn referrals_starter_and_first_returning_character_pending_entitlements() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -1025,6 +1129,7 @@ async fn referrals_link_survives_real_session_rotation_and_reconciles_signup() {
     .unwrap();
     assert!(paid);
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     }
@@ -1083,6 +1188,7 @@ async fn nwave_completed_attribution_does_not_starve_later_batches() {
         attribution_session(&db, Some(account), &code).await;
     }
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     };
@@ -1353,10 +1459,12 @@ async fn nwave_mail_backlog_respects_delivery_budget_across_workers() {
     }
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     let first = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
     let second = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -1401,6 +1509,7 @@ async fn nwave_returning_mail_backlog_respects_monthly_delivery_budget() {
     }
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -1489,6 +1598,7 @@ async fn nwave_smtp_does_not_block_purchase_qualification() {
         .unwrap();
     let sender = Arc::new(PausedMail::default());
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -2182,6 +2292,7 @@ async fn nwave_snapshot_stream_campaign_and_worker_retry_fresh_transactions() {
     assert_eq!(db.campaign.invitation_kind(code).await.unwrap(), Kind::New);
     assert_retry_lock_restarted(&db).await;
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     }
@@ -2244,6 +2355,7 @@ async fn nwave_policy_read_failure_preserves_worker_attribution() {
     .await
     .unwrap();
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     };
@@ -2503,6 +2615,7 @@ async fn bzb_referral_delivery_rotates_failed_recipient() {
     }
     sqlx::query("UPDATE referral_email_attempts SET created_at=now()-interval '1 day' WHERE invitation_id IN (SELECT id FROM referral_email_invitations WHERE recipient='fail@example.test')").execute(&db.pool).await.unwrap();
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(Arc::new(RejectFirst)),
     }
@@ -2579,6 +2692,7 @@ async fn l6_01_pending_termination_refuses_campaign_rewards() {
     assert!(ledger.grant_referral_in(&mut tx, reward).await.is_err());
     tx.rollback().await.unwrap();
     Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: None,
     }
@@ -2677,6 +2791,7 @@ async fn w3_c06_008_queued_mail_requires_current_invitation_permission() {
     let owner = db.account().await;
     let sender = Arc::new(oteryn_notify::CaptureSender::default());
     let worker = Worker {
+        premium_enabled: true,
         campaign: db.campaign.clone(),
         sender: Some(sender.clone()),
     };
@@ -2828,4 +2943,122 @@ async fn a3_l6_05_legacy_claim_without_qualification_denied() {
         "PG a3_l6_05_legacy_claim_without_qualification_denied {:.3}s",
         started.elapsed().as_secs_f64()
     );
+}
+
+#[tokio::test]
+async fn disabled_premium_leaves_referral_reward_pending() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open_with_catalog(PREMIUM_CATALOG).await.unwrap();
+    let owner = db.account().await;
+    let buddy = db.account().await;
+    db.inactive(buddy, 13).await;
+    db.campaign
+        .email(owner, &db.email(buddy).await, Kind::Returning)
+        .await
+        .unwrap();
+    record_premium_purchase(&db.pool, buddy, 30).await;
+    let worker = Worker {
+        premium_enabled: false,
+        campaign: db.campaign.clone(),
+        sender: None,
+    };
+    worker.process().await.unwrap();
+    let pending:bool=sqlx::query_scalar("SELECT applied_at IS NULL FROM referral_campaign_rewards WHERE account_id=$1 AND kind='premium'").bind(owner).fetch_one(&db.pool).await.unwrap();
+    assert!(pending);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn stalled_mail_enters_backoff_before_job_deadline() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let owner = db.account().await;
+    db.campaign
+        .email(owner, "stalled@example.test", Kind::New)
+        .await
+        .unwrap();
+    let worker = Worker {
+        premium_enabled: true,
+        campaign: db.campaign.clone(),
+        sender: Some(Arc::new(PausedMail::default())),
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(12), worker.process())
+        .await
+        .expect("SMTP attempt exceeded delivery budget")
+        .unwrap();
+    let deferred:bool=sqlx::query_scalar("SELECT next_attempt_at>now() AND delivered_at IS NULL FROM referral_email_attempts WHERE inviter_id=$1").bind(owner).fetch_one(&db.pool).await.unwrap();
+    assert!(deferred);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn failed_premium_batch_does_not_starve_the_next_award() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let blocked = db.account().await;
+    let eligible = db.account().await;
+    use oteryn_db::outbox::Cleanup;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES($1)")
+        .bind(blocked)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until)
+                 SELECT uuidv7(),$1,$1,'GRANT',366,decode(repeat('ab',32),'hex'),$2,n,366*86400,date_trunc('second',now()),date_trunc('second',now())+n*interval '366 days'
+                 FROM generate_series(1,10) n")
+        .bind(blocked).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO referral_campaign_rewards(operation_key,account_id,kind,amount,created_at)
+                 SELECT 'blocked-' || n,$1,'premium',5,now()-interval '1 day' FROM generate_series(1,100) n
+                 UNION ALL SELECT 'eligible',$2,'premium',5,now()")
+        .bind(blocked).bind(eligible).execute(&db.pool).await.unwrap();
+    let worker = Worker {
+        premium_enabled: true,
+        campaign: db.campaign.clone(),
+        sender: None,
+    };
+    assert!(worker.clean().await.is_err());
+    worker.clean().await.unwrap();
+    let applied: bool = sqlx::query_scalar("SELECT applied_at IS NOT NULL FROM referral_campaign_rewards WHERE operation_key='eligible'")
+        .fetch_one(&db.pool).await.unwrap();
+    assert!(applied);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn overdue_premium_retry_precedes_one_hundred_fresh_awards() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.unwrap();
+    let retry = db.account().await;
+    use oteryn_db::outbox::Cleanup;
+    sqlx::query("INSERT INTO referral_campaign_rewards(operation_key,account_id,kind,amount,created_at,next_attempt_at)
+                 VALUES('retry',$1,'premium',5,now()-interval '1 hour',now()-interval '1 minute')")
+        .bind(retry).execute(&db.pool).await.unwrap();
+    sqlx::query(
+        "WITH recipients AS (
+                    INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+                    SELECT uuidv7(),'fresh-' || n || '@example.test','test-only','active',now(),'en'
+                    FROM generate_series(1,100) n RETURNING id
+                 ) SELECT referral_campaign_reward('fresh-' || id,id,'premium',5) FROM recipients",
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    Worker {
+        premium_enabled: true,
+        campaign: db.campaign.clone(),
+        sender: None,
+    }
+    .clean()
+    .await
+    .unwrap();
+    let applied: (bool, i64) = sqlx::query_as(
+        "SELECT bool_or(operation_key='retry' AND applied_at IS NOT NULL),
+                                              count(*) FILTER (WHERE applied_at IS NOT NULL)
+                                              FROM referral_campaign_rewards",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(applied, (true, 100));
+    db.close().await;
 }

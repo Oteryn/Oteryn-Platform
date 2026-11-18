@@ -40,10 +40,31 @@ impl Authority {
                 .await?
                 .ok_or(Error::Unavailable)?;
         }
-        let listings: Vec<Uuid> = sqlx::query_scalar("SELECT l.id FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE l.id>$1 ORDER BY l.id LIMIT 24").bind(listing_cursor).fetch_all(&mut **db).await?;
-        let next_listing = listings.last().copied();
+        // The operation scan below independently verifies the audit for every
+        // deposit. A refused or never-issued deposit has no custody ID for STATUS.
+        let listings: Vec<(Uuid, bool)> = sqlx::query_as(
+            "SELECT l.id, (a.refusal_code IS NOT NULL OR l.state IN ('draft','cancelled'))
+                AND NOT EXISTS (
+                    SELECT 1 FROM bazaar_game_outbox o WHERE o.listing_id=l.id
+                      AND o.command IN ('LockBazaarCharacter','EscrowBazaarItem')
+                      AND (EXISTS (SELECT 1 FROM bazaar_authority_receipts r
+                                   WHERE r.operation_id=o.operation_id AND r.outcome='COMMITTED')
+                           OR NOT EXISTS (SELECT 1 FROM bazaar_authority_receipts r
+                                   WHERE r.operation_id=o.operation_id AND r.outcome='REJECTED'
+                                     AND r.recovery_generation=$2::text::numeric)))
+             FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id
+             WHERE l.id>$1 ORDER BY l.id LIMIT 24",
+        )
+        .bind(listing_cursor)
+        .bind(self.fence.recovery_generation.to_string())
+        .fetch_all(&mut **db)
+        .await?;
+        let next_listing = listings.last().map(|(id, _)| *id);
         let listing_count = listings.len();
-        for listing in listings {
+        for (listing, no_deposit_effect) in listings {
+            if no_deposit_effect {
+                continue;
+            }
             let status = self
                 .projection(db, "STATUS", listing)
                 .await?
@@ -281,11 +302,22 @@ impl Authority {
             return Ok(None);
         }
         if listing.kind == Kind::Character {
-            let Some((intent, receipt, _)) =
+            let Some((intent, receipt, signed)) =
                 super::runtime::characters::custody(self, db, listing, &s, state).await?
             else {
                 return Ok(None);
             };
+            // An active auction can prove custody after rebuilding, but an old
+            // snapshot cannot authorize publication or a new bid.
+            if state == "locked"
+                && listing.state == crate::State::Active
+                && number(
+                    signed.get("snapshot").ok_or(Error::Invalid)?,
+                    "projection_epoch",
+                )? != self.fence.projection_epoch
+            {
+                return Ok(None);
+            }
             return Ok(Some((s, intent, receipt)));
         }
         let record = if state == "ESCROWED" && s.get("last_operation_id") == Some(&Value::Null) {

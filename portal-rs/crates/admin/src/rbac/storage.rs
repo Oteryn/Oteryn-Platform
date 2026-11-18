@@ -210,6 +210,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                 {
                     return Err(Error::Denied);
                 }
+                if !grant
+                    && !oteryn_db::protected_role_survives(&mut tx, account, Some(role)).await?
+                {
+                    return Err(Error::Denied);
+                }
                 let affected = if grant {
                     sqlx::query("INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
                         .bind(account).bind(role).execute(&mut *tx).await?.rows_affected()

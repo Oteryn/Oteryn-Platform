@@ -85,7 +85,7 @@ async fn main() -> ExitCode {
 
 async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
-    let db = oteryn_db::lazy_pool(config.database_url())?;
+    let db = oteryn_web::session::configured_pool(config.database_url())?;
     if matches!(role, Role::Worker) {
         return worker::run(db).await;
     }
@@ -119,6 +119,18 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let league_listener =
                 oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
+            #[cfg(test)]
+            if std::env::var_os("FLAG_BOUNDARY_ROUTE_DIR").is_some() {
+                if league_listener.is_some() {
+                    let config = oteryn_minigames::league::config::Config::from_env()?;
+                    let app =
+                        oteryn_minigames::league::transport::private_router(db.clone(), config);
+                    record_route_registrations("league", &app)?;
+                }
+                if let Some(runtime) = &bazaar {
+                    record_route_registrations("bazaar", &runtime.private_router()?)?;
+                }
+            }
             let bazaar_listener = if let Some(runtime) = &bazaar {
                 Some(runtime.start_private_listener().await?)
             } else {
@@ -416,9 +428,17 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app =
                 game_routes::mount(app, db.clone(), config.environment, internal_configuration)
                     .await;
+            #[cfg(test)]
+            record_route_registrations("internal", &app)?;
+            #[cfg(test)]
+            record_route_registrations("public", &public_app)?;
             let internal_listener = internal_tls::start(app.clone()).await?;
             let app = public_app;
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
+            #[cfg(test)]
+            if native_listener.is_some() {
+                record_route_registrations("native", &app)?;
+            }
             let app = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
             let private_listeners = register_private_listeners(
                 [
@@ -439,6 +459,14 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             })
             .await?;
         }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn record_route_registrations(name: &str, router: &axum::Router) -> std::io::Result<()> {
+    if let Some(dir) = std::env::var_os("FLAG_BOUNDARY_ROUTE_DIR") {
+        std::fs::write(std::path::Path::new(&dir).join(name), format!("{router:?}"))?;
     }
     Ok(())
 }
@@ -610,7 +638,10 @@ mod browser_configuration_tests {
     #[test]
     fn csrf_configuration_wraps_coin_and_moderation_routes() {
         let source = include_str!("main.rs");
-        let composition = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let composition = source
+            .split_once("async fn run(role: Role)")
+            .and_then(|(_, rest)| rest.split_once("\ntype ListenerCompletion"))
+            .map_or("", |(body, _)| body);
         let configuration = composition
             .find("let app = oteryn_web::register::configured(app);")
             .unwrap_or_default();
