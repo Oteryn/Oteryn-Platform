@@ -673,6 +673,8 @@ precede content/existence disclosure.
 5. Accept or amend the proposed limits, 30-day payload/replay window, snapshot staging/backup deletion limits, request rate/deadline and dedicated mTLS purpose. Who approves private-copy legal holds?
 6. What exact initial/replacement baseline exchange proves complete or empty retained history, admits recovery generations and supplies tail replay after either side restores? Until accepted and qualified, these states remain unavailable.
 
+   Owner decision 2026-11-18: Platform accepts a first BANK publication only under the announced recovery generation: the new_recovery_generation of the latest acknowledged restore notice, or 1 when none exists. A higher generation is refused 503 without stream creation (retry after the notice is acknowledged); a lower one is 409. Game starts BANK at generation 1 and publishes the restore notice before publishing BANK under a new generation.
+
 Revision 3 note: owner decisions 1a–4a bear on questions 3 (erasure fencing of
 queued exports) and 5 (retention, purge and private-copy legal holds). They remain
 open until the coordinator accepts revision 3.
