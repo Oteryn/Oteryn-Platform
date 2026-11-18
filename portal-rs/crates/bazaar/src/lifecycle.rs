@@ -589,6 +589,8 @@ pub(crate) async fn write_compensation(
         "INSERT INTO bazaar_authority_compensations(listing_id,return_operation_id,recovery_generation)
          SELECT $1,o.operation_id,$3::text::numeric FROM bazaar_game_outbox o
          WHERE o.operation_id=$2 AND o.listing_id=$1
+           AND (o.command='ReturnBazaarItem' OR
+                (o.command='BindBazaarCharacterTransfer' AND o.intent::jsonb->>'purpose'='BAZAAR_ESCROW_RETURN'))
            AND NOT EXISTS (SELECT 1 FROM bazaar_settlements s WHERE s.listing_id=$1 AND s.completed_at IS NOT NULL)
            AND NOT EXISTS (SELECT 1 FROM bazaar_authority_gold_sales s WHERE s.listing_id=$1 AND s.completed_at IS NOT NULL)
          ON CONFLICT DO NOTHING",

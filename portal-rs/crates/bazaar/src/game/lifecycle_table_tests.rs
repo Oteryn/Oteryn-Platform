@@ -401,6 +401,15 @@ async fn lifecycle_awaiting_delivery_commit_delivery() {
 async fn lifecycle_awaiting_delivery_refuse_delivery() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = pending_item_delivery().await;
+    let delivery = newest_intent(&db, uid("20"), Command::Deliver).await;
+    let delivery = id(text(&delivery.value, "operation_id").unwrap()).unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    assert!(matches!(
+        crate::lifecycle::write_compensation(&mut tx, uid("20"), delivery, 3).await,
+        Err(crate::Error::IllegalTransition)
+    ));
+    assert_eq!(sale_effects_on(&mut tx).await.3, 0);
+    tx.rollback().await.unwrap();
     recovery_tests::item_effect(&db, Command::Deliver, true).await;
     db.runtime.tick().await.unwrap();
     let pending = item_state(&db).await;
@@ -445,6 +454,11 @@ async fn lifecycle_gold_completion_requires_awaiting_delivery() {
         reservation: Uuid::now_v7(),
     };
     let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("UPDATE bazaar_listings SET currency='gold' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     crate::lifecycle::write_gold_sale(&mut tx, &sale, 1)
         .await
         .unwrap();
@@ -1103,7 +1117,6 @@ async fn funding_state(db: &BrowserFixture, request: Uuid) -> (String, Option<Uu
     .unwrap()
 }
 
-#[tokio::test]
 async fn lifecycle_active_bid_gold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -1117,7 +1130,6 @@ async fn lifecycle_active_bid_gold() {
     assert_eq!(holds, 1);
 }
 
-#[tokio::test]
 async fn lifecycle_gold_pending_refuse_hold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -1133,12 +1145,20 @@ async fn lifecycle_gold_pending_refuse_hold() {
     assert_eq!(releases, 0);
 }
 
-#[tokio::test]
 async fn lifecycle_gold_pending_commit_hold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let request = gold_bid(&db).await;
-    let hold = newest_intent(&db, uid("20"), Command::Hold).await;
+    commit_gold_hold(&db).await;
+    db.runtime.tick().await.unwrap();
+    let (phase, leader) = funding_state(&db, request).await;
+    db.end().await;
+    assert_eq!(phase, "accepted");
+    assert_eq!(leader, Some(uid("13")));
+}
+
+async fn commit_gold_hold(db: &BrowserFixture) {
+    let hold = newest_intent(db, uid("20"), Command::Hold).await;
     let data = format!(
         r#"{{"hold_id":"{}","hold_revision":"1","buyer_account_id":"{}","offer_id":"{}","hold_purpose":"{}","held_amount":"10000"}}"#,
         uid("83"),
@@ -1150,11 +1170,239 @@ async fn lifecycle_gold_pending_commit_hold() {
     let now = runtime::now(&mut tx).await.unwrap();
     committed_fact(db.runtime.authority(), &mut tx, &hold, &data, now).await;
     tx.commit().await.unwrap();
-    db.runtime.tick().await.unwrap();
-    let (phase, leader) = funding_state(&db, request).await;
+}
+
+async fn lifecycle_gold_release_refuses_bid() {
+    lifecycle_gold_release(false).await;
+}
+
+async fn lifecycle_gold_release_accepts_bid() {
+    lifecycle_gold_release(true).await;
+}
+
+async fn lifecycle_gold_release(accepted: bool) {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    let listing = uid("20");
+    let buyer = uid("13");
+    let incumbent = uid("15");
+    if accepted {
+        sqlx::query(
+            "INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale)
+             VALUES($1,'incumbent@invalid.test',now(),'synthetic','active','en')",
+        )
+        .bind(incumbent)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE bazaar_listings SET leader=$2,leader_max=20000,price=9000,reservation=id WHERE id=$1",
+        )
+        .bind(listing)
+        .bind(incumbent)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    }
+    let request = gold_bid(&db).await;
+    commit_gold_hold(&db).await;
+    if !accepted {
+        sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+            .bind(buyer)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+    let leader = accepted.then_some(incumbent);
+    assert_eq!(
+        funding_state(&db, request).await,
+        ("pending".into(), leader)
+    );
+    db.runtime.tick_gold_bids().await.unwrap();
+    let release = newest_intent(&db, listing, Command::Release).await;
+    assert_eq!(
+        text(&release.value, "release_reason").unwrap(),
+        if accepted { "OUTBID" } else { "EXCESS" }
+    );
+    assert_eq!(dispatched(&db, listing, Command::Release).await, 1);
+    assert_eq!(
+        funding_state(&db, request).await,
+        ("releasing".into(), leader)
+    );
+    db.runtime.tick_gold_bids().await.unwrap();
+    assert_eq!(
+        funding_state(&db, request).await,
+        ("releasing".into(), leader)
+    );
+
+    let data = format!(
+        r#"{{"hold_id":"{}","hold_revision":"2","released_amount":"10000","remaining_held":"0","hold_state":"RELEASED"}}"#,
+        uid("83")
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    committed_fact(db.runtime.authority(), &mut tx, &release, &data, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick_gold_bids().await.unwrap();
+    db.runtime.tick_gold_bids().await.unwrap();
+    let phase = if accepted { "accepted" } else { "refused" };
+    assert_eq!(funding_state(&db, request).await, (phase.into(), leader));
+    assert_eq!(dispatched(&db, listing, Command::Release).await, 1);
+    let mut tx = db.pool.begin().await.unwrap();
+    let hold = runtime::gold::current_hold(db.runtime.authority(), &mut tx, listing, buyer, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((hold.id, hold.revision, hold.amount), (uid("83"), 2, 0));
+    tx.rollback().await.unwrap();
     db.end().await;
-    assert_eq!(phase, "accepted");
-    assert_eq!(leader, Some(uid("13")));
+}
+
+async fn lifecycle_gold_release_retries() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    gold_release_retry_scenario(false).await;
+}
+
+#[derive(Clone, Copy)]
+enum OfferEvent {
+    Submit,
+    Accept,
+    Reject,
+    Expire,
+    GoldSubmit,
+}
+
+async fn lifecycle_offer_pending() {
+    lifecycle_offer(OfferEvent::Submit).await;
+}
+
+async fn lifecycle_offer_accepted() {
+    lifecycle_offer(OfferEvent::Accept).await;
+}
+
+async fn lifecycle_offer_rejected() {
+    lifecycle_offer(OfferEvent::Reject).await;
+}
+
+async fn lifecycle_offer_expired() {
+    lifecycle_offer(OfferEvent::Expire).await;
+}
+
+async fn lifecycle_gold_item_offer_refused() {
+    lifecycle_offer(OfferEvent::GoldSubmit).await;
+}
+
+async fn lifecycle_offer(event: OfferEvent) {
+    use crate::items::{ItemFlags, Items};
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    let listing = uid("20");
+    let seller = uid("11");
+    let buyer = uid("13");
+    let request = Uuid::now_v7();
+    sqlx::query("UPDATE bazaar_listings SET form='fixed_price' WHERE id=$1")
+        .bind(listing)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    fund_buyer(&db).await;
+    authorize_seller(&db).await;
+    let authority = db.runtime.authority().clone();
+    let items = Items::new(
+        db.pool.clone(),
+        PlatformAccounts {
+            enabled: true,
+            session_hash: Some([1; 32]),
+        },
+        CoinReservations {
+            authority: authority.clone(),
+        },
+        authority,
+        ItemFlags { enabled: true },
+    );
+    if matches!(event, OfferEvent::GoldSubmit) {
+        sqlx::query("UPDATE bazaar_listings SET currency='gold' WHERE id=$1")
+            .bind(listing)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            items.offer(listing, buyer, 10000, request).await,
+            Err(crate::Error::Denied)
+        ));
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM bazaar_offers WHERE listing_id=$1")
+                .bind(listing)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(buyer_balance(&db).await, (10000, 0));
+        db.end().await;
+        return;
+    }
+    let offer = items.offer(listing, buyer, 10000, request).await.unwrap();
+    assert_eq!(offer.state, "pending");
+    assert_eq!(
+        items
+            .offer(listing, buyer, 10000, request)
+            .await
+            .unwrap()
+            .id,
+        offer.id
+    );
+    assert_eq!(buyer_balance(&db).await, (0, 10000));
+
+    let (expected, next_listing, balance) = match event {
+        OfferEvent::Submit => ("pending", State::Active, (0, 10000)),
+        OfferEvent::Accept => {
+            items.accept(listing, seller, offer.id).await.unwrap();
+            assert!(matches!(
+                items.reject(listing, seller, offer.id).await,
+                Err(crate::Error::Denied)
+            ));
+            ("accepted", State::Matched, (0, 10000))
+        }
+        OfferEvent::Reject => {
+            items.reject(listing, seller, offer.id).await.unwrap();
+            items.reject(listing, seller, offer.id).await.unwrap();
+            assert!(matches!(
+                items.accept(listing, seller, offer.id).await,
+                Err(crate::Error::IllegalTransition)
+            ));
+            ("rejected", State::Active, (10000, 0))
+        }
+        OfferEvent::Expire => {
+            expire_item(&db).await;
+            items.expire(listing).await.unwrap();
+            assert_eq!(item_state(&db).await, State::Active);
+            assert_eq!(buyer_balance(&db).await, (0, 10000));
+            db.runtime.tick().await.unwrap();
+            recovery_tests::item_effect(&db, Command::Return, false).await;
+            items.expire(listing).await.unwrap();
+            assert!(matches!(
+                items.accept(listing, seller, offer.id).await,
+                Err(crate::Error::IllegalTransition)
+            ));
+            ("expired", State::Expired, (10000, 0))
+        }
+        OfferEvent::GoldSubmit => unreachable!(),
+    };
+    let observed: (String, i64) = sqlx::query_as(
+        "SELECT state, (SELECT count(*) FROM bazaar_item_sales WHERE listing_id=o.listing_id)
+         FROM bazaar_offers o WHERE id=$1",
+    )
+    .bind(offer.id)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        observed,
+        (expected.into(), i64::from(next_listing == State::Matched))
+    );
+    assert_eq!(item_state(&db).await, next_listing);
+    assert_eq!(buyer_balance(&db).await, balance);
+    db.end().await;
 }
 
 async fn stage_item_escrow(db: &BrowserFixture) -> Uuid {
@@ -3144,6 +3392,17 @@ lifecycle_scenarios! {
     "REC-41" => bz05_drift_does_not_starve_a_later_page;
     "REC-42" => lifecycle_crash_before_rebuild_page_commit_replays_page;
     "REC-43" => lifecycle_workers_race_to_refund_once;
+    "GOLD-BID-SUBMIT" => lifecycle_active_bid_gold;
+    "GOLD-BID-REFUSE-HOLD" => lifecycle_gold_pending_refuse_hold;
+    "GOLD-BID-ACCEPT-HOLD" => lifecycle_gold_pending_commit_hold;
+    "GOLD-BID-RELEASE-REFUSE" => lifecycle_gold_release_refuses_bid;
+    "GOLD-BID-RELEASE-ACCEPT" => lifecycle_gold_release_accepts_bid;
+    "GOLD-BID-RELEASE-RETRY" => lifecycle_gold_release_retries;
+    "OFFER-SUBMIT" => lifecycle_offer_pending;
+    "OFFER-ACCEPT" => lifecycle_offer_accepted;
+    "OFFER-REJECT" => lifecycle_offer_rejected;
+    "OFFER-EXPIRE" => lifecycle_offer_expired;
+    "OFFER-GOLD-REFUSED" => lifecycle_gold_item_offer_refused;
     "SALE-GOLD-COMPLETE" => lifecycle_gold_completion_requires_awaiting_delivery;
 }
 

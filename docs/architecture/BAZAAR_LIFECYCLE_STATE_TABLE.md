@@ -16,7 +16,7 @@ have been verified.
 | Item custody | None, Escrow, Delivered, Returned, Unknown, Drift | Audited Escrow, Deliver or Return and matching STATUS. Missing status leaves custody unknown |
 | Funds | None, Held, Settled, Refunded | Immutable sale/reservation, coin hold/disposition and wallet ledger, or Game gold hold/payout/release receipts |
 | Gold bid | Pending, Releasing, Accepted, Refused | `bazaar_authority_gold_bids.phase`. A verified hold establishes the reservation. A release required by the bid remains in flight until its outcome is audited |
-| Offer | Pending, Accepted, Rejected, Expired | `bazaar_offers.state`. A gold offer uses its Game hold as the reservation while the offer is pending |
+| Offer | Pending, Accepted, Rejected, Expired | `bazaar_offers.state`. The item offer service reserves coins for fixed-price offers and refuses gold |
 | Certification | Missing, Rebuilding, Current, Obsolete, Fenced | Marker and progress bound to projection epoch, recovery generation, scan version and sorted configured worlds. Proof also requires current evidence and a fresh watermark |
 | Work | No key, Dirty, Waiting (0–8 attempts), Resolved, Quarantined | Coalesced delivery or listing recheck key, rotating scan cursor, rebuild listing/operation cursors and durable delivery audit |
 
@@ -79,7 +79,7 @@ the scan or rediscovering the same key preserves the attempts already charged.
 
 ## Executable transition rows
 
-The PostgreSQL acceptance test uses five products and named recovery scenarios.
+The PostgreSQL acceptance test uses five products plus funding and recovery scenarios.
 Each product fixes the orthogonal records in its fixture. The listing writer
 product exercises enum writes in isolation. The listing control product uses
 the browser and staff callers. The projection product uses Game intake.
@@ -283,6 +283,27 @@ the remaining scans are complete.
 | `SS-Drift-Returned` | Drift | RETURNED | Drift | Keep report count at one and fence certification | Quarantined |
 | `SS-Drift-Missing` | Drift | Missing | Drift | Keep report count at one and fence certification | Quarantined |
 
+### Gold bids and item offers
+
+Gold bid phases advance through Runtime bid admission and its gold bid worker.
+An accepted proxy bid may leave an incumbent as leader. A release needed to
+resolve a bid keeps the request in Releasing until Game supplies the audited
+outcome. The item offer service holds coins while a fixed-price offer is Pending.
+
+| Row ID | Current | Event | Next | Funds and work | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| `GOLD-BID-SUBMIT` | Absent | Submit eligible gold auction bid | Pending | Dispatch one Hold and preserve the existing leader | Allowed |
+| `GOLD-BID-REFUSE-HOLD` | Pending | Audited Hold refusal | Refused | No hold and no Release | Allowed |
+| `GOLD-BID-ACCEPT-HOLD` | Pending | Audited Hold and eligible winning bid | Accepted | Keep the hold and set the leader | Allowed |
+| `GOLD-BID-RELEASE-REFUSE` | Pending | Audited Hold followed by refusal of an ineligible bidder | Releasing, then Refused on audited Release | Hold until Game confirms one excess release | Allowed |
+| `GOLD-BID-RELEASE-ACCEPT` | Pending | Audited Hold and an eligible bid that leaves the incumbent as leader | Releasing, then Accepted on audited Release | Hold until Game confirms one outbid release | Allowed |
+| `GOLD-BID-RELEASE-RETRY` | Releasing | Release expires and its rejection is audited | Releasing until replacement Release commits | Preserve the obsolete intent and dispatch an immutable replacement | Allowed |
+| `OFFER-SUBMIT` | Absent | Submit fixed-price coin offer and replay the request | Pending | Reserve the buyer's coins once | Allowed |
+| `OFFER-ACCEPT` | Pending | Seller accepts | Accepted, listing Matched | Preserve the reservation and freeze one sale | Allowed |
+| `OFFER-REJECT` | Pending | Seller rejects | Rejected, listing Active | Restore the reservation once | Allowed |
+| `OFFER-EXPIRE` | Pending | Listing expires, then Game returns the item | Expired, listing Expired | Preserve the hold until the audited return, then restore it | Allowed |
+| `OFFER-GOLD-REFUSED` | Absent | Submit a fixed-price gold item offer | Absent | Preserve the wallet and write no offer | Impossible through the coin-only item service |
+
 ### Recovery and cross-record transitions
 
 These rows seed the linked records needed to exercise a complete lifecycle
@@ -306,7 +327,7 @@ runs as a standalone SQL guard test.
 | `REC-11` | Matched, legacy hold | Retry tick | AwaitingDelivery | Preserve reservation | Escrow | Retire hold once and resume settlement | Allowed |
 | `REC-12` | AwaitingDelivery, dispatched Deliver | Suspend | AwaitingDelivery | Preserve | Escrow | Record moderation hold after dispatch fence | Allowed |
 | `REC-13` | AwaitingDelivery, dispatched Deliver | Audited commitment and Delivered status | Completed | Settle once | Delivered | One completed sale. A direct repeat write after completion is refused | Allowed |
-| `REC-14` | AwaitingDelivery, dispatched Deliver | Audited rejection and audited Returned status | Cancelled | Refund once | Returned | Record one compensation. A direct repeat insert after cancellation is refused | Allowed |
+| `REC-14` | AwaitingDelivery, dispatched Deliver | Audited rejection and audited Returned status | Cancelled | Refund once | Returned | Record one compensation. Refuse a Deliver operation and a direct repeat insert after cancellation | Allowed |
 | `REC-15` | AwaitingDelivery, canonical and alternate staged | Second connection publishes alternate, then canonical publishes | AwaitingDelivery with canonical dispatched | Held | Escrow | Exactly one dispatch | Alternate impossible because its key cannot authorize publication |
 | `BZ-08` | AwaitingDelivery, receipt without audit | BZ-08 retry bound | Drift, listing unchanged | Held | Quarantine | Queue survives eight retries. Report once and keep custody fenced after late audit | Quarantined |
 | `REC-17` | AwaitingDelivery, Return dispatched after audited Deliver rejection | Return receipt remains missing through retry bound | Drift, listing unchanged | Held | Quarantine | Report once. Deliver rejection does not clear unresolved Return work | Quarantined |
