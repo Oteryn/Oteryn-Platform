@@ -24,7 +24,8 @@ impl Authority {
         {
             return Err(Error::Denied);
         }
-        let mut parties = vec![id(text(&i.value, "seller_account_id")?)?];
+        let seller = id(text(&i.value, "seller_account_id")?)?;
+        let mut parties = vec![seller];
         if let Some(Value::String(buyer)) = i.value.get("buyer_account_id") {
             parties.push(id(buyer)?);
         } else if i.command == Command::Bind && text(&i.value, "purpose")? == "BAZAAR_SETTLEMENT" {
@@ -42,12 +43,7 @@ impl Authority {
                 .await
                 .map_err(|_| Error::Denied)?
                 .ok_or(Error::Denied)?;
-            let compensation = matches!(
-                i.command,
-                Command::Return | Command::Unlock | Command::Release | Command::Payout
-            ) || (i.command == Command::Bind
-                && text(&i.value, "purpose")? == "BAZAAR_ESCROW_RETURN");
-            if if compensation {
+            if if i.permits_safe_return(party, seller)? {
                 !accounts
                     .safe_return(db, party)
                     .await
@@ -61,6 +57,13 @@ impl Authority {
             }
         }
         self.lock(db).await?;
+        if i.is_sale_handoff()?
+            && self
+                .return_started(db, id(text(&i.value, "listing_id")?)?)
+                .await?
+        {
+            return Err(Error::Denied);
+        }
         let already: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM bazaar_authority_dispatch WHERE operation_id=$1)",
         )
@@ -257,6 +260,22 @@ impl Authority {
         }
         Ok(Some((bind, transfer)))
     }
+    pub(super) async fn handoff_unissued(
+        &self,
+        db: &mut sqlx::PgConnection,
+        listing: Uuid,
+    ) -> Result<bool, Error> {
+        Ok(sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND (command IN ('DeliverBazaarItem','PayoutBazaarGold') OR (command='BindBazaarCharacterTransfer' AND intent::jsonb->>'purpose'='BAZAAR_SETTLEMENT'))) AND NOT EXISTS(SELECT 1 FROM bazaar_all_transfers WHERE listing_id=$1 AND purpose='BAZAAR_SETTLEMENT')").bind(listing).fetch_one(db).await?)
+    }
+
+    pub(super) async fn return_started(
+        &self,
+        db: &mut sqlx::PgConnection,
+        listing: Uuid,
+    ) -> Result<bool, Error> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM bazaar_game_outbox WHERE listing_id=$1 AND (command='ReturnBazaarItem' OR (command='BindBazaarCharacterTransfer' AND intent::jsonb->>'purpose'='BAZAAR_ESCROW_RETURN')))").bind(listing).fetch_one(db).await?)
+    }
+
     pub(crate) async fn compensation_ready(
         &self,
         db: &mut sqlx::PgConnection,
@@ -269,7 +288,10 @@ impl Authority {
                 .await?
                 .is_some(),
         };
-        Ok(refused && self.custody(db, listing, "RETURNED").await?.is_some())
+        // Before any sale handoff is issued, proven return custody suffices.
+        // A published sale still requires its current terminal no-effect proof.
+        let safe = refused || self.handoff_unissued(db, listing.id).await?;
+        Ok(safe && self.custody(db, listing, "RETURNED").await?.is_some())
     }
     /// Close only after the return and financial release are both durable in
     /// this transaction. The append-only record authorizes the terminal state.

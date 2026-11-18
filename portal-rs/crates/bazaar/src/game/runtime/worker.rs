@@ -236,6 +236,23 @@ impl Runtime {
                 return Ok(());
             }
         }
+        if l.state == State::AwaitingDelivery
+            && self.authority().handoff_unissued(&mut tx, id).await?
+        {
+            let buyer = l.leader.ok_or(Error::Invalid)?;
+            if self.authority().return_started(&mut tx, id).await?
+                || self
+                    .accounts(None)
+                    .state(&mut tx, buyer)
+                    .await
+                    .map_err(core_error)?
+                    .is_some_and(|state| !state.allows_trade())
+            {
+                self.return_settled(&mut tx, &l).await?;
+                tx.commit().await?;
+                return Ok(());
+            }
+        }
         // A recorded settlement refusal drives only the return leg; the normal
         // path below would otherwise stage a fresh settlement transfer.
         if l.kind == Kind::Character
@@ -362,6 +379,11 @@ impl Runtime {
                         .bind(id)
                         .fetch_one(&mut *tx)
                         .await?;
+                if l.kind == Kind::Character {
+                    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+                        .execute(&mut *tx)
+                        .await?;
+                }
                 if sale.currency == Currency::Coins {
                     CoinReservations {
                         authority: self.authority().clone(),
@@ -429,38 +451,53 @@ impl Runtime {
         if l.kind != Kind::Item || !self.authority().delivery_refused(tx, l.id).await? {
             return Err(Error::Unavailable);
         }
-        let Some((_, escrow)) = self.latest(tx, l.id, Command::Escrow).await? else {
-            return Err(Error::Unavailable);
-        };
-        let d = escrow.value.get("result_data").ok_or(Error::Invalid)?;
-        self.issue(
-            tx,
-            l,
-            l.owner,
-            None,
-            Command::Return,
-            l.id,
-            vec![
-                (
-                    "escrow_id",
-                    d.get("escrow_id").ok_or(Error::Invalid)?.clone(),
-                ),
-                (
-                    "expected_escrow_revision",
-                    d.get("escrow_revision").ok_or(Error::Invalid)?.clone(),
-                ),
-                (
-                    "seller_character_id",
-                    d.get("seller_character_id").ok_or(Error::Invalid)?.clone(),
-                ),
-                ("escrow_receipt_digest", string(escrow.digest())),
-            ],
-        )
-        .await?;
+        self.return_settled(tx, l).await
+    }
+    async fn return_settled(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        l: &Listing,
+    ) -> Result<(), Error> {
+        if l.kind == Kind::Character {
+            self.transfer(tx, l, "BAZAAR_ESCROW_RETURN", None).await?;
+        } else {
+            let Some((_, escrow)) = self.latest(tx, l.id, Command::Escrow).await? else {
+                return Err(Error::Unavailable);
+            };
+            let d = escrow.value.get("result_data").ok_or(Error::Invalid)?;
+            self.issue(
+                tx,
+                l,
+                l.owner,
+                None,
+                Command::Return,
+                l.id,
+                vec![
+                    (
+                        "escrow_id",
+                        d.get("escrow_id").ok_or(Error::Invalid)?.clone(),
+                    ),
+                    (
+                        "expected_escrow_revision",
+                        d.get("escrow_revision").ok_or(Error::Invalid)?.clone(),
+                    ),
+                    (
+                        "seller_character_id",
+                        d.get("seller_character_id").ok_or(Error::Invalid)?.clone(),
+                    ),
+                    ("escrow_receipt_digest", string(escrow.digest())),
+                ],
+            )
+            .await?;
+        }
         if !self.authority().compensation_ready(tx, l).await? || !self.refund(tx, l).await? {
             return Ok(());
         }
-        self.authority().finish_compensation(tx, l).await
+        self.authority().finish_compensation(tx, l).await?;
+        if l.kind == Kind::Character {
+            self.unlock(tx, l).await?;
+        }
+        Ok(())
     }
     /// A terminally refused settlement Bind made no transfer executable. Retire
     /// that attempt, return the Character from escrow to the seller, and only
@@ -479,12 +516,7 @@ impl Runtime {
             return Ok(());
         };
         self.retire_refused_bind(tx, bind, transfer).await?;
-        self.transfer(tx, l, "BAZAAR_ESCROW_RETURN", None).await?;
-        if !self.authority().compensation_ready(tx, l).await? || !self.refund(tx, l).await? {
-            return Ok(());
-        }
-        self.authority().finish_compensation(tx, l).await?;
-        self.unlock(tx, l).await
+        self.return_settled(tx, l).await
     }
     async fn retire_refused_bind(
         &self,

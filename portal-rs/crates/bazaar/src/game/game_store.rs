@@ -70,12 +70,7 @@ impl Outbox {
             .await
             .map_err(|_| Error::Denied)?
             .ok_or(Error::Denied)?;
-        let compensation = matches!(
-            intent.command,
-            Command::Return | Command::Unlock | Command::Release | Command::Payout
-        ) || (intent.command == Command::Bind
-            && text(&intent.value, "purpose")? == "BAZAAR_ESCROW_RETURN");
-        let allows = if compensation {
+        let allows = if intent.permits_safe_return(actor, seller)? {
             accounts
                 .safe_return(db, actor)
                 .await
