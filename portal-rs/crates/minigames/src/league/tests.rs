@@ -1583,39 +1583,95 @@ async fn same_epoch_recovery_drains_a_retained_revision_gap() -> TestResult {
     db.close().await
 }
 
-#[tokio::test]
-async fn same_epoch_recovery_binds_a_legacy_nonterminal_cursor() -> TestResult {
-    let _guard = oteryn_db::test_support::global_lock_guard().await?;
-    let db = Db::new().await?.ok_or("PostgreSQL is required")?;
-    let dir = tempfile::tempdir()?;
-    let c = real_config(dir.path());
-    write_recovery(&c, "1")?;
+async fn seed_legacy_nonterminal_cursor(
+    db: &Db,
+    c: &config::Config,
+) -> std::result::Result<String, Box<dyn std::error::Error>> {
+    write_recovery(c, "1")?;
     let scheduled = String::from_utf8(wire("advance_schedule")?)?;
     let original = scheduled.replace(
         "\"projection_revision\":\"1\"",
         "\"projection_revision\":\"4\"",
     );
     enqueue_publication(
-        &db,
-        &c,
-        &publication(&c, admission::EVENT, original.into_bytes())?,
+        db,
+        c,
+        &publication(c, admission::EVENT, original.into_bytes())?,
     )
     .await?;
-    advance_watermarks(&db, &c, "3").await?;
+    advance_watermarks(db, c, "3").await?;
 
     // A nonterminal cursor written before the generation column existed.
     sqlx::query("UPDATE league_feed_withdrawals SET recovery_generation=NULL")
         .execute(&db.pool)
         .await?;
-    let cursor = || {
-        sqlx::query_as::<_, (String, Option<String>, bool)>(
-            "SELECT revision::text, recovery_generation::text,
-                    EXISTS(SELECT 1 FROM league_subjects)
-             FROM league_feed_withdrawals",
+    assert_eq!(nonterminal_cursor(db).await?, ("4".into(), None, false));
+    Ok(scheduled)
+}
+
+async fn nonterminal_cursor(
+    db: &Db,
+) -> std::result::Result<(String, Option<String>, bool), sqlx::Error> {
+    sqlx::query_as(
+        "SELECT revision::text, recovery_generation::text,
+                EXISTS(SELECT 1 FROM league_subjects)
+         FROM league_feed_withdrawals",
+    )
+    .fetch_one(&db.pool)
+    .await
+}
+
+#[tokio::test]
+async fn unchanged_generation_requires_legacy_nonterminal_cursor_predecessors() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new().await?.ok_or("PostgreSQL is required")?;
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    let scheduled = seed_legacy_nonterminal_cursor(&db, &c).await?;
+    let gap = scheduled
+        .replace(
+            r#""projection_revision":"1""#,
+            r#""projection_revision":"7""#,
         )
-        .fetch_one(&db.pool)
+        .replace(r#""state":"SCHEDULED""#, r#""state":"LOCKED""#);
+    let gap = publication(&c, admission::EVENT, gap.into_bytes())?;
+    let job = runtime::FeedJob {
+        pool: db.pool.clone(),
     };
-    assert_eq!(cursor().await?, ("4".into(), None, false));
+    assert!(!enqueue_publication(&db, &c, &gap).await?);
+    job.run_config(c.clone()).await?;
+    assert_eq!(nonterminal_cursor(&db).await?, ("4".into(), None, false));
+    assert!(!enqueue_publication(&db, &c, &gap).await?);
+
+    for revision in ["5", "6"] {
+        let next = scheduled.replace(
+            r#""projection_revision":"1""#,
+            &format!(r#""projection_revision":"{revision}""#),
+        );
+        enqueue_publication(
+            &db,
+            &c,
+            &publication(&c, admission::EVENT, next.into_bytes())?,
+        )
+        .await?;
+    }
+    job.run_config(c.clone()).await?;
+    job.run_config(c.clone()).await?;
+    assert_eq!(
+        nonterminal_cursor(&db).await?,
+        ("7".into(), Some("1".into()), false)
+    );
+    assert!(enqueue_publication(&db, &c, &gap).await?);
+    db.close().await
+}
+
+#[tokio::test]
+async fn same_epoch_recovery_binds_a_legacy_nonterminal_cursor() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new().await?.ok_or("PostgreSQL is required")?;
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    let scheduled = seed_legacy_nonterminal_cursor(&db, &c).await?;
 
     write_recovery(&c, "2")?;
     let recovered = scheduled
@@ -1631,7 +1687,10 @@ async fn same_epoch_recovery_binds_a_legacy_nonterminal_cursor() -> TestResult {
     )
     .await?;
     advance_watermarks(&db, &c, "3").await?;
-    assert_eq!(cursor().await?, ("7".into(), Some("2".into()), false));
+    assert_eq!(
+        nonterminal_cursor(&db).await?,
+        ("7".into(), Some("2".into()), false)
+    );
     assert_eq!(
         sqlx::query_as::<_, (bool, bool)>("SELECT ready,conflicted FROM league_feed_state")
             .fetch_one(&db.pool)
@@ -1654,7 +1713,10 @@ async fn same_epoch_recovery_binds_a_legacy_nonterminal_cursor() -> TestResult {
     }
     .run_config(c.clone())
     .await?;
-    assert_eq!(cursor().await?, ("7".into(), Some("2".into()), false));
+    assert_eq!(
+        nonterminal_cursor(&db).await?,
+        ("7".into(), Some("2".into()), false)
+    );
     let pending: i64 =
         sqlx::query_scalar("SELECT count(*) FROM league_feed_inbox WHERE state='pending'")
             .fetch_one(&db.pool)

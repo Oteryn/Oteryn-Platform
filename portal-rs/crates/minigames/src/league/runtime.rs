@@ -274,6 +274,26 @@ async fn initialize_inner(pool: &PgPool, c: &Config) -> Result<()> {
     {
         return Err(Error::Conflict);
     }
+    if let Some((epoch, generation)) = &old
+        && epoch == &f.projection_epoch
+        && generation != &f.recovery_generation
+    {
+        // Preserve the prior fence on legacy cursors before installing recovery.
+        sqlx::query(
+            "UPDATE league_feed_withdrawals w
+             SET recovery_generation = COALESCE((
+                 SELECT s.recovery_generation FROM league_subjects s
+                 WHERE (s.authority,s.family,s.world_id,s.subject_id,s.epoch,s.revision) =
+                       (w.authority,w.family,w.world_id,w.subject_id,w.epoch,w.revision)
+             ), $3::numeric)
+             WHERE w.authority=$1 AND w.epoch=$2::numeric AND w.recovery_generation IS NULL",
+        )
+        .bind(&c.authority)
+        .bind(epoch)
+        .bind(generation)
+        .execute(&mut *tx)
+        .await?;
+    }
     if old.as_ref() != Some(&(f.projection_epoch.clone(), f.recovery_generation.clone())) {
         sqlx::query("INSERT INTO league_feed_state(authority,epoch,recovery_generation) VALUES($1,$2::numeric,$3::numeric) ON CONFLICT(authority) DO UPDATE SET epoch=EXCLUDED.epoch,recovery_generation=EXCLUDED.recovery_generation,ready=false,event_complete=0,season_complete=0,manifest=NULL,manifest_meta=NULL,manifest_signature=NULL")
             .bind(&c.authority).bind(&f.projection_epoch).bind(&f.recovery_generation).execute(&mut *tx).await?;
@@ -545,9 +565,10 @@ impl FeedJob {
                 {
                     return Err(Error::Conflict);
                 }
-                // Revisions are comparable only within a proven generation.
-                // Applying an authenticated publication binds a legacy cursor.
-                if old_epoch == original.0 && old_generation == Some(original.1) {
+                // A legacy cursor without a known recovery boundary still
+                // needs its predecessors in the current epoch.
+                if old_epoch == original.0 && old_generation.is_none_or(|value| value == original.1)
+                {
                     let old_revision = schema::number(&revision, false)?;
                     let next_revision = schema::number(s.revision(), false)?;
                     if next_revision > old_revision.saturating_add(1) {
