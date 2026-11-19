@@ -10,8 +10,36 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 const SUBJECT: &str = "01934f10-7c04-7001-805b-3b1122334401";
 const WORLD: &str = "01934f10-7c02-7001-805b-3b1122334401";
 const AUTHORITY: &str = "oteryn:game:primary";
+const BEREN: &str = "01934f10-7c04-7001-805b-3b1122334402";
+const MIRA: &str = "01934f10-7c04-7001-805b-3b1122334403";
+const DRAGON: &str = "oteryn:monster.dragon";
+// SOURCE: Oteryn-Game 3732e96aa2874204dcc97504f13681cf04a65c6e, copied byte for byte
+// (docs/contracts/fixtures/public-game-families-v2/README.md, contract revision 4).
+const GAME_PLAYER: &[u8] = include_bytes!(
+    "../../../../../docs/contracts/fixtures/public-game-families-v2/character_deaths_player_v2.json"
+);
+const GAME_CREATURE: &[u8] = include_bytes!(
+    "../../../../../docs/contracts/fixtures/public-game-families-v2/character_deaths_creature_v2.json"
+);
+// Revision 4 golden line; the same bytes as the Game player fixture.
+const GOLDEN: &[u8] = include_bytes!(
+    "../../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-deaths.json"
+);
+fn player(character_id: &str, name: &str) -> wire::Killer {
+    wire::Killer::Player {
+        character_id: character_id.into(),
+        name: name.into(),
+    }
+}
+fn creature(creature_key: &str, name: &str) -> wire::Killer {
+    wire::Killer::Creature {
+        creature_key: creature_key.into(),
+        name: name.into(),
+    }
+}
 // SOURCE: docs/contracts/OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md,
-// "Valid death with recorded final-blow killer". Dynamic times exercise serve-time bounds.
+// revision 4 golden deaths payloads (Game fixtures), with a creature and a second
+// player added. Dynamic times exercise serve-time bounds.
 fn snapshot() -> wire::Snapshot {
     wire::Snapshot {
         contract_version: 2,
@@ -26,7 +54,11 @@ fn snapshot() -> wire::Snapshot {
             occurred_at: (now() - 10).to_string(),
             level: "413".into(),
             pvp: true,
-            killers: vec!["Beren".into(), "Mira".into()],
+            killers: vec![
+                player(BEREN, "Beren"),
+                creature(DRAGON, "Dragon"),
+                player(MIRA, "Mira"),
+            ],
         }],
     }
 }
@@ -121,7 +153,23 @@ fn wire_success_and_bad_input() {
     }
     for bad in ["bad/id", "..", "bad\nname", "a\u{200b}b", "e\u{301}"] {
         let mut s = snapshot();
-        s.deaths[0].killers = vec![bad.into()];
+        for killer in [player(BEREN, bad), creature(DRAGON, bad)] {
+            s.deaths[0].killers = vec![killer];
+            assert!(s.validate(now()).is_err());
+        }
+    }
+    for bad in [
+        player("01934f10-7c04-4001-805b-3b1122334402", "Beren"),
+        player("01934F10-7C04-7001-805B-3B1122334402", "Beren"),
+        player("Beren", "Beren"),
+        creature("player", "Dragon"),
+        creature("unknown", "Dragon"),
+        creature("", "Dragon"),
+        creature("oteryn:Monster.dragon", "Dragon"),
+        creature(&"a".repeat(129), "Dragon"),
+    ] {
+        let mut s = snapshot();
+        s.deaths[0].killers = vec![bad];
         assert!(s.validate(now()).is_err());
     }
     let mut s = snapshot();
@@ -131,7 +179,9 @@ fn wire_success_and_bad_input() {
     s.deaths = vec![s.deaths[0].clone(); 21];
     assert!(s.validate(now()).is_err());
     let mut s = snapshot();
-    s.deaths[0].killers = vec!["A".into(); 17];
+    s.deaths[0].killers = vec![creature(DRAGON, "Dragon"); 16];
+    assert!(s.validate(now()).is_ok());
+    s.deaths[0].killers.push(creature(DRAGON, "Dragon"));
     assert!(s.validate(now()).is_err());
     let mut s = snapshot();
     let mut second = s.deaths[0].clone();
@@ -342,6 +392,7 @@ async fn postgres_replay_conflict_suppression_and_epoch_fence() -> TestResult {
 }
 struct Policy {
     visible: bool,
+    killers: &'static [&'static str],
 }
 impl Privacy for Policy {
     fn ready(&self) -> PrivacyFuture<'_> {
@@ -349,6 +400,9 @@ impl Privacy for Policy {
     }
     fn allows_deaths<'a>(&'a self, _: &'a str, _: &'a str) -> PrivacyFuture<'a> {
         Box::pin(async { Ok(self.visible) })
+    }
+    fn allows_killer<'a>(&'a self, id: &'a str, _: &'a str) -> PrivacyFuture<'a> {
+        Box::pin(async move { Ok(self.killers.contains(&id)) })
     }
 }
 async fn seed(db: &PgPool) -> TestResult {
@@ -394,9 +448,12 @@ async fn seed(db: &PgPool) -> TestResult {
     Ok(())
 }
 fn pages(db: PgPool, visible: bool) -> Router {
+    pages_with(db, visible, &[])
+}
+fn pages_with(db: PgPool, visible: bool, killers: &'static [&'static str]) -> Router {
     router(
         db,
-        Arc::new(Policy { visible }),
+        Arc::new(Policy { visible, killers }),
         Config {
             enabled: true,
             source_authority: AUTHORITY.into(),
@@ -731,4 +788,236 @@ async fn audit_w2_c06_deaths_detail_ignores_unrelated_profiles() -> TestResult {
         started.elapsed()
     );
     Ok(())
+}
+#[test]
+fn game_killer_fixtures_decode_and_validate() {
+    for body in [GAME_PLAYER, GAME_CREATURE, GOLDEN] {
+        let value = canonical::decode(body, 32768, 6).unwrap();
+        let decoded = decode::<wire::Snapshot>(&value, body).unwrap();
+        assert!(decoded.validate(now()).is_ok());
+        assert_eq!(serde_json::to_vec(&decoded).unwrap(), body);
+    }
+}
+#[tokio::test]
+async fn bad_killers_are_refused_with_400() -> TestResult {
+    let db = PgPool::connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?;
+    let fixture = std::str::from_utf8(GAME_PLAYER)?;
+    let object = format!(r#"{{"kind":"player","character_id":"{BEREN}","name":"Beren"}}"#);
+    assert!(fixture.contains(&object));
+    let swap = |to: &str| fixture.replace(&object, to);
+    let mut bad = vec![
+        swap(&object.replace(r#""kind":"player""#, r#""kind":"npc""#)),
+        swap(&object.replace(r#""kind":"player""#, r#""kind":"Player""#)),
+        swap(&object.replace(r#""name":"Beren""#, r#""name":"Beren","extra":"x""#)),
+        swap(&format!(
+            r#"{{"kind":"player","name":"Beren","character_id":"{BEREN}"}}"#
+        )),
+        swap(&format!(
+            r#"{{"character_id":"{BEREN}","kind":"player","name":"Beren"}}"#
+        )),
+        swap(&format!(r#"{{"character_id":"{BEREN}","name":"Beren"}}"#)),
+        swap(&format!(
+            r#"{{"kind":"creature","character_id":"{BEREN}","name":"Beren"}}"#
+        )),
+        swap(r#"{"kind":"creature","creature_key":"player","name":"Beren"}"#),
+        swap(r#""Beren""#),
+        swap(&vec![object.as_str(); 17].join(",")),
+    ];
+    bad.push(std::str::from_utf8(GAME_CREATURE)?.replace(
+        r#""creature_key":"oteryn:monster.dragon""#,
+        r#""creature_key":"unknown""#,
+    ));
+    for body in bad {
+        let r = post(
+            app(db.clone(), true),
+            "character-deaths",
+            body.clone().into_bytes(),
+            "deaths-test",
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{body}");
+        assert!(text(r).await.is_empty());
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn postgres_game_killer_fixtures_are_accepted() -> TestResult {
+    for body in [GAME_PLAYER, GAME_CREATURE] {
+        let Some(d) = Database::open().await? else {
+            return Ok(());
+        };
+        for _ in 0..2 {
+            // The second post is an exact, idempotent replay.
+            let r = post(
+                app(d.db.clone(), true),
+                "character-deaths",
+                body.to_vec(),
+                "deaths-test",
+            )
+            .await;
+            assert_eq!(r.status(), StatusCode::OK);
+            assert_eq!(
+                text(r).await,
+                "{\"contract_version\":2,\"result\":\"accepted\"}"
+            );
+        }
+        let fenced: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public_deaths_v2_occurrences WHERE subject=$1 AND occurrence='01934f10-7c08-7001-805b-3b1122334401'",
+        )
+        .bind(SUBJECT)
+        .fetch_one(&d.db)
+        .await?;
+        assert_eq!(fenced, 1);
+        d.close().await?;
+    }
+    // Fixture times are outside the 30-day window, so typed persistence is
+    // checked with a current snapshot of the same shape.
+    let Some(d) = Database::open().await? else {
+        return Ok(());
+    };
+    assert_eq!(
+        storage::snapshot(&d.db, &snapshot()).await.unwrap(),
+        "accepted"
+    );
+    let stored: serde_json::Value =
+        sqlx::query_scalar("SELECT deaths->0->'killers' FROM public_deaths_v2 WHERE subject=$1")
+            .bind(SUBJECT)
+            .fetch_one(&d.db)
+            .await?;
+    assert_eq!(
+        stored,
+        serde_json::json!([
+            {"kind":"player","character_id":BEREN,"name":"Beren"},
+            {"kind":"creature","creature_key":DRAGON,"name":"Dragon"},
+            {"kind":"player","character_id":MIRA,"name":"Mira"}
+        ])
+    );
+    d.close().await
+}
+#[tokio::test]
+async fn postgres_killer_visibility_is_enforced_at_serving() -> TestResult {
+    let Some(d) = Database::open().await? else {
+        return Ok(());
+    };
+    seed(&d.db).await?;
+    for path in ["/en/deaths", "/pl/deaths", "/en/characters/Aldric/deaths"] {
+        // Beren is currently visible, Mira is hidden: Mira's whole object is dropped.
+        let r = get(pages_with(d.db.clone(), true, &[BEREN]), path).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let body = text(r).await;
+        assert!(body.contains("Beren, Dragon"), "{body}");
+        assert!(!body.contains("Mira"));
+        for internal in [BEREN, MIRA, DRAGON, SUBJECT, "character_id", "creature_key"] {
+            assert!(!body.contains(internal), "{internal}");
+        }
+        // Without a current allow, no player killer is shown; creatures still are.
+        let r = get(pages(d.db.clone(), true), path).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let body = text(r).await;
+        assert!(body.contains("Dragon"));
+        assert!(!body.contains("Beren"));
+        assert!(!body.contains("Mira"));
+    }
+    // A hidden victim hides its deaths, killers included.
+    let r = get(pages_with(d.db.clone(), false, &[BEREN]), "/en/deaths").await;
+    assert_eq!(r.status(), StatusCode::OK);
+    let body = text(r).await;
+    assert!(!body.contains("Beren") && !body.contains("Dragon"));
+    // A retained revision 3 name-only row still serves, without any label.
+    sqlx::query(
+        "UPDATE public_deaths_v2 SET deaths=jsonb_set(deaths,'{0,killers}','[\"Beren\",\"Mira\"]')",
+    )
+    .execute(&d.db)
+    .await?;
+    let r = get(pages_with(d.db.clone(), true, &[BEREN, MIRA]), "/en/deaths").await;
+    assert_eq!(r.status(), StatusCode::OK);
+    let body = text(r).await;
+    assert!(body.contains("Aldric"));
+    assert!(body.contains("No public killer recorded."));
+    assert!(!body.contains("Beren") && !body.contains("Mira"));
+    d.close().await
+}
+/// Revision 3 name-only serialization, in its struct member order.
+#[derive(serde::Serialize)]
+struct NameOnlyDeath<'a> {
+    death_occurrence_id: &'a str,
+    occurred_at: &'a str,
+    level: &'a str,
+    pvp: bool,
+    killers: Vec<&'a str>,
+}
+#[tokio::test]
+async fn postgres_name_only_rows_take_typed_identity_without_guessing() -> TestResult {
+    use sha2::{Digest, Sha256};
+    let Some(d) = Database::open().await? else {
+        return Ok(());
+    };
+    let s = snapshot();
+    let death = &s.deaths[0];
+    let names = |names: Vec<&'static str>| NameOnlyDeath {
+        death_occurrence_id: &death.death_occurrence_id,
+        occurred_at: &death.occurred_at,
+        level: &death.level,
+        pvp: death.pvp,
+        killers: names,
+    };
+    let legacy = names(vec!["Beren", "Dragon", "Mira"]);
+    let mut identity = serde_json::to_value(&s)?;
+    identity
+        .as_object_mut()
+        .unwrap()
+        .remove("source_observed_at");
+    identity["deaths"] = serde_json::to_value(vec![&legacy])?;
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
+        .execute(&d.db)
+        .await?;
+    sqlx::query("INSERT INTO public_deaths_v2(subject,authority,epoch,revision,digest,deaths,observed) VALUES($1,$2,1,1,$3,$4,$5)")
+        .bind(SUBJECT)
+        .bind(AUTHORITY)
+        .bind(Sha256::digest(serde_json::to_vec(&identity)?).to_vec())
+        .bind(serde_json::to_value(vec![&legacy])?)
+        .bind(i64::try_from(now())?)
+        .execute(&d.db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO public_deaths_v2_occurrences(subject,occurrence,digest) VALUES($1,$2,$3)",
+    )
+    .bind(SUBJECT)
+    .bind(&death.death_occurrence_id)
+    .bind(Sha256::digest(serde_json::to_vec(&legacy)?).to_vec())
+    .execute(&d.db)
+    .await?;
+    // The same revision, now typed by the producer, replaces the name-only body.
+    assert_eq!(storage::snapshot(&d.db, &s).await.unwrap(), "accepted");
+    assert_eq!(storage::snapshot(&d.db, &s).await.unwrap(), "accepted");
+    let (fence, killer): (Vec<u8>, Option<String>) = sqlx::query_as(
+        "SELECT o.digest, d.deaths->0->'killers'->0->>'character_id' FROM public_deaths_v2 d JOIN public_deaths_v2_occurrences o USING (subject) WHERE d.subject=$1",
+    )
+    .bind(SUBJECT)
+    .fetch_one(&d.db)
+    .await?;
+    assert_eq!(fence, Sha256::digest(serde_json::to_vec(death)?).to_vec());
+    assert_eq!(killer.as_deref(), Some(BEREN));
+    // A name-only fence whose names differ is a conflict, never a match.
+    let other = "01934f10-7c04-7001-805b-3b1122334499";
+    sqlx::query(
+        "INSERT INTO public_deaths_v2_occurrences(subject,occurrence,digest) VALUES($1,$2,$3)",
+    )
+    .bind(other)
+    .bind(&death.death_occurrence_id)
+    .bind(
+        Sha256::digest(serde_json::to_vec(&names(vec![
+            "Beren", "Dragon", "Other",
+        ]))?)
+        .to_vec(),
+    )
+    .execute(&d.db)
+    .await?;
+    let mut t = snapshot();
+    t.character_id = other.into();
+    assert!(matches!(
+        storage::snapshot(&d.db, &t).await,
+        Err(storage::Error::Conflict)
+    ));
+    d.close().await
 }

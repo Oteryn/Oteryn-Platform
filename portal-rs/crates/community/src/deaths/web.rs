@@ -1,4 +1,4 @@
-use super::{now, wire, wire::Death};
+use super::{now, wire, wire::Killer};
 use askama::Template;
 use axum::{
     Router,
@@ -20,6 +20,27 @@ pub trait Privacy: Send + Sync {
         Box::pin(async { Err(Unavailable) })
     }
     fn allows_deaths<'a>(&'a self, subject: &'a str, epoch: &'a str) -> PrivacyFuture<'a>;
+    /// Current visibility of a player killer, by its internal CharacterId. A
+    /// denied or unproven killer loses its whole object, never the page.
+    fn allows_killer<'a>(&'a self, _character_id: &'a str, _epoch: &'a str) -> PrivacyFuture<'a> {
+        Box::pin(async { Ok(false) })
+    }
+}
+/// Retained killer as stored: typed since revision 4, or a revision 3 name-only
+/// label, which carries no identity or current floor and is never shown.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredKiller {
+    Typed(Killer),
+    NameOnly(String),
+}
+#[derive(serde::Deserialize)]
+struct StoredDeath {
+    death_occurrence_id: String,
+    occurred_at: String,
+    level: String,
+    pvp: bool,
+    killers: Vec<StoredKiller>,
 }
 #[derive(Debug)]
 pub struct FailClosed;
@@ -219,6 +240,8 @@ async fn load_inner(
     let mut matched = 0;
     let mut names = std::collections::HashSet::new();
     let mut visible = false;
+    // One current decision per killer per request, inside the privacy cut.
+    let mut killers = std::collections::HashMap::<String, bool>::new();
     for subject in subjects {
         let profile = crate::ingest::latest(&s.db, "character_profile", &subject)
             .await
@@ -264,7 +287,7 @@ async fn load_inner(
         }
         visible = true;
         let payload: serde_json::Value = sqlx::query_scalar("SELECT deaths FROM public_deaths_v2 WHERE subject=$1 AND epoch=$2::numeric AND authority=$3").bind(&subject).bind(&epoch).bind(&s.config.source_authority).fetch_optional(&s.db).await.map_err(|_| Unavailable)?.ok_or(Unavailable)?;
-        let deaths: Vec<Death> = serde_json::from_value(payload).map_err(|_| Unavailable)?;
+        let deaths: Vec<StoredDeath> = serde_json::from_value(payload).map_err(|_| Unavailable)?;
         for d in deaths {
             let timestamp = wire::time(&d.occurred_at, 1, now()).map_err(|_| Unavailable)?;
             if timestamp < now().saturating_sub(30 * 86400) {
@@ -276,14 +299,37 @@ async fn load_inner(
             .map_err(|_| Unavailable)?
             .format(&time::format_description::well_known::Rfc3339)
             .map_err(|_| Unavailable)?;
+            let mut labels = vec![];
+            for k in &d.killers {
+                match k {
+                    StoredKiller::Typed(Killer::Creature { name, .. }) => {
+                        labels.push(name.as_str())
+                    }
+                    StoredKiller::Typed(Killer::Player { character_id, name }) => {
+                        let allowed = match killers.get(character_id) {
+                            Some(allowed) => *allowed,
+                            None => {
+                                let allowed = s.privacy.allows_killer(character_id, &epoch).await?;
+                                killers.insert(character_id.clone(), allowed);
+                                allowed
+                            }
+                        };
+                        if allowed {
+                            labels.push(name.as_str());
+                        }
+                    }
+                    // A revision 3 label has no identity; never map it to a holder.
+                    StoredKiller::NameOnly(_label) => {}
+                }
+            }
             entries.push(Entry {
                 name: display.into(),
                 world: world.clone(),
                 occurred,
                 level: d.level,
-                // G-4 carries historical names without stable identity/floors.
-                // Withhold labels rather than associating a reused name.
-                killers: String::new(),
+                // Historical names of currently visible killers only; the
+                // CharacterId and creature key stay internal.
+                killers: labels.join(", "),
                 pvp: d.pvp,
                 href: format!(
                     "/{}/characters/{}/deaths",
