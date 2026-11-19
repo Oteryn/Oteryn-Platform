@@ -61,6 +61,8 @@ function enablePortalNavigation(header) {
 
   toggle.addEventListener("click", () => showMobile(!header.classList.contains("is-open")));
   for (const button of nav.querySelectorAll("[data-nav-section]")) {
+    button.disabled = false;
+    button.setAttribute("aria-expanded", "false");
     const panel = panelFor(button);
     button.addEventListener("click", () => showGroup(active === button ? null : button));
     button.addEventListener("keydown", event => {

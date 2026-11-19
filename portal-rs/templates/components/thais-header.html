@@ -15,7 +15,7 @@
     <nav class="om-nav" id="portal-navigation" aria-label="{{ chrome.text("navigation") }}">
       <div class="om-sections">
         <div class="om-section">
-          <button id="portal-world-button" class="om-top-link" type="button" data-nav-section aria-expanded="false" aria-controls="portal-world-panel">
+          <button id="portal-world-button" class="om-top-link" type="button" data-nav-section{% if interior %} disabled aria-expanded="true"{% else %} aria-expanded="false"{% endif %} aria-controls="portal-world-panel">
             <span class="om-label">{{ chrome.text("thais-nav-world") }}</span><span class="om-chevron" aria-hidden="true"></span>
           </button>
           <div id="portal-world-panel" class="om-panel" hidden>
@@ -56,7 +56,7 @@
         </div>
         {% if chrome.first_link("online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare").is_some() %}
         <div class="om-section">
-          <button id="portal-community-button" class="om-top-link" type="button" data-nav-section aria-expanded="false" aria-controls="portal-community-panel">
+          <button id="portal-community-button" class="om-top-link" type="button" data-nav-section{% if interior %} disabled aria-expanded="true"{% else %} aria-expanded="false"{% endif %} aria-controls="portal-community-panel">
             <span class="om-label">{{ chrome.text("shell-community") }}</span><span class="om-chevron" aria-hidden="true"></span>
           </button>
           <div id="portal-community-panel" class="om-panel" hidden>
