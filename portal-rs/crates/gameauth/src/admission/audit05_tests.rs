@@ -65,7 +65,7 @@ impl Fixture {
         let character = Uuid::now_v7();
         sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'test-only','active','en',now())")
             .bind(account).bind(format!("{account}@example.test")).execute(&db.pool).await?;
-        sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='game',complete_through=floor(extract(epoch FROM clock_timestamp())),observed_at=ceil(extract(epoch FROM clock_timestamp()))")
+        sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='game',complete_through=floor(extract(epoch FROM statement_timestamp())),observed_at=ceil(extract(epoch FROM statement_timestamp()))")
             .execute(&db.pool).await?;
         sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,'game','1','1',0,decode(repeat('ab',32),'hex'))")
             .bind(account).execute(&db.pool).await?;

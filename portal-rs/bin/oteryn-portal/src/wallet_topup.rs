@@ -1,5 +1,5 @@
 //! Checkout-bound paid coin delivery. No conversion is inferred from money units.
-use crate::worker::{Handler, HandlerFuture, Registry};
+use crate::worker::{DeliveryFuture, DeliveryOutcome, Handler, HandlerFuture, Registry};
 use oteryn_db::outbox::{Job, PgPool};
 use oteryn_payments::TopUpJob;
 use oteryn_wallet::{self as wallet, AdjustmentKind, Ledger, WalletFlags};
@@ -27,8 +27,17 @@ pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), String> {
 impl Handler for Delivery {
     fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a> {
         Box::pin(async move {
+            match self.deliver(job).await? {
+                DeliveryOutcome::Complete => Ok(()),
+                DeliveryOutcome::Deferred => Err("top-up temporarily restricted".into()),
+            }
+        })
+    }
+
+    fn deliver<'a>(&'a self, job: &'a Job) -> DeliveryFuture<'a> {
+        Box::pin(async move {
             match self.credit(job).await {
-                Ok(()) => Ok(()),
+                Ok(outcome) => Ok(outcome),
                 Err(reason) => {
                     // The credit transaction has rolled back. Denials must survive
                     // that rollback; retry/dead-letter remains owned by the worker.
@@ -62,7 +71,7 @@ impl Handler for Delivery {
     }
 }
 impl Delivery {
-    async fn credit(&self, job: &Job) -> Result<(), &'static str> {
+    async fn credit(&self, job: &Job) -> Result<DeliveryOutcome, &'static str> {
         if job.kind != "wallet.top_up" || job.payload.len() > 1024 {
             return Err("invalid top-up job");
         }
@@ -150,7 +159,7 @@ impl Delivery {
         .with_adjustment_kind(AdjustmentKind::TopUp);
         // Claiming the intent as a top_up operation consumes its pending capacity
         // under the wallet lock. A failed credit rolls back that claim as well.
-        ledger
+        let credit = ledger
             .adjust_in(
                 &mut tx,
                 payload.intent_id,
@@ -159,10 +168,32 @@ impl Delivery {
                 payload.account_id,
                 &format!("wallet-top-up:{}", payload.intent_id),
             )
-            .await
-            .map_err(|_| "top-up wallet refused")?;
+            .await;
+        if matches!(
+            &credit,
+            Err(wallet::Error::Refused(wallet::Refusal::AccountDenied))
+        ) {
+            // Only new credits reach this gate. Read the shared policy reason
+            // under the retained identity lock, including a lock that just expired.
+            let restriction: Option<String> =
+                sqlx::query_scalar("SELECT account_value_restriction($1)")
+                    .bind(payload.account_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(|_| "top-up account restriction unavailable")?;
+            if matches!(
+                restriction.as_deref(),
+                None | Some("email_change_lock" | "termination_pending" | "sanction" | "ban")
+            ) {
+                tx.rollback()
+                    .await
+                    .map_err(|_| "top-up rollback unavailable")?;
+                return Ok(DeliveryOutcome::Deferred);
+            }
+        }
+        credit.map_err(|_| "top-up wallet refused")?;
         tx.commit().await.map_err(|_| "top-up commit unavailable")?;
-        Ok(())
+        Ok(DeliveryOutcome::Complete)
     }
 }
 #[derive(Debug, Clone, Copy)]

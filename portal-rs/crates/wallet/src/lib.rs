@@ -9,7 +9,7 @@ pub use eligibility::{safe_return_in, value_eligible_in};
 mod ledger;
 pub use debt::{check_payer_in, credit_in, outstanding_debt, unlocked_in};
 pub use domain::*;
-pub use ledger::Ledger;
+pub use ledger::{Ledger, read_snapshot_in};
 pub mod wire;
 
 pub use ledger::{incoming_capacity_in, incoming_capacity_with_topup_in, reserve_incoming_in};

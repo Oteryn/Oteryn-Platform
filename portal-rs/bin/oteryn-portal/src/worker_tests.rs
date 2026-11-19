@@ -538,6 +538,114 @@ async fn paid_topup_and_refund_scenario() -> TestResult {
 }
 
 #[tokio::test]
+async fn paid_topup_survives_ten_deferrals_and_credits_once_after_unlock() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    let intent = Uuid::now_v7();
+    query(
+        "INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale,email_change_blocked_until)
+         VALUES($1,'deferred-topup@example.invalid',now(),'unused','active','en',now()+interval '72 hours')",
+    )
+    .bind(account)
+    .execute(&db.pool)
+    .await?;
+    query(
+        "INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
+         VALUES($1,$2,'test',$3,250,'PLN','succeeded')",
+    )
+    .bind(intent)
+    .bind(account)
+    .bind(intent.to_string())
+    .execute(&db.pool)
+    .await?;
+    query(
+        "INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id)
+         VALUES($1,$2,'fixed',1234,250,'PLN',$3)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(account)
+    .bind(intent)
+    .execute(&db.pool)
+    .await?;
+    let payload = serde_json::to_string(&oteryn_payments::TopUpJob {
+        intent_id: intent,
+        account_id: account,
+        amount: 250,
+        currency: "PLN".into(),
+    })?;
+    let mut tx = db.pool.begin().await?;
+    let job = outbox::enqueue(
+        &mut tx,
+        "wallet.top_up",
+        &payload,
+        &intent.to_string(),
+        OffsetDateTime::now_utc(),
+        10,
+    )
+    .await?;
+    tx.commit().await?;
+    let mut registry = Registry::default();
+    registry.register(
+        "wallet.top_up",
+        Arc::new(crate::wallet_topup::Delivery {
+            pool: db.pool.clone(),
+            payments_enabled: true,
+            wallet_enabled: true,
+        }),
+    )?;
+
+    for _ in 0..10 {
+        // Advance the retry schedule without waiting, leaving the restriction active.
+        query("UPDATE outbox SET run_after=now() WHERE id=$1 AND state='pending'")
+            .bind(job)
+            .execute(&db.pool)
+            .await?;
+        assert_eq!(registry.batch(&db.pool).await?, 1);
+    }
+    let deferred: (String, i32, bool, bool) = sqlx::query_as(
+        "SELECT state,attempts,run_after>now(),leased_until IS NULL FROM outbox WHERE id=$1",
+    )
+    .bind(job)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(deferred, ("pending".into(), 0, true, true));
+    let balance = || {
+        query_scalar::<_, i64>("SELECT COALESCE(sum(available_delta),0)::bigint FROM wallet_entries WHERE account_id=$1")
+            .bind(account)
+            .fetch_one(&db.pool)
+    };
+    assert_eq!(balance().await?, 0);
+    assert_eq!(registry.batch(&db.pool).await?, 0);
+
+    query("UPDATE accounts SET email_change_blocked_until=DEFAULT WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    query("UPDATE outbox SET run_after=now() WHERE id=$1 AND state='pending'")
+        .bind(job)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(registry.batch(&db.pool).await?, 1);
+    assert_eq!(registry.batch(&db.pool).await?, 0);
+    let completed: (String, i32) = sqlx::query_as("SELECT state,attempts FROM outbox WHERE id=$1")
+        .bind(job)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(completed, ("done".into(), 1));
+    assert_eq!(balance().await?, 1234);
+    let audits: (i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE action='wallet.top_up.credited'),
+                count(*) FILTER (WHERE action='wallet.top_up.denied') FROM audit_log",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(audits, (1, 0));
+    db.close().await
+}
+
+#[tokio::test]
 async fn topup_refusals_are_audited_and_dead_lettered_without_credit() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());

@@ -261,8 +261,6 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         {
             return Err(Refusal::InvalidReason.into());
         }
-        self.active(tx, account).await?;
-        lock(tx, account).await?;
         let operation = Operation {
             key,
             kind: self.adjustment_kind.name(),
@@ -272,6 +270,14 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
             reference: Some(actor),
             reason: Some(reason),
         };
+        // A committed paid credit remains a success after an identity restriction.
+        // Read existing claims before eligibility, and keep the identity-before-wallet
+        // lock order when creating a new claim.
+        if self.adjustment_kind == AdjustmentKind::TopUp && replay_claim(tx, &operation).await? {
+            return receipt(tx, key, true).await;
+        }
+        self.active(tx, account).await?;
+        lock(tx, account).await?;
         if claim(tx, &operation).await? {
             return receipt(tx, key, true).await;
         }
@@ -529,13 +535,36 @@ async fn claim(tx: &mut Transaction<'_, Postgres>, op: &Operation<'_>) -> Result
     if inserted == 1 {
         return Ok(false);
     }
-    let same: bool = sqlx::query_scalar("SELECT kind=$2 AND account_id=$3 AND counterparty_id IS NOT DISTINCT FROM $4 AND amount=$5 AND reference_id IS NOT DISTINCT FROM $6 AND reason IS NOT DISTINCT FROM $7 FROM wallet_operations WHERE id=$1")
-        .bind(op.key).bind(op.kind).bind(op.account).bind(op.counterparty).bind(op.amount).bind(op.reference).bind(op.reason)
-        .fetch_one(&mut **tx).await?;
-    if !same {
-        return Err(Refusal::IdempotencyConflict.into());
+    if !replay_claim(tx, op).await? {
+        return Err(sqlx::Error::RowNotFound.into());
     }
     Ok(true)
+}
+
+async fn replay_claim(
+    tx: &mut Transaction<'_, Postgres>,
+    op: &Operation<'_>,
+) -> Result<bool, Error> {
+    let same: Option<bool> = sqlx::query_scalar("SELECT kind=$2 AND account_id=$3 AND counterparty_id IS NOT DISTINCT FROM $4 AND amount=$5 AND reference_id IS NOT DISTINCT FROM $6 AND reason IS NOT DISTINCT FROM $7 FROM wallet_operations WHERE id=$1")
+        .bind(op.key).bind(op.kind).bind(op.account).bind(op.counterparty).bind(op.amount).bind(op.reference).bind(op.reason)
+        .fetch_optional(&mut **tx).await?;
+    match same {
+        Some(true) => Ok(true),
+        Some(false) => Err(Refusal::IdempotencyConflict.into()),
+        None => Ok(false),
+    }
+}
+
+/// Read balance and its ledger revision together. The caller must authorize
+/// the read before using this directly.
+pub async fn read_snapshot_in(
+    connection: &mut PgConnection,
+    account: Uuid,
+) -> Result<(Balance, i64), Error> {
+    let (available, reserved, entries): (i64, i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint, COUNT(*)::bigint FROM wallet_entries WHERE account_id=$1")
+        .bind(account).fetch_one(connection).await?;
+    let balance = Balance::existing(available, reserved)?;
+    Ok((balance, entries.checked_add(1).ok_or(Refusal::Overflow)?))
 }
 
 impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H> {
@@ -570,10 +599,7 @@ impl<A: AccountStateReader, B: TransferBlockCheck, H: AuditHook> Ledger<A, B, H>
         self.enabled()?;
         valid_id(account)?;
         self.known(tx, account).await?;
-        let (available, reserved, entries): (i64, i64, i64) = sqlx::query_as("SELECT COALESCE(SUM(available_delta),0)::bigint, COALESCE(SUM(reserved_delta),0)::bigint, COUNT(*)::bigint FROM wallet_entries WHERE account_id=$1")
-            .bind(account).fetch_one(&mut **tx).await?;
-        let balance = Balance::existing(available, reserved)?;
-        Ok((balance, entries.checked_add(1).ok_or(Refusal::Overflow)?))
+        read_snapshot_in(tx, account).await
     }
 
     /// Numeric wire cursor, independent of the existing UUID history API.

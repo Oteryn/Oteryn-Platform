@@ -478,11 +478,13 @@ async fn catalogue_order_paid_credits_once() -> TestResult {
         1
     );
 
+    // Balance revision = wallet revision (2: one credit) + the payer's order
+    // revisions (2: created, paid), so review transitions also advance it (H019).
     let (status, body) = get(db.app(&service), &format!("{API}/balance"), &token).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        br#"{"version":1,"revision":2,"total_coins":500,"available_coins":500,"transferable_coins":500,"review_required":false}"#
+        br#"{"version":1,"revision":4,"total_coins":500,"available_coins":500,"transferable_coins":500,"review_required":false}"#
     );
     // Payment again from the page is a no-op on a paid order.
     service.sandbox_complete(payer, order_id, true).await?;
@@ -2428,7 +2430,7 @@ async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResu
     let missing_account = Uuid::now_v7();
     let service = make_service(host.clone());
     // Both a positive ownership result and a real quote prove the fixture is live.
-    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint")
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=extract(epoch FROM statement_timestamp())::bigint,observed_at=extract(epoch FROM statement_timestamp())::bigint")
         .bind(authority).execute(&db.pool).await?;
     assert_eq!(host.ownership(payer, mine).await, Ownership::Owned);
     assert_eq!(
@@ -2584,7 +2586,7 @@ async fn production_lcfa_ownership_refuses_without_purchase_writes() -> TestResu
                 .await?;
         }
         sqlx::query("UPDATE account_character_snapshots SET projection_epoch='1',invalid=false WHERE account_id=$1").bind(payer).execute(&db.pool).await?;
-        sqlx::query("UPDATE account_character_feed SET complete_through=extract(epoch FROM clock_timestamp())::bigint,observed_at=extract(epoch FROM clock_timestamp())::bigint").execute(&db.pool).await?;
+        sqlx::query("UPDATE account_character_feed SET complete_through=extract(epoch FROM statement_timestamp())::bigint,observed_at=extract(epoch FROM statement_timestamp())::bigint").execute(&db.pool).await?;
     }
     assert_eq!(
         post(
