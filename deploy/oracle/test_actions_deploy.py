@@ -78,6 +78,26 @@ class AuthorityBoundary(unittest.TestCase):
                     deploy.game_deploy(sha, 100, 1, 7, None)
             self.assertFalse(any('migrate' in args for args in calls))
 
+    def test_game_control_holds_schema_create_only_while_migrate_runs(self):
+        for failure in (None, subprocess.CalledProcessError(1, ['migrate'])):
+            with self.subTest(failure=failure):
+                calls = []
+                def command(args, **kwargs):
+                    calls.append(args)
+                    if failure is not None and 'migrate' in args:
+                        raise failure
+                with tempfile.TemporaryDirectory() as temporary, patch.object(deploy, 'ROOT', Path(temporary)), \
+                        patch.object(deploy, 'run', side_effect=command):
+                    if failure is None:
+                        deploy.game_migrate(Path(temporary) / 'override.json')
+                    else:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            deploy.game_migrate(Path(temporary) / 'override.json')
+                self.assertEqual([args[-1] if 'psql' in args else 'migrate' for args in calls],
+                                 ['GRANT CREATE ON SCHEMA public TO oteryn_game_control', 'migrate',
+                                  'REVOKE CREATE ON SCHEMA public FROM oteryn_game_control'])
+                self.assertTrue(all(args[:3] == ['docker', 'compose', '-f'] for args in calls))
+
     def test_component_cannot_select_another_component_or_general_shell(self):
         for component, command in [('other', 'status'), ('game', 'bash'),
                                    ('game', 'status; id'), ('game', 'deploy ' + 'a' * 40 + ' extra'),
@@ -640,7 +660,9 @@ class GameBranchUnchanged(unittest.TestCase):
         'journal': '52217f6588382fc23ac58265c01109010994c50b91ee3b7555363d32da229230',
         'inspect': '7818ca397395df4b461b4dfbb7bf67c81fb2bbf3a26d80c53ac354dac839b333',
         'inspect_image': '31e6f71d5f300b649cd367c59baefd1e8186ed83a71f8cf44fff2f79fc155092',
-        'game_deploy': 'd4926e10c847a86cd029d14476e342853c35047980acdf7a4c9dba46e975d525',
+        'game_deploy': '6a130840258ff1d33cb6a2b2daf829c5a2ba21733a004ffb9a9c28a2b7f979b6',
+        'game_migrate': '8ac786c94a220476970ef8d8821302627ab4c352e9e4aa020cce0606cba02aad',
+        'game_schema_create': '462dcb635c8990cdcd5e5dd66c2057dbb3a9c66e40c2a669dc8f57e2f1a3d7c5',
         'exclusive': '6b2297f3da4e29fe857530f7fac93c030713acac64af2df81cfc724f5146e5ef',
         'receive_artifact': '041463e1f1e59d9411472ccbf4f404335c87adb33d1ee372c8de6e3bb6a4d112',
         'unpack_image': 'f6bb96fea3a0d6cfdebf78ba98614a0d7f2dec9908f216ba79c468e0185116b7',

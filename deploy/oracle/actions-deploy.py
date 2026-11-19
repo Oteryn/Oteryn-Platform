@@ -459,6 +459,25 @@ def load_image(sha, run_id, artifact_id, stream):
     return image, info
 
 
+def game_schema_create(statement):
+    run(['docker', 'compose', '-f', str(ROOT / 'game-db.compose.yml'), 'exec', '-T', 'postgres',
+         'gosu', 'postgres', 'psql', '-XqAt', '-v', 'ON_ERROR_STOP=1', '-d', 'oteryn_game', '-c',
+         statement + ' CREATE ON SCHEMA public ' + ('TO' if statement == 'GRANT' else 'FROM')
+         + ' oteryn_game_control'])
+
+
+def game_migrate(override):
+    # Game migrations hand Control-issued objects to oteryn_game_control
+    # (ALTER ... OWNER TO), which needs Control's CREATE on the schema. Control
+    # holds it only while migrate runs; ownership already transferred stays.
+    game_schema_create('GRANT')
+    try:
+        run(['docker', 'compose', '-f', str(ROOT / 'game-db.compose.yml'), '-f', str(override),
+             'run', '--rm', '-T', '--no-deps', 'migrate'])
+    finally:
+        game_schema_create('REVOKE')
+
+
 def game_deploy(sha, run_id, attempt, artifact_id, stream):
     image, info = load_image(sha, run_id, artifact_id, stream)
     reauthorize('game', sha, run_id, attempt)
@@ -481,8 +500,7 @@ def game_deploy(sha, run_id, attempt, artifact_id, stream):
         raise ValueError('expected exactly Game and ops image declarations')
     reauthorize('game', sha, run_id, attempt)
     journal('game', sha, 'schema_unknown')
-    run(['docker', 'compose', '-f', str(ROOT / 'game-db.compose.yml'), '-f', str(override),
-         'run', '--rm', '-T', '--no-deps', 'migrate'])
+    game_migrate(override)
     journal('game', sha, 'schema_known')
     atomic(path, changed)
     run(['systemctl', 'start', 'oteryn-game.service'])

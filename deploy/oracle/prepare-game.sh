@@ -34,10 +34,20 @@ compose=(docker compose -f "$SCRIPT_DIR/game-db.compose.yml" -f "$override")
 docker volume create oteryn-oracle-game_game_backup >/dev/null
 docker run --rm --network none \
     --mount type=volume,source=oteryn-oracle-game_game_backup,target=/var/lib/oteryn-postgres-backup \
-    --entrypoint bash postgres:17.11@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3 \
+    --entrypoint bash postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42 \
     -ec 'install -d -o postgres -g postgres -m 0700 /var/lib/oteryn-postgres-backup/wal'
 "${compose[@]}" up -d --wait postgres
+game_sql() {
+    "${compose[@]}" exec -T postgres gosu postgres psql -XqAt -v ON_ERROR_STOP=1 -d oteryn_game -c "$1"
+}
+# Game migrations hand Control-issued objects to oteryn_game_control
+# (ALTER ... OWNER TO), which needs Control's CREATE on the schema. Control
+# holds it only while migrate runs, whether migrate succeeds or fails.
+game_sql 'GRANT CREATE ON SCHEMA public TO oteryn_game_control'
+trap 'game_sql "REVOKE CREATE ON SCHEMA public FROM oteryn_game_control"; rm -f "$override"' EXIT
 "${compose[@]}" --profile operations run --rm --no-deps migrate
+game_sql 'REVOKE CREATE ON SCHEMA public FROM oteryn_game_control'
+trap 'rm -f "$override"' EXIT
 # First install only: the runtime compose takes the same image on both
 # declarations; an installed one is never replaced here.
 if [[ ! -e $RUNTIME ]]; then
