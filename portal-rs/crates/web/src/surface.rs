@@ -444,17 +444,18 @@ mod tests {
         let body = html(response).await?;
         for expected in [
             "<html lang=\"en\" data-theme=\"dark\">",
-            "<header class=\"hx-head\">",
+            "<header ",
             "<nav ",
             "<main ",
-            "<footer class=\"hx-foot\">",
+            "<footer ",
             "href=\"#main\"",
-            "Welcome to the world of Oteryn!",
+            "At the gates of Thais",
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");
         }
-        assert!(!body.contains("<script"));
+        assert_eq!(body.matches("<script").count(), 1);
+        assert!(body.contains("src=\"/static/thais/home.js\""));
         assert!(!body.contains("style="));
         Ok(())
     }

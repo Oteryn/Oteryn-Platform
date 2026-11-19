@@ -6,6 +6,14 @@ pub fn register(registry: &mut Registry) {
     let on = |key| std::env::var(key).as_deref() == Ok("true");
     registry.section(true, "wiki", "shell-wiki", "wiki", Group::World, true);
     registry.section(
+        on("PORTAL_WIKI_ENTITIES_ENABLED"),
+        "creatures",
+        "thais-home-bestiary",
+        "wiki/creatures",
+        Group::World,
+        false,
+    );
+    registry.section(
         on("PORTAL_CALCULATORS_ENABLED"),
         "calculators",
         "shell-calculators",

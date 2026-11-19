@@ -1,0 +1,17 @@
+{% macro icon(name, class_name) -%}
+<svg class="{{ class_name }}" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-{{ name }}"></use></svg>
+{%- endmacro %}
+
+{% macro portrait(image, sprite, title, description, selected) %}
+<button class="portrait" id="tab-{{ image }}" type="button" role="tab" aria-controls="profil"
+        aria-selected="{{ selected }}" tabindex="{% if selected %}0{% else %}-1{% endif %}"
+        data-description="{{ chrome.text(description) }}" data-outfit="/static/img/sprites/{{ sprite }}.png">
+  <img src="/static/thais/{{ image }}.webp" alt="" loading="lazy" width="430" height="724">
+  <span class="chosen" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-check"></use></svg></span>
+  <span class="pname">{{ chrome.text(title) }}</span>
+</button>
+{% endmacro %}
+
+{% macro unknown_online() -%}
+<strong aria-hidden="true">—</strong><span class="sr-only">{{ chrome.text("thais-home-no-data") }}</span>
+{%- endmacro %}

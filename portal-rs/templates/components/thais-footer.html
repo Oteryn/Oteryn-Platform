@@ -1,0 +1,27 @@
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <a class="brand" href="#start" aria-label="Oteryn · {{ chrome.text("home-link") }}">
+      <svg aria-hidden="true" viewBox="0 0 40 44"><use href="/static/thais/icons.svg#brand"></use></svg>OTERYN
+    </a>
+    {% if chrome.first_link("wiki,support,rules,terms,privacy").is_some() %}
+    <nav class="foot-links" aria-label="{{ chrome.text("thais-foot-links") }}">
+      <div>
+        {% if let Some(link) = chrome.link("wiki") %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}
+        {% if let Some(link) = chrome.link("support") %}
+        <a href="/{{ chrome.lang }}/help">{{ chrome.text("shell-support") }}</a>
+        <a href="{{ link.url }}">{{ chrome.text("thais-foot-report") }}</a>
+        {% endif %}
+      </div>
+      <div>
+        {% for key in ["rules", "terms", "privacy"] %}
+        {% if let Some(link) = chrome.link(key) %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}
+        {% endfor %}
+      </div>
+    </nav>
+    {% endif %}
+    <nav class="foot-langs" aria-label="{{ chrome.text("thais-foot-language") }}">
+      <a href="{% if chrome.lang == "pl" %}{{ chrome.home_url() }}{% else %}{{ chrome.alternate_url }}{% endif %}" lang="pl" hreflang="pl" aria-label="Polski"{% if chrome.lang == "pl" %} aria-current="true"{% endif %}>PL</a>
+      <a href="{% if chrome.lang == "en" %}{{ chrome.home_url() }}{% else %}{{ chrome.alternate_url }}{% endif %}" lang="en" hreflang="en" aria-label="English"{% if chrome.lang == "en" %} aria-current="true"{% endif %}>EN</a>
+    </nav>
+  </div>
+</footer>
