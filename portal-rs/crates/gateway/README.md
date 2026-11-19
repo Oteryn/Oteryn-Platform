@@ -11,6 +11,7 @@ Configuration:
 | Variable | Default / requirement |
 | --- | --- |
 | `OTERYN_PLATFORM_BASE_URL` | Required; HTTPS, or HTTP on loopback only; optional path prefix |
+| `OTERYN_PLATFORM_ISSUER_CA_FILE` | Unset by default (public WebPKI roots); for HTTPS only, a readable PEM file of CA certificates used as the gateway issuer client's sole trust anchors |
 | `OTERYN_PLATFORM_SERVICE_TOKEN_FILE` | Required; externally supplied bearer token file, optional final newline |
 | `GATEWAY_NATIVE_LOGIN_ENABLED` | `false`; accepts only `true` or `false` |
 | `GATEWAY_TRUSTED_PROXIES` | Empty by default; comma-separated exact proxy IP addresses |
@@ -25,6 +26,14 @@ redirects or retries. A failure before sending is unavailable; an ambiguous sent
 request or invalid success requires reconciliation. Error bodies are validated
 against all eleven public status/code/class rows. Readiness probes upstream
 `/health`; process health stays independent.
+
+For a local TLS proxy in front of the loopback issuer, set
+`OTERYN_PLATFORM_BASE_URL=https://localhost:<proxy-port>` and point
+`OTERYN_PLATFORM_ISSUER_CA_FILE` at the proxy's signing CA in PEM format. The
+proxy certificate must have a SAN for the URL hostname (an IP SAN if the URL
+uses an IP). The proxy forwards the admission bearer and the issuer's
+`/health` and admission paths to the loopback issuer. With a private CA,
+readiness redirects also require HTTPS.
 
 The fixed windows match Go: 30 requests per connection-source IP per minute and
 six per SHA-256 of `(attempt_ref, NUL, ticket)` over two minutes. Each table holds

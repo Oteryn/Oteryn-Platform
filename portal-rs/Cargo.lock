@@ -2939,10 +2939,12 @@ dependencies = [
  "hyper",
  "hyper-util",
  "oteryn-internal-api",
+ "rcgen",
  "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "tokio",
  "tokio-rustls",
  "tower",
@@ -2950,6 +2952,7 @@ dependencies = [
  "url",
  "uuid",
  "webpki-roots",
+ "x509-parser",
 ]
 
 [[package]]

@@ -1,13 +1,7 @@
 //! Gateway role starts without loading portal configuration or a database pool.
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = oteryn_gateway::config::Config::from_env()?;
-    let token = config.read_token()?;
-    let issuer = oteryn_gateway::issuer::IssuerClient::new(
-        &config.base_url,
-        token,
-        config.timeout,
-        config.ready_timeout,
-    )?;
+    let issuer = oteryn_gateway::issuer::IssuerClient::from_config(&config)?;
     let app = oteryn_gateway::router_with_proxies(
         issuer,
         oteryn_gateway::Options {

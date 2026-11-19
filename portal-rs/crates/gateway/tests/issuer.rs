@@ -13,8 +13,11 @@ use oteryn_gateway::{
     issuer::{ISSUER_PATH, IssuerClient},
     wire::{self, Request as LoginRequest},
 };
+use rcgen::{BasicConstraints, Certificate, CertificateParams, IsCa, KeyPair, KeyUsagePurpose};
+use rustls::pki_types::PrivatePkcs8KeyDer;
 use serde_json::Value;
 use std::{
+    path::Path,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -376,4 +379,154 @@ async fn version_uses_the_go_outer_encoder_escaping() {
         to_bytes(r.into_body(), 8192).await.unwrap().as_ref(),
         b"{\"service\":\"oteryn-game-gateway\",\"version\":\"\\u003cv\\u003e\\u0026\"}\n"
     );
+}
+
+fn issuer_config(
+    base_url: &str,
+    token_file: &Path,
+    ca_file: Option<&str>,
+) -> Result<Config, String> {
+    Config::from_lookup(|key| match key {
+        "OTERYN_PLATFORM_BASE_URL" => Some(base_url.into()),
+        "OTERYN_PLATFORM_SERVICE_TOKEN_FILE" => Some(token_file.to_str().unwrap().into()),
+        "OTERYN_PLATFORM_ISSUER_CA_FILE" => ca_file.map(str::to_owned),
+        _ => None,
+    })
+}
+
+fn ca() -> (Certificate, KeyPair) {
+    let key = KeyPair::generate().unwrap();
+    let mut params = CertificateParams::new(Vec::new()).unwrap();
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    (params.self_signed(&key).unwrap(), key)
+}
+
+async fn serve_tls(app: Router, ca_cert: &Certificate, ca_key: &KeyPair) -> Server {
+    let key = KeyPair::generate().unwrap();
+    let leaf = CertificateParams::new(vec!["localhost".into()])
+        .unwrap()
+        .signed_by(&key, ca_cert, ca_key)
+        .unwrap();
+    let tls = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(
+        vec![leaf.der().clone()],
+        PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
+    )
+    .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "https://localhost:{}",
+        listener.local_addr().unwrap().port()
+    );
+    let task = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let Ok(stream) = acceptor.accept(stream).await else {
+                continue;
+            };
+            let service = hyper_util::service::TowerToHyperService::new(app.clone());
+            let _ = hyper::server::conn::http1::Builder::new()
+                .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                .await;
+        }
+    });
+    Server { url, task }
+}
+
+#[tokio::test]
+async fn private_issuer_ca_verifies_chain_and_hostname_before_sending_bearer() {
+    let dir = tempfile::tempdir().unwrap();
+    let token_file = dir.path().join("token");
+    std::fs::write(&token_file, "synthetic-gateway-service-token\n").unwrap();
+    let ca_file = dir.path().join("issuer-ca.pem");
+    let wrong_ca_file = dir.path().join("unrelated-ca.pem");
+    let (ca_cert, ca_key) = ca();
+    std::fs::write(&ca_file, ca_cert.pem()).unwrap();
+    std::fs::write(&wrong_ca_file, ca().0.pem()).unwrap();
+    let ca_file = ca_file.to_str().unwrap();
+    let login = request();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let code = Code::AuthenticationRequired;
+    let plain = serve(Router::new().route("/health", get(|| async { StatusCode::OK }))).await;
+    let insecure_location = format!("{}/health", plain.url);
+    let app = Router::new()
+        .route("/health", get(|| async { StatusCode::OK }))
+        .route(
+            "/downgrade/health",
+            get(move || async move { (StatusCode::FOUND, [("location", insecure_location)]) }),
+        )
+        .route(ISSUER_PATH, any(reply))
+        .with_state(Reply {
+            status: code.status(),
+            body: serde_json::to_string(&code.body(Some(&login.attempt_ref))).unwrap(),
+            calls: calls.clone(),
+            expected: wire::encode_request(&login).unwrap(),
+        });
+    let server = serve_tls(app, &ca_cert, &ca_key).await;
+    let client = |url, ca_file| {
+        IssuerClient::from_config(&issuer_config(url, &token_file, ca_file).unwrap()).unwrap()
+    };
+    let trusted = client(&server.url, Some(ca_file));
+    assert!(trusted.ready().await);
+    assert_eq!(trusted.admit(&login).await.unwrap_err().code, code);
+
+    let wrong_host = server.url.replace("localhost", "127.0.0.1");
+    for rejected in [
+        client(&server.url, Some(wrong_ca_file.to_str().unwrap())),
+        client(&wrong_host, Some(ca_file)),
+        client(&server.url, None),
+    ] {
+        assert!(!rejected.ready().await);
+        assert_eq!(
+            rejected.admit(&login).await.unwrap_err().code,
+            Code::Unavailable
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let downgrade = format!("{}/downgrade", server.url);
+    assert!(!client(&downgrade, Some(ca_file)).ready().await);
+    assert!(client(&plain.url, None).ready().await);
+}
+
+#[test]
+fn explicit_issuer_ca_refuses_bad_input_and_plain_http() {
+    let dir = tempfile::tempdir().unwrap();
+    let token_file = dir.path().join("token");
+    std::fs::write(&token_file, "synthetic-gateway-service-token").unwrap();
+    let ca_file = dir.path().join("issuer-ca.pem");
+    let ca_path = Some(ca_file.to_str().unwrap());
+    let https = "https://localhost:8080";
+    let http = "http://127.0.0.1:8080";
+
+    for bad_path in ["", "   "] {
+        assert!(issuer_config(https, &token_file, Some(bad_path)).is_err());
+    }
+    assert!(issuer_config(http, &token_file, ca_path).is_err());
+    let config = issuer_config(https, &token_file, ca_path).unwrap();
+    assert!(IssuerClient::from_config(&config).is_err()); // File does not exist.
+
+    let leaf = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let key = KeyPair::generate().unwrap();
+    let mut bad_usage = CertificateParams::new(Vec::new()).unwrap();
+    bad_usage.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    bad_usage.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+    let bad_usage = bad_usage.self_signed(&key).unwrap();
+    for invalid in [
+        "",
+        "not a PEM certificate",
+        "-----BEGIN CERTIFICATE-----\n!bad!\n-----END CERTIFICATE-----\n",
+        "-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n",
+        &leaf.cert.pem(),
+        &bad_usage.pem(),
+    ] {
+        std::fs::write(&ca_file, invalid).unwrap();
+        assert!(IssuerClient::from_config(&config).is_err());
+    }
 }

@@ -1,5 +1,6 @@
 //! One HTTP/1 exchange per admission. No redirects, retries, cookies or ambient proxy credentials.
 use crate::{
+    config::{Config, ISSUER_CA_FILE, validate_issuer_url},
     errors::{Code, Refusal, parse_issuer_error, retry_after},
     recover::{self, RecoverCode, RecoverRefusal},
     v3::{self, Refusal3},
@@ -9,8 +10,10 @@ use axum::body::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request as HttpRequest, body::Incoming};
 use hyper_util::rt::TokioIo;
-use std::{fmt, sync::Arc, time::Duration};
+use rustls::pki_types::{CertificateDer, pem::PemObject};
+use std::{fmt, path::Path, sync::Arc, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
+use x509_parser::prelude::{FromDer, X509Certificate};
 
 pub const ISSUER_PATH: &str = "/internal/v1/game-auth/native-admissions";
 #[derive(Clone)]
@@ -20,12 +23,41 @@ pub struct IssuerClient {
     timeout: Duration,
     ready_timeout: Duration,
     tls: Arc<rustls::ClientConfig>,
+    require_https: bool,
 }
 impl fmt::Debug for IssuerClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("IssuerClient{redacted}")
     }
 }
+fn issuer_roots(path: &Path) -> Result<rustls::RootCertStore, String> {
+    let invalid = || format!("invalid CA certificate in {ISSUER_CA_FILE}");
+    let certificates =
+        CertificateDer::pem_file_iter(path).map_err(|_| format!("cannot open {ISSUER_CA_FILE}"))?;
+    let mut roots = rustls::RootCertStore::empty();
+    for certificate in certificates {
+        let certificate = certificate.map_err(|_| invalid())?;
+        let (rest, ca) = X509Certificate::from_der(certificate.as_ref()).map_err(|_| invalid())?;
+        if !rest.is_empty()
+            || !ca
+                .basic_constraints()
+                .map_err(|_| invalid())?
+                .is_some_and(|bc| bc.value.ca)
+            || ca
+                .key_usage()
+                .map_err(|_| invalid())?
+                .is_some_and(|usage| !usage.value.key_cert_sign())
+        {
+            return Err(invalid());
+        }
+        roots.add(certificate).map_err(|_| invalid())?;
+    }
+    if roots.is_empty() {
+        return Err(format!("{ISSUER_CA_FILE} contains no PEM certificates"));
+    }
+    Ok(roots)
+}
+
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 impl IssuerClient {
@@ -35,9 +67,33 @@ impl IssuerClient {
         timeout: Duration,
         ready_timeout: Duration,
     ) -> Result<Self, String> {
-        crate::config::validate_url(base_url)?;
-        let roots =
-            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        Self::build(base_url, token, timeout, ready_timeout, None)
+    }
+
+    pub fn from_config(config: &Config) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self::build(
+            &config.base_url,
+            config.read_token()?,
+            config.timeout,
+            config.ready_timeout,
+            config.issuer_ca_file.as_deref(),
+        )?)
+    }
+
+    fn build(
+        base_url: &str,
+        token: String,
+        timeout: Duration,
+        ready_timeout: Duration,
+        ca_file: Option<&Path>,
+    ) -> Result<Self, String> {
+        validate_issuer_url(base_url, ca_file.is_some())?;
+        let roots = match ca_file {
+            Some(path) => issuer_roots(path)?,
+            None => {
+                rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned())
+            }
+        };
         // Pin the provider: other crates in the workspace enable a second rustls
         // backend, so the process-wide default cannot be inferred.
         let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
@@ -53,6 +109,7 @@ impl IssuerClient {
             timeout,
             ready_timeout,
             tls: Arc::new(tls),
+            require_https: ca_file.is_some(),
         })
     }
     async fn exchange(
@@ -64,6 +121,9 @@ impl IssuerClient {
         written: &mut bool,
     ) -> Result<hyper::Response<Incoming>, Code> {
         let url = url::Url::parse(raw_url).map_err(|_| Code::Unavailable)?;
+        if self.require_https && url.scheme() != "https" {
+            return Err(Code::Unavailable);
+        }
         let host = url
             .host_str()
             .ok_or(Code::Unavailable)?
