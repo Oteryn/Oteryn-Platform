@@ -134,7 +134,8 @@ async fn online_real_privacy_owner_mutations_and_missing_state() -> Result {
     );
     push(ingest.clone(),"character-profile",format!(r#"{{"contract_version":1,"operation":"PublishCharacterProfileV1","source_authority":"privacy-test","character_id":"{character}","projection_epoch":"1","projection_revision":"1","source_observed_at":"{now}","profile":[{{"world_id":"{world}","name":"Aldric","vocation":4,"level":"412","guild":[],"guild_visible":false}}]}}"#)).await?;
     push(ingest.clone(),"watermark",format!(r#"{{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"privacy-test","family":"character_profile","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#)).await?;
-    push(ingest,"world-online",format!(r#"{{"contract_version":1,"operation":"PublishWorldOnlineV1","source_authority":"privacy-test","world_id":"{world}","projection_epoch":"1","projection_revision":"1","source_observed_at":"{now}","characters":[{{"name":"Aldric","vocation":4,"level":"412"}},{{"name":"Unknown","vocation":4,"level":"500"}}]}}"#)).await?;
+    push(ingest.clone(),"world-online",format!(r#"{{"contract_version":1,"operation":"PublishWorldOnlineV1","source_authority":"privacy-test","world_id":"{world}","projection_epoch":"1","projection_revision":"1","source_observed_at":"{now}","characters":[{{"name":"Aldric","vocation":4,"level":"412"}},{{"name":"Unknown","vocation":4,"level":"500"}}]}}"#)).await?;
+    push(ingest,"watermark",format!(r#"{{"contract_version":1,"operation":"PublishPublicProjectionWatermarkV1","source_authority":"privacy-test","family":"world_online","projection_epoch":"1","complete_through":"{now}","observed_at":"{now}"}}"#)).await?;
     assert!(!page(app.clone()).await?.contains("Aldric")); // no saved privacy state
     let mut p = Preferences {
         hidden: false,
@@ -519,6 +520,72 @@ async fn w3_c06_006_ranking_name_handoff() -> Result {
     fixture.finish().await
 }
 
+async fn seed_online(db: &PgPool) -> Result {
+    sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT 'world_online',payload->>'world_id',1,1,watermark,jsonb_build_object('world_id',payload->>'world_id','characters',jsonb_build_array(jsonb_build_object('name','Aldric','level','100','vocation',1))) FROM public_snapshots WHERE family='highscores'")
+        .execute(db).await?;
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online','',true,1,1,floor(extract(epoch FROM clock_timestamp()))::bigint,'null')")
+        .execute(db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_online_watermark_withholds_presence_with_fresh_profiles() -> Result {
+    let fixture = RankingFixture::new().await?;
+    fixture
+        .service
+        .update(
+            fixture.owner,
+            "Aldric",
+            Preferences {
+                hidden: false,
+                show_status: true,
+                ..Preferences::default()
+            },
+            fixture.now,
+        )
+        .await
+        .map_err(|_| "privacy save failed")?;
+    seed_online(&fixture.db).await?;
+    let app = online::router(
+        fixture.db.clone(),
+        Arc::new(Authority::new(
+            fixture.db.clone(),
+            ProfileAuthority {
+                service: fixture.service.clone(),
+            },
+        )),
+        online::Config {
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    assert!(page(app.clone()).await?.contains("Aldric"));
+
+    let world = sqlx::query_scalar::<_, String>(
+        "SELECT subject FROM public_snapshots WHERE family='world_online' AND NOT is_watermark",
+    )
+    .fetch_one(&fixture.db)
+    .await?;
+    for age in [Some(31_i64), Some(-10), None] {
+        if let Some(age) = age {
+            sqlx::query("UPDATE public_snapshots SET watermark=floor(extract(epoch FROM clock_timestamp()))::bigint-$1 WHERE family='world_online' AND is_watermark")
+                .bind(age).execute(&fixture.db).await?;
+        } else {
+            sqlx::query(
+                "DELETE FROM public_snapshots WHERE family='world_online' AND is_watermark",
+            )
+            .execute(&fixture.db)
+            .await?;
+        }
+        let html = page(app.clone()).await?;
+        assert!(!html.contains("Aldric"), "watermark age: {age:?}");
+        assert!(!html.contains(&world));
+        assert!(!html.contains("Visible characters online:"));
+        assert!(html.contains("Data is stale"));
+    }
+    fixture.finish().await
+}
+
 async fn stale_profile_page(online_page: bool) -> Result {
     let fixture = RankingFixture::new().await?;
     let db = &fixture.db;
@@ -529,7 +596,7 @@ async fn stale_profile_page(online_page: bool) -> Result {
         },
     ));
     let (app, path) = if online_page {
-        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT 'world_online',payload->>'world_id',1,1,watermark,jsonb_build_object('world_id',payload->>'world_id','characters',jsonb_build_array(jsonb_build_object('name','Aldric','level','100','vocation',1))) FROM public_snapshots WHERE family='highscores'").execute(db).await?;
+        seed_online(db).await?;
         (
             online::router(
                 db.clone(),

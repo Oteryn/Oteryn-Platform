@@ -15,6 +15,10 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+const FRESHNESS_SECONDS: u64 = 30;
+const CLOCK_UNCERTAINTY_SECONDS: u64 = 1;
+
 #[derive(Clone, Debug)]
 pub struct CharacterRef {
     pub world: String,
@@ -41,13 +45,14 @@ impl PublicVisibility for FailClosed {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub enabled: bool,
+    /// Age at which to label an individual snapshot while the family watermark is fresh.
     pub stale_after: Duration,
 }
 impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: false,
-            stale_after: Duration::from_secs(600),
+            stale_after: Duration::from_secs(FRESHNESS_SECONDS),
         }
     }
 }
@@ -91,7 +96,7 @@ pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router
                 std::env::var("PORTAL_ONLINE_STALE_SECONDS")
                     .ok()
                     .and_then(|s| s.parse().ok())
-                    .unwrap_or(600),
+                    .unwrap_or(FRESHNESS_SECONDS),
             ),
         },
     )
@@ -114,12 +119,18 @@ struct World {
     stale: bool,
     characters: Vec<Character>,
 }
+#[derive(Default)]
+struct Catalogue {
+    ids: Vec<String>,
+    worlds: Vec<World>,
+}
 #[derive(Template)]
 #[template(path = "pages/online.html", config = "src/online.askama.toml")]
 struct Page {
     lang: &'static str,
     labels: Vec<String>,
     unavailable: bool,
+    stale: bool,
     ids: Vec<String>,
     filter: String,
     by_level: bool,
@@ -163,10 +174,20 @@ fn labels(en: bool) -> Vec<String> {
     })
     .collect()
 }
-async fn load_inner(
-    state: &Online,
-    query: &Query,
-) -> Result<(Vec<String>, Vec<World>), Unavailable> {
+fn now() -> Result<u64, Unavailable> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Unavailable)?
+        .as_secs())
+}
+
+fn watermark_is_fresh(complete_through: u64, now: u64) -> bool {
+    (now.saturating_sub(FRESHNESS_SECONDS - CLOCK_UNCERTAINTY_SECONDS)
+        ..=now.saturating_add(CLOCK_UNCERTAINTY_SECONDS))
+        .contains(&complete_through)
+}
+
+async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, Unavailable> {
     let privacy_cut = crate::privacy::Cut::read(&state.db)
         .await
         .map_err(|_| Unavailable)?;
@@ -185,15 +206,33 @@ async fn load_inner(
     {
         return Err(Unavailable);
     }
+    // The family cut advances after a complete scan. Unchanged worlds can retain older snapshots.
+    // A missing or stale cut withholds names, but must not mask the fail-closed
+    // checks below (visibility authority, privacy cut), which answer 503.
+    let complete_through = sqlx::query_scalar::<_, i64>(
+        "SELECT watermark FROM public_snapshots
+         WHERE family='world_online' AND subject='' AND is_watermark
+           AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
+    )
+    .fetch_optional(&mut *fence)
+    .await
+    .map_err(|_| Unavailable)?
+    .map(u64::try_from)
+    .transpose()
+    .map_err(|_| Unavailable)?;
+    let fresh_cut = match complete_through {
+        Some(cut) if watermark_is_fresh(cut, now()?) => Some(cut),
+        _ => None,
+    };
     let mut visible_refs = Vec::new();
-    let rows = sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?;
+    let rows = if fresh_cut.is_none() {
+        Vec::new()
+    } else {
+        sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?
+    };
     if rows.len() > 256 {
         return Err(Unavailable);
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| Unavailable)?
-        .as_secs();
     let mut ids = vec![];
     let mut worlds = vec![];
     for row in rows {
@@ -256,8 +295,7 @@ async fn load_inner(
             observed: u64::try_from(watermark).map_err(|_| Unavailable)?,
             id,
             as_of: row.try_get("as_of").map_err(|_| Unavailable)?,
-            stale: now.saturating_sub(u64::try_from(watermark).map_err(|_| Unavailable)?)
-                > state.config.stale_after.as_secs(),
+            stale: false,
             characters,
         });
     }
@@ -274,14 +312,17 @@ async fn load_inner(
         return Err(Unavailable);
     }
     fence.commit().await.map_err(|_| Unavailable)?;
-    let serving = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| Unavailable)?
-        .as_secs();
+    let serving = now()?;
+    let Some(complete_through) = fresh_cut else {
+        return Ok(None);
+    };
+    if !watermark_is_fresh(complete_through, serving) {
+        return Ok(None);
+    }
     for world in &mut worlds {
         world.stale = serving.saturating_sub(world.observed) > state.config.stale_after.as_secs();
     }
-    Ok((ids, worlds))
+    Ok(Some(Catalogue { ids, worlds }))
 }
 async fn page(
     State(state): State<Online>,
@@ -315,11 +356,13 @@ async fn page(
     let en = uri.path().starts_with("/en/");
     let result = load(&state, &query).await;
     let unavailable = result.is_err();
-    let (ids, worlds) = result.unwrap_or_default();
+    let stale = matches!(result, Ok(None));
+    let Catalogue { ids, worlds } = result.ok().flatten().unwrap_or_default();
     let page = Page {
         lang: if en { "en" } else { "pl" },
         labels: labels(en),
         unavailable,
+        stale,
         ids,
         worlds,
         filter: query.world.unwrap_or_default(),
@@ -374,7 +417,7 @@ async fn response_policy(
     response
 }
 
-async fn load(state: &Online, query: &Query) -> Result<(Vec<String>, Vec<World>), Unavailable> {
+async fn load(state: &Online, query: &Query) -> Result<Option<Catalogue>, Unavailable> {
     tokio::time::timeout(Duration::from_secs(3), load_inner(state, query))
         .await
         .map_err(|_| Unavailable)?
