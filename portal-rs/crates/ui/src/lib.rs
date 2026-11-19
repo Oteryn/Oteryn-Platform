@@ -592,7 +592,9 @@ mod tests {
             ranking_as_of: None,
         };
         let html = Home::new(&chrome, &data).render()?;
-        let hero = html.split_once("</section>").expect("homepage hero").0;
+        let Some((hero, _)) = html.split_once("</section>") else {
+            return Err(askama::Error::Custom("homepage hero missing".into()));
+        };
         assert!(hero.contains("href=\"/pl/news/test-0\">Nowa &#60;kraina&#62;</a>"));
         assert!(hero.contains("datetime=\"2026-11-07\""));
         assert_eq!(hero.matches("Opis &#38; zmiany").count(), 1);
