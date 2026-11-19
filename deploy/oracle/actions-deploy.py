@@ -9,7 +9,6 @@ secrets/configuration, World content, custody and the incarnation controller
 remain separately installed.
 """
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
