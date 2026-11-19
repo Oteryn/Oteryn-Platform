@@ -169,7 +169,7 @@ impl Db {
     }
     async fn account(&self, id: &str) {
         // Match a live LCFA publication; snapshots alone cannot prove ownership.
-        self.exec("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1", &[]).await;
+        self.exec("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1", &[]).await;
         self.exec(
             "INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1::uuid,$1||'@example.test','x','active','en')",
             &[id],

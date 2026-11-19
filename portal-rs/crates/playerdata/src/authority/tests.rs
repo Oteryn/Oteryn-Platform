@@ -133,7 +133,7 @@ impl Db {
         q.execute(&self.pool).await.unwrap();
     }
     async fn account(&self, id: &str, epoch: &str, revision: &str) {
-        self.exec("UPDATE account_character_feed SET highest_epoch=$1,watermark_epoch=$1,source_authority='test',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1", &[epoch]).await;
+        self.exec("UPDATE account_character_feed SET highest_epoch=$1,watermark_epoch=$1,source_authority='test',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1", &[epoch]).await;
         self.exec(
             "INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1::uuid,$1||'@example.test','x','active','en')",
             &[id],
@@ -1020,7 +1020,7 @@ async fn postgres_global_feed_invalidation_refuses_admission_and_ownership() {
     for update in [
         "UPDATE account_character_feed SET highest_epoch='2',watermark_epoch=NULL,source_authority=NULL,complete_through=NULL,observed_at=NULL WHERE id=1",
         "UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='test',complete_through=0,observed_at=0 WHERE id=1",
-        "UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='wrong-source',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1",
+        "UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='wrong-source',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1",
     ] {
         db.exec(update, &[]).await;
         assert_eq!(
@@ -1258,7 +1258,7 @@ async fn postgres_account_stream_recovery_never_regresses() {
             .0,
         StatusCode::OK
     );
-    db.exec("UPDATE account_character_feed SET highest_epoch='2',watermark_epoch='2',complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1", &[]).await;
+    db.exec("UPDATE account_character_feed SET highest_epoch='2',watermark_epoch='2',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1", &[]).await;
     db.exec(
         "UPDATE account_character_snapshots SET projection_epoch='2' WHERE account_id=$1::uuid",
         &[SELLER],
