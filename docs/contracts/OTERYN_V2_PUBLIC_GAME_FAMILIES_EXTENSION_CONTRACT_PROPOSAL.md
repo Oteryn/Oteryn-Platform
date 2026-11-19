@@ -12,6 +12,7 @@ Owner decision 2026-11-19, relayed by the programme coordinator (Oteryn-Platform
 - **Tagged killers:** `killers` holds 0..16 closed tagged objects (*Deaths with killers*). The Game fixtures `character_deaths_player_v2.json` and `character_deaths_creature_v2.json` are copied byte for byte into `docs/contracts/fixtures/public-game-families-v2/` with their provenance.
 - **Serving:** Platform shows only the historical name. It shows a creature by name and a player only while that CharacterId is currently visible; otherwise it drops the whole killer object. CharacterIds and creature keys never become public output, URLs or API identity.
 - **Retained revision 3 rows:** name-only labels already stored are never shown and are not resolved to an identity. A same-occurrence republish from the producer supplies the typed identity; Platform infers none.
+- **Earlier text:** where revision 3 text (the T24d consumer row, Q4) says the wire carries no creature cause, revision 4 supersedes it for creatures with a native content key; environment/unknown causes remain absent.
 
 ## Revision 3 changes
 
