@@ -717,3 +717,13 @@ body:has(.account-sheet[open]) { overflow: hidden; }
   white-space: nowrap;
 }
 .world-scope { display: block; font-size: .75rem; line-height: 1.35; }
+
+@media (min-width: 1800px) {
+  .hero { background: #10191d; }
+  .hero-art {
+    max-width: 1800px;
+    margin-inline: auto;
+    object-position: 62% 32%;
+    mask-image: linear-gradient(90deg, transparent, black 16%, black 86%, transparent);
+  }
+}
