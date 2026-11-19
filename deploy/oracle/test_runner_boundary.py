@@ -90,6 +90,18 @@ class PrepareGameImage(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn('OTERYN_GAME_IMAGE', result.stderr)
 
+    def test_control_holds_schema_create_only_while_migrate_runs(self):
+        lines = self.SCRIPT.read_text().splitlines()
+        grant = lines.index("game_sql 'GRANT CREATE ON SCHEMA public TO oteryn_game_control'")
+        trap = lines.index('trap \'game_sql "REVOKE CREATE ON SCHEMA public FROM oteryn_game_control"; rm -f "$override"\' EXIT')
+        migrate = lines.index('"${compose[@]}" --profile operations run --rm --no-deps migrate')
+        revoke = lines.index("game_sql 'REVOKE CREATE ON SCHEMA public FROM oteryn_game_control'")
+        self.assertLess(grant, trap)
+        self.assertLess(trap, migrate)
+        self.assertEqual(revoke, migrate + 1)
+        self.assertEqual(lines[revoke + 1], 'trap \'rm -f "$override"\' EXIT')
+        self.assertNotIn('CREATE ON SCHEMA', Path(__file__).with_name('prepare-game-db.py').read_text())
+
     def test_no_shipped_file_pins_a_game_image_for_the_first_install(self):
         self.assertNotIn('docker image inspect oteryn-game:', self.SCRIPT.read_text())
         runtime = Path(__file__).with_name('game-runtime.compose.yml').read_text()

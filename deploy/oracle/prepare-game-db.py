@@ -193,7 +193,8 @@ REVOKE ALL ON DATABASE oteryn_game FROM PUBLIC;
 GRANT CONNECT ON DATABASE oteryn_game TO oteryn_game_control_login, oteryn_game_runtime_login;
 -- Game migrations hand Control-issued tables and functions to the Control role
 -- (ALTER ... OWNER TO, then triggers on them), so the migration role must be
--- able to act as Control, and Control needs CREATE on the schema to own them.
+-- able to act as Control. Control gets CREATE on the schema only while
+-- migrate runs (prepare-game.sh, actions-deploy.py).
 GRANT oteryn_game_control TO oteryn_game_owner WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 -- Game migrations bind these NOLOGIN groups but run without CREATEROLE; the
 -- migration role administers them only (no inherit, no SET).
@@ -201,8 +202,6 @@ CREATE ROLE oteryn_game_highscore_job NOLOGIN NOINHERIT;
 CREATE ROLE oteryn_game_admin_agent NOLOGIN;
 GRANT oteryn_game_highscore_job TO oteryn_game_owner WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
 GRANT oteryn_game_admin_agent TO oteryn_game_owner WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
-\\connect oteryn_game
-GRANT CREATE ON SCHEMA public TO oteryn_game_control;
 '''.format(**passwords)
         write(staged / 'init/10-game-roles.sql', sql, uid=999)
         write(staged / 'config/pg_hba.conf', '''local all postgres peer
