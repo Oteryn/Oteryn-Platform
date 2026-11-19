@@ -27,8 +27,6 @@ services:
       # Set per incarnation by game-supervisor.py from BASE/run/step-wait-receipts.
       OTERYN_STEP_WAIT_RECEIPTS: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
     volumes: *game-mounts
-    ports:
-      - '0.0.0.0:7172:7172'
     networks:
       platform_private:
         ipv4_address: 172.18.0.11

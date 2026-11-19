@@ -57,6 +57,17 @@ jobs:
           python deploy/oracle/test_game_supervisor.py
           python deploy/oracle/test_runner_boundary.py
 
+      - name: Validate the edge gameplay relay with the pinned Caddy build
+        run: |
+          set -euo pipefail
+          # Build the same Caddy and caddy-l4 versions edge.Dockerfile pins.
+          build_args=$(sed -n 's/^RUN xcaddy build //p' deploy/oracle/edge.Dockerfile)
+          test -n "$build_args"
+          go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.5
+          # shellcheck disable=SC2086
+          "$(go env GOPATH)/bin/xcaddy" build $build_args --output "$RUNNER_TEMP/caddy"
+          OTERYN_EDGE_CADDY="$RUNNER_TEMP/caddy" python deploy/oracle/test_edge_layer4.py
+
       - name: Validate architecture decision registries
         run: |
           python tools/validation/test_adr_registry.py
