@@ -1,7 +1,7 @@
 import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import {register,login,csrfRejected,pool} from '../helpers.mjs';
+import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
@@ -26,6 +26,7 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
    if(new URL(m.location().url||'https://localhost/').pathname===expected&&m.text()===`Failed to load resource: the server responded with a status of ${row.status} (${({400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',422:'Unprocessable Entity',503:'Service Unavailable'})[row.status]})`)return;
    errors.push(m.text());
  });
+ if (row.method === 'GET') await waitForWikiBudget(target, 2);
  const response=await page.request.fetch(target,{method:row.method,headers:{accept:'text/html',origin:'https://localhost:18443','accept-language':lang},...(row.method==='GET'?{}:{form:row.route==='/oauth/token'?{client_id:'e2e-local'}:{}})});
  expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
  if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');

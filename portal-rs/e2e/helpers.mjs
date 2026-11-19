@@ -90,6 +90,22 @@ export async function logout(page,lang) {
  if (!await form.isVisible()) await page.locator('[data-account-link]').click();
  await submit(page, formSelector);
 }
+// Wiki entities and the portal search share the 30/minute WikiSearch policy.
+export async function waitForWikiBudget(target, needed=1) {
+  const path = new URL(target, 'https://localhost').pathname;
+  if (!/^\/(?:pl\/|en\/)?(?:wiki(?:\/|$)|search$)/.test(path)) return;
+  const db = pool();
+  try {
+    await expect.poll(async () => {
+      const result = await db.query(
+        "SELECT COALESCE(max(count),0) AS used FROM web_rate_limits WHERE limiter_name='wiki-search' AND window_start=date_trunc('minute',clock_timestamp())"
+      );
+      return Number(result.rows[0].used);
+    }, {timeout: 65_000, intervals: [1000]}).toBeLessThanOrEqual(30 - needed);
+  } finally {
+    await db.end();
+  }
+}
 export async function waitForLoginBudget(needed=1) {
  const db=pool();
  try {
