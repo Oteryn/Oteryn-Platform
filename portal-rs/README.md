@@ -56,6 +56,8 @@ Ownership comes from the character projection and a receipt chain: the committed
 
 Operators can run `oteryn-portal catalog import <file> --actor <account-uuid>` (prints the revision), then `oteryn-portal catalog activate <catalog_revision> --actor <account-uuid>`. The active account needs `store.catalog.import` or `store.catalog.activate`, respectively; the explicit command enables catalog operations and audits changes.
 
+Operators can run `oteryn-portal game-route publish --actor <account-uuid> '<json>'` to publish a world, one channel in it and that channel's native route record (gateway contract §7.3) in any environment, for example as a one-off `docker compose run` on the host. The JSON keys are `worldId`, `name`, `region`, `channelId`, `host`, `port`, `tlsServerName`, `version` and `nativeLoginEnabled`. The command is idempotent: an identical rerun changes nothing. A higher `version` rotates the route; the same version with other values is a conflict. Each change is audited as `game.route.published`. The active account needs `game.world.admin`. The test-only `seed` role stays limited to `OTERYN_ENV=testing`.
+
 Operators can run `oteryn-portal commerce-refunds-reconcile [--dry-run] --actor <account-uuid>` for refunds whose `commerce.refund` outbox job is dead: it returns that same job to pending (same key, so the provider sees the same intent-id refund key) for each unsettled refund whose claim is not live and whose intent the payment ledger does not already show refunded, prints one line per refund and audits each revival as `commerce.refund.reconciled`. `--dry-run` only lists them. The active account needs `admin.access` and `payments.reconcile`.
 
 G-9 revision 3 uses `PORTAL_PLAYERDATA_G9_INGEST_ENABLED` and

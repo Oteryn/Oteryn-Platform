@@ -72,7 +72,7 @@ impl fmt::Display for SeedError {
 }
 impl std::error::Error for SeedError {}
 impl SeedError {
-    fn parts(&self) -> (&'static str, &str) {
+    pub(crate) fn parts(&self) -> (&'static str, &str) {
         match self {
             Self::BadInput(r) => ("bad_input", r),
             Self::Conflict(r) => ("conflict", r),
@@ -80,7 +80,7 @@ impl SeedError {
             Self::Unavailable(r) => ("unavailable", r),
         }
     }
-    fn exit(&self) -> ExitCode {
+    pub(crate) fn exit(&self) -> ExitCode {
         match self {
             Self::BadInput(_) | Self::Conflict(_) => ExitCode::from(2),
             Self::NotApplicable(_) => ExitCode::from(3),
@@ -93,7 +93,7 @@ impl From<sqlx::Error> for SeedError {
         Self::Unavailable("database")
     }
 }
-fn bad(reason: impl Into<String>) -> SeedError {
+pub(crate) fn bad(reason: impl Into<String>) -> SeedError {
     SeedError::BadInput(reason.into())
 }
 
@@ -190,32 +190,32 @@ pub async fn execute(
 }
 
 /// A JSON object whose keys are checked against each command's allow-list.
-struct Args<'a>(&'a Map<String, Value>);
+pub(crate) struct Args<'a>(&'a Map<String, Value>);
 impl<'a> Args<'a> {
-    fn new(input: &'a Value) -> Result<Self, SeedError> {
+    pub(crate) fn new(input: &'a Value) -> Result<Self, SeedError> {
         input
             .as_object()
             .map(Self)
             .ok_or_else(|| bad("arguments must be a JSON object"))
     }
-    fn only(&self, allowed: &[&str]) -> Result<(), SeedError> {
+    pub(crate) fn only(&self, allowed: &[&str]) -> Result<(), SeedError> {
         match self.0.keys().find(|key| !allowed.contains(&key.as_str())) {
             Some(key) => Err(bad(format!("unknown argument {key:?}"))),
             None => Ok(()),
         }
     }
-    fn text(&self, key: &str) -> Result<Option<&'a str>, SeedError> {
+    pub(crate) fn text(&self, key: &str) -> Result<Option<&'a str>, SeedError> {
         match self.0.get(key) {
             None | Some(Value::Null) => Ok(None),
             Some(Value::String(value)) => Ok(Some(value)),
             Some(_) => Err(bad(format!("{key} must be a string"))),
         }
     }
-    fn required(&self, key: &str) -> Result<&'a str, SeedError> {
+    pub(crate) fn required(&self, key: &str) -> Result<&'a str, SeedError> {
         self.text(key)?
             .ok_or_else(|| bad(format!("{key} is required")))
     }
-    fn uuid(&self, key: &str, v7: bool) -> Result<Option<Uuid>, SeedError> {
+    pub(crate) fn uuid(&self, key: &str, v7: bool) -> Result<Option<Uuid>, SeedError> {
         self.text(key)?
             .map(|raw| {
                 let id = Uuid::parse_str(raw).map_err(|_| bad(format!("{key} is not a UUID")))?;
@@ -235,7 +235,7 @@ impl<'a> Args<'a> {
     }
 }
 
-fn bounded(key: &str, value: &str, max: usize) -> Result<(), SeedError> {
+pub(crate) fn bounded(key: &str, value: &str, max: usize) -> Result<(), SeedError> {
     if value.trim().is_empty() || value.trim() != value || value.chars().count() > max {
         return Err(bad(format!("{key} must be 1..={max} characters, trimmed")));
     }
@@ -328,12 +328,7 @@ async fn world(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
     let region = args.text("region")?.unwrap_or("local");
     bounded("region", region, 96)?;
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO world_status (id, name, location) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name=excluded.name, location=excluded.location, updated_at=now() WHERE (world_status.name, world_status.location) IS DISTINCT FROM (excluded.name, excluded.location)")
-        .bind(id)
-        .bind(name)
-        .bind(region)
-        .execute(&mut *tx)
-        .await?;
+    ensure_world(&mut tx, id, name, region).await?;
     tx.commit().await?;
     let not_stored: Vec<&str> = UNSTORED
         .into_iter()
@@ -352,6 +347,22 @@ async fn world(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         map.insert("notStoredReason".into(), json!(NOT_STORED_WORLD));
     }
     Ok(out)
+}
+
+/// Upsert one `world_status` row; true when the row was inserted or changed.
+pub(crate) async fn ensure_world(
+    tx: &mut sqlx::PgConnection,
+    id: Uuid,
+    name: &str,
+    region: &str,
+) -> Result<bool, SeedError> {
+    let done = sqlx::query("INSERT INTO world_status (id, name, location) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name=excluded.name, location=excluded.location, updated_at=now() WHERE (world_status.name, world_status.location) IS DISTINCT FROM (excluded.name, excluded.location)")
+        .bind(id)
+        .bind(name)
+        .bind(region)
+        .execute(&mut *tx)
+        .await?;
+    Ok(done.rows_affected() > 0)
 }
 
 /// A world seeded with `world` and a distinct UUIDv7 channel in it.
@@ -431,6 +442,19 @@ async fn route(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         "version",
         "nativeLoginEnabled",
     ])?;
+    let mut tx = pool.begin().await?;
+    let (_, wanted) = ensure_route(&mut tx, args).await?;
+    tx.commit().await?;
+    Ok(tagged("route", wanted))
+}
+
+/// Validate and store one route record inside the caller's transaction.
+/// Returns the previous record and the stored one; they are equal when the
+/// call changed nothing. The caller restricts the accepted keys.
+pub(crate) async fn ensure_route(
+    tx: &mut sqlx::PgConnection,
+    args: &Args<'_>,
+) -> Result<(Value, Value), SeedError> {
     let host = args.required("host")?;
     let tls = args.required("tlsServerName")?;
     if !route_names_valid(host, tls) {
@@ -456,8 +480,7 @@ async fn route(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         Some(Value::Bool(value)) => *value,
         Some(_) => return Err(bad("nativeLoginEnabled must be a boolean")),
     };
-    let mut tx = pool.begin().await?;
-    let (world, channel) = scope(&mut tx, args).await?;
+    let (world, channel) = scope(&mut *tx, args).await?;
     let revision = route_revision(version, world, channel, host, port, tls)
         .map_err(|_| SeedError::Unavailable("route revision"))?;
     let wanted = json!({
@@ -470,10 +493,9 @@ async fn route(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         "routeRevision": revision,
         "nativeLoginEnabled": enabled,
     });
-    let current = channel_record(&mut tx, world, channel).await?;
+    let current = channel_record(&mut *tx, world, channel).await?;
     if current == wanted {
-        tx.commit().await?;
-        return Ok(tagged("route", wanted));
+        return Ok((current, wanted));
     }
     if current["version"]
         .as_u64()
@@ -494,8 +516,7 @@ async fn route(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         .bind(enabled)
         .execute(&mut *tx)
         .await?;
-    tx.commit().await?;
-    Ok(tagged("route", wanted))
+    Ok((current, wanted))
 }
 
 async fn oauth_native_client(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
