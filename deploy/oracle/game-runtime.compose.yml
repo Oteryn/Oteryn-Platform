@@ -21,7 +21,7 @@ services:
       - --npc-data-project
       - /srv/oteryn/game/run/npc-data/content/world
       - --npc-data-sha256
-      - 71e96ccf1c6b327df60e12abc6faa972f32ff9ff99260b86fcb8a7513a535685
+      - 3c82124d7271e2e1ec42dce8be29900322e19771515363f622155d98df044f17
     environment:
       OTERYN_NATIVE_GAMEPLAY_MANIFEST: /srv/oteryn/game/gameplay/content/spells.manifest.json
       # Set per incarnation by game-supervisor.py from BASE/run/step-wait-receipts.
