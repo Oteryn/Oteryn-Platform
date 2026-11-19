@@ -6,7 +6,6 @@ current protected main after its aggregate gate passes. Host secrets/configurati
 World content, custody and the incarnation controller remain separately installed.
 """
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -183,88 +182,6 @@ def verify_current_release(component, sha):
               {PORTAL_CONTAINERS[name]: record['platform_image'] for name in PORTAL_APPS})
     if any(inspect(name)['Image'] != identity for name, identity in images.items()):
         raise ValueError('receipt differs from current runtime images')
-
-
-MTLS = 'oteryn-oracle-internal-mtls-1'
-MTLS_CONFIG = '/bootstrap/internal-mtls-nginx.conf'
-
-
-def mtls_bootstrap():
-    # The listener mounts the bootstrap volume read-only; write its host directory instead.
-    mounts = [m for m in inspect(MTLS)['Mounts'] if m['Destination'] == '/bootstrap']
-    if (len(mounts) != 1 or mounts[0].get('Type') != 'volume'
-            or mounts[0].get('Name') != 'oteryn-oracle_bootstrap_files'):
-        raise ValueError('internal mTLS bootstrap mount differs from installed boundary')
-    return Path(mounts[0]['Source'])
-
-
-def prepare_mtls(directory, sha):
-    bootstrap = mtls_bootstrap()
-    candidate = (directory / 'deploy/synology/docker/internal-mtls-nginx.conf').read_text()
-    for stale in bootstrap.glob('internal-mtls-nginx.*.conf'):
-        if re.fullmatch(r'internal-mtls-nginx\.' + SHA + r'\.conf', stale.name):
-            stale.unlink()
-    staged = bootstrap / ('internal-mtls-nginx.' + sha + '.conf')
-    # Root-only like the rest of the bootstrap files; the nginx master reads it as root.
-    fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, 'w') as stream:
-        stream.write(candidate)
-        stream.flush()
-        os.fsync(stream.fileno())
-    run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', '/bootstrap/' + staged.name])
-    return staged
-
-
-def mtls_workers():
-    # The listener's nginx master is PID 1; only its children still titled exactly
-    # 'nginx: worker process' serve requests (old ones become '... is shutting down').
-    workers = set()
-    for line in run(['docker', 'exec', MTLS, 'pgrep', '-a', '-P', '1'], output=True).splitlines():
-        pid, _, title = line.strip().partition(' ')
-        if title.strip() == 'nginx: worker process':
-            workers.add(pid)
-    return workers
-
-
-def deploy_mtls(directory, sha, run_id, attempt):
-    # Compatibility repair for separately retained TCP ingress. Application
-    # deployment itself uses the Rust mTLS listener directly.
-    candidate = (directory / 'deploy/synology/docker/internal-mtls-nginx.conf').read_text()
-    bootstrap = mtls_bootstrap()
-    staged = bootstrap / ('internal-mtls-nginx.' + sha + '.conf')
-    live = bootstrap / Path(MTLS_CONFIG).name
-    if staged.read_text() != candidate:
-        raise ValueError('staged internal mTLS configuration differs from qualified source')
-    previous = live.read_text()
-    if previous != candidate:
-        # A canceled workflow must not change ingress state after the last recheck.
-        reauthorize('platform', sha, run_id, attempt)
-        durable_replace(staged, live)
-        try:
-            run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', MTLS_CONFIG])
-        except subprocess.CalledProcessError:
-            # Never leave a file the listener cannot start with on its next restart.
-            atomic(live, previous)
-            raise
-    staged.unlink(missing_ok=True)
-    # Reload even when the file already matches: an earlier attempt may have replaced
-    # it and failed before the running listener loaded it.
-    reauthorize('platform', sha, run_id, attempt)
-    if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
-        raise ValueError('internal mTLS listener did not acquire the qualified configuration')
-    before = mtls_workers()
-    run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
-    # The master applies a reload asynchronously and keeps the old workers serving if
-    # it rejects the configuration. Accepted means every previously serving worker was
-    # told to shut down and new ones serve; a respawn after a crash keeps the others.
-    for _ in range(30):
-        serving = mtls_workers()
-        if serving and not serving & before:
-            break
-        time.sleep(1)
-    else:
-        raise ValueError('internal mTLS listener did not start workers for the qualified configuration')
-    journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
 PORTAL = Path('/opt/oteryn-portal')
