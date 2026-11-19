@@ -17,6 +17,9 @@ on:
       # Rust tests read committed contract fixtures and documents byte for byte.
       - 'docs/contracts/**'
       - '.github/workflows/portal-rs-ci.yml'
+  # The CI workflow calls this one for every merge group, so the required platform-gate
+  # covers the Rust portal on the exact merge candidate.
+  workflow_call:
 
 permissions:
   contents: read
