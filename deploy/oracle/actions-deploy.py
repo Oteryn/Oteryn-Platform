@@ -2,37 +2,56 @@
 """Root-owned, component-bound SSH forced command; never a general shell.
 
 Install manually after review. A runner may observe its component or deploy the
-current protected main after its aggregate gate passes. Host secrets/configuration,
-World content, custody and the incarnation controller remain separately installed.
+current protected main after its aggregate gate passes. Platform builds its image
+on the host from the qualified source; Game never builds here: its runner streams
+the arm64 image artifact of the same qualified Game run on stdin. Host
+secrets/configuration, World content, custody and the incarnation controller
+remain separately installed.
 """
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import traceback
 import urllib.request
+import zipfile
 
 ROOT = Path('/opt/oteryn-oracle')
 STATE = ROOT / 'state/actions'
 BUILD = Path('/opt/oteryn-build')
 REPOS = {'platform': 'Oteryn-Platform', 'game': 'Oteryn-Game'}
 SHA = r'[0-9a-f]{40}'
+# The Game runtime image (Debian slim plus three release binaries) is a few
+# hundred MiB as `docker save` output. 1 GiB of zip stream and 3 GiB unpacked
+# leave several times that headroom while bounding what one transfer may write
+# to the host disk before its digest is known.
+IMAGE_ZIP_LIMIT = 1 << 30
+IMAGE_TAR_LIMIT = 3 << 30
+CHUNK = 1 << 20
 
 
 def parse(component, command):
     if component not in REPOS:
         raise ValueError('unknown component')
     if command == 'status':
-        return 'status', None, None, None
+        return 'status', None, None, None, None
+    if component == 'game':
+        # Game is never built on this host: only a qualified CI image artifact.
+        match = re.fullmatch(r'deploy-image (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5}) ([1-9][0-9]{0,19})', command)
+        if not match:
+            raise ValueError('only status or deploy-image <full protected-main SHA> <run> <attempt> <artifact> is allowed')
+        return 'deploy', match[1], int(match[2]), int(match[3]), int(match[4])
     match = re.fullmatch(r'deploy (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
     if not match:
         raise ValueError('only status or deploy <full protected-main SHA> is allowed')
-    return 'deploy', match[1], int(match[2]), int(match[3])
+    return 'deploy', match[1], int(match[2]), int(match[3]), None
 
 
 def run(args, *, output=False, env=None, cwd=None, timeout=1800, umask=-1):
@@ -371,13 +390,77 @@ def inspect_image(image):
     return json.loads(run(['docker', 'image', 'inspect', image], output=True))[0]
 
 
-def game_deploy(directory, sha, run_id, attempt):
+def exclusive(path):
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb')
+
+
+def receive_artifact(sha, run_id, artifact_id, stream, path):
+    """Store the streamed artifact zip and prove it is the qualified run's upload."""
+    digest, size = hashlib.sha256(), 0
+    with exclusive(path) as out:
+        while chunk := stream.read(CHUNK):
+            size += len(chunk)
+            if size > IMAGE_ZIP_LIMIT:
+                raise ValueError('Game image artifact exceeds the size limit')
+            digest.update(chunk)
+            out.write(chunk)
+        out.flush()
+        os.fsync(out.fileno())
+    artifact = api(REPOS['game'] + '/actions/artifacts/' + str(artifact_id))
+    workflow = artifact.get('workflow_run') or {}
+    expected = {'id': artifact_id, 'name': 'oteryn-game-image-' + sha, 'expired': False,
+                'digest': 'sha256:' + digest.hexdigest()}
+    if any(artifact.get(key) != value for key, value in expected.items()) \
+            or workflow.get('id') != run_id or workflow.get('head_sha') != sha:
+        raise ValueError('Game image artifact differs from the qualified run upload')
+
+
+def unpack_image(archive_path, path, image):
+    """Extract the single image.tar and refuse any other tag in it."""
+    with zipfile.ZipFile(archive_path) as archive:
+        members = archive.infolist()
+        if [member.filename for member in members] != ['image.tar'] or members[0].file_size > IMAGE_TAR_LIMIT:
+            raise ValueError('Game image artifact must hold only image.tar')
+        copied = 0
+        with archive.open(members[0]) as source, exclusive(path) as out:
+            while chunk := source.read(CHUNK):
+                copied += len(chunk)
+                if copied > IMAGE_TAR_LIMIT:
+                    raise ValueError('Game image artifact exceeds the size limit')
+                out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+    # `docker load` applies every tag named in the archive; one foreign tag
+    # could replace another local image, such as the Platform's.
+    with tarfile.open(path) as layout:
+        manifest = layout.extractfile('manifest.json')
+        entries = json.load(manifest) if manifest else None
+    if not isinstance(entries, list) or len(entries) != 1 or entries[0].get('RepoTags') != [image]:
+        raise ValueError('Game image archive must carry exactly its qualified tag')
+
+
+def load_image(sha, run_id, artifact_id, stream):
     image = 'oteryn-game:' + sha + '-arm64'
-    run(['docker', 'build', '--build-arg', 'GAME_SOURCE_SHA=' + sha,
-         '-f', str(ROOT / 'game.Dockerfile'), '-t', image, str(directory)], timeout=7200)
+    archive, tarball = STATE / (sha + '-game-image.zip'), STATE / (sha + '-game-image.tar')
+    # The deployment lock is held: a leftover is an aborted transfer of this host.
+    for path in (archive, tarball):
+        path.unlink(missing_ok=True)
+    try:
+        receive_artifact(sha, run_id, artifact_id, stream, archive)
+        unpack_image(archive, tarball, image)
+        run(['docker', 'load', '--input', str(tarball)])
+    finally:
+        for path in (archive, tarball):
+            path.unlink(missing_ok=True)
     info = inspect_image(image)
-    if info['Architecture'] != 'arm64' or info['Config']['Labels']['org.opencontainers.image.revision'] != sha:
+    if image not in (info.get('RepoTags') or []) or info['Architecture'] != 'arm64' \
+            or (info['Config'].get('Labels') or {}).get(REVISION) != sha:
         raise ValueError('Game image provenance differs')
+    return image, info
+
+
+def game_deploy(sha, run_id, attempt, artifact_id, stream):
+    image, info = load_image(sha, run_id, artifact_id, stream)
     reauthorize('game', sha, run_id, attempt)
     status('game')
     override = STATE / (sha + '-game-migrate.json')
@@ -411,7 +494,7 @@ def main():
     if os.geteuid() != 0:
         raise ValueError('host root required')
     component = sys.argv[1] if len(sys.argv) == 2 else ''
-    action, sha, run_id, attempt = parse(component, os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+    action, sha, run_id, attempt, artifact = parse(component, os.environ.get('SSH_ORIGINAL_COMMAND', ''))
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (STATE / 'deployment.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -424,13 +507,14 @@ def main():
                 verify_current_release(component, sha)
                 status(component)
                 return
-            directory = source(component, sha)
-            # Recheck after a long build/source transfer before accepting effects.
-            qualify(component, sha)
             if component == 'platform':
+                directory = source(component, sha)
+                # Recheck after a long build/source transfer before accepting effects.
+                qualify(component, sha)
                 images = platform_deploy(directory, sha, run_id, attempt)
             else:
-                images = game_deploy(directory, sha, run_id, attempt)
+                # game_deploy re-qualifies after the transfer, before any effect.
+                images = game_deploy(sha, run_id, attempt, artifact, sys.stdin.buffer)
             for _ in range(90):
                 try:
                     status(component, allow_pending=True)
