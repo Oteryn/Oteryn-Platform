@@ -155,6 +155,7 @@ class Passthrough(unittest.TestCase):
         self.assertEqual(self.seen_alpn, [GAME_ALPN] * 3)
         # Any other connection continues to the HTTP app.
         insecure = ssl.create_default_context()
+        insecure.minimum_version = ssl.TLSVersion.TLSv1_2
         insecure.check_hostname = False
         insecure.verify_mode = ssl.CERT_NONE
         with self.connect('site.oteryn.test', ['http/1.1'], insecure) as tls:
