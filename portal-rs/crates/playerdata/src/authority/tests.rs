@@ -1258,7 +1258,7 @@ async fn postgres_account_stream_recovery_never_regresses() {
             .0,
         StatusCode::OK
     );
-    db.exec("UPDATE account_character_feed SET highest_epoch='2',watermark_epoch='2',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1", &[]).await;
+    db.exec("UPDATE account_character_feed SET highest_epoch='2',watermark_epoch='2',complete_through=floor(extract(epoch FROM statement_timestamp()))::bigint,observed_at=floor(extract(epoch FROM statement_timestamp()))::bigint WHERE id=1", &[]).await;
     db.exec(
         "UPDATE account_character_snapshots SET projection_epoch='2' WHERE account_id=$1::uuid",
         &[SELLER],
