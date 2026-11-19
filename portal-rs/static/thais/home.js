@@ -42,6 +42,7 @@ function enablePortalNavigation(header) {
 
   function arrangeNav() {
     const previous = document.activeElement;
+    const wasInsidePanel = previous?.closest(".om-panel");
     showMobile(false);
     // Keep keyboard order consistent with the visible order when tools move.
     if (mobile.matches) {
@@ -51,8 +52,8 @@ function enablePortalNavigation(header) {
     } else {
       nav.append(tools);
       if (download) tools.prepend(download);
-      if (previous === toggle || previous.closest(".om-panel")) {
-        const group = previous.closest(".om-section");
+      if (previous === toggle || wasInsidePanel) {
+        const group = previous?.closest(".om-section");
         (group?.querySelector("[data-nav-section]") || header.querySelector(".om-brand")).focus();
       }
     }
@@ -60,6 +61,8 @@ function enablePortalNavigation(header) {
 
   toggle.addEventListener("click", () => showMobile(!header.classList.contains("is-open")));
   for (const button of nav.querySelectorAll("[data-nav-section]")) {
+    button.disabled = false;
+    button.setAttribute("aria-expanded", "false");
     const panel = panelFor(button);
     button.addEventListener("click", () => showGroup(active === button ? null : button));
     button.addEventListener("keydown", event => {
@@ -144,6 +147,14 @@ function enablePortalNavigation(header) {
     });
   }
 
+  const fallbackMenu = nav.closest("details.om-fallback-menu");
+  if (fallbackMenu) {
+    fallbackMenu.after(nav);
+    fallbackMenu.hidden = true;
+  }
+  for (const accountMenu of nav.querySelectorAll(".om-fallback-account")) {
+    accountMenu.hidden = true;
+  }
   header.classList.add("is-enhanced");
   mobile.addEventListener("change", arrangeNav);
   arrangeNav();
@@ -188,5 +199,5 @@ function enableProfessionTabs(tabList) {
 
 const homeHeader = document.getElementById("portal-header");
 if (homeHeader) enablePortalNavigation(homeHeader);
-const professionTabs = document.querySelector('.portraits[role="tablist"]');
+const professionTabs = document.querySelector('#profesje .portraits[role="tablist"]');
 if (professionTabs?.querySelector('[role="tab"]')) enableProfessionTabs(professionTabs);

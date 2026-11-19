@@ -5,16 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>{% block title %}{{ chrome.text("home-link") }}{% endblock %} · Oteryn</title>
-  <link rel="preload" href="/static/fonts/cinzel-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/css/home.css">
   {% block head %}{% endblock %}
+  <link rel="stylesheet" href="/static/thais/shell.css">
+  <link rel="stylesheet" href="/static/thais/interior.css">
 </head>
 <body class="op-theme op-shell">
   {% block body %}
-  {% include "components/shell-header.html" %}
+  {% include "components/icons.html" %}
+  {% let interior = true %}
+  {% include "components/thais-header.html" %}
   <main id="main" class="{% block main_class %}op-stack op-main{% endblock %}" tabindex="-1">{% block content %}{% endblock %}</main>
   {% include "components/shell-footer.html" %}
   {% endblock %}

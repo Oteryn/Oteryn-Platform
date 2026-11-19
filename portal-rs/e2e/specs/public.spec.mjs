@@ -40,8 +40,8 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
       if (!response.headers()['content-type']?.startsWith('text/html')) { failures.push(`${href}: non-HTML response cannot qualify as a public page`); return; }
       const targetLanguage = /^\/(?:language\/)?(pl|en)(?:\/|$)/.exec(href)?.[1] || lang;
       if (await page.locator('html').getAttribute('lang') !== targetLanguage) failures.push(`${href}: wrong page language`);
-      const header = isHome(page) ? 'header#portal-header' : 'body.op-shell > .hx > header.hx-head';
-      const footer = isHome(page) ? 'footer.foot' : 'body.op-shell > .hx > footer.hx-foot';
+      const header = isHome(page) ? 'header#portal-header' : 'header#portal-header.om-interior';
+      const footer = isHome(page) ? 'footer.foot' : 'footer.foot-interior';
       if (await page.locator(header).count() !== 1) failures.push(`${href}: shared header missing`);
       if (await page.locator(footer).count() !== 1) failures.push(`${href}: shared footer missing`);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
@@ -57,7 +57,7 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
         const expected=coldPath(target)?503:200;
         if (linked.status() !== expected) failures.push(`${href} -> ${target}: HTTP ${linked.status()}, expected ${expected}`);
         if(expected===503 && !linked.headers()['content-type']?.startsWith('text/html')) failures.push(`${href} -> ${target}: non-HTML refusal`);
-        if(expected===503) {expect(linked.headers()['cache-control']).toContain('no-store');expect(await linked.text()).toContain('hx-head');}
+        if(expected===503) {expect(linked.headers()['cache-control']).toContain('no-store');expect(await linked.text()).toContain('id="portal-header"');}
       }
     });
     } finally { await page.close(); }
@@ -75,12 +75,34 @@ test('Thais homepage opens the world menu and selects a profession', async ({pag
       failedAssets.push(`${response.status()} ${response.url()}`);
     }
   });
+  const archive = await page.goto(`/${lang}/news`);
+  expect(archive.status()).toBe(200);
+  const leadStory = await page.locator(`main a[href^="/${lang}/news/"]`).evaluateAll(links =>
+    links.length ? {href: links[0].getAttribute('href'), title: links[0].textContent.trim()} : null
+  );
   await page.goto(`/${lang}/`);
   await expect(page.locator('.hero-art')).toHaveJSProperty('complete', true);
   expect(await page.locator('.hero-art').evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
-  await expect(page.getByRole('heading', {level: 1})).toHaveText(lang === 'pl' ? 'U bram Thais' : 'At the gates of Thais');
+  const headline = page.getByRole('heading', {level: 1});
+  if (leadStory) {
+    await expect(headline).toHaveText(lang === 'pl' ? 'Aktualności' : 'News');
+    const article = page.locator('#aktualnosci h2 a');
+    await expect(article).toHaveText(leadStory.title);
+    await expect(article).toHaveAttribute('href', leadStory.href);
+    await expect(page.locator('#aktualnosci time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}$/);
+  } else {
+    await expect(headline).toHaveText(lang === 'pl' ? 'U bram Thais' : 'At the gates of Thais');
+    await expect(page.locator('#aktualnosci a[href="#jak-zaczac"]')).toBeVisible();
+  }
   await expect(page.locator('#portal-header aside')).toHaveCount(0);
-  await expect(page.locator('#aktualnosci aside')).toHaveCount(1);
+  const today = page.locator('#aktualnosci details');
+  const dailyWidget = today.locator('aside');
+  await expect(dailyWidget).toHaveCount(1);
+  await expect(dailyWidget).toBeHidden();
+  await today.locator('summary').click();
+  await expect(dailyWidget).toBeVisible();
+  await expect(today.locator(`a[href="/${lang}/today"]`).last()).toBeVisible();
+  await today.locator('summary').click();
   const mobileToggle = page.locator('#portal-menu-toggle');
   const mobile = info.project.use.viewport.width === 390;
   if (mobile) {

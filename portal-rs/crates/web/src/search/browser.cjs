@@ -23,35 +23,33 @@ const AxeBuilder = modules('@axe-core/playwright').default;
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px overflow`);
         const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
         assert.deepEqual(result.violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) })), []);
-        await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-shell/${lang}`);
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
-        assert.equal(await page.locator('details.hx-nav__dropdown').count(),4);
-        for(const menu of await page.locator('details.hx-nav__dropdown').all()) {
-        const items = menu.locator('.hx-nav__menu');
-        await page.mouse.move(0,0);
-        await page.locator('#main').focus();
-        assert.equal(await items.isVisible(), false);
-        await menu.locator('summary').focus();
-        assert.equal(await items.isVisible(), true, 'focus-within opens the template menu');
-        await page.keyboard.press('Enter');
-        assert.equal(await menu.getAttribute('open'), '');
-        const dimensions = await items.evaluate(n => ({ left:n.getBoundingClientRect().left, right:n.getBoundingClientRect().right, width:n.getBoundingClientRect().width, height:n.getBoundingClientRect().height, viewport:innerWidth, available:innerHeight }));
-        assert.ok(dimensions.left >= 0 && dimensions.right <= dimensions.viewport);
-        assert.ok(dimensions.height <= dimensions.available, 'dropdown stays within the viewport');
-        await page.keyboard.press('Tab');
-        assert.equal(await items.locator('a').first().evaluate(n=>n===document.activeElement), true);
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'open navigation overflow');
-        await menu.locator('summary').click();
-        await page.locator('#main').focus();
-        await page.mouse.move(0,0);
-        assert.equal(await items.isVisible(), false);
+        for (const [fixture, expectedStatus] of [['browser-shell', 503], ['browser-headless', 200]]) {
+          const response = await page.goto(`${process.env.PORTAL_BROWSER_URL}/${fixture}/${lang}`);
+          assert.equal(response.status(), expectedStatus);
+          assert.equal(await page.locator('script[src="/static/thais/home.js"]').count(), 0);
+          assert.equal(await page.locator('link[href="/static/css/tokens.css"]').count(), 1);
+          assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--op-text').trim()), '');
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'), true);
+          const menu = page.locator('details.om-fallback-menu');
+          const summary = menu.locator(':scope > summary');
+          const firstLink = menu.locator('a[href$="#profesje"]');
+          assert.equal(await firstLink.isVisible(), false);
+          await summary.focus();
+          await page.keyboard.press('Enter');
+          assert.equal(await firstLink.isVisible(), true);
+          if (fixture === 'browser-shell') {
+            assert.equal(await menu.locator('#portal-community-panel a[href$="/online"]').isVisible(), true);
+          }
+          const bounds = await menu.locator('nav').boundingBox();
+          assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, 'open navigation fits viewport');
+          await page.keyboard.press('Tab');
+          assert.equal(await firstLink.evaluate(n => n === document.activeElement), true);
+          await summary.focus();
+          await page.keyboard.press('Enter');
+          assert.equal(await firstLink.isVisible(), false);
         }
-        await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-headless/${lang}`);
-        assert.equal(await page.locator('link[href="/static/css/tokens.css"]').count(), 1);
-        assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--op-text').trim()), '');
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'headless shell overflow');
-        await page.keyboard.press('Tab');
-        assert.equal(await page.evaluate(() => {const s=getComputedStyle(document.activeElement);return document.activeElement.matches(':focus-visible') && s.outlineStyle!=='none';}),true);
 
       }
       await context.close();

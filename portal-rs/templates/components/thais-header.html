@@ -1,36 +1,53 @@
 <a class="skip" href="#main">{{ chrome.text("skip") }}</a>
-<header id="portal-header" class="om-mast">
+<header id="portal-header" class="om-mast{% if interior %} om-interior{% endif %}">
   <div class="om-bar">
-    <a class="brand om-brand" href="{{ chrome.home_url() }}" aria-label="Oteryn · {{ chrome.text("home-link") }}" aria-current="page">
-      <svg aria-hidden="true" viewBox="0 0 40 44"><use href="/static/thais/icons.svg#brand"></use></svg>OTERYN
+    <a class="brand om-brand" href="{{ chrome.home_url() }}" aria-label="Oteryn · {{ chrome.text("home-link") }}"{% if chrome.home_current && !interior %} aria-current="page"{% endif %}>
+      <img class="oteryn-emblem" src="/static/thais/oteryn-emblem.webp" alt="" width="600" height="429">
     </a>
-    <button class="om-mobile-toggle" id="portal-menu-toggle" type="button" aria-expanded="false" aria-controls="portal-navigation">
+    <button class="om-mobile-toggle" id="portal-menu-toggle" data-close-label="{% if chrome.lang == "pl" %}Zamknij{% else %}Close{% endif %}" type="button" aria-expanded="false" aria-controls="portal-navigation">
       <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-menu"></use></svg>
       <span>{{ chrome.text("shell-menu") }}</span>
     </button>
+    {% if interior %}
+    <details class="om-fallback-menu">
+      <summary><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-menu"></use></svg>{{ chrome.text("shell-menu") }}</summary>
+    {% endif %}
     <nav class="om-nav" id="portal-navigation" aria-label="{{ chrome.text("navigation") }}">
       <div class="om-sections">
         <div class="om-section">
-          <button id="portal-world-button" class="om-top-link" type="button" data-nav-section aria-expanded="false" aria-controls="portal-world-panel">
+          <button id="portal-world-button" class="om-top-link" type="button" data-nav-section{% if interior %} disabled aria-expanded="true"{% else %} aria-expanded="false"{% endif %} aria-controls="portal-world-panel">
             <span class="om-label">{{ chrome.text("thais-nav-world") }}</span><span class="om-chevron" aria-hidden="true"></span>
           </button>
           <div id="portal-world-panel" class="om-panel" hidden>
             <div class="om-column">
               <h2 class="om-heading">{{ chrome.text("thais-nav-explore") }}</h2>
               <ul>
-                <li><a href="#profesje">{{ chrome.text("thais-nav-professions") }}</a></li>
+                <li><a href="{% if interior %}{{ chrome.home_url() }}{% endif %}#profesje">{{ chrome.text("thais-nav-professions") }}</a></li>
+                {% if interior %}
+                {% if let Some(link) = chrome.link("creatures") %}
+                <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ chrome.text("thais-nav-bestiary") }}</a></li>
+                {% else %}
+                <li><a href="{{ chrome.home_url() }}#bestiariusz">{{ chrome.text("thais-nav-bestiary") }}</a></li>
+                {% endif %}
+                {% else %}
                 <li><a href="#bestiariusz">{{ chrome.text("thais-nav-bestiary") }}</a></li>
+                {% endif %}
                 {% for key in ["places", "wiki", "calculators", "atlas", "houses", "delivery"] %}
-                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}">{{ link.label }}</a></li>{% endif %}
+                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
+                {% if interior %}
+                  {% for key in ["worlds", "world-stats"] %}
+                  {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
+                  {% endfor %}
+                {% endif %}
               </ul>
             </div>
-            {% if chrome.first_link("league,puzzles,collection,pass,shop").is_some() %}
+            {% if chrome.first_link("league,puzzles,collection,pass").is_some() %}
             <div class="om-column">
               <h2 class="om-heading">{{ chrome.text("thais-nav-activities") }}</h2>
               <ul>
-                {% for key in ["league", "puzzles", "collection", "pass", "shop"] %}
-                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}">{{ link.label }}</a></li>{% endif %}
+                {% for key in ["league", "puzzles", "collection", "pass"] %}
+                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
               </ul>
             </div>
@@ -39,7 +56,7 @@
         </div>
         {% if chrome.first_link("online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare").is_some() %}
         <div class="om-section">
-          <button id="portal-community-button" class="om-top-link" type="button" data-nav-section aria-expanded="false" aria-controls="portal-community-panel">
+          <button id="portal-community-button" class="om-top-link" type="button" data-nav-section{% if interior %} disabled aria-expanded="true"{% else %} aria-expanded="false"{% endif %} aria-controls="portal-community-panel">
             <span class="om-label">{{ chrome.text("shell-community") }}</span><span class="om-chevron" aria-hidden="true"></span>
           </button>
           <div id="portal-community-panel" class="om-panel" hidden>
@@ -48,7 +65,7 @@
               <h2 class="om-heading">{{ chrome.text("thais-nav-players") }}</h2>
               <ul>
                 {% for key in ["online", "party", "bazaar", "guilds", "deaths"] %}
-                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}">{{ link.label }}</a></li>{% endif %}
+                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
               </ul>
             </div>
@@ -57,9 +74,9 @@
             <div class="om-column">
               <h2 class="om-heading">{{ chrome.text("thais-nav-rankings") }}</h2>
               <ul>
-                {% if let Some(link) = chrome.link("rankings") %}<li><a href="{{ link.url }}">{{ chrome.text("thais-nav-experience") }}</a></li>{% endif %}
+                {% if let Some(link) = chrome.link("rankings") %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ chrome.text("thais-nav-experience") }}</a></li>{% endif %}
                 {% for key in ["growth-rankings", "guild-stats", "compare"] %}
-                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}">{{ link.label }}</a></li>{% endif %}
+                {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
               </ul>
             </div>
@@ -67,32 +84,47 @@
           </div>
         </div>
         {% endif %}
-        <a class="om-top-link" href="#aktualnosci"><span class="om-label">{{ chrome.text("shell-news") }}</span></a>
-        <a class="om-top-link om-mobile-only" href="#status"><span class="om-label">{{ chrome.text("worlds-title") }}</span></a>
-        <a class="om-top-link" href="#jak-zaczac"><span class="om-label">{{ chrome.text("thais-nav-start") }}</span></a>
+        {% if let Some(link) = chrome.link("news") %}
+          <a class="om-top-link" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><span class="om-label">{{ link.label }}</span></a>
+        {% endif %}
+        {% if interior %}
+          {% if let Some(link) = chrome.link("worlds") %}
+            <a class="om-top-link om-mobile-only" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><span class="om-label">{{ chrome.text("worlds-title") }}</span></a>
+          {% endif %}
+        {% else %}
+          <a class="om-top-link om-mobile-only" href="#status"><span class="om-label">{{ chrome.text("worlds-title") }}</span></a>
+        {% endif %}
+        <a class="om-top-link" href="{% if interior %}{{ chrome.home_url() }}{% endif %}#jak-zaczac"><span class="om-label">{{ chrome.text("thais-nav-start") }}</span></a>
       </div>
       <div class="om-tools">
         {% if chrome.signed_in() %}
           {% if chrome.account_mounted %}
-          <a class="om-login" href="/account" data-account-link>
+          <a class="om-login" href="/account" data-account-link{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}>
             <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("stage-my-account") }}
           </a>
+          {% if interior %}
+          <details class="om-fallback-account">
+            <summary>{{ chrome.text("stage-my-account") }}</summary>
+            {% include "components/thais-account-links.html" %}
+          </details>
+          {% endif %}
           {% else if chrome.login_mounted %}
           <form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button class="om-login" type="submit">{{ chrome.text("shell-logout") }}</button></form>
           {% endif %}
         {% else %}
-          {% if chrome.registration_mounted %}<a class="om-register om-mobile-only" href="/{{ chrome.lang }}/register">{{ chrome.text("stage-register") }}</a>{% endif %}
+          {% if chrome.registration_mounted %}<a class="om-register{% if !interior %} om-mobile-only{% endif %}" href="/{{ chrome.lang }}/register">{{ chrome.text("stage-register") }}</a>{% endif %}
           {% if chrome.login_mounted %}
           <a class="om-login" href="/{{ chrome.lang }}/login">
             <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("stage-login") }}
           </a>
           {% endif %}
         {% endif %}
-        {% if let Some(link) = chrome.link("server") %}
-        <a class="om-download" href="{{ link.url }}#download"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-download"></use></svg>{{ chrome.text("stage-btn-download") }}</a>
-        {% endif %}
+        <a class="om-shop" href="{% if let Some(link) = chrome.link("shop") %}{% if chrome.signed_in() %}{{ link.url }}{% else if chrome.login_mounted %}/{{ chrome.lang }}/login{% else %}/static/thais/shop-{{ chrome.lang }}.html{% endif %}{% else %}/static/thais/shop-{{ chrome.lang }}.html{% endif %}"{% if chrome.current_section == "shop" %} aria-current="page"{% endif %}>
+          <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-coins"></use></svg>{{ chrome.text("shell-shop") }}
+        </a>
       </div>
     </nav>
+    {% if interior %}</details>{% endif %}
   </div>
 </header>
 
@@ -105,33 +137,7 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-close"></use></svg>
       </button>
     </div>
-    <a class="account-overview" href="/account"><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("shell-account-overview") }}</a>
-    <nav class="account-grid" aria-label="{{ chrome.text("thais-account-nav") }}">
-      {% for (title, keys) in [
-        ("thais-account-play", "create-character,hirelings,hunts,reports,account-bazaar"),
-        ("thais-account-security", "account-security,account-wizard,account-passkeys,account-recovery-key,account-sessions,logins"),
-        ("thais-account-settings", "account-privacy,account-notifications,premium,payments"),
-        ("thais-account-requests", "tickets,abuse-reports")
-      ] %}
-      {% if chrome.first_link(keys).is_some() %}
-      <section>
-        <h3>{{ chrome.text(title) }}</h3>
-        <ul>
-          {% for key in keys.split(",") %}
-          {% if let Some(link) = chrome.link(key) %}
-          <li><a href="{{ link.url }}">{% if link.section == "account-security" %}{{ chrome.text("thais-account-password") }}{% else if link.section == "logins" %}{{ chrome.text("thais-account-game-logins") }}{% else %}{{ link.label }}{% endif %}</a></li>
-          {% endif %}
-          {% endfor %}
-        </ul>
-      </section>
-      {% endif %}
-      {% endfor %}
-    </nav>
-    {% if chrome.login_mounted %}
-    <div class="account-base">
-      <form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button type="submit">{{ chrome.text("shell-logout") }}</button></form>
-    </div>
-    {% endif %}
+    {% include "components/thais-account-links.html" %}
   </div>
 </dialog>
 {% endif %}

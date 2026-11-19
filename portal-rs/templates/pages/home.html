@@ -7,15 +7,37 @@
   <meta name="color-scheme" content="dark">
   <title>{{ chrome.text("home-link") }} · Oteryn</title>
   <meta name="description" content="{{ chrome.text("thais-home-meta") }}">
+  <link rel="stylesheet" href="/static/thais/shell.css">
   <link rel="stylesheet" href="/static/thais/home.css">
   <script src="/static/thais/home.js" defer></script>
 </head>
 <body class="op-theme op-shell">
+{% let interior = false %}
 {% include "components/thais-header.html" %}
 <main id="main" tabindex="-1">
   <section class="hero" id="start" aria-labelledby="hero-title">
-    <img class="hero-art" src="/static/thais/brama.webp" alt="{{ chrome.text("thais-home-gate-alt") }}" width="1672" height="941" fetchpriority="high">
-    <div class="hero-body wrap">
+    <picture>
+      <source media="(min-width: 961px)" srcset="/static/thais/brama-panorama.webp" width="2868" height="941">
+      <img class="hero-art" src="/static/thais/brama.webp" alt="{{ chrome.text("thais-home-gate-alt") }}" width="1672" height="941" fetchpriority="high">
+    </picture>
+    <div class="hero-body wrap" id="aktualnosci">
+      {% let news = data.news.as_deref().unwrap_or_default() %}
+      {% if let Some(latest) = news.first() %}
+      <div class="hero-news">
+        <h1 id="hero-title">{{ chrome.text("shell-news") }}</h1>
+        <time datetime="{{ latest.date }}">{{ latest.display_date }}</time>
+        <h2><a href="{{ latest.url }}">{{ latest.title }}</a></h2>
+        {% if !latest.excerpt.is_empty() %}<p>{{ latest.excerpt }}</p>{% endif %}
+        {% if news.len() > 1 %}
+        <ul>
+          {% for item in news.iter().skip(1).take(2) %}
+          <li><a href="{{ item.url }}">{{ item.title }}</a></li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if let Some(link) = chrome.link("news") %}<a class="hero-news-all" href="{{ link.url }}">{{ chrome.text("stage-news-all") }}</a>{% endif %}
+      </div>
+      {% else %}
       <h1 id="hero-title">{{ chrome.text("thais-home-title") }}</h1>
       <p class="hero-copy">{{ chrome.text("thais-home-lead") }}</p>
       <div class="actions">
@@ -32,6 +54,14 @@
         {% endif %}
         <a class="plainlink" href="#jak-zaczac">{% call ui::icon("book", "") %}{% endcall %}{{ chrome.text("home-steps-eyebrow") }}</a>
       </div>
+      {% endif %}
+      {% if let Some(link) = chrome.link("today") %}
+      <details class="hero-today">
+        <summary>{{ chrome.text("thais-home-today") }}</summary>
+        <!-- portal-daily-feature -->
+        <a href="{{ link.url }}">{{ link.label }}</a>
+      </details>
+      {% endif %}
     </div>
   </section>
 
@@ -95,7 +125,6 @@
     </div></div>
   </section>
 
-  {% include "components/thais-dispatch.html" %}
   {% include "components/thais-guide.html" %}
 </main>
 {% include "components/thais-footer.html" %}

@@ -31,8 +31,8 @@
       </div></li>
       <li><span class="number" aria-hidden="true">3</span><div>
         {% if let Some(link) = chrome.link("server") %}
-          <a href="{{ link.url }}#download">{{ chrome.text("stage-btn-download") }}</a>
-          <p>{{ chrome.text("thais-home-client-info") }}</p>
+          <strong>{{ chrome.text("stage-btn-download") }}</strong>
+          <p><a class="step-rules" href="{{ link.url }}">{{ link.label }}</a></p>
         {% else %}
           <strong>{{ chrome.text("stage-btn-download") }}</strong>
           <p>{{ chrome.text("thais-home-client-unavailable") }}</p>

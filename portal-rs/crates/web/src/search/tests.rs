@@ -288,14 +288,13 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
     async fn shell_fixture(
         axum::extract::Path(lang): axum::extract::Path<String>,
     ) -> axum::response::Response {
-        use axum::response::IntoResponse;
         let mut registry = oteryn_ui::Registry::default();
         registry.login = true;
         registry.registration = true;
         registry.account = true;
         registry.section(
             true,
-            "information",
+            "server",
             "shell-server",
             "server-information",
             oteryn_ui::Group::World,
@@ -311,9 +310,9 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
         );
         registry.section(
             true,
-            "news",
-            "shell-news",
-            "news",
+            "online",
+            "shell-online",
+            "online",
             oteryn_ui::Group::Community,
             false,
         );
@@ -325,11 +324,12 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
             oteryn_ui::Group::Account,
             false,
         );
-        let chrome = registry.chrome(&lang, &format!("/{lang}/"), oteryn_ui::Account::Anonymous);
-        let Some((header, footer)) = oteryn_ui::shell_parts(&chrome) else {
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        };
-        axum::response::Html(format!("<!doctype html><html lang=\"{lang}\" data-theme=\"dark\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Shell</title><link rel=\"stylesheet\" href=\"/static/css/home.css\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme op-shell\">{header}<main id=\"main\" class=\"op-main\" tabindex=\"-1\"><h1>Shell</h1></main>{footer}</body></html>")).into_response()
+        let chrome = registry.chrome(
+            &lang,
+            &format!("/{lang}/search"),
+            oteryn_ui::Account::Anonymous,
+        );
+        oteryn_ui::error(&chrome, StatusCode::SERVICE_UNAVAILABLE)
     }
     async fn headless_fixture(
         axum::extract::Path(lang): axum::extract::Path<String>,

@@ -1,27 +1,71 @@
-<footer class="foot">
+<footer class="foot{% if interior %} foot-interior{% endif %}">
   <div class="wrap foot-inner">
-    <a class="brand" href="#start" aria-label="Oteryn · {{ chrome.text("home-link") }}">
-      <svg aria-hidden="true" viewBox="0 0 40 44"><use href="/static/thais/icons.svg#brand"></use></svg>OTERYN
-    </a>
-    {% if chrome.first_link("wiki,support,rules,terms,privacy").is_some() %}
+    <div class="foot-identity">
+      <a class="brand" href="{% if interior %}{{ chrome.home_url() }}{% else %}#start{% endif %}" aria-label="Oteryn · {{ chrome.text("home-link") }}">
+        <img class="oteryn-emblem" src="/static/thais/oteryn-emblem.webp" alt="" width="600" height="429">
+      </a>
+      <p class="foot-tagline">{{ chrome.text("stage-tagline") }}</p>
+      <nav class="foot-social" aria-label="{{ chrome.text("thais-foot-external") }}">
+        <a href="https://www.twitch.tv/directory/category/tibia">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 3h16v12l-5 5h-4l-3 3v-3H5z M10 7v6m5-6v6"/></svg>
+          {{ chrome.text("thais-foot-twitch") }}
+        </a>
+        <span class="foot-community-status">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5.5 5.4 6.6C3.8 9 3 12.4 3 15.7a11 11 0 0 0 4.2 2.4l1.1-1.7m7.4 0 1.1 1.7a11 11 0 0 0 4.2-2.4c0-3.3-.8-6.7-2.4-9.1L16 5.5l-.8 1.2a15 15 0 0 0-6.4 0z"/><path d="M8.3 16.4a10 10 0 0 0 7.4 0"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/></svg>
+          {{ chrome.text("thais-foot-discord-unavailable") }}
+        </span>
+      </nav>
+    </div>
     <nav class="foot-links" aria-label="{{ chrome.text("thais-foot-links") }}">
-      <div>
-        {% if let Some(link) = chrome.link("wiki") %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}
-        {% if let Some(link) = chrome.link("support") %}
-        <a href="/{{ chrome.lang }}/help">{{ chrome.text("shell-support") }}</a>
-        <a href="{{ link.url }}">{{ chrome.text("thais-foot-report") }}</a>
-        {% endif %}
+      <div class="foot-group">
+        <h2>{{ chrome.text("thais-nav-world") }}</h2>
+        <ul>
+          <li><a href="{% if interior %}{{ chrome.home_url() }}{% endif %}#jak-zaczac">{{ chrome.text("thais-nav-start") }}</a></li>
+          <li><a href="{% if interior %}{{ chrome.home_url() }}{% endif %}#profesje">{{ chrome.text("thais-nav-professions") }}</a></li>
+          {% for key in ["wiki", "worlds"] %}
+          {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
+          {% endfor %}
+        </ul>
       </div>
-      <div>
-        {% for key in ["rules", "terms", "privacy"] %}
-        {% if let Some(link) = chrome.link(key) %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}
-        {% endfor %}
+      {% if chrome.first_link("news,events,today,online").is_some() %}
+      <div class="foot-group">
+        <h2>{{ chrome.text("shell-community") }}</h2>
+        <ul>
+          {% for key in ["news", "events", "today", "online"] %}
+          {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{% if link.section == "today" %}{{ chrome.text("thais-home-today") }}{% else %}{{ link.label }}{% endif %}</a></li>{% endif %}
+          {% endfor %}
+        </ul>
       </div>
+      {% endif %}
+      {% if chrome.first_link("support,rules,server").is_some() %}
+      <div class="foot-group">
+        <h2>{{ chrome.text("thais-foot-player-help") }}</h2>
+        <ul>
+          {% if let Some(link) = chrome.link("support") %}
+          <li><a href="/{{ chrome.lang }}/help">{{ chrome.text("shell-support") }}</a></li>
+          <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ chrome.text("thais-foot-report") }}</a></li>
+          {% endif %}
+          {% for key in ["rules", "server"] %}
+          {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </nav>
+  </div>
+  <div class="wrap foot-bottom">
+    <p class="foot-copyright">{{ chrome.text("stage-copyright") }}</p>
+    {% if chrome.first_link("terms,privacy").is_some() %}
+    <nav class="foot-legal" aria-label="{{ chrome.text("thais-foot-legal") }}">
+      {% for key in ["terms", "privacy"] %}
+      {% if let Some(link) = chrome.link(key) %}<a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a>{% endif %}
+      {% endfor %}
     </nav>
     {% endif %}
     <nav class="foot-langs" aria-label="{{ chrome.text("thais-foot-language") }}">
-      <a href="{% if chrome.lang == "pl" %}{{ chrome.home_url() }}{% else %}{{ chrome.alternate_url }}{% endif %}" lang="pl" hreflang="pl" aria-label="Polski"{% if chrome.lang == "pl" %} aria-current="true"{% endif %}>PL</a>
-      <a href="{% if chrome.lang == "en" %}{{ chrome.home_url() }}{% else %}{{ chrome.alternate_url }}{% endif %}" lang="en" hreflang="en" aria-label="English"{% if chrome.lang == "en" %} aria-current="true"{% endif %}>EN</a>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-world"></use></svg>
+      <a href="{% if chrome.lang == "pl" %}#portal-header{% else %}{{ chrome.alternate_url }}{% endif %}" lang="pl" hreflang="pl" aria-label="Polski"{% if chrome.lang == "pl" %} aria-current="true"{% endif %}>PL</a>
+      <a href="{% if chrome.lang == "en" %}#portal-header{% else %}{{ chrome.alternate_url }}{% endif %}" lang="en" hreflang="en" aria-label="English"{% if chrome.lang == "en" %} aria-current="true"{% endif %}>EN</a>
     </nav>
   </div>
 </footer>

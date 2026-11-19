@@ -1,0 +1,418 @@
+/* Module documents keep their own markup, controls and status classes. */
+body.op-shell {
+  --op-canvas: var(--base);
+  --op-surface: rgb(17 31 36 / 78%);
+  --op-raised: rgb(28 44 50 / 91%);
+  --op-text: var(--text);
+  --op-muted: var(--soft);
+  --op-accent: var(--copper);
+  --op-on-accent: #272019;
+  --op-focus: #ffd1b1;
+  --op-border: #718489;
+  --op-tile-hi: #1c2a2f;
+  --op-tile-lo: #162226;
+  --op-hairline: #3a4a4e;
+  --op-hairline-strong: #667b80;
+  --op-cta-hi: var(--copper);
+  --op-cta-lo: #f7b98e;
+  --op-cta-text: var(--op-on-accent);
+  --op-nav: var(--text);
+  --op-font: Manrope, system-ui, sans-serif;
+  --op-font-display: var(--display);
+  --op-font-caps: var(--display);
+  --op-radius-md: 4px;
+  --op-radius-tile: 6px;
+  --op-radius-cta: 4px;
+  --interior-width: 80rem;
+  --interior-edge: clamp(1.25rem, 5vw, 4.25rem);
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  color-scheme: dark;
+  color: var(--op-text);
+  background: var(--op-canvas);
+  font: 500 1rem/1.65 var(--op-font);
+  text-rendering: optimizeLegibility;
+}
+
+body.op-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, #081418ed, #09171bd1 42%, #0b161a60 83%),
+    linear-gradient(0deg, #091619a8, transparent 55%),
+    url("brama.webp") 68% center / cover no-repeat;
+}
+@media (max-width: 700px) {
+  body.op-shell::before {
+    background:
+      linear-gradient(90deg, #09161bd9, #0a171ba8),
+      url("brama.webp") 74% center / cover no-repeat;
+  }
+}
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  body.op-shell::before { display: none; }
+}
+
+.op-shell > .om-mast {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+
+}
+.om-mast .om-bar { width: 100%; }
+.op-shell .om-bar::after { content: none; }
+.op-shell .om-nav { margin: 0; padding: 0; }
+.op-shell .om-panel .om-heading { line-height: 1.4; }
+.op-shell .om-tools, .op-shell .om-sections { margin-block: 0; }
+.op-shell .om-column ul { padding-inline-start: 0; }
+.op-shell .om-mast a { line-height: 1.5; }
+.op-shell > .foot {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-inline: 0;
+  border-top: 1px solid var(--op-hairline);
+}
+.op-shell .skip {
+  color: #111;
+  background: #fff;
+  font: 700 .9375rem/1.5 var(--op-font);
+}
+
+.op-shell > :is(.op-shell__page, main.op-main) {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: clamp(1rem, 2vw, 1.75rem);
+  width: calc(100% - 2 * clamp(.65rem, 4vw, 4rem));
+  max-width: var(--interior-width);
+  min-width: 0;
+  box-sizing: border-box;
+  margin: clamp(1.25rem, 4vw, 3.5rem) auto;
+  padding: clamp(2.25rem, 5vw, 4.5rem) var(--interior-edge);
+  border: 1px solid #485052;
+  border-inline-start: 4px solid var(--op-accent);
+  border-radius: var(--op-radius-tile);
+  background: linear-gradient(100deg, rgb(12 27 32 / 91%), rgb(12 26 31 / 55%));
+  box-shadow: inset 0 0 0 4px #101b1c, inset 0 0 0 5px #63583c;
+}
+.op-shell > .foot.foot-interior {
+  margin-block-start: auto;
+}
+/* The shared masthead already provides the localized home link. */
+.op-shell__page > header.op-card:has(> a:only-child:is([href="/pl/"], [href="/en/"])) {
+  display: none;
+}
+.op-shell__page > :is(header, main, footer, nav) {
+  width: 100%; max-width: none; min-width: 0; margin-inline: 0;
+}
+.op-shell__page > :is(header, main, footer):not(.op-card, .op-panel) { padding: 0; }
+.op-shell__page > main:is(.op-card, .op-panel) {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.op-shell :is(.op-shell__page, main.op-main) :is(h1, h2) {
+  color: var(--op-text);
+  font-family: var(--op-font-display);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: -.018em;
+  text-align: start;
+}
+.op-shell :is(.op-shell__page, main.op-main) h1 {
+  margin-block: 0 .18em;
+  color: var(--op-text);
+  font-family: Alegreya, Georgia, serif;
+  font-size: clamp(1.95rem, 4vw, 3.5rem);
+  line-height: 1.1;
+  letter-spacing: -.035em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.op-shell :is(.op-shell__page, main.op-main) h1::after {
+  content: "";
+  display: block;
+  width: min(100%, 15rem);
+  height: 8px;
+  margin-top: .37em;
+  background:
+    linear-gradient(45deg, transparent 25%, var(--op-accent) 26% 74%, transparent 75%) 0 center / 6px 6px no-repeat,
+    linear-gradient(90deg, #bf9a64, transparent) 10px center / calc(100% - 10px) 1px no-repeat;
+}
+.op-shell :is(.op-shell__page, main.op-main) h2 {
+  font-size: clamp(1.85rem, 2.8vw, 2.65rem);
+  line-height: 1.12;
+}
+.op-shell :is(.op-shell__page, main.op-main) h3 {
+  font-size: 1.125rem; line-height: 1.4; letter-spacing: 0;
+}
+.op-shell :is(.op-shell__page, main.op-main) :where(p, li, dd, td, th, label, a) { overflow-wrap: anywhere; }
+.op-shell :is(.op-shell__page, main.op-main) :where(p:not([class]), .op-lead) { max-width: 76ch; }
+.op-shell :is(.op-shell__page, main.op-main) :where(pre, code) { font-family: var(--op-font-mono); }
+.op-shell :is(.op-shell__page, main.op-main) pre { max-width: 100%; overflow: auto; }
+.op-shell :is(.op-shell__page, main.op-main) img { max-width: 100%; height: auto; }
+
+.op-shell :is(.op-shell__page, main.op-main) .op-card,
+.op-shell :is(.op-shell__page, main.op-main) .op-panel,
+.op-shell :is(.op-shell__page, main.op-main) .op-empty {
+  border-color: var(--op-hairline);
+  background: var(--op-surface);
+  box-shadow: none;
+}
+.op-shell .op-shell__page > main:is(.op-card,.op-panel) { background: none; }
+.op-shell :is(.op-shell__page, main.op-main) .op-empty {
+  justify-items: start;
+  padding: clamp(1.3rem, 3vw, 2.3rem);
+  text-align: start;
+}
+.op-shell .op-table-wrap {
+  min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain;
+  border: 1px solid var(--op-hairline); background: var(--op-surface);
+}
+.op-shell :is(.op-shell__page, main.op-main) table {
+  width: 100%; border-collapse: collapse; font-size: .9375rem; font-variant-numeric: tabular-nums;
+}
+.op-shell :is(.op-shell__page, main.op-main) :is(td, th) {
+  padding: .75rem clamp(.625rem, 1.6vw, 1.2rem);
+  border-bottom: 1px solid var(--op-hairline);
+  text-align: start; vertical-align: top;
+}
+.op-shell :is(.op-shell__page, main.op-main) th {
+  background: var(--op-raised);
+  color: var(--op-text);
+  font-size: .875rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.op-shell :is(.op-shell__page, main.op-main) caption {
+  padding: .75rem; color: var(--op-muted); text-align: start;
+}
+.op-shell :is(.op-shell__page, main.op-main) tbody tr:hover { background: #1c2b30; }
+
+.op-shell :is(.op-shell__page, main.op-main) :where(form, fieldset, .op-field) { min-width: 0; }
+.op-shell :is(.op-shell__page, main.op-main) fieldset {
+  min-inline-size: 0;
+  margin-inline: 0;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid var(--op-hairline);
+  border-radius: var(--op-radius-tile);
+}
+.op-shell :is(.op-shell__page, main.op-main) legend { padding-inline: .4rem; color: var(--op-text); font-weight: 700; }
+.op-shell :is(.op-shell__page, main.op-main) label { color: #ecd6aa; font-weight: 600; }
+.op-shell :is(.op-shell__page, main.op-main) :where(
+  input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="image"], [type="submit"], [type="reset"], [type="button"]),
+  select,
+  textarea
+) {
+  max-width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: .5rem .75rem;
+  border: 1px solid #ac8c59;
+  border-radius: var(--op-radius-md);
+  color: var(--op-text);
+  background-color: #191e19;
+  font: inherit;
+}
+.op-shell :is(.op-shell__page, main.op-main) :where(input, select, textarea)[aria-invalid="true"] {
+  border: 2px solid var(--op-danger);
+}
+.op-shell :is(.op-shell__page, main.op-main) textarea { min-height: 7rem; resize: vertical; }
+.op-shell input:is([type="checkbox"], [type="radio"], [type="range"]) { accent-color: var(--op-accent); }
+.op-shell :is(.op-shell__page, main.op-main) form > .op-button { justify-self: start; }
+.op-shell :is(.op-shell__page, main.op-main) :is(.op-button, button:not([class]), input[type="submit"]) {
+  min-height: 2.75rem;
+  max-width: 100%;
+  padding: .55rem 1.05rem;
+  border: 1px solid var(--op-accent);
+  border-radius: 4px;
+  color: var(--op-on-accent);
+  background: var(--op-accent);
+  box-shadow: none;
+  font: 750 .9375rem/1.4 var(--op-font);
+  letter-spacing: 0;
+  white-space: normal;
+  cursor: pointer;
+}
+.op-shell :is(.op-shell__page, main.op-main) :is(.op-button, button:not([class]), input[type="submit"]):enabled:hover,
+.op-shell :is(.op-shell__page, main.op-main) a.op-button:hover { background: #ffd8bb; transform: none; }
+.op-shell :is(.op-shell__page, main.op-main) .op-button.op-button--secondary {
+  color: var(--op-text); background: transparent; border-color: var(--op-border);
+}
+.op-shell :is(.op-shell__page, main.op-main) .op-button.op-button--secondary:is(:enabled:hover, :any-link:hover) {
+  color: var(--op-text); background: var(--op-raised);
+}
+.op-shell :is(.op-shell__page, main.op-main) :is(button:disabled, input:disabled, select:disabled, textarea:disabled, .op-button[aria-disabled="true"]) {
+  color: var(--op-muted); background: var(--op-raised); border-color: var(--op-hairline); cursor: not-allowed;
+}
+.op-shell :is(.op-shell__page, main.op-main) a:not(.op-button) {
+  color: var(--op-accent); text-decoration: underline; text-underline-offset: .22em;
+}
+.op-shell :is(.op-shell__page, main.op-main) a:not(.op-button):hover { color: #ffdabf; }
+.op-shell :is(.op-shell__page, main.op-main) :is(.op-tabs,.op-pagination) [aria-current="page"] {
+  color: var(--op-on-accent); background: var(--op-accent); text-decoration: none;
+}
+.op-shell .op-shell__page main:has(> form:is([action$="/login"], [action$="/register"])) {
+  max-width: 39rem;
+}
+.op-shell__page form[action$="/login"] {
+  width: min(100%, 28rem);
+  gap: 1.15rem;
+}
+.op-shell .op-error { color: var(--op-danger); font-size: .9375rem; }
+.op-shell .op-alert { border-inline-start-width: .25rem; }
+.op-shell main.op-main .op-shell__hero {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.op-shell main.op-main .op-shell__hero .op-eyebrow { color: var(--op-muted); }
+.op-shell :is(.op-shell__page, main.op-main) :is(a, button, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--op-focus); outline-offset: 3px;
+}
+
+@media (max-width: 700px) {
+  .op-shell > :is(.op-shell__page, main.op-main) { --interior-edge: 1.15rem; padding-block: 2rem 3rem; }
+  .op-shell :is(.op-shell__page, main.op-main) :is(.op-card,.op-panel,.op-empty) { padding: 1rem; }
+  .op-shell .op-shell__page > main:is(.op-panel,.op-card) { padding: 0; }
+  /* Standalone modules sometimes have no dedicated table scroller. */
+  .op-shell :is(.op-shell__page, main.op-main) table:not(.op-table-wrap table) {
+    display: block; overflow-x: auto; overscroll-behavior-x: contain;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .op-shell :is(.op-shell__page, main.op-main) .op-button { transition: none; }
+}
+
+/* The native disclosure also works on pages whose CSP disallows every script. */
+.om-mast:not(.is-enhanced):has(.om-fallback-menu) .om-bar {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+  padding-block: 0;
+}
+.om-fallback-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 44px;
+  padding-inline: .9rem;
+  border: 1px solid #f4eddd59;
+  border-radius: 24px;
+  color: var(--text);
+  background: #102326a6;
+  font: 650 .9375rem/1.4 var(--op-font);
+  cursor: pointer;
+  list-style: none;
+}
+.om-fallback-menu > summary::-webkit-details-marker { display: none; }
+.om-fallback-menu > summary::after {
+  content: "";
+  width: .45rem;
+  height: .45rem;
+  margin: -.16rem .1rem 0 .25rem;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.om-fallback-menu[open] > summary::after { transform: translateY(.2rem) rotate(225deg); }
+.om-fallback-menu[open] > summary { border-color: var(--copper); color: var(--copper); }
+.om-mast:not(.is-enhanced) .om-fallback-menu[open] > .om-nav {
+  position: absolute;
+  inset: calc(100% + 4px) var(--om-edge) auto auto;
+  display: flex;
+  flex-flow: column nowrap;
+  align-items: stretch;
+  gap: 1.2rem;
+  width: min(54rem, calc(100% - 2 * var(--om-edge)));
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.15rem 1.25rem;
+  border: 1px solid #bdc0b2;
+  border-radius: 8px;
+  color: #243832;
+  background: #f4f1e7;
+  box-shadow: 0 12px 28px #0005;
+}
+.om-fallback-menu[open] > .om-nav > * { flex-shrink: 0; }
+.om-fallback-menu .om-nav .om-sections { align-items: start; gap: 1rem 2rem; }
+.om-mast:not(.is-enhanced) .om-fallback-menu .om-panel[hidden] {
+  color: inherit;
+  padding: .3rem 0 0;
+  column-gap: 1rem;
+}
+.om-mast:not(.is-enhanced) .om-fallback-menu .om-heading { color: #765030; }
+.om-fallback-menu .om-top-link { color: #293d34; }
+.om-fallback-menu .om-section > button { cursor: default; pointer-events: none; }
+.om-fallback-menu .om-tools {
+  order: -1;
+  justify-content: flex-start;
+  align-items: center;
+  gap: .4rem 1.25rem;
+  margin: 0;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid #c0c6b9;
+}
+body.op-shell .om-fallback-menu .om-tools a.om-register { color: #fffdf4; background: #334e42; }
+.om-fallback-menu :is(a, summary, button):focus-visible { outline: 2px solid #875832; outline-offset: 3px; }
+@media (max-width: 960px) {
+  .om-mast:not(.is-enhanced) .om-fallback-menu[open] > .om-nav {
+    inset-inline-end: max(10px, calc(var(--om-edge) - 10px));
+    width: min(28rem, calc(100% - 24px));
+    max-height: calc(100dvh - 76px);
+    gap: .55rem;
+  }
+  .om-fallback-menu .om-nav .om-sections { align-items: stretch; gap: .35rem; }
+  .om-fallback-menu .om-tools { gap: .3rem .65rem; }
+}
+.om-mast.is-enhanced .om-fallback-account { display: none; }
+.om-mast:not(.is-enhanced) .om-tools:has(.om-fallback-account) .om-login[data-account-link] { display: none; }
+.om-fallback-account > summary {
+  min-height: 44px;
+  padding: .55rem .8rem;
+  border: 1px solid #829186;
+  border-radius: 4px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.om-fallback-account[open] { flex-basis: 100%; }
+.om-fallback-account[open] > summary { width: fit-content; }
+.om-fallback-account .account-grid { margin-block: .75rem; }
+@media (max-width: 360px) {
+  .om-fallback-menu > summary { padding-inline: .65rem; gap: .35rem; }
+}
+
+/* Account shortcuts are navigation controls; character records are complete cards. */
+.op-shell__page nav > ul.op-row,
+.op-shell__page ul.op-stack:has(> li.op-panel) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.op-shell__page section[aria-labelledby="characters"] > ul.op-stack:not(:has(> li)) {
+  display: none;
+}
+
+.op-shell__page > main.op-panel > dl {
+  width: fit-content;
+  max-width: 100%;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--op-hairline);
+  border-radius: var(--op-radius-tile);
+  background: var(--op-surface);
+}
