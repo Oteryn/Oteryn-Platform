@@ -27,9 +27,21 @@ owner-only directory. Never print the generated environment files or keys.
 
 ```bash
 bash prepare-platform.sh /opt/oteryn-build/<reviewed-platform-checkout>
-bash prepare-game.sh
+OTERYN_GAME_IMAGE=oteryn-game:<40-hex sha>-arm64 bash prepare-game.sh
 python3 check-game-db.py
 ```
+
+The Game image is never built here. For the first install, load the
+`image.tar` of Game CI artifact `oteryn-game-image-<sha>` (`docker load`) and
+name it in `OTERYN_GAME_IMAGE`; `prepare-game.sh` refuses a malformed name or an
+image whose architecture or revision label differs, migrates with it and, only
+when `/opt/oteryn-oracle/game-runtime.compose.yml` is absent, installs that file
+with both image declarations set to it. Later releases go only through
+`actions-deploy.py game deploy-image`, which needs this installed, ready Game.
+The runtime compose also pins `--npc-data-sha256` (Game
+`deploy/synology-game/npc-data.pin.json` `project_sha256`, currently from Game
+`a334e591`); `deploy-image` swaps only the image lines, so a Game release that
+changes that pin needs this file updated with it.
 
 `prepare-platform.sh` validates operator-supplied Rust application and migration
 configuration and starts the Rust roles described below. PostgreSQL provisioning,
