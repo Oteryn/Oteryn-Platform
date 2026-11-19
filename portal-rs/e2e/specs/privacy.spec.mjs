@@ -20,7 +20,7 @@ test('T45 owner settings control live online and public profile privacy',async({
   const epoch=baseline.highest_epoch||'1';
   publicState=(await db.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1')).rows[0].highest_epoch;
   const publicEpoch=publicState||'1';
-  watermarks=(await db.query("SELECT * FROM public_snapshots WHERE family='character_profile' AND is_watermark")).rows;
+  watermarks=(await db.query("SELECT * FROM public_snapshots WHERE family IN ('character_profile','world_online') AND is_watermark")).rows;
   await db.query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'non-loginable-test','active','en',now())",[foreign,`${foreign}@example.invalid`]);
   const stamp=()=>Math.floor(Date.now()/1000);
   for(const id of [owner,foreign])await db.query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,$3,'1',$4,$5)",[id,authority,epoch,stamp(),Buffer.alloc(32)]);
@@ -31,7 +31,8 @@ test('T45 owner settings control live online and public profile privacy',async({
   await db.query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,$2,1,$3,$4),('world_online',$5,$2,1,$3,$6)",[character,publicEpoch,stamp(),profile,world,online]);
   const heartbeat=async()=>{
    await db.query('UPDATE account_character_feed SET highest_epoch=$1,watermark_epoch=$1,source_authority=$2,complete_through=$3,observed_at=$3 WHERE id=1',[epoch,authority,stamp()]);
-   await db.query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,$1,1,$2,$3) ON CONFLICT(family,subject,is_watermark) DO UPDATE SET epoch=$1,watermark=$2,payload=$3",[publicEpoch,stamp(),{source_authority:publicAuthority}]);
+   // Both families need a fresh complete-through cut: /online withholds names without one (H090).
+   await db.query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,$1,1,$2,$3),('world_online','',true,$1,1,$2,$3) ON CONFLICT(family,subject,is_watermark) DO UPDATE SET epoch=$1,watermark=$2,payload=$3",[publicEpoch,stamp(),{source_authority:publicAuthority}]);
   };
   await heartbeat();timer=setInterval(()=>heartbeat().catch(()=>{}),5000);
   const target=`/${lang}/account/characters/${name}/profile`;
@@ -64,7 +65,7 @@ test('T45 owner settings control live online and public profile privacy',async({
  } finally {
   clearInterval(timer);
   await db.query("DELETE FROM public_snapshots WHERE NOT is_watermark AND subject=ANY($1)",[[character,world]]);
-  await db.query("DELETE FROM public_snapshots WHERE family='character_profile' AND is_watermark AND subject=''");
+  await db.query("DELETE FROM public_snapshots WHERE family IN ('character_profile','world_online') AND is_watermark AND subject=''");
   for(const w of watermarks)await db.query('INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload,previous_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(family,subject,is_watermark) DO UPDATE SET epoch=$4,version=$5,watermark=$6,payload=$7,previous_snapshot=$8',[w.family,w.subject,w.is_watermark,w.epoch,w.version,w.watermark,w.payload,w.previous_snapshot]);
   await db.query('DELETE FROM accounts WHERE id=$1',[foreign]);
   if(baseline)await db.query('UPDATE account_character_feed SET highest_epoch=$1,watermark_epoch=$2,source_authority=$3,complete_through=$4,observed_at=$5 WHERE id=1',[baseline.highest_epoch,baseline.watermark_epoch,baseline.source_authority,baseline.complete_through,baseline.observed_at]);
