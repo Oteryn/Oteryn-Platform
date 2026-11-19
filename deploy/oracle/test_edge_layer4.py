@@ -118,10 +118,10 @@ class Passthrough(unittest.TestCase):
                     pass
 
         threading.Thread(target=serve, daemon=True).start()
-        self.https, http = free_port(), free_port()
+        self.https, self.http = free_port(), free_port()
         block = global_block(CADDYFILE.read_text()).replace(GAME_UPSTREAM, f'127.0.0.1:{upstream}')
         block = block.replace('{\n', '{\n\tadmin off\n\tskip_install_trust\n\tlocal_certs\n'
-                              f'\thttp_port {http}\n\thttps_port {self.https}\n', 1)
+                              f'\thttp_port {self.http}\n\thttps_port {self.https}\n', 1)
         config = self.directory / 'Caddyfile'
         config.write_text(block + '\n\nsite.oteryn.test {\n\ttls internal\n\trespond "http-app"\n}\n')
         environment = dict(os.environ, XDG_DATA_HOME=str(self.directory / 'data'),
@@ -163,11 +163,19 @@ class Passthrough(unittest.TestCase):
             while chunk := tls.recv(4096):
                 body += chunk
         self.assertIn(b'http-app', body)
-        # The Game host without the Game ALPN is not relayed.
+        # The Game host without the Game ALPN is not relayed: browsers and the
+        # ACME TLS-ALPN challenge (acme-tls/1) stay with the HTTP app.
         relayed = len(self.seen_alpn)
-        with self.assertRaises((ssl.SSLError, OSError)):
-            with self.connect(GAME_HOST, ['h2', 'http/1.1'], game) as tls:
-                tls.recv(4)
+        for alpn in (['h2', 'http/1.1'], ['acme-tls/1']):
+            with self.subTest(alpn=alpn), self.assertRaises((ssl.SSLError, OSError)):
+                with self.connect(GAME_HOST, alpn, game) as tls:
+                    tls.recv(4)
+        self.assertEqual(len(self.seen_alpn), relayed)
+        # Port 80 (HTTP-01) is a plain HTTP listener the relay never sees.
+        with socket.create_connection(('127.0.0.1', self.http), timeout=10) as plain:
+            plain.sendall(b'GET /.well-known/acme-challenge/probe HTTP/1.1\r\n'
+                          b'Host: site.oteryn.test\r\nConnection: close\r\n\r\n')
+            self.assertTrue(plain.recv(64).startswith(b'HTTP/1.1 '))
         self.assertEqual(len(self.seen_alpn), relayed)
 
 
