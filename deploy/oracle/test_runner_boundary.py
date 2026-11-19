@@ -71,5 +71,30 @@ class RunnerBoundary(unittest.TestCase):
             self.assertTrue((directory / 'ssh-called').exists())
 
 
+class PrepareGameImage(unittest.TestCase):
+    SCRIPT = Path(__file__).with_name('prepare-game.sh')
+
+    def run_prepare(self, image):
+        environment = {key: value for key, value in os.environ.items() if key != 'OTERYN_GAME_IMAGE'}
+        if image is not None:
+            environment['OTERYN_GAME_IMAGE'] = image
+        return subprocess.run(['bash', str(self.SCRIPT)], env=environment, capture_output=True, text=True)
+
+    def test_refuses_a_missing_or_malformed_image_before_any_host_effect(self):
+        sha = 'a' * 40
+        for image in (None, '', 'oteryn-game:77af046ce14c-arm64', 'oteryn-game:' + sha,
+                      'oteryn-game:' + sha + '-amd64', 'other:' + sha + '-arm64',
+                      'oteryn-game:' + sha.upper() + '-arm64', 'oteryn-game:' + sha + '-arm64 x'):
+            with self.subTest(image=image):
+                result = self.run_prepare(image)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('OTERYN_GAME_IMAGE', result.stderr)
+
+    def test_no_shipped_file_pins_a_game_image_for_the_first_install(self):
+        self.assertNotIn('docker image inspect oteryn-game:', self.SCRIPT.read_text())
+        runtime = Path(__file__).with_name('game-runtime.compose.yml').read_text()
+        self.assertEqual(sum(line.startswith('    image: oteryn-game:') for line in runtime.splitlines()), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
