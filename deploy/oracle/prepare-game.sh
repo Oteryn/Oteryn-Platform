@@ -34,7 +34,7 @@ compose=(docker compose -f "$SCRIPT_DIR/game-db.compose.yml" -f "$override")
 docker volume create oteryn-oracle-game_game_backup >/dev/null
 docker run --rm --network none \
     --mount type=volume,source=oteryn-oracle-game_game_backup,target=/var/lib/oteryn-postgres-backup \
-    --entrypoint bash postgres:17.11@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3 \
+    --entrypoint bash postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42 \
     -ec 'install -d -o postgres -g postgres -m 0700 /var/lib/oteryn-postgres-backup/wal'
 "${compose[@]}" up -d --wait postgres
 "${compose[@]}" --profile operations run --rm --no-deps migrate
