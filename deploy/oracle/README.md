@@ -119,8 +119,24 @@ PHP and internal proxy listeners remain private. The trusted edge and internal
 proxy have exact addresses 172.18.0.10 and 172.18.0.5. Canonical APP_URL is
 https://oteryn.com with Secure cookies. Certificates persist in named volumes.
 Apex DNS is proxied to 158.180.58.90; www, gateway, login and game use DNS-only
-records for that address. Existing mail records are preserved. Native Game uses
-TLS TCP 7172; the HTTPS explanatory response is not gameplay readiness.
+records for that address. Existing mail records are preserved.
+
+Native Game shares :443. The edge image (`edge.Dockerfile`: stock Caddy 2.11.7
+plus caddy-l4 v0.1.3, both pinned) runs a layer4 listener wrapper ahead of TLS:
+a connection whose ClientHello names SNI `game.oteryn.com` and offers ALPN
+`oteryn-game/1` is relayed as raw TCP to the Game node at 172.18.0.11:7172 on
+the private network. The edge does not terminate it and sends no PROXY header,
+so the node sees the edge address, not the client's. Everything else reaches the
+HTTP app unchanged. The Game listener is not published on the host. The route
+the Platform publishes is host `game.oteryn.com`, port 443, TLS name
+`game.oteryn.com`. The HTTPS response for that host is not gameplay readiness.
+
+Build the edge image on the host before switching:
+`docker build -f deploy/oracle/edge.Dockerfile -t oteryn-edge:2.11.7-l4-0.1.3 deploy/oracle`,
+then `docker compose -f edge.compose.yml up -d`. Rollback: set the edge image back
+to the stock `caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f`,
+remove the `listener_wrappers` block from `Caddyfile` and recreate the edge. The
+stock image rejects that block, so change both together.
 
 ## Existing NAS state migration
 
@@ -138,7 +154,8 @@ it is not used to replace migrated NAS state.
 ## Game runtime and restart ownership
 
 `game-runtime.compose.yml` runs the non-root native Game node and a separate
-root-only one-off ops container. Only Game TCP 7172 is published. Internal mTLS
+root-only one-off ops container. No Game port is published on the host; gameplay
+reaches 172.18.0.11:7172 only through the edge's :443 relay. Internal mTLS
 uses `internal-mtls.compose.yml` to remove the NAS host port and give the listener
 private Docker address 172.18.0.12. The host mounts `/opt/oteryn-game` at
 `/srv/oteryn/game` and the separate root ops directory `/opt/oteryn-game-ops` at
