@@ -60,6 +60,47 @@ pub(super) fn hex(raw: &str) -> Result<[u8; 32], Error> {
     }
     Ok(result)
 }
+impl super::Runtime {
+    /// Attach the existing Bazaar handlers to a TLS adapter that supplies a
+    /// verified SPKI identity. The audit marker remains private to this crate.
+    pub fn shared_private_router(&self) -> Result<axum::Router, Error> {
+        use axum::{
+            extract::Request,
+            http::StatusCode,
+            middleware::{self, Next},
+        };
+        use oteryn_internal_api::guard::{self, Binding, Identity, IdentityMap, VerifiedClient};
+        let identities = IdentityMap::new(vec![Binding {
+            identity: Identity::spki_sha256(self.config.bazaar_spki),
+            group: super::super::authority_http::BAZAAR_GROUP.into(),
+        }])
+        .map_err(|_| Error::Invalid)?;
+        let config = self.config.clone();
+        Ok(self.private_router()?.layer(middleware::from_fn(
+            move |mut request: Request, next: Next| {
+                let config = config.clone();
+                let audit_peer =
+                    request
+                        .extensions()
+                        .get::<VerifiedClient>()
+                        .is_some_and(|client| {
+                            identities
+                                .peer_in_group(client, super::super::authority_http::BAZAAR_GROUP)
+                        });
+                async move {
+                    if config.current().is_err() {
+                        return guard::failure(StatusCode::SERVICE_UNAVAILABLE);
+                    }
+                    if audit_peer {
+                        request.extensions_mut().insert(super::transport::AuditPeer);
+                    }
+                    next.run(request).await
+                }
+            },
+        )))
+    }
+}
+
 impl Config {
     pub fn from_env() -> Result<Option<Self>, Error> {
         if std::env::var(ENABLED).as_deref() != Ok("true") {
@@ -111,7 +152,8 @@ impl Config {
             },
         };
         authority.enabled()?;
-        let bind = env("OTERYN_BAZAAR_INTERNAL_BIND")?
+        let bind = std::env::var("OTERYN_BAZAAR_INTERNAL_BIND")
+            .unwrap_or_else(|_| "127.0.0.1:0".into())
             .parse::<SocketAddr>()
             .map_err(|_| Error::Invalid)?;
         let base_url = env("OTERYN_BAZAAR_INTERNAL_BASE_URL")?;
@@ -155,9 +197,16 @@ impl Config {
             keys_hash: Sha256::digest(keys_bytes).into(),
             bind,
             base_url,
-            certificate: env("OTERYN_BAZAAR_TLS_CERT_FILE")?.into(),
-            private_key: env("OTERYN_BAZAAR_TLS_KEY_FILE")?.into(),
-            client_ca: env("OTERYN_BAZAAR_CLIENT_CA_FILE")?.into(),
+            // These files are only used by the standalone listener API.
+            certificate: std::env::var_os("OTERYN_BAZAAR_TLS_CERT_FILE")
+                .unwrap_or_default()
+                .into(),
+            private_key: std::env::var_os("OTERYN_BAZAAR_TLS_KEY_FILE")
+                .unwrap_or_default()
+                .into(),
+            client_ca: std::env::var_os("OTERYN_BAZAAR_CLIENT_CA_FILE")
+                .unwrap_or_default()
+                .into(),
             bazaar_spki,
             receipt_spki,
             escrow_account,

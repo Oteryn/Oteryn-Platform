@@ -171,7 +171,7 @@ async fn listener_with(
     let tls = config.server_config()?;
     let socket = tokio::net::TcpListener::bind(config.bind).await?;
     let addr = socket.local_addr()?;
-    tokio::spawn(serve(socket, tls, app, agents));
+    tokio::spawn(serve(socket, tls, app, agents, GameIngress::default()));
     Ok(Fixture {
         _dir: dir,
         addr,

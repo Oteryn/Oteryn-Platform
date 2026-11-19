@@ -4,8 +4,9 @@
 //! The route guards in `oteryn-internal-api` trust only a `VerifiedClient`
 //! extension. This listener is the one adapter that inserts it on the main
 //! router: after a TLS 1.3 handshake whose client certificate chains to the
-//! configured CA, from the leaf certificate's single DNS subject alternative
-//! name. The public listener never inserts it, and no header can.
+//! configured CA. Ordinary routes use the leaf certificate's single DNS SAN.
+//! Game ingress routes can instead prove a configured purpose-specific pin.
+//! The public listener never inserts a verified identity, and no header can.
 //!
 //! Configuration (all four or none; a partial set refuses to start):
 //! `OTERYN_INTERNAL_TLS_BIND`, `OTERYN_INTERNAL_TLS_CERT_FILE`,
@@ -15,6 +16,7 @@
 //! `VerifiedAgent` (ADR 0047): only when the leaf's single subject CN is
 //! `oteryn-admin-agent/<agent_id>` and that configured agent's identity equals
 //! the verified DNS SAN. The CN selects the entry; the SAN is the authority.
+use crate::game_ingress::{GameIngress, Peer};
 use axum::{
     Router,
     extract::{ConnectInfo, Request},
@@ -87,21 +89,29 @@ impl Config {
         for certificate in certificates(&self.client_ca_file)? {
             roots.add(certificate)?;
         }
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
-            Arc::new(roots),
-            provider.clone(),
-        )
-        .build()?;
         let chain = certificates(&self.cert_file)?;
         let key = PrivateKeyDer::from_pem_file(&self.key_file)?;
-        let mut tls = rustls::ServerConfig::builder_with_provider(provider)
-            .with_protocol_versions(&[&rustls::version::TLS13])?
-            .with_client_cert_verifier(verifier)
-            .with_single_cert(chain, key)?;
-        tls.alpn_protocols = vec![b"http/1.1".to_vec()];
-        Ok(tls)
+        server_config(roots, chain, key)
     }
+}
+
+pub(crate) fn server_config(
+    roots: rustls::RootCertStore,
+    chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+) -> Result<rustls::ServerConfig, Box<dyn std::error::Error>> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+        Arc::new(roots),
+        provider.clone(),
+    )
+    .build()?;
+    let mut tls = rustls::ServerConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&rustls::version::TLS13])?
+        .with_client_cert_verifier(verifier)
+        .with_single_cert(chain, key)?;
+    tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(tls)
 }
 
 fn certificates(
@@ -157,27 +167,33 @@ pub fn common_name(der: &[u8]) -> Option<String> {
 /// Bind and serve `app` on the private listener; `None` when not configured.
 pub async fn start(
     app: Router,
+    game: GameIngress,
 ) -> Result<Option<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error>> {
     let Some(config) = Config::from_env()? else {
+        if game.is_configured() {
+            return Err("Game ingress requires the internal mTLS configuration".into());
+        }
         return Ok(None);
     };
     let tls = config.server_config()?;
     let agents = AgentIdentities::configured()?.map(Arc::new);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "internal mTLS listener");
-    Ok(Some(tokio::spawn(serve(listener, tls, app, agents))))
+    Ok(Some(tokio::spawn(serve(listener, tls, app, agents, game))))
 }
 
-/// Accept loop. Each connection carries exactly one verified identity.
+/// Accept loop. Verified certificates are mapped to an identity per route.
 /// `agents` is `None` while admin control is disabled.
 pub async fn serve(
     listener: tokio::net::TcpListener,
     tls: rustls::ServerConfig,
     app: Router,
     agents: Option<Arc<AgentIdentities>>,
+    game: GameIngress,
 ) {
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
     let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
+    let game = Arc::new(game);
     loop {
         let Ok((socket, peer)) = oteryn_gameauth::accept::accept_with_retry(
             || listener.accept(),
@@ -193,6 +209,7 @@ pub async fn serve(
         let acceptor = acceptor.clone();
         let app = app.clone();
         let agents = agents.clone();
+        let game = game.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let Ok(Ok(stream)) =
@@ -211,20 +228,50 @@ pub async fn serve(
             let Some(leaf) = session.peer_certificates().and_then(|certs| certs.first()) else {
                 return;
             };
-            let Some(identity) = identity(leaf.as_ref()) else {
-                return;
+            let identity = identity(leaf.as_ref());
+            let pinned_peer = if game.is_configured() {
+                Peer::new(leaf, session.alpn_protocol() == Some(b"http/1.1"))
+            } else {
+                None
             };
+            if identity.is_none()
+                && !pinned_peer
+                    .as_ref()
+                    .is_some_and(|peer| game.recognizes(peer))
+            {
+                return;
+            }
             let agent = agents
                 .as_deref()
-                .and_then(|agents| agents.verify(&common_name(leaf.as_ref())?, &identity));
+                .and_then(|agents| agents.verify(&common_name(leaf.as_ref())?, identity.as_ref()?));
+            let app = if identity.is_some() {
+                app
+            } else {
+                Router::new()
+            };
+            let app = if game.is_configured() {
+                Router::new().fallback_service(tower::service_fn(move |request: Request| {
+                    let game = game.clone();
+                    let app = app.clone();
+                    async move {
+                        Ok::<_, std::convert::Infallible>(
+                            game.dispatch(app, pinned_peer.as_ref(), request).await,
+                        )
+                    }
+                }))
+            } else {
+                app
+            };
             let service = hyper_util::service::TowerToHyperService::new(scoped(
                 app,
-                VerifiedClient::from_verified_tls13_http11(identity),
+                identity.map(VerifiedClient::from_verified_tls13_http11),
                 agent,
                 peer,
             ));
             let connection = hyper::server::conn::http1::Builder::new()
                 .max_buf_size(65536)
+                .header_read_timeout(HANDSHAKE_TIMEOUT)
+                .timer(hyper_util::rt::TokioTimer::new())
                 .serve_connection(hyper_util::rt::TokioIo::new(stream), service);
             let _ = tokio::time::timeout(CONNECTION_TIMEOUT, connection).await;
         });
@@ -236,7 +283,7 @@ pub async fn serve(
 /// The admin-control agent is inserted only when the connection proved one.
 pub(crate) fn scoped(
     app: Router,
-    client: VerifiedClient,
+    client: Option<VerifiedClient>,
     agent: Option<VerifiedAgent>,
     peer: SocketAddr,
 ) -> Router {
@@ -252,7 +299,9 @@ pub(crate) fn scoped(
                 if !PREFIXES.iter().any(|prefix| path.starts_with(prefix)) {
                     return StatusCode::NOT_FOUND.into_response();
                 }
-                request.extensions_mut().insert(client);
+                if let Some(client) = client {
+                    request.extensions_mut().insert(client);
+                }
                 if let Some(agent) = agent {
                     request.extensions_mut().insert(agent);
                 }

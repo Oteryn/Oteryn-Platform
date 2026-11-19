@@ -3,6 +3,18 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub const INGRESS_PATHS: [&str; 3] = [admission::EVENT, admission::SEASON, admission::WATERMARK];
+
+/// The TLS adapter inserts this only after a verified TLS 1.3 / HTTP 1.1 exchange.
+#[derive(Clone, Debug)]
+pub struct VerifiedPublisher([u8; 32]);
+
+impl VerifiedPublisher {
+    pub fn from_verified_tls13_http11(spki: [u8; 32]) -> Self {
+        Self(spki)
+    }
+}
+
 pub fn enabled() -> bool {
     std::env::var("OTERYN_LEAGUE_ENABLED").as_deref() == Ok("true")
 }
@@ -85,10 +97,18 @@ impl Config {
         let config = Self {
             authority: value("OTERYN_LEAGUE_SOURCE_AUTHORITY")?,
             audience: value("OTERYN_LEAGUE_BASE_URL")?,
-            bind: value("OTERYN_LEAGUE_BIND")?,
-            ca: value("OTERYN_LEAGUE_CLIENT_CA_DER")?.into(),
-            certificate: value("OTERYN_LEAGUE_CERTIFICATE_DER")?.into(),
-            private_key: value("OTERYN_LEAGUE_PRIVATE_KEY_DER")?.into(),
+            // The standalone transport API still owns these settings. The
+            // portal's shared listener supplies its own address and trust.
+            bind: std::env::var("OTERYN_LEAGUE_BIND").unwrap_or_else(|_| "127.0.0.1:0".into()),
+            ca: std::env::var_os("OTERYN_LEAGUE_CLIENT_CA_DER")
+                .unwrap_or_default()
+                .into(),
+            certificate: std::env::var_os("OTERYN_LEAGUE_CERTIFICATE_DER")
+                .unwrap_or_default()
+                .into(),
+            private_key: std::env::var_os("OTERYN_LEAGUE_PRIVATE_KEY_DER")
+                .unwrap_or_default()
+                .into(),
             client_spki_sha256: normalize_spki(&value("OTERYN_LEAGUE_CLIENT_SPKI_SHA256")?)?,
             recovery_file: value("OTERYN_LEAGUE_RECOVERY_FILE")?.into(),
             requests_per_minute: std::env::var("OTERYN_LEAGUE_REQUESTS_PER_MINUTE")
@@ -117,6 +137,18 @@ impl Config {
         config.recovery()?;
         Ok(config)
     }
+    pub fn client_spki_pin(&self) -> Result<[u8; 32]> {
+        let hex = self
+            .client_spki_sha256
+            .strip_prefix("sha256:")
+            .ok_or(Error::Invalid)?;
+        unhex(hex)?.try_into().map_err(|_| Error::Invalid)
+    }
+
+    pub fn shared_private_router(self, pool: sqlx::PgPool) -> Result<axum::Router> {
+        shared_ingress::router(pool, self)
+    }
+
     fn cap(name: &str, default: usize) -> Result<usize> {
         let n = match std::env::var(name) {
             Ok(s) => s.parse::<usize>().map_err(|_| Error::Invalid)?,
@@ -149,4 +181,121 @@ pub(super) fn normalize_spki(raw: &str) -> Result<String> {
     let hex = raw.strip_prefix("sha256:").unwrap_or(raw);
     schema::ensure(unhex(hex)?.len() == 32)?;
     Ok(format!("sha256:{hex}"))
+}
+
+mod shared_ingress {
+    use super::*;
+    use axum::{
+        Router,
+        body::to_bytes,
+        extract::{Request, State},
+        http::{StatusCode, Version, header},
+        response::{IntoResponse, Response},
+        routing::post,
+    };
+    use std::{
+        collections::VecDeque,
+        sync::{Arc, Mutex},
+    };
+
+    #[derive(Clone)]
+    struct Ingress {
+        config: Arc<Config>,
+        pool: sqlx::PgPool,
+        spki: [u8; 32],
+        requests: Arc<Mutex<VecDeque<u64>>>,
+    }
+
+    pub(super) fn router(pool: sqlx::PgPool, config: Config) -> Result<Router> {
+        let spki = config.client_spki_pin()?;
+        let mut routes = Router::new();
+        for path in INGRESS_PATHS {
+            routes = routes.route(path, post(ingest));
+        }
+        Ok(routes
+            .method_not_allowed_fallback(|| async { response(StatusCode::BAD_REQUEST) })
+            .with_state(Ingress {
+                config: Arc::new(config),
+                pool,
+                spki,
+                requests: Arc::default(),
+            }))
+    }
+
+    fn response(status: StatusCode) -> Response {
+        if status == StatusCode::OK {
+            (
+                status,
+                [
+                    (header::CACHE_CONTROL, "no-store"),
+                    (header::CONTENT_TYPE, "application/json"),
+                ],
+                "{\"contract_version\":1,\"result\":\"accepted\"}",
+            )
+                .into_response()
+        } else {
+            (status, [(header::CACHE_CONTROL, "no-store")]).into_response()
+        }
+    }
+
+    async fn ingest(State(ingress): State<Ingress>, request: Request) -> Response {
+        if !request
+            .extensions()
+            .get::<VerifiedPublisher>()
+            .is_some_and(|peer| peer.0 == ingress.spki)
+        {
+            return response(StatusCode::UNAUTHORIZED);
+        }
+        if request.version() != Version::HTTP_11 || request.uri().query().is_some() {
+            return response(StatusCode::BAD_REQUEST);
+        }
+        let clock = match runtime::now() {
+            Ok(clock) => clock,
+            Err(_) => return response(StatusCode::SERVICE_UNAVAILABLE),
+        };
+        let allowed = ingress.requests.lock().is_ok_and(|mut queue| {
+            while queue.front().is_some_and(|t| t.saturating_add(60) <= clock) {
+                queue.pop_front();
+            }
+            if queue.len() >= ingress.config.requests_per_minute {
+                return false;
+            }
+            queue.push_back(clock);
+            true
+        });
+        if !allowed {
+            return response(StatusCode::TOO_MANY_REQUESTS);
+        }
+        let path = request.uri().path().to_owned();
+        let limit = match path.as_str() {
+            admission::EVENT => 16384,
+            admission::SEASON => 262144,
+            admission::WATERMARK => 512,
+            _ => return response(StatusCode::BAD_REQUEST),
+        };
+        let Ok(body) = to_bytes(request.into_body(), limit).await else {
+            return response(StatusCode::BAD_REQUEST);
+        };
+        let identity = &ingress.config.client_spki_sha256;
+        let result = async {
+            let meta = admission::prepare(&ingress.config, &path, &body, identity)?;
+            let meta = serde_json::to_vec(&meta).map_err(|_| Error::Unavailable)?;
+            runtime::receive(
+                &ingress.pool,
+                &ingress.config,
+                &path,
+                &body,
+                &meta,
+                identity.as_bytes(),
+            )
+            .await
+        }
+        .await;
+        response(match result {
+            Ok(true) => StatusCode::OK,
+            Err(Error::Superseded | Error::Conflict) => StatusCode::CONFLICT,
+            Err(Error::Invalid) => StatusCode::BAD_REQUEST,
+            _ => StatusCode::SERVICE_UNAVAILABLE,
+        })
+    }
 }

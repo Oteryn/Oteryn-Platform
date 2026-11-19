@@ -6,25 +6,20 @@ import https from 'node:https';
 import http from 'node:http';
 import path from 'node:path';
 import pg from 'pg';
-export async function leagueProducer({root,scratch,env,openssl}) {
+export async function leagueProducer({root,scratch,env,openssl,internalOrigin}) {
  const directory=path.join(scratch,'league');fs.mkdirSync(directory,{mode:0o700});
- const leaf=(name,usage)=>{
+ const leaf=name=>{
   openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${directory}/${name}.key`,'-out',`${directory}/${name}.csr`,'-subj',`/CN=${name}`]);
-  fs.writeFileSync(`${directory}/${name}.ext`,`subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=${usage}\n`);
+  fs.writeFileSync(`${directory}/${name}.ext`,`subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=clientAuth\n`);
   openssl(['x509','-req','-in',`${directory}/${name}.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${directory}/${name}.pem`,'-days','2','-extfile',`${directory}/${name}.ext`]);
-  openssl(['x509','-in',`${directory}/${name}.pem`,'-outform','DER','-out',`${directory}/${name}.der`]);
  };
- leaf('league-platform','serverAuth');leaf('league-game','clientAuth');leaf('league-other','clientAuth');
- openssl(['pkcs8','-topk8','-nocrypt','-in',`${directory}/league-platform.key`,'-outform','DER','-out',`${directory}/league-platform-key.der`]);
- openssl(['x509','-in',`${scratch}/ca.pem`,'-outform','DER','-out',`${directory}/ca.der`]);
+ leaf('league-game');leaf('league-other');
  const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
  const epoch='3',generation='1',authority='oteryn:game:primary';
  fs.writeFileSync(`${directory}/recovery.json`,JSON.stringify({source_authority:authority,projection_epoch:epoch,recovery_generation:generation}),{mode:0o600});
- const audience='https://localhost:18444';
  Object.assign(env,{
-  OTERYN_LEAGUE_ENABLED:'true',OTERYN_LEAGUE_BASE_URL:audience,OTERYN_LEAGUE_BIND:'127.0.0.1:18444',OTERYN_LEAGUE_SOURCE_AUTHORITY:authority,
-  OTERYN_LEAGUE_CLIENT_CA_DER:`${directory}/ca.der`,OTERYN_LEAGUE_CERTIFICATE_DER:`${directory}/league-platform.der`,OTERYN_LEAGUE_PRIVATE_KEY_DER:`${directory}/league-platform-key.der`,
-  OTERYN_LEAGUE_CLIENT_SPKI_SHA256:'sha256:'+hash(new crypto.X509Certificate(fs.readFileSync(`${directory}/league-game.der`)).publicKey.export({type:'spki',format:'der'})),
+  OTERYN_LEAGUE_ENABLED:'true',OTERYN_LEAGUE_BASE_URL:internalOrigin,OTERYN_LEAGUE_SOURCE_AUTHORITY:authority,
+  OTERYN_LEAGUE_CLIENT_SPKI_SHA256:'sha256:'+hash(new crypto.X509Certificate(fs.readFileSync(`${directory}/league-game.pem`)).publicKey.export({type:'spki',format:'der'})),
   OTERYN_LEAGUE_RECOVERY_FILE:`${directory}/recovery.json`,PORTAL_E2E_LEAGUE_CONTROL:'http://127.0.0.1:18445',
  });
  const fixtures=JSON.parse(fs.readFileSync(path.join(root,'crates/minigames/src/league/fixtures/snapshots.json')));
@@ -37,7 +32,7 @@ export async function leagueProducer({root,scratch,env,openssl}) {
  let mode='good',published=false,closed=false,refusalStatus=null,task;
  const send=(r,bad=false)=>new Promise(resolve=>{
   const identity=bad?{key:fs.readFileSync(`${directory}/league-other.key`),cert:fs.readFileSync(`${directory}/league-other.pem`)}:{};
-  const req=https.request(`${audience}${r.path}`,{...options,...identity,method:'POST',headers:{'content-type':'application/json','content-length':Buffer.byteLength(r.body)}},res=>{
+  const req=https.request(`${internalOrigin}${r.path}`,{...options,...identity,method:'POST',headers:{'content-type':'application/json','content-length':Buffer.byteLength(r.body)}},res=>{
    let size=0;res.on('data',b=>{size+=b.length;});res.on('end',()=>resolve(res.headers['cache-control']==='no-store'&&size<=256&&(res.statusCode===200||size===0)?res.statusCode:500));
   });
   req.setTimeout(5000,()=>req.destroy());req.on('error',()=>resolve(503));req.end(r.body);

@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
-import http from 'node:http';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const SOURCE='3b49a20feec3ba29700bb4b2fa28fa9b539b79a2';
@@ -30,7 +29,7 @@ function event(intent,receipt,operation,world,generation){
  const transaction=Buffer.concat([bytes(1,uuidBytes(uuid7())),integer(2,1),integer(3,1)]);
  return Buffer.concat([integer(1,1),bytes(2,uuidBytes(uuid7())),integer(3,6),integer(4,1),integer(5,2),integer(6,3),text(7,'PLAT3_AUTHORITY_AUDIT_RETENTION_V1'),integer(8,Date.now()),bytes(9,uuidBytes(world)),bytes(17,uuidBytes(operation)),bytes(18,transaction),text(25,'fixture-bazaar-game-v1'),bytes(26,payload),bytes(27,crypto.createHash('sha256').update(payload).digest())]);
 }
-export function prepareBazaar(env,scratch){
+export function prepareBazaar(env,scratch,internalOrigin){
  const directory=path.join(scratch,'bazaar-game');fs.mkdirSync(directory,{recursive:true,mode:0o700});
  const exec=args=>{const result=spawnSync('openssl',args,{stdio:'ignore'});if(result.status!==0)throw new Error('Local Bazaar certificate generation failed');};
  const identities={};
@@ -49,10 +48,10 @@ export function prepareBazaar(env,scratch){
  const fenceFile=path.join(directory,'fence.json');
  fs.writeFileSync(fenceFile,JSON.stringify({projection_epoch:3,recovery_generation:3,incarnation:uuid7(),character_history_complete_since:1}),{mode:0o600});
  const world='0192a000-0000-7000-8000-000000000012',escrow='0192a000-0000-7000-8000-000000000040';
- Object.assign(env,{OTERYN_BAZAAR_ENABLED:'true',OTERYN_BAZAAR_FENCE_FILE:fenceFile,OTERYN_BAZAAR_SNAPSHOT_KEYS_FILE:keysFile,OTERYN_BAZAAR_INTERNAL_BIND:'127.0.0.1:18992',OTERYN_BAZAAR_INTERNAL_BASE_URL:'https://localhost:18992',OTERYN_BAZAAR_TLS_CERT_FILE:`${scratch}/cert.pem`,OTERYN_BAZAAR_TLS_KEY_FILE:`${scratch}/key.pem`,OTERYN_BAZAAR_CLIENT_CA_FILE:`${scratch}/ca.pem`,OTERYN_BAZAAR_CLIENT_SPKI_SHA256:identities.bazaar.spki,OTERYN_BAZAAR_RECEIPT_CLIENT_SPKI_SHA256:identities.character.spki,OTERYN_BAZAAR_RECEIPT_AUTHORITY:'oteryn:character-authority:primary',OTERYN_BAZAAR_SOURCE_AUTHORITY:'oteryn:game:primary',OTERYN_BAZAAR_ESCROW_ACCOUNT_ID:escrow,OTERYN_BAZAAR_WORLD_IDS:world});
+ Object.assign(env,{OTERYN_BAZAAR_ENABLED:'true',OTERYN_BAZAAR_FENCE_FILE:fenceFile,OTERYN_BAZAAR_SNAPSHOT_KEYS_FILE:keysFile,OTERYN_BAZAAR_INTERNAL_BASE_URL:internalOrigin,OTERYN_BAZAAR_CLIENT_SPKI_SHA256:identities.bazaar.spki,OTERYN_BAZAAR_RECEIPT_CLIENT_SPKI_SHA256:identities.character.spki,OTERYN_BAZAAR_RECEIPT_AUTHORITY:'oteryn:character-authority:primary',OTERYN_BAZAAR_SOURCE_AUTHORITY:'oteryn:game:primary',OTERYN_BAZAAR_ESCROW_ACCOUNT_ID:escrow,OTERYN_BAZAAR_WORLD_IDS:world});
  return {directory,identities,signing,ca:fs.readFileSync(`${scratch}/ca.pem`),env,world,escrow,fence:fs.readFileSync(fenceFile,'utf8')};
 }
-export async function startBazaarProducer(config){
+export function startBazaarProducer(config){
  const {env,directory,world,escrow}=config;
  const journal=path.join(directory,'game-journal.json');
  let state=fs.existsSync(journal)?JSON.parse(fs.readFileSync(journal,'utf8')):{assets:{},characters:{},decisions:{},statuses:{},accountRevisions:{},outbox:[],errors:[]};
@@ -227,12 +226,12 @@ export async function startBazaarProducer(config){
    if(entries.length<32)break;revision=entries.at(-1).source_revision;operation=entries.at(-1).operation_id;
   }
  }
- const control=http.createServer(async(req,res)=>{
+ async function control(req,res,target){
   try{
-   if(req.method==='GET'&&req.url==='/fixtures'){res.writeHead(200,{'content-type':'application/json','x-fixture-source':SOURCE});res.end(rawFixtures);return;}
-   if(req.method==='GET'&&req.url.startsWith('/state')){const asset=new URL(req.url,'http://localhost').searchParams.get('asset');res.setHeader('content-type','application/json');res.end(JSON.stringify({source:SOURCE,ready:policyAcknowledged,asset:asset?state.assets[asset]:null,decisions:Object.values(state.decisions).map(d=>({operation:d.operation,command:d.command,outcome:d.outcome})),errors:state.errors,banks:state.banks}));return;}
+   if(req.method==='GET'&&target==='/fixtures'){res.writeHead(200,{'content-type':'application/json','x-fixture-source':SOURCE});res.end(rawFixtures);return;}
+   if(req.method==='GET'&&target.startsWith('/state')){const asset=new URL(target,'http://localhost').searchParams.get('asset');res.setHeader('content-type','application/json');res.end(JSON.stringify({source:SOURCE,ready:policyAcknowledged,asset:asset?state.assets[asset]:null,decisions:Object.values(state.decisions).map(d=>({operation:d.operation,command:d.command,outcome:d.outcome})),errors:state.errors,banks:state.banks}));return;}
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>8192)throw new Error('Body bound');}
-   if(req.method==='POST'&&req.url==='/seed'){
+   if(req.method==='POST'&&target==='/seed'){
     const input=JSON.parse(raw);for(const key of ['seller','buyer','asset_id','seller_character_id','buyer_character_id'])if(!validID(input[key]))throw new Error('Invalid fixture ID');
     if(state.assets[input.asset_id])throw new Error('Fixture identity reuse');
     const base={id:input.asset_id,world,owner:input.seller,character:input.seller_character_id,kind:input.kind,revision:'7',quantity:1,name:'Fixture Hero',playable:true,transferable:!input.refuse,offline:true,eligible:true,obligationsResolved:true,locked:false};
@@ -242,16 +241,15 @@ export async function startBazaarProducer(config){
     await config.publishCharacter({account_id:input.buyer,character_id:input.buyer_character_id,world_id:world});
     res.writeHead(201);res.end('{}');return;
    }
-   if(req.method==='POST'&&req.url==='/replay'){const input=JSON.parse(raw);if(!validID(input.listing_id))throw new Error('Missing replay subject');for(const entry of state.outbox){if(state.decisions[entry.key].listing!==input.listing_id)continue;entry.receiptSent=false;entry.statusSent=!entry.status;entry.eventSent=!entry.event;}persist();res.end('{}');return;}
+   if(req.method==='POST'&&target==='/replay'){const input=JSON.parse(raw);if(!validID(input.listing_id))throw new Error('Missing replay subject');for(const entry of state.outbox){if(state.decisions[entry.key].listing!==input.listing_id)continue;entry.receiptSent=false;entry.statusSent=!entry.status;entry.eventSent=!entry.event;}persist();res.end('{}');return;}
    res.writeHead(404);res.end();
   }catch{res.writeHead(400);res.end('{"error":"invalid local fixture request"}');}
- });
- await new Promise(resolve=>control.listen(18993,'127.0.0.1',resolve));
+ }
  const run=(async()=>{while(!closing){try{
   fence();
   if(!policyAcknowledged){const item=fixture('escrow_receipt').result_data.item;const policy={...head('PublishBazaarTransferabilityV1'),world_id:world,projection_epoch:'3',projection_revision:'4',source_observed_at:String(now()),eligibility_revision:'4',definitions:[{definition:item.definition,tradeable:true,max_quantity:1,allowed_attribute_keys:['tier']}]};policyAcknowledged=(await post('bazaar','/internal/v1/bazaar/transferability',Buffer.from(JSON.stringify(policy)))).status===200;}
   await flush();await poll(2);await poll(1);
   if(await flush()&&policyAcknowledged&&now()-lastWatermark>=10){const watermark={...head('PublishBazaarWatermarkV1'),projection_epoch:'3',complete_through:String(now()),observed_at:String(now())};if((await post('bazaar','/internal/v1/bazaar/watermark',Buffer.from(JSON.stringify(watermark)))).status===200)lastWatermark=now();}
  }catch(error){if(!['ECONNREFUSED','ECONNRESET'].includes(error.code)&&!error.message.includes('timeout')&&!closing){state.errors.push('producer exchange unavailable');if(state.errors.length>20)state.errors.shift();persist();}}await sleep(1000);}})();
- return {async close(){closing=true;for(const agent of Object.values(agents))agent.destroy();await new Promise(resolve=>control.close(resolve));await run;}};
+ return {control,async close(){closing=true;for(const agent of Object.values(agents))agent.destroy();await run;}};
 }

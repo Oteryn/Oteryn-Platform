@@ -116,28 +116,13 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     ),
                 }
             });
-            let league_listener =
-                oteryn_minigames::league::transport::start_private_listener(db.clone()).await?;
             let bazaar = oteryn_bazaar::game::runtime::Runtime::configured(db.clone()).await?;
-            #[cfg(test)]
-            if std::env::var_os("FLAG_BOUNDARY_ROUTE_DIR").is_some() {
-                if league_listener.is_some() {
-                    let config = oteryn_minigames::league::config::Config::from_env()?;
-                    let app =
-                        oteryn_minigames::league::transport::private_router(db.clone(), config);
-                    record_route_registrations("league", &app)?;
-                }
-                if let Some(runtime) = &bazaar {
-                    record_route_registrations("bazaar", &runtime.private_router()?)?;
-                }
-            }
-            let bazaar_listener = if let Some(runtime) = &bazaar {
-                Some(runtime.start_private_listener().await?)
-            } else {
-                None
-            };
             let closure = account_closure::configured(db.clone())?;
-            let closure_listener = account_closure::start_listener(db.clone(), &closure).await?;
+            let game_ingress = game_ingress::GameIngress::configured(
+                db.clone(),
+                account_closure::private_ingress(db.clone(), &closure, config.environment)?,
+                bazaar.as_ref(),
+            )?;
             let admission_listener = game_login::start_admission_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
@@ -432,7 +417,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             record_route_registrations("internal", &app)?;
             #[cfg(test)]
             record_route_registrations("public", &public_app)?;
-            let internal_listener = internal_tls::start(app.clone()).await?;
+            let internal_listener = internal_tls::start(app, game_ingress).await?;
             let app = public_app;
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             #[cfg(test)]
@@ -444,9 +429,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 [
                     ("internal-mtls", internal_listener),
                     ("native-tls", native_listener),
-                    ("league", league_listener),
-                    ("bazaar", bazaar_listener),
-                    ("account-closure", closure_listener),
                 ],
                 admission_listener,
             );
@@ -477,7 +459,7 @@ type ListenerCompletion = (
 );
 
 fn register_private_listeners(
-    handles: [(&'static str, Option<tokio::task::JoinHandle<()>>); 5],
+    handles: [(&'static str, Option<tokio::task::JoinHandle<()>>); 2],
     admission: tokio::task::JoinHandle<std::io::Result<()>>,
 ) -> tokio::task::JoinSet<ListenerCompletion> {
     let mut listeners = tokio::task::JoinSet::new();
@@ -552,13 +534,7 @@ mod tests {
                 Err(std::io::Error::other("admission serve failed"))
             });
             let listeners = register_private_listeners(
-                [
-                    ("internal-mtls", None),
-                    ("native-tls", None),
-                    ("league", None),
-                    ("bazaar", None),
-                    ("account-closure", None),
-                ],
+                [("internal-mtls", None), ("native-tls", None)],
                 admission,
             );
             let result = tokio::time::timeout(
@@ -591,6 +567,7 @@ mod tests {
 
 mod bootstrap_intent;
 mod coin_purchases;
+mod game_ingress;
 mod game_login;
 mod game_routes;
 mod gateway;
