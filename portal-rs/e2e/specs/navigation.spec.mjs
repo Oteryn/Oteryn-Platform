@@ -29,45 +29,41 @@ for(const section of inventory.sections) test(`registry ${section.section}: dest
  expect(errors).toEqual([]);
 });
 
-test('module navigation opens every enabled group by keyboard focus and touch',async({page,browser},info)=>{
+test('module navigation opens every enabled group by keyboard and touch', async ({page, browser}, info) => {
  const lang = info.project.metadata.locale;
  const url = `/${lang}/news`;
  await page.goto(url);
- const menu = page.locator('#portal-menu-toggle');
- if (await menu.isVisible()) await menu.click();
- const groups = page.locator('#portal-header [data-nav-section]');
- expect(await groups.count()).toBeGreaterThan(0);
- for (const group of await groups.all()) {
-   const panel = page.locator('#' + await group.getAttribute('aria-controls'));
-   await group.focus();
-   await page.keyboard.press('Enter');
-   await expect(panel).toBeVisible();
+ const menu = page.locator('#portal-header details.om-fallback-menu');
+ const summary = menu.locator(':scope > summary');
+ const nav = menu.locator(':scope > nav');
+ await expect(nav).toBeHidden();
+ await summary.focus();
+ await page.keyboard.press('Enter');
+ await expect(nav).toBeVisible();
+ await page.keyboard.press('Tab');
+ await expect(nav.locator('a').first()).toBeFocused();
+ const panels = nav.locator('.om-panel');
+ await expect(panels).toHaveCount(2);
+ for (const panel of await panels.all()) {
+   await expect(panel.locator('a').first()).toBeVisible();
    const bounds = await panel.boundingBox();
    expect(bounds.x).toBeGreaterThanOrEqual(0);
    expect(bounds.x + bounds.width).toBeLessThanOrEqual(info.project.use.viewport.width);
-   await page.keyboard.press('Tab');
-   await expect(panel.locator('a').first()).toBeFocused();
-   await page.keyboard.press('Escape');
-   await expect(group).toBeFocused();
-   await expect(panel).toBeHidden();
  }
- const context = await browser.newContext({ignoreHTTPSErrors:true,hasTouch:true,viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ await summary.focus();
+ await page.keyboard.press('Space');
+ await expect(nav).toBeHidden();
+ const context = await browser.newContext({ignoreHTTPSErrors:true, hasTouch:true, viewport:info.project.use.viewport, locale:lang, baseURL:process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443'});
  try {
    await context.addCookies(cookies);
    const screen = await context.newPage();
-   const buttons = await groups.evaluateAll(nodes => nodes.map(node => node.id));
-   for (const id of buttons) {
+   for (const id of await panels.evaluateAll(nodes => nodes.map(node => node.id))) {
      await screen.goto(url);
-     const toggle = screen.locator('#portal-menu-toggle');
-     if (await toggle.isVisible()) await toggle.tap();
-     const group = screen.locator('#' + id);
-     await group.tap();
-     const panel = screen.locator('#' + await group.getAttribute('aria-controls'));
-     await expect(panel).toBeVisible();
-     const link = panel.locator('a').last();
+     await screen.locator('#portal-header details.om-fallback-menu > summary').tap();
+     const link = screen.locator('#' + id).locator('a').last();
      const destination = await link.getAttribute('href');
      await link.tap();
-     await expect(screen).toHaveURL(new URL(destination,screen.url()).href);
+     await expect(screen).toHaveURL(new URL(destination, screen.url()).href);
    }
  } finally {
    await context.close();

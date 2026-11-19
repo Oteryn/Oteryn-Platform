@@ -23,7 +23,7 @@ const AxeBuilder = modules('@axe-core/playwright').default;
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px overflow`);
         const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
         assert.deepEqual(result.violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) })), []);
-        await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-shell/${lang}`);
+        assert.equal((await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-shell/${lang}`)).status(), 503);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
         const toggle = page.locator('#portal-menu-toggle');
         if (await toggle.isVisible()) await toggle.click();
@@ -49,6 +49,16 @@ const AxeBuilder = modules('@axe-core/playwright').default;
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'headless shell overflow');
         await page.keyboard.press('Tab');
         assert.equal(await page.evaluate(() => {const s=getComputedStyle(document.activeElement);return document.activeElement.matches(':focus-visible') && s.outlineStyle!=='none';}),true);
+        assert.equal(await page.locator('script[src="/static/thais/home.js"]').count(), 0);
+        const disclosure = page.locator('details.om-fallback-menu');
+        const summary = disclosure.locator(':scope > summary');
+        const target = disclosure.locator('a[href$="#profesje"]');
+        assert.equal(await target.isVisible(), false);
+        await summary.focus();
+        await page.keyboard.press('Enter');
+        assert.equal(await target.isVisible(), true, 'world links open without JavaScript');
+        await page.keyboard.press('Enter');
+        assert.equal(await target.isVisible(), false);
 
       }
       await context.close();
