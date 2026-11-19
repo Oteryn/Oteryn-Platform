@@ -112,7 +112,7 @@
     {
       "name": "deployment",
       "paths": [
-        "deploy/synology/docker-compose.yml"
+        "deploy/oracle/edge.compose.yml"
       ],
       "classes": [
         "deployment"

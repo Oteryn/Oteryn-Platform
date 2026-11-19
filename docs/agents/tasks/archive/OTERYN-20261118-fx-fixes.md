@@ -36,7 +36,7 @@ round 15 packet after PR #1948 merged.
 
 - [x] Each confirmed finding has a fix with a regression test through the real caller
 - [x] Each pushed fix was reviewed read-only before integration
-- [ ] Portal RS CI green on the PR head
+- [x] Portal RS CI green on the PR head
 
 ## Ownership
 
@@ -196,11 +196,11 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-18T17:10:00Z
-head: c67e79ed7c9e07bdee27e635f1c15877a8d0b7ce
+head: bc50ac53
 branch: claude/happy-davinci-ijz3wy-fx
 pr: 1951
-status: implementing
-terminal_pr_policy: archive_pending
+status: completed
+terminal_pr_policy: archived
 context_routes: []
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20261118-fx-fixes.md
@@ -470,12 +470,20 @@ validation:
     result: PASS
     evidence: local PostgreSQL 18.6 on the integrated fx+acct2+fb tree (20b67f33 plus this packet) - db 15, identity 208, wallet 43, store 146, payments 60, minigames 80, characters 121, admin 225, community 200, stats 61, bazaar 214, web 69, support 103, gameauth 184, playerdata 205, world 70, atlas 34, oteryn-portal 264; 0 failed
   - command: Portal RS CI on the PR head
-    result: NOT_RUN
-    evidence: full suite runs in CI shards
+    result: PASS
+    evidence: PR #1951 merged as bc50ac53 with required checks green
   - command: product runtime E2E
     result: NOT_APPLICABLE
     evidence: server-side fixes covered by tests through the real routers and workers; portal-rs E2E dispatched after merge
 blockers:
   - none
-next_action: Portal RS CI on the PR head, then squash auto-merge
+next_action: none; delivered by PR #1951 and archived
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: ordinary same-repository PR; head branch deleted after merge
+source_branch_evidence: PR 1951 merged as bc50ac53f9654d43fb9f858441ba86420c3e5a77
 ```

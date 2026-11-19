@@ -37,14 +37,14 @@ Its job is to make these questions explicit and independently verifiable:
 
 The service mapping is owned by `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md` and is reproduced here only as routing context:
 
-| Public hostname | Service role | Current declared Synology origin |
+| Public hostname | Service role | Declared origin (retired NAS deployment) |
 |---|---|---|
 | `https://oteryn.molehill.cloud` | Oteryn Platform web application | `http://127.0.0.1:8000` |
 | `https://gateway.molehill.cloud` | Oteryn Game Gateway / native-client login API | `http://127.0.0.1:8080` |
 
 `login.oteryn.molehill.cloud` is retired and must not be restored as a canonical endpoint without an explicit contract/decision change.
 
-The origin mapping above is a repository/deployment contract. It is not proof that current public DNS, proxying, Tunnel ingress, TLS, firewall or runtime state matches that contract.
+The origins above were declared for the retired NAS deployment; the current production target is the Oracle ARM64 host `oteryn-vps` (`deploy/oracle/README.md`), and this mapping has not yet been re-declared for it. The origin mapping above is a repository/deployment contract. It is not proof that current public DNS, proxying, Tunnel ingress, TLS, firewall or runtime state matches that contract.
 
 ## Ownership boundary
 

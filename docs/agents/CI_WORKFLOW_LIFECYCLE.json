@@ -25,7 +25,6 @@
     "platform-db-outage-validation.yml",
     "portal-rs-ci.yml",
     "portal-rs-e2e.yml",
-    "synology-diagnostics.yml",
     "terminal-branch-lifecycle-read-reusable.yml",
     "terminal-branch-lifecycle-reusable.yml",
     "terminal-branch-lifecycle.yml",
@@ -67,6 +66,7 @@
     "support-legal-acceptance.yml",
     "support-moderation-acceptance.yml",
     "synology-container-hygiene.yml",
+    "synology-diagnostics.yml",
     "synology-production-target-preflight.yml",
     "synology-rollback-contract.yml",
     "wiki-reconciliation-acceptance.yml"
@@ -118,6 +118,7 @@
     "support-legal-acceptance.yml": "Laravel validation retired when the Laravel app was removed (owner decision 2026-11-11); portal-rs-ci.yml validates the Rust portal",
     "support-moderation-acceptance.yml": "Laravel validation retired when the Laravel app was removed (owner decision 2026-11-11); portal-rs-ci.yml validates the Rust portal",
     "synology-container-hygiene.yml": "Synology staging (Laravel and Go gateway) tooling removed (owner decision 2026-11-11); restore from Git history (commit 2d45732c, legacy/deploy/synology) if the staging host must be operated again",
+    "synology-diagnostics.yml": "Synology host decommissioned (owner decision 2026-11-19); oracle-operations.yml operates the Oracle ARM64 host oteryn-vps",
     "synology-production-target-preflight.yml": "Synology staging (Laravel and Go gateway) tooling removed (owner decision 2026-11-11); restore from Git history (commit 2d45732c, legacy/deploy/synology) if the staging host must be operated again",
     "synology-rollback-contract.yml": "Synology staging (Laravel and Go gateway) tooling removed (owner decision 2026-11-11); restore from Git history (commit 2d45732c, legacy/deploy/synology) if the staging host must be operated again",
     "wiki-reconciliation-acceptance.yml": "Laravel validation retired when the Laravel app was removed (owner decision 2026-11-11); portal-rs-ci.yml validates the Rust portal"

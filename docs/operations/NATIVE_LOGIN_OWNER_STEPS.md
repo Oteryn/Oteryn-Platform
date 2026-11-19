@@ -1,5 +1,7 @@
 # NATIVE-LOGIN owner steps (Synology preproduction)
 
+> **Historical.** The Synology NAS this runbook targets has been decommissioned and its workflows and tooling removed. The current production target is the Oracle ARM64 host `oteryn-vps` (live portal at `/opt/oteryn-portal`, runner `oteryn-oracle-platform`; `deploy/oracle/README.md`). Do not follow these steps.
+
 Plain checklist to bring native game login up end to end: Platform and Gateway on the Synology stack, the Game node on the same NAS, and the Windows client. Nothing here is a secret; the values you set are identifiers and addresses. Keys, certificates and passwords stay on their hosts. Examples use addresses already in the repository (`https://oteryn.molehill.cloud` Platform, `https://gateway.molehill.cloud` Gateway, Game port `7172`); use your NAS address.
 
 ## Route publication on the Synology store
