@@ -44,6 +44,10 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("bootstrap-intent") {
         return bootstrap_intent::main().await;
     }
+    // Operator route publication prints one JSON object, so it also runs before logging.
+    if std::env::args().nth(1).as_deref() == Some("game-route") {
+        return game_route_cli::main().await;
+    }
     if std::env::args().nth(1).as_deref() == Some("catalog") {
         return catalog_cli::main().await;
     }
@@ -608,6 +612,7 @@ mod account_closure;
 
 mod catalog_cli;
 mod code_routes;
+mod game_route_cli;
 mod refund_reconcile_cli;
 
 #[cfg(test)]
