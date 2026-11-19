@@ -11,7 +11,7 @@ acceptance.
 |---|---|---|
 | Ordered build id (`release_sequence` per update channel), signed | release signing + TUF channel policy (ADR 0035, client update origin v1) | yes, in `policy-v1.json` |
 | Client reports its release in `offer.release` | Game client | no |
-| Gateway validates and forwards `offer.release` | `crates/gateway` (`wire.rs` `Offer`, `check_offer`) | no |
+| Gateway validates and forwards `offer.release`; relays the two new codes and `update` | `crates/gateway` (`wire.rs` `Offer`, `check_offer`; `errors.rs` relay) | no |
 | Gate records, effective minimum, refusal | `crates/gameauth` admission | no |
 | Active verified policy lookup | `crates/downloads` (published generation) | yes |
 | Operator command and audit | `oteryn-portal admin-cli` | no |
@@ -38,20 +38,42 @@ records and the active Downloads generation from Platform's own database.
 | `updated_by` | uuid | staff account |
 | `updated_at` | timestamptz | |
 
-- A unique index on `(scope_kind, coalesce(world_id), coalesce(channel_id))`.
+- A unique index on `(scope_kind, world_id, channel_id) NULLS NOT DISTINCT`
+  (PostgreSQL 15+), so a second global or World row cannot exist.
+- The migration seeds the one global row as `open`, revision 1.
 - Every change also writes `audit_log` with the old and new row.
-- An absent row is the same as `open`.
+- An absent World or game channel row is the same as `open`.
 
-The admission transaction reads the global row, the World row and the rows
-for the candidate game channels with `FOR SHARE`. A concurrent gate change
-then serializes against issuance: a grant is never signed under a minimum
-that was already raised in a committed transaction.
+**Serializing issuance against gate changes.** Row locks alone do not cover
+the first write on a scope that has no row yet (`FOR SHARE` locks nothing that
+does not exist). So both sides take a transaction-level advisory lock per
+scope key (global, `world_id`, `(world_id, channel_id)`):
+
+- issuance takes it in shared mode (`pg_advisory_xact_lock_shared`) for the
+  global key, the World key and each candidate's channel key, before reading
+  the rows;
+- the operator command takes it in exclusive mode for the one scope it
+  writes, before reading and writing the row.
+
+A gate change committed before issuance takes its locks is seen. One that
+starts later waits until issuance commits. A grant is therefore never signed
+under a minimum or a maintenance that was already committed, including the
+first maintenance on a scope with no row.
+
+**Policy values.** The policy minimum, current sequence and revoked ids come
+from the latest activated, verified Downloads generation for the update
+channel. Platform already stores that generation, verified at publish time
+against the pinned Root. There is no new parsing of unverified bytes.
+
+- An expired head still contributes its `minimum_supported_release_sequence`
+  and its `revoked_release_ids`: expiry never lowers a minimum.
+- `current_release_sequence` in the `update` body, and the operator
+  precondition, use only a non-expired head; otherwise current is null and a
+  raise is refused.
 
 **Policy values.** The policy minimum, current sequence and revoked ids come
 from the active Downloads generation for the update channel. Platform already
 stores that generation, verified at publish time against the pinned Root.
-There is no new parsing of unverified bytes. An expired active head counts as
-no policy (absent), as for the public route.
 
 ## 3. Operator command
 
@@ -71,7 +93,7 @@ oteryn-portal admin-cli game-build-gate show [--scope ...]
 **When it refuses.** It refuses with a nonzero exit and nothing written when:
 
 - the revision is stale;
-- a minimum exceeds the active verified policy's `current_release_sequence`
+- a minimum exceeds the latest non-expired verified policy's `current_release_sequence`
   for that update channel;
 - the active release lacks an artifact for a supported platform and
   architecture;
@@ -91,7 +113,8 @@ ways, for Game to choose:
 1. **One listener, chain by client hint.** The client sends the TLS 1.3
    `certificate_authorities` extension (RFC 8446 §4.2.4) with the roots it
    trusts, and the node picks the matching chain.
-   - Pro: no route change.
+   - Pro: no Platform change at all. Route records and grants stay as they
+     are; the gate is the only Platform piece.
    - Con: the client TLS stack and the node must both support the extension.
      A client that sends nothing gets the default chain, which must stay A
      until step 6.
@@ -99,12 +122,17 @@ ways, for Game to choose:
    its own port and `tls_server_name`, with an added `trust_epoch` member in
    the route record and the grant.
    - Pro: plain TLS on both sides.
-   - Con: a route record and grant revision, owned by the native gateway
-     login contract and planned there, not here.
+   - Con: Platform must then pick the route record by the offered release
+     (an `R(A)` client must get the A record, an `R(A+B)` or `R(B)` client
+     the B record). That is a separate amendment of the native gateway login
+     contract (route record, grant, §7.4 selection) with its own tests; this
+     gate does not provide it.
 
-The gate works the same with either. The only Platform-visible input is the
-release sequence that starts trusting B (`s_AB`), which the operator enters
-as the minimum.
+**Recommendation: option 1.** It needs nothing from Platform beyond this gate,
+and the gate's only Platform-visible input is the release sequence that
+starts trusting B (`s_AB`), which the operator enters as the minimum. Option 2
+is possible, but only together with that route-selection amendment; the gate
+alone does not make it work.
 
 ## 5. Observability
 
@@ -125,17 +153,25 @@ how many users the raise will send to the updater.
 | Situation | Result |
 |---|---|
 | Gate tables unreadable | `NATIVE_LOGIN_UNAVAILABLE` (fail closed, no grant) |
-| No active policy for the update channel | policy minimum absent; gate records still apply; `current_release_sequence` null in the body |
+| No activated policy for the update channel | policy minimum absent; gate records still apply; `current_release_sequence` null in the body |
+| Latest policy expired | its minimum and revoked ids still apply; `current_release_sequence` null; raises refused until a fresh generation is activated |
 | Minimum set, policy later rolled back below it | issuance keeps enforcing. `update.current_release_sequence` is below the minimum, so the client cannot update and shows the download page. The operator must lower the minimum, which is audited. Platform raises an alert when the active policy's current sequence is below an enforced minimum. |
-| Client sends `release` before Platform supports it | older issuer: `NATIVE_LOGIN_REQUEST_MALFORMED` (contract §3 ordering) |
+| Client sends `release` before Platform supports it | older Gateway or issuer: `NATIVE_LOGIN_REQUEST_MALFORMED`. Prevented by the deploy order and the rollback floor (contract §3.3) |
+| Request without `release` hits maintenance or `unknown_release = refuse` | exact §11.1 body with an existing code (`ROUTE_UNAVAILABLE`, `OFFER_UNSUPPORTED`); pre-contract clients see no new shape |
 
 ## 7. Implementation PR outline
 
-1. Migration and the `game_client_build_gates` store in `crates/gameauth`.
+1. Migration (table, NULLS NOT DISTINCT index, seeded global row) and the
+   `game_client_build_gates` store in `crates/gameauth`.
 2. `Offer.release` in `crates/gateway/src/wire.rs` and
-   `crates/gameauth/src/admission/wire.rs`, plus offer digest vectors.
-3. The gate in the admission transaction (protocol 2 and 3, recovery), with
-   the two new `Error` variants and their bodies.
+   `crates/gameauth/src/admission/wire.rs`, plus offer digest vectors; the
+   Gateway relay (`errors.rs`) learns both codes and the `update` member for
+   protocol 2, 3 and recovery.
+3. The gate in the admission transaction (protocol 2 and 3, recovery):
+   maintenance right after ticket authentication; the build check after
+   candidate selection and before `prepare_on`, filtering candidates and the
+   protocol 3 `channels` lists; the two new `Error` variants and their
+   bodies; the fallbacks for requests without `release`.
 4. A read of the active Downloads generation by update channel (a
    `crates/downloads` read function, no new route).
 5. The `admin-cli game-build-gate` command, permission and audit.
@@ -147,4 +183,6 @@ how many users the raise will send to the updater.
 
 Feature flag: `PORTAL_CLIENT_BUILD_GATE_ENABLED`, default off. When off, the
 issuer accepts `offer.release` and does not gate. The wire change can then
-ship ahead of enforcement.
+ship ahead of enforcement. The first Platform version that accepts
+`offer.release` becomes the rollback floor once any client sends it
+(contract §3.3); the deploy runbook records it.
