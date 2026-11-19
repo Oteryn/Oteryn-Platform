@@ -134,6 +134,7 @@ class Passthrough(unittest.TestCase):
         # listening; until then a handshake for that host ends in
         # internal_error. Wait for the certificate, not just the port.
         insecure = ssl.create_default_context()
+        insecure.minimum_version = ssl.TLSVersion.TLSv1_2
         insecure.check_hostname = False
         insecure.verify_mode = ssl.CERT_NONE
         end = time.monotonic() + 20.0
