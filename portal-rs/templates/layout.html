@@ -14,7 +14,9 @@
 </head>
 <body class="op-theme op-shell thais-inner">
   {% block body %}
-  {% include "components/shell-header.html" %}
+  {% include "components/icons.html" %}
+  {% let interior = true %}
+  {% include "components/thais-header.html" %}
   <main id="main" class="{% block main_class %}op-stack op-main{% endblock %}" tabindex="-1">{% block content %}{% endblock %}</main>
   {% include "components/shell-footer.html" %}
   {% endblock %}
