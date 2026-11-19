@@ -41,8 +41,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
-    request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
         && !request.uri().path().starts_with("/internal/")
@@ -51,6 +49,16 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
+    let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    // The public action follows the same live policy as the registration form.
+    // This read informs presentation only; the route still enforces admission.
+    if chrome.registration_mounted && !chrome.signed_in() {
+        chrome.registration_mounted = browser
+            && oteryn_identity::abuse::enabled(&shell.sessions.pool)
+                .await
+                .is_ok();
+    }
+    request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
         let html = response
@@ -469,6 +477,49 @@ mod response_tests {
         assert_eq!(html.matches("class=\"hx-foot\"").count(), 1);
         assert!(html.contains("components.css"));
         assert!(html.contains("<p>op-theme op-shell</p>"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unavailable_registration_policy_does_not_advertise_registration()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        pool.close().await;
+        let mut registry = Registry::default();
+        registry.login = true;
+        registry.registration = true;
+        let app = Router::new()
+            .route(
+                "/{lang}/",
+                get(
+                    |axum::Extension(chrome): axum::Extension<oteryn_ui::Chrome>| async move {
+                        oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
+                    },
+                ),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry,
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        for lang in ["pl", "en"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("/{lang}/"))
+                        .header(header::ACCEPT, "text/html")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), 100_000).await?;
+            let html = std::str::from_utf8(&bytes)?;
+            assert!(html.contains(&format!("href=\"/{lang}/login\"")));
+            assert!(!html.contains(&format!("href=\"/{lang}/register\"")));
+        }
         Ok(())
     }
 

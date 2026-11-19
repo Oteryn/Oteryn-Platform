@@ -193,8 +193,7 @@ mod tests {
         };
         use tower::ServiceExt;
 
-        let app =
-            admission_with_readiness(Router::new().fallback(|| async { StatusCode::OK }), false);
+        let app = admission(Router::new().fallback(|| async { StatusCode::OK }), false);
         for path in [
             "/verify-email/resend",
             "/en/verify-email/resend",
@@ -319,11 +318,11 @@ mod account_exists_tests {
 
 /// Freeze delivery readiness at startup, before registration body/session work.
 /// Serve and worker use the identical validated configuration.
-pub fn admission(app: axum::Router, pool: PgPool) -> axum::Router {
-    let ready = mail_configured() && register(&mut Registry::default(), pool).is_ok();
-    admission_with_readiness(app, ready)
+pub fn readiness(pool: PgPool) -> bool {
+    mail_configured() && register(&mut Registry::default(), pool).is_ok()
 }
-fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
+
+pub fn admission(app: axum::Router, ready: bool) -> axum::Router {
     app.layer(axum::middleware::from_fn(
         move |request: axum::extract::Request, next: axum::middleware::Next| async move {
             use axum::{

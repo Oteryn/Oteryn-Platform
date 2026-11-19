@@ -34,17 +34,9 @@ pub enum Group {
     Account,
 }
 impl Group {
-    fn icon(self) -> &'static str {
-        match self {
-            Self::Play => "shop",
-            Self::Community => "community",
-            Self::World => "world",
-            Self::Account => "support",
-        }
-    }
     fn key(self) -> &'static str {
         match self {
-            Self::Play => "shell-play",
+            Self::Play => "stage-nav-tools",
             Self::Community => "shell-community",
             Self::World => "shell-world",
             Self::Account => "shell-account",
@@ -143,17 +135,19 @@ impl Registry {
         for entry in &mut entries {
             entry.current = entry.section == current_section;
         }
-        let groups = [Group::Play, Group::Community, Group::World, Group::Account]
+        let groups = [Group::World, Group::Community, Group::Play, Group::Account]
             .into_iter()
             .filter_map(|group| {
                 let links: Vec<_> = entries
                     .iter()
-                    .filter(|e| e.group == group)
+                    .filter(|e| {
+                        e.group == group
+                            && !matches!(e.section.as_str(), "privacy" | "terms" | "server")
+                    })
                     .cloned()
                     .collect();
                 (!links.is_empty()).then(|| NavGroup {
                     label: text(lang, group.key()),
-                    icon: group.icon(),
                     links,
                 })
             })
@@ -207,8 +201,6 @@ pub struct NavLink {
 #[derive(Clone, Debug)]
 pub struct NavGroup {
     pub label: String,
-    /// Template navigation icon name under `/static/img/home/nav-{icon}.webp`.
-    pub icon: &'static str,
     pub links: Vec<NavLink>,
 }
 impl NavGroup {
@@ -498,14 +490,17 @@ mod tests {
                 let html = Home::new(&chrome, &HomeData::default()).render()?;
                 assert!(html.contains(&format!("<html lang=\"{lang}\" data-theme=\"dark\">")));
                 assert!(html.contains(if lang == "en" {
-                    "Welcome to the world of Oteryn!"
+                    "Adventure begins in Oteryn"
                 } else {
-                    "Witaj w świecie Oteryn!"
+                    "Przygoda zaczyna się w Oteryn"
                 }));
                 assert!(html.contains("/static/css/home.css"));
                 assert!(html.contains("class=\"op-theme op-shell\""));
                 assert_eq!(html.contains("/wiki\""), enabled);
                 assert!(!html.contains("/puzzles\""));
+                assert!(html.contains("href=\"#start\""));
+                assert!(html.contains("id=\"start\""));
+                assert!(!html.contains("server-information#download"));
                 assert_eq!(html.contains("/login\""), enabled);
                 assert_eq!(html.contains("/register\""), enabled);
                 assert!(!html.contains("/logout\""));
@@ -532,15 +527,16 @@ mod tests {
     fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
         let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
         let html = ShellHeader { chrome: &chrome }.render()?;
-        assert!(html.contains("<details class=\"hx-nav__dropdown\"><summary"));
+        assert!(html.contains("<details class=\"hx-nav__dropdown\" name=\"portal-navigation\">"));
+        assert!(html.contains("href=\"/pl/wiki\" lang=\"pl\" hreflang=\"pl\""));
+        assert!(html.contains(
+            "<span class=\"hx-lang hx-lang--on\" lang=\"en\" aria-current=\"true\">EN</span>"
+        ));
         assert!(html.contains("aria-current=\"page\">Wiki</a>"));
         let css = include_str!("../../../static/css/home.css");
         assert!(css.contains(".hx-nav__dropdown[open] .hx-nav__menu"));
-        assert!(
-            css.contains(".hx-nav__item:nth-child(odd) .hx-nav__menu { left: 0; right: auto; }")
-        );
-        assert!(css.contains(".hx-nav__item--menu:focus-within .hx-nav__menu { display: block; }"));
-        assert!(!css.contains(":focus-within .hx-nav__menu { display: none; }"));
+        assert!(!css.contains(":focus-within .hx-nav__menu"));
+        assert!(!css.contains(":hover .hx-nav__menu"));
         Ok(())
     }
     #[test]
