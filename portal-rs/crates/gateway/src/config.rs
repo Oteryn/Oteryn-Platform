@@ -1,11 +1,14 @@
 //! Gateway configuration is independent of portal and database configuration.
 use std::{fmt, net::IpAddr, path::PathBuf, time::Duration};
+
+pub(crate) const ISSUER_CA_FILE: &str = "OTERYN_PLATFORM_ISSUER_CA_FILE";
 #[derive(Clone)]
 pub struct Config {
     pub listen: String,
     pub trusted_proxies: Vec<IpAddr>,
     pub base_url: String,
     pub token_file: PathBuf,
+    pub issuer_ca_file: Option<PathBuf>,
     pub enabled: bool,
     /// `GATEWAY_NATIVE_PROTOCOL3_ENABLED` (contract §19.1), default off.
     pub protocol3: bool,
@@ -20,6 +23,9 @@ impl fmt::Debug for Config {
 }
 impl Config {
     pub fn from_env() -> Result<Self, String> {
+        if std::env::var_os(ISSUER_CA_FILE).is_some_and(|value| value.to_str().is_none()) {
+            return Err(format!("invalid {ISSUER_CA_FILE}"));
+        }
         Self::from_lookup(|key| std::env::var(key).ok())
     }
     pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
@@ -31,7 +37,14 @@ impl Config {
         let base_url = value("OTERYN_PLATFORM_BASE_URL", "")
             .trim_end_matches('/')
             .to_owned();
-        validate_url(&base_url)?;
+        let issuer_ca_file = get(ISSUER_CA_FILE);
+        if issuer_ca_file
+            .as_ref()
+            .is_some_and(|path| path.trim().is_empty())
+        {
+            return Err(format!("{ISSUER_CA_FILE} is empty"));
+        }
+        validate_issuer_url(&base_url, issuer_ca_file.is_some())?;
         let token_file = value("OTERYN_PLATFORM_SERVICE_TOKEN_FILE", "");
         if token_file.is_empty() {
             return Err("OTERYN_PLATFORM_SERVICE_TOKEN_FILE is required".into());
@@ -63,6 +76,7 @@ impl Config {
             listen,
             base_url,
             token_file: token_file.into(),
+            issuer_ca_file: issuer_ca_file.map(PathBuf::from),
             enabled,
             protocol3,
             timeout: duration(&value("GATEWAY_NATIVE_ADMISSION_TIMEOUT", "5s"), 8)?,
@@ -90,6 +104,10 @@ impl Config {
     }
 }
 pub fn validate_url(raw: &str) -> Result<(), String> {
+    validate_issuer_url(raw, false)
+}
+
+pub(crate) fn validate_issuer_url(raw: &str, require_https: bool) -> Result<(), String> {
     let url = url::Url::parse(raw).map_err(|_| "invalid OTERYN_PLATFORM_BASE_URL")?;
     let host = url.host_str().ok_or("upstream host is required")?;
     if !matches!(url.scheme(), "http" | "https")
@@ -99,6 +117,9 @@ pub fn validate_url(raw: &str) -> Result<(), String> {
         || url.fragment().is_some()
     {
         return Err("upstream URL must contain only scheme, host and optional path".into());
+    }
+    if require_https && url.scheme() != "https" {
+        return Err(format!("{ISSUER_CA_FILE} requires an HTTPS upstream"));
     }
     let host = host.trim_matches(['[', ']']);
     if url.scheme() == "http"

@@ -25,6 +25,9 @@ sha2 = "0.10"
 tokio = { version = "1.54.1", features = ["net", "time", "sync", "signal", "io-util"] }
 tracing = "0.1.44"
 uuid = { version = "1", features = ["v4"] }
+x509-parser = "0.18"
 
 [dev-dependencies]
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
