@@ -130,6 +130,21 @@ class Passthrough(unittest.TestCase):
                                        '--adapter', 'caddyfile'], env=environment,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         wait_listening(self.https)
+        # Caddy issues the `tls internal` site certificate after it starts
+        # listening; until then a handshake for that host ends in
+        # internal_error. Wait for the certificate, not just the port.
+        insecure = ssl.create_default_context()
+        insecure.check_hostname = False
+        insecure.verify_mode = ssl.CERT_NONE
+        end = time.monotonic() + 20.0
+        while True:
+            try:
+                with self.connect('site.oteryn.test', ['http/1.1'], insecure):
+                    break
+            except (ssl.SSLError, OSError):
+                if time.monotonic() > end:
+                    raise
+                time.sleep(0.1)
 
     def tearDown(self):
         self.caddy.terminate()
