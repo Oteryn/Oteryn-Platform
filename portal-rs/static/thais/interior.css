@@ -335,7 +335,7 @@ body.op-shell::before {
   position: absolute;
   inset: calc(100% + 4px) var(--om-edge) auto auto;
   display: flex;
-  flex-direction: column;
+  flex-flow: column nowrap;
   align-items: stretch;
   gap: 1.2rem;
   width: min(54rem, calc(100% - 2 * var(--om-edge)));
@@ -349,6 +349,7 @@ body.op-shell::before {
   background: #f4f1e7;
   box-shadow: 0 12px 28px #0005;
 }
+.om-fallback-menu[open] > .om-nav > * { flex-shrink: 0; }
 .om-fallback-menu .om-nav .om-sections { align-items: start; gap: 1rem 2rem; }
 .om-mast:not(.is-enhanced) .om-fallback-menu .om-panel[hidden] {
   color: inherit;
