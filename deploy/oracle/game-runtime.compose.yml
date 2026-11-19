@@ -14,16 +14,17 @@ services:
     labels:
       io.oteryn.launch-cycle: ${OTERYN_GAME_CYCLE:-uninitialized}
       io.oteryn.step-wait-receipts: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
+    # The image carries the World bundle, NPC data and gameplay manifest under
+    # /opt/oteryn-game and sets OTERYN_NATIVE_GAMEPLAY_MANIFEST itself; nothing
+    # is mounted there, and the NPC pin is the one shipped in the image.
+    entrypoint: [/bin/sh, -ec]
     command:
-      - serve
-      - --config
-      - /srv/oteryn/game/node/node.toml
-      - --npc-data-project
-      - /srv/oteryn/game/run/npc-data/content/world
-      - --npc-data-sha256
-      - 3c82124d7271e2e1ec42dce8be29900322e19771515363f622155d98df044f17
+      - >-
+        exec /usr/local/bin/oteryn-game-server serve
+        --config /srv/oteryn/game/node/node.toml
+        --npc-data-project /opt/oteryn-game/npc-data/content/world
+        --npc-data-sha256 "$$(cat /opt/oteryn-game/npc-data/PROJECT_SHA256)"
     environment:
-      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /srv/oteryn/game/gameplay/content/spells.manifest.json
       # Set per incarnation by game-supervisor.py from BASE/run/step-wait-receipts.
       OTERYN_STEP_WAIT_RECEIPTS: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
     volumes: *game-mounts
@@ -49,8 +50,6 @@ services:
       - /usr/local/bin/oteryn-game-ops
       - --config
       - /srv/oteryn/game-ops/ops.toml
-    environment:
-      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /srv/oteryn/game/gameplay/content/spells.manifest.json
     volumes:
       - /opt/oteryn-game:/srv/oteryn/game
       - /opt/oteryn-game-ops:/srv/oteryn/game-ops

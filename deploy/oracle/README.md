@@ -38,10 +38,14 @@ image whose architecture or revision label differs, migrates with it and, only
 when `/opt/oteryn-oracle/game-runtime.compose.yml` is absent, installs that file
 with both image declarations set to it. Later releases go only through
 `actions-deploy.py game deploy-image`, which needs this installed, ready Game.
-The runtime compose also pins `--npc-data-sha256` (Game
-`deploy/synology-game/npc-data.pin.json` `project_sha256`, currently from Game
-`a334e591`); `deploy-image` swaps only the image lines, so a Game release that
-changes that pin needs this file updated with it.
+The Game image carries its own inputs under `/opt/oteryn-game`: the World
+bundle `world.otbundle`, the NPC data project `npc-data/` with its
+`PROJECT_SHA256`, and the gameplay manifest named by the image's own
+`OTERYN_NATIVE_GAMEPLAY_MANIFEST`. The runtime compose mounts nothing there, sets
+no manifest path and reads `--npc-data-sha256` from the image at start, so
+`deploy-image`, which swaps only the image lines, keeps inputs and pins in step.
+The host `node.toml` names the bundle as
+`[world_bundle] path = "/opt/oteryn-game/world.otbundle"`.
 
 `prepare-platform.sh` validates operator-supplied Rust application and migration
 configuration and starts the Rust roles described below. PostgreSQL provisioning,
@@ -160,7 +164,8 @@ uses `internal-mtls.compose.yml` to remove the NAS host port and give the listen
 private Docker address 172.18.0.12. The host mounts `/opt/oteryn-game` at
 `/srv/oteryn/game` and the separate root ops directory `/opt/oteryn-game-ops` at
 `/srv/oteryn/game-ops` (the retired NAS `/volume1/...` container paths are gone);
-`node.toml`, `ops.toml` and staged content must name these container paths.
+`node.toml` and `ops.toml` must name these container paths; Game content comes
+from the image (`/opt/oteryn-game`), never from the host.
 
 Install the shipped `oteryn-game.service` only after the final coherent source
 transfer, new endpoint descriptor issuance, forward projection resync and the

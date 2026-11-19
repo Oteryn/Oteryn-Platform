@@ -1,6 +1,7 @@
 """Exercise the actual workflow shell before its host SSH boundary."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -94,6 +95,25 @@ class PrepareGameImage(unittest.TestCase):
         self.assertNotIn('docker image inspect oteryn-game:', self.SCRIPT.read_text())
         runtime = Path(__file__).with_name('game-runtime.compose.yml').read_text()
         self.assertEqual(sum(line.startswith('    image: oteryn-game:') for line in runtime.splitlines()), 2)
+
+    def test_game_inputs_come_from_the_image_not_the_host(self):
+        runtime = Path(__file__).with_name('game-runtime.compose.yml').read_text()
+        # Every bind or volume target, in short (src:target) or long (target:) form.
+        targets = re.findall(r'(?m)^\s+- [^\s:]+:(/[^\s:]*)', runtime)
+        targets += re.findall(r'(?m)^\s+target: (\S+)', runtime)
+        self.assertTrue(targets)
+        for target in targets:
+            with self.subTest(target=target):
+                self.assertFalse(target == '/opt/oteryn-game' or target.startswith('/opt/oteryn-game/'))
+        # The image sets the gameplay manifest; the NPC pin is read from the image.
+        self.assertNotIn('OTERYN_NATIVE_GAMEPLAY_MANIFEST:', runtime)
+        self.assertIsNone(re.search(r'\b[0-9a-f]{64}\b', runtime))
+        game = runtime.split('\n  ops:\n')[0]
+        self.assertIn('--npc-data-project /opt/oteryn-game/npc-data/content/world', game)
+        self.assertIn('--npc-data-sha256 "$$(cat /opt/oteryn-game/npc-data/PROJECT_SHA256)"', game)
+        self.assertIn('exec /usr/local/bin/oteryn-game-server serve', game)
+        self.assertNotIn('/srv/oteryn/game/run/npc-data', runtime)
+        self.assertNotIn('/srv/oteryn/game/gameplay', runtime)
 
 
 if __name__ == '__main__':
