@@ -70,10 +70,7 @@ async fn answer(
     assert!(jsonschema::validator_for(&schema)?.is_valid(&serde_json::to_value(&result)?));
     let response = internal
         .clone()
-        .oneshot(agent_request(
-            "results",
-            json!({"owner_epoch":1,"envelope":result}),
-        )?)
+        .oneshot(agent_request("results", serde_json::to_value(&result)?)?)
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     Ok(())
@@ -98,10 +95,6 @@ async fn browser_get(
         to_bytes(response.into_body(), 200000).await?.to_vec(),
     )?)
 }
-#[derive(serde::Deserialize)]
-struct Queue {
-    requests: Vec<signer::RequestEnvelope>,
-}
 async fn poll(
     internal: &Router,
 ) -> Result<Vec<signer::RequestEnvelope>, Box<dyn std::error::Error>> {
@@ -109,12 +102,13 @@ async fn poll(
         .clone()
         .oneshot(agent_request(
             "channel",
-            json!({"agent_id":"agent-a","owner_epoch":1,"wait_seconds":0}),
+            json!({"agent_id":"agent-a","owner_epoch":1,"wait_seconds":0,"limit":32}),
         )?)
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
-    let queue: Queue = serde_json::from_slice(&to_bytes(response.into_body(), 100000).await?)?;
-    Ok(queue.requests)
+    let queue: Vec<signer::RequestEnvelope> =
+        serde_json::from_slice(&to_bytes(response.into_body(), 100000).await?)?;
+    Ok(queue)
 }
 async fn speculative_gets_leave_queue_empty(
     reads: &Router,
@@ -408,11 +402,11 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         "admin.policy.get",
     ]
     .into_iter()
-    .map(|operation| json!({"operation":operation,"operation_version":1,"kind":"query"}))
+    .map(|operation| json!({"operation":operation,"version":1}))
     .collect();
     let internal = crate::control_http::router(pool.clone(), true, vec![binding])?;
-    let response = internal.clone().oneshot(agent_request("hello", json!({"agent_id":"agent-a","build":"test-build","catalog_digest":URL_SAFE_NO_PAD.encode([1;32]),
-        "advertised_operations":advertised,"served_worlds":["world-a"],"served_nodes":[],"owner_epoch":1,
+    let response = internal.clone().oneshot(agent_request("hello", json!({"agent_id":"agent-a","build_revision":"test-build","catalog_digest":URL_SAFE_NO_PAD.encode([1;32]),
+        "operations":advertised,"worlds":["world-a"],"nodes":[],"owner_epoch":1,
         "clock":OffsetDateTime::now_utc().format(&Rfc3339)?}))?).await?;
     assert_eq!(response.status(), StatusCode::OK);
     let app = web::guarded(
@@ -482,12 +476,12 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         .clone()
         .oneshot(agent_request(
             "channel",
-            json!({"agent_id":"agent-a","owner_epoch":1,"wait_seconds":0}),
+            json!({"agent_id":"agent-a","owner_epoch":1,"wait_seconds":0,"limit":32}),
         )?)
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     let queued: Value = serde_json::from_slice(&to_bytes(response.into_body(), 100000).await?)?;
-    let request: signer::RequestEnvelope = serde_json::from_value(queued["requests"][0].clone())?;
+    let request: signer::RequestEnvelope = serde_json::from_value(queued[0].clone())?;
     channel
         .signer
         .as_ref()
@@ -519,10 +513,7 @@ async fn stored_console_browser_query_verified_result_and_ownership(
     );
     let response = internal
         .clone()
-        .oneshot(agent_request(
-            "results",
-            json!({"owner_epoch":1,"envelope":result}),
-        )?)
+        .oneshot(agent_request("results", serde_json::to_value(&result)?)?)
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     let response = app
