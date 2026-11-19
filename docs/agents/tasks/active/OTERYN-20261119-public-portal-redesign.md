@@ -32,6 +32,10 @@ owned_paths:
   - portal-rs/crates/ui/**
   - portal-rs/crates/web/src/chrome.rs
   - portal-rs/crates/web/src/search/browser.cjs
+  - portal-rs/crates/web/src/search/tests.rs
+  - portal-rs/crates/web/src/surface.rs
+  - portal-rs/crates/web/src/lib.rs
+  - portal-rs/crates/web/Cargo.toml
   - portal-rs/bin/oteryn-portal/src/{main,registration_delivery,audit_l9_tests}.rs
   - portal-rs/e2e/specs/navigation.spec.mjs
 modules:
@@ -49,10 +53,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-19T11:16:03Z
-head: UNKNOWN
+updated_at: 2026-11-19T11:22:15Z
+head: 44b7d95704e25c155b67ee1fc72863ec2580cd1d
 branch: codex/1976-public-portal-redesign
-pr: none
+pr: 1977
 status: validating
 context_routes:
   - portal UI and web composition
@@ -64,6 +68,10 @@ owned_paths:
   - portal-rs/crates/ui/**
   - portal-rs/crates/web/src/chrome.rs
   - portal-rs/crates/web/src/search/browser.cjs
+  - portal-rs/crates/web/src/search/tests.rs
+  - portal-rs/crates/web/src/surface.rs
+  - portal-rs/crates/web/src/lib.rs
+  - portal-rs/crates/web/Cargo.toml
   - portal-rs/bin/oteryn-portal/src/{main,registration_delivery,audit_l9_tests}.rs
   - portal-rs/e2e/specs/navigation.spec.mjs
 proven:
@@ -87,6 +95,10 @@ changed_paths:
   - portal-rs/crates/ui/i18n/en.ftl
   - portal-rs/static/css/home.css
   - portal-rs/crates/web/src/search/browser.cjs
+  - portal-rs/crates/web/src/search/tests.rs
+  - portal-rs/crates/web/src/surface.rs
+  - portal-rs/crates/web/src/lib.rs
+  - portal-rs/crates/web/Cargo.toml
   - portal-rs/e2e/specs/navigation.spec.mjs
   - portal-rs/bin/oteryn-portal/src/main.rs
   - portal-rs/bin/oteryn-portal/src/registration_delivery.rs

@@ -54,9 +54,14 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     // This read informs presentation only; the route still enforces admission.
     if chrome.registration_mounted && !chrome.signed_in() {
         chrome.registration_mounted = browser
-            && oteryn_identity::abuse::enabled(&shell.sessions.pool)
-                .await
-                .is_ok();
+            && matches!(
+                tokio::time::timeout(
+                    std::time::Duration::from_millis(200),
+                    oteryn_identity::abuse::enabled(&shell.sessions.pool),
+                )
+                .await,
+                Ok(Ok(()))
+            );
     }
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;

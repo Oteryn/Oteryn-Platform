@@ -122,7 +122,13 @@ impl Registry {
                     url,
                     current,
                     footer: e.footer,
-                    group: e.group,
+                    group: match e.section {
+                        "online" | "rankings" | "deaths" | "growth-rankings" => Group::World,
+                        "league" | "puzzles" => Group::Community,
+                        "bazaar" | "calculators" | "compare" | "delivery" => Group::Play,
+                        "pass" | "collection" | "places" => Group::Account,
+                        _ => e.group,
+                    },
                 }
             })
             .collect();
@@ -135,6 +141,7 @@ impl Registry {
         for entry in &mut entries {
             entry.current = entry.section == current_section;
         }
+        let signed_in = matches!(&account, Account::SignedIn { .. });
         let groups = [Group::World, Group::Community, Group::Play, Group::Account]
             .into_iter()
             .filter_map(|group| {
@@ -143,6 +150,9 @@ impl Registry {
                     .filter(|e| {
                         e.group == group
                             && !matches!(e.section.as_str(), "privacy" | "terms" | "server")
+                            && (signed_in
+                                || group != Group::Account
+                                || e.section == "account-passkeys")
                     })
                     .cloned()
                     .collect();
@@ -538,6 +548,49 @@ mod tests {
         assert!(!css.contains(":focus-within .hx-nav__menu"));
         assert!(!css.contains(":hover .hx-nav__menu"));
         Ok(())
+    }
+    #[test]
+    fn menu_groups_public_world_tools_and_account_links_by_task() {
+        let mut nav = registry();
+        nav.section(
+            true,
+            "rankings",
+            "shell-rankings",
+            "rankings",
+            Group::Community,
+            false,
+        );
+        nav.section(
+            true,
+            "bazaar",
+            "shell-bazaar",
+            "bazaar",
+            Group::World,
+            false,
+        );
+        nav.section(true, "pass", "shell-pass", "pass", Group::Play, false);
+        nav.section(
+            true,
+            "terms",
+            "shell-terms",
+            "legal/terms",
+            Group::Account,
+            true,
+        );
+        let guest = nav.chrome("pl", "/pl/", Account::Anonymous);
+        assert_eq!(guest.groups.len(), 2);
+        assert_eq!(guest.groups[0].links[1].section, "rankings");
+        assert_eq!(guest.groups[1].links[0].section, "bazaar");
+        assert!(guest.link("terms").is_some_and(|link| link.footer));
+        let user = nav.chrome(
+            "pl",
+            "/pl/pass",
+            Account::SignedIn {
+                csrf: String::new(),
+            },
+        );
+        assert_eq!(user.groups[2].links[0].section, "pass");
+        assert!(user.groups[2].current());
     }
     #[test]
     fn home_shows_live_data_or_says_unavailable() -> Result<(), askama::Error> {

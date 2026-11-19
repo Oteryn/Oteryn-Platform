@@ -10,6 +10,13 @@ test.beforeAll(async({browser},info)=>{
 });
 test.beforeEach(async({context})=>context.addCookies(cookies));
 const excludedFromMenu=new Set(['privacy','terms','server']);
+const menuMoves={
+ online:'World', rankings:'World', deaths:'World', 'growth-rankings':'World',
+ league:'Community', puzzles:'Community',
+ bazaar:'Play', calculators:'Play', compare:'Play', delivery:'Play',
+ pass:'Account', collection:'Account', places:'Account',
+};
+const visibleGroup=section=>menuMoves[section.section]??section.group;
 const unavailable=new Set(['online','rankings','guilds','houses','deaths','wiki','atlas','delivery','guild-stats','growth-rankings','reports','logins','pass','places']);
 for(const section of inventory.sections) test(`registry ${section.section}: destination and shared shell`,async({page},info)=>{
  const lang=info.project.metadata.locale;
@@ -27,7 +34,7 @@ for(const section of inventory.sections) test(`registry ${section.section}: dest
    expect(errors).toEqual([]);
    return;
  }
- const members=inventory.sections.filter(s=>s.group===section.group&&!excludedFromMenu.has(s.section));
+ const members=inventory.sections.filter(s=>visibleGroup(s)===visibleGroup(section)&&!excludedFromMenu.has(s.section));
  const expected=members.map(s=>s.path.startsWith('/')?s.path:`/${lang}/${s.path}`);
  const group=page.locator('.hx-nav__item--menu').filter({has:page.locator(`.hx-nav__menu a[href="${path}"]`)});
  await expect(group).toHaveCount(1);

@@ -258,7 +258,9 @@
 @media (max-width: 1120px) {
   .op-theme .hx-top { grid-template-columns: auto 1fr; gap: 4px 16px; padding-top: 5px; }
   .op-theme .hx-nav { grid-area: 2 / 1 / 3 / -1; border-top: 1px solid var(--hx-line); }
-  .op-theme .hx-nav__list { flex-wrap: wrap; padding-block: 4px; }
+  .op-theme .hx-nav__list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .op-theme .hx-nav__item:last-child .hx-nav__menu { inset-inline: 0 auto; }
+  .op-theme .hx-nav__item:nth-child(3n) .hx-nav__menu { inset-inline: auto 0; }
 }
 @media (max-width: 740px) {
   .op-theme .hx { --hx-content: calc(100% - 28px); }
