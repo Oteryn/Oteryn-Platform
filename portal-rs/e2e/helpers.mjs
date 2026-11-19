@@ -82,10 +82,13 @@ export async function register(page,lang) {
 }
 export async function logout(page,lang) {
  await page.goto(`/${lang}/`);
- const logout=page.locator('header form[action$="/logout"]');
- if(await logout.count()) {
-  await submit(page,'header form[action$="/logout"]:visible');
- }
+ const formSelector = 'form[action$="/logout"]';
+ const form = page.locator(formSelector);
+ if (!await form.count()) return;
+ const menu = page.locator('#portal-menu-toggle');
+ if (await menu.isVisible()) await menu.click();
+ if (!await form.isVisible()) await page.locator('[data-account-link]').click();
+ await submit(page, formSelector);
 }
 export async function waitForLoginBudget(needed=1) {
  const db=pool();

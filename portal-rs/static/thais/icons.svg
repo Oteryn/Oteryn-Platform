@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="brand" viewBox="0 0 40 44">
+    <path fill-rule="evenodd" d="M20 1L37 11v21L20 43 3 32V11z M20 8L9 15v13l11 7 11-7V15z"/>
+    <path d="M20 12l3 12-3 5-3-5z"/>
+  </symbol>
+  <symbol id="ic-user" viewBox="0 0 24 24">
+    <path d="M15.5 7.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 1 1 7 0z M4 21v-2c0-3.5 4-5.5 8-5.5s8 2 8 5.5v2"/>
+  </symbol>
+  <symbol id="ic-book" viewBox="0 0 24 24">
+    <path d="M3 5c3-1 6-1 9 1 3-2 6-2 9-1v14c-3-1-6-1-9 1-3-2-6-2-9-1z M12 6v14"/>
+  </symbol>
+  <symbol id="ic-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+  <symbol id="ic-close" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></symbol>
+  <symbol id="ic-download" viewBox="0 0 24 24"><path d="M12 3v12 M7 10l5 5 5-5 M4 16v4h16v-4"/></symbol>
+  <symbol id="ic-world" viewBox="0 0 24 24">
+    <path d="M22 12a10 10 0 1 1-20 0 10 10 0 1 1 20 0z M12 2q-9 10 0 20 9-10 0-20z M3 9h18 M3 15h18"/>
+  </symbol>
+  <symbol id="ic-news" viewBox="0 0 24 24">
+    <path d="M3 4h15v16H4q-1 0-1-2z M18 8h3v10q0 2-2 2h-2 M6 8h8 M6 12h8 M6 16h5"/>
+  </symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></symbol>
+</svg>

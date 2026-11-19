@@ -1,0 +1,81 @@
+<section class="section dispatch" aria-label="{{ chrome.text("thais-home-portal-updates") }}">
+  <div class="wrap">
+    <article id="aktualnosci" aria-labelledby="news-title">
+      <svg class="sep-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-news"></use></svg>
+      <h2 id="news-title">{{ chrome.text("shell-news") }}</h2>
+      {% if let Some(news) = data.news %}
+        {% if news.is_empty() %}
+          <p>{{ chrome.text("stage-news-empty") }}</p>
+        {% else %}
+          <ul class="dispatch-news-list">
+          {% for entry in news %}
+            <li><time datetime="{{ entry.date }}">{{ entry.display_date }}</time>
+              <h3><a href="{{ entry.url }}">{{ entry.title }}</a></h3>
+              <p>{{ entry.excerpt }}</p>
+            </li>
+          {% endfor %}
+          </ul>
+        {% endif %}
+      {% else %}
+        <p>{{ chrome.text("stage-news-unavailable") }}</p>
+      {% endif %}
+      <!-- portal-daily-feature -->
+      {% if chrome.first_link("news,events,today").is_some() %}
+        <nav class="dispatch-links" aria-label="{{ chrome.text("thais-home-news-events") }}">
+          {% if let Some(link) = chrome.link("news") %}<a class="under" href="{{ link.url }}">{{ chrome.text("stage-news-all") }}</a>{% endif %}
+          <div class="dispatch-related">
+            {% if let Some(link) = chrome.link("events") %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}
+            {% if let Some(link) = chrome.link("today") %}<a href="{{ link.url }}">{{ chrome.text("thais-home-today") }}</a>{% endif %}
+          </div>
+        </nav>
+      {% endif %}
+    </article>
+    <article aria-labelledby="world-info-title">
+      <svg class="sep-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-world"></use></svg>
+      <h2 id="world-info-title">{{ chrome.text("thais-home-world-info") }}</h2>
+      {% if let Some(status) = data.status %}
+        <p class="world-observation">{{ chrome.text("stage-status-pvp") }} · {% if let Some(pvp) = status.pvp %}{{ pvp }}{% else %}{{ chrome.text("stage-status-pvp-mixed") }}{% endif %}</p>
+        {% if let Some(as_of) = status.as_of %}
+          <p class="world-observation">{{ chrome.text("stage-status-updated") }} <time>{{ as_of }}</time></p>
+        {% else %}
+          <p class="world-observation">{{ chrome.text("stage-status-no-data") }}</p>
+        {% endif %}
+        {% if status.worlds_fresh < status.worlds_total && status.online.is_some() %}
+          <p class="world-observation">{{ chrome.text("thais-home-partial") }}</p>
+        {% endif %}
+      {% else %}
+        <p>{{ chrome.text("stage-status-unavailable") }}</p>
+      {% endif %}
+      {% if chrome.first_link("worlds,world-stats,server").is_some() %}
+        <nav class="dispatch-links" aria-label="{{ chrome.text("thais-home-world-info") }}">
+          {% if let Some(link) = chrome.link("worlds") %}<a class="under" href="{{ link.url }}">{{ chrome.text("thais-home-world-list") }}</a>{% endif %}
+          <div class="dispatch-related">
+            {% if let Some(link) = chrome.link("world-stats") %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}
+            {% if let Some(link) = chrome.link("server") %}<a href="{{ link.url }}">{{ link.label }}</a>{% endif %}
+          </div>
+        </nav>
+      {% endif %}
+      <section class="dispatch-ranking" aria-labelledby="ranking-title">
+        <h3 id="ranking-title">{{ chrome.text("stage-ranking-title") }}</h3>
+        {% if let Some(rows) = data.ranking %}
+          {% if rows.is_empty() %}
+            <p>{{ chrome.text("stage-ranking-empty") }}</p>
+          {% else %}
+            <table class="dispatch-rankings" aria-labelledby="ranking-title">
+              <thead><tr><th scope="col">{{ chrome.text("thais-home-rank") }}</th><th scope="col">{{ chrome.text("stage-ranking-player") }}</th><th scope="col">{{ chrome.text("stage-ranking-level") }}</th></tr></thead>
+              <tbody>{% for row in rows %}
+                <tr><td>{{ row.rank }}</td><td>{% if let Some(url) = row.url %}<a href="{{ url }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}</td><td>{{ row.level }}</td></tr>
+              {% endfor %}</tbody>
+            </table>
+          {% endif %}
+          {% if let Some(as_of) = data.ranking_as_of %}
+            <p class="world-observation">{{ chrome.text("stage-ranking-as-of") }} <time>{{ as_of }}</time></p>
+          {% endif %}
+        {% else %}
+          <p>{{ chrome.text("stage-ranking-unavailable") }}</p>
+        {% endif %}
+        {% if let Some(link) = chrome.link("rankings") %}<a class="under" href="{{ link.url }}">{{ chrome.text("stage-ranking-all") }}</a>{% endif %}
+      </section>
+    </article>
+  </div>
+</section>

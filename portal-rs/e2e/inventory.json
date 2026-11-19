@@ -4402,6 +4402,15 @@
       "source": "crates/wiki/src/navigation.rs"
     },
     {
+      "section": "creatures",
+      "label": "thais-home-bestiary",
+      "path": "wiki/creatures",
+      "crate": "wiki",
+      "group": "World",
+      "footer": false,
+      "source": "crates/wiki/src/navigation.rs"
+    },
+    {
       "section": "calculators",
       "label": "shell-calculators",
       "path": "wiki/calculators",

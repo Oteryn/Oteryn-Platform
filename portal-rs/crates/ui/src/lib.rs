@@ -313,10 +313,6 @@ impl<'a> Home<'a> {
     fn new(chrome: &'a Chrome, data: &'a HomeData) -> Self {
         Self { chrome, data }
     }
-    /// Cycles the three template illustrations over the news entries.
-    fn news_art(&self, index: &usize) -> usize {
-        index % 3 + 1
-    }
 }
 /// Render the home page from enabled sections and the given read-model data.
 pub fn home(chrome: &Chrome, data: &HomeData) -> Response {
@@ -498,11 +494,11 @@ mod tests {
                 let html = Home::new(&chrome, &HomeData::default()).render()?;
                 assert!(html.contains(&format!("<html lang=\"{lang}\" data-theme=\"dark\">")));
                 assert!(html.contains(if lang == "en" {
-                    "Welcome to the world of Oteryn!"
+                    "At the gates of Thais"
                 } else {
-                    "Witaj w świecie Oteryn!"
+                    "U bram Thais"
                 }));
-                assert!(html.contains("/static/css/home.css"));
+                assert!(html.contains("/static/thais/home.css"));
                 assert!(html.contains("class=\"op-theme op-shell\""));
                 assert_eq!(html.contains("/wiki\""), enabled);
                 assert!(!html.contains("/puzzles\""));
@@ -510,7 +506,8 @@ mod tests {
                 assert_eq!(html.contains("/register\""), enabled);
                 assert!(!html.contains("/logout\""));
                 assert!(!html.contains("style="));
-                assert!(!html.contains("<script"));
+                assert_eq!(html.matches("<script").count(), 1);
+                assert!(html.contains("src=\"/static/thais/home.js\""));
             }
             let chrome = registry().chrome(
                 lang,
@@ -578,17 +575,18 @@ mod tests {
             ranking_as_of: Some("2026-11-08 00:40".into()),
         };
         let html = Home::new(&chrome, &data).render()?;
-        assert!(html.contains("hx-status__dot--on"));
+        assert!(html.contains("2026-11-08 00:46:04"));
         assert!(html.contains(">58<"));
         assert!(html.contains("2 / 3"));
         assert!(html.contains("Nowa &#60;kraina&#62;"));
         assert!(html.contains("Opis &#38; zmiany"));
         assert!(html.contains("datetime=\"2026-11-07\""));
         assert!(html.contains("href=\"/pl/characters/Valendor\""));
-        assert!(html.contains("medal-1.webp"));
+        assert!(html.contains("352"));
         assert!(!html.contains(&chrome.text("stage-ranking-unavailable")));
         assert!(!html.contains("style="));
-        assert!(!html.contains("<script"));
+        assert_eq!(html.matches("<script").count(), 1);
+        assert!(html.contains("src=\"/static/thais/home.js\""));
         let empty = HomeData {
             news: Some(vec![]),
             ranking: Some(vec![]),
