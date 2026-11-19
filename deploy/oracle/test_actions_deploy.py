@@ -74,6 +74,126 @@ class AuthorityBoundary(unittest.TestCase):
                     deploy.game_deploy(root, sha, 100, 1)
             self.assertFalse(any('migrate' in args for args in calls))
 
+    def test_internal_mtls_listener_acquires_validated_repository_configuration(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'deploy/synology/docker').mkdir(parents=True)
+            (root / 'deploy/synology/docker/internal-mtls-nginx.conf').write_text('new routes\n')
+            volume = root / 'volume'
+            volume.mkdir()
+            (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
+            info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'volume',
+                                'Name': 'oteryn-oracle_bootstrap_files', 'Source': str(volume)}]}
+            calls = []
+            def command(args, **kw):
+                calls.append(args)
+                if args[-1] == deploy.MTLS_CONFIG and 'cat' in args:
+                    return (volume / 'internal-mtls-nginx.conf').read_text()
+                if 'pgrep' in args:
+                    return ('112 nginx: worker process is shutting down\n200 nginx: worker process\n'
+                            if any('reload' in c for c in calls) else '112 nginx: worker process\n')
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize') as recheck:
+                deploy.prepare_mtls(root, sha)
+                self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
+                self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-t', '-q', '-c',
+                               '/bootstrap/internal-mtls-nginx.' + sha + '.conf'], calls)
+                deploy.deploy_mtls(root, sha, '1', '1')
+            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'new routes\n')
+            self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
+            self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
+            journal.assert_called_once()
+            self.assertEqual(recheck.call_count, 2)
+
+    def test_canceled_workflow_never_changes_the_mtls_listener(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            calls = []
+            with patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize', side_effect=ValueError('workflow canceled')):
+                deploy.prepare_mtls(root, sha)
+                with self.assertRaisesRegex(ValueError, 'canceled'):
+                    deploy.deploy_mtls(root, sha, '1', '1')
+            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
+            self.assertFalse(any('reload' in args for args in calls))
+
+    def _mtls_fixture(self, root):
+        (root / 'deploy/synology/docker').mkdir(parents=True)
+        (root / 'deploy/synology/docker/internal-mtls-nginx.conf').write_text('new routes\n')
+        volume = root / 'volume'
+        volume.mkdir()
+        (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
+        (volume / ('internal-mtls-nginx.' + 'b' * 40 + '.conf')).write_text('aborted\n')
+        info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'volume',
+                            'Name': 'oteryn-oracle_bootstrap_files', 'Source': str(volume)}]}
+        return volume, info
+
+    def test_invalid_live_mtls_configuration_is_restored_and_never_reloaded(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            calls = []
+            def command(args, **kw):
+                calls.append(args)
+                if args[-3:] == ['-q', '-c', deploy.MTLS_CONFIG]:
+                    raise subprocess.CalledProcessError(1, args)
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'):
+                deploy.prepare_mtls(root, sha)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    deploy.deploy_mtls(root, sha, '1', '1')
+            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
+            self.assertFalse(any('reload' in args for args in calls))
+            journal.assert_not_called()
+
+    def test_unchanged_mtls_file_is_still_reloaded(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            (volume / 'internal-mtls-nginx.conf').write_text('new routes\n')
+            calls = []
+            def command(args, **kw):
+                calls.append(args)
+                if 'cat' in args:
+                    return (volume / 'internal-mtls-nginx.conf').read_text()
+                if 'pgrep' in args:
+                    return ('112 nginx: worker process is shutting down\n200 nginx: worker process\n'
+                            if any('reload' in c for c in calls) else '112 nginx: worker process\n')
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize'):
+                deploy.prepare_mtls(root, sha)
+                deploy.deploy_mtls(root, sha, '1', '1')
+            self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
+            self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
+
+    def test_rejected_mtls_reload_is_never_recorded(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume, info = self._mtls_fixture(root)
+            reloaded = []
+            def command(args, **kw):
+                if 'cat' in args:
+                    return (volume / 'internal-mtls-nginx.conf').read_text()
+                if 'pgrep' in args:
+                    # A worker respawned by the old configuration is not acceptance.
+                    return '112 nginx: worker process\n200 nginx: worker process\n' if reloaded else '112 nginx: worker process\n'
+                if 'reload' in args:
+                    reloaded.append(True)
+            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'), patch.object(deploy.time, 'sleep'):
+                deploy.prepare_mtls(root, sha)
+                with self.assertRaisesRegex(ValueError, 'did not start workers'):
+                    deploy.deploy_mtls(root, sha, '1', '1')
+            journal.assert_not_called()
+
+    def test_internal_mtls_refuses_an_unexpected_bootstrap_mount(self):
+        info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'bind', 'Source': '/etc'}]}
+        with patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'run') as command:
+            with self.assertRaisesRegex(ValueError, 'bootstrap mount'):
+                deploy.prepare_mtls(Path('/nonexistent'), 'a' * 40)
+            command.assert_not_called()
+
     def test_component_cannot_select_another_component_or_general_shell(self):
         for component, command in [('other', 'status'), ('game', 'bash'),
                                    ('game', 'status; id'), ('game', 'deploy ' + 'a' * 40 + ' extra'),
@@ -193,7 +313,7 @@ class LivePortalDeployment(unittest.TestCase):
         state.mkdir()
         return portal, state
 
-    def deploy(self, portal, state, *, fail=None, reauthorize=None, ready=None):
+    def deploy(self, portal, state, *, fail=None, reauthorize=None, ready=None, probe=None):
         calls = []
         compose = ['docker', 'compose', '-p', 'oteryn-portal', '-f', str(portal / 'compose.yml')]
         def command(args, **kwargs):
@@ -204,8 +324,9 @@ class LivePortalDeployment(unittest.TestCase):
                  'Config': {'Labels': {'org.opencontainers.image.revision': self.sha}}}
         with patch.object(deploy, 'PORTAL', portal), patch.object(deploy, 'STATE', state), \
              patch.object(deploy, 'run', side_effect=command), \
-             patch.object(deploy, 'inspect', return_value={'Image': 'old-id'}), \
+             patch.object(deploy, 'inspect', return_value={'Image': 'old-id', 'State': {'Running': True}}), \
              patch.object(deploy, 'inspect_image', return_value=image), \
+             patch.object(deploy, 'portal_ready', side_effect=probe or (lambda: calls.append((['probe'], {})))), \
              patch.object(deploy, 'contract', return_value='portal-rs-1'), \
              patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
              patch.object(deploy, 'reauthorize', side_effect=reauthorize), \
@@ -228,6 +349,7 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none', 'oteryn-portal:fedcba98-arm64', 'check-image'])
             migrate = argv.index(compose + ['run', '--rm', '-T', 'portal', 'migrate'])
             up = argv.index(compose + ['up', '-d', 'portal', 'portal-worker', 'portal-gateway'])
+            self.assertLess(argv.index(['probe']), argv.index(['backup']))
             self.assertLess(argv.index(['backup']), migrate)
             self.assertLess(migrate, up)
             self.assertLess(up, argv.index(['ready', 'new-id']))
@@ -239,8 +361,8 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY.replace('portal-rs-0123abcd', 'portal-rs-fedcba98'))
             self.assertEqual(stat.S_IMODE((portal / 'compose.yml').stat().st_mode), 0o640)
             self.assertEqual(stat.S_IMODE((portal / 'gateway.env').stat().st_mode), 0o600)
-            self.assertEqual((state / (self.sha + '-portal.compose.yml.before')).read_text(), LIVE_COMPOSE)
-            self.assertEqual((state / (self.sha + '-portal.gateway.env.before')).read_text(), LIVE_GATEWAY)
+            self.assertEqual((state / (self.sha + '-portal.compose.before')).read_text(), LIVE_COMPOSE)
+            self.assertEqual((state / (self.sha + '-portal.gateway.before')).read_text(), LIVE_GATEWAY)
             pending = json.loads((state / 'platform-pending.json').read_text())
             self.assertEqual(pending, {'component': 'platform', 'sha': self.sha, 'phase': 'schema_known',
                                        'schema': 'portal-rs-1', 'previous_image': 'old-id', 'platform_image': 'new-id'})
@@ -302,13 +424,26 @@ class LivePortalDeployment(unittest.TestCase):
                 self.assertEqual((portal / 'compose.yml').read_text(), compose_text)
                 self.assertEqual(list(state.iterdir()), [])
 
+    def test_unprobeable_running_release_is_refused_before_backup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            def unreachable():
+                raise ValueError('portal readiness probe failed')
+            with self.assertRaisesRegex(ValueError, 'readiness probe') as raised:
+                self.deploy(portal, state, probe=unreachable)
+            argv = [args for args, _ in raised.exception.calls]
+            self.assertNotIn(['backup'], argv)
+            self.assertFalse(any('migrate' in a or 'up' in a for a in argv))
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertEqual(list(state.iterdir()), [])
+
     def test_gateway_without_a_version_line_is_left_unchanged(self):
         gateway = 'GATEWAY_LISTEN_ADDR=0.0.0.0:8081\n'
         with tempfile.TemporaryDirectory() as temporary:
             portal, state = self.host(temporary, gateway)
             self.deploy(portal, state)
             self.assertEqual((portal / 'gateway.env').read_text(), gateway)
-            self.assertFalse((state / (self.sha + '-portal.gateway.env.before')).exists())
+            self.assertFalse((state / (self.sha + '-portal.gateway.before')).exists())
 
     def test_image_without_the_qualified_revision_is_refused_before_effects(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -388,11 +523,11 @@ class LivePortalDeployment(unittest.TestCase):
         samples = iter([0, 1, 1])
         def container(name):
             return {'Image': 'new-id', 'RestartCount': next(samples) if 'worker' in name else 0}
-        with patch.object(deploy, 'status'), patch.object(deploy, 'inspect', side_effect=container), \
+        with patch.object(deploy, 'platform_status'), patch.object(deploy, 'inspect', side_effect=container), \
              patch.object(deploy.time, 'sleep') as sleep:
             deploy.wait_platform('new-id')
         self.assertEqual(sleep.call_count, 2)
-        with patch.object(deploy, 'status'), patch.object(deploy, 'inspect', return_value={'Image': 'old-id', 'RestartCount': 0}), \
+        with patch.object(deploy, 'platform_status'), patch.object(deploy, 'inspect', return_value={'Image': 'old-id', 'RestartCount': 0}), \
              patch.object(deploy.time, 'sleep'):
             with self.assertRaisesRegex(ValueError, 'deadline'):
                 deploy.wait_platform('new-id')

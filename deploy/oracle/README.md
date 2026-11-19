@@ -262,11 +262,14 @@ unchanged.
   tagged `oteryn-portal:<sha8>-arm64` and labelled with the full revision. The
   recipe keeps the live runtime: Ubuntu 26.04, uid 10001, `/app/oteryn-portal`,
   `/app/static`, `/app/migrations`. It must be arm64 and pass `check-image`.
+- Preflight: the running release must already pass the container and
+  `/readyz` checks below, so a host the probe cannot reach is refused before
+  any effect instead of rolling back a good release after migration.
 - Release: recheck authority, `pg_dump -Fc` inside `oteryn-portal-portal-pg-1`
   to a staged file checked with `pg_restore --list` and published as
   `state/actions/<sha>-platform.dump` (0600), recheck, journal `prepared` with the
-  previous image, save `<sha>-portal.compose.yml.before` and
-  `<sha>-portal.gateway.env.before`, rewrite both files in place (owner and mode
+  previous image, save `<sha>-portal.compose.before` and
+  `<sha>-portal.gateway.before`, rewrite both files in place (owner and mode
   kept), `docker compose -p oteryn-portal -f /opt/oteryn-portal/compose.yml run
   --rm -T portal migrate`, then `up -d portal portal-worker portal-gateway`.
 - Readiness: all four containers running, not restarting and not unhealthy;
@@ -274,6 +277,8 @@ unchanged.
   is the recorded release; `GET /readyz` on port 8080 at the portal's
   `oteryn-oracle_private` address, sent from the host (the image has no HTTP
   client and the port is not published; `/readyz` includes the database check).
+  This assumes the portal listens on `0.0.0.0:8080` inside its container, as
+  the edge already requires (`OTERYN_BIND` defaults to loopback).
   A release is ready after two consecutive passing samples with unchanged
   restart counts, within 180 s.
 - Failure after the rewrite (migration, start or readiness): both files are

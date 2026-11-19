@@ -6,6 +6,7 @@ current protected main after its aggregate gate passes. Host secrets/configurati
 World content, custody and the incarnation controller remain separately installed.
 """
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -155,15 +156,15 @@ def inspect(name):
 def status(component, *, allow_pending=False):
     if not allow_pending and (STATE / (component + '-pending.json')).exists():
         raise ValueError('release requires reconciliation')
-    if component == 'platform':
+    if component == 'game':
+        state = json.loads((ROOT / 'state/game-controller/current.json').read_text())
+        if (ROOT / 'state/game-controller/reconciliation-required').exists() or state['phase'] != 'ready':
+            raise ValueError('Game requires reconciliation')
+        run(['systemctl', 'is-active', '--quiet', 'oteryn-game.service'])
+        names = ['oteryn-oracle-runtime-game-1', 'oteryn-oracle-game-postgres-1']
+    else:
         platform_status(allow_pending)
-        print(component + '_ready=true', flush=True)
-        return
-    state = json.loads((ROOT / 'state/game-controller/current.json').read_text())
-    if (ROOT / 'state/game-controller/reconciliation-required').exists() or state['phase'] != 'ready':
-        raise ValueError('Game requires reconciliation')
-    run(['systemctl', 'is-active', '--quiet', 'oteryn-game.service'])
-    names = ['oteryn-oracle-runtime-game-1', 'oteryn-oracle-game-postgres-1']
+        names = []
     for name in names:
         info = inspect(name)
         if not info['State']['Running'] or info['State'].get('Health', {}).get('Status', 'healthy') != 'healthy':
@@ -182,6 +183,88 @@ def verify_current_release(component, sha):
               {PORTAL_CONTAINERS[name]: record['platform_image'] for name in PORTAL_APPS})
     if any(inspect(name)['Image'] != identity for name, identity in images.items()):
         raise ValueError('receipt differs from current runtime images')
+
+
+MTLS = 'oteryn-oracle-internal-mtls-1'
+MTLS_CONFIG = '/bootstrap/internal-mtls-nginx.conf'
+
+
+def mtls_bootstrap():
+    # The listener mounts the bootstrap volume read-only; write its host directory instead.
+    mounts = [m for m in inspect(MTLS)['Mounts'] if m['Destination'] == '/bootstrap']
+    if (len(mounts) != 1 or mounts[0].get('Type') != 'volume'
+            or mounts[0].get('Name') != 'oteryn-oracle_bootstrap_files'):
+        raise ValueError('internal mTLS bootstrap mount differs from installed boundary')
+    return Path(mounts[0]['Source'])
+
+
+def prepare_mtls(directory, sha):
+    bootstrap = mtls_bootstrap()
+    candidate = (directory / 'deploy/synology/docker/internal-mtls-nginx.conf').read_text()
+    for stale in bootstrap.glob('internal-mtls-nginx.*.conf'):
+        if re.fullmatch(r'internal-mtls-nginx\.' + SHA + r'\.conf', stale.name):
+            stale.unlink()
+    staged = bootstrap / ('internal-mtls-nginx.' + sha + '.conf')
+    # Root-only like the rest of the bootstrap files; the nginx master reads it as root.
+    fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        stream.write(candidate)
+        stream.flush()
+        os.fsync(stream.fileno())
+    run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', '/bootstrap/' + staged.name])
+    return staged
+
+
+def mtls_workers():
+    # The listener's nginx master is PID 1; only its children still titled exactly
+    # 'nginx: worker process' serve requests (old ones become '... is shutting down').
+    workers = set()
+    for line in run(['docker', 'exec', MTLS, 'pgrep', '-a', '-P', '1'], output=True).splitlines():
+        pid, _, title = line.strip().partition(' ')
+        if title.strip() == 'nginx: worker process':
+            workers.add(pid)
+    return workers
+
+
+def deploy_mtls(directory, sha, run_id, attempt):
+    # Compatibility repair for separately retained TCP ingress. Application
+    # deployment itself uses the Rust mTLS listener directly.
+    candidate = (directory / 'deploy/synology/docker/internal-mtls-nginx.conf').read_text()
+    bootstrap = mtls_bootstrap()
+    staged = bootstrap / ('internal-mtls-nginx.' + sha + '.conf')
+    live = bootstrap / Path(MTLS_CONFIG).name
+    if staged.read_text() != candidate:
+        raise ValueError('staged internal mTLS configuration differs from qualified source')
+    previous = live.read_text()
+    if previous != candidate:
+        # A canceled workflow must not change ingress state after the last recheck.
+        reauthorize('platform', sha, run_id, attempt)
+        durable_replace(staged, live)
+        try:
+            run(['docker', 'exec', MTLS, 'nginx', '-t', '-q', '-c', MTLS_CONFIG])
+        except subprocess.CalledProcessError:
+            # Never leave a file the listener cannot start with on its next restart.
+            atomic(live, previous)
+            raise
+    staged.unlink(missing_ok=True)
+    # Reload even when the file already matches: an earlier attempt may have replaced
+    # it and failed before the running listener loaded it.
+    reauthorize('platform', sha, run_id, attempt)
+    if run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True) != candidate:
+        raise ValueError('internal mTLS listener did not acquire the qualified configuration')
+    before = mtls_workers()
+    run(['docker', 'exec', MTLS, 'nginx', '-c', MTLS_CONFIG, '-s', 'reload'])
+    # The master applies a reload asynchronously and keeps the old workers serving if
+    # it rejects the configuration. Accepted means every previously serving worker was
+    # told to shut down and new ones serve; a respawn after a crash keeps the others.
+    for _ in range(30):
+        serving = mtls_workers()
+        if serving and not serving & before:
+            break
+        time.sleep(1)
+    else:
+        raise ValueError('internal mTLS listener did not start workers for the qualified configuration')
+    journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
 PORTAL = Path('/opt/oteryn-portal')
@@ -278,12 +361,7 @@ def portal_ready():
         raise ValueError('portal readiness probe failed') from error
 
 
-def platform_status(allow_pending):
-    pending = STATE / 'platform-pending.json'
-    record = pending if allow_pending and pending.exists() else STATE / 'platform-current.json'
-    if not record.exists():
-        raise ValueError('no runner-deployed portal release is recorded')
-    sha = json.loads(record.read_text())['sha']
+def portal_containers():
     images = set()
     for service, name in PORTAL_CONTAINERS.items():
         info = inspect(name)
@@ -293,6 +371,16 @@ def platform_status(allow_pending):
             raise ValueError('component is not healthy: ' + name)
         if service in PORTAL_APPS:
             images.add(info['Image'])
+    return images
+
+
+def platform_status(allow_pending):
+    pending = STATE / 'platform-pending.json'
+    record = pending if allow_pending and pending.exists() else STATE / 'platform-current.json'
+    if not record.exists():
+        raise ValueError('no runner-deployed portal release is recorded')
+    sha = json.loads(record.read_text())['sha']
+    images = portal_containers()
     if len(images) != 1:
         raise ValueError('portal roles run different images')
     labels = inspect_image(images.pop())['Config'].get('Labels') or {}
@@ -307,7 +395,7 @@ def wait_platform(image_id):
     previous = None
     for _ in range(90):
         try:
-            status('platform', allow_pending=True)
+            platform_status(True)
             roles = [inspect(PORTAL_CONTAINERS[name]) for name in PORTAL_APPS]
             if any(info['Image'] != image_id for info in roles):
                 raise ValueError('running image differs from qualified build')
@@ -331,13 +419,17 @@ def platform_deploy(directory, sha, run_id, attempt):
         raise ValueError('portal image provenance differs')
     run(['docker', 'run', '--rm', '--network', 'none', image, 'check-image'], timeout=120)
     texts = portal_texts(sha)
+    # Prove the readiness probe works against the running release before any
+    # effect, so a host that cannot be probed never rolls back a good release.
+    portal_containers()
+    portal_ready()
     reauthorize('platform', sha, run_id, attempt)
     backup_platform(sha)
     reauthorize('platform', sha, run_id, attempt)
     journal('platform', sha, 'prepared', schema=schema,
             previous_image=inspect(PORTAL_CONTAINERS['portal'])['Image'], platform_image=info['Id'])
     for path, before, _ in texts:
-        atomic(STATE / (sha + '-portal.' + path.name + '.before'), before)
+        atomic(STATE / (sha + '-portal.' + path.name.split('.')[0] + '.before'), before)
     current = portal_compose()
     try:
         for path, _, after in texts:
