@@ -137,7 +137,7 @@ def journal(component, sha, phase, **facts):
 
 def contract(directory):
     migrations = sorted((directory / 'portal-rs/migrations').glob('*.sql'))
-    if not migrations or not (directory / 'portal-rs/Dockerfile').is_file():
+    if not migrations or not (directory / 'deploy/oracle/portal.Dockerfile').is_file():
         raise ValueError('Rust build inputs or migrations missing')
     schema = 'portal-rs-' + migrations[-1].name.split('_', 1)[0]
     current = STATE / 'platform-current.json'
@@ -147,11 +147,6 @@ def contract(directory):
         if previous not in accepted:
             raise ValueError('retained schema is not a Rust portal predecessor; operator reconciliation required')
     return schema
-
-
-def compose(source_dir):
-    return ['docker', 'compose', '--env-file', str(ROOT / 'platform.env'),
-            '-f', str(source_dir / 'deploy/oracle/public-platform.compose.yml')]
 
 
 def inspect(name):
@@ -168,11 +163,8 @@ def status(component, *, allow_pending=False):
         run(['systemctl', 'is-active', '--quiet', 'oteryn-game.service'])
         names = ['oteryn-oracle-runtime-game-1', 'oteryn-oracle-game-postgres-1']
     else:
-        names = ['oteryn-oracle-platform-1', 'oteryn-oracle-gateway-1',
-                 'oteryn-oracle-worker-1', 'oteryn-oracle-postgres-1',
-                 'oteryn-oracle-postgres-backup-1']
-        for url in ['https://oteryn.com/readyz', 'https://gateway.oteryn.com/ready']:
-            run(['curl', '--fail', '--silent', '--show-error', '--max-time', '20', '-o', '/dev/null', url])
+        platform_status(allow_pending)
+        names = []
     for name in names:
         info = inspect(name)
         if not info['State']['Running'] or info['State'].get('Health', {}).get('Status', 'healthy') != 'healthy':
@@ -188,46 +180,9 @@ def verify_current_release(component, sha):
     if record.get('sha') != sha or record.get('phase') != 'ready':
         raise ValueError('receipt differs from retained current release')
     images = ({'oteryn-oracle-runtime-game-1': record['image']} if component == 'game' else
-              {'oteryn-oracle-platform-1': record['platform_image'],
-               'oteryn-oracle-gateway-1': record['gateway_image'],
-               'oteryn-oracle-worker-1': record['platform_image']})
+              {PORTAL_CONTAINERS[name]: record['platform_image'] for name in PORTAL_APPS})
     if any(inspect(name)['Image'] != identity for name, identity in images.items()):
         raise ValueError('receipt differs from current runtime images')
-    if component == 'platform':
-        config = run(['docker', 'exec', 'oteryn-oracle-edge-edge-1', 'cat', '/etc/caddy/Caddyfile'], output=True)
-        if hashlib.sha256(config.encode()).hexdigest() != record['caddy_sha256']:
-            raise ValueError('receipt differs from current public edge configuration')
-        if 'mtls_sha256' in record:
-            config = run(['docker', 'exec', MTLS, 'cat', MTLS_CONFIG], output=True)
-            if hashlib.sha256(config.encode()).hexdigest() != record['mtls_sha256']:
-                raise ValueError('receipt differs from current internal mTLS configuration')
-
-
-def prepare_edge(directory, sha):
-    name = 'oteryn-oracle-edge-edge-1'
-    temporary = '/tmp/oracle-' + sha + '.Caddyfile'
-    run(['docker', 'cp', str(directory / 'deploy/oracle/Caddyfile'), name + ':' + temporary])
-    run(['docker', 'exec', name, 'caddy', 'validate', '--config', temporary, '--adapter', 'caddyfile'])
-
-
-def deploy_edge(directory, sha, run_id, attempt):
-    candidate = (directory / 'deploy/oracle/Caddyfile').read_text()
-    name = 'oteryn-oracle-edge-edge-1'
-    current = run(['docker', 'exec', name, 'cat', '/etc/caddy/Caddyfile'], output=True)
-    if current != candidate:
-        prepare_edge(directory, sha)
-        reauthorize('platform', sha, run_id, attempt)
-        info = inspect(name)
-        edge_compose = Path(info['Config']['Labels']['com.docker.compose.project.config_files'])
-        if edge_compose.parent != ROOT / 'edge':
-            raise ValueError('edge compose path differs from installed root-owned boundary')
-        # Recreate to acquire the new inode of the atomically replaced bind file.
-        atomic(ROOT / 'edge/Caddyfile', candidate)
-        run(['docker', 'compose', '-f', str(edge_compose), 'up', '-d', '--no-deps', '--force-recreate', 'edge'])
-    observed = run(['docker', 'exec', name, 'cat', '/etc/caddy/Caddyfile'], output=True)
-    if observed != candidate:
-        raise ValueError('running edge did not acquire the qualified configuration')
-    journal('platform', sha, 'schema_known', caddy_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
 MTLS = 'oteryn-oracle-internal-mtls-1'
@@ -312,83 +267,187 @@ def deploy_mtls(directory, sha, run_id, attempt):
     journal('platform', sha, 'schema_known', mtls_sha256=hashlib.sha256(candidate.encode()).hexdigest())
 
 
+PORTAL = Path('/opt/oteryn-portal')
+PORTAL_PROJECT = 'oteryn-portal'
+PORTAL_NETWORK = 'oteryn-oracle_private'
+PORTAL_CONTAINERS = {'portal': 'oteryn-portal-portal-1', 'portal-worker': 'oteryn-portal-portal-worker-1',
+                     'portal-gateway': 'oteryn-portal-portal-gateway-1', 'portal-pg': 'oteryn-portal-portal-pg-1'}
+PORTAL_APPS = ('portal', 'portal-worker', 'portal-gateway')
+REVISION = 'org.opencontainers.image.revision'
+
+
+def portal_compose():
+    # The live, host-retained composition; never the manual-deploy checkout under src/.
+    return ['docker', 'compose', '-p', PORTAL_PROJECT, '-f', str(PORTAL / 'compose.yml')]
+
+
+def portal_image(sha):
+    return 'oteryn-portal:' + sha[:8] + '-arm64'
+
+
+def portal_texts(sha):
+    """Return (path, before, after) for every live file the release rewrites.
+
+    Validated before any effect, so an unexpected layout leaves no pending marker.
+    """
+    compose_path = PORTAL / 'compose.yml'
+    before = compose_path.read_text()
+    after, count = re.subn(r'(?m)^([ \t]+image:[ \t]+)oteryn-portal:[A-Za-z0-9_.-]+[ \t]*$',
+                           lambda match: match[1] + portal_image(sha), before)
+    if count != 2:
+        raise ValueError('expected exactly the portal anchor and gateway image declarations')
+    texts = [(compose_path, before, after)]
+    gateway_path = PORTAL / 'gateway.env'
+    gateway = gateway_path.read_text()
+    after, count = re.subn(r'(?m)^GATEWAY_VERSION=.*$', 'GATEWAY_VERSION=portal-rs-' + sha[:8], gateway)
+    if count > 1:
+        raise ValueError('expected at most one gateway version setting')
+    if count:
+        texts.append((gateway_path, gateway, after))
+    return texts
+
+
+def rewrite(path, data):
+    # Keep the owner and mode of the operator-managed file so the manual
+    # deployment path keeps working; atomic() would leave it root-only.
+    info = path.stat()
+    temporary = path.with_name(path.name + '.actions-next')
+    # A temporary left by an interrupted attempt must not block the restore.
+    temporary.unlink(missing_ok=True)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        stream.write(data)
+        stream.flush()
+        os.fchown(stream.fileno(), info.st_uid, info.st_gid)
+        os.fchmod(stream.fileno(), info.st_mode & 0o7777)
+        os.fsync(stream.fileno())
+    durable_replace(temporary, path)
+
+
 def backup_platform(sha):
-    # Expand libpq conninfo inside the one-off client. Keep the URL out of
-    # Docker's host-side arguments and suppress client output.
-    database_image = inspect('oteryn-oracle-postgres-1')['Config']['Image']
+    # The dump runs inside the live database container with its own local
+    # credentials; no URL or password reaches Docker's host-side arguments.
+    database = PORTAL_CONTAINERS['portal-pg']
     path = STATE / (sha + '-platform.dump')
     with tempfile.TemporaryDirectory(prefix=path.name + '-', dir=STATE) as attempt:
         staged = Path(attempt) / 'archive'
         fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'wb') as archive:
-            subprocess.run(['docker', 'run', '--rm', '--network', 'oteryn-oracle_private',
-                            '--env-file', str(ROOT / 'platform-migrate.env'),
-                            '--mount', 'type=bind,source=' + str(ROOT / 'platform-secrets') + ',target=/run/oteryn,readonly',
-                            '--entrypoint', 'sh', database_image, '-ec',
-                            'exec pg_dump --format=custom --dbname="${OTERYN_DATABASE_URL:?missing migration database URL}"'],
+            subprocess.run(['docker', 'exec', database, 'sh', '-c',
+                            'pg_dump -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}" -Fc'],
                            check=True, stdout=archive, stderr=subprocess.DEVNULL, timeout=1800)
             archive.flush()
             os.fsync(archive.fileno())
         with staged.open('rb') as archive:
-            subprocess.run(['docker', 'run', '--rm', '-i', '--network', 'none',
-                            '--entrypoint', 'pg_restore', database_image, '--list'],
+            subprocess.run(['docker', 'exec', '-i', database, 'pg_restore', '--list'],
                            check=True, stdin=archive, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, timeout=120)
         durable_replace(staged, path)
 
 
+def portal_ready():
+    # The portal is published only on the private network and its image has no
+    # HTTP client. Host root reaches the bridge address directly; /readyz
+    # includes the database check. No edge, DNS or TLS dependency.
+    networks = inspect(PORTAL_CONTAINERS['portal'])['NetworkSettings']['Networks']
+    address = networks.get(PORTAL_NETWORK, {}).get('IPAddress')
+    if not address:
+        raise ValueError('portal has no address on the private network')
+    try:
+        with urllib.request.urlopen('http://' + address + ':8080/readyz', timeout=10) as response:
+            if response.status != 200:
+                raise ValueError('portal readiness differs')
+    except OSError as error:
+        raise ValueError('portal readiness probe failed') from error
+
+
+def portal_containers():
+    images = set()
+    for service, name in PORTAL_CONTAINERS.items():
+        info = inspect(name)
+        state = info['State']
+        if (not state['Running'] or state.get('Restarting')
+                or state.get('Health', {}).get('Status', 'healthy') != 'healthy'):
+            raise ValueError('component is not healthy: ' + name)
+        if service in PORTAL_APPS:
+            images.add(info['Image'])
+    return images
+
+
+def platform_status(allow_pending):
+    pending = STATE / 'platform-pending.json'
+    record = pending if allow_pending and pending.exists() else STATE / 'platform-current.json'
+    if not record.exists():
+        raise ValueError('no runner-deployed portal release is recorded')
+    sha = json.loads(record.read_text())['sha']
+    images = portal_containers()
+    if len(images) != 1:
+        raise ValueError('portal roles run different images')
+    labels = inspect_image(images.pop())['Config'].get('Labels') or {}
+    if labels.get(REVISION) != sha:
+        raise ValueError('running portal differs from the recorded release')
+    portal_ready()
+
+
+def wait_platform(image_id):
+    # Ready means: the new image in every role and healthy on two consecutive
+    # samples with no restart in between.
+    previous = None
+    for _ in range(90):
+        try:
+            platform_status(True)
+            roles = [inspect(PORTAL_CONTAINERS[name]) for name in PORTAL_APPS]
+            if any(info['Image'] != image_id for info in roles):
+                raise ValueError('running image differs from qualified build')
+            restarts = [info['RestartCount'] for info in roles]
+            if restarts == previous:
+                return
+            previous = restarts
+        except (ValueError, subprocess.SubprocessError):
+            previous = None
+        time.sleep(2)
+    raise ValueError('deployment readiness deadline exceeded')
+
+
 def platform_deploy(directory, sha, run_id, attempt):
-    image = 'oteryn-platform:' + sha + '-arm64'
+    image = portal_image(sha)
     schema = contract(directory)
-    run(['docker', 'build', '--label', 'org.opencontainers.image.revision=' + sha,
-         '-f', 'portal-rs/Dockerfile', '-t', image, 'portal-rs'], cwd=directory)
+    run(['docker', 'build', '--label', REVISION + '=' + sha,
+         '-f', 'deploy/oracle/portal.Dockerfile', '-t', image, 'portal-rs'], cwd=directory, timeout=7200)
     info = inspect_image(image)
-    if info['Architecture'] != 'arm64':
-        raise ValueError('image architecture differs')
+    if info['Architecture'] != 'arm64' or info['Config']['Labels'].get(REVISION) != sha:
+        raise ValueError('portal image provenance differs')
     run(['docker', 'run', '--rm', '--network', 'none', image, 'check-image'], timeout=120)
+    texts = portal_texts(sha)
+    # Prove the readiness probe works against the running release before any
+    # effect, so a host that cannot be probed never rolls back a good release.
+    portal_containers()
+    portal_ready()
     reauthorize('platform', sha, run_id, attempt)
-    prepare_edge(directory, sha)
-    run(['bash', str(directory / 'deploy/oracle/prepare-platform-witness.sh')])
-    path = ROOT / 'platform.env'
-    before = path.read_text()
-    current = compose(directory)
-    # The old Compose files are host-retained. Use their exact paths only to stop
-    # the old writers; never execute application or migration code from them.
-    old_files = inspect('oteryn-oracle-platform-1')['Config']['Labels']['com.docker.compose.project.config_files']
-    previous = ['docker', 'compose', '--env-file', str(path)]
-    for filename in old_files.split(','):
-        previous += ['-f', filename]
     backup_platform(sha)
     reauthorize('platform', sha, run_id, attempt)
     journal('platform', sha, 'prepared', schema=schema,
-            previous_image=inspect('oteryn-oracle-platform-1')['Image'],
-            platform_image=info['Id'], gateway_image=info['Id'])
-    services = run(previous + ['config', '--services'], output=True).splitlines()
-    writers = [name for name in ('platform', 'gateway', 'worker', 'marketplace-scheduler',
-                                 'internal-proxy', 'internal-mtls') if name in services]
-    if not {'platform', 'gateway'}.issubset(writers):
-        raise ValueError('retained application composition differs')
-    run(previous + ['stop', *writers])
-    retired = [name for name in ('marketplace-scheduler', 'internal-proxy', 'internal-mtls') if name in services]
-    if retired:
-        run(previous + ['rm', '--force', *retired])
-    atomic(STATE / (sha + '-platform.env.before'), before)
-    settings = {'PLATFORM_IMAGE': image, 'GATEWAY_IMAGE': image, 'GATEWAY_VERSION': 'oracle-' + sha}
-    lines = before.splitlines()
-    for key, value in settings.items():
-        if sum(line.startswith(key + '=') for line in lines) != 1:
-            raise ValueError('expected exactly one image setting')
-        lines = [key + '=' + value if line.startswith(key + '=') else line for line in lines]
-    atomic(path, '\n'.join(lines) + '\n')
-    reauthorize('platform', sha, run_id, attempt)
-    journal('platform', sha, 'schema_unknown')
-    run(current + ['run', '--rm', '-T', '--no-deps', 'migrate'])
-    journal('platform', sha, 'schema_known')
-    run(current + ['up', '-d', '--no-deps', '--force-recreate', 'platform', 'gateway', 'worker'])
-    deploy_edge(directory, sha, run_id, attempt)
-    return {'oteryn-oracle-platform-1': info['Id'],
-            'oteryn-oracle-gateway-1': info['Id'],
-            'oteryn-oracle-worker-1': info['Id']}
+            previous_image=inspect(PORTAL_CONTAINERS['portal'])['Image'], platform_image=info['Id'])
+    for path, before, _ in texts:
+        atomic(STATE / (sha + '-portal.' + path.name.split('.')[0] + '.before'), before)
+    current = portal_compose()
+    try:
+        for path, _, after in texts:
+            rewrite(path, after)
+        reauthorize('platform', sha, run_id, attempt)
+        journal('platform', sha, 'schema_unknown')
+        run(current + ['run', '--rm', '-T', 'portal', 'migrate'])
+        journal('platform', sha, 'schema_known')
+        run(current + ['up', '-d', *PORTAL_APPS])
+        wait_platform(info['Id'])
+    except BaseException:
+        # Return the previous image to service. The pending marker stays, so
+        # status reports reconciliation; the database is never dropped or restored.
+        for path, before, _ in texts:
+            rewrite(path, before)
+        run(current + ['up', '-d', *PORTAL_APPS])
+        raise
+    return {PORTAL_CONTAINERS[name]: info['Id'] for name in PORTAL_APPS}
 
 
 def inspect_image(image):
