@@ -81,7 +81,7 @@
       },
       "expected_can_admins_bypass": false
     },
-    "synology-staging": {
+    "oracle-staging": {
       "wait_timer": 0,
       "prevent_self_review": false,
       "reviewers": [],
