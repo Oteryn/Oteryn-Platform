@@ -554,6 +554,7 @@ impl Store {
         .bind(i64::from(limit))
         .fetch_all(&mut *tx)
         .await?;
+        // The delivery epoch binds later results to this delivery session.
         for request in &requests {
             audit(
                 &mut tx,
@@ -561,7 +562,7 @@ impl Store {
                 None,
                 Some(Status::Queued),
                 Status::Delivered,
-                None,
+                Some(epoch),
             )
             .await?;
         }

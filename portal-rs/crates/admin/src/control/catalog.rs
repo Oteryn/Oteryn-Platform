@@ -171,6 +171,39 @@ pub fn validate_staff_request(
     Ok(policy)
 }
 
+/// The fifteen Phase-1 read operations, all queries at version 1. Source:
+/// Oteryn-Game `crates/admin/contracts/src/catalog.rs` `Operation::ALL` at
+/// 3732e96aa2874204dcc97504f13681cf04a65c6e.
+pub const READ_OPERATIONS: [&str; 15] = [
+    "ops.overview.get",
+    "world.list",
+    "world.get",
+    "node.list",
+    "node.get",
+    "db.status",
+    "db.migrations.list",
+    "player.search",
+    "player.character.get",
+    "player.inventory.get",
+    "sanction.list",
+    "admin.ledger.query",
+    "admin.policy.get",
+    "admin.agent.list",
+    "analytics.catalog",
+];
+
+/// Trusted kind of an operation version an agent advertises in hello. The
+/// agent never supplies the kind; an unknown operation or version has none.
+/// A kind is not an advertisement, authorization or enablement.
+pub fn advertised_kind(operation: &str, version: i32) -> Option<signer::Kind> {
+    if READ_OPERATIONS.contains(&operation) {
+        return (version == 1).then_some(signer::Kind::Query);
+    }
+    StaffOperation::lookup(operation)
+        .filter(|op| u32::try_from(version).is_ok_and(|v| v == op.operation_version()))
+        .map(StaffOperation::kind)
+}
+
 /// Local opt-in allowlist, default empty like other ADM feature gates. A catalog
 /// entry alone is never an advertisement, authorization, or executable command.
 #[derive(Debug, Default)]

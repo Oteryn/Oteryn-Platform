@@ -44,16 +44,26 @@ Unknown structural members and duplicate JSON members are rejected. JSON depth
 is at most 32; normal bodies at most 1 MiB; stream bodies at most 90 MiB.
 Integers outside the safe JSON range must be decimal strings.
 
-- `hello`: `agent_id`, `build`, `catalog_digest` (32 bytes, unpadded base64url),
-  `advertised_operations` (`operation`, `operation_version`, `kind`),
-  `served_worlds`, `served_nodes`, positive `owner_epoch`, RFC3339 `clock`.
-- `channel`: `agent_id`, `owner_epoch`, optional `wait_seconds` (0–25, default 0).
-  Returns `requests` (at most 32 signed envelopes). Delivery is claimed once;
+The `hello`, `channel`, `results` and `heartbeat` bodies follow the Game agent
+framing ratified by the owner on 2026-11-19
+(`docs/contracts/ADMIN_CONTROL_AGENT_WIRE_RATIFICATION.md`).
+
+- `hello`: `agent_id`, `build_revision`, `catalog_digest` (32 bytes, unpadded
+  base64url), `operations` (`operation`, `version`), `worlds`, `nodes`, positive
+  `owner_epoch`, RFC3339 `clock`. Each operation's kind comes from the trusted
+  catalogue (`catalog::advertised_kind`); an unknown operation or version is
+  refused with 400 `ADM_UNKNOWN_OPERATION`.
+- `channel`: `agent_id`, `owner_epoch`, optional `wait_seconds` (0–25, default 0),
+  optional `limit` (1–32, default 32). Returns a JSON array of at most `limit`
+  signed request envelopes. Delivery is claimed once and records the owner epoch;
   expired requests are never returned. Disconnected or ambiguous owners deny.
-- `results`: `owner_epoch`, `envelope` (closed ADM-01 result envelope). Agent ID
-  must match TLS evidence. A configured result key verifies the signature before
-  storage. Exact duplicate envelopes succeed without another result/audit row,
-  including after a terminal result. Conflicting transitions are refused.
+- `results`: the bare closed ADM-01 result envelope. Agent ID must match TLS
+  evidence. A configured result key verifies the signature before storage. The
+  result is bound to the epoch its request was delivered under; if that agent no
+  longer owns the request at that epoch (a newer epoch, its own included, or no
+  recorded delivery) it is refused with 409 `ADM_AGENT_SUPERSEDED`. Exact
+  duplicate envelopes succeed without another result/audit row, including after
+  a terminal result. Conflicting transitions are refused.
 - `stream`: `agent_id`, `owner_epoch`, `request_id`, nonempty `chunks` array of
   `index` (0–63) and `data` (unpadded base64url). Decoded chunks are at most 1 MiB;
   the primary key and index bound limit the complete request to 64 chunks across
@@ -61,8 +71,9 @@ Integers outside the safe JSON range must be decimal strings.
   atomic. Request ownership is checked before persistence.
 - `rollups`: `agent_id`, `owner_epoch`, `key` (1–256 bytes), object `payload`.
   Upserts the latest snapshot per agent/key in `analytics_cache`.
-- `heartbeat`: `agent_id`, `owner_epoch`, object `payload`. Refreshes last_seen
-  and stores the latest health snapshot. Snapshot updates refuse stale owners.
+- `heartbeat`: `agent_id`, `owner_epoch`, RFC3339 `clock`, optional object
+  `health`. After the epoch check it refreshes last_seen; it stores the latest
+  health snapshot only when `health` is supplied. Stale owners are refused.
 
 Payload objects are opaque operation/health/analytics data, not executable
 commands. Future consumers must validate the advertised operation's versioned

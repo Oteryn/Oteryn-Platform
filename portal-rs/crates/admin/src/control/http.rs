@@ -1,5 +1,5 @@
 //! Agent-initiated control-plane transport. Only verified TLS extensions authenticate peers.
-use crate::control::{canonical, signer, store};
+use crate::control::{canonical, catalog, signer, store};
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -104,6 +104,9 @@ impl HttpError {
     }
     fn limit() -> Self {
         Self(StatusCode::PAYLOAD_TOO_LARGE, "ADM_LIMIT_EXCEEDED")
+    }
+    fn unknown_operation() -> Self {
+        Self(StatusCode::BAD_REQUEST, "ADM_UNKNOWN_OPERATION")
     }
 }
 impl From<sqlx::Error> for HttpError {
@@ -265,17 +268,49 @@ fn body<T: serde::de::DeserializeOwned>(
 ) -> Result<T, HttpError> {
     decode(raw.map_err(|_| HttpError::invalid())?.0)
 }
+/// Game agent hello framing, ratified 2026-11-19. Operation kinds come from the
+/// trusted catalogue, never from the agent.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Hello {
     agent_id: String,
-    build: String,
+    build_revision: String,
     catalog_digest: String,
-    advertised_operations: Vec<store::AdvertisedOperation>,
-    served_worlds: Vec<String>,
-    served_nodes: Vec<String>,
+    operations: Vec<HelloOperation>,
+    worlds: Vec<String>,
+    nodes: Vec<String>,
     owner_epoch: i64,
     clock: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HelloOperation {
+    operation: String,
+    version: i32,
+}
+fn advertised(
+    operations: Vec<HelloOperation>,
+) -> Result<Vec<store::AdvertisedOperation>, HttpError> {
+    operations
+        .into_iter()
+        .map(|op| {
+            let kind = match catalog::advertised_kind(&op.operation, op.version) {
+                Some(signer::Kind::Command) => store::Kind::Command,
+                Some(signer::Kind::Query) => store::Kind::Query,
+                None => return Err(HttpError::unknown_operation()),
+            };
+            Ok(store::AdvertisedOperation {
+                operation: op.operation,
+                operation_version: op.version,
+                kind,
+            })
+        })
+        .collect()
+}
+fn valid_clock(clock: &str) -> Result<(), HttpError> {
+    time::OffsetDateTime::parse(clock, &time::format_description::well_known::Rfc3339)
+        .map(|_| ())
+        .map_err(|_| HttpError::invalid())
 }
 async fn hello(
     State(ctx): State<Context>,
@@ -284,18 +319,18 @@ async fn hello(
     let h: Hello = body(raw)?;
     check(&ctx, &h.agent_id, h.owner_epoch)?;
     if !h
-        .served_worlds
+        .worlds
         .iter()
         .all(|id| ctx.binding.allowed_worlds.contains(id))
         || !h
-            .served_nodes
+            .nodes
             .iter()
             .all(|id| ctx.binding.allowed_nodes.contains(id))
     {
         return Err(HttpError::forbidden());
     }
-    time::OffsetDateTime::parse(&h.clock, &time::format_description::well_known::Rfc3339)
-        .map_err(|_| HttpError::invalid())?;
+    valid_clock(&h.clock)?;
+    let advertised_operations = advertised(h.operations)?;
     let digest = URL_SAFE_NO_PAD
         .decode(&h.catalog_digest)
         .map_err(|_| HttpError::invalid())?;
@@ -307,7 +342,7 @@ async fn hello(
     ingress_lock(&mut tx, false).await?;
     // A competing owner at the same or newer epoch makes this hello ambiguous.
     let conflict:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_agents WHERE agent_id<>$1 AND owner_epoch >= $2 AND (served_worlds && $3 OR served_nodes && $4))")
-        .bind(&h.agent_id).bind(h.owner_epoch).bind(&h.served_worlds).bind(&h.served_nodes).fetch_one(&mut *tx).await?;
+        .bind(&h.agent_id).bind(h.owner_epoch).bind(&h.worlds).bind(&h.nodes).fetch_one(&mut *tx).await?;
     if conflict {
         return Err(store::Error::Unavailable.into());
     }
@@ -316,11 +351,11 @@ async fn hello(
             &mut tx,
             &store::AgentHello {
                 agent_id: h.agent_id,
-                build: h.build,
+                build: h.build_revision,
                 catalog_digest: digest,
-                advertised_operations: h.advertised_operations,
-                served_worlds: h.served_worlds,
-                served_nodes: h.served_nodes,
+                advertised_operations,
+                served_worlds: h.worlds,
+                served_nodes: h.nodes,
                 owner_epoch: h.owner_epoch,
             },
         )
@@ -335,6 +370,11 @@ struct Poll {
     owner_epoch: i64,
     #[serde(default)]
     wait_seconds: u8,
+    #[serde(default = "max_batch")]
+    limit: u32,
+}
+const fn max_batch() -> u32 {
+    32
 }
 async fn channel(
     State(ctx): State<Context>,
@@ -342,7 +382,7 @@ async fn channel(
 ) -> Result<Json<Value>, HttpError> {
     let p: Poll = body(raw)?;
     check(&ctx, &p.agent_id, p.owner_epoch)?;
-    if p.wait_seconds > 25 {
+    if p.wait_seconds > 25 || !(1..=max_batch()).contains(&p.limit) {
         return Err(HttpError::invalid());
     }
     let mut tx = ctx.pool.begin().await?;
@@ -355,7 +395,7 @@ async fn channel(
     loop {
         let requests = ctx
             .store
-            .claim_pending(&p.agent_id, p.owner_epoch, 32)
+            .claim_pending(&p.agent_id, p.owner_epoch, p.limit)
             .await?;
         if !requests.is_empty() || tokio::time::Instant::now() >= deadline {
             let mut envelopes = Vec::new();
@@ -369,7 +409,7 @@ async fn channel(
                 );
                 envelopes.push(value);
             }
-            return Ok(Json(json!({"requests":envelopes})));
+            return Ok(Json(Value::Array(envelopes)));
         }
         tokio::time::sleep_until(
             deadline.min(tokio::time::Instant::now() + Duration::from_millis(100)),
@@ -377,22 +417,18 @@ async fn channel(
         .await;
     }
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ResultPost {
-    owner_epoch: i64,
-    envelope: signer::ResultEnvelope,
-}
 async fn results(
     State(ctx): State<Context>,
     raw: Result<Json<Value>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<Value>, HttpError> {
-    let p: ResultPost = body(raw)?;
-    let e = &p.envelope;
-    check(&ctx, &e.agent_id, p.owner_epoch)?;
+    // The bare signed envelope; its epoch is the one its request was delivered under.
+    let e: signer::ResultEnvelope = body(raw)?;
+    if e.agent_id != ctx.binding.agent_id {
+        return Err(HttpError::forbidden());
+    }
     if let Some((key, validity)) = &ctx.binding.result_key {
         signer::verify_result(
-            e,
+            &e,
             key,
             *validity,
             time::OffsetDateTime::now_utc().unix_timestamp(),
@@ -407,7 +443,7 @@ async fn results(
             )
         })?;
     }
-    let payload = serde_json::to_value(e).map_err(|_| HttpError::invalid())?;
+    let payload = serde_json::to_value(&e).map_err(|_| HttpError::invalid())?;
     let status: store::Status =
         serde_json::from_value(serde_json::to_value(e.status).map_err(|_| HttpError::invalid())?)
             .map_err(|_| HttpError::invalid())?;
@@ -418,7 +454,8 @@ async fn results(
     store::ownership_lock(&mut tx, true).await?;
     ingress_lock(&mut tx, true).await?;
     lock_request(&mut tx, e.request_id).await?;
-    owns_request(&mut tx, &e.agent_id, p.owner_epoch, e.request_id).await?;
+    let epoch = delivery_epoch(&mut tx, &e.agent_id, e.request_id).await?;
+    owns_request(&mut tx, &e.agent_id, epoch, e.request_id).await?;
     let operation: Uuid = sqlx::query_scalar(
         "SELECT admin_operation_id FROM admin_control_requests WHERE request_id=$1",
     )
@@ -441,12 +478,27 @@ async fn results(
                     error_code: e.error.as_ref().map(|e| e.code.clone()),
                     payload,
                 },
-                p.owner_epoch,
+                epoch,
             )
             .await?;
     }
     tx.commit().await?;
     Ok(Json(json!({"status":"recorded"})))
+}
+/// The owner epoch recorded when this agent claimed the request. Only that
+/// delivery session may report on it; a later epoch, even of the same agent,
+/// or a request it never claimed is superseded.
+async fn delivery_epoch(
+    tx: &mut Transaction<'_, Postgres>,
+    agent: &str,
+    id: Uuid,
+) -> Result<i64, HttpError> {
+    let epochs: Vec<i64> = sqlx::query_scalar("SELECT (t.after->>'owner_epoch')::bigint FROM admin_control_requests r JOIN audit_log t ON t.request_id=r.request_id AND t.action='admin.control.transition' AND t.after->>'status'='delivered' AND t.after ? 'owner_epoch' WHERE r.request_id=$1 AND r.agent_id=$2 LIMIT 2")
+        .bind(id).bind(agent).fetch_all(&mut **tx).await?;
+    match epochs.as_slice() {
+        [epoch] => Ok(*epoch),
+        _ => Err(store::Error::Unavailable.into()),
+    }
 }
 async fn lock_request(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<(), HttpError> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 17))")
@@ -522,12 +574,15 @@ async fn stream(
     tx.commit().await?;
     Ok(Json(json!({"status":"stored"})))
 }
+/// Game heartbeat framing, ratified 2026-11-19: liveness with an optional health snapshot.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Snapshot {
+struct Heartbeat {
     agent_id: String,
     owner_epoch: i64,
-    payload: canonical::Json,
+    clock: String,
+    #[serde(default)]
+    health: Option<canonical::Json>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -541,9 +596,10 @@ async fn heartbeat(
     State(ctx): State<Context>,
     raw: Result<Json<Value>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<Value>, HttpError> {
-    let p: Snapshot = body(raw)?;
+    let p: Heartbeat = body(raw)?;
     check(&ctx, &p.agent_id, p.owner_epoch)?;
-    if !p.payload.0.is_object() {
+    valid_clock(&p.clock)?;
+    if p.health.as_ref().is_some_and(|h| !h.0.is_object()) {
         return Err(HttpError::invalid());
     }
     let _permit = ctx.gate.lock().await;
@@ -552,8 +608,10 @@ async fn heartbeat(
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO admin_control_health(agent_id,owner_epoch,payload) VALUES($1,$2,$3) ON CONFLICT(agent_id) DO UPDATE SET owner_epoch=EXCLUDED.owner_epoch,payload=EXCLUDED.payload,updated_at=clock_timestamp() WHERE admin_control_health.owner_epoch<=EXCLUDED.owner_epoch")
-        .bind(p.agent_id).bind(p.owner_epoch).bind(p.payload.0).execute(&mut *tx).await?;
+    if let Some(health) = p.health {
+        sqlx::query("INSERT INTO admin_control_health(agent_id,owner_epoch,payload) VALUES($1,$2,$3) ON CONFLICT(agent_id) DO UPDATE SET owner_epoch=EXCLUDED.owner_epoch,payload=EXCLUDED.payload,updated_at=clock_timestamp() WHERE admin_control_health.owner_epoch<=EXCLUDED.owner_epoch")
+            .bind(p.agent_id).bind(p.owner_epoch).bind(health.0).execute(&mut *tx).await?;
+    }
     tx.commit().await?;
     Ok(Json(json!({"status":"recorded"})))
 }
