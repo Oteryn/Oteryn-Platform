@@ -1,4 +1,5 @@
 import hashlib
+import io
 import importlib.util
 import inspect
 from pathlib import Path
@@ -8,6 +9,8 @@ import tempfile
 import subprocess
 import os
 import stat
+import tarfile
+import zipfile
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('oracle_deploy', Path(__file__).with_name('actions-deploy.py'))
@@ -69,14 +72,20 @@ class AuthorityBoundary(unittest.TestCase):
             (controller / 'current.json').write_text('{"cycle":"old-cycle"}')
             calls = []
             image = {'Architecture': 'arm64', 'Id': 'new-id', 'Config': {'Labels': {'org.opencontainers.image.revision': sha}}}
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'inspect_image', return_value=image), patch.object(deploy, 'inspect', return_value={'State': {'Running': True}}), patch.object(deploy, 'status'), patch.object(deploy, 'atomic'), patch.object(deploy, 'journal'), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize'):
+            loaded = ('oteryn-game:' + sha + '-arm64', image)
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'load_image', return_value=loaded), patch.object(deploy, 'inspect', return_value={'State': {'Running': True}}), patch.object(deploy, 'status'), patch.object(deploy, 'atomic'), patch.object(deploy, 'journal'), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize'):
                 with self.assertRaisesRegex(ValueError, 'still running'):
-                    deploy.game_deploy(root, sha, 100, 1)
+                    deploy.game_deploy(sha, 100, 1, 7, None)
             self.assertFalse(any('migrate' in args for args in calls))
 
     def test_component_cannot_select_another_component_or_general_shell(self):
         for component, command in [('other', 'status'), ('game', 'bash'),
                                    ('game', 'status; id'), ('game', 'deploy ' + 'a' * 40 + ' extra'),
+                                   # Game is never built on the host; only an image artifact is accepted.
+                                   ('game', 'deploy ' + 'a' * 40 + ' 100 1'),
+                                   ('game', 'deploy-image ' + 'a' * 40 + ' 100 1'),
+                                   ('game', 'deploy-image ' + 'a' * 40 + ' 100 1 0'),
+                                   ('platform', 'deploy-image ' + 'a' * 40 + ' 100 1 7'),
                                    ('platform', 'deploy ../../main'), ('game', 'deploy ' + 'A' * 40)]:
             with self.subTest(component=component, command=command), self.assertRaises(ValueError):
                 deploy.parse(component, command)
@@ -485,11 +494,141 @@ class LivePortalDeployment(unittest.TestCase):
         self.assertFalse({'static', 'migrations', 'bin', 'crates', 'templates'} & set(ignored))
 
 
+class GameImageArtifact(unittest.TestCase):
+    SHA = 'b' * 40
+    TAG = 'oteryn-game:' + 'b' * 40 + '-arm64'
+
+    def artifact_zip(self, directory, *, manifest=None, members=None):
+        layout = Path(directory) / 'layout.tar'
+        with tarfile.open(layout, 'w') as archive:
+            data = json.dumps(manifest if manifest is not None else [{'RepoTags': [self.TAG], 'Layers': []}]).encode()
+            info = tarfile.TarInfo('manifest.json')
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            for name in members or ['image.tar']:
+                archive.write(layout, name)
+        return buffer.getvalue()
+
+    def metadata(self, payload, **changes):
+        record = {'id': 7, 'name': 'oteryn-game-image-' + self.SHA, 'expired': False,
+                  'digest': 'sha256:' + hashlib.sha256(payload).hexdigest(),
+                  'workflow_run': {'id': 100, 'head_sha': self.SHA}}
+        record.update(changes)
+        return record
+
+    def load(self, payload, metadata, image=None):
+        image = image or {'RepoTags': [self.TAG], 'Architecture': 'arm64', 'Id': 'sha256:new',
+                          'Config': {'Labels': {'org.opencontainers.image.revision': self.SHA}}}
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            try:
+                with patch.object(deploy, 'STATE', state), patch.object(deploy, 'api', return_value=metadata), \
+                     patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), \
+                     patch.object(deploy, 'inspect_image', return_value=image):
+                    return deploy.load_image(self.SHA, 100, 7, io.BytesIO(payload)), calls
+            finally:
+                # No transferred bytes stay on the host, whatever the outcome.
+                self.assertEqual(sorted(path.name for path in state.iterdir()), [])
+                self.last_calls = calls
+
+    def test_qualified_artifact_is_loaded_without_any_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = self.artifact_zip(temporary)
+        (image, info), calls = self.load(payload, self.metadata(payload))
+        self.assertEqual(image, self.TAG)
+        self.assertEqual(info['Id'], 'sha256:new')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:3], ['docker', 'load', '--input'])
+        self.assertFalse(any('build' in args for args in calls))
+
+    def refused(self, payload, metadata, pattern, image=None):
+        with self.assertRaisesRegex(ValueError, pattern):
+            self.load(payload, metadata, image)
+        return self.last_calls
+
+    def test_digest_mismatch_is_refused_before_docker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = self.artifact_zip(temporary)
+        calls = self.refused(payload, self.metadata(payload, digest='sha256:' + '0' * 64), 'qualified run upload')
+        self.assertEqual(calls, [])
+
+    def test_artifact_of_another_run_or_commit_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = self.artifact_zip(temporary)
+        for workflow in ({'id': 101, 'head_sha': self.SHA}, {'id': 100, 'head_sha': 'c' * 40}, {}):
+            with self.subTest(workflow=workflow):
+                self.assertEqual(self.refused(payload, self.metadata(payload, workflow_run=workflow), 'qualified run upload'), [])
+
+    def test_expired_misnamed_or_other_artifact_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = self.artifact_zip(temporary)
+        for change in ({'expired': True}, {'name': 'oteryn-game-image-' + 'c' * 40}, {'id': 8}):
+            with self.subTest(change=change):
+                self.assertEqual(self.refused(payload, self.metadata(payload, **change), 'qualified run upload'), [])
+
+    def test_oversized_stream_is_refused_and_removed(self):
+        payload = b'x' * 64
+        with patch.object(deploy, 'IMAGE_ZIP_LIMIT', 63), patch.object(deploy, 'CHUNK', 16):
+            self.assertEqual(self.refused(payload, self.metadata(payload), 'size limit'), [])
+
+    def test_unpacked_size_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = self.artifact_zip(temporary)
+        with patch.object(deploy, 'IMAGE_TAR_LIMIT', 100):
+            self.assertEqual(self.refused(payload, self.metadata(payload), 'image.tar|size limit'), [])
+
+    def test_archive_must_hold_only_image_tar(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for members in (['other.tar'], ['image.tar', 'extra.tar']):
+                with self.subTest(members=members):
+                    payload = self.artifact_zip(temporary, members=members)
+                    self.assertEqual(self.refused(payload, self.metadata(payload), 'only image.tar'), [])
+
+    def test_foreign_or_extra_tags_never_reach_docker_load(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for manifest in ([{'RepoTags': ['oteryn-portal:x-arm64']}],
+                             [{'RepoTags': [self.TAG, 'postgres:18.6-bookworm']}],
+                             [{'RepoTags': [self.TAG]}, {'RepoTags': ['oteryn-portal:x-arm64']}], {}):
+                with self.subTest(manifest=manifest):
+                    payload = self.artifact_zip(temporary, manifest=manifest)
+                    self.assertEqual(self.refused(payload, self.metadata(payload), 'qualified tag'), [])
+
+    def test_wrong_architecture_or_revision_is_refused_after_load(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = self.artifact_zip(temporary)
+        good = {'RepoTags': [self.TAG], 'Architecture': 'arm64', 'Id': 'sha256:new',
+                'Config': {'Labels': {'org.opencontainers.image.revision': self.SHA}}}
+        for image in (dict(good, Architecture='amd64'),
+                      dict(good, Config={'Labels': {'org.opencontainers.image.revision': 'c' * 40}}),
+                      dict(good, Config={'Labels': None}),
+                      dict(good, RepoTags=['oteryn-game:other-arm64'])):
+            with self.subTest(image=image):
+                self.refused(payload, self.metadata(payload), 'provenance', image)
+
+    def test_forced_command_streams_stdin_into_the_game_release(self):
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            with patch.object(deploy, 'STATE', state), patch.object(deploy.os, 'geteuid', return_value=0), \
+                 patch.dict(os.environ, {'SSH_ORIGINAL_COMMAND': 'deploy-image ' + sha + ' 100 1 7'}), \
+                 patch.object(deploy.sys, 'argv', ['actions-deploy.py', 'game']), \
+                 patch.object(deploy, 'reauthorize'), patch.object(deploy, 'source') as source, \
+                 patch.object(deploy, 'game_deploy', side_effect=ValueError('stop')) as release:
+                with self.assertRaisesRegex(ValueError, 'stop'):
+                    deploy.main()
+            source.assert_not_called()
+            release.assert_called_once_with(sha, 100, 1, 7, deploy.sys.stdin.buffer)
+
+
 class GameBranchUnchanged(unittest.TestCase):
     # Source hashes of the shared and Game functions as reviewed; the same file
     # serves the Game forced command, so a Platform change must not move these.
+    # Updated deliberately for the Game image artifact path (deploy-image).
     REVIEWED = {
-        'parse': '4668faa3ef77617afc02609d647d56a106363f13c714a24ffb65c44f9a0b6cf7',
+        'parse': '5c4f83672f01a4e1a3fe88fb0357de1187ca23db13168a7399aa53768dd26f70',
         'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
         'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
         'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',
@@ -501,8 +640,12 @@ class GameBranchUnchanged(unittest.TestCase):
         'journal': '52217f6588382fc23ac58265c01109010994c50b91ee3b7555363d32da229230',
         'inspect': '7818ca397395df4b461b4dfbb7bf67c81fb2bbf3a26d80c53ac354dac839b333',
         'inspect_image': '31e6f71d5f300b649cd367c59baefd1e8186ed83a71f8cf44fff2f79fc155092',
-        'game_deploy': '6aa4834fb49fe8d48cc86664c3a8f671125066a2bb027de393e2562e6c59a47f',
-        'main': '70eccad29e6ddf46520901fec7e1ccb59e1a7ce205537219f51f7b7560cec2e0',
+        'game_deploy': 'd4926e10c847a86cd029d14476e342853c35047980acdf7a4c9dba46e975d525',
+        'exclusive': '6b2297f3da4e29fe857530f7fac93c030713acac64af2df81cfc724f5146e5ef',
+        'receive_artifact': '041463e1f1e59d9411472ccbf4f404335c87adb33d1ee372c8de6e3bb6a4d112',
+        'unpack_image': 'f6bb96fea3a0d6cfdebf78ba98614a0d7f2dec9908f216ba79c468e0185116b7',
+        'load_image': '1d5a8dfa54f6706ebcbc4ff1e3cc97cdc7adcdb584754b97b89aa7b8e3d565e3',
+        'main': '2c911096117842cacbef27de7ccd184b4dbb5507ecbf52502a54545faa314430',
     }
 
     def test_shared_and_game_functions_are_unchanged(self):

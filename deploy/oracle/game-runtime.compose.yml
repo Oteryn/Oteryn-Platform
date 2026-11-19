@@ -1,7 +1,7 @@
 name: oteryn-oracle-runtime
 
 x-game-mounts: &game-mounts
-  - /opt/oteryn-game:/volume1/oteryn/game-preprod
+  - /opt/oteryn-game:/srv/oteryn/game
 
 services:
   game:
@@ -17,13 +17,13 @@ services:
     command:
       - serve
       - --config
-      - /volume1/oteryn/game-preprod/node/node.toml
+      - /srv/oteryn/game/node/node.toml
       - --npc-data-project
-      - /volume1/oteryn/game-preprod/run/npc-data/content/world
+      - /srv/oteryn/game/run/npc-data/content/world
       - --npc-data-sha256
       - 71e96ccf1c6b327df60e12abc6faa972f32ff9ff99260b86fcb8a7513a535685
     environment:
-      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /volume1/oteryn/game-preprod/gameplay/content/spells.manifest.json
+      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /srv/oteryn/game/gameplay/content/spells.manifest.json
       # Set per incarnation by game-supervisor.py from BASE/run/step-wait-receipts.
       OTERYN_STEP_WAIT_RECEIPTS: ${OTERYN_STEP_WAIT_RECEIPTS:-0}
     volumes: *game-mounts
@@ -50,12 +50,12 @@ services:
     entrypoint:
       - /usr/local/bin/oteryn-game-ops
       - --config
-      - /volume1/oteryn/game-preprod-root/ops/ops.toml
+      - /srv/oteryn/game-ops/ops.toml
     environment:
-      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /volume1/oteryn/game-preprod/gameplay/content/spells.manifest.json
+      OTERYN_NATIVE_GAMEPLAY_MANIFEST: /srv/oteryn/game/gameplay/content/spells.manifest.json
     volumes:
-      - /opt/oteryn-game:/volume1/oteryn/game-preprod
-      - /opt/oteryn-game-ops:/volume1/oteryn/game-preprod-root/ops
+      - /opt/oteryn-game:/srv/oteryn/game
+      - /opt/oteryn-game-ops:/srv/oteryn/game-ops
     networks: [platform_private, game_private]
 networks:
   platform_private:

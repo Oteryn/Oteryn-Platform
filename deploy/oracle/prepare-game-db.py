@@ -11,7 +11,8 @@ import subprocess
 import tempfile
 
 ROOT = Path('/opt/oteryn-oracle/game-db')
-SOURCE = Path('/opt/oteryn-build/Oteryn-Platform-1194d5548760d9d773a1cebb182bc5986a6a42bf')
+# Reviewed deployment files travel together; the PostgreSQL templates sit beside this script.
+SOURCE = Path(__file__).resolve().parent
 
 POSTGRES = 'oteryn-oracle-game-postgres-1'
 CA_DAYS = 3650
@@ -200,12 +201,12 @@ local all all reject
 host all all all reject
 host replication all all reject
 ''', 0o644)
-        config = (SOURCE / 'deploy/synology/postgres/postgresql.conf').read_text()
+        config = (SOURCE / 'game-postgres/postgresql.conf').read_text()
         config = config.replace('/bootstrap/postgres-pg_hba.conf', '/etc/oteryn/pg_hba.conf')
         config = config.replace('/run/oteryn-postgres-tls/', '/run/oteryn-game-db-tls/')
         config = config.replace('/bootstrap/postgres-backup/archive-wal.sh', '/etc/oteryn/archive-wal.sh')
         write(staged / 'config/postgresql.conf', config, 0o644)
-        shutil.copyfile(SOURCE / 'deploy/synology/postgres/backup/archive-wal.sh', staged / 'config/archive-wal.sh')
+        shutil.copyfile(SOURCE / 'game-postgres/archive-wal.sh', staged / 'config/archive-wal.sh')
         (staged / 'config/archive-wal.sh').chmod(0o644)
         write(staged / 'migrate.env', 'OTERYN_GAME_MIGRATION_DATABASE_URL=postgresql://oteryn_game_owner:' + passwords['owner'] + '@game-postgres:5432/oteryn_game?sslmode=verify-full&sslrootcert=/run/game-ca/ca.crt\n')
         for path in staged.rglob('*'):

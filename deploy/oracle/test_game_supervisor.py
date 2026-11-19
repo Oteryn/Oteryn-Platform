@@ -22,10 +22,10 @@ class DatabaseCertificateTests(unittest.TestCase):
     def test_prepare_issues_long_lived_game_database_ca(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / 'source'
-            postgres = source / 'deploy/synology/postgres'
-            (postgres / 'backup').mkdir(parents=True)
+            postgres = source / 'game-postgres'
+            postgres.mkdir(parents=True)
             (postgres / 'postgresql.conf').write_text("ssl = on\n")
-            (postgres / 'backup/archive-wal.sh').write_text('#!/bin/sh\n')
+            (postgres / 'archive-wal.sh').write_text('#!/bin/sh\n')
             root = Path(temporary) / 'game-db'
             ca_days = []
 

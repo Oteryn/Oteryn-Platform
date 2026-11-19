@@ -10,7 +10,9 @@ existing-state migration and direct oteryn.com DNS/HTTPS on Oracle, without Tunn
 - Initial isolated Game qualification: `87f770c87ce17518ba69f5effdbd04725d8a7d06`
 - Game runtime and PostgreSQL base images are digest-pinned in these files.
 
-Use `game.Dockerfile` with the immutable Game source archive as context. Its
+The Game image is built by Oteryn-Game CI, never on this host (owner decision
+2026-11-19); `game.Dockerfile` here is the recipe being handed to the Game
+repository and is no longer used by `actions-deploy.py`. Its
 `runtime` target provides the three Game executables as UID/GID 1001; operations
 run in separate one-off containers. The `world-bundle` target exports the pinned
 World after verifying compiler input identities and rebuilding the bundle twice.
@@ -126,8 +128,10 @@ it is not used to replace migrated NAS state.
 `game-runtime.compose.yml` runs the non-root native Game node and a separate
 root-only one-off ops container. Only Game TCP 7172 is published. Internal mTLS
 uses `internal-mtls.compose.yml` to remove the NAS host port and give the listener
-private Docker address 172.18.0.12. Existing NAS file paths remain container paths;
-the host mounts `/opt/oteryn-game` and the separate root ops directory there.
+private Docker address 172.18.0.12. The host mounts `/opt/oteryn-game` at
+`/srv/oteryn/game` and the separate root ops directory `/opt/oteryn-game-ops` at
+`/srv/oteryn/game-ops` (the retired NAS `/volume1/...` container paths are gone);
+`node.toml`, `ops.toml` and staged content must name these container paths.
 
 Install the shipped `oteryn-game.service` only after the final coherent source
 transfer, new endpoint descriptor issuance, forward projection resync and the
@@ -248,8 +252,25 @@ image preflight is not evidence that a schema migration committed.
 
 The `platform` branch of `actions-deploy.py` deploys the live portal layout on
 oteryn-vps. It does not create or migrate that layout; it only replaces the app
-image of an installed one. The Game branch and the forced-command grammar are
-unchanged.
+image of an installed one.
+
+### Game image artifact (deploy-image)
+
+The `game` forced command accepts only `status` and
+`deploy-image <sha> <run> <attempt> <artifact_id>` with the artifact zip on
+stdin; a Game `deploy` that would build on the host is refused. Interface with
+Oteryn-Game CI: artifact `oteryn-game-image-<sha>` holding exactly `image.tar`
+(`docker save` of the single tag `oteryn-game:<sha>-arm64`), uploaded by the same
+qualified `oracle-operations.yml` run that streams the raw artifact zip. The host
+writes at most 1 GiB of stream (3 GiB unpacked) to a 0600 file under
+`state/actions`, compares its sha256 with the public artifact `digest`, and
+requires the artifact id, name, `expired == false`, `workflow_run.id` and
+`workflow_run.head_sha` to match. The archive's `manifest.json` must name only
+that tag before `docker load`; the loaded image must be arm64 with
+`org.opencontainers.image.revision == <sha>`. The transfer files are removed in
+every outcome. Then the existing Game steps run unchanged: re-qualification of the
+exact main head (a Game merge during the window aborts the deploy), backup,
+journal, stop, migrate, image swap and supervisor start.
 
 - Layout it expects: `/opt/oteryn-portal/compose.yml` (project `oteryn-portal`,
   services `portal-pg`, `portal`, `portal-worker`, `portal-gateway`, external
