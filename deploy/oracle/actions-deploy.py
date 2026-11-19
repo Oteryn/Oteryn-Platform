@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 import urllib.request
@@ -312,25 +313,28 @@ def deploy_mtls(directory, sha, run_id, attempt):
 
 
 def backup_platform(sha):
-    # Use the retained PostgreSQL client version and the migration role's exact
-    # target/TLS configuration. Keep the URL in container environment memory,
-    # never command arguments or captured logs.
+    # Expand libpq conninfo inside the one-off client. Keep the URL out of
+    # Docker's host-side arguments and suppress client output.
     database_image = inspect('oteryn-oracle-postgres-1')['Config']['Image']
     path = STATE / (sha + '-platform.dump')
-    with path.open('xb') as archive:
-        subprocess.run(['docker', 'run', '--rm', '--network', 'oteryn-oracle_private',
-                        '--env-file', str(ROOT / 'platform-migrate.env'),
-                        '--mount', 'type=bind,source=' + str(ROOT / 'platform-secrets') + ',target=/run/oteryn,readonly',
-                        '--entrypoint', 'sh', database_image, '-ec',
-                        'export PGDATABASE="${OTERYN_DATABASE_URL:?missing migration database URL}"; exec pg_dump --format=custom'],
-                       check=True, stdout=archive, stderr=subprocess.DEVNULL, timeout=1800)
-        archive.flush()
-        os.fsync(archive.fileno())
-    with path.open('rb') as archive:
-        subprocess.run(['docker', 'run', '--rm', '-i', '--network', 'none',
-                        '--entrypoint', 'pg_restore', database_image, '--list'],
-                       check=True, stdin=archive, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=120)
+    with tempfile.TemporaryDirectory(prefix=path.name + '-', dir=STATE) as attempt:
+        staged = Path(attempt) / 'archive'
+        fd = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'wb') as archive:
+            subprocess.run(['docker', 'run', '--rm', '--network', 'oteryn-oracle_private',
+                            '--env-file', str(ROOT / 'platform-migrate.env'),
+                            '--mount', 'type=bind,source=' + str(ROOT / 'platform-secrets') + ',target=/run/oteryn,readonly',
+                            '--entrypoint', 'sh', database_image, '-ec',
+                            'exec pg_dump --format=custom --dbname="${OTERYN_DATABASE_URL:?missing migration database URL}"'],
+                           check=True, stdout=archive, stderr=subprocess.DEVNULL, timeout=1800)
+            archive.flush()
+            os.fsync(archive.fileno())
+        with staged.open('rb') as archive:
+            subprocess.run(['docker', 'run', '--rm', '-i', '--network', 'none',
+                            '--entrypoint', 'pg_restore', database_image, '--list'],
+                           check=True, stdin=archive, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=120)
+        durable_replace(staged, path)
 
 
 def platform_deploy(directory, sha, run_id, attempt):
@@ -344,6 +348,7 @@ def platform_deploy(directory, sha, run_id, attempt):
     run(['docker', 'run', '--rm', '--network', 'none', image, 'check-image'], timeout=120)
     reauthorize('platform', sha, run_id, attempt)
     prepare_edge(directory, sha)
+    run(['bash', str(directory / 'deploy/oracle/prepare-platform-witness.sh')])
     path = ROOT / 'platform.env'
     before = path.read_text()
     current = compose(directory)
