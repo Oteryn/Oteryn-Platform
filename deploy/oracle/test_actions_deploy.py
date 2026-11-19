@@ -1,4 +1,6 @@
+import hashlib
 import importlib.util
+import inspect
 from pathlib import Path
 import unittest
 import json
@@ -49,35 +51,6 @@ class SourceArtifactPermissions(unittest.TestCase):
 
 
 class AuthorityBoundary(unittest.TestCase):
-    def test_unreadable_application_image_fails_before_backup_or_disruption(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
-            calls = []
-            probes = []
-            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/oracle/public-platform.compose.yml'}}}
-            def command(args, **kwargs):
-                calls.append(args)
-                if args[:2] == ['docker', 'run']:
-                    probes.append((args, kwargs))
-                # Model the observed PHP entry-script failure at either boundary:
-                # the new isolated image probe, or the old late migration command.
-                if args[:2] == ['docker', 'run'] or args[-1:] == ['migrate']:
-                    raise subprocess.CalledProcessError(1, args, output='Could not open input file: artisan')
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'backup_platform'), patch.object(deploy, 'journal'), patch.object(deploy, 'atomic'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    deploy.platform_deploy(root, sha, 100, 1)
-            self.assertFalse(any('dump' in args or 'stop' in args or 'down' in args for args in calls))
-            # The probe is the first docker run and is bounded, isolated and uses the image's own USER/WORKDIR.
-            self.assertEqual(len(probes), 1)
-            argv, kwargs = probes[0]
-            self.assertEqual(argv, ['docker', 'run', '--rm', '--network', 'none',
-                                    'oteryn-platform:' + sha + '-arm64', 'check-image'])
-            for flag in ('--user', '-u', '--workdir', '-w', '-v', '--volume', '--mount', '--env', '-e', '--env-file'):
-                self.assertNotIn(flag, argv)
-            self.assertEqual(kwargs.get('timeout'), 120)
-
     def test_receipt_cannot_accept_a_different_healthy_image(self):
         sha = 'a' * 40
         with tempfile.TemporaryDirectory() as temporary:
@@ -86,179 +59,6 @@ class AuthorityBoundary(unittest.TestCase):
             with patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value={'Image': 'other'}):
                 with self.assertRaisesRegex(ValueError, 'runtime images'):
                     deploy.verify_current_release('game', sha)
-
-    def test_running_edge_must_acquire_the_candidate_after_recreation(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / 'deploy/oracle'
-            source.mkdir(parents=True)
-            (source / 'Caddyfile').write_text('qualified configuration\n')
-            calls = []
-            def command(args, **kw):
-                calls.append(args)
-                if args[-2:] == ['cat', '/etc/caddy/Caddyfile']:
-                    return 'old configuration\n'
-            info = {'Config': {'Labels': {'com.docker.compose.project.config_files': str(root / 'edge/compose.yml')}}}
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'atomic'), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'):
-                with self.assertRaisesRegex(ValueError, 'did not acquire'):
-                    deploy.deploy_edge(root, sha, 100, 1)
-                journal.assert_not_called()
-            self.assertTrue(any('validate' in args for args in calls))
-            self.assertTrue(any('--force-recreate' in args for args in calls))
-
-    def test_internal_mtls_listener_acquires_validated_repository_configuration(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / 'deploy/synology/docker').mkdir(parents=True)
-            (root / 'deploy/synology/docker/internal-mtls-nginx.conf').write_text('new routes\n')
-            volume = root / 'volume'
-            volume.mkdir()
-            (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
-            info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'volume',
-                                'Name': 'oteryn-oracle_bootstrap_files', 'Source': str(volume)}]}
-            calls = []
-            def command(args, **kw):
-                calls.append(args)
-                if args[-1] == deploy.MTLS_CONFIG and 'cat' in args:
-                    return (volume / 'internal-mtls-nginx.conf').read_text()
-                if 'pgrep' in args:
-                    return ('112 nginx: worker process is shutting down\n200 nginx: worker process\n'
-                            if any('reload' in c for c in calls) else '112 nginx: worker process\n')
-            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize') as recheck:
-                deploy.prepare_mtls(root, sha)
-                self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
-                self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-t', '-q', '-c',
-                               '/bootstrap/internal-mtls-nginx.' + sha + '.conf'], calls)
-                deploy.deploy_mtls(root, sha, '1', '1')
-            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'new routes\n')
-            self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
-            self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
-            journal.assert_called_once()
-            self.assertEqual(recheck.call_count, 2)
-
-    def test_canceled_workflow_never_changes_the_mtls_listener(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            volume, info = self._mtls_fixture(root)
-            calls = []
-            with patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize', side_effect=ValueError('workflow canceled')):
-                deploy.prepare_mtls(root, sha)
-                with self.assertRaisesRegex(ValueError, 'canceled'):
-                    deploy.deploy_mtls(root, sha, '1', '1')
-            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
-            self.assertFalse(any('reload' in args for args in calls))
-
-    def _mtls_fixture(self, root):
-        (root / 'deploy/synology/docker').mkdir(parents=True)
-        (root / 'deploy/synology/docker/internal-mtls-nginx.conf').write_text('new routes\n')
-        volume = root / 'volume'
-        volume.mkdir()
-        (volume / 'internal-mtls-nginx.conf').write_text('old routes\n')
-        (volume / ('internal-mtls-nginx.' + 'b' * 40 + '.conf')).write_text('aborted\n')
-        info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'volume',
-                            'Name': 'oteryn-oracle_bootstrap_files', 'Source': str(volume)}]}
-        return volume, info
-
-    def test_invalid_live_mtls_configuration_is_restored_and_never_reloaded(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            volume, info = self._mtls_fixture(root)
-            calls = []
-            def command(args, **kw):
-                calls.append(args)
-                if args[-3:] == ['-q', '-c', deploy.MTLS_CONFIG]:
-                    raise subprocess.CalledProcessError(1, args)
-            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'):
-                deploy.prepare_mtls(root, sha)
-                with self.assertRaises(subprocess.CalledProcessError):
-                    deploy.deploy_mtls(root, sha, '1', '1')
-            self.assertEqual((volume / 'internal-mtls-nginx.conf').read_text(), 'old routes\n')
-            self.assertFalse(any('reload' in args for args in calls))
-            journal.assert_not_called()
-
-    def test_unchanged_mtls_file_is_still_reloaded(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            volume, info = self._mtls_fixture(root)
-            (volume / 'internal-mtls-nginx.conf').write_text('new routes\n')
-            calls = []
-            def command(args, **kw):
-                calls.append(args)
-                if 'cat' in args:
-                    return (volume / 'internal-mtls-nginx.conf').read_text()
-                if 'pgrep' in args:
-                    return ('112 nginx: worker process is shutting down\n200 nginx: worker process\n'
-                            if any('reload' in c for c in calls) else '112 nginx: worker process\n')
-            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal'), patch.object(deploy, 'reauthorize'):
-                deploy.prepare_mtls(root, sha)
-                deploy.deploy_mtls(root, sha, '1', '1')
-            self.assertIn(['docker', 'exec', deploy.MTLS, 'nginx', '-c', deploy.MTLS_CONFIG, '-s', 'reload'], calls)
-            self.assertEqual(sorted(p.name for p in volume.iterdir()), ['internal-mtls-nginx.conf'])
-
-    def test_rejected_mtls_reload_is_never_recorded(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            volume, info = self._mtls_fixture(root)
-            reloaded = []
-            def command(args, **kw):
-                if 'cat' in args:
-                    return (volume / 'internal-mtls-nginx.conf').read_text()
-                if 'pgrep' in args:
-                    # A worker respawned by the old configuration is not acceptance.
-                    return '112 nginx: worker process\n200 nginx: worker process\n' if reloaded else '112 nginx: worker process\n'
-                if 'reload' in args:
-                    reloaded.append(True)
-            with patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'journal') as journal, patch.object(deploy, 'reauthorize'), patch.object(deploy.time, 'sleep'):
-                deploy.prepare_mtls(root, sha)
-                with self.assertRaisesRegex(ValueError, 'did not start workers'):
-                    deploy.deploy_mtls(root, sha, '1', '1')
-            journal.assert_not_called()
-
-    def test_internal_mtls_refuses_an_unexpected_bootstrap_mount(self):
-        info = {'Mounts': [{'Destination': '/bootstrap', 'Type': 'bind', 'Source': '/etc'}]}
-        with patch.object(deploy, 'inspect', return_value=info), patch.object(deploy, 'run') as command:
-            with self.assertRaisesRegex(ValueError, 'bootstrap mount'):
-                deploy.prepare_mtls(Path('/nonexistent'), 'a' * 40)
-            command.assert_not_called()
-
-    def test_platform_rechecks_authority_after_backup_before_disruption(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
-            calls = []
-            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/oracle/public-platform.compose.yml'}}}
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append(['dump'])), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), patch.object(deploy, 'reauthorize', side_effect=[None, ValueError('workflow canceled')]):
-                with self.assertRaisesRegex(ValueError, 'canceled'):
-                    deploy.platform_deploy(root, sha, 100, 1)
-            self.assertTrue(any('dump' in args for args in calls))
-            self.assertFalse(any('stop' in args or 'down' in args for args in calls))
-
-    def test_migration_failure_retains_unknown_schema_and_no_success_record(self):
-        sha = 'a' * 40
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            state = root / 'actions'
-            state.mkdir()
-            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
-            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': '/old/deploy/oracle/public-platform.compose.yml'}}}
-            def command(args, **kw):
-                if args[-2:] == ['config', '--services']: return 'platform\ngateway\nworker\n'
-                if args[-1:] == ['migrate']:
-                    raise subprocess.CalledProcessError(1, args)
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'new-id'}), patch.object(deploy, 'contract', return_value='schema-v1'), patch.object(deploy, 'prepare_mtls'), patch.object(deploy, 'backup_platform'), patch.object(deploy, 'run', side_effect=command), patch.object(deploy, 'reauthorize'):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    deploy.platform_deploy(root, sha, 100, 1)
-                self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_unknown')
-                self.assertFalse((state / 'platform-current.json').exists())
-                with self.assertRaisesRegex(ValueError, 'reconciliation'):
-                    deploy.status('platform')
 
     def test_game_refuses_migration_while_old_container_is_running(self):
         sha = 'a' * 40
@@ -273,13 +73,6 @@ class AuthorityBoundary(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'still running'):
                     deploy.game_deploy(root, sha, 100, 1)
             self.assertFalse(any('migrate' in args for args in calls))
-
-    def test_failed_scheduler_blocks_platform_readiness(self):
-        def container(name):
-            return {'State': {'Running': True, 'Health': {'Status': 'unhealthy' if 'worker' in name else 'healthy'}}}
-        with patch.object(deploy, 'run'), patch.object(deploy, 'inspect', side_effect=container):
-            with self.assertRaisesRegex(ValueError, 'worker'):
-                deploy.status('platform')
 
     def test_component_cannot_select_another_component_or_general_shell(self):
         for component, command in [('other', 'status'), ('game', 'bash'),
@@ -349,13 +142,6 @@ class RustDeployment(unittest.TestCase):
         self.assertIn('header_up X-Forwarded-For {client_ip}', edge)
         self.assertIn('TRUSTED_PROXIES: 172.18.0.10', Path(__file__).with_name('public-platform.compose.yml').read_text())
 
-    def test_readiness_uses_rust_database_health_independently_of_login_flags(self):
-        calls = []
-        with tempfile.TemporaryDirectory() as temporary, patch.object(deploy, 'STATE', Path(temporary)), patch.object(deploy, 'inspect', return_value={'State': {'Running': True}}), patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)):
-            deploy.status('platform')
-        self.assertTrue(any(args[-1] == 'https://oteryn.com/readyz' for args in calls))
-        self.assertTrue(any(args[-1] == 'https://gateway.oteryn.com/ready' for args in calls))
-
     def test_gateway_composition_reaches_the_rust_loopback_issuer(self):
         checkout = Path(__file__).resolve().parents[2]
         config = (checkout / 'deploy/oracle/public-platform.compose.yml').read_text()
@@ -367,7 +153,264 @@ class RustDeployment(unittest.TestCase):
         self.assertIn('reverse_proxy platform:8081', edge)
         self.assertIn('rewrite @native_ticket /api/v1/game-auth/tickets', edge)
 
-    def test_backup_uses_the_migration_target_without_exposing_a_url(self):
+
+LIVE_COMPOSE = '''name: oteryn-portal
+x-portal: &portal
+  image: oteryn-portal:0123abcd-arm64
+  env_file: [portal.env]
+services:
+  portal-pg:
+    image: postgres:18.6-bookworm
+  portal:
+    <<: *portal
+    command: serve
+  portal-worker:
+    <<: *portal
+    command: worker
+  portal-gateway:
+    image: oteryn-portal:0123abcd-arm64
+    network_mode: service:portal
+    command: gateway
+networks:
+  oteryn-oracle_private:
+    external: true
+'''
+LIVE_GATEWAY = 'GATEWAY_LISTEN_ADDR=0.0.0.0:8081\nGATEWAY_VERSION=portal-rs-0123abcd\n'
+
+
+class LivePortalDeployment(unittest.TestCase):
+    sha = 'fedcba98' + 'a' * 32
+
+    def host(self, temporary, gateway=LIVE_GATEWAY):
+        root = Path(temporary)
+        portal = root / 'opt-oteryn-portal'
+        portal.mkdir()
+        (portal / 'compose.yml').write_text(LIVE_COMPOSE)
+        (portal / 'compose.yml').chmod(0o640)
+        (portal / 'gateway.env').write_text(gateway)
+        (portal / 'gateway.env').chmod(0o600)
+        state = root / 'state'
+        state.mkdir()
+        return portal, state
+
+    def deploy(self, portal, state, *, fail=None, reauthorize=None, ready=None):
+        calls = []
+        compose = ['docker', 'compose', '-p', 'oteryn-portal', '-f', str(portal / 'compose.yml')]
+        def command(args, **kwargs):
+            calls.append((args, kwargs))
+            if fail and args == compose + fail:
+                raise subprocess.CalledProcessError(1, args)
+        image = {'Architecture': 'arm64', 'Id': 'new-id',
+                 'Config': {'Labels': {'org.opencontainers.image.revision': self.sha}}}
+        with patch.object(deploy, 'PORTAL', portal), patch.object(deploy, 'STATE', state), \
+             patch.object(deploy, 'run', side_effect=command), \
+             patch.object(deploy, 'inspect', return_value={'Image': 'old-id'}), \
+             patch.object(deploy, 'inspect_image', return_value=image), \
+             patch.object(deploy, 'contract', return_value='portal-rs-1'), \
+             patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
+             patch.object(deploy, 'reauthorize', side_effect=reauthorize), \
+             patch.object(deploy, 'wait_platform', side_effect=ready or (lambda image_id: calls.append((['ready', image_id], {})))):
+            try:
+                return deploy.platform_deploy(Path('/archive'), self.sha, 100, 1), calls, compose
+            except BaseException as error:
+                error.calls = calls
+                raise
+
+    def test_release_rewrites_both_image_lines_then_migrates_and_starts_the_roles(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            images, calls, compose = self.deploy(portal, state)
+            argv = [args for args, _ in calls]
+            build, build_kwargs = calls[0]
+            self.assertEqual(build, ['docker', 'build', '--label', 'org.opencontainers.image.revision=' + self.sha,
+                                     '-f', 'deploy/oracle/portal.Dockerfile', '-t', 'oteryn-portal:fedcba98-arm64', 'portal-rs'])
+            self.assertEqual(build_kwargs, {'cwd': Path('/archive'), 'timeout': 7200})
+            self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none', 'oteryn-portal:fedcba98-arm64', 'check-image'])
+            migrate = argv.index(compose + ['run', '--rm', '-T', 'portal', 'migrate'])
+            up = argv.index(compose + ['up', '-d', 'portal', 'portal-worker', 'portal-gateway'])
+            self.assertLess(argv.index(['backup']), migrate)
+            self.assertLess(migrate, up)
+            self.assertLess(up, argv.index(['ready', 'new-id']))
+            self.assertEqual(len([a for a in argv if 'up' in a]), 1)
+            self.assertNotIn(str(portal / 'src'), ' '.join(' '.join(map(str, a)) for a in argv))
+            compose_text = (portal / 'compose.yml').read_text()
+            self.assertEqual(compose_text, LIVE_COMPOSE.replace('oteryn-portal:0123abcd-arm64', 'oteryn-portal:fedcba98-arm64'))
+            self.assertIn('image: postgres:18.6-bookworm', compose_text)
+            self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY.replace('portal-rs-0123abcd', 'portal-rs-fedcba98'))
+            self.assertEqual(stat.S_IMODE((portal / 'compose.yml').stat().st_mode), 0o640)
+            self.assertEqual(stat.S_IMODE((portal / 'gateway.env').stat().st_mode), 0o600)
+            self.assertEqual((state / (self.sha + '-portal.compose.yml.before')).read_text(), LIVE_COMPOSE)
+            self.assertEqual((state / (self.sha + '-portal.gateway.env.before')).read_text(), LIVE_GATEWAY)
+            pending = json.loads((state / 'platform-pending.json').read_text())
+            self.assertEqual(pending, {'component': 'platform', 'sha': self.sha, 'phase': 'schema_known',
+                                       'schema': 'portal-rs-1', 'previous_image': 'old-id', 'platform_image': 'new-id'})
+            self.assertEqual(images, {'oteryn-portal-portal-1': 'new-id', 'oteryn-portal-portal-worker-1': 'new-id',
+                                      'oteryn-portal-portal-gateway-1': 'new-id'})
+            self.assertEqual(sorted(p.name for p in portal.iterdir()), ['compose.yml', 'gateway.env'])
+
+    def test_failed_migration_restores_the_previous_release_and_requires_reconciliation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                self.deploy(portal, state, fail=['run', '--rm', '-T', 'portal', 'migrate'])
+            argv = [args for args, _ in raised.exception.calls]
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+            self.assertEqual(stat.S_IMODE((portal / 'compose.yml').stat().st_mode), 0o640)
+            # The previous image returns to service; the database is never touched.
+            self.assertEqual(argv[-2][-5:], ['run', '--rm', '-T', 'portal', 'migrate'])
+            self.assertEqual(argv[-1][-5:], ['up', '-d', 'portal', 'portal-worker', 'portal-gateway'])
+            self.assertFalse(any('pg_restore' in a or 'dropdb' in a or 'down' in a for a in argv))
+            self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_unknown')
+            self.assertFalse((state / 'platform-current.json').exists())
+            with patch.object(deploy, 'STATE', state), self.assertRaisesRegex(ValueError, 'reconciliation'):
+                deploy.status('platform')
+
+    def test_failed_readiness_restores_the_previous_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            def unready(image_id):
+                raise ValueError('deployment readiness deadline exceeded')
+            with self.assertRaisesRegex(ValueError, 'deadline'):
+                self.deploy(portal, state, ready=unready)
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+            self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_known')
+
+    def test_canceled_workflow_after_backup_changes_nothing_live(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            with self.assertRaisesRegex(ValueError, 'canceled') as raised:
+                self.deploy(portal, state, reauthorize=[None, ValueError('workflow canceled')])
+            argv = [args for args, _ in raised.exception.calls]
+            self.assertIn(['backup'], argv)
+            self.assertFalse(any('migrate' in a or 'up' in a for a in argv))
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertFalse((state / 'platform-pending.json').exists())
+
+    def test_unexpected_live_layout_is_refused_before_backup(self):
+        layouts = [(LIVE_COMPOSE.replace('    image: oteryn-portal:0123abcd-arm64\n', '    image: other:1\n'), LIVE_GATEWAY),
+                   (LIVE_COMPOSE + '  extra:\n    image: oteryn-portal:0123abcd-arm64\n', LIVE_GATEWAY),
+                   (LIVE_COMPOSE, LIVE_GATEWAY + 'GATEWAY_VERSION=again\n')]
+        for compose_text, gateway in layouts:
+            with self.subTest(compose=compose_text, gateway=gateway), tempfile.TemporaryDirectory() as temporary:
+                portal, state = self.host(temporary, gateway)
+                (portal / 'compose.yml').write_text(compose_text)
+                with self.assertRaisesRegex(ValueError, 'expected') as raised:
+                    self.deploy(portal, state)
+                self.assertNotIn(['backup'], [args for args, _ in raised.exception.calls])
+                self.assertEqual((portal / 'compose.yml').read_text(), compose_text)
+                self.assertEqual(list(state.iterdir()), [])
+
+    def test_gateway_without_a_version_line_is_left_unchanged(self):
+        gateway = 'GATEWAY_LISTEN_ADDR=0.0.0.0:8081\n'
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary, gateway)
+            self.deploy(portal, state)
+            self.assertEqual((portal / 'gateway.env').read_text(), gateway)
+            self.assertFalse((state / (self.sha + '-portal.gateway.env.before')).exists())
+
+    def test_image_without_the_qualified_revision_is_refused_before_effects(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            calls = []
+            image = {'Architecture': 'arm64', 'Id': 'new-id', 'Config': {'Labels': {}}}
+            with patch.object(deploy, 'PORTAL', portal), patch.object(deploy, 'STATE', state), \
+                 patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), \
+                 patch.object(deploy, 'inspect_image', return_value=image), \
+                 patch.object(deploy, 'contract', return_value='portal-rs-1'), \
+                 patch.object(deploy, 'backup_platform') as backup, patch.object(deploy, 'reauthorize'):
+                with self.assertRaisesRegex(ValueError, 'provenance'):
+                    deploy.platform_deploy(Path('/archive'), self.sha, 100, 1)
+            backup.assert_not_called()
+            self.assertEqual(len(calls), 1)
+
+    def containers(self, *, image='new-id', worker_image=None, worker_state=None):
+        def container(name):
+            info = {'State': {'Running': True}, 'Image': image, 'RestartCount': 0,
+                    'NetworkSettings': {'Networks': {'oteryn-oracle_private': {'IPAddress': '172.18.0.42'}}}}
+            if 'worker' in name:
+                if worker_image:
+                    info['Image'] = worker_image
+                if worker_state:
+                    info['State'] = worker_state
+            return info
+        return container
+
+    def status(self, state, *, revision=None, allow_pending=False, **containers):
+        opened = []
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        def urlopen(url, timeout):
+            opened.append(url)
+            return Response()
+        labels = {'Config': {'Labels': {'org.opencontainers.image.revision': revision or self.sha}}}
+        with patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', side_effect=self.containers(**containers)), \
+             patch.object(deploy, 'inspect_image', return_value=labels), patch.object(deploy, 'run') as command, \
+             patch.object(deploy.urllib.request, 'urlopen', side_effect=urlopen):
+            deploy.status('platform', allow_pending=allow_pending)
+        command.assert_not_called()
+        return opened
+
+    def test_status_requires_the_recorded_release_in_every_role_and_a_ready_portal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            with self.assertRaisesRegex(ValueError, 'no runner-deployed'):
+                self.status(state)
+            (state / 'platform-current.json').write_text(json.dumps({'sha': self.sha, 'phase': 'ready'}))
+            self.assertEqual(self.status(state), ['http://172.18.0.42:8080/readyz'])
+            for kwargs, message in [({'revision': 'b' * 40}, 'recorded release'),
+                                    ({'worker_image': 'other-id'}, 'different images'),
+                                    ({'worker_state': {'Running': False}}, 'worker'),
+                                    ({'worker_state': {'Running': True, 'Restarting': True}}, 'worker'),
+                                    ({'worker_state': {'Running': True, 'Health': {'Status': 'unhealthy'}}}, 'worker')]:
+                with self.subTest(**kwargs), self.assertRaisesRegex(ValueError, message):
+                    self.status(state, **kwargs)
+            (state / 'platform-pending.json').write_text(json.dumps({'sha': 'c' * 40}))
+            with self.assertRaisesRegex(ValueError, 'reconciliation'):
+                self.status(state)
+            # During a release, readiness is measured against the pending revision.
+            self.status(state, revision='c' * 40, allow_pending=True)
+
+    def test_unreachable_portal_is_not_ready(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            (state / 'platform-current.json').write_text(json.dumps({'sha': self.sha}))
+            with patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', side_effect=self.containers()), \
+                 patch.object(deploy, 'inspect_image', return_value={'Config': {'Labels': {'org.opencontainers.image.revision': self.sha}}}), \
+                 patch.object(deploy.urllib.request, 'urlopen', side_effect=ConnectionRefusedError()):
+                with self.assertRaisesRegex(ValueError, 'readiness probe'):
+                    deploy.status('platform')
+
+    def test_readiness_needs_two_stable_samples_of_the_new_image(self):
+        samples = iter([0, 1, 1])
+        def container(name):
+            return {'Image': 'new-id', 'RestartCount': next(samples) if 'worker' in name else 0}
+        with patch.object(deploy, 'status'), patch.object(deploy, 'inspect', side_effect=container), \
+             patch.object(deploy.time, 'sleep') as sleep:
+            deploy.wait_platform('new-id')
+        self.assertEqual(sleep.call_count, 2)
+        with patch.object(deploy, 'status'), patch.object(deploy, 'inspect', return_value={'Image': 'old-id', 'RestartCount': 0}), \
+             patch.object(deploy.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'deadline'):
+                deploy.wait_platform('new-id')
+
+    def test_receipt_compares_every_portal_role_with_the_retained_image(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            (state / 'platform-current.json').write_text(json.dumps({'sha': self.sha, 'phase': 'ready', 'platform_image': 'new-id'}))
+            seen = []
+            def container(name):
+                seen.append(name)
+                return {'Image': 'other-id' if 'gateway' in name else 'new-id'}
+            with patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', side_effect=container):
+                with self.assertRaisesRegex(ValueError, 'runtime images'):
+                    deploy.verify_current_release('platform', self.sha)
+            self.assertIn('oteryn-portal-portal-gateway-1', seen)
+
+    def test_backup_dumps_inside_the_live_database_container(self):
         calls = []
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -379,24 +422,20 @@ class RustDeployment(unittest.TestCase):
                     self.assertEqual(kwargs['stdin'].read(), b'PGDMP-fixture-archive')
             previous = os.umask(0o077)
             try:
-                with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'inspect', return_value={'Config': {'Image': 'postgres:fixture'}}), patch.object(deploy.subprocess, 'run', side_effect=command):
-                    deploy.backup_platform('a' * 40)
-                self.assertEqual(stat.S_IMODE((root / ('a' * 40 + '-platform.dump')).stat().st_mode), 0o600)
+                with patch.object(deploy, 'STATE', root), patch.object(deploy.subprocess, 'run', side_effect=command):
+                    deploy.backup_platform(self.sha)
+                self.assertEqual(stat.S_IMODE((root / (self.sha + '-platform.dump')).stat().st_mode), 0o600)
             finally:
                 os.umask(previous)
-            self.assertIn(str(root / 'platform-migrate.env'), calls[0])
-            self.assertIn('postgres:fixture', calls[0])
-            self.assertIn('exec pg_dump --format=custom --dbname="${OTERYN_DATABASE_URL:?missing migration database URL}"', calls[0])
-            self.assertNotIn('PGDATABASE', calls[0][-1])
-            self.assertIn('pg_restore', calls[1])
-            self.assertNotIn('--env-file', calls[1])
+        self.assertEqual(calls[0], ['docker', 'exec', 'oteryn-portal-portal-pg-1', 'sh', '-c',
+                                    'pg_dump -U "$POSTGRES_USER" -d "${POSTGRES_DB:-$POSTGRES_USER}" -Fc'])
+        self.assertEqual(calls[1], ['docker', 'exec', '-i', 'oteryn-portal-portal-pg-1', 'pg_restore', '--list'])
 
     def test_failed_backup_leaves_no_final_archive_and_same_sha_can_retry(self):
         for failure in ('pg_dump', 'pg_restore'):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
-                sha = 'a' * 40
-                path = root / (sha + '-platform.dump')
+                path = root / (self.sha + '-platform.dump')
                 failing = True
 
                 def command(args, **kwargs):
@@ -409,54 +448,75 @@ class RustDeployment(unittest.TestCase):
                     if failing and operation == failure:
                         raise subprocess.CalledProcessError(1, args)
 
-                with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), \
-                     patch.object(deploy, 'inspect', return_value={'Config': {'Image': 'postgres:fixture'}}), \
-                     patch.object(deploy.subprocess, 'run', side_effect=command):
+                with patch.object(deploy, 'STATE', root), patch.object(deploy.subprocess, 'run', side_effect=command):
                     with self.assertRaises(subprocess.CalledProcessError):
-                        deploy.backup_platform(sha)
+                        deploy.backup_platform(self.sha)
                     self.assertEqual(list(root.iterdir()), [])
                     failing = False
-                    deploy.backup_platform(sha)
+                    deploy.backup_platform(self.sha)
                 self.assertEqual(path.read_bytes(), b'PGDMP-fixture-archive')
                 self.assertEqual(list(root.iterdir()), [path])
 
-    def test_active_platform_deployment_uses_existing_rust_inputs_and_roles(self):
+    def test_portal_image_recipe_matches_the_live_runtime_and_its_inputs_exist(self):
         checkout = Path(__file__).resolve().parents[2]
-        sha = 'a' * 40
-        calls = []
-        def command(args, **kwargs):
-            calls.append(args)
-            if args[:2] == ['docker', 'build']:
-                dockerfile = checkout / args[args.index('-f') + 1]
-                self.assertTrue(dockerfile.is_file(), str(dockerfile))
-                self.assertTrue((checkout / args[-1]).is_dir())
-            if args[-2:] == ['config', '--services']:
-                return 'platform\ngateway\nworker\n'
+        recipe = (checkout / 'deploy/oracle/portal.Dockerfile').read_text()
+        context = checkout / 'portal-rs'
+        for line in recipe.splitlines():
+            if line.startswith('COPY ') and '--from=' not in line:
+                for source in line.split()[1:-1]:
+                    if not source.startswith('--'):
+                        self.assertTrue((context / source).exists(), source)
+        for expected in ('FROM ubuntu:26.04', 'useradd -r -u 10001 portal', 'WORKDIR /app',
+                         'COPY --from=build /out/oteryn-portal /app/oteryn-portal', 'static /app/static',
+                         'migrations /app/migrations', 'USER portal', 'EXPOSE 8080 8091',
+                         'ENTRYPOINT ["/app/oteryn-portal"]'):
+            self.assertIn(expected, recipe)
+        builder = (checkout / 'portal-rs/Dockerfile').read_text().split(' AS build', 1)[0].rsplit('FROM ', 1)[1]
+        self.assertIn('FROM ' + builder + ' AS build', recipe)
+        ignored = (context / '.dockerignore').read_text().split()
+        self.assertFalse({'static', 'migrations', 'bin', 'crates', 'templates'} & set(ignored))
 
+
+class GameBranchUnchanged(unittest.TestCase):
+    # Source hashes of the shared and Game functions as reviewed; the same file
+    # serves the Game forced command, so a Platform change must not move these.
+    REVIEWED = {
+        'parse': '4668faa3ef77617afc02609d647d56a106363f13c714a24ffb65c44f9a0b6cf7',
+        'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
+        'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
+        'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',
+        'qualify_workflow': '7b5ec86dfdad08ff539682317822a3bb81f9abd1005b2442600184e0b33b2697',
+        'source': 'e28e7a4f34b60934374bedb7f7bafd15702c0ed54c9483e75e595b421fe034f4',
+        'atomic': 'cdf0f2b78cf04ddc69be17720336b5cd981c6fad2dd3027bf8f804143c149c66',
+        'durable_replace': '15c1765449691b7ddda7785ef564d3e49325193e8caa27342751609bd0c47eef',
+        'reauthorize': 'af126cd10bb2f6e3e2a8cb4b3bf977a932b70976fcd9a679531c38d27b60d145',
+        'journal': '52217f6588382fc23ac58265c01109010994c50b91ee3b7555363d32da229230',
+        'inspect': '7818ca397395df4b461b4dfbb7bf67c81fb2bbf3a26d80c53ac354dac839b333',
+        'inspect_image': '31e6f71d5f300b649cd367c59baefd1e8186ed83a71f8cf44fff2f79fc155092',
+        'game_deploy': '6aa4834fb49fe8d48cc86664c3a8f671125066a2bb027de393e2562e6c59a47f',
+        'main': '70eccad29e6ddf46520901fec7e1ccb59e1a7ce205537219f51f7b7560cec2e0',
+    }
+
+    def test_shared_and_game_functions_are_unchanged(self):
+        for name, digest in self.REVIEWED.items():
+            with self.subTest(name=name):
+                source = inspect.getsource(getattr(deploy, name))
+                self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), digest)
+
+    def test_game_status_never_reaches_the_portal(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / 'platform.env').write_text('PLATFORM_IMAGE=old\nGATEWAY_IMAGE=old\nGATEWAY_VERSION=old\n')
-            old = {'Image': 'old-id', 'Config': {'Labels': {'com.docker.compose.project.config_files': str(checkout / 'deploy/oracle/public-platform.compose.yml')}}}
-            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'inspect', return_value=old), patch.object(deploy, 'inspect_image', return_value={'Architecture': 'arm64', 'Id': 'rust-id'}), patch.object(deploy, 'backup_platform'), patch.object(deploy, 'prepare_edge'), patch.object(deploy, 'deploy_edge'), patch.object(deploy, 'reauthorize'), patch.object(deploy, 'run', side_effect=command):
-                images = deploy.platform_deploy(checkout, sha, 100, 1)
-            build = next(args for args in calls if args[:2] == ['docker', 'build'])
-            self.assertTrue((checkout / build[build.index('-f') + 1]).is_file())
-            context = checkout / build[-1]
-            for filename in ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'bin', 'crates', 'migrations', 'templates', 'static']:
-                self.assertTrue((context / filename).exists(), filename)
-            prepare = ['bash', str(checkout / 'deploy/oracle/prepare-platform-witness.sh')]
-            self.assertTrue(Path(prepare[1]).is_file())
-            stop = next(index for index, args in enumerate(calls) if 'stop' in args)
-            self.assertLess(calls.index(prepare), stop)
-            self.assertTrue(any(args[-5:] == ['run', '--rm', '-T', '--no-deps', 'migrate'] for args in calls))
-            self.assertTrue(any(args[-3:] == ['platform', 'gateway', 'worker'] and 'up' in args for args in calls))
-            self.assertEqual(set(images.values()), {'rust-id'})
-            for args in calls:
-                self.assertNotIn('php', args)
-                self.assertNotIn('artisan', args)
-                self.assertNotIn('nginx', args)
-                for index, arg in enumerate(args):
-                    if arg == '-f': self.assertTrue(Path(args[index + 1]).is_file() if Path(args[index + 1]).is_absolute() else (checkout / args[index + 1]).is_file())
+            (root / 'state/game-controller').mkdir(parents=True)
+            (root / 'state/game-controller/current.json').write_text('{"phase":"ready","cycle":"c1"}')
+            seen = []
+            def container(name):
+                seen.append(name)
+                return {'State': {'Running': True}, 'Config': {'Labels': {'io.oteryn.launch-cycle': 'c1'}}}
+            with patch.object(deploy, 'ROOT', root), patch.object(deploy, 'STATE', root), patch.object(deploy, 'run') as command, \
+                 patch.object(deploy, 'inspect', side_effect=container):
+                deploy.status('game')
+            self.assertEqual(seen, ['oteryn-oracle-runtime-game-1', 'oteryn-oracle-game-postgres-1'])
+            command.assert_called_once_with(['systemctl', 'is-active', '--quiet', 'oteryn-game.service'])
 
 
 if __name__ == '__main__':

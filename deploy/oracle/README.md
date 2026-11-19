@@ -244,10 +244,50 @@ backup, writer stop or migration. Preserve failed deployment records and reconci
 against the predeployment backup/schema and actual runtime before retry; a failed
 image preflight is not evidence that a schema migration committed.
 
+### Runner deploy of the live portal (/opt/oteryn-portal)
+
+The `platform` branch of `actions-deploy.py` deploys the live portal layout on
+oteryn-vps. It does not create or migrate that layout; it only replaces the app
+image of an installed one. The Game branch and the forced-command grammar are
+unchanged.
+
+- Layout it expects: `/opt/oteryn-portal/compose.yml` (project `oteryn-portal`,
+  services `portal-pg`, `portal`, `portal-worker`, `portal-gateway`, external
+  network `oteryn-oracle_private`) with exactly two `image: oteryn-portal:<tag>`
+  lines (the `x-portal` anchor and `portal-gateway`), and `gateway.env` with at
+  most one `GATEWAY_VERSION=` line. Anything else is refused before any effect.
+  The manual checkout under `src/` is never used.
+- Build: the qualified source archive under `/opt/oteryn-build`,
+  `docker build -f deploy/oracle/portal.Dockerfile portal-rs` (timeout 2 h),
+  tagged `oteryn-portal:<sha8>-arm64` and labelled with the full revision. The
+  recipe keeps the live runtime: Ubuntu 26.04, uid 10001, `/app/oteryn-portal`,
+  `/app/static`, `/app/migrations`. It must be arm64 and pass `check-image`.
+- Release: recheck authority, `pg_dump -Fc` inside `oteryn-portal-portal-pg-1`
+  to a staged file checked with `pg_restore --list` and published as
+  `state/actions/<sha>-platform.dump` (0600), recheck, journal `prepared` with the
+  previous image, save `<sha>-portal.compose.yml.before` and
+  `<sha>-portal.gateway.env.before`, rewrite both files in place (owner and mode
+  kept), `docker compose -p oteryn-portal -f /opt/oteryn-portal/compose.yml run
+  --rm -T portal migrate`, then `up -d portal portal-worker portal-gateway`.
+- Readiness: all four containers running, not restarting and not unhealthy;
+  `portal`, `portal-worker` and `portal-gateway` on one image whose revision label
+  is the recorded release; `GET /readyz` on port 8080 at the portal's
+  `oteryn-oracle_private` address, sent from the host (the image has no HTTP
+  client and the port is not published; `/readyz` includes the database check).
+  A release is ready after two consecutive passing samples with unchanged
+  restart counts, within 180 s.
+- Failure after the rewrite (migration, start or readiness): both files are
+  restored, the previous image is started again with `up -d`, and the pending
+  journal stays, so `status` and the next `deploy` report reconciliation. The
+  database is never dropped or restored automatically.
+- `status` fails until the first runner deploy records a release, since there
+  is no recorded revision to compare with before that.
+
 ### Rust application deployment
 
-The active `actions-deploy.py` application path builds `portal-rs/Dockerfile`
-with `portal-rs` as context. One immutable image runs `serve`, `worker`, `migrate`
+The retained `/opt/oteryn-oracle` composition below (`public-platform.compose.yml`)
+is no longer what `actions-deploy.py` deploys; see the section above. It builds
+`portal-rs/Dockerfile` with `portal-rs` as context. One immutable image runs `serve`, `worker`, `migrate`
 and `gateway` via `public-platform.compose.yml`. Caddy forwards directly to the
 portal on port 8080, preserving the native ticket path alias to the Rust API. Rust internal mTLS is configured
 on the portal using its existing `OTERYN_INTERNAL_*` settings and certificate files;
