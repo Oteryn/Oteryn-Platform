@@ -231,25 +231,8 @@ impl Runtime {
         for operation in deposits {
             match self.authority().retained(tx, operation).await? {
                 Some((_, receipt)) if receipt.committed => {
-                    if receipt.command == Command::Lock
-                        && super::characters::never_transferred(tx, listing.id).await?
-                    {
-                        self.unlock(tx, listing).await?;
-                    } else if receipt.command == Command::Lock
-                        && let Some((bind, decision)) =
-                            self.latest(tx, listing.id, Command::Bind).await?
-                        && decision.committed
-                        && text(&bind.value, "purpose")? == "BAZAAR_LISTING_ESCROW"
-                        && sqlx::query_scalar::<_, bool>(
-                            "SELECT EXISTS(SELECT 1 FROM bazaar_current_transfers t
-                             WHERE t.operation_id=$1 AND t.listing_id=$2
-                               AND NOT EXISTS(SELECT 1 FROM character_commands c WHERE c.id=t.operation_id))",
-                        )
-                        .bind(id(text(&bind.value,"transfer_operation_id")?)?).bind(listing.id)
-                        .fetch_one(&mut **tx).await?
-                    {
-                        self.transfer(tx, listing, "BAZAAR_LISTING_ESCROW", None)
-                            .await?;
+                    if receipt.command == Command::Lock {
+                        self.reconcile_invalidation_character(tx, listing).await?;
                     } else {
                         self.stage_return(tx, listing).await?;
                     }
@@ -267,5 +250,46 @@ impl Runtime {
         .fetch_one(&mut **tx)
         .await?;
         Ok(!other_custody)
+    }
+
+    async fn reconcile_invalidation_character(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        listing: &Listing,
+    ) -> Result<(), Error> {
+        use super::characters::{escrow_transfers_retired, never_transferred, reconcile_transfer};
+        const ESCROW: &str = "BAZAAR_LISTING_ESCROW";
+        if never_transferred(tx, listing.id).await? {
+            return self.unlock(tx, listing).await;
+        }
+
+        // The hold stops the ordinary listing worker. Retire terminal
+        // no-effect escrow attempts here so the seller's lock can be released.
+        let a = self.authority();
+        let escrow = reconcile_transfer(a, tx, listing.id, ESCROW).await?;
+        if let Some((bind, transfer)) = a.bind_refused(tx, listing.id, ESCROW).await? {
+            self.retire_refused_bind(tx, bind, transfer).await?;
+            return self.unlock(tx, listing).await;
+        }
+        if escrow.is_none() && escrow_transfers_retired(a, tx, listing.id).await? {
+            return self.unlock(tx, listing).await;
+        }
+
+        if let Some((bind, decision)) = self.latest(tx, listing.id, Command::Bind).await?
+            && decision.committed
+            && text(&bind.value, "purpose")? == ESCROW
+            && sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM bazaar_current_transfers t
+                 WHERE t.operation_id=$1 AND t.listing_id=$2
+                   AND NOT EXISTS(SELECT 1 FROM character_commands c WHERE c.id=t.operation_id))",
+            )
+            .bind(id(text(&bind.value, "transfer_operation_id")?)?)
+            .bind(listing.id)
+            .fetch_one(&mut **tx)
+            .await?
+        {
+            return self.transfer(tx, listing, ESCROW, None).await;
+        }
+        self.stage_return(tx, listing).await
     }
 }

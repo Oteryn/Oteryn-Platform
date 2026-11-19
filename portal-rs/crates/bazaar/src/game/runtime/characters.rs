@@ -485,6 +485,26 @@ pub(super) async fn never_transferred(db: &mut PgConnection, listing: Uuid) -> R
     ).bind(listing).fetch_one(db).await?)
 }
 
+pub(super) async fn escrow_transfers_retired(
+    a: &Authority,
+    db: &mut PgConnection,
+    listing: Uuid,
+) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar(
+        "SELECT COALESCE(bool_and(t.purpose='BAZAAR_LISTING_ESCROW'
+                     AND r.recovery_generation IS NOT DISTINCT FROM $2::text::numeric
+                     AND NOT EXISTS(SELECT 1 FROM bazaar_authority_conflicts c
+                                    WHERE c.operation_id=r.evidence_operation_id)), false)
+         FROM bazaar_all_transfers t
+         LEFT JOIN bazaar_authority_transfer_retirements r USING(operation_id)
+         WHERE t.listing_id=$1",
+    )
+    .bind(listing)
+    .bind(a.fence.recovery_generation.to_string())
+    .fetch_one(db)
+    .await?)
+}
+
 pub(crate) async fn verify_unlock(
     a: &Authority,
     db: &mut PgConnection,
@@ -507,7 +527,8 @@ pub(crate) async fn verify_unlock(
             .await?
             .is_some();
         let no_transfer = never_transferred(db, listing).await?;
-        if !refused_escrow && !no_transfer {
+        let retired_escrow = !no_transfer && escrow_transfers_retired(a, db, listing).await?;
+        if !refused_escrow && !no_transfer && !retired_escrow {
             return Err(Error::Unavailable);
         }
         // Receipt admission follows the durable dispatch after closure.
@@ -545,7 +566,32 @@ pub(crate) async fn verify_unlock(
         }
         let facts = receipt.value.get("result_data").ok_or(Error::Invalid)?;
         same(facts, "lock_id", &i.value, "lock_id")?;
-        same(facts, "lock_revision", &i.value, "expected_lock_revision")?;
+        // A committed Bind advanced the lock even if its CC1 transfer failed.
+        let committed_bind: Option<Uuid> = if retired_escrow {
+            sqlx::query_scalar(
+                "SELECT o.operation_id FROM bazaar_game_outbox o
+                 JOIN bazaar_authority_receipts r USING(operation_id)
+                 WHERE o.listing_id=$1 AND o.command='BindBazaarCharacterTransfer'
+                   AND o.intent::jsonb->>'purpose'='BAZAAR_LISTING_ESCROW' AND r.outcome='COMMITTED'
+                 ORDER BY o.source_revision DESC LIMIT 1",
+            )
+            .bind(listing)
+            .fetch_optional(&mut *db)
+            .await?
+        } else {
+            None
+        };
+        if let Some(operation) = committed_bind {
+            let (_, bind) = a.retained(db, operation).await?.ok_or(Error::Unavailable)?;
+            if !bind.committed {
+                return Err(Error::Unavailable);
+            }
+            let bound = bind.value.get("result_data").ok_or(Error::Invalid)?;
+            same(bound, "lock_id", facts, "lock_id")?;
+            same(bound, "lock_revision", &i.value, "expected_lock_revision")?;
+        } else {
+            same(facts, "lock_revision", &i.value, "expected_lock_revision")?;
+        }
         if refused_lock_recovery {
             let status = a
                 .projection(db, "STATUS", listing)
