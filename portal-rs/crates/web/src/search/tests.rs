@@ -295,9 +295,9 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
         registry.account = true;
         registry.section(
             true,
-            "information",
-            "shell-server",
-            "server-information",
+            "worlds",
+            "shell-worlds",
+            "worlds",
             oteryn_ui::Group::World,
             true,
         );
@@ -319,9 +319,9 @@ async fn postgres_browser_search_keyboard_and_accessibility() -> TestResult {
         );
         registry.section(
             true,
-            "security",
-            "shell-account-security",
-            "password/change",
+            "account-passkeys",
+            "shell-account-passkeys",
+            "account/passkeys",
             oteryn_ui::Group::Account,
             false,
         );

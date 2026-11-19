@@ -16,7 +16,7 @@ askama = "0.16.1"
 axum = "0.8.9"
 oteryn-db = { version = "0.1.0", path = "../db" }
 sqlx = { version = "0.9.0", default-features = false, features = ["postgres"] }
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "time"] }
 tower-http = { version = "0.7.1", features = ["trace", "set-header", "limit", "fs"] }
 tracing = "0.1.44"
 

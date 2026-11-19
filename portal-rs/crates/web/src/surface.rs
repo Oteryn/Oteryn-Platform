@@ -442,6 +442,7 @@ mod tests {
             .oneshot(HttpRequest::get("/en/").body(Body::empty())?)
             .await?;
         let body = html(response).await?;
+        let hero = oteryn_ui::text("en", "stage-hero-title");
         for expected in [
             "<html lang=\"en\" data-theme=\"dark\">",
             "<header class=\"hx-head\">",
@@ -449,7 +450,7 @@ mod tests {
             "<main ",
             "<footer class=\"hx-foot\">",
             "href=\"#main\"",
-            "Welcome to the world of Oteryn!",
+            hero.as_str(),
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");

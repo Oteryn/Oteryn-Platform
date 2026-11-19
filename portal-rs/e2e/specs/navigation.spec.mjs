@@ -9,6 +9,14 @@ test.beforeAll(async({browser},info)=>{
  const page=await context.newPage();const account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
 test.beforeEach(async({context})=>context.addCookies(cookies));
+const excludedFromMenu=new Set(['privacy','terms','server']);
+const menuMoves={
+ online:'World', rankings:'World', deaths:'World', 'growth-rankings':'World',
+ league:'Community', puzzles:'Community',
+ bazaar:'Play', calculators:'Play', compare:'Play', delivery:'Play',
+ pass:'Account', collection:'Account', places:'Account',
+};
+const visibleGroup=section=>menuMoves[section.section]??section.group;
 const unavailable=new Set(['online','rankings','guilds','houses','deaths','wiki','atlas','delivery','guild-stats','growth-rankings','reports','logins','pass','places']);
 for(const section of inventory.sections) test(`registry ${section.section}: destination and shared shell`,async({page},info)=>{
  const lang=info.project.metadata.locale;
@@ -20,7 +28,13 @@ for(const section of inventory.sections) test(`registry ${section.section}: dest
  expect(response.status(),path).toBe(unavailable.has(section.section)?503:200);
  if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
  await assertShell(page);
- const members=inventory.sections.filter(s=>s.group===section.group);
+ if(excludedFromMenu.has(section.section)) {
+   await expect(page.locator(`.hx-nav__menu a[href="${path}"]`)).toHaveCount(0);
+   if(section.section!=='server')await expect(page.locator(`.hx-foot a[href="${path}"]`)).toHaveCount(1);
+   expect(errors).toEqual([]);
+   return;
+ }
+ const members=inventory.sections.filter(s=>visibleGroup(s)===visibleGroup(section)&&!excludedFromMenu.has(s.section));
  const expected=members.map(s=>s.path.startsWith('/')?s.path:`/${lang}/${s.path}`);
  const group=page.locator('.hx-nav__item--menu').filter({has:page.locator(`.hx-nav__menu a[href="${path}"]`)});
  await expect(group).toHaveCount(1);
@@ -34,18 +48,19 @@ for(const section of inventory.sections) test(`registry ${section.section}: dest
  expect(errors).toEqual([]);
 });
 
-test('every enabled group opens by keyboard focus and touch',async({page,browser},info)=>{
+test('every enabled group opens by keyboard activation and touch',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;
  await page.goto(`/${lang}/`);
  for(const group of await page.locator('.hx-nav__item--menu').all()) {
    const summary=group.locator('summary');
    await summary.focus();
+   await expect(group.locator('.hx-nav__menu')).toBeHidden();
+   await page.keyboard.press('Enter');
+   await expect(group.locator('details')).toHaveAttribute('open','');
    await expect(group.locator('.hx-nav__menu')).toBeVisible();
    const bounds=await group.locator('.hx-nav__menu').boundingBox();
    expect(bounds.x,'menu left edge').toBeGreaterThanOrEqual(0);
    expect(bounds.x+bounds.width,'menu right edge').toBeLessThanOrEqual(info.project.use.viewport.width);
-   await page.keyboard.press('Enter');
-   await expect(group.locator('details')).toHaveAttribute('open','');
    await page.keyboard.press('Tab');
    await expect(group.locator('.hx-nav__menu a').first()).toBeFocused();
  }

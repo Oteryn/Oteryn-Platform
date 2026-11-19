@@ -357,8 +357,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.merge(oteryn_atlas::delivery::configured_router(db.clone()));
             let app = oteryn_community::today::configured_mount(app, db.clone());
+            let registration_delivery_ready = registration_delivery::readiness(db.clone());
             let mut navigation = oteryn_ui::Registry::default();
-            navigation.registration = true; // register::routes is always mounted.
+            navigation.registration = registration_delivery_ready;
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
             navigation.account = true; // /account is always mounted.
             oteryn_identity::navigation::register(&mut navigation);
@@ -385,7 +386,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
-            let app = registration_delivery::admission(app, db.clone());
+            let app = registration_delivery::admission(app, registration_delivery_ready);
             let app = app.merge(code_routes::configured(db.clone())?);
             let app = with_proxy_policy(app, db.clone(), proxies);
             let (public_app, app) =
