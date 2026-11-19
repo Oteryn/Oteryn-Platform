@@ -79,6 +79,8 @@ test('Thais homepage opens the world menu and selects a profession', async ({pag
   await expect(page.locator('.hero-art')).toHaveJSProperty('complete', true);
   expect(await page.locator('.hero-art').evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
   await expect(page.getByRole('heading', {level: 1})).toHaveText(lang === 'pl' ? 'U bram Thais' : 'At the gates of Thais');
+  await expect(page.locator('#portal-header aside')).toHaveCount(0);
+  await expect(page.locator('#aktualnosci aside')).toHaveCount(1);
   const mobileToggle = page.locator('#portal-menu-toggle');
   const mobile = info.project.use.viewport.width === 390;
   if (mobile) {

@@ -22,10 +22,11 @@ Replace the localized homepage with the approved responsive design. Keep the exi
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-19T15:27:00Z
+updated_at: 2026-11-19T15:36:23Z
 head: 19d2490b80e5acb30ddf2dea5c64c098a40d54a3
 branch: feat/thais-portal-home
-pr: none
+pr: 1985
+terminal_pr_policy: archive_pending
 status: validating
 context_routes: []
 owned_paths:
@@ -58,7 +59,7 @@ validation:
     result: PASS
     evidence: PL and EN desktop and mobile pass; authenticated mobile account and logout verified on the isolated portal.
 blockers: []
-next_action: Qualify the candidate and release via the Platform workflow.
+next_action: Verify the public release and archive this packet.
 ```
 
 ## Source branch closeout
