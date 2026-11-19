@@ -944,12 +944,25 @@ async fn postgres_game_poll_result_and_heartbeat() {
     let refused = request_for("admin.policy.get", Kind::Query);
     db.store().enqueue(&ok).await.unwrap();
     db.store().enqueue(&refused).await.unwrap();
-    // Requests are ready, so Game's 25-second long poll returns at once.
+    // A smaller limit is honoured.
+    let mut single = game_poll(2, 0);
+    single["limit"] = json!(1);
+    let response = post(app.clone(), "channel", single, true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let first = json_body(response).await;
+    assert_eq!(first.as_array().unwrap().len(), 1);
+    // A request is ready, so Game's 25-second long poll returns at once.
     let response = post(app.clone(), "channel", game_poll(2, 25), true).await;
     assert_eq!(response.status(), StatusCode::OK);
-    let batch = json_body(response).await;
-    let batch = batch.as_array().unwrap();
+    let rest = json_body(response).await;
+    let batch: Vec<&Value> = first
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(rest.as_array().unwrap())
+        .collect();
     assert_eq!(batch.len(), 2);
+    assert_ne!(batch[0]["request_id"], batch[1]["request_id"]);
     for value in batch {
         let signed: signer::RequestEnvelope = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(signed.operation, "admin.policy.get");
