@@ -1,8 +1,3 @@
-<footer class="hx-foot">
-<a class="hx-foot__logo" href="{{ chrome.home_url() }}"><img src="/static/img/home/logo-foot.webp" alt="Oteryn" width="160" height="66" loading="lazy"></a>
-<div class="hx-foot__body">
-<nav aria-label="{{ chrome.text("navigation") }}"><ul class="hx-foot__links">{% for link in chrome.entries %}{% if link.footer %}<li><a href="{{ link.url }}">{{ link.label }}</a></li>{% endif %}{% endfor %}<li><a href="{{ chrome.alternate_url }}" lang="{{ chrome.alternate_lang }}" hreflang="{{ chrome.alternate_lang }}">{{ chrome.text("stage-other-language") }}</a></li></ul></nav>
-<p class="hx-foot__copy">{{ chrome.text("stage-copyright") }}</p>
-</div>
-</footer>
-</div>
+{% let interior = true %}
+{% include "components/thais-footer.html" %}
+<script src="/static/thais/home.js" defer></script>

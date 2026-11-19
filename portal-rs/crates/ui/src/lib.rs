@@ -529,28 +529,51 @@ mod tests {
     fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
         let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
         let html = ShellHeader { chrome: &chrome }.render()?;
-        assert!(html.contains("<details class=\"hx-nav__dropdown\"><summary"));
+        assert!(html.contains("om-fallback-menu"));
+        assert!(html.contains("<summary"));
+        assert!(html.contains("id=\"portal-navigation\""));
         assert!(html.contains("aria-current=\"page\">Wiki</a>"));
-        let css = include_str!("../../../static/css/home.css");
-        assert!(css.contains(".hx-nav__dropdown[open] .hx-nav__menu"));
-        assert!(
-            css.contains(".hx-nav__item:nth-child(odd) .hx-nav__menu { left: 0; right: auto; }")
-        );
-        assert!(css.contains(".hx-nav__item--menu:focus-within .hx-nav__menu { display: block; }"));
-        assert!(!css.contains(":focus-within .hx-nav__menu { display: none; }"));
+        assert!(html.contains("href=\"/en/#profesje\""));
+        assert!(!html.contains("href=\"#profesje\""));
         Ok(())
     }
     #[test]
-    fn home_shows_live_data_or_says_unavailable() -> Result<(), askama::Error> {
+    fn home_uses_the_gate_welcome_when_the_news_feed_is_absent_or_empty()
+    -> Result<(), askama::Error> {
         let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
-        let html = Home::new(&chrome, &HomeData::default()).render()?;
-        for key in [
-            "stage-status-unavailable",
-            "stage-news-unavailable",
-            "stage-ranking-unavailable",
-        ] {
-            assert!(html.contains(&chrome.text(key)), "{key}");
+        for news in [None, Some(Vec::new())] {
+            let data = HomeData {
+                news,
+                ..Default::default()
+            };
+            let html = Home::new(&chrome, &data).render()?;
+            assert!(html.contains(&chrome.text("thais-home-title")));
+            assert!(html.contains(&chrome.text("thais-home-lead")));
+            assert!(!html.contains("class=\"hero-news\""));
+            assert!(html.contains(&chrome.text("thais-home-no-data")));
+            assert!(html.contains("<strong aria-hidden=\"true\">—</strong>"));
         }
+        Ok(())
+    }
+    #[test]
+    fn home_renders_three_news_links_and_observed_world_counts() -> Result<(), askama::Error> {
+        let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
+        let news = [
+            "Nowa <kraina>",
+            "Nowe zadanie",
+            "Turniej",
+            "Starsze wydarzenie",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, title)| HomeNews {
+            url: format!("/pl/news/test-{i}"),
+            title: title.into(),
+            date: "2026-11-07".into(),
+            display_date: "07.11.2026".into(),
+            excerpt: "Opis & zmiany".into(),
+        })
+        .collect();
         let data = HomeData {
             status: Some(HomeStatus {
                 online: Some(58),
@@ -559,42 +582,28 @@ mod tests {
                 pvp: Some("Open PvP".into()),
                 as_of: Some("2026-11-08 00:46:04".into()),
             }),
-            news: Some(vec![HomeNews {
-                url: "/pl/news/test-1".into(),
-                title: "Nowa <kraina>".into(),
-                date: "2026-11-07".into(),
-                display_date: "07.11.2026".into(),
-                excerpt: "Opis & zmiany".into(),
-            }]),
+            news: Some(news),
             ranking: Some(vec![HomeRank {
                 rank: "1".into(),
                 name: "Valendor".into(),
                 level: "352".into(),
                 url: Some("/pl/characters/Valendor".into()),
             }]),
-            ranking_as_of: Some("2026-11-08 00:40".into()),
+            ranking_as_of: None,
         };
         let html = Home::new(&chrome, &data).render()?;
-        assert!(html.contains("2026-11-08 00:46:04"));
+        let hero = html.split_once("</section>").expect("homepage hero").0;
+        assert!(hero.contains("href=\"/pl/news/test-0\">Nowa &#60;kraina&#62;</a>"));
+        assert!(hero.contains("datetime=\"2026-11-07\""));
+        assert_eq!(hero.matches("Opis &#38; zmiany").count(), 1);
+        assert!(hero.contains("href=\"/pl/news/test-1\">Nowe zadanie</a>"));
+        assert!(hero.contains("href=\"/pl/news/test-2\">Turniej</a>"));
+        assert!(!html.contains("/pl/news/test-3"));
         assert!(html.contains(">58<"));
         assert!(html.contains("2 / 3"));
-        assert!(html.contains("Nowa &#60;kraina&#62;"));
-        assert!(html.contains("Opis &#38; zmiany"));
-        assert!(html.contains("datetime=\"2026-11-07\""));
-        assert!(html.contains("href=\"/pl/characters/Valendor\""));
-        assert!(html.contains("352"));
-        assert!(!html.contains(&chrome.text("stage-ranking-unavailable")));
-        assert!(!html.contains("style="));
-        assert_eq!(html.matches("<script").count(), 1);
-        assert!(html.contains("src=\"/static/thais/home.js\""));
-        let empty = HomeData {
-            news: Some(vec![]),
-            ranking: Some(vec![]),
-            ..HomeData::default()
-        };
-        let html = Home::new(&chrome, &empty).render()?;
-        assert!(html.contains(&chrome.text("stage-news-empty")));
-        assert!(html.contains(&chrome.text("stage-ranking-empty")));
+        assert!(html.contains(&chrome.text("thais-home-count-scope")));
+        assert!(!html.contains("/pl/characters/Valendor"));
+        assert!(!html.contains("world-info-title"));
         Ok(())
     }
     #[test]
@@ -619,7 +628,7 @@ mod tests {
                     status: status.as_u16(),
                 }
                 .render()?;
-                assert!(html.contains("<body class=\"op-theme op-shell\">"));
+                assert!(html.contains("<body class=\"op-theme op-shell thais-inner\">"));
                 assert!(html.contains(&title));
                 assert!(html.contains("href=\"#main\""));
             }

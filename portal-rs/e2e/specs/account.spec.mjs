@@ -43,7 +43,7 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
    expect(refused.headers()['cache-control']).toContain('no-store');
    expect(await refused.text()).not.toContain(account.email);
    if (path.startsWith('account/journal/reports?')) {
-     const navigation=await page.request.get(target.split('?')[0],{headers:{accept:'text/html'}});expect(navigation.status()).toBe(503);expect(navigation.headers()['cache-control']).toContain('no-store');expect(await navigation.text()).toContain('hx-head');
+     const navigation=await page.request.get(target.split('?')[0],{headers:{accept:'text/html'}});expect(navigation.status()).toBe(503);expect(navigation.headers()['cache-control']).toContain('no-store');expect(await navigation.text()).toContain('id="portal-header"');
    }
    return;
  }
@@ -63,14 +63,14 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
  if(['bazaar','account/bazaar','bazaar/items'].includes(path)) {
    expect(process.env.OTERYN_BAZAAR_ENABLED).toBe('true');
    expect(response.headers()['cache-control']).toContain('no-store');
-   await expect(page.locator('body.op-shell > .hx > header.hx-head')).toHaveCount(1);
-   await expect(page.locator('body.op-shell > .hx > footer.hx-foot')).toHaveCount(1);
+   await expect(page.locator('header#portal-header.om-interior')).toHaveCount(1);
+   await expect(page.locator('footer.foot-interior')).toHaveCount(1);
    if(path==='bazaar') {
      for(const [reference,status] of [['019a541b-a000-7000-8000-000000000001',404],['invalid',400]]) {
        const detail=await page.request.get(`/${lang}/bazaar/${reference}`,{headers:{accept:'text/html'}});
        expect(detail.status()).toBe(status);
        expect(detail.headers()['cache-control']).toContain('no-store');
-       const html=await detail.text();expect(html).toContain('hx-head');expect(html).toContain('hx-foot');expect(html).not.toContain(account.email);
+       const html=await detail.text();expect(html).toContain('id="portal-header"');expect(html).toContain('foot-interior');expect(html).not.toContain(account.email);
      }
    }
  }

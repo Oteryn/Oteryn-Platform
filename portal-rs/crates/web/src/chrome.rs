@@ -465,8 +465,8 @@ mod response_tests {
         assert_eq!(response.status(), StatusCode::OK);
         let bytes = axum::body::to_bytes(response.into_body(), 100000).await?;
         let html = std::str::from_utf8(&bytes)?;
-        assert_eq!(html.matches("class=\"hx-head\"").count(), 1);
-        assert_eq!(html.matches("class=\"hx-foot\"").count(), 1);
+        assert_eq!(html.matches("id=\"portal-header\"").count(), 1);
+        assert_eq!(html.matches("class=\"foot foot-interior\"").count(), 1);
         assert!(html.contains("components.css"));
         assert!(html.contains("<p>op-theme op-shell</p>"));
         Ok(())
@@ -547,9 +547,9 @@ mod response_tests {
                     .to_vec(),
             )?;
             assert!(html.contains(&format!("lang=\"{lang}\"")));
-            assert!(html.contains("class=\"hx-head\""));
-            assert!(html.contains("class=\"hx-foot\""));
-            assert!(html.contains("/static/css/home.css"));
+            assert!(html.contains("id=\"portal-header\""));
+            assert!(html.contains("class=\"foot foot-interior\""));
+            assert!(html.contains("/static/thais/interior.css"));
             let response = app
                 .clone()
                 .oneshot(Request::get(format!("/{lang}/account/privacy")).body(Body::empty())?)

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import {expect} from '@playwright/test';
 import {waitForWikiBudget} from './helpers.mjs';
 import AxeBuilder from '@axe-core/playwright';
@@ -6,34 +7,42 @@ export function isHome(page) {
   return /^\/(?:pl|en)\/?$/.test(new URL(page.url()).pathname);
 }
 
+const registry = JSON.parse(fs.readFileSync(new URL('./inventory.json', import.meta.url), 'utf8')).sections;
+const shellLinks = 'header#portal-header a, #podglad-konta a, footer.foot a';
+const pathKey = path => path.replace(/^\/(pl|en)(?=\/|$)/, '').replace(/\/$/, '');
+
 async function assertModuleNavigation(page) {
-  await expect(page.locator('body.op-shell > .hx > .hx-head')).toHaveCount(1);
-  await expect(page.locator('.hx-head .hx-nav')).toHaveCount(1);
-  await expect(page.locator('body.op-shell > .hx > .hx-foot')).toHaveCount(1);
-  const normalize=value=>new URL(value,page.url()).pathname.replace(/^\/(pl|en)(?=\/|$)/,'').replace(/\/$/,'');
-  const current=normalize(page.url());
-  const destinations=await page.locator('.hx-nav__menu a').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')));
-  const active=destinations.filter(href=>{const prefix=normalize(href);return prefix&&(current===prefix||current.startsWith(prefix+'/'));}).sort((a,b)=>normalize(b).length-normalize(a).length);
-  await expect(page.locator('.hx-nav__menu a[aria-current=page]')).toHaveCount(active.length?1:0);
-  if(active.length)await expect(page.locator(`.hx-nav__menu a[href="${active[0]}"]`)).toHaveAttribute('aria-current','page');
-  await expect(page.locator('.hx > :is(.op-shell__page, main.op-main, main.hx-main) main, .hx > main')).toHaveCount(1);
+  await expect(page.locator('header#portal-header.om-interior')).toHaveCount(1);
+  await expect(page.locator('footer.foot-interior')).toHaveCount(1);
+  const active = await page.locator(shellLinks).evaluateAll(nodes => nodes
+    .filter(n => n.getAttribute('aria-current') === 'page' && !n.hasAttribute('hreflang'))
+    .map(n => n.pathname));
+  const destinations = await page.locator(shellLinks).evaluateAll(nodes => nodes.map(n => n.pathname));
+  const available = new Set(destinations.map(pathKey));
+  const current = pathKey(new URL(page.url()).pathname);
+  const matches = registry.map(s => pathKey('/' + s.path.replace(/^\//, '')))
+    .filter(path => available.has(path) && (current === path || current.startsWith(path + '/')))
+    .sort((a, b) => b.length - a.length);
+  if (matches.length) {
+    expect([...new Set(active.map(pathKey))], 'current registry destination').toEqual([matches[0]]);
+  }
 }
 
 export async function assertShell(page, {accessibility=true,status=200}={}) {
   const home = isHome(page);
   if (home) {
-    await expect(page.locator('header#portal-header')).toHaveCount(1);
-    await expect(page.locator('header #portal-navigation')).toHaveCount(1);
     await expect(page.locator('header a.om-brand')).toHaveAttribute('aria-current','page');
-    await expect(page.locator('footer.foot')).toHaveCount(1);
-    await expect(page.locator('main#main')).toHaveCount(1);
   } else {
     await assertModuleNavigation(page);
   }
+  await expect(page.locator('header#portal-header')).toHaveCount(1);
+  await expect(page.locator('header #portal-navigation')).toHaveCount(1);
+  await expect(page.locator('footer.foot')).toHaveCount(1);
+  await expect(page.getByRole('main')).toHaveCount(1);
   await expect(page.locator('h1')).toHaveCount(1);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'horizontal overflow').toBe(true);
   await page.keyboard.press('Tab');
-  await page.locator(home ? '.skip' : '.op-skip').focus();
+  await page.locator('a[href="#main"]').first().focus();
   const focus=await page.evaluate(()=>{const s=getComputedStyle(document.activeElement);return document.activeElement.matches(':focus-visible')&&(s.outlineStyle!=='none'||s.boxShadow!=='none');});
   expect(focus,'visible keyboard focus').toBe(true);
   await page.keyboard.press('Enter');
@@ -42,8 +51,7 @@ export async function assertShell(page, {accessibility=true,status=200}={}) {
     const {csrfRejected}=await import('./helpers.mjs');
     await csrfRejected(page,form.action,form.fields);
   }
-  const linkSelector = home ? 'main a[href], footer a[hreflang]' : 'main a[href], .hx-account a[hreflang], .hx-foot a[hreflang]';
-  const links=await page.locator(linkSelector).evaluateAll(nodes=>nodes.map(n=>({href:n.getAttribute('href'),language:n.hasAttribute('hreflang')})).filter(n=>n.href.startsWith('/')&&!n.href.startsWith('//')));
+  const links=await page.locator('main a[href], footer a[hreflang]').evaluateAll(nodes=>nodes.map(n=>({href:n.getAttribute('href'),language:n.hasAttribute('hreflang')})).filter(n=>n.href.startsWith('/')&&!n.href.startsWith('//')));
   for(const link of links) {
     await waitForWikiBudget(link.href);
     const response=await page.request.get(link.href,{headers:{accept:'text/html'}});

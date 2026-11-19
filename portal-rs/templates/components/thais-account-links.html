@@ -1,0 +1,27 @@
+<a class="account-overview" href="/account"{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("shell-account-overview") }}</a>
+<nav class="account-grid" aria-label="{{ chrome.text("thais-account-nav") }}">
+  {% for (title, keys) in [
+    ("thais-account-play", "create-character,hirelings,hunts,reports,account-bazaar"),
+    ("thais-account-security", "account-security,account-wizard,account-passkeys,account-recovery-key,account-sessions,logins"),
+    ("thais-account-settings", "account-privacy,account-notifications,premium,payments"),
+    ("thais-account-requests", "tickets,abuse-reports")
+  ] %}
+  {% if chrome.first_link(keys).is_some() %}
+  <section>
+    <h3>{{ chrome.text(title) }}</h3>
+    <ul>
+      {% for key in keys.split(",") %}
+      {% if let Some(link) = chrome.link(key) %}
+      <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{% if link.section == "account-security" %}{{ chrome.text("thais-account-password") }}{% else if link.section == "logins" %}{{ chrome.text("thais-account-game-logins") }}{% else %}{{ link.label }}{% endif %}</a></li>
+      {% endif %}
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% endfor %}
+</nav>
+{% if chrome.login_mounted %}
+<div class="account-base">
+  <form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button type="submit">{{ chrome.text("shell-logout") }}</button></form>
+</div>
+{% endif %}

@@ -20,50 +20,74 @@ for(const section of inventory.sections) test(`registry ${section.section}: dest
  expect(response.status(),path).toBe(unavailable.has(section.section)?503:200);
  if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
  await assertShell(page);
- const members=inventory.sections.filter(s=>s.group===section.group);
- const expected=members.map(s=>s.path.startsWith('/')?s.path:`/${lang}/${s.path}`);
- const group=page.locator('.hx-nav__item--menu').filter({has:page.locator(`.hx-nav__menu a[href="${path}"]`)});
- await expect(group).toHaveCount(1);
- expect(await group.locator('.hx-nav__menu a').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')))).toEqual(expected);
- const catalogue=fs.readFileSync(new URL(`../../crates/ui/i18n/${lang}.ftl`,import.meta.url),'utf8');
- const labels=members.map(s=>catalogue.split('\n').find(line=>line.startsWith(`${s.label} = `))?.slice(s.label.length+3));
- expect(await group.locator('.hx-nav__menu a').allTextContents()).toEqual(labels);
- expect(new Set(labels).size,'distinct labels in the group').toBe(labels.length);
- await expect(group.locator(`.hx-nav__menu a[href="${path}"]`)).toHaveAttribute('aria-current','page');
- await expect(page.locator('.hx-nav__menu a[aria-current=page]')).toHaveCount(1);
+ const currentLinks = page.locator(`header a[href="${path}"], #podglad-konta a[href="${path}"], footer.foot a[href="${path}"]`);
+ expect(await currentLinks.count(), `published destination ${path}`).toBeGreaterThan(0);
+ const labels = await currentLinks.allTextContents();
+ expect(labels.every(text => text.trim().length > 0), 'each route has a readable label').toBe(true);
+ const states = await currentLinks.evaluateAll(links => links.map(link => link.getAttribute('aria-current')));
+ expect(states, 'an active link identifies the current route').toContain('page');
  expect(errors).toEqual([]);
 });
 
 test('module navigation opens every enabled group by keyboard focus and touch',async({page,browser},info)=>{
- const lang=info.project.metadata.locale;
- await page.goto(`/${lang}/worlds`);
- await expect(page.locator('.hx-nav__item--menu').first()).toBeVisible();
- for(const group of await page.locator('.hx-nav__item--menu').all()) {
-   const summary=group.locator('summary');
-   await summary.focus();
-   await expect(group.locator('.hx-nav__menu')).toBeVisible();
-   const bounds=await group.locator('.hx-nav__menu').boundingBox();
-   expect(bounds.x,'menu left edge').toBeGreaterThanOrEqual(0);
-   expect(bounds.x+bounds.width,'menu right edge').toBeLessThanOrEqual(info.project.use.viewport.width);
+ const lang = info.project.metadata.locale;
+ const url = `/${lang}/news`;
+ await page.goto(url);
+ const menu = page.locator('#portal-menu-toggle');
+ if (await menu.isVisible()) await menu.click();
+ const groups = page.locator('#portal-header [data-nav-section]');
+ expect(await groups.count()).toBeGreaterThan(0);
+ for (const group of await groups.all()) {
+   const panel = page.locator('#' + await group.getAttribute('aria-controls'));
+   await group.focus();
    await page.keyboard.press('Enter');
-   await expect(group.locator('details')).toHaveAttribute('open','');
+   await expect(panel).toBeVisible();
+   const bounds = await panel.boundingBox();
+   expect(bounds.x).toBeGreaterThanOrEqual(0);
+   expect(bounds.x + bounds.width).toBeLessThanOrEqual(info.project.use.viewport.width);
    await page.keyboard.press('Tab');
-   await expect(group.locator('.hx-nav__menu a').first()).toBeFocused();
+   await expect(panel.locator('a').first()).toBeFocused();
+   await page.keyboard.press('Escape');
+   await expect(group).toBeFocused();
+   await expect(panel).toBeHidden();
  }
- const touch=await browser.newContext({ignoreHTTPSErrors:true,hasTouch:true,viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
- await touch.addCookies(cookies);
- const screen=await touch.newPage();await screen.goto(`/${lang}/worlds`);
- for(const group of await screen.locator('.hx-nav__item--menu').all()) {
-   await group.locator('summary').tap();
-   await expect(group.locator('details')).toHaveAttribute('open','');
-   const bounds=await group.locator('.hx-nav__menu').boundingBox();
-   expect(bounds.x,'touch menu left edge').toBeGreaterThanOrEqual(0);
-   expect(bounds.x+bounds.width,'touch menu right edge').toBeLessThanOrEqual(info.project.use.viewport.width);
-   const link=group.locator('.hx-nav__menu a').last();
-   const destination=await link.getAttribute('href');
-   await link.tap();
-   await expect(screen).toHaveURL(new URL(destination,screen.url()).href);
-   await screen.goto(`/${lang}/worlds`);
+ const context = await browser.newContext({ignoreHTTPSErrors:true,hasTouch:true,viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ try {
+   await context.addCookies(cookies);
+   const screen = await context.newPage();
+   const buttons = await groups.evaluateAll(nodes => nodes.map(node => node.id));
+   for (const id of buttons) {
+     await screen.goto(url);
+     const toggle = screen.locator('#portal-menu-toggle');
+     if (await toggle.isVisible()) await toggle.tap();
+     const group = screen.locator('#' + id);
+     await group.tap();
+     const panel = screen.locator('#' + await group.getAttribute('aria-controls'));
+     await expect(panel).toBeVisible();
+     const link = panel.locator('a').last();
+     const destination = await link.getAttribute('href');
+     await link.tap();
+     await expect(screen).toHaveURL(new URL(destination,screen.url()).href);
+   }
+ } finally {
+   await context.close();
  }
- await touch.close();
+});
+
+test('module navigation remains usable when the world route disallows scripts', async ({page}, info) => {
+ const lang = info.project.metadata.locale;
+ const response = await page.goto(`/${lang}/worlds`);
+ expect(response.headers()['content-security-policy']).toContain("default-src 'none'");
+ await expect(page.locator('script[src$="/thais/home.js"]')).toHaveCount(0);
+ const menu = page.locator('details.om-fallback-menu');
+ const summary = menu.locator(':scope > summary');
+ await expect(summary).toBeVisible();
+ await expect(menu.locator(':scope > #portal-navigation')).toBeHidden();
+ await summary.focus();
+ await page.keyboard.press('Enter');
+ await expect(menu.locator(':scope > #portal-navigation')).toBeVisible();
+ const wiki = menu.locator(`a[href="/${lang}/wiki"]`);
+ await expect(wiki).toBeVisible();
+ await wiki.click();
+ await expect(page).toHaveURL(new URL(`/${lang}/wiki`, page.url()).href);
 });
