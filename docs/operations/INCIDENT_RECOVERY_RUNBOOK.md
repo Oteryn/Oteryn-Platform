@@ -183,7 +183,9 @@ Do not improvise a restore from undocumented backups.
 
 Current repository state does not prove that an operational backup/restore mechanism exists for production. Until a dated production restore test succeeds, production readiness remains blocked.
 
-### Platform PostgreSQL on the Synology staging NAS
+### Platform PostgreSQL on the retired staging NAS (historical)
+
+The staging NAS has been decommissioned and its tooling removed; this section is kept as a record. The current production target is the Oracle ARM64 host `oteryn-vps` (`deploy/oracle/README.md`).
 
 The staging mechanism is documented in `PLATFORM_POSTGRES_BACKUP_PITR.md`: WAL archive, daily base backup and dump, retention, the restore drill and the PITR procedure. Its dated drill results are in `PLATFORM_POSTGRES_RESTORE_DRILL_EVIDENCE.md`. It keeps backups on the NAS only. It is not a production backup until an encrypted off-NAS copy and a drill restored from it exist.
 

@@ -8,7 +8,7 @@ ADR `0020-use-single-level-gateway-public-hostname.md` records the decision to u
 
 ## Canonical hostname mapping
 
-| Public hostname | Service role | Synology origin | Notes |
+| Public hostname | Service role | Origin (retired NAS deployment) | Notes |
 |---|---|---|---|
 | `https://oteryn.molehill.cloud` | **Oteryn Platform web server** | `http://127.0.0.1:8000` | Public website, registration, browser login, account pages, CMS and other Platform web routes. |
 | `https://gateway.molehill.cloud` | **Oteryn Game Gateway / native client login API** | `http://127.0.0.1:8080` | Client-facing login/session Gateway. It is not the main public website and its root path may return a technical response or `404`. |
@@ -20,7 +20,7 @@ ADR `0020-use-single-level-gateway-public-hostname.md` records the decision to u
 - These hostnames are not interchangeable.
 - `login.oteryn.molehill.cloud` is a retired legacy hostname and must not be introduced into new client, deployment or Cloudflare configuration.
 - Port `3031` belongs to a different project and must never be assigned to Oteryn Platform from memory.
-- The Cloudflare Tunnel origin uses Synology loopback intentionally because Platform and Gateway are bound to `127.0.0.1` by the deployment contract.
+- On the retired NAS deployment the Cloudflare Tunnel origin used host loopback intentionally because Platform and Gateway were bound to `127.0.0.1` by the deployment contract. The current production target is the Oracle ARM64 host `oteryn-vps` (`deploy/oracle/README.md`); the origins in this contract have not yet been re-declared for it.
 
 ## Separate legacy engine endpoints
 
@@ -41,7 +41,7 @@ The retired two-label hostname `login.oteryn.molehill.cloud` is not covered by a
 
 ## Evidence and status boundary
 
-- **PROVEN:** the Synology deployment topology binds Platform to `127.0.0.1:8000` and Game Gateway to `127.0.0.1:8080`.
+- **HISTORICAL:** the retired NAS deployment topology bound Platform to `127.0.0.1:8000` and Game Gateway to `127.0.0.1:8080`.
 - **PROVEN, owner-designated:** the two public hostname roles in this document.
 - **PROVEN, owner-approved:** `gateway.molehill.cloud` supersedes `login.oteryn.molehill.cloud` as the canonical Game Gateway hostname.
 - **OWNER-CONFIRMED:** `https://oteryn.molehill.cloud` has been reachable from the owner's browser.

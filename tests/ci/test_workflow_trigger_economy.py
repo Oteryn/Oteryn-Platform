@@ -62,6 +62,8 @@ RETIRED_WORKFLOWS = (
     "synology-production-target-preflight.yml",
     "synology-rollback-contract.yml",
     "wiki-reconciliation-acceptance.yml",
+    # Synology host decommissioned; oracle-operations.yml operates oteryn-vps.
+    "synology-diagnostics.yml",
 )
 
 # The Laravel app and Go gateway were removed: no workflow may set up PHP or Go or

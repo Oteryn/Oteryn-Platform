@@ -44,7 +44,6 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md", "history"),
     ("config/", "config"),
     (".env.example", "config"),
-    ("deploy/synology/.env.example", "config"),
     ("database/", "database"),
     ("tests/ci/", "ci_deploy"),
     (".github/", "ci_deploy"),

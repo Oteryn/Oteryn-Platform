@@ -1,5 +1,7 @@
 # Character Bazaar Synology Staging Enablement
 
+> **Historical.** The Synology NAS this runbook targets has been decommissioned and its workflows and tooling removed. The current production target is the Oracle ARM64 host `oteryn-vps` (live portal at `/opt/oteryn-portal`, runner `oteryn-oracle-platform`; `deploy/oracle/README.md`). Do not follow these steps.
+
 ## Status and boundary
 
 Character Bazaar application behavior was delivered by PR #270. This runbook covers only Synology staging activation and recovery.

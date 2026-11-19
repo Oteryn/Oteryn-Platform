@@ -28,7 +28,7 @@ jobs:
     runs-on:
       group: platform-runners
       labels: [oteryn-platform, oteryn-oracle, ARM64]
-    environment: synology-staging
+    environment: oracle-production
     timeout-minutes: 120
     env:
       EXPECTED_RUNNER_NAME: oteryn-oracle-platform
