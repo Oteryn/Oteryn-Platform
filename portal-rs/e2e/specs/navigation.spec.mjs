@@ -9,7 +9,7 @@ test.beforeAll(async({browser},info)=>{
  const page=await context.newPage();const account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
 test.beforeEach(async({context})=>context.addCookies(cookies));
-const unavailable=new Set(['online','rankings','guilds','houses','deaths','wiki','atlas','delivery','guild-stats','growth-rankings','reports','logins','pass','places']);
+const unavailable=new Set(['online','rankings','guilds','houses','deaths','wiki','creatures','atlas','delivery','guild-stats','growth-rankings','reports','logins','pass','places']);
 for(const section of inventory.sections) test(`registry ${section.section}: destination and shared shell`,async({page},info)=>{
  const lang=info.project.metadata.locale;
  const path=section.path.startsWith('/')?section.path:`/${lang}/${section.path}`;
@@ -34,9 +34,10 @@ for(const section of inventory.sections) test(`registry ${section.section}: dest
  expect(errors).toEqual([]);
 });
 
-test('every enabled group opens by keyboard focus and touch',async({page,browser},info)=>{
+test('module navigation opens every enabled group by keyboard focus and touch',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;
- await page.goto(`/${lang}/`);
+ await page.goto(`/${lang}/worlds`);
+ await expect(page.locator('.hx-nav__item--menu').first()).toBeVisible();
  for(const group of await page.locator('.hx-nav__item--menu').all()) {
    const summary=group.locator('summary');
    await summary.focus();
@@ -51,7 +52,7 @@ test('every enabled group opens by keyboard focus and touch',async({page,browser
  }
  const touch=await browser.newContext({ignoreHTTPSErrors:true,hasTouch:true,viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  await touch.addCookies(cookies);
- const screen=await touch.newPage();await screen.goto(`/${lang}/`);
+ const screen=await touch.newPage();await screen.goto(`/${lang}/worlds`);
  for(const group of await screen.locator('.hx-nav__item--menu').all()) {
    await group.locator('summary').tap();
    await expect(group.locator('details')).toHaveAttribute('open','');
@@ -62,7 +63,7 @@ test('every enabled group opens by keyboard focus and touch',async({page,browser
    const destination=await link.getAttribute('href');
    await link.tap();
    await expect(screen).toHaveURL(new URL(destination,screen.url()).href);
-   await screen.goto(`/${lang}/`);
+   await screen.goto(`/${lang}/worlds`);
  }
  await touch.close();
 });

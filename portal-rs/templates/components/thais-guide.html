@@ -1,0 +1,43 @@
+<section class="section start" id="jak-zaczac" aria-labelledby="start-title">
+  <picture>
+    <source media="(prefers-reduced-motion: no-preference)" srcset="/static/thais/szczur.webp">
+    <img class="guide-art" src="/static/thais/atlas.webp" alt="{{ chrome.text("thais-home-guide-alt") }}" loading="lazy">
+  </picture>
+  <div class="wrap">
+    <p class="eyebrow">{{ chrome.text("thais-home-guide") }}</p>
+    <h2 id="start-title">{{ chrome.text("thais-home-start") }}</h2>
+    <ol class="steps">
+      <li><span class="number" aria-hidden="true">1</span><div>
+        {% if chrome.signed_in() %}
+          <strong>{{ chrome.text("thais-home-have-account") }}</strong>
+        {% else if chrome.registration_mounted %}
+          <a href="/{{ chrome.lang }}/register">{{ chrome.text("home-step1-title") }}</a>
+        {% else %}
+          <strong>{{ chrome.text("home-step1-title") }}</strong>
+          <p>{{ chrome.text("thais-home-registration-unavailable") }}</p>
+        {% endif %}
+        {% if let Some(link) = chrome.link("rules") %}
+          <p>{{ chrome.text("thais-home-rules-intro") }} <a class="step-rules" href="{{ link.url }}">{{ link.label }}</a>.</p>
+        {% endif %}
+      </div></li>
+      <li><span class="number" aria-hidden="true">2</span><div>
+        {% if let Some(link) = chrome.link("create-character") %}
+          <a href="{{ link.url }}">{{ chrome.text("home-step2-title") }}</a>
+          <p>{{ chrome.text("home-step2-text") }}</p>
+        {% else %}
+          <strong>{{ chrome.text("home-step2-title") }}</strong>
+          <p>{{ chrome.text("thais-home-character-unavailable") }}</p>
+        {% endif %}
+      </div></li>
+      <li><span class="number" aria-hidden="true">3</span><div>
+        {% if let Some(link) = chrome.link("server") %}
+          <a href="{{ link.url }}#download">{{ chrome.text("stage-btn-download") }}</a>
+          <p>{{ chrome.text("thais-home-client-info") }}</p>
+        {% else %}
+          <strong>{{ chrome.text("stage-btn-download") }}</strong>
+          <p>{{ chrome.text("thais-home-client-unavailable") }}</p>
+        {% endif %}
+      </div></li>
+    </ol>
+  </div>
+</section>

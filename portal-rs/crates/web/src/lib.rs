@@ -695,7 +695,7 @@ mod tests {
         let body = to_bytes(response.into_body(), MAX_BODY_BYTES).await?;
         let html = String::from_utf8(body.to_vec())?;
         assert!(html.contains("<html lang=\"pl\" data-theme=\"dark\">"));
-        assert!(html.contains("Witaj w świecie Oteryn!"));
+        assert!(html.contains("U bram Thais"));
         Ok(())
     }
 
