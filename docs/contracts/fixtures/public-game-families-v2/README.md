@@ -1,7 +1,8 @@
 # Public game projection families v2 — frozen fixtures
 
 Source: [`docs/contracts/OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md`](../../OTERYN_V2_PUBLIC_GAME_FAMILIES_EXTENSION_CONTRACT_PROPOSAL.md),
-ACCEPTED revision 3 (2026-11-13, PR #1854), section **Golden payloads**.
+ACCEPTED revision 3 (2026-11-13, PR #1854), section **Golden payloads**; the deaths
+lines follow revision 4 (2026-11-19, tagged killers, see below).
 
 Each `.json` file is one fenced line of that section, copied byte for byte. The
 contract says the fence newline is not part of the transmitted bytes, so no file
@@ -10,7 +11,9 @@ code; a change needs a new contract revision.
 
 | File | Contract example (in order of the section) | Expected result |
 |---|---|---|
-| `valid-character-deaths.json` | Valid death with recorded final-blow killer | `200` accepted |
+| `valid-character-deaths.json` | Valid death with recorded final-blow player killer (revision 4; same bytes as `character_deaths_player_v2.json`) | `200` accepted |
+| `character_deaths_player_v2.json` | Same line, Game copy (provenance below) | `200` accepted |
+| `character_deaths_creature_v2.json` | Valid death with a creature killer, Game copy (provenance below) | `200` accepted |
 | `valid-guild.json` | Valid guild, including stable member identity | `200` accepted |
 | `valid-house.json` | Valid vacant shop with zero beds | `200` accepted |
 | `valid-character-skills.json` | Valid committed skills/progression | `200` accepted |
@@ -23,6 +26,23 @@ code; a change needs a new contract revision.
 | `invalid-character-achievements-account-member.json` | Invalid: unknown/private account member | `400`, never stored |
 | `invalid-character-skills-watermark-complete-after-observed.json` | Invalid: completeness later than observation | `400`, previous watermark kept |
 | `conflict-character-equipment-revision-9-changed-content.json` | Invalid in sequence: equal key, changed content | `409` after `valid-character-equipment.json` |
+
+## Revision 4: tagged killers from Oteryn-Game
+
+Owner decision 2026-11-19 (Oteryn-Platform #1957, H084): the Game-owner tagged
+killer amendment governs both repositories, superseding revision 3's name-only
+`killers` strings. Two files are byte-for-byte copies of Game fixtures, without
+a trailing newline:
+
+| File | Repository | Commit | Path |
+|---|---|---|---|
+| `character_deaths_player_v2.json` | `Oteryn/Oteryn-Game` | `3732e96aa2874204dcc97504f13681cf04a65c6e` | `docs/contracts/fixtures/public-projections/character_deaths_player_v2.json` |
+| `character_deaths_creature_v2.json` | `Oteryn/Oteryn-Game` | `3732e96aa2874204dcc97504f13681cf04a65c6e` | `docs/contracts/fixtures/public-projections/character_deaths_creature_v2.json` |
+
+`valid-character-deaths.json` held revision 3's name-only line
+(`"killers":["Beren","Mira"]`), which revision 4 makes invalid (`400`). It now holds
+the revision 4 golden line, which is the Game player fixture. Refresh these copies
+only from a new pinned Game commit, and record that commit here.
 
 ## Cases the contract gives no golden payload for
 

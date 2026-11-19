@@ -1,6 +1,38 @@
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
+/// Game-owner amendment 2026-11-07, ratified for Platform 2026-11-19 (contract
+/// revision 4): a closed tagged killer identity. Member order is wire order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum Killer {
+    Player { character_id: String, name: String },
+    Creature { creature_key: String, name: String },
+}
+impl Killer {
+    /// Historical name at death commit; presentation only, never an identity.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Player { name, .. } | Self::Creature { name, .. } => name,
+        }
+    }
+    fn valid(&self) -> bool {
+        match self {
+            Self::Player {
+                character_id,
+                name: n,
+            } => id(character_id) && name(n),
+            Self::Creature {
+                creature_key,
+                name: n,
+            } => {
+                key(creature_key)
+                    && !["player", "unknown"].contains(&creature_key.as_str())
+                    && name(n)
+            }
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Death {
@@ -8,7 +40,7 @@ pub(super) struct Death {
     pub occurred_at: String,
     pub level: String,
     pub pvp: bool,
-    pub killers: Vec<String>,
+    pub killers: Vec<Killer>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,6 +103,13 @@ pub(super) fn id(s: &str) -> bool {
             }
         })
 }
+/// Native content key: 1..128 bytes of `[a-z0-9._:-]`.
+pub(super) fn key(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._:-".contains(&b))
+}
 pub(super) fn authority(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 128
@@ -113,7 +152,7 @@ impl Snapshot {
                 || previous.is_some_and(|p| key >= p)
                 || occurred > observed
                 || death.killers.len() > 16
-                || death.killers.iter().any(|k| !name(k))
+                || !death.killers.iter().all(Killer::valid)
             {
                 return Err(());
             }

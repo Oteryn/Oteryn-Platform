@@ -15,6 +15,28 @@ impl From<sqlx::Error> for Error {
         Self::Database
     }
 }
+/// Revision 3 name-only shape of a death. It only recognises a record stored
+/// before the tagged killer amendment; the identities come from the new typed
+/// publication and are never inferred from these names.
+#[derive(serde::Serialize)]
+struct NameOnly<'a> {
+    death_occurrence_id: &'a str,
+    occurred_at: &'a str,
+    level: &'a str,
+    pvp: bool,
+    killers: Vec<&'a str>,
+}
+impl<'a> From<&'a Death> for NameOnly<'a> {
+    fn from(d: &'a Death) -> Self {
+        Self {
+            death_occurrence_id: &d.death_occurrence_id,
+            occurred_at: &d.occurred_at,
+            level: &d.level,
+            pvp: d.pvp,
+            killers: d.killers.iter().map(|k| k.name()).collect(),
+        }
+    }
+}
 fn digest<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, Error> {
     serde_json::to_vec(value)
         .map(|v| Sha256::digest(v).to_vec())
@@ -84,16 +106,26 @@ pub(super) async fn snapshot(db: &PgPool, s: &Snapshot) -> Result<&'static str, 
                 tx.commit().await?;
                 return Ok("accepted");
             }
-            crate::ingest::conflict(
-                &mut tx,
-                "character_deaths",
-                &s.character_id,
-                &s.projection_epoch,
-                &s.projection_revision,
-            )
-            .await?;
-            tx.commit().await?;
-            return Err(Error::Conflict);
+            // The same revision stored in the revision 3 name-only shape is
+            // re-stored with the identities this typed publication supplies.
+            let mut name_only = identity.clone();
+            name_only.as_object_mut().ok_or(Error::Database)?.insert(
+                "deaths".into(),
+                serde_json::to_value(s.deaths.iter().map(NameOnly::from).collect::<Vec<_>>())
+                    .map_err(|_| Error::Database)?,
+            );
+            if old != digest(&name_only)? {
+                crate::ingest::conflict(
+                    &mut tx,
+                    "character_deaths",
+                    &s.character_id,
+                    &s.projection_epoch,
+                    &s.projection_revision,
+                )
+                .await?;
+                tx.commit().await?;
+                return Err(Error::Conflict);
+            }
         }
     }
     for death in &s.deaths {
@@ -105,7 +137,19 @@ pub(super) async fn snapshot(db: &PgPool, s: &Snapshot) -> Result<&'static str, 
         .bind(&death.death_occurrence_id)
         .fetch_optional(&mut *tx)
         .await?;
-        if old.is_some_and(|old| old != hash) {
+        if let Some(old) = old.filter(|old| *old != hash) {
+            if old == digest(&NameOnly::from(death))? {
+                // Revision 3 occurrence fence: the same occurrence, now with typed identity.
+                sqlx::query(
+                    "UPDATE public_deaths_v2_occurrences SET digest=$3 WHERE subject=$1 AND occurrence=$2",
+                )
+                .bind(&s.character_id)
+                .bind(&death.death_occurrence_id)
+                .bind(&hash)
+                .execute(&mut *tx)
+                .await?;
+                continue;
+            }
             crate::ingest::conflict(
                 &mut tx,
                 "character_deaths",

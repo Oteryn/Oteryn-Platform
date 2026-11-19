@@ -1,8 +1,18 @@
-Status: ACCEPTED revision 3 by the game owner, 2026-11-13, relayed by the programme coordinator. Revision 2 was proposed by Platform; the owner's review verdict was ACCEPT-WITH-NOTES, and revision 3 applies those notes (see *Revision 3 changes*). Acceptance covers the wire and semantics and authorizes implementation of the Game producer and the Platform consumer behind default-off flags; it authorizes no production activation. Consumer qualification, the activation qualification in Q7 and production activation remain separate gates.
+Status: ACCEPTED revision 4, 2026-11-19: the owner ratified the Game-owner tagged killer amendment for both repositories (see *Revision 4 changes*). Revision 3 was ACCEPTED by the game owner, 2026-11-13, relayed by the programme coordinator. Revision 2 was proposed by Platform; the owner's review verdict was ACCEPT-WITH-NOTES, and revision 3 applies those notes (see *Revision 3 changes*). Acceptance covers the wire and semantics and authorizes implementation of the Game producer and the Platform consumer behind default-off flags; it authorizes no production activation. Consumer qualification, the activation qualification in Q7 and production activation remain separate gates.
 
 The `_PROPOSAL` suffix in this file's name is historical and kept so that existing links stay stable; it does not describe the current status.
 
 # Public game projection families — G-4 extension
+
+## Revision 4 changes
+
+Owner decision 2026-11-19, relayed by the programme coordinator (Oteryn-Platform #1957, finding H084): the Game-owner amendment of 2026-11-07 governs both repositories. It is recorded in Oteryn-Game `docs/contracts/OTERYN_GAME_PUBLIC_PROJECTIONS_V2.md`, *Deaths and stable killer identity*, at `3732e96aa2874204dcc97504f13681cf04a65c6e`, and is enforced there by the closed `Killer` enum in `crates/gameplay/native-admission-source/src/public_projections/v2.rs`. This revision changes only the deaths `killers` member and its golden payload:
+
+- **Supersedes** revision 3's 0..16 name-only `killers` strings. A name-only killer array is now invalid input (`400`).
+- **Tagged killers:** `killers` holds 0..16 closed tagged objects (*Deaths with killers*). The Game fixtures `character_deaths_player_v2.json` and `character_deaths_creature_v2.json` are copied byte for byte into `docs/contracts/fixtures/public-game-families-v2/` with their provenance.
+- **Serving:** Platform shows only the historical name. It shows a creature by name and a player only while that CharacterId is currently visible; otherwise it drops the whole killer object. CharacterIds and creature keys never become public output, URLs or API identity.
+- **Retained revision 3 rows:** name-only labels already stored are never shown and are not resolved to an identity. A same-occurrence republish from the producer supplies the typed identity; Platform infers none.
+- **Earlier text:** where revision 3 text (the T24d consumer row, Q4) says the wire carries no creature cause, revision 4 supersedes it for creatures with a native content key; environment/unknown causes remain absent.
 
 ## Revision 3 changes
 
@@ -138,9 +148,9 @@ Body `deaths`: 0..20 records in descending `(occurred_at, death_occurrence_id)` 
 | `occurred_at` | `time+`, receipt committed time converted from milliseconds |
 | `level` | `u64` ≤4294967295, `level_before` |
 | `pvp` | JSON boolean, committed classification |
-| `killers` | 0..16 `name` strings; final-blow character first, then damage contributors and assist-only groups, each in name byte order |
+| `killers` | 0..16 closed tagged objects (revision 4), no other member: `{"kind":"player","character_id":id,"name":name}` or `{"kind":"creature","creature_key":key,"name":name}`, members in that order; `creature_key` is not `player` or `unknown`. Order: final blow first, then damage contributors and assist-only groups, each in name byte order |
 
-Keep Game's historical-at-commit killer names; never resolve them to a current holder or infer account identity. Creature/environment causes are absent until a durable source and versioned amendment are accepted. An empty killers array means no recorded public character killer, not proof of an environmental cause. Hidden/deleted subjects publish `deaths: []`; serving also requires the current eligible profile and privacy floor. Read-time window is 30×86400 s. This is the latest 20 deaths within that window, not proof of a complete 30-day ledger or 10-week kill history. Occurrence IDs support deduplication for T70; no alert is emitted for baseline/imported historical records.
+Identity is the committed CharacterId or the native creature content key, never a name, sprite ID or account. Keep Game's historical-at-commit killer names as presentation only; never resolve them to a current holder or infer account identity. Serving shows a player killer only while that CharacterId is currently visible and otherwise suppresses the whole object; internal IDs and keys are never public. Environment/unknown causes are an empty list and are never inferred as creatures. An empty killers array means no recorded public killer, not proof of an environmental cause. Hidden/deleted subjects publish `deaths: []`; serving also requires the current eligible profile and privacy floor. Read-time window is 30×86400 s. This is the latest 20 deaths within that window, not proof of a complete 30-day ledger or 10-week kill history. Occurrence IDs support deduplication for T70; no alert is emitted for baseline/imported historical records.
 
 ### Guilds and members
 
@@ -277,10 +287,16 @@ Enable only on exact compatible revisions after both owners accept that family, 
 
 Each fenced line is one complete wire body (the fence newline is not part of transmitted bytes). Synthetic IDs and names only. These are contract examples, not evidence that current encoders accept v2.
 
-Valid death with recorded final-blow killer:
+Valid death with recorded final-blow player killer (revision 4; Game fixture `character_deaths_player_v2.json`, superseding revision 3's name-only example):
 
 ```json
-{"contract_version":2,"operation":"PublishCharacterDeathsV2","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790000000","deaths":[{"death_occurrence_id":"01934f10-7c05-7001-805b-3b1122334401","occurred_at":"1789990000","level":"413","pvp":true,"killers":["Beren","Mira"]}]}
+{"contract_version":2,"operation":"PublishCharacterDeathsV2","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790000000","deaths":[{"death_occurrence_id":"01934f10-7c08-7001-805b-3b1122334401","occurred_at":"1789990000","level":"413","pvp":true,"killers":[{"kind":"player","character_id":"01934f10-7c04-7001-805b-3b1122334402","name":"Beren"}]}]}
+```
+
+Valid death with a creature killer (revision 4; Game fixture `character_deaths_creature_v2.json`):
+
+```json
+{"contract_version":2,"operation":"PublishCharacterDeathsV2","source_authority":"oteryn:game:primary","character_id":"01934f10-7c04-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"3","source_observed_at":"1790000000","deaths":[{"death_occurrence_id":"01934f10-7c08-7001-805b-3b1122334401","occurred_at":"1789990000","level":"413","pvp":false,"killers":[{"kind":"creature","creature_key":"oteryn:monster.dragon","name":"Dragon"}]}]}
 ```
 
 Valid guild, including stable member identity:

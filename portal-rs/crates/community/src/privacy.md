@@ -26,8 +26,10 @@ acceptance gates. `OnlineOwner::configured` narrows a qualified ownership-histor
 provider; LCFA cannot invent `owned_since` or retained-set coverage. No online-time
 route was added. Public character duration remains forbidden/unavailable.
 
-Historical killer labels are withheld. G-4 supplies historical names without stable
-killer IDs/current floors; names are never mapped to a current holder. Death
+Killer labels follow contract revision 4 (H084): creature killers show their name;
+a player killer shows its historical name only while that CharacterId is currently
+not hidden (`allows_killer`), otherwise its object is dropped. Revision 3 name-only
+labels carry no identity and are never shown or mapped to a current holder. Death
 permission independently checks the victim's current hidden/deaths preferences.
 
 ## Remaining Game blockers and 503s

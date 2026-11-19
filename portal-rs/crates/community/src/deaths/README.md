@@ -14,8 +14,13 @@ routes and `/[pl|en/]deaths`, `/[pl|en/]characters/{name}/deaths` GET routes.
 The optional `world` query is an exact public world name, never a canonical ID.
 The list shows the latest 50 visible records; character lists show at most 20
 within 30 days, ordered by descending receipt time and occurrence ID.
-Historical killer labels are never resolved to current identities and are withheld.
-No cause is inferred from an empty killer list.
+Killers are closed tagged objects (contract revision 4, the Game-owner amendment
+of 2026-11-07): `player` with `character_id` and `name`, or `creature` with
+`creature_key` and `name`, at most 16. Pages show only the historical name: a
+creature always, a player only when `Privacy::allows_killer` currently allows that
+CharacterId, otherwise the whole object is dropped. CharacterIds and creature keys
+are never rendered, linked or resolved from a name. Revision 3 name-only labels
+still retained are never shown. No cause is inferred from an empty killer list.
 
 All activation requires `APP_ENV=testing|preproduction` and
 `PORTAL_PUBLIC_PROJECTIONS_ENABLED=true`, a valid
@@ -29,9 +34,10 @@ All activation requires `APP_ENV=testing|preproduction` and
   for the entire certificate group, stricter than per-certificate limits.
 
 The binary supplies the real T45/T09c privacy authority, requiring current unique
-LCFA ownership, a saved visible character and deaths permission. Historical killer
-labels are withheld because this wire carries names without stable killer identity
-or proven privacy floors. Unknown/reused names cannot authorize disclosure.
+LCFA ownership, a saved visible character and deaths permission. It does not yet
+implement `allows_killer`, so the default denies and player killer labels stay
+withheld there; creature names are shown. Unknown/reused names cannot authorize
+disclosure.
 
 The configured public router independently retains a contract-acceptance gate:
 Game main d34807f5bd234ee8318e57ba454ba39be0df113d, public projections rev 2,
