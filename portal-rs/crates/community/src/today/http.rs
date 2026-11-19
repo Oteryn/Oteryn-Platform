@@ -341,7 +341,12 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
         }
     }
     let widget = render_widget(view, lang);
-    if let Some(i) = html.find("</header>") {
+    const HOME_SLOT: &str = "<!-- portal-daily-feature -->";
+    if matches!(uri.path(), "/pl/" | "/en/")
+        && let Some(i) = html.find(HOME_SLOT)
+    {
+        html.replace_range(i..i + HOME_SLOT.len(), &widget);
+    } else if let Some(i) = html.find("</header>") {
         html.insert_str(i, &widget);
     } else if today && let Some(i) = html.find("<body>") {
         html.insert_str(i + 6, &format!("<header>{widget}</header>"));
