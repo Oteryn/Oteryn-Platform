@@ -157,6 +157,26 @@ impl deaths::Privacy for Authority {
                 .is_some_and(|p| !p.hidden && p.show_deaths))
         })
     }
+    /// A player killer's historical name is shown only while that character is
+    /// currently public (not hidden); unknown or unproven holders stay withheld.
+    fn allows_killer<'a>(&'a self, id: &'a str, epoch: &'a str) -> deaths::PrivacyFuture<'a> {
+        Box::pin(async move {
+            let Some(profile) = self
+                .profile(id, epoch)
+                .await
+                .map_err(|_| deaths::Unavailable)?
+            else {
+                return Ok(false);
+            };
+            let world = profile["world_id"].as_str().ok_or(deaths::Unavailable)?;
+            let name = profile["name"].as_str().ok_or(deaths::Unavailable)?;
+            Ok(self
+                .reference(id, world, name)
+                .await
+                .map_err(|_| deaths::Unavailable)?
+                .is_some_and(|p| !p.hidden))
+        })
+    }
 }
 impl families::SkillsPrivacy for Authority {
     fn allows_skills<'a>(&'a self, id: &'a str, epoch: &'a str) -> families::PrivacyFuture<'a> {
