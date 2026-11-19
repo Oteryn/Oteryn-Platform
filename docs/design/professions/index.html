@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oteryn — wybierz profesję</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="professions.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Wybierz profesję</h1>
+      <p>Wolisz walczyć w pierwszym szeregu czy wspierać drużynę z dystansu? Wybierz portret, by poznać profesję.</p>
+    </header>
+    <fieldset class="portraits">
+      <legend class="visually-hidden">Profesje postaci</legend>
+      <label>
+        <input type="radio" name="profesja" value="rycerz" checked>
+        <img src="most/rycerz.webp" alt="">
+        <span>Rycerz</span>
+      </label>
+      <label>
+        <input type="radio" name="profesja" value="paladyn">
+        <img src="most/paladyn.webp" alt="">
+        <span>Paladyn</span>
+      </label>
+      <label>
+        <input type="radio" name="profesja" value="druid">
+        <img src="most/druid.webp" alt="">
+        <span>Druid</span>
+      </label>
+      <label>
+        <input type="radio" name="profesja" value="czarodziej">
+        <img src="most/czarodziej.webp" alt="">
+        <span>Czarodziej</span>
+      </label>
+      <label>
+        <input type="radio" name="profesja" value="mnich">
+        <img src="most/mnich.webp" alt="">
+        <span>Mnich</span>
+      </label>
+    </fieldset>
+    <div class="details">
+      <p id="opis" aria-live="polite">Walczy w zwarciu. Ciężka zbroja pozwala mu przyjąć ciosy w pierwszej linii.</p>
+      <label class="style-picker">Styl ilustracji
+        <select id="styl">
+          <option value="most" selected>Most</option>
+          <option value="bonelord">Bonelord</option>
+        </select>
+      </label>
+    </div>
+  </main>
+</body>
+</html>
