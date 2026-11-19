@@ -3,6 +3,10 @@ use ed25519_dalek::{Signer, SigningKey};
 use prost::Message;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, postgres::PgPoolOptions};
+
+#[path = "../../../../test-support/rate_clock.rs"]
+mod rate_clock;
+
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 const NOW: u64 = 1790000200;
 fn vectors() -> std::result::Result<Vec<serde_json::Value>, serde_json::Error> {
@@ -261,7 +265,7 @@ impl Db {
             .after_connect(move |c, _| {
                 let search = search.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('search_path',$1,false)")
+                    sqlx::query("SELECT set_config('search_path', $1 || ',pg_catalog', false)")
                         .bind(search)
                         .execute(c)
                         .await?;
@@ -420,6 +424,56 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
     assert_eq!(receipts, 4);
     db.close().await
 }
+#[tokio::test]
+async fn league_quota_isolated_by_trusted_client_source() -> TestResult {
+    use axum::{
+        Extension,
+        body::Body,
+        extract::ConnectInfo,
+        http::{Request, StatusCode},
+    };
+    use oteryn_web::ratelimit::{RateLimiter, TrustedProxies};
+    use std::net::SocketAddr;
+    use tower::ServiceExt;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    rate_clock::install(&db.pool).await?;
+    let proxy = "192.0.2.1:443".parse::<SocketAddr>()?;
+    let mut limiter = RateLimiter::new(db.pool.clone());
+    limiter.trusted_proxies = TrustedProxies(vec![proxy.ip()]);
+    let app = web::router_with_clock(
+        League::new(
+            db.pool.clone(),
+            flags(),
+            Trusted {
+                generation: 1,
+                complete: NOW,
+            },
+        ),
+        || NOW as i64,
+    )
+    .layer(Extension(limiter));
+    let request = |lang, forwarded| {
+        Request::get(format!("/{lang}/league"))
+            .extension(ConnectInfo(proxy))
+            .header("x-forwarded-for", forwarded)
+            .body(Body::empty())
+    };
+
+    for _ in 0..120 {
+        let response = app.clone().oneshot(request("pl", "198.51.100.1")?).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    let exhausted = app.clone().oneshot(request("en", "198.51.100.1")?).await?;
+    let other_source = app.oneshot(request("en", "198.51.100.2")?).await?;
+    assert_eq!(other_source.status(), StatusCode::OK);
+    assert_eq!(exhausted.status(), StatusCode::TOO_MANY_REQUESTS);
+    db.close().await
+}
+
 #[tokio::test]
 async fn unavailable_defaults_and_http() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;

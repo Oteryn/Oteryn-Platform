@@ -2,15 +2,22 @@
 use super::*;
 use askama::Template;
 use axum::{
-    Router,
+    Extension, Router,
     extract::{Path, State},
     http::{StatusCode, header},
+    middleware::from_fn_with_state,
     response::{Html, IntoResponse, Response},
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+use oteryn_web::ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter};
 use sqlx::PgPool;
-use std::sync::{Arc, Mutex};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
+
+// The portal pool has 16 connections. Leave capacity for other routes.
+const MAX_CONCURRENT_READS: usize = 4;
+
 #[derive(Template)]
 #[template(
     source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><style>body{margin:auto;padding:1rem;max-width:90rem;font:1rem/1.5 system-ui;color:#eee;background:#151b25}article{padding:1rem;border:1px solid #708090;border-radius:.5rem;overflow-wrap:anywhere}section{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.3rem}h1{font-size:clamp(1.5rem,4vw,2.5rem)}</style></head><body><main><h1>{{ title }}</h1><p role=\"status\">{{ message }}</p><h2>{{ outcomes }}</h2><section>{% for row in events %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><p>{{ result }}: {{ row.result }}</p></article>{% endfor %}</section><h2>{{ standings }}</h2><section>{% for row in seasons %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><table><thead><tr><th>{{ rank }}</th><th>{{ guild }}</th><th>{{ points }}</th></tr></thead><tbody>{% for g in row.guilds %}<tr><td>{{ g.rank }}</td><td>{{ g.guild_name }}</td><td>{{ g.total_score }}</td></tr>{% endfor %}</tbody></table></article>{% endfor %}</section></main></body></html>",
@@ -141,7 +148,7 @@ impl Page {
 }
 struct Surface<A> {
     league: League<A>,
-    rate: Mutex<(i64, u32)>,
+    read_slots: Semaphore,
     clock: fn() -> i64,
 }
 pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
@@ -154,11 +161,13 @@ pub(super) fn router_with_clock<A: Authority + 'static>(
     if !league.flags.enabled || !league.flags.public {
         return Router::new();
     }
+    let limiter = RateLimiter::new(league.pool.clone());
     Router::new()
         .route("/{lang}/league", get(page::<A>))
+        .layer(from_fn_with_state(limiter, ratelimit::supply))
         .with_state(Arc::new(Surface {
             league,
-            rate: Mutex::new((0, 0)),
+            read_slots: Semaphore::new(MAX_CONCURRENT_READS),
             clock,
         }))
 }
@@ -171,29 +180,39 @@ pub fn configured_router(pool: PgPool) -> Router {
 async fn page<A: Authority>(
     Path(lang): Path<String>,
     State(state): State<Arc<Surface<A>>>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: std::result::Result<Option<ClientSource>, StatusCode>,
 ) -> Response {
     if !matches!(lang.as_str(), "pl" | "en") {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let now = (state.clock)();
-    let allowed = state
-        .rate
-        .lock()
-        .map(|mut r| {
-            if now < r.0 || now - r.0 >= 60 {
-                *r = (now, 0);
-            }
-            r.1 = r.1.saturating_add(1);
-            r.1 <= 120
-        })
-        .unwrap_or(false);
-    if !allowed {
-        return Page::new(&lang, None).response(StatusCode::TOO_MANY_REQUESTS);
-    }
-    let Ok(now) = u64::try_from(now) else {
+    let source = match source {
+        Ok(source) => source,
+        Err(status) => return Page::new(&lang, None).response(status),
+    };
+    let Ok(now) = u64::try_from((state.clock)()) else {
         return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
-    match state.league.read(now).await {
+    // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
+    if let Some(ClientSource(ip)) = source {
+        let keys = [Keys::source(ip)];
+        match tokio::time::timeout(
+            Duration::from_secs(1),
+            limiter.check(NamedPolicy::PublicGameData, &keys),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(denial)) => return Page::new(&lang, None).response(denial.status()),
+            Err(_) => return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    }
+    let Ok(slot) = state.read_slots.try_acquire() else {
+        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let snapshots = state.league.read(now).await;
+    drop(slot);
+    match snapshots {
         Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),
         Err(_) => Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
     }
