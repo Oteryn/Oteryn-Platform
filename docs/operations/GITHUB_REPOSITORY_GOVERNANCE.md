@@ -68,7 +68,7 @@ When a second trusted maintainer is available, change the policy to:
 - administrator bypass expected to be disabled;
 - production secrets remain environment-scoped and never appear in Git, logs or artifacts.
 
-### `synology-staging`
+### `oracle-staging`
 
 - deployment only from protected branches;
 - no required reviewer while it remains a staging environment;
