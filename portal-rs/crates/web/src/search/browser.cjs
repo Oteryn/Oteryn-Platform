@@ -23,42 +23,33 @@ const AxeBuilder = modules('@axe-core/playwright').default;
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px overflow`);
         const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
         assert.deepEqual(result.violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) })), []);
-        assert.equal((await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-shell/${lang}`)).status(), 503);
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
-        const toggle = page.locator('#portal-menu-toggle');
-        if (await toggle.isVisible()) await toggle.click();
-        const groups = page.locator('#portal-header [data-nav-section]');
-        assert.equal(await groups.count(), 2, 'world and community menus');
-        for (const button of await groups.all()) {
-          const items = page.locator('#' + await button.getAttribute('aria-controls'));
-          assert.equal(await items.isVisible(), false);
-          await button.focus();
-          await page.keyboard.press('Enter');
-          assert.equal(await items.isVisible(), true);
-          const bounds = await items.boundingBox();
-          assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
+        for (const [fixture, expectedStatus] of [['browser-shell', 503], ['browser-headless', 200]]) {
+          const response = await page.goto(`${process.env.PORTAL_BROWSER_URL}/${fixture}/${lang}`);
+          assert.equal(response.status(), expectedStatus);
+          assert.equal(await page.locator('script[src="/static/thais/home.js"]').count(), 0);
+          assert.equal(await page.locator('link[href="/static/css/tokens.css"]').count(), 1);
+          assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--op-text').trim()), '');
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
           await page.keyboard.press('Tab');
-          assert.equal(await items.locator('a').first().evaluate(n => n === document.activeElement), true);
-          await page.keyboard.press('Escape');
-          assert.equal(await items.isVisible(), false);
-          assert.equal(await button.evaluate(n => n === document.activeElement), true);
+          assert.equal(await page.evaluate(() => document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'), true);
+          const menu = page.locator('details.om-fallback-menu');
+          const summary = menu.locator(':scope > summary');
+          const firstLink = menu.locator('a[href$="#profesje"]');
+          assert.equal(await firstLink.isVisible(), false);
+          await summary.focus();
+          await page.keyboard.press('Enter');
+          assert.equal(await firstLink.isVisible(), true);
+          if (fixture === 'browser-shell') {
+            assert.equal(await menu.locator('#portal-community-panel a[href$="/online"]').isVisible(), true);
+          }
+          const bounds = await menu.locator('nav').boundingBox();
+          assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, 'open navigation fits viewport');
+          await page.keyboard.press('Tab');
+          assert.equal(await firstLink.evaluate(n => n === document.activeElement), true);
+          await summary.focus();
+          await page.keyboard.press('Enter');
+          assert.equal(await firstLink.isVisible(), false);
         }
-        await page.goto(`${process.env.PORTAL_BROWSER_URL}/browser-headless/${lang}`);
-        assert.equal(await page.locator('link[href="/static/css/tokens.css"]').count(), 1);
-        assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--op-text').trim()), '');
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'headless shell overflow');
-        await page.keyboard.press('Tab');
-        assert.equal(await page.evaluate(() => {const s=getComputedStyle(document.activeElement);return document.activeElement.matches(':focus-visible') && s.outlineStyle!=='none';}),true);
-        assert.equal(await page.locator('script[src="/static/thais/home.js"]').count(), 0);
-        const disclosure = page.locator('details.om-fallback-menu');
-        const summary = disclosure.locator(':scope > summary');
-        const target = disclosure.locator('a[href$="#profesje"]');
-        assert.equal(await target.isVisible(), false);
-        await summary.focus();
-        await page.keyboard.press('Enter');
-        assert.equal(await target.isVisible(), true, 'world links open without JavaScript');
-        await page.keyboard.press('Enter');
-        assert.equal(await target.isVisible(), false);
 
       }
       await context.close();

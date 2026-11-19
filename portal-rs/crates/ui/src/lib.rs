@@ -630,7 +630,7 @@ mod tests {
                     status: status.as_u16(),
                 }
                 .render()?;
-                assert!(html.contains("<body class=\"op-theme op-shell thais-inner\">"));
+                assert!(html.contains("<body class=\"op-theme op-shell\">"));
                 assert!(html.contains(&title));
                 assert!(html.contains("href=\"#main\""));
             }
