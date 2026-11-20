@@ -370,6 +370,20 @@ body.op-shell::before {
 }
 body.op-shell .om-fallback-menu .om-tools a.om-register { color: #fffdf4; background: #334e42; }
 .om-fallback-menu :is(a, summary, button):focus-visible { outline: 2px solid #875832; outline-offset: 3px; }
+@media (min-width: 961px) {
+  .om-mast:not(.is-enhanced) .om-fallback-menu .om-sections {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .om-mast:not(.is-enhanced) .om-fallback-menu .om-panel[hidden] {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+  .om-fallback-menu #portal-world-panel .om-column:first-child ul { display: block; }
+  .om-fallback-menu .om-column a { margin-inline: 0; padding-inline: .25rem; overflow-wrap: anywhere; }
+  .om-fallback-menu .om-section::before { display: none; }
+}
 @media (max-width: 960px) {
   .om-mast:not(.is-enhanced) .om-fallback-menu[open] > .om-nav {
     inset-inline-end: max(10px, calc(var(--om-edge) - 10px));

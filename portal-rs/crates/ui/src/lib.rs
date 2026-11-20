@@ -493,11 +493,10 @@ mod tests {
                 let chrome = registry.chrome(lang, &format!("/{lang}/"), Account::Anonymous);
                 let html = Home::new(&chrome, &HomeData::default()).render()?;
                 assert!(html.contains(&format!("<html lang=\"{lang}\" data-theme=\"dark\">")));
-                assert!(html.contains(if lang == "en" {
-                    "At the gates of Thais"
-                } else {
-                    "U bram Thais"
-                }));
+                assert!(html.contains(&format!(
+                    "<h1 id=\"hero-title\">{}</h1>",
+                    chrome.text("shell-news")
+                )));
                 assert!(html.contains("/static/thais/home.css"));
                 assert!(html.contains("class=\"op-theme op-shell\""));
                 assert_eq!(html.contains("/wiki\""), enabled);
@@ -538,20 +537,38 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn home_uses_the_gate_welcome_when_the_news_feed_is_absent_or_empty()
+    fn home_distinguishes_empty_and_unavailable_news_and_keeps_fallback_actions()
     -> Result<(), askama::Error> {
-        let chrome = registry().chrome("pl", "/pl/", Account::Anonymous);
-        for news in [None, Some(Vec::new())] {
-            let data = HomeData {
-                news,
-                ..Default::default()
-            };
-            let html = Home::new(&chrome, &data).render()?;
-            assert!(html.contains(&chrome.text("thais-home-title")));
-            assert!(html.contains(&chrome.text("thais-home-lead")));
-            assert!(!html.contains("class=\"hero-news\""));
-            assert!(html.contains(&chrome.text("thais-home-no-data")));
-            assert!(html.contains("<strong aria-hidden=\"true\">—</strong>"));
+        for lang in ["pl", "en"] {
+            let mut registry = registry();
+            registry.section(true, "news", "shell-news", "news", Group::Community, false);
+            let chrome = registry.chrome(lang, &format!("/{lang}/"), Account::Anonymous);
+            for (news, status, other_status) in [
+                (None, "stage-news-unavailable", "stage-news-empty"),
+                (
+                    Some(Vec::new()),
+                    "stage-news-empty",
+                    "stage-news-unavailable",
+                ),
+            ] {
+                let data = HomeData {
+                    news,
+                    ..Default::default()
+                };
+                let html = Home::new(&chrome, &data).render()?;
+                assert!(html.contains(&format!(
+                    "<h1 id=\"hero-title\">{}</h1>",
+                    chrome.text("shell-news")
+                )));
+                assert!(html.contains(&chrome.text(status)));
+                assert!(!html.contains(&chrome.text(other_status)));
+                assert!(!html.contains("class=\"hero-story\""));
+                assert!(html.contains(&format!("class=\"hero-news-all\" href=\"/{lang}/news\"")));
+                assert!(html.contains(&format!("class=\"cta\" href=\"/{lang}/register\"")));
+                assert!(html.contains("class=\"plainlink\" href=\"#jak-zaczac\""));
+                assert!(html.contains(&chrome.text("thais-home-no-data")));
+                assert!(html.contains("<strong aria-hidden=\"true\">—</strong>"));
+            }
         }
         Ok(())
     }
@@ -595,11 +612,28 @@ mod tests {
         let Some((hero, _)) = html.split_once("</section>") else {
             return Err(askama::Error::Custom("homepage hero missing".into()));
         };
-        assert!(hero.contains("href=\"/pl/news/test-0\">Nowa &#60;kraina&#62;</a>"));
-        assert!(hero.contains("datetime=\"2026-11-07\""));
-        assert_eq!(hero.matches("Opis &#38; zmiany").count(), 1);
-        assert!(hero.contains("href=\"/pl/news/test-1\">Nowe zadanie</a>"));
-        assert!(hero.contains("href=\"/pl/news/test-2\">Turniej</a>"));
+        let stories: Vec<_> = hero
+            .split("<details class=\"hero-story\">")
+            .skip(1)
+            .collect();
+        assert_eq!(stories.len(), 3);
+        for (i, (story, title)) in stories
+            .iter()
+            .zip(["Nowa &#60;kraina&#62;", "Nowe zadanie", "Turniej"])
+            .enumerate()
+        {
+            let Some((summary, content)) = story.split_once("</summary>") else {
+                return Err(askama::Error::Custom("missing story summary".into()));
+            };
+            assert!(summary.contains(title));
+            assert!(summary.contains("datetime=\"2026-11-07\""));
+            assert!(summary.contains("class=\"hero-story-toggle\" aria-hidden=\"true\""));
+            assert!(content.contains("Opis &#38; zmiany"));
+            assert!(content.contains(&format!(
+                "href=\"/pl/news/test-{i}\">{0}",
+                chrome.text("stage-read-more")
+            )));
+        }
         assert!(!html.contains("/pl/news/test-3"));
         assert!(html.contains(">58<"));
         assert!(html.contains("2 / 3"));

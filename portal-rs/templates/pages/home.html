@@ -22,24 +22,27 @@
     </picture>
     <div class="hero-body wrap" id="aktualnosci">
       {% let news = data.news.as_deref().unwrap_or_default() %}
-      {% if let Some(latest) = news.first() %}
       <div class="hero-news">
         <h1 id="hero-title">{{ chrome.text("shell-news") }}</h1>
-        <time datetime="{{ latest.date }}">{{ latest.display_date }}</time>
-        <h2><a href="{{ latest.url }}">{{ latest.title }}</a></h2>
-        {% if !latest.excerpt.is_empty() %}<p>{{ latest.excerpt }}</p>{% endif %}
-        {% if news.len() > 1 %}
-        <ul>
-          {% for item in news.iter().skip(1).take(2) %}
-          <li><a href="{{ item.url }}">{{ item.title }}</a></li>
-          {% endfor %}
-        </ul>
+        {% for item in news.iter().take(3) %}
+        <details class="hero-story">
+          <summary>
+            <span class="hero-story-title">{{ item.title }}</span>
+            <time datetime="{{ item.date }}">{{ item.display_date }}</time>
+            <span class="hero-story-toggle" aria-hidden="true"></span>
+          </summary>
+          <div class="hero-story-body">
+            {% if !item.excerpt.is_empty() %}<p>{{ item.excerpt }}</p>{% endif %}
+            <a href="{{ item.url }}">{{ chrome.text("stage-read-more") }}<span class="sr-only"> — {{ item.title }}</span></a>
+          </div>
+        </details>
+        {% endfor %}
+        {% if news.is_empty() %}
+        <p class="hero-news-status">{% if data.news.is_some() %}{{ chrome.text("stage-news-empty") }}{% else %}{{ chrome.text("stage-news-unavailable") }}{% endif %}</p>
         {% endif %}
         {% if let Some(link) = chrome.link("news") %}<a class="hero-news-all" href="{{ link.url }}">{{ chrome.text("stage-news-all") }}</a>{% endif %}
       </div>
-      {% else %}
-      <h1 id="hero-title">{{ chrome.text("thais-home-title") }}</h1>
-      <p class="hero-copy">{{ chrome.text("thais-home-lead") }}</p>
+      {% if news.is_empty() %}
       <div class="actions">
         {% if chrome.signed_in() %}
           {% if let Some(link) = chrome.link("create-character") %}
