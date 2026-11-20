@@ -449,7 +449,7 @@ mod tests {
             "<main ",
             "<footer ",
             "href=\"#main\"",
-            "At the gates of Thais",
+            "<h1 id=\"hero-title\">News</h1>",
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");

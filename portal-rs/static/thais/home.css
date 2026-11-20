@@ -62,10 +62,10 @@ svg {
 }
 .hero-art, .hero::after {
   grid-area: 1 / 1 / 2 / 2;
-  inset: var(--om-bar-height) max(0px, min(5vw, (100% - 600px) * .16) + max(0px, (100% - 960px) * .1, (100% - 2240px) / 2)) auto auto;
+  inset: 0 max(0px, min(5vw, (100% - 600px) * .16) + max(0px, (100% - 960px) * .1, (100% - 2240px) / 2)) auto auto;
   width: auto;
   max-width: 100%;
-  height: calc(100% - var(--om-bar-height));
+  height: 100%;
   aspect-ratio: 1672 / 941;
 }
 .hero-art {
@@ -186,7 +186,7 @@ svg {
   .hero-art, .beast-art { width: 100%; height: auto; }
   .beast-art { mask-image: none; }
   .feature::before { display: none; }
-  .hero-body { padding: calc(var(--om-bar-height) + 100vw * 941 / 1672 + 18px) var(--inset) 28px; }
+  .hero-body { padding: calc(100vw * 941 / 1672 + 18px) var(--inset) 28px; }
   .hero h1 { font-size: clamp(52px, 12vw, 68px); margin-bottom: 10px; }
   .hero-copy { max-width: 36ch; font-size: 1rem; }
   .actions { margin-top: 17px; gap: 10px 18px; }
@@ -257,8 +257,8 @@ svg {
   .world-strip { grid-area: 2 / 1; }
   @media (min-width: 961px) {
     #main {
-      --gate-panorama-height: min(100vw * 941 / 2868, max(390px, 100svh - var(--om-bar-height) - 72px));
-      grid-template-rows: minmax(calc(var(--om-bar-height) + var(--gate-panorama-height)), auto) auto;
+      --gate-panorama-height: min(100vw * 941 / 2868, max(390px, 100svh - 72px));
+      grid-template-rows: minmax(var(--gate-panorama-height), auto) auto;
     }
     .hero-art, .hero::after {
       inset-inline: 0;
@@ -327,16 +327,52 @@ svg {
   padding: 14px 18px;
 }
 .hero-news h1 { margin: 0 0 8px; font: 650 clamp(24px, 2vw, 28px)/1.1 Alegreya, Georgia, serif; letter-spacing: normal; }
-.hero-news h2 { margin: 4px 0; font: 700 1.0625rem/1.4 Manrope, sans-serif; text-transform: none; letter-spacing: normal; }
-.hero-news p, .hero-news li, .hero-news-all, .hero-today { font-size: .9375rem; line-height: 1.5; }
-.hero-news time { color: var(--soft); font-size: .8125rem; }
-.hero-news ul { margin: 10px 0 0; padding: 0; list-style: none; }
-.hero-news li { border-top: 1px solid var(--line); padding-block: 6px; }
+.hero-news p, .hero-news-all, .hero-story, .hero-today { font-size: .9375rem; line-height: 1.5; }
+.hero-story { border-block-start: 1px solid var(--line); }
+.hero-story summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 14px;
+  min-height: 44px;
+  padding-block: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.hero-story summary::-webkit-details-marker { display: none; }
+.hero-story summary:focus-visible { outline: 2px solid var(--copper); outline-offset: 2px; }
+.hero-story-title { font-weight: 700; overflow-wrap: anywhere; }
+.hero-story:first-of-type .hero-story-title { font-size: 1.0625rem; }
+.hero-story time { grid-column: 1; color: var(--soft); font-size: .8125rem; }
+.hero-story-toggle { position: relative; grid-area: 1 / 2 / 3; width: 14px; height: 14px; color: var(--copper); }
+.hero-story-toggle::before, .hero-story-toggle::after { content: ""; position: absolute; background: currentColor; }
+.hero-story-toggle::before { inset: 6px 0 auto; height: 2px; }
+.hero-story-toggle::after { inset: 0 auto 0 6px; width: 2px; }
+.hero-story[open] > summary .hero-story-toggle::after { display: none; }
+.hero-story-body { padding-block: 0 8px; overflow-wrap: anywhere; }
 .hero-news a:hover, .hero-today a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.hero-news-all, .hero-today a { display: inline-block; padding-block: 6px; color: var(--copper); }
+.hero-news-all, .hero-story-body a, .hero-today a { display: inline-block; padding-block: 6px; color: var(--copper); }
 .hero-today { width: fit-content; max-width: 100%; padding-block: 5px; margin-top: 8px; }
 .hero-today summary { cursor: pointer; padding-block: 4px; }
 .hero-today aside { margin-block: 6px; }
 .hero-today aside :is(h2, h3) { display: none; }
 .hero-today dl { margin: 6px 0; }
 .hero-today dd { margin-inline-start: 0; }
+
+/* Leave a strip of the guide illustration behind the translucent footer. */
+@media not (prefers-reduced-transparency: reduce) {
+  body { --guide-overlap: clamp(6rem, 13vw, 13rem); }
+  .start::after { content: ""; display: block; height: var(--guide-overlap); }
+  #main + .foot {
+    position: relative;
+    margin-block-start: calc(-1 * var(--guide-overlap));
+    border-top-color: rgb(207 192 156 / 35%);
+    background: linear-gradient(to bottom, rgb(12 25 29 / 76%), #0e191d var(--guide-overlap));
+    backdrop-filter: blur(7px);
+  }
+}
+@media (forced-colors: active) {
+  .start::after { display: none; }
+  #main + .foot { margin-block-start: 0; background: Canvas; backdrop-filter: none; }
+}

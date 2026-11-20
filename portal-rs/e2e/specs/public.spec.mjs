@@ -83,19 +83,37 @@ test('Thais homepage opens the world menu and selects a profession', async ({pag
   await page.goto(`/${lang}/`);
   await expect(page.locator('.hero-art')).toHaveJSProperty('complete', true);
   expect(await page.locator('.hero-art').evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
-  const headline = page.getByRole('heading', {level: 1});
+  const news = page.locator('.hero-news');
+  await expect(news.getByRole('heading', {level: 1})).toHaveText(lang === 'pl' ? 'Aktualności' : 'News');
+  await expect(news.locator('.hero-news-all')).toHaveAttribute('href', `/${lang}/news`);
+  const stories = news.locator('.hero-story');
   if (leadStory) {
-    await expect(headline).toHaveText(lang === 'pl' ? 'Aktualności' : 'News');
-    const article = page.locator('#aktualnosci h2 a');
-    await expect(article).toHaveText(leadStory.title);
-    await expect(article).toHaveAttribute('href', leadStory.href);
-    await expect(page.locator('#aktualnosci time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}$/);
+    const count = await stories.count();
+    expect(count).toBeGreaterThan(0);
+    expect(count).toBeLessThanOrEqual(3);
+    await expect(stories.first().locator('.hero-story-title')).toHaveText(leadStory.title);
+    await expect(stories.first().locator('a')).toHaveAttribute('href', leadStory.href);
+    for (const story of await stories.all()) {
+      const summary = story.locator('summary');
+      await expect(summary.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}$/);
+      await expect(summary.locator('.hero-story-toggle')).toBeVisible();
+      const link = story.getByRole('link', {includeHidden: true});
+      await expect(link).toBeHidden();
+      await summary.focus();
+      await page.keyboard.press('Enter');
+      await expect(link).toBeVisible();
+      expect(await link.getAttribute('href')).toMatch(new RegExp(`^/${lang}/news/.+`));
+      await summary.click();
+      await expect(link).toBeHidden();
+    }
   } else {
-    await expect(headline).toHaveText(lang === 'pl' ? 'U bram Thais' : 'At the gates of Thais');
+    await expect(stories).toHaveCount(0);
+    await expect(news.locator('.hero-news-status')).toHaveText(lang === 'pl'
+      ? 'Brak opublikowanych aktualności.' : 'No news has been published yet.');
     await expect(page.locator('#aktualnosci a[href="#jak-zaczac"]')).toBeVisible();
   }
   await expect(page.locator('#portal-header aside')).toHaveCount(0);
-  const today = page.locator('#aktualnosci details');
+  const today = page.locator('#aktualnosci .hero-today');
   const dailyWidget = today.locator('aside');
   await expect(dailyWidget).toHaveCount(1);
   await expect(dailyWidget).toBeHidden();
