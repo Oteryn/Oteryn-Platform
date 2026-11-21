@@ -12,6 +12,7 @@
     "cloudflare-oteryn-public-edge-repair.yml",
     "cloudflare-zone-edge-audit.yml",
     "codeql.yml",
+    "edge-certificate-expiry.yml",
     "edge-security-emulation.yml",
     "game-auth-ticket-concurrency.yml",
     "github-actions-storage-hygiene.yml",

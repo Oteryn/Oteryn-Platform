@@ -1,0 +1,34 @@
+name: Edge Certificate Expiry
+
+# Daily check of the certificates the Oracle edge serves (owner request
+# 2026-11-21). A failed scheduled run is the alert: GitHub notifies by mail.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/edge-certificate-expiry.yml"
+      - "deploy/oracle/edge-certificates.py"
+      - "deploy/oracle/test_edge_certificates.py"
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-certificate-expiry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  expiry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Unit tests
+        run: python3 -m unittest -v deploy/oracle/test_edge_certificates.py
+      - name: Live edge certificates (fail under 14 days)
+        run: python3 deploy/oracle/edge-certificates.py
