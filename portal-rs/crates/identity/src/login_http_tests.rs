@@ -423,7 +423,12 @@ async fn audit02_paused_password_completion_refuses_reset_even_after_anonymous_g
             payload["ciphertext"].clone(),
         )?)
         .ok_or("ciphertext")?;
-    assert!(
+    let digest = oteryn_identity::breach::sha1_hex("replacement password");
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true)")
+        .bind(&digest[..5])
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
         oteryn_identity::reset::complete(
             &db.pool,
             oteryn_identity::reset::Input {
@@ -433,7 +438,8 @@ async fn audit02_paused_password_completion_refuses_reset_even_after_anonymous_g
                 password_confirmation: "replacement password".into()
             }
         )
-        .await?
+        .await?,
+        oteryn_identity::reset::Completion::Completed
     );
     // A real ordinary GET refreshes the same anonymous session after revocation.
     assert_eq!(

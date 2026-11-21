@@ -55,6 +55,10 @@ pub enum Outcome {
     Changed,
     Refused,
     Invalid,
+    /// The new password appears in known data breaches; nothing changed.
+    Breached,
+    /// The breached-password check could not run; nothing changed.
+    Unavailable,
 }
 /// Sensitive fields are always redacted in Debug output.
 pub struct PasswordChange {
@@ -78,11 +82,27 @@ impl Credentials {
         session_hash: &[u8],
         input: PasswordChange,
     ) -> Result<Outcome, sqlx::Error> {
+        let checker = crate::breach::Checker::from_env(self.pool.clone());
+        self.change_with(&checker, session_hash, input).await
+    }
+    /// [`Credentials::change`] with an explicit breached-password range source.
+    pub async fn change_with(
+        &self,
+        checker: &crate::breach::Checker,
+        session_hash: &[u8],
+        input: PasswordChange,
+    ) -> Result<Outcome, sqlx::Error> {
         if !self.enabled {
             return Ok(Outcome::Refused);
         }
         if !input.valid() {
             return Ok(Outcome::Invalid);
+        }
+        // Before any transaction: no connection is held across the range request.
+        match crate::breach::check(checker, &input.password).await {
+            Ok(()) => {}
+            Err(crate::breach::BreachError::Breached) => return Ok(Outcome::Breached),
+            Err(crate::breach::BreachError::Unavailable) => return Ok(Outcome::Unavailable),
         }
         let mut tx = self.pool.begin().await?;
         let Some((account, hash)) = authenticated(&mut tx, session_hash).await? else {

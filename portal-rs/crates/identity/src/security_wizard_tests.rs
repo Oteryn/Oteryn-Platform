@@ -349,6 +349,8 @@ async fn audit02_password_history_includes_reset_and_recovery()
         .bind(crate::password::hash("original test password")?).fetch_one(&db.pool).await?;
     let session_hash = vec![42u8; 32];
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('c',64),'test',now()+interval '1 hour',now()+interval '1 day')").bind(&session_hash).bind(id).execute(&db.pool).await?;
+    crate::breach::tests::allow(&db.pool, "changed test password").await?;
+    crate::breach::tests::allow(&db.pool, "recovered test password").await?;
     let credentials = crate::credentials::Credentials {
         pool: db.pool.clone(),
         enabled: true,
@@ -380,7 +382,8 @@ async fn audit02_password_history_includes_reset_and_recovery()
     let token = "d".repeat(64);
     sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 hour')")
         .bind(id).bind(crate::verify::token_hash(&token)).execute(&db.pool).await?;
-    assert!(
+    crate::breach::tests::allow(&db.pool, "reset test password").await?;
+    assert_eq!(
         crate::reset::complete(
             &db.pool,
             crate::reset::Input {
@@ -390,7 +393,8 @@ async fn audit02_password_history_includes_reset_and_recovery()
                 password_confirmation: "reset test password".into(),
             }
         )
-        .await?
+        .await?,
+        crate::reset::Completion::Completed
     );
     let reset_date = facts
         .load(id)

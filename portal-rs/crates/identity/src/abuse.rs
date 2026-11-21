@@ -1,12 +1,9 @@
-//! Registration abuse protection without external services.
+//! Registration abuse protection: a default-off policy gate and proof-of-work.
 //!
-//! Registration is disabled by default in `registration_abuse_policy`. Operators must
-//! atomically import COMPLETE SHA-1 password ranges (five uppercase hex prefix digits,
-//! 35-digit uppercase suffixes with positive breach counts removed) from a trusted
-//! breach corpus into `registration_password_ranges`, with a bounded freshness expiry.
-//! An empty suffix array means a confirmed empty range, never a failed import.
-//! Missing, stale, malformed or unavailable ranges deny registration. No password,
-//! full hash, or prefix leaves the process; there is no external fallback or API flag.
+//! Registration is disabled by default in `registration_abuse_policy`. The password
+//! lookup is the shared breached-password check in [`crate::breach`] (HIBP range API
+//! with a 30-day PostgreSQL cache, owner decision 2026-11-21): a breached password is
+//! refused and an unavailable corpus denies registration; neither is ever accepted.
 //! SHA-1 is used only for corpus lookup, never password storage (which uses Argon2id).
 //!
 //! Work: SHA-256 of `token:nonce` must begin with two zero bytes (16 bits). Tokens
@@ -128,27 +125,30 @@ pub async fn consume(pool: &PgPool, csrf: &str, token: &str, nonce: &str) -> Res
 
 /// Fail closed before Argon2 work, account lookup or registration side effects.
 pub async fn check_password(pool: &PgPool, password: &str) -> Result<(), Error> {
+    check_password_with(
+        pool,
+        &crate::breach::Checker::from_env(pool.clone()),
+        password,
+    )
+    .await
+}
+
+/// [`check_password`] with an explicit range source (tests use a local mock).
+pub async fn check_password_with(
+    pool: &PgPool,
+    checker: &crate::breach::Checker,
+    password: &str,
+) -> Result<(), Error> {
     enabled(pool).await?;
     if !crate::password::valid(password) {
         return Err(Error::Invalid);
     }
-    let digest = hex(&sha1::Sha1::digest(password.as_bytes()));
-    let suffixes: Option<Vec<String>> = sqlx::query_scalar(
-        "SELECT suffixes FROM registration_password_ranges WHERE prefix=$1 AND expires_at>now()",
-    )
-    .bind(&digest[..5])
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| Error::Unavailable)?;
-    let suffixes = suffixes.ok_or(Error::Unavailable)?;
-    if suffixes.iter().any(|s| !valid_hex(s, 35)) {
-        return Err(Error::Unavailable);
-    }
-    if suffixes.iter().any(|s| s == &digest[5..]) {
-        Err(Error::Breached)
-    } else {
-        Ok(())
-    }
+    crate::breach::check(checker, password)
+        .await
+        .map_err(|error| match error {
+            crate::breach::BreachError::Breached => Error::Breached,
+            crate::breach::BreachError::Unavailable => Error::Unavailable,
+        })
 }
 
 pub mod http;

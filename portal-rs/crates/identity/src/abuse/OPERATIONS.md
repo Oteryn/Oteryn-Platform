@@ -5,21 +5,39 @@ update of `registration_abuse_policy.enabled` to true. A missing policy row or
 database error denies registration. The flag also applies to the trusted Rust
 registration function's password check.
 
-There are no external calls, external captcha, or external range API. No external
-API flag is needed because no such adapter is provided. SHA-1 is only the lookup
-format of the local breach corpus; account password storage remains Argon2id.
+There is no external captcha. The breach corpus is the Have I Been Pwned range
+API with a 30-day PostgreSQL cache (owner decision 2026-11-21); it is the shared
+breached-password check (`crate::breach`) used by registration, password change,
+password reset and recovery-key recovery. The registration policy flag gates only
+registration; the other flows always run the check. SHA-1 is only the lookup
+format of the range API; account password storage remains Argon2id.
 
-Before enabling registration, provision `registration_password_ranges` from a
-trusted, complete breach corpus. Import each complete five-character uppercase
-SHA-1 prefix and all corresponding 35-character uppercase suffixes with positive
-breach counts, removing the count field. Publish each complete range atomically
-and set `expires_at` to the corpus freshness deadline. An empty array is permitted
-only for a prefix verified to have no breached entries. Never convert partial
-results, padding entries, import failures, or source unavailability into an empty
-range. Corpus distribution and import are operator responsibilities; no synthetic
-corpus is shipped as production coverage. Restrict policy/corpus writes to trusted
-operators. Missing, expired or malformed ranges return HTTP 503. Breached passwords
-return 422. Neither case creates accounts, consent records or mail.
+Lookup: the check reads the cached row for the five-character uppercase SHA-1
+prefix where `complete = true` and `expires_at > now()`, and decides from it
+without HTTP. Otherwise it sends one `GET {base}{PREFIX}` with `Add-Padding: true`
+and `User-Agent: oteryn-portal` (3 s total timeout, 1 MiB body limit, no redirects
+or proxies). `base` defaults to `https://api.pwnedpasswords.com/range/` and can be
+set with `OTERYN_PWNED_PASSWORDS_URL` (plain `http` is accepted only for a loopback
+host). Every response line must be `SUFFIX:COUNT` (35 uppercase hex digits, a
+decimal count); count-0 padding lines are dropped and the remaining suffixes are
+the complete range, upserted with `complete = true` and `expires_at = now() + 30
+days`. Only the prefix leaves the process; the password, the full hash and the
+suffix list are never logged. The check runs before any transaction is opened.
+
+Rows imported by operators before 2026-11-21 kept only suffixes with a breach
+count of at least 100 and are incomplete: the migration marks every existing row
+`complete = false`, and such rows never decide a lookup. A row counts only when
+`complete = true`. Operators do not need to import ranges any more; if they do,
+they must import every suffix of a prefix with a positive count and set
+`complete = true`, never partial results, padding or failures.
+
+An API outage, timeout, non-200 status, oversized or malformed body with no fresh
+complete cached row returns HTTP 503 for registration (and a temporary error for
+the other flows); it never accepts the password. A failed cache write after a
+successful fetch still decides from the fetched range. Breached passwords return
+422 on registration and a refusal message elsewhere. Neither case creates
+accounts, consent records or mail, changes a password, or uses a reset token or
+recovery key.
 
 Challenges require the existing browser session's CSRF verification. Work is 16
 leading SHA-256 zero bits over the ASCII string `TOKEN:NONCE`; TOKEN is 64 uppercase
@@ -40,5 +58,6 @@ never leave Platform Identity or appear in errors. Challenge responses use
 `Cache-Control: no-store`; proofs are submitted in POST bodies.
 
 Database tests read `PORTAL_TEST_DATABASE_URL`, create private schemas, enable only
-their own policy, and provision explicitly synthetic complete ranges. Without the
+their own policy, and provision explicitly synthetic complete ranges
+(`complete = true`) or a local range mock on 127.0.0.1. Without the
 variable they print a skip notice. No SQL query macros or offline metadata are added.

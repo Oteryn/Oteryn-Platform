@@ -7,5 +7,6 @@ reset-submit = Kontynuuj
 reset-login = Zaloguj się
 reset-notice = Jeśli konto z tym adresem istnieje, wysłaliśmy link do zresetowania hasła.
 reset-error = Link jest nieprawidłowy lub wygasł albo hasła nie są identyczne. W razie potrzeby poproś o nowy link.
+reset-breached = To nowe hasło występuje w znanych wyciekach danych. Wybierz inne hasło. Link resetujący nadal jest ważny.
 reset-mail-subject = Zresetuj hasło do Oteryn
 reset-mail-body = Otwórz ten link w ciągu 60 minut, aby zresetować hasło. Jeśli nie prosisz o zmianę, zignoruj tę wiadomość.

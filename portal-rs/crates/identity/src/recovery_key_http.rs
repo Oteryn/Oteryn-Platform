@@ -127,7 +127,7 @@ fn page(
 ) -> Result<Response, StatusCode> {
     let message = if matches!(
         context.notice.as_str(),
-        "invalid" | "rejected" | "recovered"
+        "invalid" | "rejected" | "breached" | "recovered"
     ) {
         context.notice.as_str()
     } else {
@@ -178,6 +178,7 @@ async fn failure(
         Error::Unavailable => return Err(StatusCode::SERVICE_UNAVAILABLE),
         Error::InvalidInput => "invalid",
         Error::Rejected => "rejected",
+        Error::Breached => "breached",
     };
     if let Err(response) = (context.flash)(key, None).await {
         return Ok(response);

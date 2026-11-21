@@ -139,9 +139,35 @@ pub async fn request(pool: &PgPool, email: &str, key: &DeliveryKey) -> Result<()
     audit(&mut tx, actor, "identity.password_reset_requested").await?;
     tx.commit().await
 }
-pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> {
+/// Result of a reset submission. Only `Completed` changes the password or uses the token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Completion {
+    Completed,
+    Refused,
+    /// The new password appears in known data breaches.
+    Breached,
+    /// The breached-password check could not run.
+    Unavailable,
+}
+pub async fn complete(pool: &PgPool, input: Input) -> Result<Completion, sqlx::Error> {
+    complete_with(pool, &crate::breach::Checker::from_env(pool.clone()), input).await
+}
+/// [`complete`] with an explicit breached-password range source.
+pub async fn complete_with(
+    pool: &PgPool,
+    checker: &crate::breach::Checker,
+    input: Input,
+) -> Result<Completion, sqlx::Error> {
     if !input.valid() {
-        return refusal(pool, "identity.password_reset_bad_input").await;
+        refusal(pool, "identity.password_reset_bad_input").await?;
+        return Ok(Completion::Refused);
+    }
+    // Every well-formed submission is checked before the account or token is read, so
+    // the answer reveals nothing about either, and nothing is consumed on refusal.
+    match crate::breach::check(checker, &input.password).await {
+        Ok(()) => {}
+        Err(crate::breach::BreachError::Breached) => return Ok(Completion::Breached),
+        Err(crate::breach::BreachError::Unavailable) => return Ok(Completion::Unavailable),
     }
     let hash = tokio::task::spawn_blocking(move || password::hash(&input.password))
         .await
@@ -182,13 +208,16 @@ pub async fn complete(pool: &PgPool, input: Input) -> Result<bool, sqlx::Error> 
     )
     .await?;
     tx.commit().await?;
-    Ok(accepted)
+    Ok(if accepted {
+        Completion::Completed
+    } else {
+        Completion::Refused
+    })
 }
-async fn refusal(pool: &PgPool, event: &str) -> Result<bool, sqlx::Error> {
+async fn refusal(pool: &PgPool, event: &str) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     audit(&mut tx, None, event).await?;
-    tx.commit().await?;
-    Ok(false)
+    tx.commit().await
 }
 #[cfg(test)]
 #[path = "reset_tests.rs"]

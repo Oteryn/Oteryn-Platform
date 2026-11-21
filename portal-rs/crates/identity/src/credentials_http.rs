@@ -171,6 +171,11 @@ async fn page(
     if session.account_id().await.is_none() {
         return Ok(redirect("/login"));
     }
+    let breached = session
+        .get(BREACHED)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .unwrap_or(false);
     let page = Page {
         lang: lang.code(),
         title: text(
@@ -195,10 +200,14 @@ async fn page(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .unwrap_or(false),
-        error: text(lang, "refused"),
+        error: text(lang, if breached { "breached" } else { "refused" }),
     };
     session
         .set(FAILED, &false)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    session
+        .set(BREACHED, &false)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(axum::response::Html(
@@ -301,6 +310,14 @@ async fn change(
             Ok(redirect("/login"))
         }
         Outcome::Refused | Outcome::Invalid => refuse(lang, &session, "password/change").await,
+        Outcome::Breached => {
+            session
+                .set(BREACHED, &true)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            refuse(lang, &session, "password/change").await
+        }
+        Outcome::Unavailable => Err(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
 async fn sudo(
@@ -367,6 +384,7 @@ async fn sudo(
 mod tests;
 
 const FAILED: SessionKey<bool> = SessionKey::new("credentials_failed");
+const BREACHED: SessionKey<bool> = SessionKey::new("credentials_breached");
 fn redirect(path: &str) -> Response {
     let mut response = Redirect::to(path).into_response();
     *response.status_mut() = StatusCode::FOUND;

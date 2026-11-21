@@ -6,6 +6,7 @@ save = Zapisz klucz w bezpiecznym miejscu. Jest widoczny tylko raz. Wpisz go pon
 confirmed = Klucz odzyskiwania jest aktywny.
 invalid = Sprawdź e-mail, klucz i hasło. Hasła muszą być identyczne i zawierać co najmniej 10 znaków.
 rejected = Dane są nieprawidłowe lub ta operacja jest niedostępna.
+breached = To nowe hasło występuje w znanych wyciekach danych. Wybierz inne hasło. Klucz odzyskiwania nie został użyty.
 email = E-mail
 key = Klucz odzyskiwania
 password = Nowe hasło
