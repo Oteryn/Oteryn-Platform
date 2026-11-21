@@ -100,7 +100,7 @@ class StaticContract(unittest.TestCase):
         site = text[text.index('\napi.oteryn.com {\n'):]
         site = site[:site.index('\n}\n')]
         self.assertNotIn('tunnel_only', site)
-        self.assertIn('@machine path /oauth/token /api/v1/* /updates/*\n', site)
+        self.assertIn('@machine path /oauth/token /api/v1/* /v1/client/directory /v1/client/channel-probes /updates/*\n', site)
         self.assertIn('rewrite @native_ticket /api/v1/game-auth/tickets', site)
         self.assertIn('\thandle {\n\t\trespond 404\n\t}', site)
         self.assertEqual(site.count('reverse_proxy'), 1)
