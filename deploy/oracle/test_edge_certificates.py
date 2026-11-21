@@ -76,8 +76,8 @@ class EdgeCertificates(unittest.TestCase):
         ok, line = self.run_check(60, host='other.test.invalid')
         self.assertFalse(ok, line)
 
-    def test_context_refuses_tls_older_than_1_2(self):
-        self.assertEqual(edge.tls_context().minimum_version, ssl.TLSVersion.TLSv1_2)
+    def test_context_requires_tls_1_3(self):
+        self.assertEqual(edge.tls_context().minimum_version, ssl.TLSVersion.TLSv1_3)
 
     def test_every_public_edge_host_is_checked(self):
         self.assertEqual(set(edge.HOSTS), {'oteryn.com', 'www.oteryn.com', 'api.oteryn.com',

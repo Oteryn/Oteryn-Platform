@@ -19,9 +19,9 @@ MIN_DAYS = 14
 
 
 def tls_context(cafile=None):
-    """Verifying client context that refuses anything older than TLS 1.2."""
+    """Verifying client context that accepts only TLS 1.3, which every edge host serves."""
     context = ssl.create_default_context(cafile=cafile)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
     return context
 
 
