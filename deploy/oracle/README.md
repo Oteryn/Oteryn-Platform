@@ -167,6 +167,17 @@ Rollback: change the apex back to a proxied A record for 158.180.58.90, then in 
 `Caddyfile` put the Cloudflare ranges back in `trusted_proxies` and in the
 `tunnel_only` matcher (or drop the import), and reload the edge.
 
+### Machine API host
+
+`api.oteryn.com` is a DNS-only A record for 158.180.58.90 with its own ACME
+certificate. It serves native clients without Cloudflare in the path, so zone bot
+protection (Bot Fight Mode, challenges) never answers a non-browser client. The
+site passes only `/v1/game-auth/tickets` (rewritten as on the apex),
+`/oauth/token`, `/api/v1/*` and `/updates/*` to the portal and answers 404 for
+everything else; browser steps such as `/oauth/authorize` stay on `oteryn.com`.
+Protection there is the portal's own authentication and rate limits. The same paths
+keep working on `oteryn.com` until every native client uses the api host.
+
 Recreating `portal` also requires recreating `portal-gateway`, which shares its
 network namespace; otherwise the gateway keeps a stale namespace and answers 502.
 
