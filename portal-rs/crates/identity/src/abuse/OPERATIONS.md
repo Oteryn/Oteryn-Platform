@@ -21,6 +21,13 @@ corpus is shipped as production coverage. Restrict policy/corpus writes to trust
 operators. Missing, expired or malformed ranges return HTTP 503. Breached passwords
 return 422. Neither case creates accounts, consent records or mail.
 
+The operator tool is `deploy/oracle/password-ranges.py` (`fetch DIR --min-count N`,
+then `sql DIR --expires-days D | psql -v ON_ERROR_STOP=1`). Owner decision
+2026-11-21: the current pre-production deployment imports only suffixes seen at
+least 100 times (`--min-count 100`, expiry 365 days), so less common breached
+passwords are not refused there. Production requires the complete corpus: before
+production launch, re-import with `--min-count 1` (all positive counts, as above).
+
 Challenges require the existing browser session's CSRF verification. Work is 16
 leading SHA-256 zero bits over the ASCII string `TOKEN:NONCE`; TOKEN is 64 uppercase
 hex characters and NONCE contains at most 16 decimal digits. Each token contains
