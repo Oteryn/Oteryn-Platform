@@ -4,3 +4,5 @@ login-password = Hasło
 login-submit = Zaloguj się
 login-error = Podane dane logowania są nieprawidłowe.
 logout-submit = Wyloguj się
+login-no-account = Nie masz konta?
+login-register = Zarejestruj się

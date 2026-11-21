@@ -28,9 +28,9 @@ fn escape(s: &str) -> String {
 fn label(lang: &str, key: &str) -> String {
     use fluent_bundle::{FluentBundle, FluentResource};
     let source = if lang == "pl" {
-        "news = Aktualności\nnew = Nowy wpis\nsave = Zapisz\ndelete = Usuń\nslug = Adres\ntitle = Tytuł\nbody = Treść\npublication = Data publikacji (UTC)\nnext = Następna strona"
+        "news = Aktualności\nempty = Brak opublikowanych aktualności.\nnew = Nowy wpis\nsave = Zapisz\ndelete = Usuń\nslug = Adres\ntitle = Tytuł\nbody = Treść\npublication = Data publikacji (UTC)\nnext = Następna strona"
     } else {
-        "news = News\nnew = New post\nsave = Save\ndelete = Delete\nslug = Slug\ntitle = Title\nbody = Body\npublication = Publication date (UTC)\nnext = Next page"
+        "news = News\nempty = No news has been published yet.\nnew = New post\nsave = Save\ndelete = Delete\nslug = Slug\ntitle = Title\nbody = Body\npublication = Publication date (UTC)\nnext = Next page"
     };
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -221,6 +221,9 @@ async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>,
     let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 11 OFFSET $2").bind(lang).bind(q.offset(10)?).fetch_all(pool).await.map_err(unavailable)?;
     let mut html = String::new();
     let has_next = rows.len() > 10 && q.page.unwrap_or(1) < MAX_PAGE;
+    if rows.is_empty() {
+        html.push_str(&format!("<p>{}</p>", label(lang, "empty")));
+    }
     for row in rows.into_iter().take(10) {
         html.push_str(&format!(
             "<p><a href=\"/{lang}/news/{}\">{}</a></p>",
