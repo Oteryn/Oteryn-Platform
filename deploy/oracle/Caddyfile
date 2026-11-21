@@ -1,7 +1,8 @@
 {
 	servers {
-		# Trust client forwarding only when the immediate peer is Cloudflare.
-		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		# Trust client forwarding only from cloudflared (Cloudflare Tunnel) at its
+		# fixed private address; nothing else may set X-Forwarded-For.
+		trusted_proxies static 172.18.0.20
 		trusted_proxies_strict
 		# Native gameplay shares :443 by SNI and ALPN. A matching connection is
 		# relayed as raw TCP, still encrypted, to the Game node's private
@@ -23,14 +24,22 @@
 	}
 }
 
+(tunnel_only) {
+	# oteryn.com is served only through the Cloudflare Tunnel; a direct origin
+	# connection (any peer other than cloudflared) is dropped.
+	@not_tunnel not remote_ip 172.18.0.20
+	abort @not_tunnel
+}
+
 oteryn.com {
+	import tunnel_only
 	encode zstd gzip
 	# Preserve the native contract alias to the Rust authenticated API handler.
 	@native_ticket path /v1/game-auth/tickets
 	rewrite @native_ticket /api/v1/game-auth/tickets
 	reverse_proxy platform:8080 {
-		# Forward the client already resolved through the Cloudflare trust policy,
-		# rather than exposing an extra Cloudflare hop to the Rust allowlist.
+		# Forward the client already resolved through the tunnel trust policy,
+		# rather than exposing the cloudflared hop to the Rust allowlist.
 		header_up X-Forwarded-For {client_ip}
 	}
 }
