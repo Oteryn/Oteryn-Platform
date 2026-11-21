@@ -18,6 +18,13 @@ HOSTS = ('oteryn.com', 'www.oteryn.com', 'api.oteryn.com', 'login.oteryn.com',
 MIN_DAYS = 14
 
 
+def tls_context(cafile=None):
+    """Verifying client context that refuses anything older than TLS 1.2."""
+    context = ssl.create_default_context(cafile=cafile)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 def days_left(not_after, now):
     expires = datetime.datetime.fromtimestamp(ssl.cert_time_to_seconds(not_after), datetime.timezone.utc)
     return (expires - now).total_seconds() / 86400
@@ -42,7 +49,7 @@ def main(argv=None):
     parser.add_argument('--origin', default=ORIGIN)
     parser.add_argument('hosts', nargs='*', default=HOSTS)
     args = parser.parse_args(argv)
-    context = ssl.create_default_context()
+    context = tls_context()
     now = datetime.datetime.now(datetime.timezone.utc)
     failed = 0
     for host in args.hosts:

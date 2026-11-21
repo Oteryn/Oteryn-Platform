@@ -41,7 +41,7 @@ class TlsServer:
             pass
 
     def trusting(self):
-        return ssl.create_default_context(cafile=str(self.cert))
+        return edge.tls_context(str(self.cert))
 
 
 class EdgeCertificates(unittest.TestCase):
@@ -54,7 +54,7 @@ class EdgeCertificates(unittest.TestCase):
 
     def run_check(self, days, host=NAME, trusted=True):
         server = TlsServer(self.tmp.name, days)
-        context = server.trusting() if trusted else ssl.create_default_context()
+        context = server.trusting() if trusted else edge.tls_context()
         return edge.check(host, '127.0.0.1', context, self.now, port=server.port, timeout=5)
 
     def test_valid_certificate_with_enough_time_passes(self):
@@ -75,6 +75,9 @@ class EdgeCertificates(unittest.TestCase):
     def test_certificate_for_another_name_fails(self):
         ok, line = self.run_check(60, host='other.test.invalid')
         self.assertFalse(ok, line)
+
+    def test_context_refuses_tls_older_than_1_2(self):
+        self.assertEqual(edge.tls_context().minimum_version, ssl.TLSVersion.TLSv1_2)
 
     def test_every_public_edge_host_is_checked(self):
         self.assertEqual(set(edge.HOSTS), {'oteryn.com', 'www.oteryn.com', 'api.oteryn.com',
