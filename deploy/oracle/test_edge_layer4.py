@@ -83,6 +83,18 @@ class StaticContract(unittest.TestCase):
         self.assertIn('ipv4_address: ' + tunnel, compose)
         self.assertNotIn('ports:', compose)
 
+    def test_every_site_is_kept_out_of_indexes_before_launch(self):
+        text = CADDYFILE.read_text()
+        snippet = text[text.index('\n(no_robots) {'):]
+        snippet = snippet[:snippet.index('\n}\n')]
+        self.assertIn('header X-Robots-Tag "noindex, nofollow, noarchive"', snippet)
+        self.assertIn('respond "User-agent: *\nDisallow: /\n" 200', snippet)
+        sites = re.findall(r'(?m)^([a-z][^\s{(]*(?:, [^\s{]+)*) \{\n((?:\t.*\n)+?)\}', text)
+        self.assertTrue(sites)
+        for name, body in sites:
+            with self.subTest(site=name):
+                self.assertIn('\timport no_robots\n', body)
+
 
 def free_port():
     with socket.socket() as probe:
