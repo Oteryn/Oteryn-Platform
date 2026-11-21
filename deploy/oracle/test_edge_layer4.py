@@ -68,6 +68,21 @@ class StaticContract(unittest.TestCase):
         # The rollback image is the stock base of the final stage.
         self.assertIn(froms[1], (HERE / 'README.md').read_text())
 
+    def test_apex_is_served_only_through_the_tunnel(self):
+        text = CADDYFILE.read_text()
+        tunnel = '172.18.0.20'
+        self.assertRegex(global_block(text), r'(?m)^\t\ttrusted_proxies static ' + re.escape(tunnel) + '$')
+        snippet = text[text.index('\n(tunnel_only) {'):]
+        snippet = snippet[:snippet.index('\n}\n')]
+        self.assertIn('@not_tunnel not remote_ip ' + tunnel + '\n', snippet)
+        self.assertIn('abort @not_tunnel', snippet)
+        apex = text[text.index('\noteryn.com {'):]
+        self.assertTrue(apex.startswith('\noteryn.com {\n\timport tunnel_only\n'))
+        compose = (HERE / 'tunnel.compose.yml').read_text()
+        self.assertRegex(compose, r'(?m)^    image: cloudflare/cloudflared@sha256:[0-9a-f]{64}$')
+        self.assertIn('ipv4_address: ' + tunnel, compose)
+        self.assertNotIn('ports:', compose)
+
 
 def free_port():
     with socket.socket() as probe:

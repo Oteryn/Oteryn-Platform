@@ -122,8 +122,8 @@ and `edge.compose.yml` with `Caddyfile`. Only Caddy publishes 80/443; database,
 PHP and internal proxy listeners remain private. The trusted edge and internal
 proxy have exact addresses 172.18.0.10 and 172.18.0.5. Canonical APP_URL is
 https://oteryn.com with Secure cookies. Certificates persist in named volumes.
-Apex DNS is proxied to 158.180.58.90; www, gateway, login and game use DNS-only
-records for that address. Existing mail records are preserved.
+Apex DNS is a proxied CNAME to the Cloudflare Tunnel (below); www, gateway, login
+and game use DNS-only records for 158.180.58.90. Existing mail records are preserved.
 
 Native Game shares :443. The edge image (`edge.Dockerfile`: stock Caddy 2.11.7
 plus caddy-l4 v0.1.3, both pinned) runs a layer4 listener wrapper ahead of TLS:
@@ -141,6 +141,34 @@ then `docker compose -f edge.compose.yml up -d`. Rollback: set the edge image ba
 to the stock `caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f`,
 remove the `listener_wrappers` block from `Caddyfile` and recreate the edge. The
 stock image rejects that block, so change both together.
+
+### Cloudflare Tunnel
+
+`oteryn.com` reaches the edge only through the Cloudflare Tunnel `oteryn-portal`.
+`tunnel.compose.yml` runs the pinned `cloudflared` at the fixed private address
+172.18.0.20; it opens outbound connections to Cloudflare and forwards to
+`https://172.18.0.10:443` with origin server name `oteryn.com`. The `Caddyfile`
+trusts forwarding only from 172.18.0.20 and the apex site imports `tunnel_only`,
+which aborts any other peer, so a direct request to 158.180.58.90 for oteryn.com is
+dropped. www, gateway, login and game stay DNS-only and are unaffected.
+
+Host files, never committed: `/opt/oteryn-oracle/tunnel/` (mode 700, owner 65532)
+holds `config.yml` (tunnel id, `credentials-file`, ingress `oteryn.com` ->
+`https://172.18.0.10:443` with `originRequest.originServerName: oteryn.com`, then
+`http_status:404`) and the tunnel credentials JSON. The account `cert.pem` from
+`cloudflared tunnel login` stays in a separate root-only directory and is mounted
+only into one-off `cloudflared tunnel ... route dns` runs. Start with
+`docker compose -f tunnel.compose.yml up -d` and wait for four registered
+connections in its log before changing DNS. The apex record must be a proxied
+CNAME to `<tunnel id>.cfargotunnel.com`; `route dns --overwrite-dns` replaces only
+a CNAME, so an existing apex A record is changed to that CNAME in place.
+
+Rollback: change the apex back to a proxied A record for 158.180.58.90, then in the
+`Caddyfile` put the Cloudflare ranges back in `trusted_proxies` and in the
+`tunnel_only` matcher (or drop the import), and reload the edge.
+
+Recreating `portal` also requires recreating `portal-gateway`, which shares its
+network namespace; otherwise the gateway keeps a stale namespace and answers 502.
 
 ## Existing NAS state migration
 
@@ -393,9 +421,10 @@ inside the container, keeping it out of host-side Docker arguments and logs.
 Failure prevents disruption. No automatic schema rollback is attempted.
 
 Caddy forwards its already-resolved `{client_ip}` as a single `X-Forwarded-For`
-value. Its strict Cloudflare trust policy rejects spoofed forwarding from other
-peers, while Rust trusts only the Caddy container at `172.18.0.10`; a Cloudflare
-transport hop cannot accidentally become the registration budget key.
+value. Its strict trust policy accepts forwarding only from cloudflared at
+`172.18.0.20` and rejects spoofed forwarding from other peers, while Rust trusts
+only the Caddy container at `172.18.0.10`; the tunnel hop cannot accidentally
+become the registration budget key.
 
 Registration requires mail delivery in both `serve` and `worker`. Supply
 `OTERYN_SMTP_HOST`, `OTERYN_SMTP_USERNAME`, `OTERYN_SMTP_PASSWORD`, and

@@ -43,11 +43,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-19T21:42:44Z
-head: 3a1619c80a6091919f7bdb92c9a3f12aeee9bd5b
+updated_at: 2026-11-21T20:30:00Z
+head: a34f023d3e6c911f981d753f9314e03ccb83326e
 branch: publish/thais-portal
 pr: 1990
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/templates/
@@ -63,7 +63,7 @@ proven:
   - Before implementation, a desktop visitor traversed 51 unique Polish destinations. Registration returned 503 and the client-download destination displayed an unpublished-page message.
 derived: []
 unknown:
-  - Final exact-head checks, protected integration and public release outcome.
+  - Public release outcome was not re-verified during archival.
 conflicts:
   - Open PR 1987 at 23d0bc5abedabf615a88c3a5f41dc462b0154d1f separately changes the ultrawide hero in portal-rs/static/thais/home.css. Its 1800px cap and edge mask overlap this candidate's 2868x941 panorama sizing and fade.
 first_failure:
@@ -89,7 +89,7 @@ validation:
     result: NOT_RUN
     evidence: The published head and the working candidate are being reconciled. Earlier local screenshots cover the preview.
 blockers: []
-next_action: Qualify the updated head of PR 1990 and check the panorama at 1800 pixels or wider before reconciling PR 1987.
+next_action: none; delivered by PR #1990 and archived
 ```
 
 ## Source branch closeout
@@ -97,5 +97,5 @@ next_action: Qualify the updated head of PR 1990 and check the panorama at 1800 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: Dedicated same-repository integration branch for issue 1989.
-source_branch_evidence: PR 1990 remains open. Verify the remote source ref after protected integration.
+source_branch_evidence: PR #1990 merged as 368b0199640e1d0114e3ba8d1c07e6305688e184 on 2026-11-19; Issue #1989 closed as completed; refs/heads/publish/thais-portal no longer exists on origin
 ```
