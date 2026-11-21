@@ -15,6 +15,17 @@
 {% let interior = false %}
 {% include "components/thais-header.html" %}
 <main id="main" tabindex="-1">
+  <svg class="home-paint" aria-hidden="true" focusable="false" width="0" height="0">
+    <defs>
+      <linearGradient id="home-gilt-stroke" x2="65%" y2="100%">
+        <stop offset="0" class="gilt-edge"/>
+        <stop offset=".3" class="gilt-light"/>
+        <stop offset=".55" class="gilt-edge"/>
+        <stop offset=".79" class="gilt-light"/>
+        <stop offset="1" class="gilt-edge"/>
+      </linearGradient>
+    </defs>
+  </svg>
   <section class="hero" id="start" aria-labelledby="hero-title">
     <picture>
       <source media="(min-width: 961px)" srcset="/static/thais/brama-panorama.webp" width="2868" height="941">
@@ -46,14 +57,14 @@
       <div class="actions">
         {% if chrome.signed_in() %}
           {% if let Some(link) = chrome.link("create-character") %}
-            <a class="cta" href="{{ link.url }}">{% call ui::icon("user", "") %}{% endcall %}{{ link.label }}</a>
+            <a class="cta" href="{{ link.url }}">{% call ui::icon("user", "") %}{% endcall %}<span class="gilt-label">{{ link.label }}</span></a>
           {% else if chrome.account_mounted %}
-            <a class="cta" href="/account">{% call ui::icon("user", "") %}{% endcall %}{{ chrome.text("stage-my-account") }}</a>
+            <a class="cta" href="/account">{% call ui::icon("user", "") %}{% endcall %}<span class="gilt-label">{{ chrome.text("stage-my-account") }}</span></a>
           {% endif %}
         {% else if chrome.registration_mounted %}
-          <a class="cta" href="/{{ chrome.lang }}/register">{% call ui::icon("user", "") %}{% endcall %}{{ chrome.text("stage-register") }}</a>
+          <a class="cta" href="/{{ chrome.lang }}/register">{% call ui::icon("user", "") %}{% endcall %}<span class="gilt-label">{{ chrome.text("stage-register") }}</span></a>
         {% else if chrome.login_mounted %}
-          <a class="cta" href="/{{ chrome.lang }}/login">{% call ui::icon("user", "") %}{% endcall %}{{ chrome.text("stage-login") }}</a>
+          <a class="cta" href="/{{ chrome.lang }}/login">{% call ui::icon("user", "") %}{% endcall %}<span class="gilt-label">{{ chrome.text("stage-login") }}</span></a>
         {% endif %}
         <a class="plainlink" href="#jak-zaczac">{% call ui::icon("book", "") %}{% endcall %}{{ chrome.text("home-steps-eyebrow") }}</a>
       </div>
