@@ -176,8 +176,8 @@ def emit_sql(directory, expires_days, out):
         out.write(data)
         out.write('\\.\n')
         out.write(
-            'INSERT INTO registration_password_ranges (prefix, suffixes, expires_at, complete) '
-            f"SELECT prefix, suffixes, now() + interval '{int(expires_days)} days', {complete} FROM import_ranges "
+            'INSERT INTO registration_password_ranges (prefix, suffixes, expires_at, complete, complete_xact) '
+            f"SELECT prefix, suffixes, now() + interval '{int(expires_days)} days', {complete}, pg_current_xact_id() FROM import_ranges "
             'ON CONFLICT (prefix) DO UPDATE SET suffixes = EXCLUDED.suffixes, '
             'expires_at = EXCLUDED.expires_at, complete = EXCLUDED.complete, '
             'complete_xact = pg_current_xact_id(), updated_at = now() '

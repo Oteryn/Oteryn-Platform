@@ -131,7 +131,7 @@ async fn cached(pool: &PgPool, prefix: &str) -> Option<Vec<String>> {
 
 async fn store(pool: &PgPool, prefix: &str, suffixes: &[String]) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,$2,now()+interval '30 days',true)
+        "INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,$2,now()+interval '30 days',true,pg_current_xact_id())
          ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id(),updated_at=now()",
     )
     .bind(prefix)

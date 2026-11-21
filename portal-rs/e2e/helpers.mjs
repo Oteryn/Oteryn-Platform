@@ -57,7 +57,7 @@ export async function seedPasswordRange(value) {
     await db.query("INSERT INTO world_status(id,name) SELECT uuidv7(),'Local Browser World' WHERE NOT EXISTS(SELECT 1 FROM world_status)");
     // Synthetic local corpus, matching the identity crate's registration fixtures.
     const prefix=crypto.createHash('sha1').update(value).digest('hex').toUpperCase().slice(0,5);
-    await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
+    await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
   } finally { await db.end(); }
 }
 export async function register(page,lang) {

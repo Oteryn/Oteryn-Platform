@@ -1299,7 +1299,7 @@ async fn credentials_only_delivery() -> TestResult {
     let session = vec![21u8; 32];
     query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('c',64),'test',now()+interval '1 hour',now()+interval '1 day')").bind(&session).bind(id).execute(&db.pool).await?;
     // Complete, empty breach-cache range for the replacement password's SHA-1 prefix.
-    query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES('287B4',ARRAY[]::text[],now()+interval '1 hour',true)").execute(&db.pool).await?;
+    query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES('287B4',ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id())").execute(&db.pool).await?;
     let credentials = oteryn_identity::credentials::Credentials {
         pool: db.pool.clone(),
         enabled: true,

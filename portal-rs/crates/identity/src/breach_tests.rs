@@ -151,7 +151,7 @@ pub(crate) fn range(password: &str, breached: bool) -> String {
 /// Cache a complete clean range for `password` so the check needs no HTTP.
 pub(crate) async fn allow(pool: &PgPool, password: &str) -> Result<(), sqlx::Error> {
     let digest = sha1_hex(password);
-    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true) ON CONFLICT(prefix) DO UPDATE SET suffixes=ARRAY[]::text[],expires_at=now()+interval '1 hour',complete=true,complete_xact=pg_current_xact_id()")
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=ARRAY[]::text[],expires_at=now()+interval '1 hour',complete=true,complete_xact=pg_current_xact_id()")
         .bind(&digest[..5])
         .execute(pool)
         .await?;
@@ -389,6 +389,60 @@ async fn old_thresholded_import_over_a_complete_row_does_not_stay_complete() -> 
         .execute(p)
         .await?;
     assert_eq!(row(p, PASSWORD).await?.map(|r| r.0), Some(false));
+    db.close().await
+}
+
+async fn complete_of(pool: &PgPool, prefix: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT complete FROM registration_password_ranges WHERE prefix=$1")
+        .bind(prefix)
+        .fetch_one(pool)
+        .await
+}
+
+#[tokio::test]
+async fn unstamped_insert_copy_and_inherited_stamp_are_not_complete() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let p = &db.pool;
+    // A fresh INSERT that claims completeness without the stamp.
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES('AAAA1',ARRAY[]::text[],now()+interval '1 day',true)")
+        .execute(p)
+        .await?;
+    assert!(!complete_of(p, "AAAA1").await?);
+    // A direct COPY that claims completeness without the stamp.
+    let mut conn = p.acquire().await?;
+    let mut copy = conn
+        .copy_in_raw(
+            "COPY registration_password_ranges(prefix,suffixes,expires_at,complete) FROM STDIN",
+        )
+        .await?;
+    copy.send(b"AAAA2\t{}\t2999-01-01 00:00:00+00\tt\n".as_slice())
+        .await?;
+    copy.finish().await?;
+    drop(conn);
+    assert!(!complete_of(p, "AAAA2").await?);
+    // A stamped write is complete; the stamp is not stored, so a later unstamped write in
+    // the same transaction (and in a savepoint) cannot inherit it.
+    let mut tx = p.begin().await?;
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES('AAAA3',ARRAY[]::text[],now()+interval '1 day',true,pg_current_xact_id())")
+        .execute(&mut *tx)
+        .await?;
+    let stamp: Option<String> = sqlx::query_scalar(
+        "SELECT complete_xact::text FROM registration_password_ranges WHERE prefix='AAAA3'",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    assert_eq!(stamp, None);
+    sqlx::query("SAVEPOINT s").execute(&mut *tx).await?;
+    sqlx::query(
+        "UPDATE registration_password_ranges SET suffixes=ARRAY[]::text[] WHERE prefix='AAAA3'",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("RELEASE SAVEPOINT s").execute(&mut *tx).await?;
+    tx.commit().await?;
+    assert!(!complete_of(p, "AAAA3").await?);
     db.close().await
 }
 

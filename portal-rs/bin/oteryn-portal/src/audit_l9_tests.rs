@@ -255,7 +255,7 @@ async fn registration_body(
     source: &str,
 ) -> Result<String> {
     // Complete, empty fixture range for the exact test password's SHA-1 prefix.
-    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true) ON CONFLICT(prefix) DO NOTHING")
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO NOTHING")
         .bind("AEB30").execute(pool).await?;
     let response = app
         .clone()
@@ -457,7 +457,7 @@ async fn production_credentials_notification() -> Result {
     let id = account(&db.pool, "password@example.test").await?;
     let browser = browser(&db.pool, Some(id)).await?;
     // Complete, empty breach-cache range for "next password" (SHA-1 prefix E6AC2).
-    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES('E6AC2',ARRAY[]::text[],now()+interval '1 hour',true) ON CONFLICT(prefix) DO NOTHING").execute(&db.pool).await?;
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES('E6AC2',ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO NOTHING").execute(&db.pool).await?;
     let response=app(db.pool.clone()).oneshot(request("POST","/en/password/change",&browser,"10.0.0.1:1234","192.0.2.1","current_password=old+password&password=next+password&password_confirmation=next+password")?).await?;
     assert_eq!(response.status(), StatusCode::FOUND);
     let count: i64 =

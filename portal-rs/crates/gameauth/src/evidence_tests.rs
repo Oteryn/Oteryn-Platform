@@ -531,7 +531,7 @@ async fn db_evidence_password_generation_and_all_persisted_statuses() -> TestRes
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
         .bind(vec![1u8;32]).bind(id).bind("a".repeat(64)).execute(&db.pool).await?;
     // Complete, empty breach-cache range for "new password" (SHA-1 prefix A1FC5).
-    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES('A1FC5',ARRAY[]::text[],now()+interval '1 hour',true)")
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES('A1FC5',ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id())")
         .execute(&db.pool)
         .await?;
     let credentials = oteryn_identity::credentials::Credentials {
