@@ -101,7 +101,7 @@ async fn r7_registration_leaves_both_sessions_anonymous() -> Result<(), Box<dyn 
         .execute(&db.pool)
         .await?;
     // Empty breach-cache range for the form password below.
-    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at) VALUES('AE9F0',ARRAY[]::text[],now()+interval '1 hour')").execute(&db.pool).await?;
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES('AE9F0',ARRAY[]::text[],now()+interval '1 hour',true)").execute(&db.pool).await?;
     let app = routes()
         .with_state(AppState {
             db: db.pool.clone(),
