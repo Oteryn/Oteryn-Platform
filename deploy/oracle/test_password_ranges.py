@@ -97,9 +97,10 @@ class Blocks(unittest.TestCase):
                     out = io.StringIO()
                     pr.emit_sql(d, 365, out)
                     sql = out.getvalue()
-                    self.assertIn(f"interval '365 days', {complete} FROM", sql)
+                    self.assertIn(f"interval '365 days', {complete}, pg_current_xact_id() FROM import_ranges", sql)
                     self.assertIn('complete = EXCLUDED.complete', sql)
                     self.assertIn('complete_xact = pg_current_xact_id()', sql)
+                    self.assertIn("(prefix, suffixes, expires_at, complete, complete_xact) ", sql)
                     self.assertIn('WHERE EXCLUDED.complete OR NOT registration_password_ranges.complete', sql)
         finally:
             pr.TOTAL_BLOCKS = old
@@ -120,7 +121,7 @@ class Blocks(unittest.TestCase):
                 (Path(d) / '000.tsv').write_text(''.join(f'{p}\t{{}}\n' for p in pr.block_prefixes('000')), encoding='ascii')
                 out = io.StringIO()
                 pr.emit_sql(d, 365, out)
-                self.assertIn("interval '365 days', false FROM", out.getvalue())
+                self.assertIn("interval '365 days', false, pg_current_xact_id() FROM", out.getvalue())
         finally:
             pr.TOTAL_BLOCKS = old
 

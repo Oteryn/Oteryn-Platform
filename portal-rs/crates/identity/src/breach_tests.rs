@@ -446,6 +446,61 @@ async fn unstamped_insert_copy_and_inherited_stamp_are_not_complete() -> TestRes
     db.close().await
 }
 
+/// The importer's upsert (`deploy/oracle/password-ranges.py` `emit_sql`, `--min-count 1`).
+const NEW_IMPORT_SQL: &str = "INSERT INTO registration_password_ranges (prefix, suffixes, expires_at, complete, complete_xact) \
+     SELECT prefix, suffixes, now() + interval '30 days', true, pg_current_xact_id() FROM import_ranges \
+     ON CONFLICT (prefix) DO UPDATE SET suffixes = EXCLUDED.suffixes, \
+     expires_at = EXCLUDED.expires_at, complete = EXCLUDED.complete, \
+     complete_xact = pg_current_xact_id(), updated_at = now() \
+     WHERE EXCLUDED.complete OR NOT registration_password_ranges.complete";
+
+#[tokio::test]
+async fn importer_full_then_legacy_subset_in_one_transaction_is_not_complete() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let p = &db.pool;
+    let suffix = "0".repeat(35);
+    let mut tx = p.begin().await?;
+    sqlx::query("CREATE TEMP TABLE import_ranges (prefix text, suffixes text[]) ON COMMIT DROP")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO import_ranges VALUES('BBBB1', ARRAY[$1])")
+        .bind(&suffix)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(NEW_IMPORT_SQL).execute(&mut *tx).await?;
+    let full: bool = sqlx::query_scalar(
+        "SELECT complete FROM registration_password_ranges WHERE prefix='BBBB1'",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    assert!(full, "a stamped full import is complete");
+    sqlx::query("UPDATE import_ranges SET suffixes=ARRAY[]::text[]")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(OLD_IMPORT_SQL).execute(&mut *tx).await?;
+    tx.commit().await?;
+    assert!(!complete_of(p, "BBBB1").await?);
+    // A full import on its own, and the portal's own store, stay complete.
+    let mut tx = p.begin().await?;
+    sqlx::query("CREATE TEMP TABLE import_ranges (prefix text, suffixes text[]) ON COMMIT DROP")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO import_ranges VALUES('BBBB1', ARRAY[$1]), ('BBBB2', ARRAY[]::text[])")
+        .bind(&suffix)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(NEW_IMPORT_SQL).execute(&mut *tx).await?;
+    tx.commit().await?;
+    assert!(complete_of(p, "BBBB1").await?);
+    assert!(complete_of(p, "BBBB2").await?);
+    store(p, "BBBB3", &[]).await?;
+    store(p, "BBBB3", std::slice::from_ref(&suffix)).await?;
+    assert!(complete_of(p, "BBBB3").await?);
+    db.close().await
+}
+
 #[tokio::test]
 async fn outage_timeout_and_malformed_body_are_unavailable() -> TestResult {
     let Some(db) = Database::open().await? else {
