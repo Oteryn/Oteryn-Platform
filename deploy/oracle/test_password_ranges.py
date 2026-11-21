@@ -87,6 +87,42 @@ class Blocks(unittest.TestCase):
         finally:
             pr.TOTAL_BLOCKS = old
 
+    def test_only_full_import_is_complete_and_never_downgrades(self):
+        old = pr.TOTAL_BLOCKS
+        pr.TOTAL_BLOCKS = 1
+        try:
+            for min_count, complete in ((1, 'true'), (100, 'false')):
+                with tempfile.TemporaryDirectory() as d:
+                    self.assertTrue(pr.fetch(d, min_count, 4, fetcher=lambda p, m: []))
+                    out = io.StringIO()
+                    pr.emit_sql(d, 365, out)
+                    sql = out.getvalue()
+                    self.assertIn(f"interval '365 days', {complete} FROM", sql)
+                    self.assertIn('complete = EXCLUDED.complete', sql)
+                    self.assertIn('WHERE EXCLUDED.complete OR NOT registration_password_ranges.complete', sql)
+        finally:
+            pr.TOTAL_BLOCKS = old
+
+    def test_threshold_is_pinned_to_the_directory(self):
+        old = pr.TOTAL_BLOCKS
+        pr.TOTAL_BLOCKS = 1
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.assertTrue(pr.fetch(d, 100, 4, fetcher=lambda p, m: []))
+                with self.assertRaises(pr.RangeError):
+                    pr.fetch(d, 1, 4, fetcher=lambda p, m: [])
+            with tempfile.TemporaryDirectory() as d:
+                (Path(d) / '000.tsv').write_text('', encoding='ascii')
+                with self.assertRaises(pr.RangeError):
+                    pr.fetch(d, 1, 4, fetcher=lambda p, m: [])
+            with tempfile.TemporaryDirectory() as d:
+                (Path(d) / '000.tsv').write_text(''.join(f'{p}\t{{}}\n' for p in pr.block_prefixes('000')), encoding='ascii')
+                out = io.StringIO()
+                pr.emit_sql(d, 365, out)
+                self.assertIn("interval '365 days', false FROM", out.getvalue())
+        finally:
+            pr.TOTAL_BLOCKS = old
+
     def test_sql_refuses_incomplete_block_and_bad_expiry(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / '000.tsv').write_text('00000\t{}\n', encoding='ascii')

@@ -14,7 +14,9 @@ Two steps, both resumable:
   password-ranges.py sql DIR --expires-days D | psql -v ON_ERROR_STOP=1 ...
       Emits one transaction per complete block: COPY into a temporary table,
       then upsert into registration_password_ranges with
-      expires_at = now() + D days. Re-running is idempotent.
+      expires_at = now() + D days. Rows are marked complete only when the
+      directory was fetched with --min-count 1 (recorded in DIR/min-count); a
+      thresholded import never replaces a complete row. Re-running is idempotent.
 
 The threshold and the expiry are operator decisions; record both with the
 import (see crates/identity/src/abuse/OPERATIONS.md).
@@ -109,8 +111,31 @@ def write_block(directory, block, rows):
     os.replace(tmp, final)
 
 
+MIN_COUNT_FILE = 'min-count'
+
+
+def record_min_count(directory, min_count):
+    """Pin the threshold to the directory; every block in it must share it."""
+    marker = Path(directory) / MIN_COUNT_FILE
+    if marker.exists():
+        if marker.read_text(encoding='ascii').strip() != str(min_count):
+            raise RangeError(f'{marker} records a different --min-count')
+    elif any(Path(directory).glob('*.tsv')):
+        raise RangeError(f'{directory} has blocks with an unknown --min-count')
+    else:
+        marker.write_text(f'{min_count}\n', encoding='ascii')
+
+
+def recorded_min_count(directory):
+    marker = Path(directory) / MIN_COUNT_FILE
+    if not marker.exists():
+        return None
+    return int(marker.read_text(encoding='ascii').strip())
+
+
 def fetch(directory, min_count, workers, fetcher=fetch_prefix):
     Path(directory).mkdir(parents=True, exist_ok=True)
+    record_min_count(directory, min_count)
     failed = 0
     for b in range(TOTAL_BLOCKS):
         block = f'{b:03X}'
@@ -135,6 +160,9 @@ def fetch(directory, min_count, workers, fetcher=fetch_prefix):
 def emit_sql(directory, expires_days, out):
     if not 1 <= expires_days <= 730:
         raise RangeError('expires_days out of range')
+    # Only an import of every positive-count suffix is a complete range; a
+    # thresholded import is a subset and must never decide a lookup.
+    complete = 'true' if recorded_min_count(directory) == 1 else 'false'
     for b in range(TOTAL_BLOCKS):
         path = Path(directory) / f'{b:03X}.tsv'
         if not path.exists():
@@ -148,10 +176,12 @@ def emit_sql(directory, expires_days, out):
         out.write(data)
         out.write('\\.\n')
         out.write(
-            'INSERT INTO registration_password_ranges (prefix, suffixes, expires_at) '
-            f"SELECT prefix, suffixes, now() + interval '{int(expires_days)} days' FROM import_ranges "
+            'INSERT INTO registration_password_ranges (prefix, suffixes, expires_at, complete) '
+            f"SELECT prefix, suffixes, now() + interval '{int(expires_days)} days', {complete} FROM import_ranges "
             'ON CONFLICT (prefix) DO UPDATE SET suffixes = EXCLUDED.suffixes, '
-            'expires_at = EXCLUDED.expires_at, updated_at = now();\n'
+            'expires_at = EXCLUDED.expires_at, complete = EXCLUDED.complete, updated_at = now() '
+            # A subset import never replaces a complete range fetched by the portal.
+            'WHERE EXCLUDED.complete OR NOT registration_password_ranges.complete;\n'
         )
         out.write('COMMIT;\n')
 

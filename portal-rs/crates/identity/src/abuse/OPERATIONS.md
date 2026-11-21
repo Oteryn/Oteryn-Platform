@@ -40,11 +40,13 @@ accounts, consent records or mail, changes a password, or uses a reset token or
 recovery key.
 
 The operator tool is `deploy/oracle/password-ranges.py` (`fetch DIR --min-count N`,
-then `sql DIR --expires-days D | psql -v ON_ERROR_STOP=1`). Owner decision
-2026-11-21: the current pre-production deployment imports only suffixes seen at
-least 100 times (`--min-count 100`, expiry 365 days), so less common breached
-passwords are not refused there. Production requires the complete corpus: before
-production launch, re-import with `--min-count 1` (all positive counts, as above).
+then `sql DIR --expires-days D | psql -v ON_ERROR_STOP=1`). It records N in
+`DIR/min-count` and writes `complete = true` only for `--min-count 1`; a
+thresholded import is written `complete = false` and never replaces a complete
+row. The pre-production import of 2026-11-21 (`--min-count 100`) is therefore
+ignored by the check, and the live range API decides. Production requires the
+complete corpus (owner decision 2026-11-21): the live check with its cache
+provides it; a `--min-count 1` import is optional and only pre-fills the cache.
 
 Challenges require the existing browser session's CSRF verification. Work is 16
 leading SHA-256 zero bits over the ASCII string `TOKEN:NONCE`; TOKEN is 64 uppercase
