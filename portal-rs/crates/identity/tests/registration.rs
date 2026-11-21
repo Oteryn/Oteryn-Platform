@@ -52,7 +52,7 @@ impl Database {
             .await?;
         // This fixture password has an authoritative empty breach range.
         let digest = format!("{:X}", Sha1::digest(input().password.as_bytes()));
-        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at) VALUES ($1,ARRAY[]::text[],now()+interval '1 hour')")
+        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES ($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id())")
             .bind(&digest[..5])
             .execute(&pool)
             .await?;

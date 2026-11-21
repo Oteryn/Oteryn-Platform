@@ -465,8 +465,9 @@ async fn audit02_email_change_revokes_preexisting_reset_link() -> TestResult {
     assert_eq!(s.request(id, input(true, false)).await?, Outcome::Requested);
     let (confirmation, _) = tokens(&db.pool).await?;
     assert_eq!(s.confirm(&confirmation).await?, Outcome::Changed);
-    assert!(
-        !crate::reset::complete(
+    crate::breach::tests::allow(&db.pool, "attacker password").await?;
+    assert_eq!(
+        crate::reset::complete(
             &db.pool,
             crate::reset::Input {
                 email: "new@example.invalid".into(),
@@ -475,7 +476,8 @@ async fn audit02_email_change_revokes_preexisting_reset_link() -> TestResult {
                 password_confirmation: "attacker password".into()
             }
         )
-        .await?
+        .await?,
+        crate::reset::Completion::Refused
     );
     let hash: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
         .bind(id)
@@ -678,7 +680,8 @@ async fn d1_password_reset_cancels_pending_email_change() -> TestResult {
             payload["ciphertext"].clone(),
         )?)
         .unwrap();
-    assert!(
+    crate::breach::tests::allow(&db.pool, "owner recovered password").await?;
+    assert_eq!(
         crate::reset::complete(
             &db.pool,
             crate::reset::Input {
@@ -688,7 +691,8 @@ async fn d1_password_reset_cancels_pending_email_change() -> TestResult {
                 password_confirmation: "owner recovered password".into(),
             }
         )
-        .await?
+        .await?,
+        crate::reset::Completion::Completed
     );
     let outcome = s.confirm(&confirmation).await?;
     let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
@@ -711,6 +715,7 @@ async fn d1_recovery_key_cancels_pending_email_change() -> TestResult {
     keys.enabled = crate::recovery_key::Enabled(true);
     let key = keys.generate(id, "test-password").await?;
     keys.confirm(id, "test-password", &key).await?;
+    crate::breach::tests::allow(&db.pool, "owner recovered password").await?;
     assert_eq!(
         s.request(id, input(false, false)).await?,
         Outcome::Requested
@@ -745,6 +750,7 @@ async fn d1_recovery_cancels_confirmed_change_waiting_for_worker() -> TestResult
     keys.enabled = crate::recovery_key::Enabled(true);
     let key = keys.generate(id, "test-password").await?;
     keys.confirm(id, "test-password", &key).await?;
+    crate::breach::tests::allow(&db.pool, "owner recovered password").await?;
     assert_eq!(
         s.request(id, input(false, false)).await?,
         Outcome::Requested

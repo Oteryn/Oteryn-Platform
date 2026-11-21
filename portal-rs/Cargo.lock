@@ -2989,6 +2989,9 @@ dependencies = [
  "fluent-bundle",
  "futures-util",
  "getrandom 0.4.3",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "oteryn-db",
  "oteryn-internal-api",
  "oteryn-notify",
@@ -2996,6 +2999,7 @@ dependencies = [
  "oteryn-wallet",
  "oteryn-web",
  "prost",
+ "rustls",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -3004,12 +3008,15 @@ dependencies = [
  "sqlx",
  "subtle",
  "tokio",
+ "tokio-rustls",
  "totp-rs",
  "tower",
  "unic-langid",
+ "url",
  "uuid",
  "webauthn-authenticator-rs",
  "webauthn-rs",
+ "webpki-roots",
 ]
 
 [[package]]

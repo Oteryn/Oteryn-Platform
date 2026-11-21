@@ -9,6 +9,14 @@ fn input(email: &str, token: &str) -> Input {
         password_confirmation: "new secure password".into(),
     }
 }
+/// The reset harness with a cached complete, clean range for the fixture password.
+async fn open() -> Result<Option<db::Database>, Box<dyn std::error::Error>> {
+    let Some(db) = db::Database::open().await? else {
+        return Ok(None);
+    };
+    crate::breach::tests::allow(&db.pool, "new secure password").await?;
+    Ok(Some(db))
+}
 fn key() -> DeliveryKey {
     DeliveryKey([17; 32])
 }
@@ -47,7 +55,7 @@ fn input_and_ciphertext_refusals() -> Result<(), Box<dyn std::error::Error>> {
 }
 #[tokio::test]
 async fn success_revokes_and_replay_denied() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let p = &db.pool;
@@ -57,7 +65,10 @@ async fn success_revokes_and_replay_denied() -> Result<(), Box<dyn std::error::E
     let t = token(p).await?;
     assert!(!crate::native_recovery_test_support::revoked(p, &handle).await?);
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES (decode(repeat('ab',32),'hex'),$1,now()+interval '1 hour',now()+interval '1 day','test',repeat('c',64))").bind(id).execute(p).await?;
-    assert!(complete(p, input("reset@example.test", &t)).await?);
+    assert_eq!(
+        complete(p, input("reset@example.test", &t)).await?,
+        Completion::Completed
+    );
     let h: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
         .bind(id)
         .fetch_one(p)
@@ -69,7 +80,10 @@ async fn success_revokes_and_replay_denied() -> Result<(), Box<dyn std::error::E
         .await?;
     assert_eq!(n, 0);
     assert!(crate::native_recovery_test_support::revoked(p, &handle).await?);
-    assert!(!complete(p, input("reset@example.test", &t)).await?);
+    assert_eq!(
+        complete(p, input("reset@example.test", &t)).await?,
+        Completion::Refused
+    );
     let n: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_log WHERE action='identity.password_reset_completed'",
     )
@@ -80,7 +94,7 @@ async fn success_revokes_and_replay_denied() -> Result<(), Box<dyn std::error::E
 }
 #[tokio::test]
 async fn refusal_matrix_and_generic_requests() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let p = &db.pool;
@@ -106,11 +120,11 @@ async fn refusal_matrix_and_generic_requests() -> Result<(), Box<dyn std::error:
         input("reset@example.test", ""),
         input("bad", &t),
     ] {
-        assert!(!complete(p, i).await?);
+        assert_eq!(complete(p, i).await?, Completion::Refused);
     }
     let mut i = input("reset@example.test", &t);
     i.password_confirmation = "different".into();
-    assert!(!complete(p, i).await?);
+    assert_eq!(complete(p, i).await?, Completion::Refused);
     // A refused or malformed reset leaves the recovery handles live.
     assert!(!crate::native_recovery_test_support::revoked(p, &handle).await?);
     for status in ["suspended", "closed"] {
@@ -120,7 +134,10 @@ async fn refusal_matrix_and_generic_requests() -> Result<(), Box<dyn std::error:
             .execute(p)
             .await?;
         request(p, "reset@example.test", &key()).await?;
-        assert!(!complete(p, input("reset@example.test", &t)).await?);
+        assert_eq!(
+            complete(p, input("reset@example.test", &t)).await?,
+            Completion::Refused
+        );
     }
     sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
         .bind(id)
@@ -129,7 +146,10 @@ async fn refusal_matrix_and_generic_requests() -> Result<(), Box<dyn std::error:
     sqlx::query("UPDATE account_password_resets SET expires_at=now()-interval '1 second'")
         .execute(p)
         .await?;
-    assert!(!complete(p, input("reset@example.test", &t)).await?);
+    assert_eq!(
+        complete(p, input("reset@example.test", &t)).await?,
+        Completion::Refused
+    );
     let h: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
         .bind(id)
         .fetch_one(p)
@@ -138,8 +158,67 @@ async fn refusal_matrix_and_generic_requests() -> Result<(), Box<dyn std::error:
     db.close().await
 }
 #[tokio::test]
+async fn breached_or_unchecked_password_keeps_the_token() -> Result<(), Box<dyn std::error::Error>>
+{
+    use crate::breach::tests::{Mock, Reply, range};
+    let Some(db) = open().await? else {
+        return Ok(());
+    };
+    let p = &db.pool;
+    sqlx::query("DELETE FROM registration_password_ranges")
+        .execute(p)
+        .await?;
+    let id = account(p).await?;
+    request(p, "reset@example.test", &key()).await?;
+    let t = token(p).await?;
+    let password = "new secure password";
+    let hit = Mock::start(Reply::Ok(range(password, true))).await?;
+    let down = Mock::start(Reply::Status(500)).await?;
+    let clean = Mock::start(Reply::Ok(range(password, false))).await?;
+    let mut bad = input("reset@example.test", &t);
+    bad.password_confirmation = "another secure password".into();
+    assert_eq!(
+        complete_with(p, &hit.checker(p), bad).await?,
+        Completion::Refused
+    );
+    assert_eq!(hit.hits(), 0);
+    assert_eq!(
+        complete_with(p, &hit.checker(p), input("reset@example.test", &t)).await?,
+        Completion::Breached
+    );
+    sqlx::query("DELETE FROM registration_password_ranges")
+        .execute(p)
+        .await?;
+    assert_eq!(
+        complete_with(p, &down.checker(p), input("reset@example.test", &t)).await?,
+        Completion::Unavailable
+    );
+    // Neither refusal changed the password or used the token.
+    let (hash, used): (String, bool) = sqlx::query_as("SELECT a.password_hash,r.used_at IS NOT NULL FROM accounts a JOIN account_password_resets r ON r.account_id=a.id WHERE a.id=$1")
+        .bind(id)
+        .fetch_one(p)
+        .await?;
+    assert_eq!((hash.as_str(), used), ("old", false));
+    assert_eq!(
+        complete_with(p, &clean.checker(p), input("reset@example.test", &t)).await?,
+        Completion::Completed
+    );
+    let hash: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(p)
+        .await?;
+    assert!(password::verify(password, &hash));
+    assert_eq!(
+        complete_with(p, &clean.checker(p), input("reset@example.test", &t)).await?,
+        Completion::Refused
+    );
+    assert_eq!((hit.hits(), down.hits(), clean.hits()), (1, 1, 1));
+    db.close().await
+}
+
+#[tokio::test]
 async fn replacement_and_concurrent_use() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let p = &db.pool;
@@ -152,7 +231,10 @@ async fn replacement_and_concurrent_use() -> Result<(), Box<dyn std::error::Erro
     request(p, "reset@example.test", &key()).await?;
     let new = token(p).await?;
     assert_ne!(old, new);
-    assert!(!complete(p, input("reset@example.test", &old)).await?);
+    assert_eq!(
+        complete(p, input("reset@example.test", &old)).await?,
+        Completion::Refused
+    );
     let (a, b) = tokio::join!(
         complete(p, input("reset@example.test", &new)),
         complete(p, input("reset@example.test", &new))
@@ -164,7 +246,7 @@ async fn replacement_and_concurrent_use() -> Result<(), Box<dyn std::error::Erro
 #[tokio::test]
 async fn login_started_before_reset_cannot_restore_session()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let p = &db.pool;
@@ -172,7 +254,10 @@ async fn login_started_before_reset_cannot_restore_session()
     sqlx::query("INSERT INTO web_sessions(id_hash,last_seen_at,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES (decode(repeat('cd',32),'hex'),now()-interval '1 second',now()+interval '1 hour',now()+interval '1 day','test',repeat('c',64))").execute(p).await?;
     request(p, "reset@example.test", &key()).await?;
     let t = token(p).await?;
-    assert!(complete(p, input("reset@example.test", &t)).await?);
+    assert_eq!(
+        complete(p, input("reset@example.test", &t)).await?,
+        Completion::Completed
+    );
     let result = sqlx::query(
         "UPDATE web_sessions SET account_id=$1 WHERE id_hash=decode(repeat('cd',32),'hex')",
     )
@@ -199,7 +284,7 @@ async fn login_started_before_reset_cannot_restore_session()
 #[tokio::test]
 async fn audit_failure_rolls_back_password_token_and_sessions()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let p = &db.pool;
@@ -227,7 +312,7 @@ async fn audit_failure_rolls_back_password_token_and_sessions()
 #[tokio::test]
 async fn audit02_password_proof_is_revoked_despite_anonymous_activity_refresh()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let id = account(&db.pool).await?;
@@ -249,7 +334,10 @@ async fn audit02_password_proof_is_revoked_despite_anonymous_activity_refresh()
     assert!(proof.current(&db.pool).await?);
     request(&db.pool, "reset@example.test", &key()).await?;
     let token = token(&db.pool).await?;
-    assert!(complete(&db.pool, input("reset@example.test", &token)).await?);
+    assert_eq!(
+        complete(&db.pool, input("reset@example.test", &token)).await?,
+        Completion::Completed
+    );
     // Refreshing anonymous activity after reset cannot change the proof generation.
     sqlx::query("INSERT INTO web_sessions(id_hash,last_seen_at,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES(decode(repeat('ef',32),'hex'),clock_timestamp(),now()+interval '1 hour',now()+interval '1 day','test',repeat('d',64))").execute(&db.pool).await?;
     sqlx::query("UPDATE web_sessions SET last_seen_at=clock_timestamp() WHERE account_id IS NULL")
@@ -262,7 +350,7 @@ async fn audit02_password_proof_is_revoked_despite_anonymous_activity_refresh()
 #[tokio::test]
 async fn audit02_revoker_invalidates_outstanding_reset_without_replacing_password()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let id = account(&db.pool).await?;
@@ -272,7 +360,10 @@ async fn audit02_revoker_invalidates_outstanding_reset_without_replacing_passwor
     crate::recovery_key::revoke_authorizations(&mut tx, id).await?;
     sqlx::query("UPDATE accounts SET password_hash=$2,native_security_generation=native_security_generation+1 WHERE id=$1").bind(id).bind(password::hash("replacement password")?).execute(&mut *tx).await?;
     tx.commit().await?;
-    assert!(!complete(&db.pool, input("reset@example.test", &old)).await?);
+    assert_eq!(
+        complete(&db.pool, input("reset@example.test", &old)).await?,
+        Completion::Refused
+    );
     let hash: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
         .bind(id)
         .fetch_one(&db.pool)
@@ -284,7 +375,7 @@ async fn audit02_revoker_invalidates_outstanding_reset_without_replacing_passwor
 #[tokio::test]
 async fn audit02_confirmed_backup_recovers_and_replacement_invalidates_link()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let id = account(&db.pool).await?;
@@ -299,22 +390,34 @@ async fn audit02_confirmed_backup_recovers_and_replacement_invalidates_link()
     request(&db.pool, "backup@example.test", &key()).await?;
     let old = token(&db.pool).await?;
     sqlx::query("UPDATE account_backup_emails SET email='replacement@example.test',verified_at=clock_timestamp() WHERE account_id=$1").bind(id).execute(&db.pool).await?;
-    assert!(!complete(&db.pool, input("backup@example.test", &old)).await?);
-    assert!(!complete(&db.pool, input("reset@example.test", &old)).await?);
+    assert_eq!(
+        complete(&db.pool, input("backup@example.test", &old)).await?,
+        Completion::Refused
+    );
+    assert_eq!(
+        complete(&db.pool, input("reset@example.test", &old)).await?,
+        Completion::Refused
+    );
     sqlx::query("UPDATE account_password_resets SET created_at=now()-interval '61 seconds'")
         .execute(&db.pool)
         .await?;
     request(&db.pool, "replacement@example.test", &key()).await?;
     let new = token(&db.pool).await?;
-    assert!(complete(&db.pool, input("replacement@example.test", &new)).await?);
-    assert!(!complete(&db.pool, input("replacement@example.test", &new)).await?);
+    assert_eq!(
+        complete(&db.pool, input("replacement@example.test", &new)).await?,
+        Completion::Completed
+    );
+    assert_eq!(
+        complete(&db.pool, input("replacement@example.test", &new)).await?,
+        Completion::Refused
+    );
     db.close().await
 }
 
 #[tokio::test]
 async fn audit02_verification_and_session_expire_while_waiting_for_account_lock()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let id = account(&db.pool).await?;
@@ -363,7 +466,7 @@ async fn audit02_verification_and_session_expire_while_waiting_for_account_lock(
 #[tokio::test]
 async fn audit02_password_change_refuses_preexisting_reset_link()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let id = account(&db.pool).await?;
@@ -376,6 +479,7 @@ async fn audit02_password_change_refuses_preexisting_reset_link()
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,repeat('a',64),'audit',now()+interval '1 hour',now()+interval '1 day')").bind(&hash).bind(id).execute(&db.pool).await?;
     request(&db.pool, "reset@example.test", &key()).await?;
     let old = token(&db.pool).await?;
+    crate::breach::tests::allow(&db.pool, "replacement password").await?;
     let service = crate::credentials::Credentials {
         pool: db.pool.clone(),
         enabled: true,
@@ -397,7 +501,10 @@ async fn audit02_password_change_refuses_preexisting_reset_link()
             .await?,
         crate::credentials::Outcome::Changed
     );
-    assert!(!complete(&db.pool, input("reset@example.test", &old)).await?);
+    assert_eq!(
+        complete(&db.pool, input("reset@example.test", &old)).await?,
+        Completion::Refused
+    );
     let hash: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
         .bind(id)
         .fetch_one(&db.pool)
@@ -409,7 +516,7 @@ async fn audit02_password_change_refuses_preexisting_reset_link()
 #[tokio::test]
 async fn audit02_mfa_challenge_expires_during_account_lock_wait()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let id = account(&db.pool).await?;
@@ -450,7 +557,7 @@ async fn audit02_mfa_challenge_expires_during_account_lock_wait()
 #[tokio::test]
 async fn audit02_backup_recovery_refuses_legacy_cross_account_address_collision()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let id = account(&db.pool).await?;
@@ -466,7 +573,10 @@ async fn audit02_backup_recovery_refuses_legacy_cross_account_address_collision(
     );
     let raw = "a".repeat(64);
     sqlx::query("INSERT INTO account_password_resets(account_id,token_hash,expires_at,recovery_email,backup_verified_at) SELECT $1,$2,now()+interval '1 hour',email,verified_at FROM account_backup_emails WHERE account_id=$1").bind(id).bind(token_hash(&raw)).execute(&db.pool).await?;
-    assert!(!complete(&db.pool, input("colliding@example.test", &raw)).await?);
+    assert_eq!(
+        complete(&db.pool, input("colliding@example.test", &raw)).await?,
+        Completion::Refused
+    );
     assert_eq!(
         sqlx::query_scalar::<_, String>("SELECT password_hash FROM accounts WHERE id=$1")
             .bind(id)
@@ -479,7 +589,7 @@ async fn audit02_backup_recovery_refuses_legacy_cross_account_address_collision(
 
 #[tokio::test]
 async fn removed_backup_ineligible_after_lock_wait() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = db::Database::open().await? else {
+    let Some(db) = open().await? else {
         return Ok(());
     };
     let pool = &db.pool;

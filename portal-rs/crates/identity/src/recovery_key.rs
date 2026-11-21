@@ -18,6 +18,8 @@ pub enum Error {
     Disabled,
     InvalidInput,
     Rejected,
+    /// The new password appears in known data breaches; nothing changed.
+    Breached,
     Unavailable,
 }
 impl From<sqlx::Error> for Error {
@@ -75,10 +77,13 @@ pub struct RecoveryKeys {
     pub pool: PgPool,
     pub enabled: Enabled,
     pub reset: SecurityReset,
+    /// Breached-password range source for the new password set by `recover`.
+    pub breach: crate::breach::Checker,
 }
 impl RecoveryKeys {
     pub fn new(pool: PgPool) -> Self {
         Self {
+            breach: crate::breach::Checker::from_env(pool.clone()),
             pool,
             enabled: Enabled::default(),
             reset: integrated_security,
@@ -228,6 +233,13 @@ impl RecoveryKeys {
             return Err(Error::InvalidInput);
         }
         validate_key(raw)?;
+        // Check every well-formed request before any account read or transaction.
+        crate::breach::check(&self.breach, new_password)
+            .await
+            .map_err(|error| match error {
+                crate::breach::BreachError::Breached => Error::Breached,
+                crate::breach::BreachError::Unavailable => Error::Unavailable,
+            })?;
         // Hash on every well-formed request, including unknown accounts.
         let new_password = new_password.to_owned();
         let hash = expensive(move || password::hash(&new_password))

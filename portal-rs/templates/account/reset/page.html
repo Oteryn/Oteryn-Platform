@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ self.text("reset-title") }}</h1>
 {% if notice %}<p role="status">{{ self.text("reset-notice") }}</p>{% endif %}
-{% if failed %}<p class="op-error" role="alert">{{ self.text("reset-error") }}</p>{% endif %}
+{% if breached %}<p class="op-error" role="alert">{{ self.text("reset-breached") }}</p>{% else if failed %}<p class="op-error" role="alert">{{ self.text("reset-error") }}</p>{% endif %}
 <form class="op-stack" method="post" action="/{{ lang }}/{% if reset %}reset-password{% else %}forgot-password{% endif %}">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="token" value="{{ token }}">

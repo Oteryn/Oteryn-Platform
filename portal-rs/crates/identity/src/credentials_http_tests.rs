@@ -39,6 +39,25 @@ async fn security_landing_preserves_the_language() {
     }
 }
 
+/// Cache a complete range for `password` so the change makes no range request.
+async fn cache_range(
+    pool: &sqlx::PgPool,
+    password: &str,
+    breached: bool,
+) -> Result<(), sqlx::Error> {
+    let digest = oteryn_identity::breach::sha1_hex(password);
+    let suffixes: Vec<&str> = if breached {
+        vec![&digest[5..]]
+    } else {
+        Vec::new()
+    };
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,$2,now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=$2,expires_at=now()+interval '1 hour',complete=true,complete_xact=pg_current_xact_id()")
+        .bind(&digest[..5])
+        .bind(suffixes)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
 #[tokio::test]
 async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -46,6 +65,8 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         return Ok(());
     };
     let pool = db.pool.clone();
+    cache_range(&pool, "next password", false).await?;
+    cache_range(&pool, "breached password", true).await?;
     let password = oteryn_identity::password::hash("test password")?;
     let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id").bind(format!("{}@example.test",uuid::Uuid::now_v7())).bind(password).fetch_one(&pool).await?;
     let raw = "a".repeat(64);
@@ -176,6 +197,36 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
     );
     service.revoker = Arc::new(TestRevoker);
     let success = router(service);
+    // A breached new password is refused with its own message and changes nothing.
+    let response = success.clone().oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=breached+password&password_confirmation=breached+password")?).await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::LOCATION)
+            .ok_or("missing redirect")?,
+        "/en/password/change"
+    );
+    let response = success
+        .clone()
+        .oneshot(request("GET", "/en/password/change", &rotated, "", "")?)
+        .await?;
+    let html = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 20000)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(html.contains("This new password appears in known data breaches."));
+    let stored: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await?;
+    assert!(oteryn_identity::password::verify("test password", &stored));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(count, 1);
     let response = success.oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=next+password&password_confirmation=next+password")?).await?;
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(

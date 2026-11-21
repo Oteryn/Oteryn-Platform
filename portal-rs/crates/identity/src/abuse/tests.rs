@@ -69,7 +69,7 @@ impl Database {
         } else {
             Vec::new()
         };
-        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at) VALUES($1,$2,now()+interval '1 hour') ON CONFLICT(prefix) DO UPDATE SET suffixes=$2,expires_at=now()+interval '1 hour'")
+        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,$2,now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=$2,expires_at=now()+interval '1 hour',complete=true,complete_xact=pg_current_xact_id()")
             .bind(&digest[..5]).bind(suffixes).execute(&self.pool).await?;
         Ok(())
     }
@@ -153,19 +153,22 @@ async fn breached_missing_stale_and_malformed_ranges_deny() -> TestResult {
         return Ok(());
     };
     let password = "a locally generated test passphrase";
-    assert_eq!(
-        check_password(&db.pool, password).await,
-        Err(Error::Disabled)
+    // No cached range and an unreachable range API: never accepted.
+    let down = crate::breach::Checker::new(
+        db.pool.clone(),
+        "http://127.0.0.1:1/range/",
+        crate::breach::TIMEOUT,
     );
+    let check = |password: &'static str| check_password_with(&db.pool, &down, password);
+    assert_eq!(check(password).await, Err(Error::Disabled));
     db.enable().await?;
-    assert_eq!(check_password(&db.pool, "short").await, Err(Error::Invalid));
-    assert_eq!(
-        check_password(&db.pool, password).await,
-        Err(Error::Unavailable)
-    );
+    assert_eq!(check("short").await, Err(Error::Invalid));
+    assert_eq!(check(password).await, Err(Error::Unavailable));
     db.range(password, false).await?;
+    assert_eq!(check(password).await, Ok(()));
     assert_eq!(check_password(&db.pool, password).await, Ok(()));
     db.range(password, true).await?;
+    assert_eq!(check(password).await, Err(Error::Breached));
     assert_eq!(
         check_password(&db.pool, password).await,
         Err(Error::Breached)
@@ -173,15 +176,14 @@ async fn breached_missing_stale_and_malformed_ranges_deny() -> TestResult {
     sqlx::query("UPDATE registration_password_ranges SET expires_at=now()-interval '1 second'")
         .execute(&db.pool)
         .await?;
-    assert_eq!(
-        check_password(&db.pool, password).await,
-        Err(Error::Unavailable)
-    );
+    assert_eq!(check(password).await, Err(Error::Unavailable));
     sqlx::query("UPDATE registration_password_ranges SET suffixes=ARRAY['bad'],expires_at=now()+interval '1 hour'").execute(&db.pool).await?;
-    assert_eq!(
-        check_password(&db.pool, password).await,
-        Err(Error::Unavailable)
-    );
+    assert_eq!(check(password).await, Err(Error::Unavailable));
+    // An incomplete operator-import row (counts >= 100 only) never decides a lookup.
+    sqlx::query("UPDATE registration_password_ranges SET suffixes=ARRAY[]::text[],complete=false")
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(check(password).await, Err(Error::Unavailable));
     sqlx::query("DELETE FROM registration_abuse_policy")
         .execute(&db.pool)
         .await?;

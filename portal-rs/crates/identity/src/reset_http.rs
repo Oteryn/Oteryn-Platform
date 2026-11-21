@@ -100,6 +100,7 @@ struct Page {
     reset: bool,
     notice: bool,
     failed: bool,
+    breached: bool,
 }
 impl Page {
     fn text(&self, key: &str) -> String {
@@ -134,6 +135,7 @@ pub fn text(language: Language, key: &str) -> String {
 }
 const NOTICE: SessionKey<bool> = SessionKey::new("reset_notice");
 const FAILED: SessionKey<bool> = SessionKey::new("reset_failed");
+const BREACHED: SessionKey<bool> = SessionKey::new("reset_breached");
 async fn page(
     language: Language,
     session: BrowserSession,
@@ -151,8 +153,14 @@ async fn page(
         .await
         .map_err(unavailable)?
         .unwrap_or(false);
+    let breached = session
+        .get(BREACHED)
+        .await
+        .map_err(unavailable)?
+        .unwrap_or(false);
     session.set(NOTICE, &false).await.map_err(unavailable)?;
     session.set(FAILED, &false).await.map_err(unavailable)?;
+    session.set(BREACHED, &false).await.map_err(unavailable)?;
     let page = Page {
         lang: language.code(),
         language,
@@ -162,6 +170,7 @@ async fn page(
         reset,
         notice,
         failed,
+        breached,
     };
     let mut response = oteryn_web::render(&page);
     response.headers_mut().insert(
@@ -318,11 +327,16 @@ async fn submit_reset(
     } else {
         "reset-password".to_owned()
     };
-    if reset::complete(&pool, input).await.map_err(unavailable)? {
-        session::rotate(&session, session::PrivilegeChange::Logout)
-            .await
-            .map_err(unavailable)?;
-        return Ok(redirect(language, "login"));
+    match reset::complete(&pool, input).await.map_err(unavailable)? {
+        reset::Completion::Completed => {
+            session::rotate(&session, session::PrivilegeChange::Logout)
+                .await
+                .map_err(unavailable)?;
+            return Ok(redirect(language, "login"));
+        }
+        reset::Completion::Refused => {}
+        reset::Completion::Breached => session.set(BREACHED, &true).await.map_err(unavailable)?,
+        reset::Completion::Unavailable => return Err(StatusCode::SERVICE_UNAVAILABLE),
     }
     session.set(FAILED, &true).await.map_err(unavailable)?;
     Ok(redirect(language, &retry))

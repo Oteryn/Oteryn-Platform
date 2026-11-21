@@ -1,4 +1,5 @@
 use super::*;
+use crate::breach::tests::{Mock, Reply, range};
 #[path = "credentials_test_db.rs"]
 mod database;
 #[derive(Debug)]
@@ -84,6 +85,9 @@ async fn postgres_change_revocation_rollback_and_sudo() -> Result<(), Box<dyn st
             .bind(kind)
             .execute(&pool)
             .await?;
+    }
+    for clean in ["new password", "next password"] {
+        crate::breach::tests::allow(&pool, clean).await?;
     }
     let token = vec![1u8; 32];
     for n in [1u8, 2] {
@@ -231,11 +235,13 @@ async fn postgres_change_revocation_rollback_and_sudo() -> Result<(), Box<dyn st
 async fn integrated_change(
     current: &str,
     new: &str,
+    reply: Reply,
     expected: Outcome,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let Some(db) = database::Database::open().await? else {
         return Ok(());
     };
+    let range = Mock::start(reply).await?;
     let pool = db.pool.clone();
     let id: AccountId = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id")
         .bind(format!("{}@example.test",AccountId::now_v7())).bind(password::hash("old password")?).fetch_one(&pool).await?;
@@ -268,9 +274,13 @@ async fn integrated_change(
     sqlx::query("INSERT INTO account_email_changes(account_id,kind,old_email,new_email,confirmation_hash,revert_hash,immediate,confirmed_at,apply_after,expires_at,revert_until) SELECT id,'primary',email,'pending@example.test',$2,$3,false,now(),now()+interval '7 days',now()+interval '8 days',now()+interval '30 days' FROM accounts WHERE id=$1").bind(id).bind(vec![1u8;32]).bind(vec![2u8;32]).execute(&pool).await?;
     let changed = expected == Outcome::Changed;
     assert_eq!(
-        service.change(&[1; 32], input(current, new)).await?,
+        service
+            .change_with(&range.checker(&pool), &[1; 32], input(current, new))
+            .await?,
         expected
     );
+    // Malformed input is refused before the range is requested.
+    assert_eq!(range.hits(), usize::from(expected != Outcome::Invalid));
     let cancelled: bool = sqlx::query_scalar(
         "SELECT cancelled_at IS NOT NULL FROM account_email_changes WHERE account_id=$1",
     )
@@ -319,14 +329,45 @@ async fn integrated_change(
 #[tokio::test]
 async fn postgres_integrated_password_change_revokes_other_authorizations()
 -> Result<(), Box<dyn std::error::Error>> {
-    integrated_change("old password", "new password", Outcome::Changed).await
+    let clean = Reply::Ok(range("new password", false));
+    integrated_change("old password", "new password", clean, Outcome::Changed).await
 }
 #[tokio::test]
 async fn postgres_integrated_password_change_wrong_current_refused()
 -> Result<(), Box<dyn std::error::Error>> {
-    integrated_change("wrong password", "new password", Outcome::Refused).await
+    let clean = Reply::Ok(range("new password", false));
+    integrated_change("wrong password", "new password", clean, Outcome::Refused).await
 }
 #[tokio::test]
 async fn postgres_integrated_password_change_bad_input() -> Result<(), Box<dyn std::error::Error>> {
-    integrated_change("old password", "short", Outcome::Invalid).await
+    integrated_change(
+        "old password",
+        "short",
+        Reply::Status(500),
+        Outcome::Invalid,
+    )
+    .await
+}
+#[tokio::test]
+async fn postgres_breached_new_password_is_refused_without_effects()
+-> Result<(), Box<dyn std::error::Error>> {
+    let breached = Reply::Ok(range("new password", true));
+    integrated_change("old password", "new password", breached, Outcome::Breached).await
+}
+#[tokio::test]
+async fn postgres_range_outage_refuses_password_change() -> Result<(), Box<dyn std::error::Error>> {
+    integrated_change(
+        "old password",
+        "new password",
+        Reply::Status(500),
+        Outcome::Unavailable,
+    )
+    .await?;
+    integrated_change(
+        "old password",
+        "new password",
+        Reply::Hang,
+        Outcome::Unavailable,
+    )
+    .await
 }

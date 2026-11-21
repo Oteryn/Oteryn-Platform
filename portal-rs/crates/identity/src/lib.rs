@@ -11,6 +11,7 @@ pub mod register;
 pub mod verify;
 pub use accounts::AccountId;
 pub mod abuse;
+pub mod breach;
 
 pub mod credentials;
 pub mod email_change;

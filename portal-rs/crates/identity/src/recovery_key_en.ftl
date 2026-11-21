@@ -6,6 +6,7 @@ save = Save this key in a safe place. It is shown only once. Re-enter it below t
 confirmed = Your recovery key is active.
 invalid = Check your email, key and password. Passwords must match and contain at least 10 characters.
 rejected = The credentials are invalid or this action is unavailable.
+breached = This new password appears in known data breaches. Choose a different password. Your recovery key was not used.
 email = Email
 key = Recovery key
 password = New password

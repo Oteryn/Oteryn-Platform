@@ -188,13 +188,48 @@ async fn browser_reset_success_and_bad_input() -> TestResult {
     )?;
     assert!(html.contains("autocomplete=\"new-password\""));
     assert!(html.contains(&token));
-    for password in ["short", "a+long+new+password"] {
+    for (password, breached) in [
+        ("a long new password", false),
+        ("breached reset password", true),
+    ] {
+        let digest = oteryn_identity::breach::sha1_hex(password);
+        let suffixes: Vec<&str> = if breached {
+            vec![&digest[5..]]
+        } else {
+            Vec::new()
+        };
+        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,$2,now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=$2,expires_at=now()+interval '1 hour',complete=true,complete_xact=pg_current_xact_id()")
+            .bind(&digest[..5])
+            .bind(suffixes)
+            .execute(&db.pool)
+            .await?;
+    }
+    for password in ["short", "breached+reset+password", "a+long+new+password"] {
         let response=app.clone().oneshot(post("/en/reset-password",&cookie,format!("_csrf={csrf}&email=browser%40example.test&token={token}&password={password}&password_confirmation={password}"))).await?;
         assert_eq!(response.status(), StatusCode::FOUND);
-        if password == "short" {
+        if password != "a+long+new+password" {
             assert_eq!(
                 response.headers()["location"],
                 format!("/en/reset-password/{token}")
+            );
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(format!("/en/reset-password/{token}"))
+                        .header("cookie", &cookie)
+                        .body(axum::body::Body::empty())?,
+                )
+                .await?;
+            let html = String::from_utf8(
+                axum::body::to_bytes(response.into_body(), 100000)
+                    .await?
+                    .to_vec(),
+            )?;
+            // A breached password gets its own message; the link stays usable.
+            assert_eq!(
+                html.contains("appears in known data breaches"),
+                password != "short"
             );
         } else {
             assert_eq!(response.headers()["location"], "/en/login");

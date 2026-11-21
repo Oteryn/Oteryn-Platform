@@ -41,6 +41,8 @@ impl Database {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        // The fixture replacement password has a cached complete, clean range.
+        crate::breach::tests::allow(&pool, NEW).await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -151,6 +153,49 @@ async fn disabled_by_default() -> Result {
         .await?;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     Ok(())
+}
+#[tokio::test]
+async fn postgres_breached_or_unchecked_password_keeps_the_key() -> Result {
+    use crate::breach::tests::{Mock, Reply, range};
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::query("DELETE FROM registration_password_ranges")
+        .execute(&db.pool)
+        .await?;
+    let id = db.account().await?;
+    let key = db.key(id).await?;
+    db.session(Some(id)).await?;
+    let hit = Mock::start(Reply::Ok(range(NEW, true))).await?;
+    let mut keys = db.keys();
+    keys.breach = hit.checker(&db.pool);
+    assert!(matches!(
+        keys.recover("owner@example.test", &key, NEW, NEW).await,
+        Err(Error::Breached)
+    ));
+    sqlx::query("DELETE FROM registration_password_ranges")
+        .execute(&db.pool)
+        .await?;
+    let down = Mock::start(Reply::Status(500)).await?;
+    keys.breach = down.checker(&db.pool);
+    assert!(matches!(
+        keys.recover("owner@example.test", &key, NEW, NEW).await,
+        Err(Error::Unavailable)
+    ));
+    let (hash, sessions, used): (String, i64, bool) = sqlx::query_as("SELECT a.password_hash,(SELECT count(*) FROM web_sessions WHERE account_id=a.id),(SELECT used_at IS NOT NULL FROM account_recovery_keys WHERE account_id=a.id) FROM accounts a WHERE a.id=$1")
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(password::verify(CURRENT, &hash));
+    assert_eq!((sessions, used), (1, false));
+    let clean = Mock::start(Reply::Ok(range(NEW, false))).await?;
+    keys.breach = clean.checker(&db.pool);
+    assert_eq!(
+        keys.recover("owner@example.test", &key, NEW, NEW).await?,
+        id
+    );
+    assert_eq!((hit.hits(), down.hits(), clean.hits()), (1, 1, 1));
+    db.close().await
 }
 #[tokio::test]
 async fn postgres_success_consumes_key_and_revokes_sessions() -> Result {
