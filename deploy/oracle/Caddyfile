@@ -24,6 +24,16 @@
 	}
 }
 
+(no_robots) {
+	# Pre-launch: keep every host out of search and crawler indexes.
+	header X-Robots-Tag "noindex, nofollow, noarchive"
+	handle /robots.txt {
+		respond "User-agent: *
+Disallow: /
+" 200
+	}
+}
+
 (tunnel_only) {
 	# oteryn.com is served only through the Cloudflare Tunnel; a direct origin
 	# connection (any peer other than cloudflared) is dropped.
@@ -33,6 +43,7 @@
 
 oteryn.com {
 	import tunnel_only
+	import no_robots
 	encode zstd gzip
 	# Preserve the native contract alias to the Rust authenticated API handler.
 	@native_ticket path /v1/game-auth/tickets
@@ -45,12 +56,33 @@ oteryn.com {
 }
 
 www.oteryn.com {
+	import no_robots
 	redir https://oteryn.com{uri} 308
 }
 
 gateway.oteryn.com, login.oteryn.com {
+	import no_robots
 	reverse_proxy platform:8081 {
 		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+# Machine host for native clients: DNS-only, so no Cloudflare challenge can
+# reach a non-browser client. Only the machine paths are served; browser steps
+# (OAuth authorize, login, pages) stay on oteryn.com and answer 404 here.
+api.oteryn.com {
+	import no_robots
+	encode zstd gzip
+	@native_ticket path /v1/game-auth/tickets
+	rewrite @native_ticket /api/v1/game-auth/tickets
+	@machine path /oauth/token /api/v1/* /v1/client/directory /v1/client/channel-probes /updates/*
+	handle @machine {
+		reverse_proxy platform:8080 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+	handle {
+		respond 404
 	}
 }
 
@@ -59,5 +91,6 @@ gateway.oteryn.com, login.oteryn.com {
 # ACME certificate that game-supervisor.py still installs on the node; it
 # serves no game API.
 game.oteryn.com {
+	import no_robots
 	respond "Native gameplay uses TLS on :443 with ALPN oteryn-game/1." 404
 }

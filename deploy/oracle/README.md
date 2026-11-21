@@ -153,7 +153,8 @@ which aborts any other peer, so a direct request to 158.180.58.90 for oteryn.com
 dropped. www, gateway, login and game stay DNS-only and are unaffected.
 
 Host files, never committed: `/opt/oteryn-oracle/tunnel/` (mode 700, owner 65532)
-holds `config.yml` (tunnel id, `credentials-file`, ingress `oteryn.com` ->
+holds `config.yml` (tunnel id, `credentials-file`; ingress first sends path
+`^/\.well-known/acme-challenge/` to `http://172.18.0.10:80`, then `oteryn.com` ->
 `https://172.18.0.10:443` with `originRequest.originServerName: oteryn.com`, then
 `http_status:404`) and the tunnel credentials JSON. The account `cert.pem` from
 `cloudflared tunnel login` stays in a separate root-only directory and is mounted
@@ -163,9 +164,27 @@ connections in its log before changing DNS. The apex record must be a proxied
 CNAME to `<tunnel id>.cfargotunnel.com`; `route dns --overwrite-dns` replaces only
 a CNAME, so an existing apex A record is changed to that CNAME in place.
 
+The ACME path rule makes certificate issuance and renewal independent of the
+current origin certificate: Let's Encrypt validates HTTP-01 through Cloudflare and
+the tunnel to Caddy's port 80 (TLS-ALPN-01 cannot pass the proxy). Verified on
+2026-11-21 by issuing a staging certificate for a temporary tunnel-only host; the
+TLS hop to `:443` alone answered 502 to the validation while that host had no
+certificate.
+
 Rollback: change the apex back to a proxied A record for 158.180.58.90, then in the
 `Caddyfile` put the Cloudflare ranges back in `trusted_proxies` and in the
 `tunnel_only` matcher (or drop the import), and reload the edge.
+
+### Machine API host
+
+`api.oteryn.com` is a DNS-only A record for 158.180.58.90 with its own ACME
+certificate. It serves native clients without Cloudflare in the path, so zone bot
+protection (Bot Fight Mode, challenges) never answers a non-browser client. The
+site passes only `/v1/game-auth/tickets` (rewritten as on the apex),
+`/oauth/token`, `/api/v1/*` and `/updates/*` to the portal and answers 404 for
+everything else; browser steps such as `/oauth/authorize` stay on `oteryn.com`.
+Protection there is the portal's own authentication and rate limits. The same paths
+keep working on `oteryn.com` until every native client uses the api host.
 
 Recreating `portal` also requires recreating `portal-gateway`, which shares its
 network namespace; otherwise the gateway keeps a stale namespace and answers 502.

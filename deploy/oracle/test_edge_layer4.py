@@ -83,6 +83,29 @@ class StaticContract(unittest.TestCase):
         self.assertIn('ipv4_address: ' + tunnel, compose)
         self.assertNotIn('ports:', compose)
 
+    def test_every_site_is_kept_out_of_indexes_before_launch(self):
+        text = CADDYFILE.read_text()
+        snippet = text[text.index('\n(no_robots) {'):]
+        snippet = snippet[:snippet.index('\n}\n')]
+        self.assertIn('header X-Robots-Tag "noindex, nofollow, noarchive"', snippet)
+        self.assertIn('respond "User-agent: *\nDisallow: /\n" 200', snippet)
+        sites = re.findall(r'(?m)^([a-z][^\s{(]*(?:, [^\s{]+)*) \{\n((?:\t.*\n)+?)\}', text)
+        self.assertTrue(sites)
+        for name, body in sites:
+            with self.subTest(site=name):
+                self.assertIn('\timport no_robots\n', body)
+
+    def test_machine_host_serves_only_native_client_paths(self):
+        text = CADDYFILE.read_text()
+        site = text[text.index('\napi.oteryn.com {\n'):]
+        site = site[:site.index('\n}\n')]
+        self.assertNotIn('tunnel_only', site)
+        self.assertIn('@machine path /oauth/token /api/v1/* /v1/client/directory /v1/client/channel-probes /updates/*\n', site)
+        self.assertIn('rewrite @native_ticket /api/v1/game-auth/tickets', site)
+        self.assertIn('\thandle {\n\t\trespond 404\n\t}', site)
+        self.assertEqual(site.count('reverse_proxy'), 1)
+        self.assertNotIn('/oauth/authorize', site)
+
 
 def free_port():
     with socket.socket() as probe:
