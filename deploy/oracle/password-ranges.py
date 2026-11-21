@@ -179,7 +179,8 @@ def emit_sql(directory, expires_days, out):
             'INSERT INTO registration_password_ranges (prefix, suffixes, expires_at, complete) '
             f"SELECT prefix, suffixes, now() + interval '{int(expires_days)} days', {complete} FROM import_ranges "
             'ON CONFLICT (prefix) DO UPDATE SET suffixes = EXCLUDED.suffixes, '
-            'expires_at = EXCLUDED.expires_at, complete = EXCLUDED.complete, updated_at = now() '
+            'expires_at = EXCLUDED.expires_at, complete = EXCLUDED.complete, '
+            'complete_xact = pg_current_xact_id(), updated_at = now() '
             # A subset import never replaces a complete range fetched by the portal.
             'WHERE EXCLUDED.complete OR NOT registration_password_ranges.complete;\n'
         )

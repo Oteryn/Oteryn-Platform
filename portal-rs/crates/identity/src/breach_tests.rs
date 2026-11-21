@@ -151,7 +151,7 @@ pub(crate) fn range(password: &str, breached: bool) -> String {
 /// Cache a complete clean range for `password` so the check needs no HTTP.
 pub(crate) async fn allow(pool: &PgPool, password: &str) -> Result<(), sqlx::Error> {
     let digest = sha1_hex(password);
-    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true) ON CONFLICT(prefix) DO UPDATE SET suffixes=ARRAY[]::text[],expires_at=now()+interval '1 hour',complete=true")
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true) ON CONFLICT(prefix) DO UPDATE SET suffixes=ARRAY[]::text[],expires_at=now()+interval '1 hour',complete=true,complete_xact=pg_current_xact_id()")
         .bind(&digest[..5])
         .execute(pool)
         .await?;
@@ -332,6 +332,63 @@ async fn incomplete_and_expired_rows_are_refetched() -> TestResult {
         .await?;
     assert_eq!(check(&miss.checker(p), PASSWORD).await, Ok(()));
     assert_eq!(miss.hits(), 2);
+    db.close().await
+}
+
+/// SQL emitted by the importer before the `complete` column existed, as an operator
+/// could still replay it from an older `--min-count 100` download.
+const OLD_IMPORT_SQL: &str = "INSERT INTO registration_password_ranges (prefix, suffixes, expires_at) \
+     SELECT prefix, suffixes, now() + interval '730 days' FROM import_ranges \
+     ON CONFLICT (prefix) DO UPDATE SET suffixes = EXCLUDED.suffixes, \
+     expires_at = EXCLUDED.expires_at, updated_at = now()";
+
+#[tokio::test]
+async fn old_thresholded_import_over_a_complete_row_does_not_stay_complete() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let p = &db.pool;
+    let digest = sha1_hex(PASSWORD);
+    let hit = Mock::start(Reply::Ok(range(PASSWORD, true))).await?;
+    assert_eq!(
+        check(&hit.checker(p), PASSWORD).await,
+        Err(BreachError::Breached)
+    );
+    assert_eq!(row(p, PASSWORD).await?, Some((true, true)));
+    // The thresholded subset omits the breached suffix.
+    let mut tx = p.begin().await?;
+    sqlx::query("CREATE TEMP TABLE import_ranges (prefix text, suffixes text[]) ON COMMIT DROP")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO import_ranges VALUES($1, ARRAY[]::text[])")
+        .bind(&digest[..5])
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(OLD_IMPORT_SQL).execute(&mut *tx).await?;
+    tx.commit().await?;
+    let (complete, suffixes): (bool, Vec<String>) = sqlx::query_as(
+        "SELECT complete, suffixes FROM registration_password_ranges WHERE prefix=$1",
+    )
+    .bind(&digest[..5])
+    .fetch_one(p)
+    .await?;
+    assert!(suffixes.is_empty());
+    assert!(
+        !complete,
+        "a subset written by the old importer must not decide"
+    );
+    // The subset row is not trusted: the breached password is still refused, from HIBP.
+    assert_eq!(
+        check(&hit.checker(p), PASSWORD).await,
+        Err(BreachError::Breached)
+    );
+    assert_eq!(hit.hits(), 2);
+    assert_eq!(row(p, PASSWORD).await?, Some((true, true)));
+    // A direct update that does not stamp the transaction cannot keep the row complete.
+    sqlx::query("UPDATE registration_password_ranges SET suffixes=ARRAY[]::text[]")
+        .execute(p)
+        .await?;
+    assert_eq!(row(p, PASSWORD).await?.map(|r| r.0), Some(false));
     db.close().await
 }
 

@@ -99,6 +99,7 @@ class Blocks(unittest.TestCase):
                     sql = out.getvalue()
                     self.assertIn(f"interval '365 days', {complete} FROM", sql)
                     self.assertIn('complete = EXCLUDED.complete', sql)
+                    self.assertIn('complete_xact = pg_current_xact_id()', sql)
                     self.assertIn('WHERE EXCLUDED.complete OR NOT registration_password_ranges.complete', sql)
         finally:
             pr.TOTAL_BLOCKS = old

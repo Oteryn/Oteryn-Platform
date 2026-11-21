@@ -69,7 +69,7 @@ impl Database {
         } else {
             Vec::new()
         };
-        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,$2,now()+interval '1 hour',true) ON CONFLICT(prefix) DO UPDATE SET suffixes=$2,expires_at=now()+interval '1 hour',complete=true")
+        sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete) VALUES($1,$2,now()+interval '1 hour',true) ON CONFLICT(prefix) DO UPDATE SET suffixes=$2,expires_at=now()+interval '1 hour',complete=true,complete_xact=pg_current_xact_id()")
             .bind(&digest[..5]).bind(suffixes).execute(&self.pool).await?;
         Ok(())
     }
