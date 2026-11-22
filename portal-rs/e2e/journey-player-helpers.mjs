@@ -5,13 +5,14 @@ import { csrfRejected, mailLink, password, seedPasswordRange, submit, waitForLog
 
 export const localized = (lang, pl, en) => lang === 'pl' ? pl : en;
 
-export async function visibleLink(page, href) {
+export async function visibleLink(page, href, label) {
   await page.waitForLoadState('load');
-  return revealPortalLink(page, `a[href="${href}"]:not([data-account-link])`);
+  const text = label ? `:has-text(${JSON.stringify(label)})` : '';
+  return revealPortalLink(page, `a[href="${href}"]:not([data-account-link])${text}`);
 }
 
 export async function follow(page, href, status = 200, label) {
-  const link = await visibleLink(page, href);
+  const link = await visibleLink(page, href, label);
   if (label) await expect(link).toHaveText(label);
   if (href.includes('#')) {
     await link.click();
