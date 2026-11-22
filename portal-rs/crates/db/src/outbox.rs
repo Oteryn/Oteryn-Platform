@@ -171,7 +171,7 @@ pub async fn finish(
     error: Option<&str>,
     permanent: bool,
 ) -> Result<bool, Error> {
-    Ok(sqlx::query_scalar(
+    sqlx::query_scalar(
         "WITH finished AS (
          UPDATE outbox SET
            state = CASE WHEN $3::text IS NULL THEN 'done'
@@ -188,7 +188,13 @@ pub async fn finish(
            SET completed_at = greatest(outbox_schedule_success.completed_at, EXCLUDED.completed_at)
          )
          SELECT EXISTS(SELECT 1 FROM finished)",
-    ).bind(job.id).bind(job.attempts).bind(error).bind(permanent).fetch_one(pool).await?)
+    )
+    .bind(job.id)
+    .bind(job.attempts)
+    .bind(error)
+    .bind(permanent)
+    .fetch_one(pool)
+    .await
 }
 
 /// Counts for metrics exporters, including zero values for empty states. No payloads or errors.
