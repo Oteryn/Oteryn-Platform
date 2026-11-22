@@ -361,6 +361,28 @@ async fn postgres_news_lifecycle() {
         guarded().oneshot(mutation("bad")).await.unwrap().status(),
         StatusCode::FORBIDDEN
     );
+    for language in [oteryn_web::Language::Pl, oteryn_web::Language::En] {
+        let mut request = mutation(token);
+        *request.uri_mut() = format!("/admin/news?lang={}", language.code())
+            .parse()
+            .unwrap();
+        *request.body_mut() = Body::from(format!(
+            "_csrf={token}&slug=browser-news&title=&body=Body&published_at="
+        ));
+        let refused = guarded().oneshot(request).await.unwrap();
+        assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+            language.text("error-422-description").as_bytes()
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM news WHERE slug='browser-news'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
     assert_eq!(
         guarded().oneshot(mutation(token)).await.unwrap().status(),
         StatusCode::FOUND
@@ -411,6 +433,24 @@ async fn postgres_news_lifecycle() {
         )
         .await,
         StatusCode::CONFLICT
+    );
+    let refused = guarded()
+        .oneshot(
+            Request::delete(&update_path)
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("accept-language", "en")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={token}&expected_revision=old")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+        b"The news entry changed after you opened the form. Reload and try again."
     );
     assert_eq!(
         browser_news_submit(
