@@ -20,9 +20,11 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const codes=await page.locator('textarea[readonly]').allTextContents();
+ const recovery=page.locator('textarea[readonly]').first();
+ await expect(recovery).toBeVisible();
+ const code=await recovery.inputValue();
  await login(page,lang,staff);
- await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
+ await submit(page,'main form[action$="/mfa/challenge"]',{code});
  for(const suffix of ['', '/creatures','/activity','/levels','/health','/economy']) {
   const path=`/admin/analytics${suffix}`;
   const response=await page.goto(path);
@@ -72,7 +74,10 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  } finally {await seed.end();}
  const response=await page.goto(`/admin/analytics/economy?world=${fixture.world_id}&start=${fixture.bucket_start}&end=${fixture.bucket_end}`);
  expect(response.status()).toBe(200);
- for(const text of ['48210377','4500','low-n (below five)','depot source coverage not yet delivered by Game','spent_in_game/coin','Platform wallet ledger'])await expect(page.locator('main')).toContainText(text);
+ const labels=lang==='pl'
+  ? ['Klucz / przedmiot / waluta','Mała próba (poniżej pięciu)','Niekompletne: Gra nie dostarczyła jeszcze danych dla klucza depot','rejestr portfela Platformy']
+  : ['Key / item / currency','low-n (below five)','depot source coverage not yet delivered by Game','Platform wallet ledger'];
+ for(const text of ['48210377','4500','spent_in_game/coin',...labels])await expect(page.locator('main')).toContainText(text);
  await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
  expect((await page.request.get('/admin/analytics/export')).status()).toBe(404);
 });

@@ -12,6 +12,18 @@ struct EconomyCell {
     epoch: String,
     revision: String,
 }
+
+impl EconomyCell {
+    fn state_label(&self, lang: &str) -> &str {
+        match (lang, self.state.as_str()) {
+            ("pl", "visible") => "Widoczne",
+            ("pl", "low_n") => "Mała próba (poniżej pięciu)",
+            ("pl", "incomplete") => "Niekompletne",
+            _ => &self.state,
+        }
+    }
+}
+
 #[derive(serde::Serialize)]
 struct Group {
     family: String,
@@ -24,6 +36,33 @@ struct Group {
     age: u64,
     cells: Vec<EconomyCell>,
 }
+
+impl Group {
+    fn labels(&self, lang: &str) -> (&str, &str) {
+        if lang != "pl" {
+            return (&self.family, self.columns);
+        }
+        match self.family.as_str() {
+            "economy_circulation_daily" => (
+                "Złoto w obiegu",
+                "Złoto (stan na koniec dnia według lokalizacji)",
+            ),
+            "economy_flows_daily" => ("Przepływy złota", "Wpływy złota / wypływy złota"),
+            "economy_trades_daily" => ("Wymiany", "Liczba wymian / wymienione złoto"),
+            "economy_market_daily" => (
+                "Rynek",
+                "Wymienione jednostki / wymienione złoto / utworzone oferty / mediana ceny jednostkowej",
+            ),
+            "economy_store_daily" => ("Sklep", "Liczba / kwota (jednostki waluty)"),
+            "purchased — Platform wallet ledger (all worlds)" => (
+                "Zakupy — rejestr portfela Platformy (wszystkie światy)",
+                "Zaksięgowane doładowania / monety. Kwoty w najmniejszych jednostkach według waluty płatności",
+            ),
+            _ => (&self.family, self.columns),
+        }
+    }
+}
+
 #[derive(Template)]
 #[template(path = "admin/analytics_economy.html", config = "src/web_askama.toml")]
 struct EconomyPage {
