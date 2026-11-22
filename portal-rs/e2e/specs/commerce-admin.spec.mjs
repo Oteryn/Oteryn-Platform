@@ -344,3 +344,73 @@ test('premium staff grants after independent approval, then revokes the entitlem
     await db.end();
   }
 });
+
+test('Bazaar staff reviews reports, suspends a listing, and requires independent invalidation approval', async ({ page, browser }, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  const path = `/admin/${lang}/bazaar`;
+  const requesterContext = await browser.newContext({ ...info.project.use });
+  const reviewerContext = await browser.newContext({ ...info.project.use });
+  const db = pool();
+  const form = action => `form:has(input[name="action"][value="${action}"])`;
+  try {
+    const seller = await signInPlayer(page, lang);
+    const reporter = await seedPlayer(lang);
+    const listing = uuid7();
+    // Staff moderation's own fixture pattern supplies a portal listing and
+    // pending reports. Custody and Game decisions still require Game evidence.
+    await db.query(
+      `INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
+       VALUES($1,$2,'item','auction','coins',100,false,'active',now()+interval '2 days')`,
+      [listing, seller.id],
+    );
+    const staff = await staffActor(requesterContext, lang, db, ['marketplace.manage']);
+    const reviewer = await staffActor(reviewerContext, lang, db, ['marketplace.manage']);
+
+    for (const [decision, state] of [['true', 'accepted'], ['false', 'dismissed']]) {
+      const report = uuid7();
+      await db.query(
+        "INSERT INTO bazaar_reports(id,listing_id,reporter,category,detail) VALUES($1,$2,$3,'fraud','Disposable suspected fraud report')",
+        [report, listing, reporter.id],
+      );
+      await staff.goto(path);
+      const review = staff.locator(`${form('review')}:has(input[name="id"][value="${report}"])`);
+      const request = await readForm(review);
+      const accepted = lang === 'pl' ? 'Uznaj zgłoszenie' : 'Accept report';
+      const dismissed = lang === 'pl' ? 'Odrzuć zgłoszenie' : 'Dismiss report';
+      await expect(review.locator('option')).toHaveText([accepted, dismissed]);
+      await csrfRejected(staff, request.url, { ...request.fields, accepted: decision });
+      expect((await postAs(staff, request.url, { ...request.fields, accepted: 'invalid' })).status()).toBe(422);
+      await review.locator('select[name="accepted"]').selectOption(decision);
+      await review.getByRole('button').click();
+      await expect(review).toHaveCount(0);
+      expect((await db.query('SELECT state FROM bazaar_reports WHERE id=$1', [report])).rows).toEqual([{ state }]);
+    }
+
+    const reason = 'Suspend a disposable listing during review';
+    const suspend = await readForm(staff.locator(form('suspend')));
+    expect((await postAs(staff, suspend.url, { ...suspend.fields, listing: 'invalid', reason })).status()).toBe(422);
+    await submit(staff, form('suspend'), { listing, reason });
+    expect((await db.query('SELECT revision FROM bazaar_moderation_holds WHERE listing_id=$1', [listing])).rows)
+      .toEqual([{ revision: '1' }]);
+    const invalidation = await readForm(staff.locator(form('request')));
+    const id = invalidation.fields.id;
+    await submit(staff, form('request'), { listing, reason: 'Request independent invalidation review' });
+    await expect(staff.getByText(id, { exact: true })).toBeVisible();
+    const self = await readForm(staff.locator(form('approve')));
+    expect((await postAs(staff, self.url, { ...self.fields, id })).status()).toBe(403);
+
+    await reviewer.goto(path);
+    await submit(reviewer, form('approve'), { id });
+    await expect(reviewer.getByText(id, { exact: true })).toHaveCount(0);
+    expect((await db.query(
+      'SELECT approved_by IS NOT NULL AS approved FROM bazaar_invalidation_requests WHERE id=$1', [id],
+    )).rows).toEqual([{ approved: true }]);
+    expect((await db.query('SELECT kind FROM bazaar_moderation_outbox WHERE id=$1 AND listing_id=$2', [id, listing])).rows)
+      .toEqual([{ kind: 'reconcile_invalidation' }]);
+  } finally {
+    await requesterContext.close();
+    await reviewerContext.close();
+    await db.end();
+  }
+});

@@ -7,7 +7,7 @@ const text = {
   en: {
     shop: 'Shop', coins: 'Top up coins', history: 'Balance and history', transfer: 'Transfer coins',
     skip: 'Skip to content', available: 'Available coins', reserved: 'Reserved coins',
-    buy: 'Buy', package: 'Package', count: '1234 coins', payment: 'Amount', coinLabel: 'Coins',
+    buy: 'Buy', package: 'Package', count: '1234 coins', price: 'PLN 2.50', payment: 'Amount', coinLabel: 'Coins',
     bank: 'Test bank', pay: 'Pay (test)', reject: 'Reject payment', cancel: 'Cancel',
     banner: 'TEST MODE – no real money is charged', pending: 'Choose a test payment result.',
     failed: 'Payment rejected or cancelled. No coins were credited.',
@@ -26,7 +26,7 @@ const text = {
   pl: {
     shop: 'Sklep', coins: 'Doładuj coiny', history: 'Saldo i historia', transfer: 'Przekaż coiny',
     skip: 'Przejdź do treści', available: 'Dostępne coiny', reserved: 'Zarezerwowane coiny',
-    buy: 'Kup', package: 'Pakiet', count: '1234 coiny', payment: 'Kwota', coinLabel: 'Coiny',
+    buy: 'Kup', package: 'Pakiet', count: '1234 coiny', price: '2,50 zł', payment: 'Kwota', coinLabel: 'Coiny',
     bank: 'Bank testowy', pay: 'Zapłać (test)', reject: 'Odrzuć płatność', cancel: 'Anuluj',
     banner: 'TRYB TESTOWY – żadne prawdziwe pieniądze nie są pobierane',
     pending: 'Wybierz wynik płatności testowej.',
@@ -104,6 +104,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
       await expect.poll(async () => (await form.getByRole('heading').innerText())
         .replace(/[\u2068\u2069]/g, '')).toBe(l.count);
       await expect(form.getByRole('button')).toHaveText(l.buy);
+      await expect(form.getByText(l.price, { exact: true })).toBeVisible();
       await expect(form.getByText(l.topupHint)).toBeVisible();
       const topup = await readForm(form);
       await refusal(await postAs(page, topup.url, { ...topup.fields, operation: 'invalid' }), 422, l.invalid);
@@ -114,6 +115,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
       await expect(page.getByText(l.package, { exact: true })).toBeVisible();
       await expect(page.getByText(l.coinLabel, { exact: true })).toBeVisible();
       await expect(page.getByText(l.payment, { exact: true })).toBeVisible();
+      await expect(page.locator('main').getByText(l.price, { exact: true })).toBeVisible();
 
       const checkout = await readForm(page.locator('main form'));
       const intent = new URL(checkout.url).pathname.split('/').at(-1);
