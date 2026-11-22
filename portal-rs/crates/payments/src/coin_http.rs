@@ -12,7 +12,10 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{any, get, post},
 };
-use oteryn_web::session::{BrowserSession, SessionKey, SessionLayer};
+use oteryn_web::{
+    Language,
+    session::{BrowserSession, SessionKey, SessionLayer},
+};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -195,12 +198,35 @@ async fn status(
 #[derive(Template)]
 #[template(path = "coin/checkout.html")]
 struct CheckoutPage {
+    lang: Language,
     csrf: String,
     order_id: Uuid,
     coins: i64,
     price: String,
-    state: &'static str,
+    state: OrderState,
     awaiting: bool,
+}
+impl CheckoutPage {
+    fn state_label(&self) -> &'static str {
+        match (self.lang, self.state) {
+            (Language::Pl, OrderState::AwaitingPayment) => "Oczekuje na płatność",
+            (Language::Pl, OrderState::Processing) => "W trakcie realizacji",
+            (Language::Pl, OrderState::Paid) => "Opłacone",
+            (Language::Pl, OrderState::Failed) => "Nieudane",
+            (Language::Pl, OrderState::Refunded) => "Zwrócone",
+            (Language::Pl, OrderState::Chargeback) => "Obciążenie zwrotne",
+            (Language::En, OrderState::AwaitingPayment) => "Awaiting payment",
+            (Language::En, OrderState::Processing) => "Processing",
+            (Language::En, OrderState::Paid) => "Paid",
+            (Language::En, OrderState::Failed) => "Failed",
+            (Language::En, OrderState::Refunded) => "Refunded",
+            (Language::En, OrderState::Chargeback) => "Chargeback",
+        }
+    }
+}
+
+fn checkout_login(lang: Language) -> Redirect {
+    Redirect::to(&format!("/{}/login", lang.code()))
 }
 
 #[derive(Deserialize)]
@@ -212,6 +238,7 @@ async fn page(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    headers: HeaderMap,
 ) -> Response {
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
@@ -223,7 +250,7 @@ async fn page(
         if session.set(RETURN_KEY, &target).await.is_err() {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
-        return Redirect::to("/pl/login").into_response();
+        return checkout_login(Language::from_headers(&headers)).into_response();
     };
     let order = match service.checkout(account, order).await {
         Ok(order) => order,
@@ -233,11 +260,12 @@ async fn page(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     oteryn_web::render(&CheckoutPage {
+        lang: Language::from_headers(&headers),
         csrf,
         order_id: order.order_id,
         coins: order.coins,
         price: order.price.display(),
-        state: order.state.as_str(),
+        state: order.state,
         awaiting: order.state == OrderState::AwaitingPayment,
     })
 }
@@ -247,10 +275,11 @@ async fn act(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    headers: HeaderMap,
     Form(decision): Form<Decision>,
 ) -> Response {
     let Some(account) = session.account_id().await else {
-        return Redirect::to("/pl/login").into_response();
+        return checkout_login(Language::from_headers(&headers)).into_response();
     };
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
@@ -291,6 +320,61 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.headers()[header::REFERRER_POLICY], policy);
             assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod checkout_localization {
+    use super::*;
+
+    #[test]
+    fn checkout_matches_browser_language() -> Result<(), askama::Error> {
+        for (preference, path, heading, awaiting, failed) in [
+            (
+                "en-GB",
+                "/en/login",
+                "Sandbox coin checkout",
+                "Awaiting payment",
+                "Failed",
+            ),
+            (
+                "pl-PL",
+                "/pl/login",
+                "Testowy zakup monet",
+                "Oczekuje na płatność",
+                "Nieudane",
+            ),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                header::ACCEPT_LANGUAGE,
+                HeaderValue::from_static(preference),
+            );
+            let lang = Language::from_headers(&headers);
+            assert_eq!(
+                checkout_login(lang).into_response().headers()[header::LOCATION],
+                path
+            );
+            for (state, label, awaiting) in [
+                (OrderState::AwaitingPayment, awaiting, true),
+                (OrderState::Failed, failed, false),
+            ] {
+                let html = CheckoutPage {
+                    lang,
+                    csrf: String::new(),
+                    order_id: Uuid::nil(),
+                    coins: 10,
+                    price: "1.00 PLN".into(),
+                    state,
+                    awaiting,
+                }
+                .render()?;
+                assert!(html.contains(&format!("<html lang=\"{}\">", lang.code())));
+                assert!(html.contains(&format!("<h1>{heading}</h1>")));
+                assert!(html.contains(&format!("<dd>{label}</dd>")));
+            }
         }
         Ok(())
     }
