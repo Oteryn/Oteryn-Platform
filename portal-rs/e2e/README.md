@@ -380,6 +380,11 @@ For the cross-host dashboard return spec, use the same harness options with
 node run.mjs .harness/run/secrets/env.json test --config staff-host/playwright.config.mjs
 ```
 
+To cover an explicit default staff HTTPS port, run the same spec with the
+harness configured for `PORTAL_E2E_BROWSER_HTTPS_PORT=443`,
+`OTERYN_PUBLIC_ORIGIN=https://localhost`, and `OTERYN_ADMIN_HOST=127.0.0.1:443`.
+The loopback proxy needs permission to bind TCP port 443 in this mode.
+
 ## Collection journal evidence
 
 Run both collection profiles with a locally built portal binary and the same

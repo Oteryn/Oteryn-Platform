@@ -78,14 +78,18 @@ fn panel_config_accepts_only_host_and_optional_port() {
             _ => None,
         })
     };
-    for host in [
-        "staff.example",
-        "admin-panel.example:8443",
-        "localhost:18443",
-        "127.0.0.1:18443",
-        "[::1]:18443",
+    for (input, host) in [
+        ("staff.example", "staff.example"),
+        ("Staff.Example:443", "staff.example"),
+        ("admin-panel.example:8443", "admin-panel.example:8443"),
+        ("localhost:18443", "localhost:18443"),
+        ("127.0.0.1:18443", "127.0.0.1:18443"),
+        ("[::1]:18443", "[::1]:18443"),
+        ("[0:0:0:0:0:0:0:1]:443", "[::1]"),
     ] {
-        assert_eq!(configured(host, true).unwrap().host, host);
+        let panel = configured(input, true).unwrap();
+        assert_eq!(panel.host, host);
+        assert_eq!(panel.csrf_origin(), format!("https://{host}"));
     }
     for invalid in [
         "",

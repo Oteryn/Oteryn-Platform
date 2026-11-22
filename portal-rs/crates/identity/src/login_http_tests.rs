@@ -644,7 +644,7 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
             .env(CHILD, "1")
             .env("OTERYN_ACCOUNT_LOGIN", "true")
             .env("OTERYN_PUBLIC_ORIGIN", "https://pub.test")
-            .env("OTERYN_ADMIN_HOST", "staff.test")
+            .env("OTERYN_ADMIN_HOST", "staff.test:443")
             .status()?;
         assert!(status.success());
         return Ok(());
@@ -682,7 +682,7 @@ fn staff_dashboard_return_is_exact_and_bound_to_the_staff_host() {
     assert!(dashboard_return(
         Some("return_to=/admin"),
         &headers,
-        Some("staff.test")
+        Some("STAFF.test:443")
     ));
     for query in [
         None,
@@ -697,6 +697,13 @@ fn staff_dashboard_return_is_exact_and_bound_to_the_staff_host() {
         &headers,
         Some("public.test")
     ));
+    for host in ["staff.test:8443", "fixture-user@staff.test", "staff.test:"] {
+        assert!(!dashboard_return(
+            Some("return_to=/admin"),
+            &headers,
+            Some(host)
+        ));
+    }
     headers.append(header::HOST, "public.test".parse().unwrap());
     assert!(!dashboard_return(
         Some("return_to=/admin"),

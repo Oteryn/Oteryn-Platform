@@ -559,7 +559,7 @@ async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::er
             .env("OTERYN_ACCOUNT_MFA", "true")
             .env("OTERYN_ACCOUNT_LOGIN", "true")
             .env("OTERYN_ADMIN_PANEL", "true")
-            .env("OTERYN_ADMIN_HOST", "admin.example.test")
+            .env("OTERYN_ADMIN_HOST", "admin.example.test:443")
             .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
             .env("OTERYN_MFA_KEY", "07".repeat(32))
             .status()?;

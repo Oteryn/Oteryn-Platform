@@ -78,10 +78,10 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
             .route(&format!("{prefix}/mfa/devices"), post(remove_device));
     }
-    let admin_host = std::env::var("OTERYN_ADMIN_HOST").ok().filter(|host| {
-        std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|flag| flag == "true")
-            && host.parse::<axum::http::uri::Authority>().is_ok()
-    });
+    let admin_host = std::env::var("OTERYN_ADMIN_HOST")
+        .ok()
+        .filter(|_| std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|flag| flag == "true"))
+        .and_then(|host| oteryn_web::staff_host::canonical_authority(&host));
     let routes = routes
         .route_layer(axum::middleware::from_fn_with_state(
             context.mfa.clone(),
@@ -109,18 +109,13 @@ async fn mfa_session(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let mut hosts = request.headers().get_all(header::HOST).iter();
     if let Some(host) = admin_host
-        && hosts
-            .next()
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.eq_ignore_ascii_case(&host))
-        && hosts.next().is_none()
+        && oteryn_web::staff_host::matches(request.headers(), &host)
     {
         // The outer router can supply its public CSRF policy via an extension.
         // Keep its other settings while selecting the dedicated host's origin.
         let csrf = request.extensions_mut().get_or_insert(layer.csrf.clone());
-        csrf.trusted_origins = vec![format!("https://{}", host.to_ascii_lowercase())];
+        csrf.trusted_origins = vec![format!("https://{host}")];
     }
     session::middleware(State(layer), request, next).await
 }

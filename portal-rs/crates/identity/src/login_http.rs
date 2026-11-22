@@ -13,6 +13,7 @@ use oteryn_web::{
     Language,
     ratelimit::{Denial, Keys, NamedPolicy, RateLimiter},
     session::{self, BrowserSession, PrivilegeChange, SessionKey, SessionLayer},
+    staff_host,
 };
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -25,7 +26,7 @@ pub fn configured_router(pool: PgPool) -> Router {
         .into_iter()
         .collect();
     if let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
-        && let Ok(authority) = host.parse::<axum::http::uri::Authority>()
+        && let Some(authority) = staff_host::canonical_authority(&host)
     {
         sessions
             .csrf
@@ -291,15 +292,10 @@ pub(crate) fn login_path(staff_dashboard: bool) -> &'static str {
 }
 
 fn dashboard_return(query: Option<&str>, headers: &HeaderMap, admin_host: Option<&str>) -> bool {
-    let mut hosts = headers.get_all(header::HOST).iter();
     query == Some("return_to=/admin")
-        && admin_host.is_some_and(|expected| {
-            hosts
-                .next()
-                .and_then(|host| host.to_str().ok())
-                .is_some_and(|actual| actual.eq_ignore_ascii_case(expected))
-        })
-        && hosts.next().is_none()
+        && admin_host
+            .and_then(staff_host::canonical_authority)
+            .is_some_and(|authority| staff_host::matches(headers, &authority))
 }
 /// Reads the stored target before a session is replaced, so a challenge on
 /// the new session can still return to it.

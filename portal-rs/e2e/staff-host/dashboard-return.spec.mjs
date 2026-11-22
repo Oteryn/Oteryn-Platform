@@ -9,7 +9,7 @@ test('the staff dashboard survives sign-in and MFA on a separate host', async ({
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
 
   const publicOrigin = new URL(page.url()).origin;
-  const staffOrigin = `https://${process.env.OTERYN_ADMIN_HOST}`;
+  const staffOrigin = new URL(`https://${process.env.OTERYN_ADMIN_HOST}`).origin;
   const dashboardUrl = `${staffOrigin}/admin`;
   expect(new URL(staffOrigin).hostname).not.toBe(new URL(publicOrigin).hostname);
   expect((await context.cookies(staffOrigin)).filter(cookie => cookie.name === '__Host-oteryn_session')).toHaveLength(0);

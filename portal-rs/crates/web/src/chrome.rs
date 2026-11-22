@@ -47,18 +47,11 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         oteryn_ui::Account::SignedIn { staff: true, .. }
     ) && let Some(host) = &shell.registry.staff_host
     {
-        chrome.staff_dashboard = Some(
-            if request
-                .headers()
-                .get(header::HOST)
-                .and_then(|value| value.to_str().ok())
-                .is_some_and(|current| current.eq_ignore_ascii_case(host))
-            {
-                "/admin".into()
-            } else {
-                format!("https://{host}/admin")
-            },
-        );
+        chrome.staff_dashboard = Some(if crate::staff_host::matches(request.headers(), host) {
+            "/admin".into()
+        } else {
+            format!("https://{host}/admin")
+        });
     }
     request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
