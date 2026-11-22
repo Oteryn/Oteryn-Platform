@@ -304,9 +304,51 @@ async fn browser_lifecycle(pool: &PgPool) {
             .status(),
         StatusCode::FORBIDDEN
     );
+    for language in [oteryn_web::Language::Pl, oteryn_web::Language::En] {
+        let mut upload = make(csrf, " ");
+        upload
+            .headers_mut()
+            .insert(header::ACCEPT_LANGUAGE, language.code().parse().unwrap());
+        let refused = app.clone().oneshot(upload).await.unwrap();
+        assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+            language.text("error-422-description").as_bytes()
+        );
+
+        for (method, path) in [
+            (Method::POST, "/admin/media/invalid/delete"),
+            (Method::DELETE, "/admin/media/invalid"),
+        ] {
+            let refused = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header(header::ACCEPT_LANGUAGE, language.code())
+                        .header("host", "staff.test")
+                        .header("origin", "https://staff.test")
+                        .header("cookie", &cookie)
+                        .header("x-csrf-token", csrf)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+                language.text("error-400-description").as_bytes()
+            );
+        }
+    }
     assert_eq!(
-        app.clone().oneshot(make(csrf, " ")).await.unwrap().status(),
-        StatusCode::UNPROCESSABLE_ENTITY
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM media")
+            .fetch_one(pool)
+            .await
+            .unwrap(),
+        0
     );
     assert_eq!(
         app.clone()
