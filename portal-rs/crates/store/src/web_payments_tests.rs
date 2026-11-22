@@ -1043,10 +1043,52 @@ async fn postgres_competing_checkout_decisions_conflict_and_winner_replays() -> 
         .await
         .map_err(|e| format!("{e:?}"))?;
 
-    let (paid, rejected) = tokio::join!(
-        topups.checkout(account, intent, Some("pay".into())),
-        topups.checkout(account, intent, Some("reject".into())),
-    );
+    let mut lock = pool.begin().await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *lock)
+        .await?;
+    sqlx::query("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE")
+        .bind(intent)
+        .execute(&mut *lock)
+        .await?;
+    let pay = {
+        let topups = topups.clone();
+        tokio::spawn(async move { topups.checkout(account, intent, Some("pay".into())).await })
+    };
+    let reject = {
+        let topups = topups.clone();
+        tokio::spawn(async move {
+            topups
+                .checkout(account, intent, Some("reject".into()))
+                .await
+        })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "WITH RECURSIVE blocked(pid) AS (
+                    SELECT $1::int
+                    UNION
+                    SELECT a.pid FROM pg_stat_activity a
+                    JOIN blocked b ON b.pid = ANY(pg_blocking_pids(a.pid))
+                    WHERE a.datname = current_database() AND a.wait_event_type = 'Lock'
+                      AND a.query LIKE '%FROM payment_intents%FOR UPDATE%'
+                ) SELECT count(*) - 1 FROM blocked",
+            )
+            .bind(blocker)
+            .fetch_one(&pool)
+            .await?;
+            if waiting == 2 {
+                return Ok::<_, sqlx::Error>(());
+            }
+            assert!(!pay.is_finished() && !reject.is_finished());
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("both checkout decisions must wait for the held intent")?;
+    lock.commit().await?;
+    let (paid, rejected) = (pay.await?, reject.await?);
     let (winning_action, losing_action, terminal_status) = match (paid, rejected) {
         (Ok(Some(checkout)), Err(Error::Conflict)) => {
             assert_eq!(checkout.status, "checkout-succeeded");

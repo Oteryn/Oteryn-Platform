@@ -180,7 +180,37 @@ test('competing checkout decisions honour the persisted winner', async ({ page }
   const form = await formAt(page, url);
   // Creating the intent spends one of the account's ten mutation requests.
   const actions = ['pay', 'reject', 'pay', 'reject', 'pay', 'reject', 'pay', 'reject', 'pay'];
-  const replies = await Promise.all(actions.map(action => postForm(page, url, { ...form, action })));
+  const db = pool();
+  const lock = await db.connect();
+  let pending;
+  try {
+    await lock.query('BEGIN');
+    const { rows: [{ pid }] } = await lock.query('SELECT pg_backend_pid() AS pid');
+    await lock.query('SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE', [intent.id]);
+    pending = Promise.allSettled(actions.map(action => postForm(page, url, { ...form, action })));
+    await expect.poll(async () => {
+      const { rows: [{ waiting }] } = await db.query(
+        `WITH RECURSIVE blocked(pid) AS (
+           SELECT $1::int
+           UNION
+           SELECT a.pid FROM pg_stat_activity a
+           JOIN blocked b ON b.pid = ANY(pg_blocking_pids(a.pid))
+           WHERE a.datname = current_database() AND a.wait_event_type = 'Lock'
+             AND a.query LIKE '%FROM payment_intents%FOR UPDATE%'
+         ) SELECT (count(*) - 1)::int AS waiting FROM blocked`,
+        [pid],
+      );
+      return waiting;
+    }, { timeout: 2500, intervals: [25] }).toBe(actions.length);
+  } finally {
+    await lock.query('ROLLBACK');
+    lock.release();
+    await db.end();
+  }
+  const replies = (await pending).map(result => {
+    if (result.status === 'rejected') throw result.reason;
+    return result.value;
+  });
   const [{ state }] = await query('SELECT state FROM payment_intents WHERE id=$1', [intent.id]);
   expect(['succeeded', 'failed']).toContain(state);
   const winningAction = state === 'succeeded' ? 'pay' : 'reject';
