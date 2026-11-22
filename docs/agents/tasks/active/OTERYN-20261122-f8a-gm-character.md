@@ -47,6 +47,13 @@ The operations dashboard reports unverified successes as unavailable.
 Browser coverage checks the watermark boundary and matches dossier children
 by operation.
 
+The freshness review bounds the LCFA lock wait and samples database time after
+acquiring the feed lock. Agent-accepted and in-progress queries stay pending
+after their dispatch deadline. Dossier admission locks the latest request row
+and reuses a verified completion before queueing further work. PostgreSQL
+regressions cover the freshness cutoff during lock contention, overdue query
+retry refusal, and admission after a signed result has reconciled.
+
 Owned paths include the admin console and control channel, LCFA ownership
 lookup, and GM browser tests and harness. The existing ADM framing is ratified.
 The pinned staff-actions v1
@@ -58,8 +65,8 @@ separate Support enforcement implementation, outside this GM read scenario.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T20:37:30Z
-head: 7510db3891a3d1ae5cb62b382b9bd8cb72102c59
+updated_at: 2026-11-22T21:56:36Z
+head: e92d4568b57848e56a11e197a6e58cff13a5f485
 branch: codex/feat-gm-character
 pr: none
 status: ready
@@ -114,12 +121,24 @@ changed_paths:
   - portal-rs/e2e/README.md
   - portal-rs/e2e/ENVIRONMENT.md
 validation:
+  - command: cargo +1.97.0 fmt --all --check
+    result: PASS
+    evidence: Checked repository formatting with the pinned toolchain.
+  - command: cargo +1.97.0 clippy --locked -p oteryn-admin -p oteryn-characters --all-targets -- -D warnings
+    result: PASS
+    evidence: Both changed crates passed strict Clippy.
   - command: cargo build --locked -p oteryn-portal
     result: PASS
     evidence: Built the portal binary exercised by the harness.
-  - command: cargo test --locked --no-fail-fast -p oteryn-admin -p oteryn-characters --lib
+  - command: cargo test --locked -p oteryn-admin --lib a2_stored_console_browser_query_verified_result_and_ownership
     result: PASS
-    evidence: PostgreSQL 18.6 and Rust 1.100.0 passed 235 admin and 121 characters tests.
+    evidence: Signed agent results, overdue retry refusal and reuse of reconciled results passed on PostgreSQL 18.6.
+  - command: cargo test --locked -p oteryn-admin --lib console::projection::tests
+    result: PASS
+    evidence: All three projection tests passed.
+  - command: cargo test --locked -p oteryn-characters --lib db_staff_
+    result: PASS
+    evidence: Both staff ownership tests passed on PostgreSQL 18.6.
   - command: Playwright gm-player-console.spec.mjs
     result: PASS
     evidence: pl-1440, pl-390, en-1440 and en-390 passed with zero runner errors. The harness exited cleanly.
