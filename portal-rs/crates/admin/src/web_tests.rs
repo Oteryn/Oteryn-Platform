@@ -69,6 +69,53 @@ async fn request(app: Router, path: &str, host: &str) -> Response {
     .await
     .unwrap()
 }
+#[test]
+fn panel_config_accepts_only_host_and_optional_port() {
+    let configured = |host: &str, enabled: bool| {
+        config_from(&|key| match key {
+            "OTERYN_ADMIN_HOST" => Some(host.into()),
+            "OTERYN_ADMIN_PANEL" => Some(enabled.to_string()),
+            _ => None,
+        })
+    };
+    for (input, host) in [
+        ("staff.example", "staff.example"),
+        ("Staff.Example:443", "staff.example"),
+        ("admin-panel.example:8443", "admin-panel.example:8443"),
+        ("localhost:18443", "localhost:18443"),
+        ("127.0.0.1:18443", "127.0.0.1:18443"),
+        ("[::1]:18443", "[::1]:18443"),
+        ("[0:0:0:0:0:0:0:1]:443", "[::1]"),
+    ] {
+        let panel = configured(input, true).unwrap();
+        assert_eq!(panel.host, host);
+        assert_eq!(panel.csrf_origin(), format!("https://{host}"));
+    }
+    for invalid in [
+        "",
+        "fixture-user:fixture-value@staff.example",
+        "fixture-user@staff.example",
+        "https://staff.example",
+        "staff.example/",
+        "staff.example:",
+        "staff.example:invalid",
+        "staff.example:65536",
+        "staff.example:+443",
+        "-staff.example",
+        "staff..example",
+        "staff_%40.example",
+        "[not-ip]:443",
+    ] {
+        let error = configured(invalid, true).unwrap_err();
+        assert_eq!(error.to_string(), "invalid admin host");
+    }
+    for host in ["", "https://staff.example", "fixture-user@staff.example"] {
+        let panel = configured(host, false).unwrap();
+        assert!(!panel.admin_panel);
+        assert!(panel.host.is_empty());
+    }
+}
+
 #[tokio::test]
 async fn host_flag_session_and_mfa_boundaries() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -104,7 +151,10 @@ async fn host_flag_session_and_mfa_boundaries() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let response = request(app(pool.clone(), None, true), "/admin", "staff.test").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert_eq!(response.headers()[header::LOCATION], "/login");
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "/login?return_to=/admin"
+    );
     let response = request(
         app(
             pool,

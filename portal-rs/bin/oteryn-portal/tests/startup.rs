@@ -1,4 +1,4 @@
-//! Starts the real binary with default flags and checks that it serves.
+//! Starts the real binary with the admin panel disabled and checks that it serves.
 //! Router assembly happens at startup, so an overlapping route between two
 //! modules only shows up as a panic here, not in per-crate tests.
 use std::io::{Read, Write};
@@ -40,6 +40,8 @@ fn serve_starts_and_answers_health_and_legacy_redirects() -> Result<(), Box<dyn 
             .env("OTERYN_ENV", "testing")
             .env("OTERYN_BIND", format!("127.0.0.1:{port}"))
             .env("OTERYN_PUBLIC_ORIGIN", format!("http://127.0.0.1:{port}"))
+            .env("OTERYN_ADMIN_PANEL", "false")
+            .env("OTERYN_ADMIN_HOST", "https://staff.example")
             // Pools are lazy; startup must not need a reachable database.
             .env(
                 "OTERYN_DATABASE_URL",

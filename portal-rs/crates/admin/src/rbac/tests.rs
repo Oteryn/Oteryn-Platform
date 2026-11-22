@@ -562,6 +562,43 @@ async fn db_built_in_seeds_match_rust_catalog_and_state_still_denies_grants() {
     db.close().await;
 }
 
+#[tokio::test]
+async fn moderator_can_review_reports_without_ticket_or_role_management() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let moderator = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(moderator)
+        .bind(db.role("moderator").await)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let auth = db.auth();
+    let mut actor = verified(moderator);
+    auth.check(actor, Permission::ManageSupportReports)
+        .await
+        .unwrap();
+    for permission in [Permission::ManageSupportTickets, Permission::ManageRoles] {
+        assert!(matches!(
+            auth.check(actor, permission).await,
+            Err(Error::Denied)
+        ));
+    }
+    actor.mfa_verified = false;
+    assert!(matches!(
+        auth.check(actor, Permission::ManageSupportReports).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        auth.check(verified(Uuid::nil()), Permission::ManageSupportReports)
+            .await,
+        Err(Error::Denied)
+    ));
+    db.close().await;
+}
+
 #[derive(Debug)]
 struct TargetState {
     target: Uuid,
@@ -746,6 +783,7 @@ fn game_roles_have_exact_contract_permissions() {
             BuiltInRole::GameAdmin,
             "game_admin",
             &[
+                "ops.playerdata_binding_conflict.read",
                 "game.ops.read",
                 "game.ops.logs.read",
                 "game.world.read",

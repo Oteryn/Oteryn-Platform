@@ -641,7 +641,7 @@ fn select(lang: &str, field: &str, choices: &[&str], selected: &str, all: bool) 
 
 fn form_field(lang: &str, action: &str, field: &str) -> String {
     let label = match (action, field) {
-        ("moderate", "moderator_notes") => "private-reason",
+        ("moderate", "moderator_notes") => "moderator_reason",
         ("revoke_sanction", "public_reason") => "revocation-reason",
         ("verify_report_target", "target") => "report-target-account",
         (_, "sanction") => "sanction-id",

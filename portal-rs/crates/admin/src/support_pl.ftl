@@ -73,3 +73,5 @@ escalate-report = Przekaż do weryfikacji
 dismiss-report = Odrzuć zgłoszenie
 
 tickets = Zgłoszenia pomocy
+
+moderator_reason = Prywatne uzasadnienie

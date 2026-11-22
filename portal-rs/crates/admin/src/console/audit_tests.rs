@@ -62,6 +62,7 @@ async fn postgres_audit_projects_only_fields_for_the_stored_action_and_target()
             request_id: Some(request_id),
             ..Default::default()
         },
+        false,
     )
     .await?;
     assert_eq!(rows.len(), 4);
@@ -97,6 +98,7 @@ async fn postgres_audit_projects_only_fields_for_the_stored_action_and_target()
                 target: Some(target.into()),
                 ..Default::default()
             },
+            false,
         )
         .await?;
         assert_eq!(matching.len(), expected);
@@ -136,13 +138,13 @@ async fn postgres_audit_uses_only_the_route_pattern_for_historical_page_denials(
         request_id: Some(request_id),
         ..Default::default()
     };
-    let rows = platform_rows(&db.pool, &filter).await?;
+    let rows = platform_rows(&db.pool, &filter, false).await?;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].target_summary("en"), pattern);
     filter.target = Some(path.into());
-    assert!(platform_rows(&db.pool, &filter).await?.is_empty());
+    assert!(platform_rows(&db.pool, &filter, false).await?.is_empty());
     filter.target = Some(pattern.into());
-    assert_eq!(platform_rows(&db.pool, &filter).await?.len(), 1);
+    assert_eq!(platform_rows(&db.pool, &filter, false).await?.len(), 1);
     db.close().await?;
     Ok(())
 }
@@ -246,6 +248,7 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
             request_id: Some(request_id),
             ..Default::default()
         },
+        false,
     )
     .await?;
     assert_eq!(

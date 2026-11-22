@@ -137,6 +137,20 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     };
     let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
     chrome.staff_dashboard = staff_dashboard;
+    if matches!(local, "login" | "mfa/login")
+        && let Some(host) = &shell.registry.staff_host
+        && crate::staff_host::dashboard_return_requested(
+            request.uri().query(),
+            request.headers(),
+            host,
+        )
+    {
+        chrome.alternate_url = format!(
+            "/{}{}",
+            chrome.alternate_lang,
+            crate::staff_host::DASHBOARD_LOGIN_PATH
+        );
+    }
     request.extensions_mut().insert(chrome.clone());
     let response = next.run(request).await;
     let response = render_refusal(response, &chrome, browser);

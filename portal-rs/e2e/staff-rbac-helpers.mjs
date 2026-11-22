@@ -9,6 +9,21 @@ export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
 export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
 export async function query(sql,args=[],databaseURL){const db=pool(databaseURL);try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
 export async function player(page,lang){const account=await register(page,lang);await login(page,lang,account);return {...account,id:(await query('SELECT id FROM accounts WHERE email=$1',[account.email]))[0].id};}
+
+export async function seedAccount(lang, role) {
+  const { id: accountId, email, password } = await seededAccount(lang);
+  const credentials = { email, password };
+  if (!role) return { credentials, accountId };
+  const { recoveryCodes } = await seed('account-mfa', { accountId, password });
+  expect(recoveryCodes).toHaveLength(8);
+  const grants = await query(
+    'INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2 AND built_in RETURNING role_id',
+    [accountId, role],
+  );
+  expect(grants).toHaveLength(1);
+  return { credentials, accountId, recoveryCodes };
+}
+
 // roles.html has select controls and named submit buttons; submit() cannot fill selects.
 // support_web.rs renders hidden action controls and select controls in SSR forms.
 export async function action(page,selector,values={},button){const form=page.locator(selector).first();const url=await form.getAttribute('action');const fields=await form.evaluate(f=>Object.fromEntries(new FormData(f)));await csrfRejected(page,url,{...fields,...values});for(const [name,value] of Object.entries(values)){const field=form.locator(`[name="${name}"]`);if(await field.evaluate(e=>e.tagName)==='SELECT')await field.selectOption(value);else await field.fill(value);}await form.locator(button?`button[value="${button}"]`:'button').first().click();}

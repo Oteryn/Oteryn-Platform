@@ -738,7 +738,13 @@ async fn render<P: Permissions, C: Channel>(
         {
             sections.push(dashboard::section(&s.pool, language).await);
         }
-        sections.push(alerts::section(&s.pool, language).await);
+        if auth
+            .check(context, Permission::ReadPlayerdataBindingAlerts)
+            .await
+            .is_ok()
+        {
+            sections.push(alerts::section(&s.pool, language).await);
+        }
     }
     let nav = navigation(&s.permissions, context, language).await;
     let op = operations[0];

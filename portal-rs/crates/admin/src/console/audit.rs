@@ -379,7 +379,11 @@ impl AuditRow {
     }
 }
 
-async fn platform_rows(pool: &sqlx::PgPool, filter: &Filter) -> Result<Vec<AuditRow>, sqlx::Error> {
+async fn platform_rows(
+    pool: &sqlx::PgPool,
+    filter: &Filter,
+    binding_alerts: bool,
+) -> Result<Vec<AuditRow>, sqlx::Error> {
     let allowed: serde_json::Map<String, Value> = ACTION_FIELDS
         .iter()
         .flat_map(|(actions, fields)| {
@@ -400,6 +404,7 @@ async fn platform_rows(pool: &sqlx::PgPool, filter: &Filter) -> Result<Vec<Audit
         .bind(serde_json::json!(LEGAL_PAGE_FIELDS))
         .bind(crate::audit::EDITORIAL_PAGE_PATH_PREFIX)
         .bind(crate::audit::EDITORIAL_PAGE_ROUTE)
+        .bind(binding_alerts)
         .fetch_all(pool)
         .await
 }
@@ -421,7 +426,14 @@ pub(crate) async fn page<B: Backend>(
     let mut page = Page::new(lang, "audit");
     page.filters = true;
     if platform {
-        let rows = platform_rows(&state.pool, &filter).await?;
+        let binding_alerts = state
+            .check(
+                actor,
+                crate::rbac::Permission::ReadPlayerdataBindingAlerts.as_str(),
+            )
+            .await
+            .is_ok();
+        let rows = platform_rows(&state.pool, &filter, binding_alerts).await?;
         page.audit_diff = Some(DiffLabels {
             field: tr(lang, "audit-diff-field"),
             before: tr(lang, "audit-diff-before"),

@@ -15,7 +15,8 @@ FROM (
             ELSE stored.target
         END
     )) AS visible(target)
-    WHERE ($1::uuid IS NULL OR request_id = $1)
+    WHERE ($11::boolean OR action IS DISTINCT FROM 'ops.playerdata_binding_conflict')
+      AND ($1::uuid IS NULL OR request_id = $1)
       AND ($2::uuid IS NULL OR actor = $2)
       AND ($3::text IS NULL OR COALESCE(operation, action) = $3)
       AND ($4::text IS NULL OR visible.target = $4)

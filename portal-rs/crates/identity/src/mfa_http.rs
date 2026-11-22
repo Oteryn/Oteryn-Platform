@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, Request, State},
+    extract::{ConnectInfo, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
@@ -23,6 +23,8 @@ use serde::Deserialize;
 use sqlx::{PgPool, types::time::OffsetDateTime};
 use std::net::SocketAddr;
 pub(crate) const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
+const STAFF_DASHBOARD_CHALLENGE: SessionKey<Option<String>> =
+    SessionKey::new("mfa_staff_dashboard_challenge");
 const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 const FAILED: SessionKey<bool> = SessionKey::new("mfa_failed");
 pub(crate) const GRANT: SessionKey<String> =
@@ -171,7 +173,11 @@ async fn rewrite_login(mut request: Request, next: Next) -> Response {
         request.uri().path().contains("/mfa") || request.uri().path().ends_with("/login");
     let path = request.uri().path();
     if ["/login", "/pl/login", "/en/login"].contains(&path) {
-        let replacement = path.replace("/login", "/mfa/login");
+        let mut replacement = path.replace("/login", "/mfa/login");
+        if let Some(query) = request.uri().query() {
+            replacement.push('?');
+            replacement.push_str(query);
+        }
         if let Ok(uri) = replacement.parse() {
             *request.uri_mut() = uri;
         }
@@ -196,24 +202,6 @@ fn redirect(language: Language, path: &str) -> Response {
     *response.status_mut() = StatusCode::FOUND;
     response
 }
-/// After a completed login: the stored OAuth authorize or checkout target
-/// (consumed once), otherwise the home page.
-async fn home_or_return(
-    language: Language,
-    session: &BrowserSession,
-) -> Result<Response, StatusCode> {
-    match crate::login_http::take_return(session)
-        .await
-        .map_err(unavailable)?
-    {
-        Some(target) => {
-            let mut response = Redirect::to(&target).into_response();
-            *response.status_mut() = StatusCode::FOUND;
-            Ok(response)
-        }
-        None => Ok(redirect(language, "/")),
-    }
-}
 fn unavailable(_: sqlx::Error) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
 }
@@ -236,6 +224,10 @@ struct Page {
     native_devices: Vec<oteryn_gameauth::devices::RememberedFamily>,
 }
 impl Page {
+    fn login_path(&self) -> &'static str {
+        crate::login_http::login_path(self.mode == "staff-login")
+    }
+
     fn text(&self, key: &str) -> String {
         let source = if self.language == Language::En {
             include_str!("../../../templates/account/mfa/en.ftl")
@@ -315,11 +307,18 @@ async fn page_data(
 async fn show_login(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    let staff_dashboard = crate::login_http::staff_dashboard_requested(query.as_deref(), &headers);
     page(
         language,
         &session,
-        "login",
+        if staff_dashboard {
+            "staff-login"
+        } else {
+            "login"
+        },
         false,
         String::new(),
         vec![],
@@ -440,6 +439,7 @@ async fn establish(
     language: Language,
     session: &BrowserSession,
     auth: Authenticated,
+    challenge_token: &str,
 ) -> Result<Response, StatusCode> {
     let authorization = context
         .mfa
@@ -447,6 +447,19 @@ async fn establish(
         .await
         .map_err(unavailable)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
+    let staff_dashboard = session
+        .get(STAFF_DASHBOARD_CHALLENGE)
+        .await
+        .map_err(unavailable)?
+        .flatten()
+        .as_deref()
+        == Some(challenge_token);
+    if staff_dashboard {
+        session
+            .set(STAFF_DASHBOARD_CHALLENGE, &None)
+            .await
+            .map_err(unavailable)?;
+    }
     session
         .set(PENDING, &String::new())
         .await
@@ -465,7 +478,8 @@ async fn establish(
     }
     validate_rotated_session(context, session, &authorization).await?;
     crate::sessions_http::complete_login(&context.mfa.pool(), session, auth.account).await?;
-    let mut response = home_or_return(language, session).await?;
+    let mut response =
+        crate::login_http::login_redirect(language, session, staff_dashboard).await?;
     if let Some(device) = auth.trusted {
         let value = HeaderValue::from_str(&format!(
             "{TRUSTED}={device}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000"
@@ -481,7 +495,7 @@ async fn login(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
+    (headers, RawQuery(query)): (HeaderMap, RawQuery),
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
     let limiter = supplied
@@ -502,11 +516,13 @@ async fn login(
     if session.account_id().await.is_some() {
         return Ok(redirect(language, "/"));
     }
+    let staff_dashboard = crate::login_http::staff_dashboard_requested(query.as_deref(), &headers);
+    let retry = crate::login_http::login_path(staff_dashboard);
     let Ok(Form(input)) = form else {
-        return refusal(language, &session, "/login").await;
+        return refusal(language, &session, retry).await;
     };
     if !input.valid() {
-        return refusal(language, &session, "/login").await;
+        return refusal(language, &session, retry).await;
     }
     if let Err(r) = charge(
         &limiter,
@@ -552,6 +568,13 @@ async fn login(
             .set(PENDING, &challenge.token)
             .await
             .map_err(unavailable)?;
+        if staff_dashboard {
+            // Only this MFA request may complete the dashboard login.
+            session
+                .set(STAFF_DASHBOARD_CHALLENGE, &Some(challenge.token.clone()))
+                .await
+                .map_err(unavailable)?;
+        }
         if let Some(device) = device_cookie(&headers)
             && let Some(auth) = context
                 .mfa
@@ -559,7 +582,7 @@ async fn login(
                 .await
                 .map_err(unavailable)?
         {
-            return establish(&context, language, &session, auth).await;
+            return establish(&context, language, &session, auth, &challenge.token).await;
         }
         return Ok(redirect(language, "/mfa/challenge"));
     }
@@ -586,9 +609,9 @@ async fn login(
         .map_err(unavailable)?;
         validate_rotated_session(&context, &session, &authorization).await?;
         crate::sessions_http::complete_login(&context.mfa.pool(), &session, account).await?;
-        return home_or_return(language, &session).await;
+        return crate::login_http::login_redirect(language, &session, staff_dashboard).await;
     }
-    refusal(language, &session, "/login").await
+    refusal(language, &session, retry).await
 }
 #[derive(Default, Deserialize)]
 #[serde(default)]
@@ -660,7 +683,7 @@ async fn challenge(
         .await
         .map_err(unavailable)?
     {
-        return establish(&context, language, &session, auth).await;
+        return establish(&context, language, &session, auth, &token).await;
     }
     refusal(language, &session, "/mfa/challenge").await
 }

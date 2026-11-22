@@ -355,6 +355,32 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .await?,
         StatusCode::SEE_OTHER
     );
+    let report_snapshot = || {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT to_jsonb(r) FROM player_reports r WHERE id=$1",
+        )
+        .bind(report)
+        .fetch_one(&pool)
+    };
+    let audit_count = || {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1")
+            .bind(report.to_string())
+            .fetch_one(&pool)
+    };
+    let before_report = report_snapshot().await?;
+    let before_audit = audit_count().await?;
+    assert_eq!(
+        post(
+            "moderation/reports",
+            report,
+            "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes="
+                .into(),
+        )
+        .await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(report_snapshot().await?, before_report);
+    assert_eq!(audit_count().await?, before_audit);
     assert_eq!(post("moderation/reports",report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=Private".into()).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         sqlx::query_scalar::<_, String>(

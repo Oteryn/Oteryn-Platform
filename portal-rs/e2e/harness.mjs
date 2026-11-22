@@ -101,6 +101,8 @@ const port = name => {
 const ports = {
   http: port('PORTAL_E2E_HTTP_PORT'),
   internal: port('PORTAL_E2E_INTERNAL_PORT'),
+  browser: testEnv.PORTAL_E2E_BROWSER_HTTPS_PORT === '443' ? 443
+    : testEnv.PORTAL_E2E_BROWSER_HTTPS_PORT ? port('PORTAL_E2E_BROWSER_HTTPS_PORT') : null,
   admission: Number(process.env.PORTAL_E2E_ADMISSION_PORT || 18091),
   gateway: Number(process.env.PORTAL_E2E_GATEWAY_PORT || 18090),
 };
@@ -379,6 +381,14 @@ async function start() {
   }
   binary = path.resolve(root, binary);
   env.PORTAL_E2E_BINARY = binary;
+  if (!outbox && ports.browser !== null) {
+    const { startStaffBrowser } = await import('./support/outbox-browser.mjs');
+    if (closing) return;
+    // Register the startup promise before awaiting it so shutdown owns the listeners.
+    outboxBrowser = startStaffBrowser({ upstreamPort: ports.http, certificate: server, caFile, env, browserPort: ports.browser });
+    await outboxBrowser;
+    if (closing) return;
+  }
   if (outbox) {
     env.OTERYN_SHOP_TEST_PAYMENT_KEY = crypto.randomBytes(32).toString('hex');
     env.PORTAL_E2E_OUTBOX_REPORT = path.join(out, 'report.json');

@@ -805,6 +805,7 @@ pub fn internal_character_router(
 
 pub mod csrf;
 pub mod session;
+pub mod staff_host;
 
 pub mod ratelimit;
 pub mod redirects;

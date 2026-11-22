@@ -97,7 +97,7 @@ test('account menu shows a localized staff link only with admin.access', async (
   await expect(accountMenu(page)).toHaveCount(0);
   const signedOut = await page.request.get(destination, {maxRedirects: 0});
   expect(signedOut.status()).toBe(303);
-  expect(signedOut.headers().location).toBe('/login');
+  expect(signedOut.headers().location).toBe('/login?return_to=/admin');
 });
 
 test('cold atlas sends no-store for document and direct GET requests', async ({request}, info) => {

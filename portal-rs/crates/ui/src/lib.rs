@@ -162,6 +162,7 @@ pub struct Registry {
     pub login: bool,
     pub registration: bool,
     pub account: bool,
+    pub staff_host: Option<String>,
 }
 impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.

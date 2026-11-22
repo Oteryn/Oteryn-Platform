@@ -21,10 +21,7 @@ use axum::{
     routing::get,
 };
 use oteryn_ui::panels::{self, Panel as PanelKind};
-use oteryn_web::{
-    csrf::https_authority,
-    session::{BrowserSession, SessionLayer},
-};
+use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -147,7 +144,7 @@ impl PanelConfig {
     pub(crate) fn csrf_origin(&self) -> String {
         format!(
             "https://{}",
-            https_authority(&self.host).unwrap_or_default()
+            oteryn_web::staff_host::canonical_authority(&self.host).unwrap_or_default()
         )
     }
 }
@@ -171,14 +168,22 @@ pub(crate) fn config_from(
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
-    let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
-    if enabled && https_authority(&host).is_none() {
-        return Err("invalid admin host".into());
-    }
+    let host = if enabled {
+        let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
+        oteryn_web::staff_host::canonical_authority(&host).ok_or("invalid admin host")?
+    } else {
+        String::new()
+    };
     Ok(PanelConfig {
         admin_panel: enabled,
         host,
     })
+}
+
+/// Register the dashboard destination from the same host and flag as the panel.
+pub fn configured_dashboard_host() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let config = config_from_env()?;
+    Ok(config.admin_panel.then_some(config.host))
 }
 
 pub fn configured_router(
@@ -516,18 +521,7 @@ pub(crate) async fn host_guard(
     request: Request,
     next: Next,
 ) -> Response {
-    let hosts = request.headers().get_all(header::HOST);
-    let configured = https_authority(&config.host);
-    let incoming = hosts
-        .iter()
-        .next()
-        .and_then(|value| value.to_str().ok())
-        .and_then(https_authority);
-    if !config.admin_panel
-        || hosts.iter().count() != 1
-        || configured.is_none()
-        || incoming != configured
-    {
+    if !config.admin_panel || !oteryn_web::staff_host::matches(request.headers(), &config.host) {
         return StatusCode::NOT_FOUND.into_response();
     }
     let mut response = next.run(request).await;
@@ -582,6 +576,11 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         .map_or_else(|| language(request.headers()), oteryn_web::Language::code);
     let context = match request_staff_context(&s, session, lang, request.uri().path()).await {
         Ok(context) => context,
+        Err(StaffGuardError::Login)
+            if request.method() == axum::http::Method::GET && request.uri().path() == "/admin" =>
+        {
+            return Redirect::to(oteryn_web::staff_host::DASHBOARD_LOGIN_PATH).into_response();
+        }
         Err(StaffGuardError::Status(StatusCode::FORBIDDEN)) => {
             let fallback = oteryn_ui::Registry::default().chrome(
                 lang,

@@ -73,3 +73,5 @@ escalate-report = Escalate for review
 dismiss-report = Dismiss report
 
 tickets = Support tickets
+
+moderator_reason = Private reason

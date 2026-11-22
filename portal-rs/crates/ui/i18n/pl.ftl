@@ -217,6 +217,8 @@ shell-account-overview = Przegląd konta
 shell-account-recovery-key = Klucz odzyskiwania
 shell-account-wizard = Kreator bezpieczeństwa
 shell-staff-panel = Panel zespołu
+
+shell-staff-dashboard = Panel administracyjny
 shell-account-passkeys = Klucze dostępu
 shell-account-notifications = Powiadomienia
 shell-payments = Płatności

@@ -3,6 +3,7 @@ ALTER TABLE role_permissions DROP CONSTRAINT role_permissions_permission_check;
 ALTER TABLE role_permissions ADD CONSTRAINT role_permissions_permission_check
     CHECK (permission IN (
         'admin.access',
+        'ops.playerdata_binding_conflict.read',
         'admin.analytics.view',
         'admin.analytics.export',
         'admin.roles.manage',

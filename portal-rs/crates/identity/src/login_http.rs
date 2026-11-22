@@ -2,8 +2,8 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, Request, State},
-    http::{HeaderMap, StatusCode, header},
+    extract::{ConnectInfo, RawQuery, Request, State},
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
     routing::post,
@@ -14,6 +14,7 @@ use oteryn_web::{
     Language,
     ratelimit::{Denial, Keys, NamedPolicy, RateLimiter},
     session::{self, BrowserSession, PrivilegeChange, SessionKey, SessionLayer},
+    staff_host,
 };
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -32,7 +33,7 @@ pub(crate) fn configured_staff_authority() -> Option<String> {
     if std::env::var("OTERYN_ADMIN_PANEL").as_deref() != Ok("true") {
         return None;
     }
-    oteryn_web::csrf::https_authority(&std::env::var("OTERYN_ADMIN_HOST").ok()?)
+    staff_host::canonical_authority(&std::env::var("OTERYN_ADMIN_HOST").ok()?)
 }
 
 pub(crate) async fn staff_session(
@@ -40,15 +41,8 @@ pub(crate) async fn staff_session(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let mut hosts = request.headers().get_all(header::HOST).iter();
     if let Some(authority) = staff_authority
-        && hosts
-            .next()
-            .and_then(|value| value.to_str().ok())
-            .and_then(oteryn_web::csrf::https_authority)
-            .as_ref()
-            == Some(&authority)
-        && hosts.next().is_none()
+        && staff_host::matches(request.headers(), &authority)
     {
         let csrf = request.extensions_mut().get_or_insert(layer.csrf.clone());
         csrf.trusted_origins = vec![format!("https://{authority}")];
@@ -90,6 +84,7 @@ struct LoginPage {
     language: Language,
     csrf: String,
     failed: bool,
+    login_path: &'static str,
 }
 impl LoginPage {
     fn text(&self, key: &str) -> String {
@@ -124,6 +119,7 @@ async fn page(
     language: Language,
     session: &BrowserSession,
     failed: bool,
+    staff_dashboard: bool,
 ) -> Result<Response, StatusCode> {
     let page = LoginPage {
         lang: language.code(),
@@ -133,12 +129,15 @@ async fn page(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
         failed,
+        login_path: login_path(staff_dashboard),
     };
     Ok(oteryn_web::render(&page))
 }
 async fn show(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     if session.account_id().await.is_some() {
         return Ok(redirect(&format!("/{}/", language.code())));
@@ -154,7 +153,13 @@ async fn show(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     }
-    page(language, &session, failed).await
+    page(
+        language,
+        &session,
+        failed,
+        staff_dashboard_requested(query.as_deref(), &headers),
+    )
+    .await
 }
 async fn submit(
     State(pool): State<PgPool>,
@@ -162,7 +167,7 @@ async fn submit(
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
+    (headers, RawQuery(query)): (HeaderMap, RawQuery),
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
     let Some(Extension(ConnectInfo(peer))) = peer else {
@@ -179,11 +184,12 @@ async fn submit(
     {
         return Ok(e.response(language, false));
     }
+    let staff_dashboard = staff_dashboard_requested(query.as_deref(), &headers);
     let Ok(Form(input)) = form else {
-        return refuse(language, &session).await;
+        return refuse(language, &session, staff_dashboard).await;
     };
     if !input.valid() {
-        return refuse(language, &session).await;
+        return refuse(language, &session, staff_dashboard).await;
     }
     keys.email = Some(oteryn_identity::accounts::normalize_email(&input.email));
     if let Err(e) = limiter.check(NamedPolicy::IdentityLogin, &[keys]).await {
@@ -196,9 +202,9 @@ async fn submit(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if let Some(proof) = account {
-        establish(&pool, language, &session, proof).await
+        establish(&pool, language, &session, proof, staff_dashboard).await
     } else {
-        refuse(language, &session).await
+        refuse(language, &session, staff_dashboard).await
     }
 }
 /// The proof remains immutable while credential mutations may commit before rotation.
@@ -207,6 +213,7 @@ async fn establish(
     language: Language,
     session: &BrowserSession,
     proof: login::Authorization,
+    staff_dashboard: bool,
 ) -> Result<Response, StatusCode> {
     let id = proof.account;
     session
@@ -227,15 +234,27 @@ async fn establish(
         if valid.is_err() {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
-        return refuse(language, session).await;
+        return refuse(language, session, staff_dashboard).await;
     }
     crate::sessions_http::complete_login(pool, session, id).await?;
+    login_redirect(language, session, staff_dashboard).await
+}
+
+pub(crate) async fn login_redirect(
+    language: Language,
+    session: &BrowserSession,
+    staff_dashboard: bool,
+) -> Result<Response, StatusCode> {
     let target = take_return(session)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(redirect(
-        &target.unwrap_or_else(|| format!("/{}/", language.code())),
-    ))
+    if staff_dashboard {
+        Ok(redirect("/admin"))
+    } else {
+        Ok(redirect(
+            &target.unwrap_or_else(|| format!("/{}/", language.code())),
+        ))
+    }
 }
 async fn logout(
     Extension(language): Extension<Language>,
@@ -257,8 +276,7 @@ mod tests;
 const LOGIN_FAILED: SessionKey<bool> = SessionKey::new("login_failed");
 const RETURN: SessionKey<Option<String>> = SessionKey::new(login::RETURN_KEY);
 /// The stored post-login target, read and cleared once a login has succeeded.
-/// Only the native OAuth authorize route and the exact coin checkout path are
-/// accepted; anything else (absent, malformed, another origin) yields `None`.
+/// Accept only the native OAuth authorize route or exact coin checkout path.
 pub(crate) async fn take_return(session: &BrowserSession) -> Result<Option<String>, sqlx::Error> {
     let Some(target) = session.get(RETURN).await?.flatten() else {
         return Ok(None);
@@ -268,6 +286,29 @@ pub(crate) async fn take_return(session: &BrowserSession) -> Result<Option<Strin
 }
 fn accepted(target: &str) -> bool {
     login::authorize_return(target) || oteryn_payments::coin::is_checkout_return(target)
+}
+/// Select the dashboard only from the current request on the configured staff host.
+pub(crate) fn staff_dashboard_requested(query: Option<&str>, headers: &HeaderMap) -> bool {
+    std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
+        && dashboard_return(
+            query,
+            headers,
+            std::env::var("OTERYN_ADMIN_HOST").ok().as_deref(),
+        )
+}
+
+pub(crate) fn login_path(staff_dashboard: bool) -> &'static str {
+    if staff_dashboard {
+        staff_host::DASHBOARD_LOGIN_PATH
+    } else {
+        "/login"
+    }
+}
+
+fn dashboard_return(query: Option<&str>, headers: &HeaderMap, admin_host: Option<&str>) -> bool {
+    admin_host
+        .and_then(staff_host::canonical_authority)
+        .is_some_and(|authority| staff_host::dashboard_return_requested(query, headers, &authority))
 }
 /// Reads the stored target before a session is replaced, so a challenge on
 /// the new session can still return to it.
@@ -292,10 +333,18 @@ fn redirect(path: &str) -> Response {
     *response.status_mut() = StatusCode::FOUND;
     response
 }
-async fn refuse(language: Language, session: &BrowserSession) -> Result<Response, StatusCode> {
+async fn refuse(
+    language: Language,
+    session: &BrowserSession,
+    staff_dashboard: bool,
+) -> Result<Response, StatusCode> {
     session
         .set(LOGIN_FAILED, &true)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(redirect(&format!("/{}/login", language.code())))
+    Ok(redirect(&format!(
+        "/{}{}",
+        language.code(),
+        login_path(staff_dashboard)
+    )))
 }
