@@ -10,6 +10,10 @@ const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 const inventory = JSON.parse(read('../inventory.json'));
 const expectations = JSON.parse(read('../route-expectations.json'));
 const workspace = new URL('../../', import.meta.url);
+const htmlDocument = /<(?:!doctype\s+html|(?:html|body|main|title)(?:\s|>))/iu;
+const announcementsPath = '/admin/announcements';
+const announcementEditor = `${announcementsPath}/create`;
+const characterProfile = /^\/account\/characters\/[^/]+\/profile$/u;
 const normalize = (value) => value.normalize('NFC').replace(/\s+/gu, ' ').trim();
 const catalogs = Object.fromEntries(['pl', 'en'].map((locale) => [locale, new Map()]));
 const catalogKeys = new Map();
@@ -66,7 +70,8 @@ function keysForPage(pathname) {
     if (family) roots.push(`templates/${family}/`);
   }
   if (family === 'native-account') roots.push('crates/payments/templates/coin/');
-  if (page.startsWith('/admin/announcements')) roots.push('crates/content/');
+  if (page.startsWith(announcementsPath)) roots.push('crates/content/');
+  if (characterProfile.test(page)) roots.push('templates/profile/');
   if (page === '' || page === '/' || ['legal', 'help', 'rules', 'server-information'].includes(family)) {
     roots.push('templates/pages/');
   }
@@ -169,6 +174,13 @@ async function assertDocument(page, locale, target) {
   expect.soft(interpolation, `${target}: unresolved interpolation`).toBe(false);
 }
 
+async function assertRequiredHtml(response, target) {
+  expect(response?.status(), `${target}: required page status`).toBe(200);
+  expect(new URL(response.url()).pathname, `${target}: required page path`).toBe(target);
+  expect(response.headers()['content-type'], `${target}: required page content type`).toMatch(/^text\/html\b/u);
+  expect(/<html(?:\s|>)/iu.test(await response.text()), `${target}: required HTML document`).toBe(true);
+}
+
 function sample(route, locale) {
   return route
     .replace(/\{(?:lang|locale|language)\}/gu, locale)
@@ -194,7 +206,7 @@ function destinations(actor, locale) {
     }
   }
   if (actor === 'staff') {
-    for (const path of ['/admin/announcements', '/admin/announcements/create', '/admin/announcements/{id}/edit']) {
+    for (const path of [announcementsPath, announcementEditor, `${announcementsPath}/{id}/edit`]) {
       targets.set(sample(path, locale), path.endsWith('/edit') ? 404 : 200);
     }
   }
@@ -284,6 +296,28 @@ function posted(page, path) {
     response.request().method() === 'POST' && new URL(response.url()).pathname === path);
 }
 
+async function assertAnnouncements(page, locale, target) {
+  const copy = (key) => catalogText(`crates/content/src/announcements_staff.${locale}.ftl`, `announcements-${key}`);
+  const main = page.locator('main');
+  await expect(page).toHaveTitle(copy('heading'));
+  await expect(main.locator('h1')).toHaveText(copy('heading'));
+  await expect(main.locator(`a[href="${announcementsPath}"]`)).toHaveText(copy('list'));
+  await expect(main.locator(`a[href="${announcementEditor}"]`)).toHaveText(copy('create'));
+  if (target === announcementEditor) {
+    const form = main.locator(`form[action="${announcementsPath}"]`);
+    await expect(form.locator('p')).toHaveText(copy('instructions'));
+    for (const field of [
+      'publication_state', 'severity', 'starts_at', 'ends_at', 'title', 'body', 'action_label',
+      'action_url', 'title_pl', 'body_pl', 'action_label_pl', 'translation_published_at',
+    ]) {
+      await expect(form.locator(`label[for="${field}"]`)).toHaveText(copy(field));
+    }
+    await expect(form.locator('select[name=publication_state] option')).toHaveText(['draft', 'published'].map(copy));
+    await expect(form.locator('select[name=severity] option')).toHaveText(['info', 'maintenance', 'warning'].map(copy));
+    await expect(form.getByRole('button')).toHaveText(copy('save'));
+  }
+}
+
 async function serverValidation(page, locale, actor, target, targets) {
   if (actor === 'player' && target === `/${locale}/password/change`) {
     await submit(page, 'main form', {
@@ -315,28 +349,32 @@ async function serverValidation(page, locale, actor, target, targets) {
     await expect(page).toHaveURL(/support\/tickets\/[a-f0-9-]+$/u);
     targets.set(new URL(page.url()).pathname, 200);
   }
-  if (actor === 'staff' && target === '/admin/announcements/create') {
+  if (actor === 'staff' && target === announcementEditor) {
     const valid = { starts_at: new Date().toISOString(), title: 'Parity fixture', body: 'Parity fixture' };
-    for (const fields of [
-      { starts_at: '', title: '', body: '' },
-      { ...valid, starts_at: 'invalid-date' },
-      { ...valid, title: '' },
-      { ...valid, body: '' },
+    for (const [name, fields] of [
+      ['all required fields blank', { starts_at: '', title: '', body: '' }],
+      ['malformed start date', { ...valid, starts_at: 'invalid-date' }],
+      ['blank start date with valid title and body', { ...valid, starts_at: '' }],
+      ['blank title', { ...valid, title: '' }],
+      ['blank body', { ...valid, body: '' }],
     ]) {
-      expect((await page.goto(target)).status()).toBe(200);
-      const [response] = await Promise.all([
-        posted(page, '/admin/announcements'),
-        submit(page, 'main form', fields),
-      ]);
-      expect(response.status()).toBe(422);
-      await expect(page.locator('main')).toContainText(catalogText(`crates/ui/i18n/${locale}.ftl`, 'error-422-description'));
-      await assertDocument(page, locale, 'announcement validation refusal');
+      await test.step(name, async () => {
+        await assertRequiredHtml(await page.goto(target), target);
+        const [response] = await Promise.all([
+          posted(page, announcementsPath),
+          submit(page, 'main form', fields),
+        ]);
+        expect(response.status()).toBe(422);
+        await expect(page.locator('main')).toContainText(catalogText(`crates/ui/i18n/${locale}.ftl`, 'error-422-description'));
+        await assertDocument(page, locale, 'announcement validation refusal');
+      });
     }
   }
 }
 
 const ownedCharacterName = 'Parity Fixture';
-const missingProfile = /^\/(?:pl\/|en\/)?account\/characters\/missing-e2e\/profile$/u;
+const missingProfile = '/account/characters/missing-e2e/profile';
+const projectionEpoch = '3';
 const checkoutPrefix = '/native-account/coin-checkout/';
 
 async function publishOwnershipFixture(route, fields) {
@@ -348,7 +386,7 @@ async function publishOwnershipFixture(route, fields) {
   const payload = JSON.stringify({
     contract_version: 1,
     source_authority: process.env.OTERYN_LCFA_SOURCE_AUTHORITY,
-    projection_epoch: '3',
+    projection_epoch: projectionEpoch,
     ...fields,
   });
   const { status, body } = await new Promise((resolve, reject) => {
@@ -393,13 +431,32 @@ async function publishOwnership(order) {
   });
 }
 
-async function refreshOwnership() {
-  const stamp = unixSeconds();
+async function ownershipWatermark() {
+  const [watermark] = await query(`
+    SELECT stamp, COALESCE(
+      highest_epoch = $1 AND watermark_epoch = $1 AND source_authority = $2
+      AND complete_through BETWEEN stamp - 5 AND stamp,
+      false
+    ) AS fresh
+    FROM account_character_feed
+    CROSS JOIN (SELECT floor(extract(epoch FROM clock_timestamp()))::bigint AS stamp) clock
+    WHERE id = 1
+  `, [projectionEpoch, process.env.OTERYN_LCFA_SOURCE_AUTHORITY]);
+  expect(watermark, 'local ownership feed').toBeDefined();
+  return watermark;
+}
+
+async function ensureFreshOwnership() {
+  const watermark = await ownershipWatermark();
+  // Reuse the verified watermark while it is recent. Publishing the same
+  // second twice is superseded by the authority.
+  if (watermark.fresh) return;
   await publishOwnershipFixture('/watermark', {
     operation: 'PublishProjectionWatermarkV1',
-    complete_through: stamp,
-    observed_at: stamp,
+    complete_through: watermark.stamp,
+    observed_at: watermark.stamp,
   });
+  expect((await ownershipWatermark()).fresh, 'published ownership watermark is fresh').toBe(true);
 }
 
 async function seedCheckout(page, email) {
@@ -434,17 +491,25 @@ async function seedCheckout(page, email) {
   }
 }
 
-async function assertCheckout(page, locale) {
+async function assertCheckout(page, locale, state) {
   const copy = (key) => catalogText(`crates/payments/templates/coin/${locale}.ftl`, `coin-checkout-${key}`);
+  await expect(page).toHaveTitle(`${copy('title')} · Oteryn`);
   await expect(page.locator('main h1')).toHaveText(copy('title'));
+  await expect(page.locator('main dt')).toHaveText(['order', 'coins', 'price', 'status'].map(copy));
   await expect(page.locator('main dt').filter({ hasText: new RegExp(`^${copy('price')}$`, 'u') }).locator('+ dd'))
     .toHaveText(locale === 'pl' ? '10,00 PLN' : '10.00 PLN');
   await expect(page.locator('main dt').filter({ hasText: new RegExp(`^${copy('status')}$`, 'u') }).locator('+ dd'))
-    .toHaveText(copy('awaiting_payment'));
-  await expect(page.locator('main form').filter({ has: page.locator('input[name=action][value=pay]') }).getByRole('button'))
-    .toHaveText(copy('pay'));
-  await expect(page.locator('main form').filter({ has: page.locator('input[name=action][value=fail]') }).getByRole('button'))
-    .toHaveText(copy('fail'));
+    .toHaveText(copy(state));
+  if (state === 'awaiting_payment') {
+    await expect(page.locator('main > p')).toHaveText(copy('description'));
+    await expect(page.locator('main form').filter({ has: page.locator('input[name=action][value=pay]') }).getByRole('button'))
+      .toHaveText(copy('pay'));
+    await expect(page.locator('main form').filter({ has: page.locator('input[name=action][value=fail]') }).getByRole('button'))
+      .toHaveText(copy('fail'));
+  } else {
+    await expect(page.locator('main > p')).toHaveText(['description', 'return'].map(copy));
+    await expect(page.locator('main form')).toHaveCount(0);
+  }
 }
 
 async function assertAnonymousCheckoutRedirects(page) {
@@ -506,6 +571,8 @@ for (const actor of ['anonymous', 'player', 'staff']) {
     const documents = new Set();
     const checked = new Set();
     const uncovered = new Set();
+    const missingProfiles = [missingProfile, `/${locale}${missingProfile}`];
+    const missingProfilesChecked = [];
     let ownedProfileChecked = false;
     for (const [target, status] of targets) {
       if (target.startsWith('/language/')) continue;
@@ -517,41 +584,64 @@ for (const actor of ['anonymous', 'player', 'staff']) {
           url.searchParams.set('lang', locale);
         }
         await waitForWikiBudget(target, 2);
-        if (actor === 'player' && missingProfile.test(url.pathname)) {
-          await refreshOwnership();
+        const missingOwnedProfile = actor === 'player' && missingProfiles.includes(url.pathname);
+        if (missingOwnedProfile) {
           if (!ownedProfileChecked) {
             const ownedProfile = `/${locale}/account/characters/${encodeURIComponent(ownedCharacterName)}/profile`;
-            expect((await page.goto(ownedProfile)).status(), 'owned character profile is enabled').toBe(200);
+            await ensureFreshOwnership();
+            await assertRequiredHtml(await page.goto(ownedProfile), ownedProfile);
             await expect(page.locator('main')).toContainText(ownedCharacterName);
             await expect(page.locator('main textarea[name=comment]')).toBeVisible();
             await assertDocument(page, locale, ownedProfile);
             documents.add(ownedProfile);
             ownedProfileChecked = true;
-            await refreshOwnership();
           }
+          await ensureFreshOwnership();
         }
         const probe = await page.request.get(url.href, { headers: { accept: 'text/html', 'accept-language': locale } });
+        if (missingOwnedProfile) {
+          expect(probe.status(), target).toBe(404);
+          expect(new URL(probe.url()).pathname, target).toBe(url.pathname);
+          missingProfilesChecked.push(url.pathname);
+        }
+        const announcements = actor === 'staff' && [announcementsPath, announcementEditor].includes(target);
+        const required = target === checkout || announcements;
+        if (required) await assertRequiredHtml(probe, url.pathname);
         if (target === checkout) {
-          expect(probe.status()).toBe(200);
-          expect((await page.goto(url.href)).status()).toBe(200);
+          expect(probe.headers()['referrer-policy']).toBe('same-origin');
+          await assertRequiredHtml(await page.goto(url.href), url.pathname);
           await assertDocument(page, locale, target);
-          await assertCheckout(page, locale);
+          await assertCheckout(page, locale, 'awaiting_payment');
           documents.add(url.pathname);
           await nativeValidation(page, locale, checked, uncovered);
+          await test.step('failed sandbox payment return instructions', async () => {
+            const [response, navigation] = await Promise.all([
+              posted(page, url.pathname),
+              page.waitForNavigation(),
+              submit(page, 'main form:has(input[name=action][value=fail])'),
+            ]);
+            expect(response.status()).toBe(303);
+            await assertRequiredHtml(navigation, url.pathname);
+            await assertDocument(page, locale, target);
+            await assertCheckout(page, locale, 'failed');
+          });
           return;
         }
         if (status !== undefined && actor !== 'anonymous') expect.soft(probe.status(), target).toBe(status);
-        if (!probe.headers()['content-type']?.startsWith('text/html')) return;
-        const source = await probe.text();
-        // The inventory also includes HTML fragments consumed by other pages.
-        if (!/<(?:!doctype\s+html|(?:html|body|main|title)(?:\s|>))/iu.test(source)) return;
+        if (!required) {
+          if (!probe.headers()['content-type']?.startsWith('text/html')) return;
+          // The inventory also includes HTML fragments consumed by other pages.
+          if (!htmlDocument.test(await probe.text())) return;
+        }
         const final = new URL(probe.url());
-        if (documents.has(final.pathname + final.search)) return;
+        if (!required && documents.has(final.pathname + final.search)) return;
         documents.add(final.pathname + final.search);
         const navigation = await page.goto(url.href);
         expect.soft(navigation.status(), target).toBe(probe.status());
+        if (required) await assertRequiredHtml(navigation, url.pathname);
         const documentLocale = fixedPolishAlias.test(url.pathname) ? 'pl' : locale;
         await assertDocument(page, documentLocale, target);
+        if (announcements) await assertAnnouncements(page, locale, target);
         if (navigation.ok()) {
           await addLinkedPages(page, targets, locale, actor);
           await nativeValidation(page, documentLocale, checked, uncovered);
@@ -559,7 +649,10 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         }
       });
     }
-    if (actor === 'player') expect(ownedProfileChecked, 'owned profile checked before missing profiles').toBe(true);
+    if (actor === 'player') {
+      expect(ownedProfileChecked, 'owned profile checked before missing profiles').toBe(true);
+      expect(missingProfilesChecked.sort(), 'both missing profiles checked').toEqual(missingProfiles.sort());
+    }
     expect(documents.size, `${actor}: HTML documents visited`).toBeGreaterThan(0);
     await info.attach('i18n-coverage', {
       body: JSON.stringify({ documents: [...documents].map((url) => new URL(url, origin).pathname),
@@ -585,4 +678,8 @@ test('raw Fluent tokens distinguish leaks from passkey prose', () => {
   expect(rawKeysIn('Help: passkeys-help', passkeys)).toEqual(['passkeys-help']);
   expect(rawKeysIn(catalogText('templates/account/passkeys/en.ftl', 'passkeys-revoke'), passkeys)).toEqual([]);
   expect(rawKeysIn('Help: sign-in', keysForPage('/en/atlas'))).toEqual(['sign-in']);
+  for (const prefix of ['', '/pl', '/en']) {
+    const profile = keysForPage(`${prefix}/account/characters/Parity%20Fixture/profile`);
+    expect(rawKeysIn('Settings: hide-all and online-time', profile)).toEqual(['hide-all', 'online-time']);
+  }
 });
