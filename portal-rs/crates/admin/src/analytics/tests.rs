@@ -1316,7 +1316,7 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
         "Mała próba (poniżej pięciu)",
         "Niekompletne: Gra nie dostarczyła jeszcze danych dla klucza depot",
         "Widoczne",
-        "rejestr portfela Platformy",
+        "Zakupy — księga portfela Platformy (wszystkie światy)",
         "48210377",
     ] {
         assert!(polish.contains(text), "{text}");
@@ -1343,6 +1343,27 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
         assert!(cells.iter().any(|cell| cell["state"] == "low_n"));
     }
 
+    for (path, title) in [
+        ("/admin/analytics", "Przegląd analityki administratora"),
+        (path.as_str(), "Analityka gospodarki"),
+    ] {
+        let response = panel(pool.clone(), Some(admin), true)
+            .oneshot(
+                Request::get(path)
+                    .header("host", "staff.test")
+                    .header(header::ACCEPT_LANGUAGE, "en")
+                    .header(header::COOKIE, "portal_language=pl")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = to_bytes(response.into_body(), 200000).await.unwrap();
+        let html = std::str::from_utf8(&html).unwrap();
+        assert!(html.contains("<html lang=\"pl\">"));
+        assert!(html.contains(title));
+    }
     for query in [
         "family=characters_created_daily",
         "account=0192f4a0-7c00-7000-8000-000000000001",

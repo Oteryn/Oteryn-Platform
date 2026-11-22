@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import path from 'node:path';
 import {expect} from '@playwright/test';
 import {submit} from './helpers.mjs';
+import {staffState} from './staff-rbac-helpers.mjs';
 export async function staffContext(browser,info) {
- return browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`)});
+ return browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,storageState:await staffState(browser,info)});
 }
 export async function token(page,lang) {
  await page.goto(`/${lang}/shop/coins`);

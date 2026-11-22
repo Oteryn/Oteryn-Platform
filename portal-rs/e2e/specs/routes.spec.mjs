@@ -1,8 +1,7 @@
 import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
-import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
-import {isolatedAdmin,query} from '../staff-rbac-helpers.mjs';
+import {isolatedAdmin,query,staffState} from '../staff-rbac-helpers.mjs';
 import {assertShell} from '../shell.mjs';
 import {routeCaseTitle} from '../route-cases.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
@@ -12,7 +11,7 @@ test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
-for(const row of rows)test(routeCaseTitle(row, rows),async({page,context},info)=>{
+for(const row of rows)test(routeCaseTitle(row, rows),async({page,context,browser},info)=>{
  const lang=info.project.metadata.locale;
  if (row.actor === 'gm') {
    if (!gmCookies) {
@@ -29,7 +28,7 @@ for(const row of rows)test(routeCaseTitle(row, rows),async({page,context},info)=
    }
    await context.addCookies(gmCookies);
  } else if(row.actor==='staff') {
-   const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
+   const staff=await staffState(browser,info);
    await context.addCookies(staff.cookies);
  }else await context.addCookies(cookies);
  const target=sample(row.route,lang);

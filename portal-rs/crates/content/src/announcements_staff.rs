@@ -90,13 +90,21 @@ impl Page {
     }
 }
 
+fn page_language(chrome: Option<Extension<Chrome>>, headers: &HeaderMap) -> String {
+    chrome.map_or_else(
+        || oteryn_ui::preferred_language(headers).to_owned(),
+        |Extension(chrome)| chrome.lang,
+    )
+}
+
 async fn index(
     State(pool): State<PgPool>,
     chrome: Option<Extension<Chrome>>,
     axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     let rows = sqlx::query_as("SELECT id,title,publication_state FROM announcements ORDER BY updated_at DESC,id DESC LIMIT 500 OFFSET $1").bind(q.offset(500)).fetch_all(&pool).await.map_err(unavailable)?;
-    let lang = chrome.map_or_else(|| "pl".to_owned(), |Extension(chrome)| chrome.lang);
+    let lang = page_language(chrome, &headers);
     Ok(oteryn_web::render(&Page {
         labels: Page::labels(&lang),
         lang,
@@ -129,6 +137,7 @@ fn unavailable(_: impl std::fmt::Display) -> StatusCode {
 async fn new(
     chrome: Option<Extension<Chrome>>,
     Extension(session): Extension<BrowserSession>,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     let fields = FIELDS
         .iter()
@@ -146,7 +155,7 @@ async fn new(
             )
         })
         .collect();
-    let lang = chrome.map_or_else(|| "pl".to_owned(), |Extension(chrome)| chrome.lang);
+    let lang = page_language(chrome, &headers);
     let csrf = session.csrf_token().await.map_err(unavailable)?;
     Ok(oteryn_web::render(&Page {
         labels: Page::labels(&lang),
@@ -165,6 +174,7 @@ async fn edit(
     Path(id): Path<Uuid>,
     chrome: Option<Extension<Chrome>>,
     Extension(session): Extension<BrowserSession>,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     let row =
         sqlx::query("SELECT to_jsonb(a) AS data,lock_version FROM announcements a WHERE id=$1")
@@ -183,7 +193,7 @@ async fn edit(
             )
         })
         .collect();
-    let lang = chrome.map_or_else(|| "pl".to_owned(), |Extension(chrome)| chrome.lang);
+    let lang = page_language(chrome, &headers);
     let csrf = session.csrf_token().await.map_err(unavailable)?;
     Ok(oteryn_web::render(&Page {
         labels: Page::labels(&lang),

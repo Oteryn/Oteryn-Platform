@@ -319,7 +319,7 @@
       ]
     },
     {
-      "source": "templates/admin/roles.html:19",
+      "source": "templates/admin/roles.html:18",
       "ordinal": 1,
       "action": "/admin/roles",
       "actionVariants": [],
@@ -337,7 +337,7 @@
       ]
     },
     {
-      "source": "templates/admin/roles.html:29",
+      "source": "templates/admin/roles.html:28",
       "ordinal": 1,
       "action": "/admin/roles",
       "actionVariants": [],
@@ -1642,7 +1642,7 @@
       ]
     },
     {
-      "source": "crates/content/src/news.rs:381",
+      "source": "crates/content/src/news.rs:386",
       "ordinal": 1,
       "action": "{action}?lang={lang}",
       "actionVariants": [
@@ -1659,7 +1659,7 @@
       ]
     },
     {
-      "source": "crates/content/src/news.rs:429",
+      "source": "crates/content/src/news.rs:434",
       "ordinal": 1,
       "action": "/admin/news/{id}/delete",
       "actionVariants": [],
@@ -2499,7 +2499,7 @@
       "route": "/admin/events",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:206",
+          "source": "crates/content/src/events/web.rs:215",
           "handler": "save_new::"
         }
       ]
@@ -2509,7 +2509,7 @@
       "route": "/admin/events/{id}",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:209",
+          "source": "crates/content/src/events/web.rs:218",
           "handler": "save_existing::"
         }
       ]
@@ -2519,7 +2519,7 @@
       "route": "/admin/events/{id}/status",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:213",
+          "source": "crates/content/src/events/web.rs:222",
           "handler": "status::"
         }
       ]
@@ -3899,7 +3899,7 @@
       "route": "/admin/events/{id}",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:209",
+          "source": "crates/content/src/events/web.rs:218",
           "handler": "save_existing::"
         }
       ]
@@ -3909,7 +3909,7 @@
       "route": "/admin/events/{id}/status",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:213",
+          "source": "crates/content/src/events/web.rs:222",
           "handler": "status::"
         }
       ]

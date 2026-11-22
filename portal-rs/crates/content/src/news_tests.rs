@@ -641,11 +641,16 @@ async fn postgres_pagination_language_and_caps() {
         };
         assert!(!listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
         assert!(
-            !admin_index(State(pool.clone()), Extension(context), Query(q))
-                .await
-                .unwrap()
-                .0
-                .contains("?page=")
+            !admin_index(
+                State(pool.clone()),
+                Extension(context),
+                Query(q),
+                axum::http::HeaderMap::new(),
+            )
+            .await
+            .unwrap()
+            .0
+            .contains("?page=")
         );
     }
     pool.close().await;

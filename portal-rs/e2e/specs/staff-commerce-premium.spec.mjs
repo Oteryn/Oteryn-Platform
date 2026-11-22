@@ -1,7 +1,7 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool,csrfRejected} from '../helpers.mjs';
-import path from 'node:path';
 import {enrollMfa,loginWithRecoveryCode} from '../staff-rbac-helpers.mjs';
+import {staffContext} from '../staff-commerce-helpers.mjs';
 
 test('staff premium grant persists entitlement and audit; player cannot grant',async({page,browser},info)=>{
  test.setTimeout(300_000);
@@ -9,11 +9,7 @@ test('staff premium grant persists entitlement and audit; player cannot grant',a
  const account=await register(page,lang);
  await login(page,lang,account);
  const db=pool();
- const staff=await browser.newContext({
-  baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',
-  ignoreHTTPSErrors:true,
-  storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),
- });
+ const staff=await staffContext(browser,info);
  const reviewer=await browser.newContext({
   baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',
   ignoreHTTPSErrors:true,

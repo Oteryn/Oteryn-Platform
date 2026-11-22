@@ -59,6 +59,8 @@ export async function submit(page, selector='main form', values={}) {
     else await input.fill(value);
   }
   await form.locator('button[type=submit], button:not([type])').first().click({timeout:30_000});
+  // A form navigation can commit before its response has been parsed.
+  await page.waitForLoadState('domcontentloaded');
 }
 export async function mailLink(page,email,pattern,timeout=30_000) {
   let found;

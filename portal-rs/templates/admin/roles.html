@@ -12,7 +12,6 @@
 <input class="op-input" id="role-key" name="key" required maxlength="64">
 <label for="create-permissions">{% if lang == "pl" %}Uprawnienia (oddzielone spacjami){% else %}Permissions (separated by spaces){% endif %}</label>
 <textarea class="op-input" id="create-permissions" name="permissions"></textarea>
-{% if can_grant %}{% call role_reason("create-reason") %}{% endcall %}{% endif %}
 <button class="op-button" name="action" value="create">{% if lang == "pl" %}Utwórz rolę{% else %}Create role{% endif %}</button>
 </form>
 {% if can_grant %}

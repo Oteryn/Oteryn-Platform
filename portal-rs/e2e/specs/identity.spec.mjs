@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
-import { register, login, logout, submit, csrfRejected, mailLink, password } from '../helpers.mjs';
+import { register, login, logout, submit, csrfRejected, mailLink, password, seedPasswordRange } from '../helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('registration, mail verification, wrong password, login, logout, reset and single-use link',async({page},info)=>{
@@ -14,11 +14,18 @@ test('registration, mail verification, wrong password, login, logout, reset and 
  const token=await page.locator('[name=_csrf]').first().inputValue();
  const out=await page.request.post(`/${lang}/logout`,{form:{_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
  expect(out.status()).toBe(302);
+ const forgot=await page.request.get('/forgot-password',{
+  headers:{'accept-language':lang},maxRedirects:0,
+ });
+ expect(forgot.status()).toBe(301);
+ expect(forgot.headers().location).toBe(`/${lang}/forgot-password`);
+ expect(forgot.headers()['cache-control']).toBe('no-store');
  await page.goto(`/${lang}/forgot-password`);
  await submit(page,'main form',{email:account.email});
  const link=await mailLink(page,account.email,/https:\/\/localhost:18443\/(?:pl|en)\/reset-password\/[a-f0-9]+/);
  await page.goto(link);
  const next=password();
+ await seedPasswordRange(next);
  await submit(page,'main form',{email:account.email,password:next,password_confirmation:next});
  await expect(page).toHaveURL(/login/);
  await login(page,lang,{...account,password:next});
@@ -26,6 +33,7 @@ test('registration, mail verification, wrong password, login, logout, reset and 
  await logout(page,lang);
  await page.goto(link);
  const replay=password();
+ await seedPasswordRange(replay);
  await submit(page,'main form',{email:account.email,password:replay,password_confirmation:replay});
  await expect(page.locator('[role=alert]')).toBeVisible();
 });

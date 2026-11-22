@@ -27,16 +27,25 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
 
 pub fn public_router(pool: PgPool) -> Router {
     Router::new()
-        .route("/events", get(|| async { Redirect::to("/pl/events") }))
+        .route(
+            "/events",
+            get(|headers: axum::http::HeaderMap| async move {
+                let locale = oteryn_ui::preferred_language(&headers);
+                Redirect::to(&format!("/{locale}/events"))
+            }),
+        )
         .route(
             "/events/{slug}",
-            get(|Path(slug): Path<String>| async move {
-                if valid_slug(&slug) {
-                    Redirect::to(&format!("/pl/events/{slug}")).into_response()
-                } else {
-                    StatusCode::NOT_FOUND.into_response()
-                }
-            }),
+            get(
+                |Path(slug): Path<String>, headers: axum::http::HeaderMap| async move {
+                    if valid_slug(&slug) {
+                        let locale = oteryn_ui::preferred_language(&headers);
+                        Redirect::to(&format!("/{locale}/events/{slug}")).into_response()
+                    } else {
+                        StatusCode::NOT_FOUND.into_response()
+                    }
+                },
+            ),
         )
         .route("/{locale}/events", get(index))
         .route("/{locale}/events/{slug}", get(show))

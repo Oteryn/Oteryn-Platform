@@ -77,7 +77,7 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  const labels = lang === 'pl' ? {
    world: 'Świat', from: 'Od (UTC, włącznie)', to: 'Do (UTC, wyłącznie)',
    heading: 'Klucz / przedmiot / waluta', low: 'Mała próba (poniżej pięciu)',
-   gap: 'Niekompletne: Gra nie dostarczyła jeszcze danych dla klucza depot', wallet: 'rejestr portfela Platformy',
+   gap: 'Niekompletne: Gra nie dostarczyła jeszcze danych dla klucza depot', wallet: 'księga portfela Platformy',
    incomplete: 'Niekompletne',
  } : {
    world: 'World', from: 'From (UTC, inclusive)', to: 'To (UTC, exclusive)',
@@ -90,6 +90,22 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  }
  await expect(page.getByRole('columnheader', {name:labels.heading, exact:true}).first()).toBeVisible();
  for(const text of ['48210377','4500',labels.low,labels.gap,labels.incomplete,'spent_in_game/coin',labels.wallet])await expect(page.locator('main')).toContainText(text);
+ await expect(page.getByRole('heading', {
+  name: lang==='pl' ? 'Zakupy — księga portfela Platformy (wszystkie światy)' : 'Purchased — Platform wallet ledger (all worlds)',
+  exact: true,
+ })).toBeVisible();
  await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
  expect((await page.request.get('/admin/analytics/export')).status()).toBe(404);
+
+ const preferred=lang==='pl' ? 'en' : 'pl';
+ await page.goto(`/language/${preferred}`);
+ await expect(page).toHaveURL(new RegExp(`/${preferred}/$`));
+ for(const [path,title] of [
+  ['/admin/analytics', preferred==='pl' ? 'Przegląd analityki administratora' : 'Admin analytics overview'],
+  ['/admin/analytics/economy', preferred==='pl' ? 'Analityka gospodarki' : 'Economy analytics'],
+ ]) {
+  expect((await page.goto(path)).status()).toBe(200);
+  await expect(page.locator('html')).toHaveAttribute('lang',preferred);
+  await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();
+ }
 });

@@ -15,9 +15,10 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
     if 'tests' in file.parts or file.name == 'tests.rs' or re.search(r'(?:_tests?|_test_db)\.rs$', file.name):
         continue
     source = re.sub(r'#\[cfg\(test\)\]\s*(?:#\[[^\]\n]*\]\s*)*mod \w+;', '', file.read_text())
-    source = source.split('#[cfg(test)]\nmod tests {')[0]
+    source = re.sub(r'(?ms)^#\[cfg\(test\)\]\nmod \w+ \{.*?^\}',
+                    lambda match: '\n' * match[0].count('\n'), source)
     crate = file.relative_to(ROOT).parts[1]
-    if crate in {'gateway', 'internal-api'} or str(file.relative_to(ROOT)) in {'crates/admin/src/control/http.rs', 'crates/gameauth/src/health.rs', 'crates/store/src/purchase_http.rs', 'crates/store/src/delivery_http.rs', 'crates/gameauth/src/runtime.rs'}:
+    if crate in {'gateway', 'internal-api'} or str(file.relative_to(ROOT)) in {'crates/admin/src/control/http.rs', 'crates/gameauth/src/health.rs', 'crates/store/src/purchase_http.rs', 'crates/store/src/delivery_http.rs', 'crates/gameauth/src/runtime.rs', 'crates/support/src/sanctions/enforcement.rs'}:
         continue
     flag_source = source
     related_files = [file.parent/'config.rs', file.parent/'mod.rs', file.parent.parent/(file.parent.name+'.rs')]
@@ -70,13 +71,20 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
                         tail = source[m.end():end]
                         break
         methods = sorted(set(x.upper() for x in re.findall(r'\b(get|post|put|delete|patch)\(', tail))) or ['GET']
-        key = (crate, path)
-        row = rows.setdefault(key, dict(route=path, crate=crate, flags=flags, methods=[], sources=[]))
-        row['methods'] = sorted(set(row['methods'] + methods))
-        row['sources'].append(f'{file.relative_to(ROOT)}:{source[:m.start()].count(chr(10))+1}')
-        if '{prefix}' in declared_path and 'for prefix in ["",' in source:
-            alias=canonical(declared_path.replace('{prefix}', ''))
-            rows.setdefault((crate,alias),dict(route=alias,crate=crate,flags=flags,methods=methods,sources=[f'{file.relative_to(ROOT)}:prefix alias']))
+        if tail.lstrip().startswith(', badge_routes'):
+            methods = ['GET', 'POST']
+        patterns = [declared_path]
+        if file.name == 'web.rs' and file.parent.name == 'families' and path.endswith('/{}'):
+            patterns = [declared_path.removesuffix('{}') + family
+                        for family in ('achievements', 'equipment', 'outfit')]
+        for pattern in patterns:
+            path = canonical(pattern)
+            row = rows.setdefault((crate, path), dict(route=path, crate=crate, flags=flags, methods=[], sources=[]))
+            row['methods'] = sorted(set(row['methods'] + methods))
+            row['sources'].append(f'{file.relative_to(ROOT)}:{source[:m.start()].count(chr(10))+1}')
+            if '{prefix}' in pattern and 'for prefix in ["",' in source:
+                alias = canonical(pattern.replace('{prefix}', ''))
+                rows.setdefault((crate,alias),dict(route=alias,crate=crate,flags=flags,methods=methods,sources=[f'{file.relative_to(ROOT)}:prefix alias']))
 
 # Literal-array routers and a nested admin control surface.
 extra = {

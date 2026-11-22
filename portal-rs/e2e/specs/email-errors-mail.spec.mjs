@@ -469,8 +469,8 @@ supportTest.describe('support email and ticket errors', () => {
     expect(unsupported.headers()['cache-control']).toBe('no-store');
     const fallbackHtml = await unsupported.text();
     const [fallbackTitle, fallbackDescription] = lang === 'pl'
-      ? ['Nie można przetworzyć żądania', 'Serwer nie mógł wykonać tego żądania.']
-      : ['Unable to process the request', 'The server could not complete this request.'];
+      ? ['Nieobsługiwany format żądania', 'Wyślij formularz ze strony i spróbuj ponownie.']
+      : ['Unsupported request format', 'Submit the form from the page and try again.'];
     expect(fallbackHtml).toContain(`<h1>${fallbackTitle}</h1>`);
     expect(fallbackHtml).toContain(`<p>${fallbackDescription}</p>`);
     expect(fallbackHtml).not.toContain(refusedReply);
