@@ -111,6 +111,7 @@ impl Mailer {
                 .parse()
                 .map_err(|_| "invalid account-exists recipient")?)
             .subject(subject)
+            .header(lettre::message::header::ContentType::TEXT_PLAIN)
             .body(format!("{body}\n\n{}/{locale}/login", self.origin))
             .map(Some)
             .map_err(|_| "account-exists message unavailable".into())
@@ -146,6 +147,7 @@ impl Mailer {
                 .parse()
                 .map_err(|_| "invalid verification recipient")?)
             .subject(subject)
+            .header(lettre::message::header::ContentType::TEXT_PLAIN)
             .body(format!(
                 "{introduction}\n\n{}/{locale}/verify-email?token={}",
                 self.origin, payload.token
@@ -240,6 +242,7 @@ mod tests {
         )?
         .replace("=\r\n", "")
         .replace("=3D", "=");
+        assert!(raw.contains("Content-Type: text/plain; charset=utf-8\r\n"));
         assert!(raw.contains(&format!("/pl/verify-email?token={}", payload.token)));
         payload.locale = "en".into();
         assert!(mailer.prepare(&payload).await.is_err());

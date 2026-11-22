@@ -124,6 +124,7 @@ impl Mailer {
             .from(self.from.clone())
             .to(email.parse().map_err(|_| "invalid reset recipient")?)
             .subject(text(language, "reset-mail-subject"))
+            .header(lettre::message::header::ContentType::TEXT_PLAIN)
             .body(body)
             .map_err(|_| "invalid reset message")?;
         Ok(Some(message))
