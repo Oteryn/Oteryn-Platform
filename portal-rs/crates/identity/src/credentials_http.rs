@@ -102,7 +102,9 @@ pub fn router(service: Credentials) -> Router {
         routes = routes
             .route(
                 &format!("{prefix}/password/change"),
-                oteryn_web::html::get(show_password).post(change).put(change),
+                oteryn_web::html::get(show_password)
+                    .post(change)
+                    .put(change),
             )
             .route(
                 &format!("{prefix}/account/sudo"),
