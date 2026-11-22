@@ -436,6 +436,12 @@ async fn production_legal_signup_refusals() -> Result {
 
     let legacy = (APPROVED_SIGNUP_EDITION.0, APPROVED_SIGNUP_EDITION.1, false);
     let fictional = ("Tax ID (NIP) (000) 000-00-00", "NIP (000) 000-00-00", true);
+    let fictional_image = (
+        "Service terms.\n\n![Tax ID (NIP) 000-000-00-00](/missing-image.png)",
+        "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP 000-000-00-00'>",
+        true,
+    );
+    let invalid_nip = ("Tax ID (NIP) PL 123-456-78-03", "NIP 123-456-78-03", true);
     let blank = ("<!-- Draft terms -->", "<!-- Projekt regulaminu -->", true);
     let invisible = ("&#xfe0f;", "&#x034f;", true);
     let allow_placeholders = ConsentConfig::published(
@@ -445,6 +451,12 @@ async fn production_legal_signup_refusals() -> Result {
     );
     for (reason, refused, has_visible_body) in [
         ("fictional operator", fictional, true),
+        (
+            "fictional operator in image alternative",
+            fictional_image,
+            true,
+        ),
+        ("invalid operator NIP", invalid_nip, true),
         ("unapproved legacy snapshot", legacy, true),
         ("empty sanitized body", blank, false),
         ("invisible sanitized body", invisible, false),

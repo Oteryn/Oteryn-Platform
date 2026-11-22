@@ -99,7 +99,7 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
                     &form.title,
                     &form.body,
                 );
-                text.has_visible_body && !text.has_placeholder
+                text.has_visible_body && !text.needs_operator_update()
             }))
         && (!legal(slug)
             || form.published_at.is_empty()

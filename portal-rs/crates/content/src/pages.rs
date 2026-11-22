@@ -125,7 +125,7 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
             let version: String = row.get("version");
             let draft_notice = if legal(slug)
                 && oteryn_identity::consents::inspect_legal_edition(&version, &title, &body)
-                    .has_placeholder
+                    .needs_operator_update()
             {
                 text(lang, "operator-draft")
             } else {

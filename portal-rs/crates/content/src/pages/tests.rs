@@ -83,6 +83,16 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
             "NIP 000‑000‑00‑00",
             "‑00",
         ),
+        (
+            "Service terms.\n\n![Tax ID (NIP) 000-000-00-00](/missing-image.png)",
+            "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP 000-000-00-00'>",
+            "000-000-00-00",
+        ),
+        (
+            "Tax ID (NIP) PL 123-456-78-03",
+            "NIP 123-456-78-03",
+            "123-456-78-03",
+        ),
     ] {
         sqlx::query(
             "UPDATE editorial_pages SET legal_version='relabeled-v1',
@@ -108,7 +118,7 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
                 assert!(html.contains(notice));
                 assert!(
                     html.contains(visible),
-                    "placeholder identifier stays visible"
+                    "operator identifier stays in the rendered page"
                 );
             }
         }
@@ -469,6 +479,16 @@ Updated English source",
         ("en", "KRS 0000000000"),
         ("en", "Tax ID (NIP) (000) 000-00-00"),
         ("pl", "NIP (000) 000-00-00"),
+        (
+            "en",
+            "Service terms.\n\n![Tax ID (NIP) 000-000-00-00](/missing-image.png)",
+        ),
+        (
+            "pl",
+            "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP 000-000-00-00'>",
+        ),
+        ("en", "Tax ID (NIP) PL 123-456-78-03"),
+        ("pl", "NIP 123-456-78-03"),
         ("en", "<!-- Terms draft -->"),
         ("pl", "<!-- Projekt regulaminu -->"),
         ("en", "&#xfe0f;"),
@@ -480,7 +500,7 @@ Updated English source",
             Err(oteryn_admin::rbac::Error::InvalidInput)
         ));
     }
-    form.body = "Changed legal text".into();
+    form.body = "Changed legal text. Tax ID (NIP) 123-456-78-02".into();
     persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
     form.final_approved.clear();
     persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;

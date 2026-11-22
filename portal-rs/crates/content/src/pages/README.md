@@ -36,7 +36,9 @@ registration transaction. The acceptance stores the snapshot's page, locale,
 and version so later language changes preserve the edition that was accepted.
 Earlier consent records keep their original version without an inferred locale.
 Live signup requires immutable, explicitly approved editions and rejects known
-fictional operator values, including after a version is renamed. Missing, stale,
+fictional operator values, including after a version is renamed. It checks
+rendered text and image descriptions and validates the checksum of labeled NIP
+numbers. Missing, stale,
 mismatched or unapproved editions make signup unavailable and log the locale
 and reason.
 

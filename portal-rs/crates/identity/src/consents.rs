@@ -8,7 +8,12 @@ use uuid::Uuid;
 pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
 
 static INVISIBLE_LEGAL_TEXT: LazyLock<Result<regex::Regex, regex::Error>> = LazyLock::new(|| {
-    regex::Regex::new(r"[\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u{2800}]+")
+    regex::Regex::new(r"[[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u{2800}]&&\S]+")
+});
+static LEGAL_NIP: LazyLock<Result<regex::Regex, regex::Error>> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\bnip[\s\p{P}−]*(?:pl[\s\p{P}−]*)?([0-9](?:[\p{Zs}\t().·\p{Pd}−]*[0-9])*)",
+    )
 });
 
 /// Properties of the text the public renderer exposes.
@@ -16,19 +21,58 @@ static INVISIBLE_LEGAL_TEXT: LazyLock<Result<regex::Regex, regex::Error>> = Lazy
 pub struct LegalEditionText {
     pub has_visible_body: bool,
     pub has_placeholder: bool,
+    pub has_invalid_nip: bool,
+}
+
+impl LegalEditionText {
+    pub fn needs_operator_update(&self) -> bool {
+        self.has_placeholder || self.has_invalid_nip
+    }
 }
 
 pub fn inspect_legal_edition(version: &str, title: &str, body: &str) -> LegalEditionText {
-    use html5ever::tokenizer::{BufferQueue, Token, TokenSink, TokenSinkResult, Tokenizer};
+    use html5ever::tokenizer::{
+        BufferQueue, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer,
+    };
     use std::cell::RefCell;
+    use unicode_normalization::UnicodeNormalization;
 
-    struct Text(RefCell<String>);
-    impl TokenSink for Text {
+    #[derive(Default)]
+    struct Text {
+        body: String,
+        with_image_alternatives: String,
+        tooltips: Vec<String>,
+    }
+    struct Sink(RefCell<Text>);
+    impl TokenSink for Sink {
         type Handle = ();
 
         fn process_token(&self, token: Token, _: u64) -> TokenSinkResult<()> {
-            if let Token::CharacterTokens(text) = token {
-                self.0.borrow_mut().push_str(&text);
+            let mut text = self.0.borrow_mut();
+            match token {
+                Token::CharacterTokens(value) => {
+                    text.body.push_str(&value);
+                    text.with_image_alternatives.push_str(&value);
+                }
+                Token::TagToken(tag) => {
+                    let name = tag.name.as_ref();
+                    if matches!(name, "br" | "p" | "div" | "li" | "td" | "th" | "tr") {
+                        text.body.push('\n');
+                        text.with_image_alternatives.push('\n');
+                    }
+                    if tag.kind == TagKind::StartTag {
+                        for attr in tag.attrs {
+                            match attr.name.local.as_ref() {
+                                "alt" if name == "img" => {
+                                    text.with_image_alternatives.push_str(&attr.value);
+                                }
+                                "title" => text.tooltips.push(attr.value.to_string()),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
             TokenSinkResult::Continue
         }
@@ -38,65 +82,93 @@ pub fn inspect_legal_edition(version: &str, title: &str, body: &str) -> LegalEdi
     pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(body));
     let input = BufferQueue::default();
     input.push_back(ammonia::clean(&html).into());
-    let tokenizer = Tokenizer::new(Text(RefCell::new(String::new())), Default::default());
+    let tokenizer = Tokenizer::new(Sink(RefCell::new(Text::default())), Default::default());
     let _ = tokenizer.feed(&input);
     tokenizer.end();
-    let body = tokenizer.sink.0.into_inner();
+    let text = tokenizer.sink.0.into_inner();
 
-    let Ok(invisible) = &*INVISIBLE_LEGAL_TEXT else {
+    let (Ok(invisible), Ok(nips)) = (&*INVISIBLE_LEGAL_TEXT, &*LEGAL_NIP) else {
         return LegalEditionText {
             has_visible_body: false,
             has_placeholder: true,
+            has_invalid_nip: true,
         };
     };
-    let visible_body = invisible.replace_all(&body, "");
-    let visible_title = invisible.replace_all(title, "");
-    LegalEditionText {
-        has_visible_body: !visible_body.is_empty(),
+    let mut result = LegalEditionText {
+        // An image's fallback text may disappear when the image loads.
+        has_visible_body: !invisible.replace_all(&text.body, "").trim().is_empty(),
         has_placeholder: version
             .trim_start()
             .to_ascii_lowercase()
-            .starts_with("placeholder")
-            || contains_legal_placeholder(&visible_title, &visible_body),
+            .starts_with("placeholder"),
+        has_invalid_nip: false,
+    };
+    for value in [title, text.body.as_str()]
+        .into_iter()
+        .chain(
+            (text.body != text.with_image_alternatives)
+                .then_some(text.with_image_alternatives.as_str()),
+        )
+        .chain(text.tooltips.iter().map(String::as_str))
+    {
+        let normalized: String = invisible.replace_all(value, "").nfkc().collect();
+        result.has_placeholder |= contains_legal_placeholder(&normalized);
+        result.has_invalid_nip |= nips
+            .captures_iter(&normalized)
+            .any(|field| !valid_nip(&field[1]));
     }
+    result
 }
 
-fn contains_legal_placeholder(title: &str, body: &str) -> bool {
+fn valid_nip(field: &str) -> bool {
+    let digits: Vec<u32> = field.chars().filter_map(|c| c.to_digit(10)).collect();
+    let [first_nine @ .., check] = digits.as_slice() else {
+        return false;
+    };
+    first_nine.len() == 9
+        && first_nine.iter().any(|&digit| digit != 0)
+        && first_nine
+            .iter()
+            .zip([6, 5, 7, 2, 3, 4, 5, 6, 7])
+            .map(|(digit, weight)| digit * weight)
+            .sum::<u32>()
+            % 11
+            == *check
+}
+
+fn contains_legal_placeholder(text: &str) -> bool {
     use unicode_general_category::{GeneralCategory, get_general_category};
-    use unicode_normalization::UnicodeNormalization;
-    [title, body].into_iter().any(|text| {
-        let compact: String = text
-            .nfkc()
-            .flat_map(char::to_lowercase)
-            .filter(|&c| {
-                !c.is_whitespace()
-                    && !matches!(
-                        get_general_category(c),
-                        GeneralCategory::ConnectorPunctuation
-                            | GeneralCategory::DashPunctuation
-                            | GeneralCategory::OpenPunctuation
-                            | GeneralCategory::ClosePunctuation
-                            | GeneralCategory::InitialPunctuation
-                            | GeneralCategory::FinalPunctuation
-                            | GeneralCategory::OtherPunctuation
-                            | GeneralCategory::Format
-                    )
-                    && c != '−'
-            })
-            .collect();
-        [
-            "draftoperatordetailsareplaceholders",
-            "wersjaroboczadaneoperatorasątymczasowe",
-            "danetymczasowe",
-            "placeholderdetails",
-            "przykładowafirma",
-            "przykładowa1",
-            "00000warszawa",
-            "0000000000",
-        ]
-        .iter()
-        .any(|marker| compact.contains(marker))
-    })
+    let compact: String = text
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter(|&c| {
+            !c.is_whitespace()
+                && !matches!(
+                    get_general_category(c),
+                    GeneralCategory::ConnectorPunctuation
+                        | GeneralCategory::DashPunctuation
+                        | GeneralCategory::OpenPunctuation
+                        | GeneralCategory::ClosePunctuation
+                        | GeneralCategory::InitialPunctuation
+                        | GeneralCategory::FinalPunctuation
+                        | GeneralCategory::OtherPunctuation
+                        | GeneralCategory::Format
+                )
+                && c != '−'
+        })
+        .collect();
+    [
+        "draftoperatordetailsareplaceholders",
+        "wersjaroboczadaneoperatorasątymczasowe",
+        "danetymczasowe",
+        "placeholderdetails",
+        "przykładowafirma",
+        "przykładowa1",
+        "00000warszawa",
+        "0000000000",
+    ]
+    .iter()
+    .any(|marker| compact.contains(marker))
 }
 
 /// Existing production defaults, also used when no web configuration is installed.
@@ -212,6 +284,12 @@ impl ConsentConfig {
                         && text.has_placeholder =>
                 {
                     "placeholder legal document must be replaced before live signup"
+                }
+                Some((_, text))
+                    if matches!(self.publication, PublicationPolicy::FinalOnly)
+                        && text.has_invalid_nip =>
+                {
+                    "published legal edition contains an invalid operator NIP"
                 }
                 Some((row, _))
                     if matches!(self.publication, PublicationPolicy::FinalOnly)

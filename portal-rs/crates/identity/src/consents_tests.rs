@@ -460,7 +460,7 @@ fn recognizes_placeholders_in_rendered_legal_text() {
         let text = inspect_legal_edition("final-v1", "Terms", body);
         assert!(text.has_placeholder && text.has_visible_body, "{body}");
     }
-    let real = inspect_legal_edition("final-v1", "Terms", "**NIP (123) 456-78-90**");
+    let real = inspect_legal_edition("final-v1", "Terms", "**NIP (123) 456-78-02**");
     assert!(!real.has_placeholder && real.has_visible_body);
     for body in [
         "<!-- NIP 000‑000‑00‑00 -->",
@@ -471,5 +471,56 @@ fn recognizes_placeholders_in_rendered_legal_text() {
     ] {
         let text = inspect_legal_edition("final-v1", "Terms", body);
         assert!(!text.has_placeholder && !text.has_visible_body, "{body}");
+    }
+}
+
+#[test]
+fn validates_nip_in_rendered_text_and_image_alternatives() {
+    for body in [
+        "![Tax ID (NIP) (000) 000-00-00](/missing-image.png)",
+        "NIP (000) ![000-00-00](/missing-image.png)",
+        "<img src='/missing-image.png' alt='NIP 000&#8209;000-00-00'>",
+        "<a href='/contact' title='NIP 000-000-00-00'>Contact</a>",
+    ] {
+        assert!(
+            inspect_legal_edition("final-v1", "Terms", body).has_placeholder,
+            "{body}"
+        );
+    }
+    assert!(
+        !inspect_legal_edition(
+            "final-v1",
+            "Terms",
+            "![NIP 123-456-78-02](/missing-image.png)"
+        )
+        .has_visible_body
+    );
+
+    for body in [
+        "Tax ID (NIP) PL 123-456-78-03",
+        "NIP: 123 456 78 90",
+        "NIP: 123-456-78-021",
+        "NIP: 123-456",
+        "Service terms.\n\n![NIP: 123-456-78-03](/missing-image.png)",
+        "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP: 123&#8209;456-78-03'>",
+    ] {
+        let text = inspect_legal_edition("final-v1", "Terms", body);
+        assert!(
+            text.has_visible_body && text.has_invalid_nip && !text.has_placeholder,
+            "{body}"
+        );
+    }
+    for body in [
+        "NIP: PL (１２３) 456‑78‑02; 2026",
+        "NIP: 123 456 78 02\n\n2026",
+        "<p>NIP: 123 456 78 02<br>2026</p>",
+        "Contact.\n\n![Tax ID (NIP) 123-456-78-02](/missing-image.png)",
+        "Dane do kontaktu. Numer NIP można podać w formularzu.",
+    ] {
+        let text = inspect_legal_edition("final-v1", "Terms", body);
+        assert!(
+            text.has_visible_body && !text.needs_operator_update(),
+            "{body}"
+        );
     }
 }
