@@ -24,6 +24,8 @@ const player = { character_id: characterId, name: characterName, world_id: world
 export const itemId = 'gm-e2e-inventory-item';
 export const sanctionId = 'gm-e2e-sanction';
 export const wrongCharacterId = 'gm-e2e-wrong-character';
+export const wrongSanctionCharacterId = 'gm-e2e-wrong-sanction-target';
+export const accountSanctionId = 'gm-e2e-account-sanction';
 
 const results = {
   'player.search': ({ params }) => ({
@@ -41,8 +43,12 @@ const results = {
   }),
   'sanction.list': ({ target }) => ({
     sanctions: [{
-      sanction_id: sanctionId, account_ref: null, character_id: target.character_id,
+      sanction_id: sanctionId, account_ref: null,
+      character_id: target.character_id === wrongSanctionCharacterId ? characterId : target.character_id,
       kind: 'warning', active: true, starts_at: '2026-11-15T00:00:00Z', expires_at: null,
+    }, {
+      sanction_id: accountSanctionId, account_ref: null, character_id: null,
+      kind: 'notation', active: false, starts_at: '2026-11-15T00:00:00Z', expires_at: null,
     }],
   }),
 };
