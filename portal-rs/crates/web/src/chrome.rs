@@ -1,5 +1,5 @@
 //! Read the existing browser session for presentation without adding a CSRF gate.
-use crate::session::SessionLayer;
+use crate::{session::SessionLayer, surface::Language};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -33,10 +33,36 @@ impl std::fmt::Debug for StaffDashboard {
     }
 }
 
+/// The GM console accepts an explicit locale before its guard runs.
+fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+    if !matches!(
+        uri.path(),
+        "/console"
+            | "/console/dashboard"
+            | "/console/worlds"
+            | "/console/nodes"
+            | "/console/database"
+    ) {
+        return None;
+    }
+    let axum::extract::Query(query) =
+        axum::extract::Query::<LocaleQuery>::try_from_uri(uri).ok()?;
+    match query.lang.as_deref() {
+        Some("pl") => Some(Language::Pl),
+        Some("en") => Some(Language::En),
+        _ => None,
+    }
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
+        .or_else(|| console_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let (account, account_id) = if request.extensions().get::<StaffDashboard>().is_some() {
