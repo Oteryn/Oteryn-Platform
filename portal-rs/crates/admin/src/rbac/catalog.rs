@@ -376,7 +376,6 @@ impl BuiltInRole {
             ],
             Self::Moderator => &[
                 Permission::Access,
-                Permission::ManageSupportReports,
                 Permission::ManageSupportEnforcement,
                 Permission::ManageMarketplace,
                 Permission::KickAccountSessions,

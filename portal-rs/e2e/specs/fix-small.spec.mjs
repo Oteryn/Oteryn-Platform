@@ -62,7 +62,7 @@ test('passkey management link follows mandatory login MFA eligibility', async ({
   await expect(link).toHaveCount(0);
 });
 
-test('moderator can review reports and is refused Platform admin areas', async ({page}, info) => {
+test('moderator is refused report review and Platform admin areas', async ({page}, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const account = seedAccount(lang);
@@ -71,8 +71,7 @@ test('moderator can review reports and is refused Platform admin areas', async (
   await signInWithMfa(page, lang, account);
   expect((await page.request.get('/admin')).status()).toBe(200);
 
-  for (const path of ['/admin/roles', '/admin/console/access', '/admin/news', '/admin/analytics']) {
+  for (const path of ['/admin/roles', '/admin/console/access', '/admin/news', '/admin/analytics', '/admin/moderation/reports']) {
     expect((await page.request.get(path)).status(), path).toBe(403);
   }
-  expect((await page.request.get('/admin/moderation/reports')).status()).toBe(200);
 });
