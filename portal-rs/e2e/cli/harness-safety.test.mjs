@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { localPostgresUrl } from '../postgres-url.mjs';
+import { spawnFixtureHarness, stopFixtureHarness } from '../support/fixture-harness.mjs';
 
 test('canonical PostgreSQL URLs fence the disposable database and endpoint', () => {
   const base = 'postgresql://fixture@127.0.0.1/oteryn_test';
@@ -315,6 +316,61 @@ test('cleanup retries a lost DROP reply and verifies the database is gone', { ti
       }
     },
   );
+});
+
+test('fixture reaps services and drops the database when the harness is stopped', { timeout: 900_000 }, async () => {
+  const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-fixture-'));
+  const output = path.join(directory, 'run');
+  const admin = new pg.Client({ connectionString: adminURL.href });
+  const child = spawnFixtureHarness(output, adminURL.href, process.env);
+  const exited = once(child, 'close');
+  const lines = createInterface({ input: child.stdout });
+  const listeners = [];
+  child.stderr.resume();
+  try {
+    const [line] = await Promise.race([
+      once(lines, 'line', { signal: AbortSignal.timeout(120_000) }),
+      exited.then(() => { throw new Error('Harness exited before readiness'); }),
+    ]);
+    const report = JSON.parse(line);
+    assert.equal(report.status, 'ready');
+    assert.match(report.database, /^portal_e2e_[a-f0-9]{12}$/);
+    await admin.connect();
+    const databases = async () => (await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [report.database])).rows;
+    assert.deepEqual(await databases(), [{ datname: report.database }]);
+
+    assert.ok(child.kill('SIGSTOP'));
+    const stopDeadline = AbortSignal.timeout(3_000);
+    for (;;) {
+      stopDeadline.throwIfAborted();
+      const status = await fs.promises.readFile(`/proc/${child.pid}/status`, 'utf8');
+      if (/^State:\s+T\b/m.test(status)) break;
+    }
+    await assert.rejects(
+      stopFixtureHarness(child, exited, output, adminURL.href, 100),
+      /harness shutdown timed out/,
+    );
+    assert.deepEqual(await exited, [null, 'SIGKILL']);
+    assert.deepEqual(await databases(), []);
+
+    for (const address of Object.values(report.baseUrls)) {
+      const listener = createServer();
+      listeners.push(listener);
+      listener.listen(Number(new URL(address).port), '127.0.0.1');
+      await once(listener, 'listening', { signal: AbortSignal.timeout(2_000) });
+    }
+  } finally {
+    lines.close();
+    if (child.exitCode === null && child.signalCode === null) {
+      await stopFixtureHarness(child, exited, output, adminURL.href, 100).catch(error => {
+        if (error.message !== 'harness shutdown timed out') throw error;
+      });
+    }
+    await Promise.all(listeners.map(listener => new Promise(resolve => listener.close(resolve))));
+    await admin.end();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('a failing second world seed names the step and keeps input out of diagnostics', { timeout: 900_000 }, async () => {

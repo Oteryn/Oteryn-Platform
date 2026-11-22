@@ -15,12 +15,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
-import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
 import { localPostgresUrl } from './postgres-url.mjs';
 import { withDeadline } from './support/harness-deadline.mjs';
+import { fixtureDatabaseClaim, lockDatabaseName, removeDatabase, withAdminConnection } from './support/harness-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -49,6 +48,7 @@ const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const outbox = argv.includes('--outbox');
+const fixtureOwned = argv.includes('--fixture-owned');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -177,59 +177,9 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-async function withAdminConnection(operation, { signal, statementTimeout = 5_000 } = {}) {
-  signal?.throwIfAborted();
-  const socket = new Socket();
-  const admin = new pg.Client({
-    connectionString: adminURL.href,
-    stream: socket,
-    connectionTimeoutMillis: 3_000,
-    statement_timeout: statementTimeout,
-    query_timeout: statementTimeout + 1_500,
-  });
-  // A disconnect can arrive between queries. An active operation rejects
-  // through its own promise, and the socket is always closed before returning.
-  admin.on('error', () => {});
-  const abort = () => socket.destroy();
-  signal?.addEventListener('abort', abort, { once: true });
-  try {
-    await admin.connect();
-    return await operation(admin);
-  } finally {
-    signal?.removeEventListener('abort', abort);
-    const ended = admin.end();
-    socket.destroy();
-    await ended;
-  }
-}
-
-// Hold the same session lock for CREATE and reconciliation. A disconnected
-// creator can still be finishing its statement when the cleanup client connects.
-function lockDatabaseName(admin) {
-  return admin.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [dbName]);
-}
-
-async function removeDatabase() {
-  const signal = AbortSignal.timeout(24_000);
-  const drop = statementTimeout => withAdminConnection(async admin => {
-    await lockDatabaseName(admin);
-    await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
-    const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
-    if (existing.rowCount !== 0) throw new Error('Disposable database still exists');
-  }, { signal, statementTimeout });
-  try {
-    await drop(5_000);
-  } catch {
-    signal.throwIfAborted();
-    // A checkpoint can outlast the first statement, and a lost reply can hide
-    // a successful drop. Reconcile under the same lock on a fresh connection.
-    log('retrying disposable database cleanup', dbName);
-    await drop(15_000);
-  }
-}
-
 const children = new Set();
-const useProcessGroups = process.platform !== 'win32';
+// A browser fixture starts the entire harness in its own process group.
+const useProcessGroups = process.platform !== 'win32' && !fixtureOwned;
 const shutdownGraceMs = 2_000;
 
 function launch(program, args, options) {
@@ -290,7 +240,7 @@ async function close(code = 0) {
   }
   if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
-      await removeDatabase();
+      await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName));
     } catch {
       log('failed to reconcile disposable database', dbName);
       code = 1;
@@ -303,19 +253,25 @@ process.on('SIGINT', () => close(0));
 process.on('SIGTERM', () => close(0));
 
 async function createDatabase() {
-  await withAdminConnection(async admin => {
+  await withAdminConnection(adminURL, async admin => {
     if (closing) return;
-    await lockDatabaseName(admin);
+    await lockDatabaseName(admin, dbName);
     if (closing) return;
     const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
     if (closing) return;
     if (existing.rowCount !== 0) throw new Error('Disposable database name already exists');
+    // Persist ownership under the same lock before CREATE can have an effect.
+    const claim = path.join(out, fixtureDatabaseClaim);
+    if (fixtureOwned) fs.writeFileSync(claim, dbName, { flag: 'wx', mode: 0o600 });
     createRequested = true;
     try {
       await admin.query('CREATE DATABASE "' + dbName + '"');
     } catch (error) {
       // A definite name collision belongs to the existing database owner.
-      if (error.code === '42P04') createRequested = false;
+      if (error.code === '42P04') {
+        createRequested = false;
+        if (fixtureOwned) fs.unlinkSync(claim);
+      }
       throw error;
     }
   });

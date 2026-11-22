@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { createInterface } from 'node:readline';
 import { test as base, expect } from '../fixtures.mjs';
 import { csrfRejected, login, password, pool } from '../helpers.mjs';
 import { query as databaseQuery } from '../staff-rbac-helpers.mjs';
-import { withDeadline } from '../support/harness-deadline.mjs';
+import { spawnFixtureHarness, stopFixtureHarness } from '../support/fixture-harness.mjs';
 
 // Reserve the loopback ports together so the child never reuses one
 // of its own ports. The harness verifies readiness on the new listeners.
@@ -37,23 +37,22 @@ const test = base.extend({
     const origin = `https://localhost:${https}`;
     const scratch = await mkdtemp(join(tmpdir(), 'portal-e2e-puzzles-'));
     const output = join(scratch, 'run');
-    const child = spawn(process.execPath, ['harness.mjs', '--puzzle-browser'], {
-      cwd: new URL('../', import.meta.url),
-      env: {
+    const adminURL = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
+    let child;
+    try {
+      child = spawnFixtureHarness(output, adminURL, {
         ...process.env,
-        PORTAL_E2E_OUT: output,
-        PORTAL_E2E_KEEP_DATABASE: '0',
-        PORTAL_E2E_SEED_PLAN: '',
         PORTAL_E2E_HTTP_PORT: String(http),
         PORTAL_E2E_INTERNAL_PORT: String(internal),
         PORTAL_E2E_ADMISSION_PORT: String(admission),
         PORTAL_E2E_GATEWAY_PORT: String(gateway),
         OTERYN_PUBLIC_ORIGIN: origin,
         PORTAL_GAME_RESTORE_NOTICE_ENABLED: 'false',
-      },
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+      }, ['--puzzle-browser']);
+    } catch (error) {
+      await rm(scratch, { recursive: true, force: true });
+      throw error;
+    }
     const exited = once(child, 'close');
     const lines = createInterface({ input: child.stdout });
     const diagnostics = createInterface({ input: child.stderr });
@@ -103,23 +102,7 @@ const test = base.extend({
         proxy.closeAllConnections();
       }
       try {
-        child.kill('SIGTERM');
-        // Allow the harness its service and database budgets plus exit reporting.
-        const [code, signal] = await withDeadline(exited, 34_000, 'harness shutdown timed out')
-          .catch(async error => {
-            if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
-              // Kill the whole fixture process group if the harness cannot
-              // finish its own bounded cleanup.
-              try {
-                process.kill(-child.pid, 'SIGKILL');
-              } catch (killError) {
-                if (killError.code !== 'ESRCH') throw killError;
-              }
-              await withDeadline(exited, 2_000, 'harness did not exit after SIGKILL');
-            }
-            throw error;
-          });
-        if (code !== 0) throw new Error(`harness exited with ${code ?? signal}`);
+        await stopFixtureHarness(child, exited, output, adminURL);
       } catch (error) {
         throw new Error(`Puzzle harness cleanup failed for database ${database} (${error.code ?? error.message})`);
       } finally {
@@ -128,7 +111,7 @@ const test = base.extend({
         await rm(scratch, { recursive: true, force: true });
       }
     }
-  }, { timeout: 100_000 }],
+  }, { timeout: 130_000 }],
   baseURL: async ({ puzzleApp }, use) => use(puzzleApp.origin),
 });
 
@@ -295,4 +278,27 @@ test('an operator publishes a daily quiz and a player can solve it once', async 
   expect(await answers()).toEqual(solved);
   expect((await post('1')).status()).toBe(409);
   expect(await answers()).toEqual(solved);
+
+  const [{ tomorrow }] = await query("SELECT ($1::date + 1)::text AS tomorrow", [day]);
+  const staged = { ...document, day: tomorrow, publication_id: randomUUID() };
+  const replacement = { ...staged, publication_id: randomUUID() };
+  const futureSlots = () => query('SELECT id, publication_id FROM puzzles_daily WHERE day=$1', [tomorrow]);
+  writeFileSync(file, JSON.stringify(staged));
+  expect(invoke(publish(operator.id), {}, 0)).toEqual({ publicationId: staged.publication_id, replayed: false });
+  const initialSlots = await futureSlots();
+  expect(initialSlots).toEqual([{ id: expect.any(String), publication_id: staged.publication_id }]);
+
+  writeFileSync(file, JSON.stringify(replacement));
+  invoke(publish(player.id), {}, 2, 'Denied');
+  expect(await futureSlots()).toEqual(initialSlots);
+  const replacementAudits = () => query(
+    "SELECT actor, request_id FROM audit_log WHERE action='puzzles.publish' AND target=$1",
+    [replacement.publication_id],
+  );
+  expect(await replacementAudits()).toEqual([]);
+  expect(invoke(publish(operator.id), {}, 0)).toEqual({ publicationId: replacement.publication_id, replayed: false });
+  const currentSlots = await futureSlots();
+  expect(currentSlots).toEqual([{ id: expect.any(String), publication_id: replacement.publication_id }]);
+  expect(currentSlots[0].id).not.toBe(initialSlots[0].id);
+  expect(await replacementAudits()).toEqual([{ actor: operator.id, request_id: replacement.publication_id }]);
 });
