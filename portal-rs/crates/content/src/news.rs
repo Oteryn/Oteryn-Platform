@@ -174,7 +174,10 @@ async fn index(
 ) -> Result<impl IntoResponse, StatusCode> {
     let lang = q.lang(&headers);
     let html = listing(&pool, lang, &q).await?;
-    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())], html))
+    Ok((
+        [(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())],
+        html,
+    ))
 }
 async fn local_index(
     State(pool): State<PgPool>,
@@ -258,7 +261,10 @@ async fn show(
 ) -> Result<impl IntoResponse, StatusCode> {
     let lang = q.lang(&headers);
     let html = article(&pool, lang, &slug).await?;
-    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())], html))
+    Ok((
+        [(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())],
+        html,
+    ))
 }
 async fn local_show(
     State(pool): State<PgPool>,

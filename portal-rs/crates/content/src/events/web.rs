@@ -50,7 +50,9 @@ async fn redirect_event(
     }
     let preferred = oteryn_ui::preferred_language(&headers);
     match events.public_destination(&slug, preferred).await {
-        Ok(Some((locale, slug))) => Redirect::to(&format!("/{locale}/events/{slug}")).into_response(),
+        Ok(Some((locale, slug))) => {
+            Redirect::to(&format!("/{locale}/events/{slug}")).into_response()
+        }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => response(error),
     }
