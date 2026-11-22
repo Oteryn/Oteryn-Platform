@@ -111,7 +111,10 @@ test('an operator publishes a daily quiz and a player can solve it once', async 
     cli(publish(operator.id), { OTERYN_DAILY_PUZZLES_ENABLED: '' }, 2, 'Disabled');
     expect(await publicationState()).toEqual(before);
 
-    await query('UPDATE accounts SET email_verified_at=NULL WHERE id=$1', [operator.id]);
+    expect(await query(
+      'UPDATE accounts SET email_verified_at=NULL WHERE id=$1 RETURNING status,email_verified_at',
+      [operator.id],
+    )).toEqual([{ status: 'active', email_verified_at: null }]);
     cli(publish(operator.id), {}, 2, 'Denied');
     expect(await publicationState()).toEqual(before);
     await query('UPDATE accounts SET email_verified_at=now() WHERE id=$1', [operator.id]);
