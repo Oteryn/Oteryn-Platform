@@ -10,6 +10,8 @@ function listen(server, port) {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {
       server.removeListener('error', reject);
+      // SMTP forwards connection errors after startup, including failed TLS handshakes.
+      server.on('error', () => console.error('[harness] loopback listener error'));
       resolve();
     });
   });
