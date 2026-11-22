@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{OriginalUri, Path, Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -670,13 +670,19 @@ async fn status(
     Extension(session): Extension<BrowserSession>,
     staff: Option<Extension<CheckContext>>,
     peer: Option<ClientSource>,
+    method: Method,
     form: std::result::Result<Form<Mutation>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     let form = match form {
         Ok(Form(form)) => form,
         Err(_) => return fail(Error::Invalid, &language),
     };
-    mutate(t, (language, id), session, staff, peer, form, false).await
+    let mut response = mutate(t, (language, id), session, staff, peer, form, false).await;
+    if method == Method::PUT && response.status() == StatusCode::FOUND {
+        // Browsers can preserve PUT across a 302. The ticket detail accepts GET.
+        *response.status_mut() = StatusCode::SEE_OTHER;
+    }
+    response
 }
 async fn mutate(
     t: Tickets,

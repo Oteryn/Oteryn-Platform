@@ -575,7 +575,11 @@ async fn postgres_player_routes_session_csrf_bad_input_and_success() -> TestResu
                 )))?,
         )
         .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers()[axum::http::header::LOCATION],
+        format!("/en/support/tickets/{}", ticket.id),
+    );
     assert_eq!(t.list(owner, false, 0).await?[0].status, "closed");
     db.finish().await
 }
