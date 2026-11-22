@@ -521,11 +521,33 @@ mod tests {
     }
 
     #[test]
+    fn home_panorama_offers_viewport_sized_sources() -> Result<(), askama::Error> {
+        let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
+        let html = Home::new(&chrome, &HomeData::default()).render()?;
+        for (name, width, original_size) in [
+            ("brama-panorama-aee60a5b.webp", 1536, 718_188),
+            ("brama-1692ad85.webp", 824, 628_654),
+        ] {
+            assert!(html.contains(&format!("/static/thais/{name} {width}w")));
+            let asset = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../static/thais")
+                .join(name);
+            assert!(
+                std::fs::metadata(asset)
+                    .expect("shipped panorama source")
+                    .len()
+                    < original_size
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn desktop_home_panorama_fits_the_request_budget() -> Result<(), askama::Error> {
         const PANORAMA: &str = "brama-panorama-f4db61b9.webp";
         let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
         let html = Home::new(&chrome, &HomeData::default()).render()?;
-        assert!(html.contains(&format!(r#"srcset="/static/thais/{PANORAMA}""#)));
+        assert!(html.contains(&format!("/static/thais/{PANORAMA} 2868w")));
         let asset = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../static/thais")
             .join(PANORAMA);

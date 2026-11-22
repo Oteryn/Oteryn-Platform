@@ -28,8 +28,8 @@
   </svg>
   <section class="hero" id="start" aria-labelledby="hero-title">
     <picture>
-      <source media="(min-width: 961px)" srcset="/static/thais/brama-panorama-f4db61b9.webp" width="2868" height="941">
-      <img class="hero-art" src="/static/thais/brama.webp" alt="{{ chrome.text("thais-home-gate-alt") }}" width="1672" height="941" fetchpriority="high">
+      <source media="(min-width: 961px)" srcset="/static/thais/brama-panorama-aee60a5b.webp 1536w, /static/thais/brama-panorama-f4db61b9.webp 2868w" sizes="100vw" width="2868" height="941">
+      <img class="hero-art" src="/static/thais/brama.webp" srcset="/static/thais/brama-1692ad85.webp 824w, /static/thais/brama.webp 1672w" sizes="100vw" alt="{{ chrome.text("thais-home-gate-alt") }}" width="1672" height="941" fetchpriority="high">
     </picture>
     <div class="hero-body wrap" id="aktualnosci">
       {% let news = data.news.as_deref().unwrap_or_default() %}
