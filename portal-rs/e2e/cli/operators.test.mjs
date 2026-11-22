@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import {
-  account, audit, grant, id, json, portal, query, refused, run, scratch, seed,
+  account, audit, grant, id, json, password as newPassword, portal, query, refused, run, scratch, seed,
   seedRefused, start, stop, success,
 } from './support.mjs';
 
@@ -26,6 +26,15 @@ const intentFields = {
   profileRevision: 'profile:1', rulesetRevision: 'ruleset:1',
   contentRevision: 'content:1', starterTemplateRevision: 'starter:1',
 };
+
+async function whileSuspended(actor, verify) {
+  await query("UPDATE accounts SET status='suspended' WHERE id=$1", [actor]);
+  try {
+    verify();
+  } finally {
+    await query("UPDATE accounts SET status='active' WHERE id=$1", [actor]);
+  }
+}
 
 test('migrate records the applied versions and preserves them on rerun', async () => {
   const migrations = () => query('SELECT version, description, installed_on, success, checksum FROM _sqlx_migrations ORDER BY version');
@@ -49,6 +58,9 @@ test('migrate records the applied versions and preserves them on rerun', async (
   const wrong = run(['migrate', '--dry-run'], 2);
   assert.equal(wrong.stdout, '');
   assert.equal(wrong.stderr, 'usage: oteryn-portal migrate\n');
+  const unconfigured = run(['migrate', '--dry-run'], 2, { emptyEnv: true });
+  assert.equal(unconfigured.stdout, '');
+  assert.equal(unconfigured.stderr, 'usage: oteryn-portal migrate\n');
   assert.deepEqual(await migrations(), before);
 });
 
@@ -79,11 +91,25 @@ test('seed account and MFA persist the account while enrollment secrets are issu
   const mfa = { accountId, password };
   seedRefused('account-mfa', { ...mfa, accountId: await id() }, 2, 'bad_input',
     'accountId is not an active verified account with this password');
+  const mfaState = () => query(`SELECT
+    (SELECT count(*)::int FROM account_mfa_totp WHERE account_id=$1) AS enrollments,
+    (SELECT count(*)::int FROM account_recovery_codes WHERE account_id=$1) AS codes`, [accountId]);
+  const mfaAudit = () => query(`SELECT action,(before='{}' AND after='{}') AS empty_details
+    FROM audit_log WHERE actor=$1 AND target='mfa' ORDER BY id`, [accountId]);
+  const initialAudit = await mfaAudit();
+  assert.deepEqual(await mfaState(), [{ enrollments: 0, codes: 0 }]);
+  seedRefused('account-mfa', { ...mfa, password: newPassword() }, 2, 'bad_input',
+    'accountId is not an active verified account with this password');
+  assert.deepEqual(await mfaState(), [{ enrollments: 0, codes: 0 }]);
+  assert.deepEqual(await state(), rows);
+  // Identity intentionally audits credential refusals without recording enrollment material.
+  assert.deepEqual(await mfaAudit(), [...initialAudit, { action: 'mfa.refused', empty_details: true }]);
+
   const enrolled = seed('account-mfa', mfa);
-  assert.equal(enrolled.accountId, accountId);
-  assert.equal(enrolled.algorithm, 'SHA1');
-  assert.equal(enrolled.digits, 6);
-  assert.equal(enrolled.period, 30);
+  assert.ok(enrolled.accountId === accountId, 'MFA enrolls the requested account');
+  assert.ok(enrolled.algorithm === 'SHA1', 'MFA uses SHA1');
+  assert.ok(enrolled.digits === 6, 'MFA uses six digits');
+  assert.ok(enrolled.period === 30, 'MFA uses a 30-second period');
   assert.ok(/^[A-Z2-7]+=*$/.test(enrolled.totpSecret), 'TOTP secret is base32');
   assert.ok(Array.isArray(enrolled.recoveryCodes) && enrolled.recoveryCodes.length > 0,
     'MFA returns recovery codes once');
@@ -134,7 +160,7 @@ test('seed world, channel, route and OAuth client retain their persisted identit
   seedRefused('oauth-native-client', { clientId: 'bad-id' }, 2, 'bad_input', 'clientId is not a UUID');
 });
 
-test('seed signing trust and encrypted custody publish stable keys and refuse invalid inputs', () => {
+test('seed signing trust and encrypted custody publish stable keys and refuse invalid inputs', async () => {
   const directory = path.join(scratch, 'custody');
   const args = { directory, keyId: 'cli-custody' };
   seedRefused('signing-custody', args, 1, 'unavailable',
@@ -160,7 +186,20 @@ test('seed signing trust and encrypted custody publish stable keys and refuse in
   const trust = seed('signing-trust', trustArgs);
   assert.equal(trust.publicKey, key);
   assert.equal(trust.keyId, trustArgs.keyId);
+  const saved = () => query(`SELECT p.id AS profile_id,p.profile_version,p.issuer_revision,p.updated_at AS profile_updated_at,
+    k.key_id,k.public_key,k.key_revision,k.trusted,k.trusted_at,k.revoked_at,k.updated_at
+    FROM native_game_signing_trust_profiles p
+    JOIN native_game_signing_trust_key_versions k ON k.profile_id=p.id
+    WHERE p.issuer=$1 AND p.profile=$2 AND p.key_purpose=$3 AND k.key_id=$4
+    ORDER BY p.profile_version,k.key_revision`, [trust.issuer, trust.profile, trustArgs.purpose, trustArgs.keyId]);
+  const persisted = await saved();
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].public_key, key);
+  assert.equal(persisted[0].trusted, true);
+  assert.equal(persisted[0].revoked_at, null);
+  assert.equal(persisted[0].issuer_revision, String(trust.issuerRevision));
   assert.deepEqual(seed('signing-trust', trustArgs), trust);
+  assert.deepEqual(await saved(), persisted);
 });
 
 test('seed bootstrap intent is stable and has no operator audit row', async () => {
@@ -172,7 +211,25 @@ test('seed bootstrap intent is stable and has no operator audit row', async () =
   const issued = seed('bootstrap-intent', args);
   assert.equal(issued.operationId, operationId);
   assert.match(issued.intentSha256, /^[a-f0-9]{64}$/);
+  const saved = () => query('SELECT * FROM character_bootstrap_intents WHERE operation_id=$1', [operationId]);
+  const persisted = await saved();
+  assert.equal(persisted.length, 1);
+  const [record] = persisted;
+  assert.deepEqual({
+    accountId: record.account_id, operationId: record.operation_id, targetWorldId: record.target_world_id,
+    requestedName: record.requested_name, requestedSex: record.requested_sex,
+    requestedVocation: record.requested_vocation, profileRevision: record.profile_revision,
+    rulesetRevision: record.ruleset_revision, contentRevision: record.content_revision,
+    starterTemplateRevision: record.starter_template_revision,
+  }, args);
+  assert.equal(record.issuer_decision_id, issued.issuerDecisionId);
+  assert.equal(record.source_revision, issued.sourceRevision);
+  assert.equal(record.issued_at_source, issued.issuedAtSource);
+  assert.equal(record.expires_at_source, issued.expiresAtSource);
+  assert.equal(record.intent_sha256, issued.intentSha256);
+  assert.equal(createHash('sha256').update(record.intent_json).digest('hex'), issued.intentSha256);
   assert.deepEqual(seed('bootstrap-intent', args), issued);
+  assert.deepEqual(await saved(), persisted);
   assert.deepEqual(await audit(operationId), []);
 });
 
@@ -204,6 +261,11 @@ test('bootstrap-intent issue binds the decision to Postgres and audits it once',
   const saved = () => query(`SELECT account_id,target_world_id,intent_json,intent_sha256,
     source_revision,issued_at_source,expires_at_source FROM character_bootstrap_intents WHERE operation_id=$1`,
   [operationId]);
+  assert.deepEqual(await saved(), []);
+  assert.deepEqual(await audit(operationId), []);
+
+  await whileSuspended(actor, () => refused(args, 2, 'bad_input',
+    'actor is not an active staff account with game.player.manage', options));
   assert.deepEqual(await saved(), []);
   assert.deepEqual(await audit(operationId), []);
 
@@ -247,6 +309,9 @@ test('catalog import and activate require their own permissions and audit each t
   refused(['catalog', 'import', jsonFile('broken-catalog.json', '{broken'), '--actor', actor], 2, 'InvalidDocument');
   refused(['catalog', 'import', path.join(scratch, 'missing.json'), '--actor', actor], 2, 'ReadFile');
   assert.deepEqual(await query('SELECT catalog_revision FROM store_price_list_imports'), []);
+  await whileSuspended(actor, () => refused([...importArgs, '--actor', actor], 2, 'Denied'));
+  assert.deepEqual(await query('SELECT catalog_revision FROM store_price_list_imports'), []);
+  assert.deepEqual(await query('SELECT action FROM audit_log WHERE actor=$1', [actor]), []);
   const stdout = success([...importArgs, '--actor', actor]);
   assert.match(stdout, /^[a-f0-9]{64}\n$/);
   const revision = stdout.trim();
@@ -258,6 +323,11 @@ test('catalog import and activate require their own permissions and audit each t
   assert.deepEqual(await query('SELECT catalog_revision FROM store_active_catalog'), [{ catalog_revision: null }]);
 
   const activate = [...activateArgs(revision), '--actor', actor];
+  const preActivationAudit = await audit(revision);
+  await whileSuspended(actor, () => refused(activate, 2, 'Denied'));
+  assert.deepEqual(await query('SELECT catalog_revision FROM store_active_catalog'), [{ catalog_revision: null }]);
+  assert.deepEqual(await query('SELECT catalog_revision FROM store_catalog_activations'), []);
+  assert.deepEqual(await audit(revision), preActivationAudit);
   assert.equal(success(activate), stdout);
   assert.equal(success(activate), stdout);
   assert.deepEqual(await query('SELECT catalog_revision,activated_by FROM store_active_catalog'),
@@ -295,7 +365,10 @@ test('game-route publish refuses unauthorized or conflicting writes and audits r
   for (const denied of [outsider, await id()]) {
     refusal(args(denied, input), 4, 'denied', 'the actor is not an active account holding game.world.admin');
   }
+  await whileSuspended(actor, () => refusal(args(actor, input), 4, 'denied',
+    'the actor is not an active account holding game.world.admin'));
   assert.deepEqual(await query('SELECT id FROM world_status WHERE id=$1', [worldId]), []);
+  assert.deepEqual(await query('SELECT channel_id FROM game_channels WHERE channel_id=$1', [channelId]), []);
   const target = `game_channels:${worldId}/${channelId}`;
   assert.deepEqual(await audit(target), []);
 
@@ -355,6 +428,23 @@ test('commerce-refunds-reconcile previews, revives and audits one dead outbox jo
   const expected = `operation=${operation} job=${job} state=pending attempt=- action=`;
   const lookup = () => query('SELECT state,attempts,payload,idempotency_key FROM outbox WHERE id=$1', [job]);
   const payload = { operation };
+  const deadJob = [{ state: 'dead', attempts: 5, payload, idempotency_key: payment }];
+  const refunds = () => query('SELECT * FROM commerce_refunds WHERE operation_id=$1', [operation]);
+  const pendingRefund = await refunds();
+  assert.equal(pendingRefund.length, 1);
+  assert.equal(pendingRefund[0].state, 'pending');
+  for (const permission of ['admin.access', 'payments.reconcile']) {
+    const partial = (await account()).accountId;
+    await grant(partial, [permission]);
+    refused([...command, '--actor', partial], 2, 'Denied');
+    assert.deepEqual(await lookup(), deadJob);
+    assert.deepEqual(await refunds(), pendingRefund);
+    assert.deepEqual(await audit(operation), []);
+  }
+  await whileSuspended(actor, () => refused(authorized, 2, 'Denied'));
+  assert.deepEqual(await lookup(), deadJob);
+  assert.deepEqual(await refunds(), pendingRefund);
+  assert.deepEqual(await audit(operation), []);
   assert.equal(success([...authorized, '--dry-run']), `${expected}would_revive\n`);
   assert.deepEqual(await lookup(), [{ state: 'dead', attempts: 5, payload, idempotency_key: payment }]);
   assert.deepEqual(await audit(operation), []);
@@ -396,7 +486,10 @@ test('downloads-publish records the publisher and rejects a replay of signed met
 
   const releases = () => query(`SELECT r.id,r.published_by,r.previous_publication_id,c.active_publication_id
     FROM client_releases r JOIN client_channels c ON c.id=r.channel_id WHERE c.name='stable'`);
+  const publicationAudit = await query('SELECT action FROM audit_log WHERE actor=$1', [actor]);
+  await whileSuspended(actor, () => refusal(args(actor), 'publication denied'));
   assert.deepEqual(await releases(), []);
+  assert.deepEqual(await query('SELECT action FROM audit_log WHERE actor=$1', [actor]), publicationAudit);
   const stdout = success(args(actor), { env });
   assert.match(stdout, /^Published [a-f0-9-]{36}\n$/);
   const release = stdout.trim().slice('Published '.length);
