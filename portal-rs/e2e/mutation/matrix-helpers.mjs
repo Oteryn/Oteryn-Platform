@@ -14,17 +14,20 @@ export async function prepare(page, selector, values) {
 
 export async function sendForm(page, url, form, method = 'POST') {
   return page.request.fetch(url, {
-    method, form, headers: { origin: new URL(url).origin }, maxRedirects: 0,
+    method, form, headers: {
+      origin: new URL(url).origin,
+      'accept-language': await page.locator('html').getAttribute('lang') || 'pl',
+    }, maxRedirects: 0,
   });
 }
 
-export async function useFormMethod(page, url, method, submitForm) {
-  if (method === 'POST') {
+export async function useFormMethod(page, url, method, submitForm, target = url) {
+  if (method === 'POST' && target === url) {
     await submitForm();
     return;
   }
   const changeMethod = route => route.continue(
-    route.request().method() === 'POST' ? { method } : {},
+    route.request().method() === 'POST' ? { method, url: target } : {},
   );
   await page.route(url, changeMethod);
   try {

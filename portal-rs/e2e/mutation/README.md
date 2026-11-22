@@ -20,6 +20,9 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Browser mutation | a | b | c | d | e |
 | --- | --- | --- | --- | --- | --- |
 | `/{lang}/account/privacy` (POST and PUT) | Yes | Yes | Anonymous | Yes | Each save advances the revision |
+| `/account/badges` and `/{lang}/account/badges` | Account-age selection and clearing | Yes | Anonymous | Yes | Selection unchanged after replay |
+| `/{lang}/account/notifications` | Yes | Yes | Anonymous | Yes | Same preferences after replay |
+| `/{lang}/unsubscribe` | Signed confirmation form | Signed capability missing or forged | Possession of the signed link grants access | Malformed and overlength capabilities | No additional change on replay |
 | `/{lang}/support/tickets` | Yes | Yes | Anonymous | Yes | Request-key replay |
 | `/{lang}/support/tickets/{id}/reply` | Yes | Yes | Foreign player | Yes | Stale lock version |
 | `/{lang}/support/tickets/{id}/status` (POST and PUT, close and reopen) | Yes | Yes | Foreign player | Yes | Stale lock version |

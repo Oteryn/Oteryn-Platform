@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { login, password, pool, submit } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, player, query } from '../staff-rbac-helpers.mjs';
@@ -830,6 +830,145 @@ test('journal write boundary refuses notes without source authority and isolates
     expect(await snapshot()).toEqual([{ email_enabled: true }]);
     expect((await sendForm(page, email, fields)).status()).toBe(204);
     expect(await snapshot()).toEqual([{ email_enabled: false }]);
+  } finally {
+    await anonymous.close();
+  }
+});
+
+test('localized and unprefixed badge forms persist only the owner selection', async ({ page, browser }, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  const other = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  try {
+    const owner = await seededPlayer(page, lang);
+    const anon = await other.newPage();
+    const snapshot = () => query('SELECT badge_keys FROM account_badge_selections WHERE account_id=$1', [owner.id]);
+    expect(await snapshot()).toEqual([]);
+    const local = `/${lang}/account/badges`;
+    for (const { path, selected } of [{ path: local, selected: true }, { path: '/account/badges', selected: false }]) {
+      const baseline = await snapshot();
+      expect((await page.goto(path)).status()).toBe(200);
+      const badge = page.locator('[name=badge][value=account-age]');
+      await expect(badge).toBeEnabled();
+      await badge.setChecked(selected);
+      const { url, fields } = await prepare(page, formSelector);
+      await rejected({ page, url, fields, snapshot, baseline });
+      await wrongActor({ page: anon, lang, url, fields, status: 303, snapshot, baseline });
+      await invalid({
+        page, url, fields, snapshot, baseline,
+        message: lang === 'pl'
+          ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+          : 'Some information could not be accepted. Check your input and try again.',
+        samples: [
+          { name: 'empty badge key', patch: { badge: '' } },
+          { name: 'overlong badge key', patch: { badge: 'a'.repeat(512) } },
+          { name: 'wrong character identifier type', patch: { profile: 'abc' } },
+          { name: 'nil UUID at the identifier boundary', patch: { profile: '00000000-0000-0000-0000-000000000000' } },
+        ],
+      });
+      await submit(page, formSelector);
+      await expect(page).toHaveURL(new URL(local, url).href);
+      await expect(badge).toBeChecked({ checked: selected });
+      const saved = [{ badge_keys: selected ? ['account-age'] : [] }];
+      expect(await snapshot()).toEqual(saved);
+      expect((await sendForm(page, url, fields)).status()).toBe(303);
+      expect(await snapshot()).toEqual(saved);
+    }
+  } finally {
+    await other.close();
+  }
+});
+
+test('notification preferences and signed browser unsubscribe keep one owner preference', async ({ page, browser }, info) => {
+  test.setTimeout(360_000);
+  const lang = info.project.metadata.locale;
+  const anonymous = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  try {
+    const owner = await seededPlayer(page, lang);
+    const reader = await anonymous.newPage();
+    const preferences = `/${lang}/account/notifications`;
+    const state = () => query(
+      'SELECT category, email_enabled, portal_enabled FROM account_notification_prefs WHERE account_id=$1 ORDER BY category',
+      [owner.id],
+    );
+    const baseline = await state();
+    expect(baseline).toEqual([]);
+    expect((await page.goto(preferences)).status()).toBe(200);
+    await page.locator('[name=support_portal]').uncheck();
+    const { url, fields } = await prepare(page, formSelector, {
+      news_email: 'true', news_portal: 'true', support_email: 'true',
+    });
+    await rejected({ page, url, fields, snapshot: state, baseline });
+    await wrongActor({ page: reader, lang, url, fields, status: 403, snapshot: state, baseline });
+    const invalidMessage = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    const samples = [
+      { name: 'empty checkbox', patch: { news_email: '' } },
+      { name: 'overlong checkbox', patch: { news_portal: 'true'.repeat(512) } },
+      { name: 'wrong checkbox type', patch: { support_email: 'abc' } },
+      { name: 'numeric flag outside the checkbox contract', patch: { support_portal: '2' } },
+    ];
+    await invalid({ page, url, fields, samples, message: invalidMessage, snapshot: state, baseline });
+    await submit(page, formSelector, {
+      news_email: true, news_portal: true, support_email: true, support_portal: false,
+    });
+    await expect(page.locator('[name=news_email]')).toBeChecked();
+    await expect(page.locator('[name=support_portal]')).not.toBeChecked();
+    const subscribed = [
+      { category: 'news', email_enabled: true, portal_enabled: true },
+      { category: 'support', email_enabled: true, portal_enabled: false },
+    ];
+    expect(await state()).toEqual(subscribed);
+    expect((await sendForm(page, url, fields)).status()).toBe(303);
+    expect(await state()).toEqual(subscribed);
+
+    const raw = `unsubscribe:${owner.id}:news:${Math.floor(Date.now() / 1000) + 3600}`;
+    const signature = createHmac('sha256', Buffer.from(process.env.OTERYN_NOTIFY_UNSUBSCRIBE_KEY))
+      .update(raw).digest('hex');
+    const target = new URL(`/${lang}/unsubscribe`, url);
+    const form = { 'List-Unsubscribe': 'One-Click' };
+    const attempts = [
+      ['', 'missing signed capability'],
+      ['x'.repeat(513), 'length above the token bound'],
+      ['1', 'malformed capability'],
+      [`${raw}:${'0'.repeat(64)}`, 'signature refused for this account'],
+    ];
+    await reader.goto(`/${lang}/login`);
+    await expect.poll(async () => {
+      const [row] = await query(
+        "SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits WHERE limiter_name='identity-email-token' AND window_start=date_trunc('minute',clock_timestamp())"
+      );
+      return row.count;
+    }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(4);
+    for (const [token, name] of attempts) {
+      await test.step(name, async () => {
+        if (token) target.searchParams.set('token', token);
+        else target.searchParams.delete('token');
+        const response = await sendForm(reader, target.href, form);
+        expect(response.status()).toBe(422);
+        expect(await response.text()).toContain(invalidMessage);
+        expect(await state()).toEqual(subscribed);
+      });
+    }
+    target.searchParams.set('token', `${raw}:${signature}`);
+    expect((await reader.goto(target.href)).status()).toBe(200);
+    await reader.locator(`${formSelector} button`).click();
+    await expect(reader.locator('main h1')).toHaveText(lang === 'pl' ? 'Opcjonalne wiadomości e-mail są wyłączone.' : 'Optional e-mail disabled.');
+    const unsubscribed = [
+      { ...subscribed[0], email_enabled: false },
+      subscribed[1],
+    ];
+    expect(await state()).toEqual(unsubscribed);
+    expect((await sendForm(reader, target.href, form)).status()).toBe(200);
+    expect(await state()).toEqual(unsubscribed);
+    await page.goto(preferences);
+    await expect(page.locator('[name=news_email]')).not.toBeChecked();
+    await expect(page.locator('[name=support_email]')).toBeChecked();
   } finally {
     await anonymous.close();
   }
