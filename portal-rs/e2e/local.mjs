@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
+import { startLocalOutbox } from './support/local-outbox.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
 import {createGameClosureProducer,characterSourceAuthority} from './game-closure-producer.mjs';
@@ -114,7 +115,6 @@ if(!binary){
 }
 binary=path.resolve(root,binary);
 env.PORTAL_E2E_BINARY=binary;
-fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 command(binary,['migrate']);
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
@@ -153,7 +153,35 @@ proxy.listen(18443,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
 league.start();
 await gameProducer.start();
-console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
+const outbox = startLocalOutbox(scratch, binary);
 let closing=false;
-async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
-process.on('SIGINT',close);process.on('SIGTERM',close);
+async function close(code=0) {
+ if(closing)return;
+ closing=true;
+ await outbox.close();
+ await league.close();
+ await bazaarGame.close();
+ await gameProducer.stop();
+ await Promise.all(children.map(async child=>{
+  if(child.exitCode!==null||child.signalCode!==null||child.pid===undefined)return;
+  const stopped=new Promise(resolve=>child.once('exit',resolve));
+  child.kill('SIGINT');
+  await stopped;
+ }));
+ smtp.close();
+ starttls.close();
+ proxy.close();
+ for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
+ await admin.end();
+ process.exit(code);
+}
+process.on('SIGINT',()=>void close());
+process.on('SIGTERM',()=>void close());
+try {
+ Object.assign(env,await outbox.ready);
+ fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
+ console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the task databases.`);
+} catch (error) {
+ console.error(error.message);
+ await close(1);
+}
