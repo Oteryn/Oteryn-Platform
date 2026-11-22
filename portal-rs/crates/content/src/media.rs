@@ -22,6 +22,7 @@ use std::{io::Cursor, time::Duration};
 use uuid::Uuid;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_DECODE_BYTES: usize = 160_000_000;
+const JPEG_MAX_COMPONENTS: u8 = 4;
 // Header CSRF is verified before reading the body. Allow the full byte cap
 // over a slower uplink while keeping the pre-authentication form read short.
 const AUTHENTICATED_UPLOAD_TIMEOUT: Duration = Duration::from_secs(15);
@@ -65,7 +66,7 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         return Err(bad);
     }
     let boundary = match format {
-        ImageFormat::Jpeg => verify_jpeg_end(bytes).is_some(),
+        ImageFormat::Jpeg => verify_jpeg_structure(bytes).is_some(),
         ImageFormat::Png => bytes.ends_with(b"\0\0\0\0IEND\xaeB`\x82"),
         ImageFormat::WebP => bytes
             .get(4..8)
@@ -130,13 +131,15 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         height,
     })
 }
-/// Require the first parsed EOI to terminate the upload. Segment payloads
-/// can contain marker-like bytes, and scans can contain stuffed and restart bytes.
-fn verify_jpeg_end(bytes: &[u8]) -> Option<()> {
+/// Require the first parsed EOI to terminate the upload and every frame
+/// component to have initial scan data before that marker.
+fn verify_jpeg_structure(bytes: &[u8]) -> Option<()> {
     use oxiarc_jpeg::Marker;
 
     let mut rest = bytes.strip_prefix(b"\xff\xd8")?;
     let mut in_scan = false;
+    let mut frame: Option<(&[u8], bool)> = None;
+    let mut initial_components = 0u8;
     loop {
         if in_scan {
             rest = &rest[memchr::memchr(0xff, rest)?..];
@@ -147,13 +150,49 @@ fn verify_jpeg_end(bytes: &[u8]) -> Option<()> {
         rest = tail;
         match Marker::from_code(code) {
             None | Some(Marker::Rst(_)) if in_scan => continue,
-            Some(Marker::Eoi) => return rest.is_empty().then_some(()),
+            Some(Marker::Eoi) => {
+                let (components, _) = frame?;
+                let all_components = (1 << (components.len() / 3)) - 1;
+                return (rest.is_empty() && initial_components == all_components).then_some(());
+            }
             None | Some(Marker::Soi | Marker::Rst(_)) => return None,
             Some(Marker::Tem) => continue,
             Some(marker) => {
                 let length = usize::from(u16::from_be_bytes(rest.get(..2)?.try_into().ok()?));
                 if length < 2 {
                     return None;
+                }
+                let payload = rest.get(2..length)?;
+                match marker {
+                    Marker::Sof(code) => {
+                        let count = *payload.get(5)?;
+                        if frame.is_some() || !(1..=JPEG_MAX_COMPONENTS).contains(&count) {
+                            return None;
+                        }
+                        let components = payload.get(6..6 + usize::from(count) * 3)?;
+                        frame = Some((components, matches!(code, 0xc2 | 0xca)));
+                    }
+                    Marker::Sos => {
+                        let (components, progressive) = frame?;
+                        let count = *payload.first()?;
+                        if !(1..=JPEG_MAX_COMPONENTS).contains(&count) {
+                            return None;
+                        }
+                        let selectors_end = 1 + usize::from(count) * 2;
+                        let selectors = payload.get(1..selectors_end)?;
+                        let spectral = payload.get(selectors_end..selectors_end + 3)?;
+                        let initial_dc =
+                            spectral[0] == 0 && spectral[1] == 0 && spectral[2] >> 4 == 0;
+                        if !progressive || initial_dc {
+                            for selector in selectors.chunks_exact(2) {
+                                let index = components
+                                    .chunks_exact(3)
+                                    .position(|component| component[0] == selector[0])?;
+                                initial_components |= 1 << index;
+                            }
+                        }
+                    }
+                    _ => {}
                 }
                 rest = rest.get(length..)?;
                 in_scan = marker == Marker::Sos;
@@ -173,11 +212,10 @@ fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicIm
     // OxiArc stores full-resolution i32 coefficients even at 1/8 output
     // scale. Each of the four supported components can occupy a full frame
     // with up to 31 padding samples per axis (8 samples × a factor of 4).
-    const MAX_COMPONENTS: u8 = 4;
     const MAX_MCU_PADDING: u64 = 8 * 4 - 1;
     let max_coefficient_bytes = (u64::from(width) + MAX_MCU_PADDING)
         * (u64::from(height) + MAX_MCU_PADDING)
-        * u64::from(MAX_COMPONENTS)
+        * u64::from(JPEG_MAX_COMPONENTS)
         * size_of::<i32>() as u64;
     let verification = oxiarc_jpeg::DecodeOptions {
         limits: oxiarc_jpeg::DecodeLimits {
@@ -186,7 +224,7 @@ fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicIm
             max_pixels: u64::from(width) * u64::from(height),
             max_input_bytes: MAX_BYTES as u64,
             max_output_bytes: MAX_DECODE_BYTES as u64,
-            max_components: MAX_COMPONENTS,
+            max_components: JPEG_MAX_COMPONENTS,
             max_coefficient_bytes,
             ..oxiarc_jpeg::DecodeLimits::strict()
         },

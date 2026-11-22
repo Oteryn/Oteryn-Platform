@@ -48,6 +48,37 @@ fn jpeg_ends_at_first_parsed_eoi() {
 }
 
 #[test]
+fn progressive_jpeg_requires_initial_dc_for_every_component() {
+    use oxiarc_jpeg::{
+        EncodeOptions, EncodeProcess, InputColor, ScanSpec, encode_to_vec_with_options,
+    };
+
+    let options = EncodeOptions {
+        process: EncodeProcess::Progressive,
+        progressive_script: Some(vec![
+            ScanSpec::dc(vec![0, 1], 0, 0),
+            ScanSpec::dc(vec![2], 0, 0),
+        ]),
+        ..EncodeOptions::default()
+    };
+    let mut jpeg =
+        encode_to_vec_with_options(&[96; 16 * 16 * 3], 16, 16, InputColor::Rgb, &options).unwrap();
+    assert!(process("complete.jpeg", &jpeg).is_ok());
+
+    // Omit the final scan, which carries the third component's initial DC data.
+    let last_scan = jpeg
+        .windows(2)
+        .rposition(|pair| pair == [0xff, 0xda])
+        .unwrap();
+    jpeg.truncate(last_scan);
+    jpeg.extend_from_slice(&[0xff, 0xd9]);
+    assert_eq!(
+        process("missing-chroma.jpeg", &jpeg).err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+}
+
+#[test]
 fn jpeg_with_incomplete_scan_passes_header_checks_but_is_rejected() {
     let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-scan.jpeg");
     assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Jpeg);
