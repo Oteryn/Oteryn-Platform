@@ -151,6 +151,7 @@ async function assertDocument(page, locale, target, actor = 'anonymous') {
 
 // The shell and checkout expectations are pinned independently of the catalogs.
 const shellCopy = {
+  "shell-appeals": ["Odwołania od sankcji", "Sanction appeals"],
   "home-link": ["Strona główna", "Home"],
   "navigation": ["Nawigacja główna", "Main navigation"],
   "shell-abuse-reports": ["Zgłoszenia naruszeń", "Abuse reports"],
@@ -238,6 +239,7 @@ for (const [path, key] of Object.entries({
   '/help': 'shell-support',
   '/password/change': 'thais-account-password',
   '/rankings/experience': 'thais-nav-experience',
+  '/support/appeals': 'shell-appeals',
   '/support/report-a-bug': 'thais-foot-report',
   '/today': 'thais-home-today',
   '/wiki/creatures': 'thais-nav-bestiary',
@@ -666,7 +668,7 @@ async function assertAnnouncements(page, locale, target) {
 
 async function refusedForm(page, locale, form, fields, status, message) {
   const { url, data } = await form.evaluate(form => ({
-    url: form.action,
+    url: new URL(form.getAttribute('action') || document.location.href, form.baseURI).href,
     data: Object.fromEntries(new FormData(form)),
   }));
   expect(data._csrf, 'the rendered form supplies its own CSRF proof').toBeTruthy();
@@ -758,9 +760,9 @@ async function serverValidation(page, locale, actor, target, targets) {
     const response = posted(page, `/${locale}/support/tickets`);
     await submit(page, 'main form', { subject: ' ', body: 'Parity fixture' });
     expect((await response).status()).toBe(422);
-    await expect(page.locator('body')).toHaveText(
-      catalogText(`crates/support/src/tickets/${locale}.ftl`, 'error'),
-    );
+    await expect(page.locator('main h1')).toHaveText(catalogText(ui, 'error-422-title'));
+    await expect(page.locator('main p').first()).toHaveText(catalogText(ui, 'error-422-description'));
+    await assertDocument(page, locale, 'ticket validation refusal', actor);
     expect((await page.goto(target)).status()).toBe(200);
     await submit(page, 'main form', { subject: 'Parity fixture', body: 'Synthetic support inquiry' });
     await expect(page).toHaveURL(/support\/tickets\/[a-f0-9-]+$/u);
