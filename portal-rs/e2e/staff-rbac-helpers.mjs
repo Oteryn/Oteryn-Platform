@@ -1,31 +1,14 @@
 import {expect} from '@playwright/test';
 import * as OTPAuth from 'otpauth';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import crypto from 'node:crypto';
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
-import {pool,csrfRejected,submit,password,login} from './helpers.mjs';
+import {pool,csrfRejected,submit,register,login,password,waitForLoginBudget} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
 export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale,viewport:info.project.use.viewport});return {context,page:await context.newPage()};}
 export async function query(sql,args=[],databaseURL){const db=pool(databaseURL);try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
-async function seedAccount(lang){
- const account={email:`${unique()}@example.invalid`, password:password()};
- const binary=process.env.PORTAL_E2E_BINARY;
- const connectionString=process.env.PORTAL_E2E_DATABASE_URL||process.env.OTERYN_DATABASE_URL;
- const disposable=pool(connectionString);
- await disposable.end();
- if(!binary)throw new Error('Set PORTAL_E2E_BINARY to the local portal test binary');
- let output;
- try {
-  ({stdout:output}=await promisify(execFile)(binary,['seed','account',JSON.stringify({...account,locale:lang})],{
-   env:{...process.env,OTERYN_ENV:'testing',OTERYN_DATABASE_URL:connectionString},
-  }));
- } catch {
-  throw new Error('The portal CLI could not seed the test account');
- }
- return {...account,id:JSON.parse(output).accountId};
-}
-export async function player(page,lang){const account=await seedAccount(lang);await login(page,lang,account);return account;}
+export async function player(page,lang){const account=await seededAccount(lang);await login(page,lang,account);return account;}
 // roles.html has select controls and named submit buttons; submit() cannot fill selects.
 // support_web.rs renders hidden action controls and select controls in SSR forms.
 export async function action(page,selector,values={},button){const form=page.locator(selector).first();const url=await form.getAttribute('action');const fields=await form.evaluate(f=>Object.fromEntries(new FormData(f)));await csrfRejected(page,url,{...fields,...values});for(const [name,value] of Object.entries(values)){const field=form.locator(`[name="${name}"]`);if(await field.evaluate(e=>e.tagName)==='SELECT')await field.selectOption(value);else await field.fill(value);}await form.locator(button?`button[value="${button}"]`:'button').first().click();}
@@ -67,7 +50,7 @@ export async function isolatedAdmin(browser,info){
  const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang});
  try{
   const page=await context.newPage();
-  const account=await seedAccount(lang);
+  const account=await seededAccount(lang);
   await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",[account.email]);
   await login(page,lang,account);
   const codes=await enrollMfa(page,lang,account);
@@ -80,4 +63,74 @@ export async function isolatedAdmin(browser,info){
   await confirmStaffPassword(page,lang,account.password);
   return {context,page,account,password:account.password,codes};
  }catch(error){await context.close();throw error;}
+}
+
+async function seed(entity, input) {
+ const portal = fileURLToPath(new URL('../', import.meta.url));
+ const binary = process.env.PORTAL_E2E_BINARY ||
+   path.resolve(process.env.CARGO_TARGET_DIR || path.join(portal, 'target'), 'debug/oteryn-portal');
+ const database = pool();
+ const result = spawnSync(binary, ['seed', entity, JSON.stringify(input)], {
+   cwd: portal, encoding: 'utf8',
+   env: {...process.env, OTERYN_DATABASE_URL: database.options.connectionString, OTERYN_ENV: 'testing'},
+ });
+ await database.end();
+ expect(result.status, `seed CLI provisioned ${entity}`).toBe(0);
+ return JSON.parse(result.stdout);
+}
+
+export async function seededAccount(lang) {
+ const account = {email: `${unique()}@example.invalid`, password: password(), locale: lang};
+ const {accountId} = await seed('account', account);
+ return {...account, id: accountId};
+}
+
+export async function seededMfaAccount(lang) {
+ const account = await seededAccount(lang);
+ const {recoveryCodes} = await seed('account-mfa', {accountId: account.id, password: account.password});
+ expect(recoveryCodes.length, 'MFA seed issued the recovery codes').toBe(8);
+ return {...account, recoveryCode: recoveryCodes[0]};
+}
+
+async function postSessionForm(page, route, fields) {
+ expect((await page.goto(route, {waitUntil: 'domcontentloaded'})).status()).toBe(200);
+ await csrfRejected(page, route, fields);
+ const csrf = await page.locator(`main form:is([action="${route}"], [method=post]:not([action])) input[name=_csrf]`).inputValue();
+ return page.request.post(route, {
+   form: {...fields, _csrf: csrf},
+   headers: {origin: new URL(page.url()).origin},
+   maxRedirects: 0,
+ });
+}
+
+export async function seededLogin(page, lang, account) {
+ await waitForLoginBudget();
+ const login = await postSessionForm(page, `/${lang}/login`, {
+   email: account.email, password: account.password,
+ });
+ expect(login.status()).toBe(302);
+ if (account.recoveryCode) {
+   const challenge = `/${lang}/mfa/challenge`;
+   expect(login.headers().location).toBe(challenge);
+   const mfa = await postSessionForm(page, challenge, {code: account.recoveryCode});
+   expect(mfa.status()).toBe(302);
+   expect(mfa.headers().location).toBe(`/${lang}/`);
+ } else {
+   expect(login.headers().location).toBe(`/${lang}/`);
+ }
+}
+
+export async function seededSudo(page, lang, account) {
+ const result = await postSessionForm(page, `/${lang}/account/sudo`, {
+   current_password: account.password,
+ });
+ expect(result.status()).toBe(302);
+ expect(result.headers().location).toBe(`/${lang}/account/security`);
+}
+
+export async function seededStaff(page, lang, role) {
+ const account = await seededMfaAccount(lang);
+ await query('INSERT INTO account_roles(account_id, role_id) SELECT $1, id FROM roles WHERE key=$2', [account.id, role]);
+ await seededLogin(page, lang, account);
+ return account.id;
 }

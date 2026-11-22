@@ -43,6 +43,25 @@ pub(super) async fn enqueue(
     sqlx::query("INSERT INTO account_email_change_mail(change_id,recipient,subject,body) VALUES($1,$2,$3,$4)").bind(change).bind(recipient).bind(text(locale,"title")?).bind(body).execute(&mut **tx).await?;
     Ok(())
 }
+
+fn link_origin(link: &str) -> Option<&str> {
+    const HTTPS: &str = "https://";
+    let (authority, route) = link.strip_prefix(HTTPS)?.split_once('/')?;
+    if authority.contains('@') {
+        return None;
+    }
+    authority.parse::<axum::http::uri::Authority>().ok()?;
+    let token = route
+        .strip_prefix("email-change/confirm/")
+        .or_else(|| route.strip_prefix("email-change/revert/"))?;
+    if !valid_token(token) {
+        return None;
+    }
+    let origin = &link[..HTTPS.len() + authority.len()];
+    url::Url::parse(origin).ok()?;
+    Some(origin)
+}
+
 /// T36's sender is reused; its current account-only recipient policy cannot
 /// deliver confirmation or old-address recovery mail. This owns that narrow seam.
 pub struct Worker {
@@ -132,17 +151,31 @@ impl Worker {
         if Instant::now() >= last_send {
             return Ok(false);
         }
-        let origin = &self.service.origin;
-        let link = text.rsplit_once("\n\n").filter(|(_, url)| {
-            if owner_proposal {
-                ["pl", "en"]
-                    .iter()
-                    .any(|locale| *url == format!("{origin}/{locale}/account/security/email"))
+        let Some((message, url, origin)) = text.rsplit_once("\n\n").and_then(|(message, url)| {
+            let origin = if owner_proposal {
+                owner_notice_origin(url)
             } else {
-                url.starts_with(&format!("{origin}/email-change/"))
-            }
-        });
-        let sent = if let Some((message, url)) = link {
+                link_origin(url)
+            }?;
+            Some((message, url, origin))
+        }) else {
+            // An invalid stored payload cannot heal on retry. Keep the row
+            // distinguishable from a successful send and remove its token.
+            sqlx::query(
+                "UPDATE account_email_change_mail
+                 SET body='', next_attempt_at='infinity', updated_at=clock_timestamp()
+                 WHERE id=$1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| "email delivery unavailable".to_owned())?;
+            tx.commit()
+                .await
+                .map_err(|_| "email delivery unavailable".to_owned())?;
+            return Ok(true);
+        };
+        let sent = if origin == self.service.origin {
             let escape = |value: &str| {
                 value
                     .replace('&', "&amp;")
@@ -165,6 +198,9 @@ impl Worker {
                 Ok(Ok(()))
             )
         } else {
+            // An origin change can be temporary. Preserve the original link and
+            // share SMTP's per-message backoff without logging either origin.
+            eprintln!("email-change mail deferred: public origin mismatch");
             false
         };
         if !sent {
@@ -178,6 +214,18 @@ impl Worker {
         Ok(true)
     }
 }
+fn owner_notice_origin(link: &str) -> Option<&str> {
+    for suffix in ["/pl/account/security/email", "/en/account/security/email"] {
+        if let Some(origin) = link.strip_suffix(suffix) {
+            let authority = origin.strip_prefix("https://")?;
+            if !authority.contains('@') && authority.parse::<axum::http::uri::Authority>().is_ok() {
+                return Some(origin);
+            }
+        }
+    }
+    None
+}
+
 impl oteryn_db::outbox::Cleanup for Worker {
     fn clean(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(self.tick())
