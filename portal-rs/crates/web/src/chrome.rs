@@ -152,12 +152,19 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     if let (Some(id), Some(links)) = (account_id, request.extensions().get::<Vec<OwnerLink>>()) {
         for rule in links {
             let url = format!("/{lang}/{}", rule.route);
-            if let Some(index) = chrome
+            let Some(index) = chrome
                 .player_navigation
                 .iter()
                 .position(|link| link.url == url)
-                && !(rule.allows)(id, request.headers()).await
-            {
+            else {
+                continue;
+            };
+            let allowed = (rule.allows)(id, request.headers());
+            let allowed = match deadline {
+                Some(deadline) => deadline.within(allowed).await.unwrap_or(false),
+                None => allowed.await,
+            };
+            if !allowed {
                 chrome.player_navigation.remove(index);
             }
         }

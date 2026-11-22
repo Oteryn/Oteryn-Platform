@@ -429,7 +429,7 @@ pub fn error(chrome: &Chrome, status: StatusCode) -> Response {
 /// Render a domain-specific translated message with the shared status title and chrome.
 /// The message remains HTML-escaped, like every other dynamic template value.
 pub fn error_with_message(chrome: &Chrome, status: StatusCode, message: &str) -> Response {
-    render_error(chrome, status, message, None)
+    render_error(chrome, status, None, message, None)
 }
 
 /// Render a stale form refusal with a link to the current form's GET page.
@@ -437,6 +437,7 @@ pub fn stale_form(chrome: &Chrome, recovery_path: &str) -> Response {
     render_error(
         chrome,
         StatusCode::CONFLICT,
+        None,
         &chrome.text("error-409-stale-description"),
         Some((recovery_path, &chrome.text("error-409-open-form"))),
     )
@@ -446,20 +447,25 @@ pub fn stale_form(chrome: &Chrome, recovery_path: &str) -> Response {
 pub fn error_with_link(
     chrome: &Chrome,
     status: StatusCode,
+    title: &str,
     message: &str,
     href: &str,
     label: &str,
 ) -> Response {
-    render_error(chrome, status, message, Some((href, label)))
+    render_error(chrome, status, Some(title), message, Some((href, label)))
 }
 
 fn render_error(
     chrome: &Chrome,
     status: StatusCode,
+    title: Option<&str>,
     message: &str,
     link: Option<(&str, &str)>,
 ) -> Response {
-    let mut title = chrome.text(&format!("error-{}-title", status.as_u16()));
+    let mut title = title.map_or_else(
+        || chrome.text(&format!("error-{}-title", status.as_u16())),
+        str::to_owned,
+    );
     if title.is_empty() {
         title = chrome.text("error-generic-title");
     }

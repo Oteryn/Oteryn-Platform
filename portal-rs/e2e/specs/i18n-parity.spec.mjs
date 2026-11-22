@@ -491,7 +491,7 @@ function routeContract(target, inventoryStatus, actor, locale) {
       return { status: 200, pathname: route === '/password/change' ? '/login' : `/${lang}/login`, document: true };
     }
     if (route === '/atlas/private-markers' || route.startsWith('/atlas/bestiary/')) status = 401;
-    if (route === '/atlas/places/participation' || route === '/bazaar/items/new') status = 403;
+    if (route === '/atlas/places/participation' || route === '/bazaar/items/new' || route.startsWith('/support/appeals')) status = 403;
   }
   if (actor === 'player') {
     if (route === '/mfa/challenge') pathname = `/${lang}/`;

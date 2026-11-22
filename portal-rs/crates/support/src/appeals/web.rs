@@ -308,6 +308,7 @@ async fn submit(
             oteryn_ui::error_with_link(
                 &chrome,
                 StatusCode::CONFLICT,
+                &chrome.text("appeals-conflict-title"),
                 &chrome.text(description),
                 &destination,
                 &chrome.text(label),

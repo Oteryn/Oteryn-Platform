@@ -496,7 +496,7 @@ async fn change<A: AccountStateReader, B: Backend>(
     .await
     {
         Ok(()) => Redirect::to(&format!("{}/{id}", base(area))).into_response(),
-        Err(Error::Conflict) => {
+        Err(Error::Conflict) if matches!(input.command, Command::Appeal { .. }) => {
             let lang = language(&headers);
             let body = format!(
                 "<p>{}</p><a href=\"{}/{id}\">{}</a>",
