@@ -165,7 +165,7 @@
   {
     "crate": "admin",
     "route": "/console/dashboard",
-    "actor": "gm",
+    "actor": "staff",
     "method": "GET",
     "status": 403,
     "reason": "Platform-only staff lack the Game read permission"
@@ -173,7 +173,7 @@
   {
     "crate": "admin",
     "route": "/console/worlds",
-    "actor": "gm",
+    "actor": "staff",
     "method": "GET",
     "status": 403,
     "reason": "Platform-only staff lack the Game read permission"
@@ -181,7 +181,7 @@
   {
     "crate": "admin",
     "route": "/console/nodes",
-    "actor": "gm",
+    "actor": "staff",
     "method": "GET",
     "status": 403,
     "reason": "Platform-only staff lack the Game read permission"
@@ -189,7 +189,7 @@
   {
     "crate": "admin",
     "route": "/console/database",
-    "actor": "gm",
+    "actor": "staff",
     "method": "GET",
     "status": 403,
     "reason": "Platform-only staff lack the Game read permission"
@@ -2465,15 +2465,6 @@
     "method": "GET",
     "status": 200,
     "reason": "page, redirect alias or resource read"
-  },
-  {
-    "crate": "admin",
-    "route": "/console",
-    "actor": "gm",
-    "method": "GET",
-    "status": 200,
-    "reason": "authorized landing redirects to Game overview",
-    "terminal": "/console/dashboard"
   },
   {
     "crate": "admin",

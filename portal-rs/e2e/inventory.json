@@ -2578,19 +2578,6 @@
       ]
     },
     {
-      "route": "/{lang}/account/passkeys/manage",
-      "crate": "identity",
-      "flags": [
-        "OTERYN_ACCOUNT_PASSKEYS"
-      ],
-      "methods": [
-        "GET"
-      ],
-      "sources": [
-        "crates/identity/src/passkeys_http.rs:36"
-      ]
-    },
-    {
       "route": "/{lang}/collection",
       "crate": "minigames",
       "flags": [
@@ -4374,17 +4361,6 @@
         "crates/identity/src/staff_confirmation_http.rs:16",
         "crates/identity/src/staff_confirmation_http.rs:17"
       ]
-    }
-  ],
-  "sections": [
-    {
-      "section": "account-overview",
-      "label": "shell-account-overview",
-      "path": "/account",
-      "crate": "identity",
-      "group": "Account",
-      "footer": false,
-      "source": "crates/identity/src/navigation.rs"
     },
     {
       "route": "/admin/commerce/reconcile",
@@ -4397,10 +4373,11 @@
         "OTERYN_WALLET_ENABLED"
       ],
       "methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
       "sources": [
-        "crates/admin/src/commerce/http.rs:62"
+        "crates/admin/src/commerce/http.rs:71"
       ]
     },
     {
@@ -4470,20 +4447,6 @@
       ],
       "sources": [
         "crates/admin/src/commerce/panels/payments.rs:27"
-      ]
-    },
-    {
-      "route": "/console",
-      "crate": "admin",
-      "flags": [
-        "OTERYN_ADMIN_CONSOLE",
-        "OTERYN_ADMIN_PANEL"
-      ],
-      "methods": [
-        "GET"
-      ],
-      "sources": [
-        "crates/admin/src/console/mod.rs:424"
       ]
     }
   ],

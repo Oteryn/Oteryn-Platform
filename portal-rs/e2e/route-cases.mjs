@@ -2,7 +2,11 @@ export function routeCaseTitle(row, expectations) {
   const title = `route ${row.crate} ${row.route}`;
   const hasMultipleActors = expectations.some(other =>
     other.crate === row.crate && other.route === row.route && other.actor !== row.actor);
-  return hasMultipleActors ? `${title} (${row.actor})` : title;
+  const hasMultipleMethods = expectations.some(other =>
+    other.crate === row.crate && other.route === row.route
+    && other.actor === row.actor && other.method !== row.method);
+  const actorTitle = hasMultipleActors ? `${title} (${row.actor})` : title;
+  return hasMultipleMethods && row.method !== 'GET' ? `${actorTitle} ${row.method}` : actorTitle;
 }
 
 export function routesPassed(cases, projects, titles) {
