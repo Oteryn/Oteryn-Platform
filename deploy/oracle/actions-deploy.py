@@ -179,6 +179,23 @@ def reauthorize_platform(sha, run_id, attempt):
         raise ValueError('nightly E2E window changed during deployment authorization')
     if final != approved:
         raise ValueError('nightly E2E run or attempt changed during deployment authorization')
+    return final[0]
+
+
+def require_platform_main(sha):
+    branch = api(REPOS['platform'] + '/branches/main')
+    if branch.get('protected') is not True or branch['commit']['sha'] != sha:
+        raise ValueError('source must equal current protected main')
+
+
+def authorize_platform_migration(sha, run_id, attempt):
+    window = reauthorize_platform(sha, run_id, attempt)
+    # The nightly request may have blocked while GitHub changed either authority.
+    # Check the attempt and then read the protected ref as the final API request.
+    qualify_workflow('platform', sha, run_id, attempt)
+    require_platform_main(sha)
+    if nightly_window() != window:
+        raise ValueError('nightly E2E window changed before migration')
 
 
 def journal(component, sha, phase, **facts):
@@ -408,7 +425,8 @@ def platform_deploy(directory, sha, run_id, attempt):
         for path, _, after in texts:
             rewrite(path, after)
         journal('platform', sha, 'schema_unknown')
-        reauthorize_platform(sha, run_id, attempt)
+        # main() holds the deployment lock through this check and Compose start.
+        authorize_platform_migration(sha, run_id, attempt)
     except BaseException:
         # Migration has not been invoked. Clear the journal only after the
         # previous configuration has been restored successfully.

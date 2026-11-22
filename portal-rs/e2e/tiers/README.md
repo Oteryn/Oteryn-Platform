@@ -29,7 +29,8 @@ once. It checks the executed cases against the selected shard as well.
 The first shard keeps the staff bootstrap with the Bazaar moderation, content,
 routes and staff specs that consume its browser storage state. The other two shards
 split the remaining sorted spec filenames. Each shard gets separate databases
-and browser state. Its HTML artifact includes source locations and outcomes.
+and browser state. Its HTML artifact includes case IDs, catalogued route labels, source locations,
+outcomes and fixed failure descriptions.
 Raw browser output and harness logs stay in the private scratch directory.
 
 The registered `portal-rs-e2e.yml` workflow runs smoke for PRs and the full

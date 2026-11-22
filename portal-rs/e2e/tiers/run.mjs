@@ -6,6 +6,7 @@ import { get } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { discoveredCases, planNightly } from './nightly-plan.mjs';
+import { escapeHtml, reportCases, reportRow } from './nightly-report.mjs';
 import { createInterface } from 'node:readline';
 import { setTimeout as pollInterval } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -120,28 +121,19 @@ try {
   const summary = `Listed ${count}, passed ${stats.expected}, failed ${stats.unexpected}, flaky ${stats.flaky}, skipped ${stats.skipped}, ${Math.round((performance.now() - started) / 1000)}s including harness startup`;
   console.log(summary);
 
-  // Source locations and outcomes are safe to publish. Raw browser evidence
-  // can contain form values, cookies, error payloads, and attachments.
-  const rows = [];
-  function collect(suite) {
-    for (const spec of suite.specs ?? []) {
-      for (const test of spec.tests) {
-        if (!spec.file.match(/^[\w./-]+$/) || !Number.isInteger(spec.line)) throw new Error('Invalid report source location');
-        if (!['expected', 'unexpected', 'flaky', 'skipped'].includes(test.status)) throw new Error('Invalid report test outcome');
-        const source = `${spec.file}:${spec.line}`;
-        rows.push(`<tr><td>${source}</td><td>${test.status}</td></tr>`);
-        if (test.status !== 'expected') console.error(`${source} ${test.status}`);
-      }
-    }
-    for (const child of suite.suites ?? []) collect(child);
+  const routes = JSON.parse(await readFile(join(cwd, 'route-expectations.json'), 'utf8'));
+  const routeTitles = new Set(routes.map(row => `route ${row.crate} ${row.route}`));
+  const cases = reportCases(suites, routeTitles);
+  for (const test of cases) {
+    if (test.status !== 'expected') console.error(`${test.source} ${test.id} ${test.status}: ${test.reason}`);
   }
-  suites.forEach(collect);
   if (tier === 'nightly') {
+    const rows = cases.map(reportRow);
+    await writeFile(join(cwd, 'tier-report.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Portal E2E</title><h1>Portal E2E</h1><p>${escapeHtml(summary)}</p><table><thead><tr><th>Case ID</th><th>Route</th><th>Source</th><th>Outcome</th><th>Reason</th></tr></thead><tbody>${rows.join('\n')}</tbody></table></html>\n`);
     const completed = discoveredCases(suites);
     if (JSON.stringify(completed) !== JSON.stringify(nightlyCases)) {
       throw new Error('Nightly execution differs from the discovered shard');
     }
-    await writeFile(join(cwd, 'tier-report.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Portal E2E</title><h1>Portal E2E</h1><p>${summary}</p><table><thead><tr><th>Source</th><th>Outcome</th></tr></thead><tbody>${rows.join('\n')}</tbody></table></html>\n`);
   }
   if (status !== 0 || stats.expected !== count || stats.unexpected || stats.flaky || stats.skipped) {
     throw new Error('Playwright did not pass every selected test');

@@ -305,7 +305,7 @@ class LivePortalDeployment(unittest.TestCase):
         state.mkdir()
         return portal, state
 
-    def deploy(self, portal, state, *, fail=None, reauthorize=None, nightly=None, ready=None, probe=None):
+    def deploy(self, portal, state, *, fail=None, reauthorize=None, nightly=None, protected_head=None, ready=None, probe=None):
         calls = []
         compose = ['docker', 'compose', '-p', 'oteryn-portal', '-f', str(portal / 'compose.yml')]
         def command(args, **kwargs):
@@ -323,6 +323,7 @@ class LivePortalDeployment(unittest.TestCase):
              patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
              patch.object(deploy, 'qualify_workflow', side_effect=reauthorize), \
              patch.object(deploy, 'qualify'), \
+             patch.object(deploy, 'require_platform_main', side_effect=protected_head), \
              patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly or (lambda: (deploy.nightly_window(), 200, 1))), \
              patch.object(deploy, 'wait_platform', side_effect=ready or (lambda image_id: calls.append((['ready', image_id], {})))):
             try:
@@ -433,6 +434,44 @@ class LivePortalDeployment(unittest.TestCase):
                     clock.now.return_value = now
                     self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
                 self.assertEqual(api.call_count, 6)
+                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
+                self.assertFalse((state / 'platform-pending.json').exists())
+                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+
+    def test_authority_change_during_final_nightly_lookup_blocks_migration(self):
+        now = datetime.fromisoformat('2026-11-22T03:00:00+00:00')
+        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly',
+                     created_at='2026-11-22T02:17:00Z', status='completed', conclusion='success')
+        for change in ('protected main advanced', 'workflow canceled'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary:
+                portal, state = self.host(temporary)
+                lookups = 0
+                authority_checks = []
+                def api(path):
+                    nonlocal lookups
+                    if path == 'Oteryn-Platform/branches/main':
+                        authority_checks.append(('main', lookups))
+                        return {'protected': True, 'commit': {'sha': 'b' * 40}}
+                    self.assertIn('/workflows/portal-rs-e2e.yml/runs?', path)
+                    lookups += 1
+                    return {'workflow_runs': [green]}
+                def check_workflow(component, sha, run_id, attempt):
+                    self.assertEqual((component, sha, run_id, attempt), ('platform', self.sha, 100, 1))
+                    authority_checks.append(('workflow', lookups))
+                    if lookups == 6 and change == 'workflow canceled':
+                        raise ValueError(change)
+                reason = 'current protected main' if change == 'protected main advanced' else change
+                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
+                     patch.object(deploy, 'api', side_effect=api), \
+                     self.assertRaisesRegex(ValueError, reason) as raised:
+                    clock.now.return_value = now
+                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly,
+                                reauthorize=check_workflow, protected_head=deploy.require_platform_main)
+                expected = [('workflow', 1), ('workflow', 3), ('workflow', 5), ('workflow', 6)]
+                if change == 'protected main advanced':
+                    expected.append(('main', 6))
+                self.assertEqual(authority_checks, expected)
                 self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
                 self.assertFalse((state / 'platform-pending.json').exists())
                 self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
