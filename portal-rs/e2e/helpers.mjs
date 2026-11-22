@@ -105,16 +105,16 @@ export async function waitForWikiBudget(target, needed=1) {
     await db.end();
   }
 }
-export async function waitForLoginBudget(needed=1) {
- const db=pool();
+export async function waitForLoginBudget(needed=1,databaseURL) {
+ const db=pool(databaseURL);
  try {
   if(needed>=6) await expect.poll(async()=>Number((await db.query("SELECT extract(second FROM clock_timestamp()) AS second")).rows[0].second),{timeout:65000,intervals:[1000]}).toBeLessThan(50);
   await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-login-source' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThanOrEqual(20-needed);
  } finally {await db.end();}
 }
-export async function login(page,lang,account) {
+export async function login(page,lang,account,databaseURL) {
  await logout(page,lang);
  await page.goto(`/${lang}/login`);
- await waitForLoginBudget();
+ await waitForLoginBudget(1,databaseURL);
  await submit(page,'main form',{email:account.email,password:account.password});
 }

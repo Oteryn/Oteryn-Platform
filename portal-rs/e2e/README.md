@@ -310,17 +310,18 @@ evidence-only commit can refer to the immutable tested source candidate.
 
 ## Daily puzzle publication
 
-Use the disposable browser launcher, which supplies the TLS SMTP sink required
-by the login worker. The spec seeds synthetic catalogue inputs in the isolated
-database, invokes the real `admin-cli`, and visits the browser route in both
-languages and at both viewport sizes.
+Use the disposable browser launcher for its TLS SMTP sink. The spec starts a
+separate app and fresh PostgreSQL database through `harness.mjs` for each
+project, then runs the real `admin-cli`. The harness drops each project's
+database at teardown.
 
 ```sh
 # From portal-rs/e2e with PORTAL_E2E_ADMIN_DATABASE_URL already set to local PostgreSQL.
 node local.mjs
 ```
 
-Run the spec from a second shell in `portal-rs/e2e` with the generated environment.
+Run the spec from a second shell in `portal-rs/e2e` with the generated environment
+and the same local `PORTAL_E2E_ADMIN_DATABASE_URL`.
 
 ```sh
 node run.mjs /absolute/scratch/env.json test specs/puzzles.spec.mjs

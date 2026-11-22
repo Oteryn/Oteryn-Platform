@@ -50,6 +50,21 @@ const adminURL = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
 if (!adminURL) throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a throwaway local PostgreSQL administrator URL');
 if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(adminURL).hostname)) throw new Error('Local PostgreSQL only');
 
+// The isolated puzzle app uses the existing local SMTP sink for real login.
+const puzzleBrowser = {};
+if (argv.includes('--puzzle-browser')) {
+  for (const key of ['OTERYN_SMTP_HOST', 'OTERYN_SMTP_USERNAME', 'OTERYN_SMTP_PASSWORD',
+    'OTERYN_SMTP_FROM', 'OTERYN_MAIL_FROM', 'SSL_CERT_FILE']) {
+    if (!process.env[key]) throw new Error('Puzzle browser harness requires ' + key + ' from local.mjs');
+    puzzleBrowser[key] = process.env[key];
+  }
+  Object.assign(puzzleBrowser, {
+    OTERYN_ACCOUNT_LOGIN: 'true',
+    OTERYN_WORLD_ENABLED: 'true',
+    OTERYN_DAILY_PUZZLES_ENABLED: 'true',
+  });
+}
+
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
 if (fs.existsSync(out)) {
@@ -127,6 +142,7 @@ fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).dig
 const env = {
   PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
   ...identityEnv,
+  ...puzzleBrowser,
   OTERYN_DATABASE_URL: databaseURL,
   OTERYN_BIND: `127.0.0.1:${ports.http}`,
   OTERYN_STATIC_DIR: path.join(root, 'static'),
