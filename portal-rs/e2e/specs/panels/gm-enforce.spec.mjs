@@ -39,14 +39,14 @@ const messages = {
     unconfirmed: 'No confirmed state', applied: 'Applied in Game', refused: 'Refused by Game', revoked: 'Revoked in Game',
     invalid: 'Invalid input', missing: 'Character not found',
     conflict: 'Enforcement state changed. Reload the dossier.', denied: 'Permission denied',
-    stepUp: 'Confirm with a fresh TOTP code',
+    stepUp: 'Confirm with a fresh TOTP code', platformRevoked: 'Revoked',
   },
   pl: {
     heading: 'Sankcje postaci', none: 'Brak', pending: 'Oczekuje na grę',
     unconfirmed: 'Brak potwierdzonego stanu', applied: 'Nałożona w grze', refused: 'Gra odmówiła', revoked: 'Cofnięta w grze',
     invalid: 'Nieprawidłowe dane', missing: 'Nie znaleziono postaci',
     conflict: 'Stan sankcji się zmienił. Odśwież widok.', denied: 'Brak uprawnień',
-    stepUp: 'Potwierdź działanie kodem TOTP',
+    stepUp: 'Potwierdź działanie kodem TOTP', platformRevoked: 'Cofnięta',
   },
 };
 
@@ -560,6 +560,11 @@ test('An accepted appeal needs fresh step-up through the Game revoke audit write
     [stream])).toEqual([{ operation_id: fields.operation }]);
 
   expect((await post(page, attempt.target, decision)).status()).toBe(303);
+  expect((await page.reload()).status()).toBe(200);
+  await expect(page.locator('[data-enforcement-profile]')).toHaveText('MUTE');
+  await expect(page.locator('[data-platform-decision]')).toHaveText(messages[lang].platformRevoked);
+  await expect(page.locator('[data-game-request]')).toHaveText(messages[lang].pending);
+  await expect(page.locator('[data-game-confirmed]')).toHaveText(messages[lang].applied);
   const [{ operation_id: operation }] = await query(
     "SELECT operation_id FROM support_enforcement_commands WHERE sanction_stream_id=$1 AND intent='REVOKE'",
     [stream],
@@ -568,6 +573,8 @@ test('An accepted appeal needs fresh step-up through the Game revoke audit write
     sanction_stream_id: stream, intent: 'REVOKE', decision_revision: 2, prior_decision_revision: 1,
   });
   await revoking.publish({ state: 'REVOKED', stream_state: 'REVOKED' });
+  expect((await page.reload()).status()).toBe(200);
+  await expect(page.locator('[data-game-confirmed]')).toHaveText(messages[lang].revoked);
   expect(await query('SELECT status FROM support_appeal_workflows WHERE sanction_id=$1', [stream]))
     .toEqual([{ status: 'accepted' }]);
 });

@@ -35,3 +35,8 @@ warning = Warning
 restriction = Restriction
 suspension = Suspension
 create = Create temporary sanction
+
+enforcement-profile = Character restriction
+platform-decision = Platform decision
+game-request = Latest Game request
+game-confirmed = Last confirmed Game state

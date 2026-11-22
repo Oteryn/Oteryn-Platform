@@ -1145,14 +1145,9 @@ struct Latest {
     confirmed_received_at: Option<String>,
 }
 
-async fn latest(
-    tx: &mut Transaction<'_, Postgres>,
-    account: Uuid,
-    character: Uuid,
-    profile: BrowserProfile,
-) -> Result<Option<Latest>, sqlx::Error> {
-    sqlx::query_as(
-        "SELECT c.position,c.operation_id,c.sanction_stream_id,c.decision_revision,c.intent,r.state,
+// Both staff views use the same receipt projection. The dossier selects the
+// latest stream for a target, while an appeal remains tied to its own stream.
+const LATEST_PROJECTION: &str = "SELECT c.position,c.operation_id,c.sanction_stream_id,c.decision_revision,c.intent,r.state,
             d.expiry_blocked_by IS NOT NULL AS expiry_blocked,
             r.body->>'stream_state' AS stream_state,r.body->>'result_code' AS result_code,
             (r.body->>'accepted_decision_revision')::bigint AS accepted_revision,
@@ -1162,11 +1157,7 @@ async fn latest(
             h.decision_revision AS confirmed_revision,h.state AS confirmed,
             h.effective_until_ms AS confirmed_until_ms,
             to_char(h.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS confirmed_received_at
-         FROM (
-            SELECT * FROM support_enforcement_commands
-            WHERE account_id=$1 AND character_id=$2 AND profile=$3
-            ORDER BY position DESC LIMIT 1
-         ) c
+         FROM stream_head c
          LEFT JOIN sanctions s ON s.id=c.sanction_stream_id
          LEFT JOIN LATERAL (
             SELECT state,received_at,convert_from(result,'UTF8')::jsonb AS body
@@ -1189,13 +1180,63 @@ async fn latest(
             ORDER BY p.decision_revision DESC,p.position DESC LIMIT 1
          ) h ON true
          LEFT JOIN support_enforcement_decisions d
-           ON d.sanction_id=c.sanction_stream_id AND d.decision_revision=h.decision_revision",
-    )
+           ON d.sanction_id=c.sanction_stream_id AND d.decision_revision=h.decision_revision";
+
+async fn latest(
+    tx: &mut Transaction<'_, Postgres>,
+    account: Uuid,
+    character: Uuid,
+    profile: BrowserProfile,
+) -> Result<Option<Latest>, sqlx::Error> {
+    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "WITH stream_head AS (
+            SELECT * FROM support_enforcement_commands
+            WHERE account_id=$1 AND character_id=$2 AND profile=$3
+            ORDER BY position DESC LIMIT 1
+         ) {LATEST_PROJECTION}"
+    )))
     .bind(account)
     .bind(character)
     .bind(profile.name())
     .fetch_optional(&mut **tx)
     .await
+}
+
+pub(crate) async fn moderation_state(
+    pool: &PgPool,
+    stream: Uuid,
+    profile: &str,
+) -> Result<Option<(String, oteryn_admin::support::CharacterEnforcement)>, sqlx::Error> {
+    let profile = match profile {
+        "MUTE" => BrowserProfile::Mute,
+        "JAIL" => BrowserProfile::Jail,
+        _ => {
+            return Err(sqlx::Error::Protocol(
+                "unknown character enforcement profile".into(),
+            ));
+        }
+    };
+    let last = sqlx::query_as::<_, Latest>(sqlx::AssertSqlSafe(format!(
+        "WITH stream_head AS (
+            SELECT * FROM support_enforcement_commands WHERE sanction_stream_id=$1
+            ORDER BY decision_revision DESC,position DESC LIMIT 1
+         ) {LATEST_PROJECTION}"
+    )))
+    .bind(stream)
+    .fetch_optional(pool)
+    .await?;
+    Ok(last.and_then(|last| {
+        let current = last.confirmed_state();
+        let request = last.request_state();
+        Some((
+            last.platform_status?,
+            oteryn_admin::support::CharacterEnforcement {
+                profile,
+                request,
+                current,
+            },
+        ))
+    }))
 }
 
 impl Latest {
@@ -1226,6 +1267,12 @@ impl Latest {
             },
             _ => &[],
         }
+    }
+
+    fn request_state(&self) -> StateLabel {
+        self.state
+            .as_deref()
+            .map_or(StateLabel::Pending, operation_state)
     }
 
     fn confirmed_state(&self) -> StateLabel {
@@ -1406,10 +1453,7 @@ impl Backend for BrowserJournal {
                 } else {
                     last.actions()
                 };
-                row.state = last
-                    .state
-                    .as_deref()
-                    .map_or(StateLabel::Pending, operation_state);
+                row.state = last.request_state();
                 row.version = last.position;
                 row.operation = Some(last.operation_id);
                 row.current_received_at = last.confirmed_received_at;

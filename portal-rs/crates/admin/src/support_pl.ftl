@@ -35,3 +35,8 @@ warning = Ostrzeżenie
 restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
+
+enforcement-profile = Sankcja postaci
+platform-decision = Decyzja Platformy
+game-request = Ostatnie żądanie do gry
+game-confirmed = Ostatni potwierdzony stan w grze

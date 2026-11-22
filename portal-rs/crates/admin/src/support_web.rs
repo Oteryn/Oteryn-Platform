@@ -276,6 +276,7 @@ async fn create_page(
         status: "active".into(),
         messages: vec![],
         next_message: None,
+        character_enforcement: None,
     };
     render_record(Area::Enforcement, record, session, headers, true).await
 }
@@ -291,11 +292,31 @@ async fn render_record(
         Err(_) => return status(Error::Unavailable),
     };
     let lang = language(&headers);
-    let mut body = format!(
-        "<h2>{}</h2><p>{}</p>",
-        escape(&record.title),
-        escape(&text(lang, &record.status))
-    );
+    let mut body = format!("<h2>{}</h2>", escape(&record.title));
+    if let Some(game) = &record.character_enforcement {
+        use crate::console::enforcement::Language;
+        let locale = if lang == "en" {
+            Language::En
+        } else {
+            Language::Pl
+        };
+        body.push_str(&format!(
+            "<dl><dt>{}</dt><dd data-enforcement-profile>{}</dd>
+             <dt>{}</dt><dd data-platform-decision>{}</dd>
+             <dt>{}</dt><dd data-game-request>{}</dd>
+             <dt>{}</dt><dd data-game-confirmed>{}</dd></dl>",
+            escape(&text(lang, "enforcement-profile")),
+            game.profile.name(),
+            escape(&text(lang, "platform-decision")),
+            escape(&text(lang, &record.status)),
+            escape(&text(lang, "game-request")),
+            escape(locale.state(&game.request)),
+            escape(&text(lang, "game-confirmed")),
+            escape(locale.state(&game.current)),
+        ));
+    } else {
+        body.push_str(&format!("<p>{}</p>", escape(&text(lang, &record.status))));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",
@@ -342,7 +363,9 @@ async fn render_record(
         ],
     };
     for (action, fields) in actions {
-        if create && *action != "sanction" {
+        if (create && *action != "sanction")
+            || (record.character_enforcement.is_some() && *action == "sanction")
+        {
             continue;
         }
         body.push_str(&format!("<form method=\"post\" action=\"{}/{}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"lock_version\" value=\"{}\"><input type=\"hidden\" name=\"action\" value=\"{action}\">",base(area),record.id,escape(&csrf),record.version));

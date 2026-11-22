@@ -230,7 +230,7 @@ fn router<B: Backend>(pool: PgPool, backend: B) -> Result<Router, Box<dyn std::e
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Language {
+pub(crate) enum Language {
     #[default]
     Pl,
     En,
@@ -247,7 +247,7 @@ impl Language {
         }
     }
 
-    fn state(&self, state: &StateLabel) -> &'static str {
+    pub(crate) fn state(&self, state: &StateLabel) -> &'static str {
         match state {
             StateLabel::None => self.text("Brak", "None"),
             StateLabel::Pending => self.text("Oczekuje na grę", "Pending in Game"),

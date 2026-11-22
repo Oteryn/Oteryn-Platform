@@ -250,6 +250,7 @@ impl Backend for StaffSupport {
                 status,
                 messages: vec![],
                 next_message: None,
+                character_enforcement: None,
             })
             .collect())
     }
@@ -271,6 +272,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                character_enforcement: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -290,7 +292,7 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message FROM player_reports WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,enforcement_profile,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
@@ -299,6 +301,23 @@ impl Backend for StaffSupport {
             .await
             .map_err(|_| StaffError::Unavailable)?
             .ok_or(StaffError::NotFound)?;
+        let platform_status = row.try_get("status").map_err(|_| StaffError::Unavailable)?;
+        let character = if area == Area::Enforcement {
+            row.try_get::<Option<String>, _>("enforcement_profile")
+                .map_err(|_| StaffError::Unavailable)?
+        } else {
+            None
+        };
+        let (status, character_enforcement) = if let Some(profile) = character {
+            let (status, state) =
+                crate::sanctions::enforcement::moderation_state(&self.pool, id, &profile)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?
+                    .ok_or(StaffError::Unavailable)?;
+            (status, Some(state))
+        } else {
+            (platform_status, None)
+        };
         let decode = || -> std::result::Result<Record, sqlx::Error> {
             let mut messages = vec![];
             for (column, internal) in [("public_message", false), ("private_message", true)] {
@@ -314,7 +333,8 @@ impl Backend for StaffSupport {
                 id: row.try_get("id")?,
                 version: row.try_get("lock_version")?,
                 title: row.try_get("title")?,
-                status: row.try_get("status")?,
+                status,
+                character_enforcement,
                 messages,
                 next_message: None,
             })

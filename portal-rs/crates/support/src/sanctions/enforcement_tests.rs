@@ -1577,3 +1577,38 @@ async fn accepted_appeal_publishes_revoke_at_the_n009_revision() -> TestResult {
     assert_eq!(row, (3, 3, true, "accepted".to_owned()));
     db.cleanup().await
 }
+
+#[tokio::test]
+async fn moderation_labels_a_refused_apply_separately_from_platform_status() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let command = platform_apply(&db).await?;
+    let rejected = std::str::from_utf8(RESULT_APPLIED)?
+        .replace(
+            r#""state":"APPLIED","result_code":"OK""#,
+            r#""state":"REJECTED","result_code":"TARGET_NOT_APPLICABLE""#,
+        )
+        .replace(
+            r#""accepted_decision_revision":1"#,
+            r#""accepted_decision_revision":0"#,
+        )
+        .replace(
+            r#""stream_state":"ACTIVE","effective_until_ms":1700003600000"#,
+            r#""stream_state":"NONE","effective_until_ms":null"#,
+        )
+        .replace(
+            r#""runtime_effect":"ONLINE_APPLIED""#,
+            r#""runtime_effect":"NONE""#,
+        );
+    receive(&db, rejected.as_bytes()).await?;
+    let (platform, game) = moderation_state(&db.pool, command.sanction_stream_id, "MUTE")
+        .await?
+        .ok_or("missing moderation state")?;
+    assert_eq!(platform, "active");
+    assert_eq!(game.profile.name(), "MUTE");
+    assert!(matches!(game.request, StateLabel::Refused));
+    assert!(matches!(game.current, StateLabel::Unconfirmed));
+    db.cleanup().await
+}
