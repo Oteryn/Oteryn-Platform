@@ -1,8 +1,8 @@
 # Portal ledger coverage delta
 
-Tested revision `1c8fa5ba144ba9361d4df4fc5029f9e4ab484a3c`.
+Tested revision `c67082cbc59bb44399d210ef7cac6e74141287cf`, run `7926e6b1-7e39-4f3c-9bd5-7c5d1a131c02`. Baseline run `fdeb764d-f51d-4123-8120-d915505a5d75`.
 
-66 of 131 baseline gaps hit by passing tests, including 34 form rows. 65 baseline gaps remain.
+68 of 132 baseline gaps hit by passing tests, including 36 form rows. 64 baseline gaps remain.
 
 | Row | Method and path | Principal, credential, and status | Passing test and project |
 | --- | --- | --- | --- |
@@ -50,8 +50,6 @@ Tested revision `1c8fa5ba144ba9361d4df4fc5029f9e4ab484a3c`.
 | R-content-141483568009117 | PUT `/admin/news/{id}` | `platform_admin` [session] 302 | `specs/ledger-unhit-editorial.spec.mjs` · `staff uses the editorial PUT endpoints to edit news and publish an event` · `pl-1440` |
 | F-gameauth-38807659866662 | POST `/oauth/authorize` | `player` [session] 302 | `specs/ledger-unhit-account.spec.mjs` · `player denies OAuth consent without granting an authorization code` · `en-390` |
 | F-gameauth-38807659866662 | POST `/oauth/authorize` | `player` [session] 302 | `specs/ledger-unhit-account.spec.mjs` · `player denies OAuth consent without granting an authorization code` · `pl-1440` |
-| F-identity-42558872787479 | POST `/{lang}/forgot-password` | `anonymous` [session] 302 | `specs/ledger-unhit-account.spec.mjs` · `mail reset token works through the unprefixed reset endpoint` · `en-390` |
-| F-identity-42558872787479 | POST `/{lang}/forgot-password` | `anonymous` [session] 302 | `specs/ledger-unhit-account.spec.mjs` · `mail reset token works through the unprefixed reset endpoint` · `pl-1440` |
 | F-identity-174105284821649 | POST `/{lang}/mfa/devices` | `player` [session] 200 | `specs/ledger-unhit-account.spec.mjs` · `MFA aliases accept a real challenge and revoke its remembered device` · `en-390` |
 | F-identity-174105284821649 | POST `/{lang}/mfa/devices` | `player` [session] 200 | `specs/ledger-unhit-account.spec.mjs` · `MFA aliases accept a real challenge and revoke its remembered device` · `pl-1440` |
 | F-identity-246951196210217 | POST `/{lang}/mfa/email` | `anonymous` [session] 302 | `specs/ledger-unhit-account.spec.mjs` · `MFA aliases accept a real challenge and revoke its remembered device` · `en-390` |
@@ -140,10 +138,16 @@ Tested revision `1c8fa5ba144ba9361d4df4fc5029f9e4ab484a3c`.
 | R-web-19543202782207 | POST `/register` | `anonymous` [session] 422 | `specs/ledger-unhit-account.spec.mjs` · `unprefixed registration enforces proof of work before creating the account` · `pl-1440` |
 | R-web-173474453673449 | POST `/verify-email/resend` | `anonymous` [session] 303 | `specs/ledger-unhit-account.spec.mjs` · `anonymous verification resend has the same generic response through its form and alias` · `en-390` |
 | R-web-173474453673449 | POST `/verify-email/resend` | `anonymous` [session] 303 | `specs/ledger-unhit-account.spec.mjs` · `anonymous verification resend has the same generic response through its form and alias` · `pl-1440` |
+| F-wiki-73563493703335 | GET `/{lang}/wiki/calculators` (`calculator=training`) | `anonymous` [none] 503 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator submits the training form` · `en-390` |
+| F-wiki-73563493703335 | GET `/{lang}/wiki/calculators` (`calculator=training`) | `anonymous` [none] 503 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator submits the training form` · `pl-1440` |
+| F-wiki-79248852392804 | GET `/{lang}/wiki/calculators` (`calculator=experience`) | `anonymous` [none] 503 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator submits the experience form` · `en-390` |
+| F-wiki-79248852392804 | GET `/{lang}/wiki/calculators` (`calculator=experience`) | `anonymous` [none] 503 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator submits the experience form` · `pl-1440` |
 | F-wiki-104524932852102 | POST `/admin/wiki/articles/{id}/return-draft` | `platform_admin` [session] 303 | `specs/ledger-unhit-editorial.spec.mjs` · `staff returns an article from review to draft` · `en-390` |
 | F-wiki-104524932852102 | POST `/admin/wiki/articles/{id}/return-draft` | `platform_admin` [session] 303 | `specs/ledger-unhit-editorial.spec.mjs` · `staff returns an article from review to draft` · `pl-1440` |
-| F-wiki-183880812014521 | GET `/{lang}/wiki/calculators` | `anonymous` [none] 200 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator passes contrast checks and splits loot on form submission` · `en-390` |
-| F-wiki-183880812014521 | GET `/{lang}/wiki/calculators` | `anonymous` [none] 200 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator passes contrast checks and splits loot on form submission` · `pl-1440` |
+| F-wiki-210711556138269 | GET `/{lang}/wiki/calculators` (`calculator=loot`) | `anonymous` [none] 200 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator passes contrast checks and splits loot on form submission` · `en-390` |
+| F-wiki-210711556138269 | GET `/{lang}/wiki/calculators` (`calculator=loot`) | `anonymous` [none] 200 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator passes contrast checks and splits loot on form submission` · `pl-1440` |
+| F-wiki-278439863293280 | GET `/{lang}/wiki/calculators` (`calculator=stamina`) | `anonymous` [none] 200 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator submits the stamina form` · `en-390` |
+| F-wiki-278439863293280 | GET `/{lang}/wiki/calculators` (`calculator=stamina`) | `anonymous` [none] 200 | `specs/ledger-unhit-calculator.spec.mjs` · `calculator submits the stamina form` · `pl-1440` |
 
 ## Baseline gaps still unhit
 
@@ -184,7 +188,6 @@ Tested revision `1c8fa5ba144ba9361d4df4fc5029f9e4ab484a3c`.
 - F-community-219222581560817 GET `/deaths`
 - F-community-274165327503467 GET `/{lang}/guilds`
 - F-content-21985737393666 POST `/admin/events/{id}`
-- F-identity-243063234466556 POST `/{lang}/reset-password`
 - F-minigames-24012547260821 POST `/{lang}/collection/battles/{id}/forfeit`
 - F-minigames-58824648762686 POST `/{lang}/pass/{season}/claim`
 - F-minigames-114652082160743 POST `/{lang}/collection/{character}/decks`

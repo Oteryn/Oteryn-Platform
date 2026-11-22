@@ -10,7 +10,6 @@ The [coverage delta](DELTA.md) lists the request pattern for each row. These rea
 | `F-admin-58876857851269`, `F-admin-215839569153342` | The console access checks open the audit and player read pages directly, leaving the audit filter and the read-only character lookup unsubmitted. |
 | `F-admin-169544806443708` | The Analytics test opens the economy report with a prefilled URL, leaving the economy filter unsubmitted. |
 | `F-content-21985737393666` | The content suite submits the event creation and status forms. The branch case edits an existing event with `PUT`. The edit form itself submits with `POST`. |
-| `F-identity-243063234466556` | The existing localized reset case submitted the form but failed its post-submit login redirect assertion during the baseline run. The branch case exercises the unprefixed reset alias. |
 | `F-web-15366296186789` | The unprefixed badge POST and localized redirect have evidence from a Rust integration test. The badge selection form remains unsubmitted in both browser captures. |
 | `F-wiki-22599257223435`, `F-wiki-65456549216585`, `F-wiki-71042775092727` | The Wiki browser flows create a draft, change its review and publication states, and open history. Existing article edit, archive, and revision restore have no browser submission evidence. |
 
