@@ -381,15 +381,21 @@ ownership('wallet cursor stays account-scoped and transfer operation IDs cannot 
   await expect(a.page.locator('main')).toContainText(credit);
   await expect(a.page.locator('main')).toContainText(operation);
   const [{id: cursor}] = await query('SELECT id FROM wallet_entries WHERE operation_id=$1 AND account_id=$2', [operation, a.id]);
+  const newerEntry = await send(b, '71');
   const snapshot = () => query(`
     SELECT (SELECT jsonb_agg(t ORDER BY id) FROM wallet_transfers t
             WHERE sender_id IN ($1,$2,$3) OR recipient_id IN ($1,$2,$3)) AS transfers,
            (SELECT jsonb_agg(e ORDER BY id) FROM wallet_entries e WHERE account_id IN ($1,$2,$3)) AS entries,
            (SELECT jsonb_agg(o ORDER BY id) FROM wallet_operations o WHERE account_id IN ($1,$2,$3)) AS operations
   `, [a.id, b.id, recipient]);
+  const olderContent = [ownEntry, '-83 / 0</p>'];
+  const newerContent = [newerEntry, '-71 / 0</p>'];
+  const foreignContent = [credit, cursor, foreignEntry, '-137 / 0</p>'];
+  await check(b.page, history, {
+    status: 200, contains: [...olderContent, ...newerContent], privateValues: foreignContent, snapshot,
+  });
   await check(b.page, `${history}?before=${cursor}`, {
-    status: 200, contains: [ownEntry, '-83 / 0</p>'],
-    privateValues: [credit, cursor, foreignEntry, '-137 / 0</p>'], snapshot,
+    status: 200, contains: olderContent, privateValues: [...foreignContent, ...newerContent], snapshot,
   });
   const token = await csrf(b.page, transfer);
   await check(b.page, transfer, {
@@ -828,7 +834,6 @@ ownership('MFA trusted-device removal requires the device owner', async ({player
   const aState = {...aDevice, page: await a.context.newPage()};
   const bState = {...bDevice, page: await b.context.newPage()};
   try {
-    await login(aState.page, lang, aState);
     await enroll(aState, lang, true);
     const path = `/${lang}/mfa`;
     await view(aState.page, path);
@@ -840,7 +845,6 @@ ownership('MFA trusted-device removal requires the device owner', async ({player
     `, [aState.id, device]);
     expect(await snapshot()).toHaveLength(1);
 
-    await login(bState.page, lang, bState);
     await enroll(bState, lang, true);
     await view(bState.page, path);
     const token = await bState.page.locator(`${selector} [name=_csrf]`).inputValue();
