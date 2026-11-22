@@ -478,12 +478,14 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     // Two competing removals cannot both discard the last full-access holder.
-    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
-        VALUES($1,$1::uuid::text||'@example.test','unused','active',now(),'en')")
-        .bind(other)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+        VALUES($1,$1::uuid::text||'@example.test','unused','active',now(),'en')",
+    )
+    .bind(other)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
         .bind(other)
         .bind(owner)
