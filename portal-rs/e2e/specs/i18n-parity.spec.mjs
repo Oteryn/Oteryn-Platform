@@ -15,7 +15,6 @@ const htmlDocument = /<html(?:\s|>)/iu;
 const announcementsPath = '/admin/announcements';
 const announcementEditor = `${announcementsPath}/create`;
 const announcementEdit = /^\/admin\/announcements\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/edit$/u;
-const characterProfile = /^\/account\/characters\/[^/]+\/profile$/u;
 const normalize = (value) => value.normalize('NFC').replace(/\s+/gu, ' ').trim();
 const catalogs = Object.fromEntries(['pl', 'en'].map((locale) => [locale, new Map()]));
 const catalogKeys = new Set();
