@@ -433,22 +433,26 @@ async fn browser_lifecycle(pool: &PgPool) {
             .unwrap()
         );
     }
-    let mut stalled = make(csrf, "Stalled upload", "image/png");
+    async fn with_stalled_body(mut request: Request<Body>) -> Request<Body> {
+        use futures_util::StreamExt;
+        let body = to_bytes(
+            std::mem::replace(request.body_mut(), Body::empty()),
+            MAX_BYTES + 16384,
+        )
+        .await
+        .unwrap();
+        // Deliver a partial frame and keep the connection open without EOF.
+        let first_frame = Ok::<_, std::convert::Infallible>(body.slice(..body.len() / 2));
+        *request.body_mut() = Body::from_stream(
+            futures_util::stream::iter([first_frame]).chain(futures_util::stream::pending()),
+        );
+        request
+    }
+
+    let mut stalled = with_stalled_body(make(csrf, "Stalled upload", "image/png")).await;
     stalled
         .headers_mut()
         .insert("x-csrf-token", csrf.parse().unwrap());
-    let body = to_bytes(
-        std::mem::replace(stalled.body_mut(), Body::empty()),
-        MAX_BYTES + 16384,
-    )
-    .await
-    .unwrap();
-    // Deliver a partial frame and keep the connection open without EOF.
-    use futures_util::StreamExt;
-    let first_frame = Ok::<_, std::convert::Infallible>(body.slice(..body.len() / 2));
-    *stalled.body_mut() = Body::from_stream(
-        futures_util::stream::iter([first_frame]).chain(futures_util::stream::pending()),
-    );
     let start = tokio::time::Instant::now();
     let refusal = tokio::time::timeout(Duration::from_secs(20), app.clone().oneshot(stalled))
         .await
@@ -571,6 +575,55 @@ async fn browser_lifecycle(pool: &PgPool) {
     assert_eq!(
         read(pool, id, false).await.err(),
         Some(StatusCode::NOT_FOUND)
+    );
+
+    // Use a durable signed-in session and the production router for the form
+    // timeout. No CSRF header is supplied; its token is inside the body.
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'editor-test-password','active','en',now())")
+        .bind(actor)
+        .bind(format!("{actor}@example.invalid"))
+        .execute(pool)
+        .await
+        .unwrap();
+    crate::test_staff::browser(pool, actor, &cookie)
+        .await
+        .unwrap();
+    let test_mfa_key = format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()));
+    let lookup = |key: &str| match key {
+        "OTERYN_ADMIN_PANEL" => Some("true".into()),
+        "OTERYN_ADMIN_HOST" => Some("staff.test".into()),
+        "OTERYN_MFA_KEY" => Some(test_mfa_key.clone()),
+        _ => None,
+    };
+    let app = configured_router_from(pool.clone(), &lookup).unwrap();
+    let form_page = app
+        .clone()
+        .oneshot(
+            Request::get("/admin/media?lang=en")
+                .header("host", "staff.test")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(form_page.status(), StatusCode::OK);
+    let alt = "Signed-in native form stalled";
+    let stalled = with_stalled_body(make(csrf, alt, "image/png")).await;
+    assert!(!stalled.headers().contains_key("x-csrf-token"));
+    let start = tokio::time::Instant::now();
+    let refusal = tokio::time::timeout(Duration::from_secs(70), app.oneshot(stalled))
+        .await
+        .expect("the signed-in native form must time out within the test budget")
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
+    assert!(start.elapsed() >= Duration::from_secs(60));
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM media WHERE alt_text=$1)")
+            .bind(alt)
+            .fetch_one(pool)
+            .await
+            .unwrap()
     );
 }
 
