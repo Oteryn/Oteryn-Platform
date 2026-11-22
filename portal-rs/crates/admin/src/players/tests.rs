@@ -2284,6 +2284,83 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
     let support = staff_security_cookie(&db.pool, db.support, 'e').await;
     let path = format!("/admin/players/{}", db.target);
     let csrf = "a".repeat(64);
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use oteryn_gameauth::{devices, oauth};
+    use sha2::{Digest, Sha256};
+
+    let client = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO oauth_native_clients(client_id,enabled,first_party,public_client,native_ticket)
+         VALUES($1,true,true,true,true)",
+    )
+    .bind(client)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let redirect = "https://example.test/callback";
+    let config = oauth::Config {
+        enabled: true,
+        clients: vec![oauth::Client {
+            client_id: client.to_string(),
+            redirect_uris: vec![redirect.into()],
+        }],
+    };
+    let verifier = URL_SAFE_NO_PAD.encode([7; 32]);
+    let code = oauth::authorize(
+        &db.pool,
+        &config,
+        db.target,
+        &oauth::Authorization {
+            response_type: "code".into(),
+            client_id: client.to_string(),
+            redirect_uri: redirect.into(),
+            scope: oauth::TICKET_SCOPE.into(),
+            state: Uuid::now_v7().to_string(),
+            code_challenge: URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())),
+            code_challenge_method: "S256".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let tokens = oauth::exchange(
+        &db.pool,
+        &config,
+        &oauth::TokenRequest {
+            grant_type: "authorization_code".into(),
+            client_id: client.to_string(),
+            redirect_uri: redirect.into(),
+            code,
+            code_verifier: verifier,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        oauth::verify_access(&db.pool, &config, &tokens.access_token)
+            .await
+            .unwrap(),
+        db.target
+    );
+    let devices = devices::Sessions::new(
+        db.pool.clone(),
+        devices::Settings {
+            enabled: true,
+            environment: "testing".into(),
+            ..Default::default()
+        },
+        Arc::new(devices::PlatformAuthority {
+            oauth: config.clone(),
+            projection_authority: "test".into(),
+        }),
+    );
+    let remembered = devices.enroll(&tokens.access_token, true).await.unwrap();
+    let before_generation: i64 =
+        sqlx::query_scalar("SELECT native_security_generation FROM accounts WHERE id=$1")
+            .bind(db.target)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
     for (action, good, bad, audit) in [
         ("review-flag", "yes", "true", "players.flags.changed"),
         (
@@ -2354,6 +2431,51 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
     .await
     .unwrap();
     assert_eq!(saved, ("suspended".into(), true, true));
+    assert_eq!(
+        staff_security_post(
+            &app,
+            &path,
+            "staff.test",
+            &admin,
+            &csrf,
+            "action=account-status&body=active&reason=support_case"
+        )
+        .await,
+        StatusCode::SEE_OTHER
+    );
+    let reactivated: (String, i64, bool, bool) = sqlx::query_as(
+        "SELECT a.status,a.native_security_generation,f.revoked_at IS NOT NULL,d.revoked_at IS NOT NULL
+         FROM accounts a JOIN oauth_token_families f ON f.account_id=a.id
+         JOIN device_sessions d ON d.account_id=a.id WHERE a.id=$1",
+    ).bind(db.target).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(
+        reactivated,
+        ("active".into(), before_generation + 2, true, true)
+    );
+    assert!(matches!(
+        oauth::verify_access(&db.pool, &config, &tokens.access_token).await,
+        Err(oauth::Error::InvalidGrant)
+    ));
+    assert!(matches!(
+        oauth::exchange(
+            &db.pool,
+            &config,
+            &oauth::TokenRequest {
+                grant_type: "refresh_token".into(),
+                client_id: client.to_string(),
+                refresh_token: tokens.refresh_token,
+                ..Default::default()
+            }
+        )
+        .await,
+        Err(oauth::Error::InvalidGrant)
+    ));
+    assert_eq!(
+        devices
+            .rotate(remembered.secret(), client, devices::Purpose::Ticket)
+            .await,
+        Err(devices::Failure::Denied)
+    );
     let protected = format!("/admin/players/{}", db.support);
     assert_eq!(
         staff_security_post(

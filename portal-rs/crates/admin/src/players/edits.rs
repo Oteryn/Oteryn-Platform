@@ -189,6 +189,11 @@ impl Edit {
                     .bind(next)
                     .execute(&mut *db)
                     .await?;
+                if next == "suspended" {
+                    // The status update advances the native generation via the
+                    // existing account trigger. Revoke persisted credentials too.
+                    oteryn_identity::recovery_key::revoke_authorizations(db, target).await?;
+                }
                 sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
                     .bind(target)
                     .execute(&mut *db)

@@ -88,3 +88,6 @@ features = ["util"]
 
 [dev-dependencies.totp-rs]
 version = "5.7.2"
+
+[dev-dependencies.oteryn-gameauth]
+workspace = true
