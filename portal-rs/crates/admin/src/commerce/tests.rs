@@ -1492,8 +1492,13 @@ async fn payment_queue_seeds_evidence_from_candidates() {
     let (_, payment) = queued_refund(&h).await;
     sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
          SELECT id,$1,'test',id::text,100,'PLN','succeeded'
-         FROM (SELECT uuidv7() AS id FROM generate_series(1,120)) payments")
+         FROM (SELECT uuidv7() AS id FROM generate_series(1,1500)) payments")
         .bind(h.target)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    // Measure a populated history with current planner statistics.
+    sqlx::query("ANALYZE payment_intents")
         .execute(&h.pool)
         .await
         .unwrap();
