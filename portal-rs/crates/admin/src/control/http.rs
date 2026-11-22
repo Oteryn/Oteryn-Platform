@@ -628,6 +628,7 @@ async fn rollups(
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
     crate::rbac::mutation_budget(&mut tx).await?;
+    store::ownership_lock(&mut tx, false).await?;
     ingress_lock(&mut tx, true).await?;
     session(&mut tx, &p.agent_id, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;

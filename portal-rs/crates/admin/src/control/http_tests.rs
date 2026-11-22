@@ -531,8 +531,30 @@ fn agent_identity_requires_flag_exact_cn_and_bound_san() {
     );
 }
 
+async fn wait_for_ownership_lock(db: &Database, blocker_pid: i32) {
+    // PostgreSQL's wait graph provides a barrier while the blocker is held.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND $2=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(&db.schema)
+            .bind(blocker_pid)
+            .fetch_one(&db.root)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
-async fn postgres_hello_waits_for_control_before_http_ownership() {
+async fn postgres_hello_and_rollups_wait_for_control_before_http_ownership() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = Database::open()
         .await
@@ -566,28 +588,11 @@ async fn postgres_hello_waits_for_control_before_http_ownership() {
         .fetch_one(&mut *blocker)
         .await
         .unwrap();
-    let app = app(pool.clone(), true);
-    let hello = tokio::spawn(async move { post(app, "hello", hello_body(1), true).await.status() });
-    // PostgreSQL's wait graph is the barrier: hello has reached the ownership
-    // lock and cannot advance until this transaction releases it.
-    tokio::time::timeout(std::time::Duration::from_secs(3), async {
-        loop {
-            let waiting: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND $2=ANY(pg_blocking_pids(pid)))",
-            )
-            .bind(&db.schema)
-            .bind(blocker_pid)
-            .fetch_one(&db.root)
-            .await
-            .unwrap();
-            if waiting {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .unwrap();
+    let router = app(pool.clone(), true);
+    let hello_app = router.clone();
+    let hello =
+        tokio::spawn(async move { post(hello_app, "hello", hello_body(1), true).await.status() });
+    wait_for_ownership_lock(&db, blocker_pid).await;
     let http_available: bool = sqlx::query_scalar(
         "SELECT pg_try_advisory_xact_lock_shared(hashtextextended('admin-control-http',0))",
     )
@@ -596,13 +601,54 @@ async fn postgres_hello_waits_for_control_before_http_ownership() {
     .unwrap();
     blocker.rollback().await.unwrap();
     let status = hello.await.unwrap();
-    pool.close().await;
-    db.close().await;
     assert!(
         http_available,
         "hello acquired HTTP ownership while waiting for control ownership"
     );
     assert_eq!(status, StatusCode::OK);
+
+    sqlx::query("UPDATE admin_control_agents SET last_seen_at='-infinity'")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let mut retry = db.pool.begin().await.unwrap();
+    store::ownership_lock(&mut retry, true).await.unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *retry)
+        .await
+        .unwrap();
+    let rollup =
+        json!({"agent_id":"agent-a","owner_epoch":1,"key":"online","payload":{"healthy":true}});
+    let publish = tokio::spawn(async move { post(router, "rollups", rollup, true).await.status() });
+    wait_for_ownership_lock(&db, blocker_pid).await;
+    let still_stale: bool = sqlx::query_scalar(
+        "SELECT last_seen_at='-infinity' FROM admin_control_agents WHERE agent_id='agent-a'",
+    )
+    .fetch_one(&mut *retry)
+    .await
+    .unwrap();
+    let http_available: bool = sqlx::query_scalar(
+        "SELECT pg_try_advisory_xact_lock(hashtextextended('admin-control-http',0))",
+    )
+    .fetch_one(&mut *retry)
+    .await
+    .unwrap();
+    retry.commit().await.unwrap();
+    assert!(still_stale);
+    assert!(
+        http_available,
+        "rollups acquired HTTP ownership while waiting for control ownership"
+    );
+    assert_eq!(publish.await.unwrap(), StatusCode::OK);
+    let now_live: bool = sqlx::query_scalar(
+        "SELECT last_seen_at > clock_timestamp() - interval '1 minute' FROM admin_control_agents WHERE agent_id='agent-a'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(now_live);
+    pool.close().await;
+    db.close().await;
 }
 
 #[tokio::test]
