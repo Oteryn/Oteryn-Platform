@@ -50,6 +50,12 @@ impl AccountView {
     }
 }
 
+enum FeedEpoch {
+    Unavailable,
+    Stale,
+    Live(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct Projection {
     pub(super) pool: PgPool,
@@ -146,6 +152,70 @@ impl Projection {
         tx.commit().await?;
         Ok(Outcome::Accepted)
     }
+    async fn feed_epoch(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        now: i64,
+    ) -> Result<FeedEpoch, Error> {
+        // A shared feed lock spans metadata and rows, excluding epoch changes,
+        // snapshot replacement and watermark updates until the read completes.
+        let Some(feed) = sqlx::query("SELECT highest_epoch, watermark_epoch, source_authority, complete_through FROM account_character_feed WHERE id = 1 FOR SHARE")
+            .fetch_optional(&mut **tx).await? else { return Ok(FeedEpoch::Unavailable); };
+        let Some(highest) = feed.try_get::<Option<String>, _>("highest_epoch")? else {
+            return Ok(FeedEpoch::Stale);
+        };
+        let watermark: Option<String> = feed.try_get("watermark_epoch")?;
+        let authority: Option<String> = feed.try_get("source_authority")?;
+        let complete: Option<i64> = feed.try_get("complete_through")?;
+        let live = watermark.as_deref() == Some(highest.as_str())
+            && authority.as_deref() == Some(&self.settings.source_authority)
+            && complete.is_some_and(|complete| {
+                complete <= now.saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
+                    && now
+                        .saturating_sub(complete)
+                        .saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
+                        <= i64::from(self.settings.freshness_seconds)
+            });
+        Ok(if live {
+            FeedEpoch::Live(highest)
+        } else {
+            FeedEpoch::Stale
+        })
+    }
+
+    /// Corroborate character ownership for an already authorized staff read.
+    /// Account login status does not gate this lookup. A projection match
+    /// cannot authorize an action or establish ownership for enforcement.
+    pub async fn staff_character_owner(
+        &self,
+        character: CharacterId,
+        now: i64,
+    ) -> Result<Option<AccountId>, Error> {
+        if !self.settings.available() || now < 0 {
+            return Ok(None);
+        }
+        let mut tx = self.pool.begin().await?;
+        let FeedEpoch::Live(epoch) = self.feed_epoch(&mut tx, now).await? else {
+            return Ok(None);
+        };
+        let owners = sqlx::query_as::<_, (uuid::Uuid, bool)>(
+            "SELECT c.account_id, s.invalid
+             FROM account_characters c JOIN account_character_snapshots s USING (account_id)
+             WHERE c.character_id=$1 AND s.projection_epoch=$2 AND s.source_authority=$3
+             LIMIT 2",
+        )
+        .bind(character.0)
+        .bind(epoch)
+        .bind(&self.settings.source_authority)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(match owners.as_slice() {
+            [(account, false)] => Some(AccountId(*account)),
+            _ => None,
+        })
+    }
+
     /// An internal API for an already authenticated caller. The caller must bind
     /// the requested account to its authenticated principal before invoking this.
     pub async fn list_characters(
@@ -160,31 +230,15 @@ impl Projection {
             return Ok(AccountView::empty(ReadState::Denied));
         }
         let mut tx = self.pool.begin().await?;
-        // A shared feed lock spans metadata and rows, excluding epoch changes,
-        // snapshot replacement and watermark updates until the read completes.
-        let Some(feed) = sqlx::query("SELECT highest_epoch, watermark_epoch, source_authority, complete_through FROM account_character_feed WHERE id = 1 FOR SHARE")
-            .fetch_optional(&mut *tx).await? else { return Ok(AccountView::empty(ReadState::Unavailable)); };
-        let highest: Option<String> = feed.try_get("highest_epoch")?;
-        let watermark: Option<String> = feed.try_get("watermark_epoch")?;
-        let authority: Option<String> = feed.try_get("source_authority")?;
-        let complete: Option<i64> = feed.try_get("complete_through")?;
-        let live = highest.is_some()
-            && highest == watermark
-            && authority.as_deref() == Some(&self.settings.source_authority)
-            && complete.is_some_and(|complete| {
-                complete <= now.saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
-                    && now
-                        .saturating_sub(complete)
-                        .saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
-                        <= i64::from(self.settings.freshness_seconds)
-            });
-        if !live {
-            return Ok(AccountView::empty(ReadState::Stale));
-        }
+        let highest = match self.feed_epoch(&mut tx, now).await? {
+            FeedEpoch::Live(highest) => highest,
+            FeedEpoch::Unavailable => return Ok(AccountView::empty(ReadState::Unavailable)),
+            FeedEpoch::Stale => return Ok(AccountView::empty(ReadState::Stale)),
+        };
         let Some(snapshot) = sqlx::query("SELECT projection_epoch, invalid, source_authority FROM account_character_snapshots WHERE account_id = $1")
             .bind(account.0).fetch_optional(&mut *tx).await? else { return Ok(AccountView::empty(ReadState::Missing)); };
         if snapshot.try_get::<bool, _>("invalid")?
-            || Some(snapshot.try_get::<String, _>("projection_epoch")?) != highest
+            || snapshot.try_get::<String, _>("projection_epoch")? != highest
             || snapshot.try_get::<String, _>("source_authority")? != self.settings.source_authority
         {
             return Ok(AccountView::empty(ReadState::Invalid));

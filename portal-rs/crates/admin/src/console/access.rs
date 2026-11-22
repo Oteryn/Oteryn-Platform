@@ -23,6 +23,7 @@ pub enum Error {
     BadInput,
     Conflict,
     Terminal(uuid::Uuid, super::QueryStatus),
+    SanctionsUnavailable,
     Unavailable,
 }
 impl IntoResponse for Error {
@@ -31,7 +32,9 @@ impl IntoResponse for Error {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::BadInput => StatusCode::BAD_REQUEST,
             Self::Conflict => StatusCode::CONFLICT,
-            Self::Unavailable | Self::Terminal(..) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::SanctionsUnavailable | Self::Terminal(..) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
         }
         .into_response()
     }
@@ -256,6 +259,13 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> StoredMetadata<A> {
         else {
             return Ok(None);
         };
+        let snapshot = super::projection::snapshot(
+            operation,
+            request_id,
+            observed_at,
+            input.character.as_deref(),
+            &value,
+        )?;
         if operation == "sanction.list" {
             super::projection::verify_sanction_account(
                 &self.character_projection,
@@ -264,13 +274,7 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> StoredMetadata<A> {
             )
             .await?;
         }
-        Ok(Some(super::projection::snapshot(
-            operation,
-            request_id,
-            observed_at,
-            input.character.as_deref(),
-            &value,
-        )?))
+        Ok(Some(snapshot))
     }
 }
 impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMetadata<A> {

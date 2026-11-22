@@ -610,6 +610,64 @@ async fn db_watermark_freshness_boundaries_missing_and_unknown_accounts() -> Tes
 }
 
 #[tokio::test]
+async fn db_staff_character_owner_requires_one_current_valid_snapshot() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let staff = db.with_account(AccountState::Denied);
+    let account = AccountId::parse(ACCOUNT)?;
+    let other = AccountId::parse(OTHER)?;
+    let snapshot = Snapshot::decode(SNAPSHOT.as_bytes())?;
+    let character = snapshot.characters[0].character_id;
+    staff.snapshot(snapshot, NOW).await?;
+    assert_eq!(staff.staff_character_owner(character, NOW).await?, None);
+    staff
+        .watermark(Watermark::decode(WATERMARK.as_bytes())?, NOW)
+        .await?;
+    assert_eq!(
+        staff.list_characters(account, NOW).await?.state,
+        ReadState::Denied
+    );
+    assert_eq!(
+        staff.staff_character_owner(character, NOW).await?,
+        Some(account)
+    );
+    assert_eq!(
+        staff.staff_character_owner(character, NOW + 25).await?,
+        None
+    );
+
+    let competing = SNAPSHOT.replace(ACCOUNT, OTHER);
+    staff
+        .snapshot(Snapshot::decode(competing.as_bytes())?, NOW)
+        .await?;
+    assert_eq!(staff.staff_character_owner(character, NOW).await?, None);
+    assert!(matches!(
+        staff
+            .snapshot(
+                Snapshot::decode(competing.replace("Aldric", "Other").as_bytes())?,
+                NOW
+            )
+            .await,
+        Err(Error::Conflict)
+    ));
+    assert_eq!(staff.staff_character_owner(character, NOW).await?, None);
+
+    staff
+        .snapshot(Snapshot::decode(epoch(&competing, "2").as_bytes())?, NOW)
+        .await?;
+    staff
+        .watermark(Watermark::decode(epoch(WATERMARK, "2").as_bytes())?, NOW)
+        .await?;
+    assert_eq!(
+        staff.staff_character_owner(character, NOW).await?,
+        Some(other)
+    );
+    db.close().await
+}
+
+#[tokio::test]
 async fn db_concurrent_snapshots_wait_for_feed_lock_and_finish_at_highest_revision() -> TestResult {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {

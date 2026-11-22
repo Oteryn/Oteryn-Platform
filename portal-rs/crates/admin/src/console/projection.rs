@@ -212,24 +212,18 @@ pub(super) async fn verify_sanction_account(
     character: &str,
     value: &Value,
 ) -> Result<(), Error> {
-    use oteryn_characters::lcfa::{CharacterId, ReadState};
-    let Some(account) = sanction_account(value)? else {
+    use oteryn_characters::lcfa::CharacterId;
+    let unavailable = Error::SanctionsUnavailable;
+    let Some(account) = sanction_account(value).map_err(|_| unavailable)? else {
         return Ok(());
     };
-    // The signed sanction supplies a candidate, while the existing live
-    // portfolio supplies corroboration for this read-only attribution.
-    let character = CharacterId::parse(character).map_err(|_| bad())?;
-    let view = projection
-        .list_characters(account, time::OffsetDateTime::now_utc().unix_timestamp())
+    let character = CharacterId::parse(character).map_err(|_| unavailable)?;
+    let owner = projection
+        .staff_character_owner(character, time::OffsetDateTime::now_utc().unix_timestamp())
         .await
-        .map_err(|_| bad())?;
-    if view.state != ReadState::Ready
-        || !view
-            .characters
-            .iter()
-            .any(|entry| entry.character_id == character)
-    {
-        return Err(bad());
+        .map_err(|_| unavailable)?;
+    if owner != Some(account) {
+        return Err(unavailable);
     }
     Ok(())
 }

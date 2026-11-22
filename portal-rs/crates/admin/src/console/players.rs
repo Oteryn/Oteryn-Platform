@@ -177,6 +177,7 @@ async fn read_snapshot<B: Backend>(
             });
             Ok(None)
         }
+        Err(Error::SanctionsUnavailable) if operation == "sanction.list" => Ok(None),
         other => other,
     }
 }
