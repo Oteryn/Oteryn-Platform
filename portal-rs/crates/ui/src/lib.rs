@@ -134,6 +134,16 @@ impl Registry {
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
+            .filter(|entry| {
+                entry.section != "account-passkeys"
+                    || !matches!(
+                        account,
+                        Account::SignedIn {
+                            passkeys_eligible: false,
+                            ..
+                        }
+                    )
+            })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
                     e.path.to_owned()
@@ -214,6 +224,7 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
+        passkeys_eligible: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -268,7 +279,7 @@ impl Chrome {
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf } => csrf,
+            Account::SignedIn { csrf, .. } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -590,6 +601,7 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     csrf: "escaped<&token".into(),
+                    passkeys_eligible: false,
                 },
             );
             let html = Home::new(&chrome, &HomeData::default()).render()?;
@@ -624,6 +636,7 @@ mod tests {
                 let account = if signed_in {
                     Account::SignedIn {
                         csrf: String::new(),
+                        passkeys_eligible: false,
                     }
                 } else {
                     Account::Anonymous

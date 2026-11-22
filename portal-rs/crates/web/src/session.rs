@@ -409,7 +409,7 @@ impl BrowserMutationDeadline {
         self.within(read).await.ok_or(sqlx::Error::PoolTimedOut)?
     }
 
-    async fn within<T>(self, work: impl std::future::Future<Output = T>) -> Option<T> {
+    pub(crate) async fn within<T>(self, work: impl std::future::Future<Output = T>) -> Option<T> {
         if tokio::time::Instant::now() >= self.0 {
             return None;
         }
@@ -712,17 +712,14 @@ async fn read_signed_in(
     let Some(id) = cookie_id(request.headers())? else {
         return Ok(None);
     };
-    let lookup = sqlx::query_as::<_, (Uuid, String)>(
+    let row: Option<(Uuid, String)> = sqlx::query_as(
         "SELECT account_id,csrf_token FROM web_sessions WHERE id_hash=$1
          AND account_id IS NOT NULL AND idle_expires_at>clock_timestamp()
          AND absolute_expires_at>clock_timestamp()",
     )
     .bind(hash(id))
-    .fetch_optional(&layer.pool);
-    let row = match request.extensions().get::<BrowserMutationDeadline>() {
-        Some(deadline) => deadline.read(lookup).await,
-        None => lookup.await,
-    }?;
+    .fetch_optional(&layer.pool)
+    .await?;
     Ok(row.map(|(account_id, csrf)| SignedInSession { account_id, csrf }))
 }
 
@@ -751,9 +748,24 @@ pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
 ) -> oteryn_ui::Account {
-    match read_signed_in(layer, request).await {
-        Ok(Some(session)) => oteryn_ui::Account::SignedIn { csrf: session.csrf },
-        _ => oteryn_ui::Account::Anonymous,
+    let Ok(Some(session)) = read_signed_in(layer, request).await else {
+        return oteryn_ui::Account::Anonymous;
+    };
+    let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
+        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
+         FROM accounts WHERE id=$1",
+    )
+    .bind(session.account_id)
+    .fetch_optional(&layer.pool)
+    .await;
+    let passkeys_eligible = matches!(
+        policy,
+        Ok(Some((status, verified, mfa_required)))
+            if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
+    );
+    oteryn_ui::Account::SignedIn {
+        csrf: session.csrf,
+        passkeys_eligible,
     }
 }
 
