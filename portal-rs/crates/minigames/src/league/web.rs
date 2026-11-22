@@ -203,9 +203,8 @@ async fn page<A: Authority>(
     };
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
     if let Some(ClientSource(ip)) = source {
-        let keys = [Keys::source(ip)];
         if let Err(denial) = limiter
-            .check_public_game_data(&keys, BoundedBrowserRead(deadline))
+            .check_public_game_data(Keys::source(ip), BoundedBrowserRead(deadline))
             .await
         {
             return Page::new(&lang, None).response(denial.status());

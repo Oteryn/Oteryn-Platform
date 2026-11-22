@@ -25,6 +25,7 @@ enum Scope {
     Source,
     EmailSource,
     AccountSource,
+    Account,
     TokenSource,
     PendingSource,
     Pending,
@@ -68,6 +69,8 @@ policies! {
     IdentitySecurityMutation, "identity-security-mutation", 10, 60, AccountSource;
     IdentityRecoveryKeyManage, "identity-recovery-key-manage", 5, 3600, AccountSource;
     IdentityRecoveryKeyUse, "identity-recovery-key-use", 5, 3600, EmailSource;
+    IdentityDataExport, "identity-data-export", 3, 900, Account;
+    IdentityDataExportSource, "identity-data-export-source", 12, 900, Source;
     IdentityTermination, "identity-termination", 3, 3600, AccountSource;
     IdentityMfaChallenge, "identity-mfa-challenge", 5, 60, PendingSource;
     IdentityMfaChallengeIdentity, "identity-mfa-challenge-identity", 10, 60, Pending;
@@ -75,6 +78,8 @@ policies! {
     IdentityMfaEnrollment, "identity-mfa-enrollment", 5, 60, AccountSource;
     IdentityMfaDisable, "identity-mfa-disable", 5, 60, AccountSource;
     CharacterCreate, "character-create", 5, 60, AccountSource;
+    CharacterProfileUpdate, "character-profile-update", 10, 60, Account;
+    CharacterProfileUpdateSource, "character-profile-update-source", 30, 60, Source;
     CharacterCreateStatus, "character-create-status", 60, 60, AccountSource;
     MarketplaceListing, "marketplace-listing", 3, 60, AccountSource;
     MarketplaceBid, "marketplace-bid", 20, 60, AccountSource;
@@ -135,7 +140,7 @@ impl Keys {
         part(&mut digest, policy.name());
         match policy.scope() {
             Scope::EmailSource => part(&mut digest, &required(&self.email)?.trim().to_lowercase()),
-            Scope::AccountSource => part(&mut digest, required(&self.account)?),
+            Scope::Account | Scope::AccountSource => part(&mut digest, required(&self.account)?),
             Scope::TokenSource => part(&mut digest, required(&self.token)?),
             Scope::Pending | Scope::PendingSource => {
                 part(&mut digest, required(&self.pending_account)?)
@@ -146,7 +151,10 @@ impl Keys {
             Scope::LocaleSource => part(&mut digest, self.locale.ok_or(Denial::BadInput)?.code()),
             Scope::Source => {}
         }
-        if !matches!(policy.scope(), Scope::Pending | Scope::Credential) {
+        if !matches!(
+            policy.scope(),
+            Scope::Account | Scope::Pending | Scope::Credential
+        ) {
             part(&mut digest, &self.source.to_string());
         }
         Ok(digest.finalize().to_vec())
@@ -245,19 +253,48 @@ impl RateLimiter {
         ) {
             check(self, NamedPolicy::IdentityAnonymousSource, keys).await?;
         }
-        check(self, policy, keys).await
+        let source = match policy {
+            NamedPolicy::IdentityDataExport => NamedPolicy::IdentityDataExportSource,
+            NamedPolicy::CharacterProfileUpdate => NamedPolicy::CharacterProfileUpdateSource,
+            _ => return check(self, policy, keys).await,
+        };
+        self.check_pair(policy, source, keys).await
     }
-    /// Charge a League browser request within its existing admission deadline.
-    pub async fn check_public_game_data(
+
+    async fn check_pair(
         &self,
+        account: NamedPolicy,
+        source: NamedPolicy,
         keys: &[Keys],
-        deadline: crate::BoundedBrowserRead,
     ) -> Result<(), Denial> {
-        if !self.configuration_valid {
-            return Err(Denial::Unavailable);
+        let mut account_hashes = hashes(account, keys)?;
+        let mut source_hashes = hashes(source, keys)?;
+        // Lock rows in the same order for concurrent batches.
+        account_hashes.sort_unstable();
+        source_hashes.sort_unstable();
+        let failure = |_| self.unavailable(account);
+        let mut tx = self.pool.begin().await.map_err(failure)?;
+        // Both budgets use the same database instant, including at rollover.
+        let epoch: f64 = sqlx::query_scalar(
+            "SELECT extract(epoch FROM statement_timestamp())::double precision",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(failure)?;
+        for (policy, hashes) in [(account, account_hashes), (source, source_hashes)] {
+            for hash in hashes {
+                let (count, retry_after) = charge(&mut *tx, policy, hash, Some(epoch))
+                    .await
+                    .map_err(|_| self.unavailable(policy))?;
+                if count > policy.limit() {
+                    tx.rollback().await.map_err(failure)?;
+                    return Err(Denial::Limited { retry_after });
+                }
+            }
         }
-        check_with_deadline(self, NamedPolicy::PublicGameData, keys, Some(deadline)).await
+        tx.commit().await.map_err(failure)
     }
+
     pub(crate) async fn check_recovery_submission(&self, keys: Keys) -> Result<(), Denial> {
         let policy = NamedPolicy::IdentityRecoveryKeyUse;
         let mut aggregate = Keys::source(keys.source);
@@ -286,48 +323,11 @@ pub async fn check(
     policy: NamedPolicy,
     keys: &[Keys],
 ) -> Result<(), Denial> {
-    let deadline = (policy == NamedPolicy::PublicGameData).then(|| {
-        crate::BoundedBrowserRead(tokio::time::Instant::now() + std::time::Duration::from_secs(1))
-    });
-    check_with_deadline(limiter, policy, keys, deadline).await
-}
-
-async fn check_with_deadline(
-    limiter: &RateLimiter,
-    policy: NamedPolicy,
-    keys: &[Keys],
-    deadline: Option<crate::BoundedBrowserRead>,
-) -> Result<(), Denial> {
-    if keys.is_empty() || keys.len() > 32 {
-        return Err(Denial::BadInput);
-    }
-    let hashes = keys
-        .iter()
-        .map(|k| k.hash(policy))
-        .collect::<Result<Vec<_>, _>>()?;
     let mut retry = 0_i64;
-    for hash in hashes {
-        // One atomic upsert using the database clock across all processes.
-        // Saturate refusals to prevent overflow under sustained abuse.
-        let query = sqlx::query_as::<_, (i64, i64)>(
-            "WITH clock AS MATERIALIZED (SELECT statement_timestamp() AS now), \
-             bucket AS (SELECT to_timestamp((floor(extract(epoch FROM now) / $3::bigint) * $3::bigint)::double precision) AS start, \
-             greatest(1, ceil($3::bigint - mod(extract(epoch FROM now), $3::bigint)))::bigint AS retry FROM clock), \
-             charged AS (INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count) \
-             SELECT $1, $2, start, 1 FROM bucket \
-             ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE \
-             SET count = least(web_rate_limits.count + 1, $4 + 1) RETURNING count) \
-             SELECT count, retry FROM charged CROSS JOIN bucket"
-        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit());
-        let (count, delay) = if let Some(deadline) = deadline {
-            crate::bounded_browser_query(&limiter.pool, deadline, async |connection| {
-                query.fetch_one(connection).await
-            })
+    for hash in hashes(policy, keys)? {
+        let (count, delay) = charge(&limiter.pool, policy, hash, None)
             .await
-        } else {
-            query.fetch_one(&limiter.pool).await
-        }
-        .map_err(|_| limiter.unavailable(policy))?;
+            .map_err(|_| limiter.unavailable(policy))?;
         if count > policy.limit() {
             retry = retry.max(delay);
         }
@@ -337,6 +337,31 @@ async fn check_with_deadline(
     } else {
         Ok(())
     }
+}
+fn hashes(policy: NamedPolicy, keys: &[Keys]) -> Result<Vec<Vec<u8>>, Denial> {
+    if keys.is_empty() || keys.len() > 32 {
+        return Err(Denial::BadInput);
+    }
+    keys.iter().map(|key| key.hash(policy)).collect()
+}
+
+async fn charge<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    policy: NamedPolicy,
+    hash: Vec<u8>,
+    epoch: Option<f64>,
+) -> Result<(i64, i64), sqlx::Error> {
+    // Saturate counters to prevent overflow under sustained abuse.
+    sqlx::query_as::<_, (i64, i64)>(
+            "WITH clock AS MATERIALIZED (SELECT coalesce(to_timestamp($5), statement_timestamp()) AS now), \
+             bucket AS (SELECT to_timestamp((floor(extract(epoch FROM now) / $3::bigint) * $3::bigint)::double precision) AS start, \
+             greatest(1, ceil($3::bigint - mod(extract(epoch FROM now), $3::bigint)))::bigint AS retry FROM clock), \
+             charged AS (INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count) \
+             SELECT $1, $2, start, 1 FROM bucket \
+             ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE \
+             SET count = least(web_rate_limits.count + 1, $4 + 1) RETURNING count) \
+             SELECT count, retry FROM charged CROSS JOIN bucket"
+        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit()).bind(epoch).fetch_one(executor).await
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Denial {
@@ -530,5 +555,31 @@ mod proxy_configuration_tests {
             assert!(TrustedProxies::parse(value).is_err());
         }
         Ok(())
+    }
+}
+
+impl RateLimiter {
+    /// Charge a League browser request within its existing admission deadline.
+    pub async fn check_public_game_data(
+        &self,
+        key: Keys,
+        deadline: crate::BoundedBrowserRead,
+    ) -> Result<(), Denial> {
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
+        let policy = NamedPolicy::PublicGameData;
+        let hash = key.hash(policy)?;
+        let (count, retry_after) =
+            crate::bounded_browser_query(&self.pool, deadline, async |connection| {
+                charge(connection, policy, hash, None).await
+            })
+            .await
+            .map_err(|_| self.unavailable(policy))?;
+        if count > policy.limit() {
+            Err(Denial::Limited { retry_after })
+        } else {
+            Ok(())
+        }
     }
 }

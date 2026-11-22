@@ -15,6 +15,9 @@ pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
 }
+/// CSP for portal HTML that only loads same-origin scripts and styles.
+pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
@@ -61,17 +64,70 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let chrome = shell.registry.chrome(lang, request.uri().path(), account);
     request.extensions_mut().insert(chrome.clone());
     let browser = is_browser(&request);
-    let mut response = next.run(request).await;
-    if browser
-        && (response.status().is_client_error() || response.status().is_server_error())
-        && !is_html(&response)
-    {
-        response = render_refusal(response, &chrome);
+    let response = next.run(request).await;
+    let response = render_refusal(response, &chrome, browser);
+    wrap_with_chrome(response, &chrome).await
+}
+
+fn render_refusal(mut response: Response, chrome: &oteryn_ui::Chrome, browser: bool) -> Response {
+    if browser && (response.status().is_client_error() || response.status().is_server_error()) {
+        let html = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with("text/html"));
+        if !html {
+            let mut replacement = oteryn_ui::error(chrome, response.status());
+            for name in [
+                header::ALLOW,
+                header::RETRY_AFTER,
+                header::CONTENT_SECURITY_POLICY,
+                header::STRICT_TRANSPORT_SECURITY,
+                header::X_CONTENT_TYPE_OPTIONS,
+                header::REFERRER_POLICY,
+                header::CONTENT_LANGUAGE,
+                header::VARY,
+                axum::http::HeaderName::from_static("permissions-policy"),
+            ] {
+                if let Some(value) = response.headers().get(&name) {
+                    replacement.headers_mut().insert(name, value.clone());
+                }
+            }
+            for name in [header::SET_COOKIE, header::CACHE_CONTROL] {
+                for value in response.headers().get_all(&name) {
+                    replacement.headers_mut().append(&name, value.clone());
+                }
+            }
+            for (name, value) in [
+                ("content-security-policy", PORTAL_CONTENT_SECURITY_POLICY),
+                (
+                    "strict-transport-security",
+                    "max-age=63072000; includeSubDomains",
+                ),
+                ("x-content-type-options", "nosniff"),
+                ("referrer-policy", "strict-origin-when-cross-origin"),
+                (
+                    "permissions-policy",
+                    "camera=(), microphone=(), geolocation=()",
+                ),
+            ] {
+                replacement
+                    .headers_mut()
+                    .entry(axum::http::HeaderName::from_static(name))
+                    .or_insert(axum::http::HeaderValue::from_static(value));
+            }
+            ensure_no_store(replacement.headers_mut());
+            response = replacement;
+        }
     }
     if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
         ensure_no_store(response.headers_mut());
     }
-    let mut response = wrap_document(response, &chrome).await;
+    response
+}
+
+async fn wrap_with_chrome(response: Response, chrome: &oteryn_ui::Chrome) -> Response {
+    let mut response = wrap_document(response, chrome).await;
     if response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -105,7 +161,7 @@ pub async fn unavailable_response(
             && !is_html(&response)
         {
             let chrome = registry.chrome(lang, &path, oteryn_ui::Account::Anonymous);
-            return render_refusal(response, &chrome);
+            return render_refusal(response, &chrome, browser);
         }
         ensure_no_store(response.headers_mut());
     }
@@ -129,53 +185,6 @@ fn is_html(response: &Response) -> bool {
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("text/html"))
-}
-
-fn render_refusal(response: Response, chrome: &oteryn_ui::Chrome) -> Response {
-    let mut replacement = oteryn_ui::error(chrome, response.status());
-    for name in [
-        header::ALLOW,
-        header::RETRY_AFTER,
-        header::CONTENT_SECURITY_POLICY,
-        header::STRICT_TRANSPORT_SECURITY,
-        header::X_CONTENT_TYPE_OPTIONS,
-        header::REFERRER_POLICY,
-        header::CONTENT_LANGUAGE,
-        header::VARY,
-        axum::http::HeaderName::from_static("permissions-policy"),
-    ] {
-        if let Some(value) = response.headers().get(&name) {
-            replacement.headers_mut().insert(name, value.clone());
-        }
-    }
-    for name in [header::SET_COOKIE, header::CACHE_CONTROL] {
-        for value in response.headers().get_all(&name) {
-            replacement.headers_mut().append(&name, value.clone());
-        }
-    }
-    for (name, value) in [
-        (
-            "content-security-policy",
-            "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-        ),
-        (
-            "strict-transport-security",
-            "max-age=63072000; includeSubDomains",
-        ),
-        ("x-content-type-options", "nosniff"),
-        ("referrer-policy", "strict-origin-when-cross-origin"),
-        (
-            "permissions-policy",
-            "camera=(), microphone=(), geolocation=()",
-        ),
-    ] {
-        replacement
-            .headers_mut()
-            .entry(axum::http::HeaderName::from_static(name))
-            .or_insert(axum::http::HeaderValue::from_static(value));
-    }
-    ensure_no_store(replacement.headers_mut());
-    replacement
 }
 
 pub(crate) fn ensure_no_store(headers: &mut axum::http::HeaderMap) {
