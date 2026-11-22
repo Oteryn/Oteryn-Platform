@@ -48,7 +48,11 @@ const signInProse = new Map([
   ['/oauth/authorize', 'Authorize game sign-in'],
 ]);
 
+const searchRoute = /^\/(?:(?:pl|en)\/)?search$/u;
+const searchCopy = { pl: 'Szukaj', en: 'Search' };
+
 function rawKeysIn(text, pathname) {
+  if (text === 'search' && searchRoute.test(pathname) && catalogKeys.has(text)) return [text];
   const tokens = text.match(/(?<![\w/-])[a-z][\w]*(?:-[\w]+)+(?![\w/-])/gu) ?? [];
   return tokens.filter((token) =>
     catalogKeys.has(token) && !(token === 'sign-in' && text === signInProse.get(pathname)));
@@ -98,7 +102,7 @@ function assertText(value, locale, scope, pathname, title = false) {
   expect.soft(wrongLocale(text, locale, title), `${scope}: opposite-locale catalog marker`).toBeUndefined();
 }
 
-async function assertDocument(page, locale, target) {
+async function assertDocument(page, locale, target, actor = 'anonymous') {
   expect.soft(await page.locator('html').getAttribute('lang'), `${target}: document language`).toBe(locale);
   const title = await page.title();
   const titleLabel = normalize(title).replace(/\s*[·|–—]\s*Oteryn$/u, '').trim();
@@ -141,7 +145,7 @@ async function assertDocument(page, locale, target) {
   expect.soft([...rawKeys], `${target}: rendered Fluent keys`).toEqual([]);
   expect.soft([...leaks], `${target}: opposite-locale catalog markers`).toEqual([]);
   expect.soft(interpolation, `${target}: unresolved interpolation`).toBe(false);
-  await assertShellCopy(page, locale, target);
+  await assertShellCopy(page, locale, target, actor);
 }
 
 // The shell and checkout expectations are pinned independently of the catalogs.
@@ -277,11 +281,31 @@ const shellControls = [
   ['footer.foot .foot-langs', 'thais-foot-language', 'aria-label'],
 ];
 
-async function assertShellCopy(page, locale, target) {
-  const shell = await page.evaluate((controls) => {
-    const header = document.querySelector('header#portal-header');
-    const footer = document.querySelector('footer.foot');
-    if (!header && !footer) return null;
+async function assertShellCopy(page, locale, target, actor) {
+  const home = /^\/(?:pl|en)\/?$/u.test(new URL(page.url()).pathname);
+  const mobile = page.viewportSize().width <= 960;
+  const shell = await page.evaluate(({ controls, home, mobile, signedIn }) => {
+    const landmarks = [
+      'a.skip[href="#main"]',
+      'header#portal-header',
+      'header#portal-header a.om-brand',
+      'header#portal-header nav#portal-navigation',
+      '#portal-navigation #portal-world-button',
+      '#portal-navigation #portal-community-button',
+      '#portal-navigation .om-shop',
+      'footer.foot',
+      'footer.foot nav.foot-links',
+      'footer.foot nav.foot-legal',
+      'footer.foot nav.foot-langs a[hreflang="pl"]',
+      'footer.foot nav.foot-langs a[hreflang="en"]',
+      signedIn ? '#portal-navigation a.om-login[data-account-link]' : '#portal-navigation a.om-login[href$="/login"]',
+    ];
+    if (signedIn) landmarks.push('dialog#podglad-konta', '#podglad-konta .account-close', '#podglad-konta form[action$="/logout"] button');
+    const expectedControl = home
+      ? (mobile ? '#portal-menu-toggle[aria-controls="portal-navigation"]' : '#portal-navigation #portal-world-button')
+      : 'header#portal-header .om-fallback-menu > summary';
+    const missing = landmarks.filter((selector) => document.querySelectorAll(selector).length !== 1);
+    if (!document.querySelector(expectedControl)?.checkVisibility()) missing.push(expectedControl + ' (visible)');
     const captions = controls.flatMap(([selector, key, attribute]) =>
       [...document.querySelectorAll(selector)].map((node) =>
         [key, attribute ? node.getAttribute(attribute) : node.textContent]));
@@ -298,15 +322,14 @@ async function assertShellCopy(page, locale, target) {
       else if (link.closest('.foot-social')) key = 'thais-foot-twitch';
       return { pathname, hash, key, text, language: link.getAttribute('hreflang'), legal: Boolean(link.closest('footer.foot .foot-legal')) };
     });
-    return { header: Boolean(header), footer: Boolean(footer), captions, links };
-  }, shellControls);
-  if (!shell) return;
+    return { missing, captions, links };
+  }, { controls: shellControls, home, mobile, signedIn: actor !== 'anonymous' });
+  expect.soft(shell.missing, target + ': shared shell controls for ' + actor).toEqual([]);
   const caption = (key) => shellCopy[key]?.[locale === 'pl' ? 0 : 1];
   const errors = [];
   const compare = (where, actual, expected) => {
     if (expected === undefined || normalize(actual ?? '') !== expected) errors.push({ where, actual, expected });
   };
-  if (!shell.header || !shell.footer) errors.push({ header: shell.header, footer: shell.footer });
   for (const [key, text] of shell.captions) compare(key, text, caption(key));
   const legalLinks = new Set();
   for (const { pathname, hash, key, text, language, legal } of shell.links) {
@@ -361,6 +384,41 @@ async function assertSignInControls(page, locale) {
   await expect(form.locator('label[for=email]')).toHaveText(copy('email'));
   await expect(form.locator('label[for=password]')).toHaveText(copy('password'));
   await expect(form.getByRole('button')).toHaveText(copy('login'));
+  for (const field of ['email', 'password']) {
+    await expect(form.locator(`input[name="${field}"]`), `sign-in requires ${field}`).toHaveJSProperty('required', true);
+  }
+  const blankSubmissions = await form.evaluate((form) => {
+    const email = form.elements.namedItem('email');
+    const password = form.elements.namedItem('password');
+    const button = form.querySelector('button');
+    const original = [email.value, password.value];
+    try {
+      return [email, password].map((input) => {
+        email.value = 'parity@example.invalid';
+        password.value = 'Local validation fixture';
+        input.value = '';
+        const other = input === email ? password : email;
+        let invalid = false;
+        const onInvalid = () => { invalid = true; };
+        // Only exercise the browser submission when the blank field blocks it.
+        if (!form.noValidate && !button.formNoValidate && input.validity.valueMissing && other.validity.valid) {
+          input.addEventListener('invalid', onInvalid);
+          try {
+            HTMLFormElement.prototype.requestSubmit.call(form, button);
+          } finally {
+            input.removeEventListener('invalid', onInvalid);
+          }
+        }
+        return { field: input.name, invalid, message: input.validationMessage };
+      });
+    } finally {
+      [email.value, password.value] = original;
+    }
+  });
+  for (const { field, invalid, message } of blankSubmissions) {
+    expect(invalid, `blank sign-in ${field} blocks submission`).toBe(true);
+    expect(message, `blank sign-in ${field} has a native validation message`).not.toBe('');
+  }
 }
 
 function sample(route, locale) {
@@ -447,11 +505,13 @@ function destinations(actor, locale) {
     for (const path of [announcementsPath, announcementEditor, `${announcementsPath}/{id}/edit`]) {
       targets.set(sample(path, locale), path.endsWith('/edit') ? 404 : 200);
     }
+  } else {
+    targets.set(`/${locale}/wiki/creatures`, 503);
   }
   return targets;
 }
 
-async function addLinkedPages(page, targets, locale, actor) {
+async function addLinkedPages(page, targets, knownRoutes, locale, actor) {
   const paths = await page.locator('a[href]:not([hreflang], [download])').evaluateAll((links) =>
     links.flatMap((link) => {
       const href = link.getAttribute('href');
@@ -464,7 +524,9 @@ async function addLinkedPages(page, targets, locale, actor) {
     if (new RegExp(`^/(?:admin/)?${opposite(locale)}(?:/|$)`, 'u').test(path)) continue;
     if (/^\/language\/|\/(?:confirm|revert|reset-password)\/[^/]+$/u.test(path)) continue;
     const staff = /^\/(?:pl\/|en\/)?(?:admin|console)(?:\/|$)/u.test(path);
-    if (staff !== (actor === 'staff') || targets.has(path)) continue;
+    // Another group owns known routes. Newly discovered destinations stay
+    // with the group that found them so rendered links still extend coverage.
+    if (staff !== (actor === 'staff') || knownRoutes.has(path) || targets.has(path)) continue;
     targets.set(path, undefined);
   }
 }
@@ -534,8 +596,32 @@ function posted(page, path) {
     response.request().method() === 'POST' && new URL(response.url()).pathname === path);
 }
 
-const announcementCopy = (locale, key) =>
-  catalogText(`crates/content/src/announcements_staff.${locale}.ftl`, `announcements-${key}`);
+// Keep the editorial expectations independent of the Fluent resources.
+const announcementLabels = {
+  heading: ["Ogłoszenia", "Announcements"],
+  list: ["Lista", "List"],
+  create: ["Utwórz ogłoszenie", "Create announcement"],
+  instructions: ["Szkice są prywatne. Opublikowane ogłoszenia są publiczne. Daty wpisuj w formacie RFC3339 (UTC). Edytuj jednocześnie tekst angielski i polskie tłumaczenie. Aby zatwierdzić bieżące tłumaczenie, ustaw nową datę zatwierdzenia.", "Drafts are private. Published announcements are public. Enter dates in RFC3339 (UTC). Edit the English source and Polish translation together. Set a new approval timestamp to approve the current translation."],
+  draft: ["Szkic", "Draft"],
+  published: ["Opublikowane", "Published"],
+  info: ["Informacja", "Information"],
+  maintenance: ["Prace techniczne", "Maintenance"],
+  warning: ["Ostrzeżenie", "Warning"],
+  save: ["Zapisz ogłoszenie", "Save announcement"],
+  publication_state: ["Publikacja", "Publication"],
+  severity: ["Ważność", "Severity"],
+  starts_at: ["Początek (UTC)", "Starts at (UTC)"],
+  ends_at: ["Koniec (UTC, opcjonalny)", "Ends at (UTC, optional)"],
+  title: ["Tytuł (angielski)", "Title (English)"],
+  body: ["Treść (angielska)", "Body (English)"],
+  action_label: ["Etykieta akcji (angielska)", "Action label (English)"],
+  action_url: ["Ścieżka akcji", "Action path"],
+  title_pl: ["Tytuł (polski)", "Title (Polish)"],
+  body_pl: ["Treść (polska)", "Body (Polish)"],
+  action_label_pl: ["Etykieta akcji (polska)", "Action label (Polish)"],
+  translation_published_at: ["Data zatwierdzenia tłumaczenia (UTC)", "Translation approved at (UTC)"],
+};
+const announcementCopy = (locale, key) => announcementLabels[key][locale === 'pl' ? 0 : 1];
 
 async function assertAnnouncements(page, locale, target) {
   const copy = (key) => announcementCopy(locale, key);
@@ -570,14 +656,14 @@ async function serverValidation(page, locale, actor, target, targets) {
     await expect(page.locator('main [role=alert]')).toHaveText(
       catalogText(`crates/identity/src/credentials_${locale}.ftl`, 'refused'),
     );
-    await assertDocument(page, locale, 'password change refusal');
+    await assertDocument(page, locale, 'password change refusal', actor);
   }
   if (actor === 'player' && target === `/${locale}/support/reports/create`) {
     await submit(page, 'main form', { target_reference: ' ', evidence_summary: 'Parity fixture' });
     await expect(page.locator('main [role=alert]')).toHaveText(
       catalogText(`crates/support/src/reports/${locale}.ftl`, 'invalid'),
     );
-    await assertDocument(page, locale, 'report validation refusal');
+    await assertDocument(page, locale, 'report validation refusal', actor);
   }
   if (actor === 'player' && target === `/${locale}/support/tickets/create`) {
     const response = posted(page, `/${locale}/support/tickets`);
@@ -608,7 +694,7 @@ async function serverValidation(page, locale, actor, target, targets) {
         ]);
         expect(response.status()).toBe(422);
         await expect(page.locator('main')).toContainText(catalogText(`crates/ui/i18n/${locale}.ftl`, 'error-422-description'));
-        await assertDocument(page, locale, 'announcement validation refusal');
+        await assertDocument(page, locale, 'announcement validation refusal', actor);
       });
     }
     await test.step('save and reopen a maintenance draft', async () => {
@@ -626,7 +712,7 @@ async function serverValidation(page, locale, actor, target, targets) {
       const editPath = response.headers().location;
       expect(editPath).toMatch(announcementEdit);
       await assertRouteResponse(navigation, editPath);
-      await assertDocument(page, locale, editPath);
+      await assertDocument(page, locale, editPath, actor);
       await assertAnnouncements(page, locale, editPath);
       const editor = page.locator(`main form[action="${editPath}"]`);
       for (const [field, value] of [['publication_state', 'draft'], ['severity', 'maintenance']]) {
@@ -686,15 +772,22 @@ async function publishOwnershipFixture(route, fields) {
 
 const unixSeconds = () => String(Math.floor(Date.now() / 1000));
 
-async function publishOwnership(order) {
+async function publishOwnership(email) {
+  const [character] = await query(`
+    SELECT a.id AS account_id, uuidv7() AS character_id, w.id AS world_id
+    FROM accounts a CROSS JOIN world_status w
+    WHERE a.email = $1 AND w.name = 'Local Bazaar World'
+    ORDER BY w.id LIMIT 1
+  `, [email]);
+  expect(character, 'local harness world for the ownership fixture').toBeDefined();
   const reply = await publishOwnershipFixture('', {
     operation: 'PublishAccountCharactersV1',
-    account_id: order.payer_account_id,
+    account_id: character.account_id,
     projection_revision: '1',
     source_observed_at: unixSeconds(),
     characters: [{
-      character_id: order.character_id,
-      world_id: order.world_id,
+      character_id: character.character_id,
+      world_id: character.world_id,
       name: ownedCharacterName,
       availability: 'AVAILABLE',
     }],
@@ -756,11 +849,7 @@ async function seedCheckout(page, email) {
       RETURNING id, payer_account_id
     `, [email, new URL(checkoutPrefix, page.url()).href]);
     expect(order, 'disposable order belongs to the registered player').toBeDefined();
-    const { rows: [character] } = await db.query(
-      "SELECT uuidv7() AS character_id, id AS world_id FROM world_status WHERE name = 'Local Bazaar World' ORDER BY id LIMIT 1",
-    );
-    expect(character, 'local harness world for the ownership fixture').toBeDefined();
-    return { ...order, ...character };
+    return order;
   } finally {
     await db.end();
   }
@@ -854,8 +943,28 @@ async function signInStaff(page, locale) {
   expect((await page.goto(`/admin?lang=${locale}`)).status()).toBe(200);
 }
 
-for (const actor of ['anonymous', 'player', 'staff']) {
-  test(`${actor} HTML pages use the requested language`, async ({ page }, info) => {
+const playerGroups = {
+  account: ['account', 'password', 'support'],
+  commerce: ['native-account', 'panel', 'shop', 'collection', 'collection-pvp', 'league', 'pass', 'puzzles'],
+  community: ['atlas', 'bazaar', 'characters', 'deaths', 'events', 'guilds', 'houses', 'online', 'party', 'rankings', 'stats', 'worlds'],
+  search: ['search', 'wiki'],
+};
+const playerRouteGroups = new Map(Object.entries(playerGroups).flatMap(([group, segments]) =>
+  segments.map((segment) => [segment, group])));
+
+function playerRouteGroup(route) {
+  const [, segment] = route.replace(/^\/(?:pl|en)(?=\/|$)/u, '').split('/');
+  return playerRouteGroups.get(segment) ?? 'general';
+}
+
+const crawls = [
+  { actor: 'anonymous' },
+  ...[...Object.keys(playerGroups), 'general'].map((group) => ({ actor: 'player', group })),
+  { actor: 'staff' },
+];
+for (const { actor, group } of crawls) {
+  const scope = group ? `${actor} ${group}` : actor;
+  test(`${scope} HTML pages use the requested language`, async ({ page }, info) => {
     test.setTimeout(600_000);
     const locale = info.project.metadata.locale;
     if (actor === 'staff') await signInStaff(page, locale);
@@ -863,9 +972,11 @@ for (const actor of ['anonymous', 'player', 'staff']) {
     if (actor === 'player') {
       const account = await register(page, locale);
       await login(page, locale, account);
-      const order = await seedCheckout(page, account.email);
-      checkout = checkoutPrefix + order.id;
-      await publishOwnership(order);
+      if (group === 'commerce') {
+        const order = await seedCheckout(page, account.email);
+        checkout = checkoutPrefix + order.id;
+      }
+      if (group === 'account') await publishOwnership(account.email);
     }
     if (actor === 'anonymous') {
       await seedPasswordRange(password());
@@ -875,7 +986,11 @@ for (const actor of ['anonymous', 'player', 'staff']) {
     const languagePath = `/language/${locale}`;
     await assertRouteResponse(await page.goto(languagePath), languagePath, { pathname: origin.pathname });
     const targets = new Map(checkout ? [[checkout, 200]] : []);
-    for (const [route, status] of destinations(actor, locale)) targets.set(route, status);
+    const knownRoutes = destinations(actor, locale);
+    for (const [route, status] of knownRoutes) {
+      if (!group || playerRouteGroup(route) === group) targets.set(route, status);
+    }
+    const probed = [];
     const documents = new Set();
     const checked = new Set();
     const uncovered = new Set();
@@ -901,7 +1016,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
             await assertRouteResponse(await page.goto(ownedProfile), ownedProfile);
             await expect(page.locator('main')).toContainText(ownedCharacterName);
             await expect(page.locator('main textarea[name=comment]')).toBeVisible();
-            await assertDocument(page, locale, ownedProfile);
+            await assertDocument(page, locale, ownedProfile, actor);
             await assertProfileControls(page, locale);
             documents.add(ownedProfile);
             ownedProfileChecked = true;
@@ -918,11 +1033,12 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         const required = target === checkout || announcements;
         const contract = routeContract(url.pathname, status, actor, locale);
         await assertRouteResponse(probe, url.pathname, contract);
+        probed.push(url.pathname);
         if (!contract.document) return;
         if (target === checkout) {
           expect(probe.headers()['referrer-policy']).toBe('same-origin');
           await assertRouteResponse(await page.goto(url.href), url.pathname);
-          await assertDocument(page, locale, target);
+          await assertDocument(page, locale, target, actor);
           await assertCheckout(page, locale, 'awaiting_payment');
           documents.add(url.pathname);
           await nativeValidation(page, locale, checked, uncovered);
@@ -934,7 +1050,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
             ]);
             expect(response.status()).toBe(303);
             await assertRouteResponse(navigation, url.pathname);
-            await assertDocument(page, locale, target);
+            await assertDocument(page, locale, target, actor);
             await assertCheckout(page, locale, 'failed');
           });
           return;
@@ -947,25 +1063,29 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         await assertRouteResponse(navigation, url.pathname, contract);
         const localizedPath = /^\/(pl|en)(?:\/|$)/u.exec(contract.pathname)?.[1];
         const documentLocale = localizedPath ?? (fixedPolishAlias.test(url.pathname) ? 'pl' : locale);
-        await assertDocument(page, documentLocale, target);
+        await assertDocument(page, documentLocale, target, actor);
         if (navigation.ok() && /^\/(?:(?:pl|en)\/)?(?:mfa\/)?login$/u.test(contract.pathname)) {
           await assertSignInControls(page, documentLocale);
         }
+        if (navigation.ok() && searchRoute.test(contract.pathname)) {
+          const search = page.locator('main form[action$="/search"] button[type=submit]');
+          await expect(search).toHaveText(searchCopy[documentLocale]);
+        }
         if (announcements) await assertAnnouncements(page, locale, target);
         if (navigation.ok()) {
-          await addLinkedPages(page, targets, locale, actor);
+          await addLinkedPages(page, targets, knownRoutes, locale, actor);
           await nativeValidation(page, documentLocale, checked, uncovered);
           await serverValidation(page, locale, actor, target, targets);
         }
       });
     }
-    if (actor === 'player') {
+    if (group === 'account') {
       expect(ownedProfileChecked, 'owned profile checked before missing profiles').toBe(true);
       expect(missingProfilesChecked.sort(), 'both missing profiles checked').toEqual(missingProfiles.sort());
     }
-    expect(documents.size, `${actor}: HTML documents visited`).toBeGreaterThan(0);
+    expect(documents.size, `${scope}: HTML documents visited`).toBeGreaterThan(0);
     await info.attach('i18n-coverage', {
-      body: JSON.stringify({ documents: [...documents].map((url) => new URL(url, origin).pathname),
+      body: JSON.stringify({ routes: probed, documents: [...documents].map((url) => new URL(url, origin).pathname),
         nativeValidation: [...checked], formsWithoutNativeValidation: [...uncovered] }),
       contentType: 'application/json',
     });
@@ -992,6 +1112,10 @@ test('raw Fluent tokens distinguish leaks from passkey prose', () => {
   expect(rawKeysIn(revoke + ' sign-in', passkeys)).toEqual(['sign-in', 'sign-in']);
   expect(rawKeysIn('Help: sign-in', '/en/atlas')).toEqual(['sign-in']);
   expect(rawKeysIn('passkeys-help', '/pl/login')).toEqual(['passkeys-help']);
+  expect(rawKeysIn('search', '/pl/search')).toEqual(['search']);
+  expect(rawKeysIn('search', '/en/search')).toEqual(['search']);
+  expect(rawKeysIn('search', '/en/atlas')).toEqual([]);
+  expect(rawKeysIn('Use search', '/en/search')).toEqual([]);
   for (const prefix of ['', '/pl', '/en']) {
     expect(rawKeysIn('Fields: login-email, mfa-password', prefix + '/login')).toEqual(['login-email', 'mfa-password']);
     const profile = prefix + '/account/characters/Parity%20Fixture/profile';
