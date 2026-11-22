@@ -43,6 +43,11 @@ fn keys(path: &Path) -> BTreeSet<String> {
     let resource = FluentResource::try_new(source).unwrap_or_else(|(_, errors)| {
         panic!("invalid Fluent in {}: {errors:?}", path.display());
     });
+    resource_keys(&resource, path)
+}
+
+fn resource_keys(resource: &FluentResource, path: &Path) -> BTreeSet<String> {
+    let mut ids = BTreeSet::new();
     let mut keys = BTreeSet::new();
     for entry in resource.entries() {
         let (id, value, attributes) = match entry {
@@ -54,6 +59,11 @@ fn keys(path: &Path) -> BTreeSet<String> {
             Entry::Term(term) => (format!("-{}", term.id.name), true, &term.attributes),
             _ => continue,
         };
+        assert!(
+            ids.insert(id.clone()),
+            "duplicate entry ID {id} in {}",
+            path.display()
+        );
         if value {
             assert!(
                 keys.insert(id.clone()),
@@ -71,6 +81,16 @@ fn keys(path: &Path) -> BTreeSet<String> {
         }
     }
     keys
+}
+
+#[test]
+#[should_panic(expected = "duplicate entry ID button")]
+fn rejects_duplicate_attribute_only_messages() {
+    let resource = FluentResource::try_new(
+        "button =\n    .label = Label\nbutton =\n    .title = Title\n".into(),
+    )
+    .unwrap();
+    resource_keys(&resource, Path::new("duplicate.ftl"));
 }
 
 #[test]
