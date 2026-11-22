@@ -65,8 +65,9 @@ source is unavailable.
 New publications activate all supplied slots and append one `puzzles.publish`
 audit entry in the same transaction. Future dates are scheduled for their UTC
 day. Repeating the same document and ID returns `replayed: true` without
-reopening its assets. Reusing an ID with changed content or publishing over an
-occupied date and kind returns `Conflict`. Published definitions are immutable.
+reopening its assets. Reusing an ID with changed content, publishing over an
+occupied date and kind, or adding a slot from a different catalogue version
+to an occupied UTC date returns `Conflict`. Published definitions are immutable.
 
 Each account gets one attempt per puzzle. Repeating the same choice returns
 the stored result; changing it returns a conflict. All three correct answers

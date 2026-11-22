@@ -1226,3 +1226,86 @@ async fn postgres_publication_is_atomic_and_replays_by_id() -> TestResult {
     assert_eq!(db.service.today(db.account).await?.len(), 2);
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_publication_rejects_mixed_catalogues_on_the_same_utc_day() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let atlas = db.publish(Kind::Atlas).await?;
+    let next_version = Uuid::now_v7();
+    sqlx::query("INSERT INTO world_versions (id, source_commit, status) VALUES ($1, repeat('b', 40), 'ready')")
+        .bind(next_version)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("INSERT INTO world_entities (version_id, kind, key, data, publishable) SELECT $1, kind, key, data, publishable FROM world_entities WHERE version_id=$2")
+        .bind(next_version)
+        .bind(db.version)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
+        .bind(next_version)
+        .execute(&db.pool)
+        .await?;
+
+    let publication_id = Uuid::now_v7();
+    let tomorrow = db.today.next_day().unwrap();
+    let document = |day: Date| -> Result<Publication, serde_json::Error> {
+        serde_json::from_value(serde_json::json!({
+            "publication_id": publication_id,
+            "day": day.to_string(),
+            "puzzles": [{"definition": definition(next_version, Kind::Quiz)}]
+        }))
+    };
+    let root = std::path::Path::new(".");
+    let prepared = db
+        .service
+        .prepare_publication(document(db.today)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service.activate_publication(&mut tx, prepared).await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await?;
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM puzzles_daily WHERE day=$1")
+        .bind(db.today)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(remaining, [atlas]);
+
+    // A different day may use the new catalogue. The refused claim rolls back.
+    let prepared = db
+        .service
+        .prepare_publication(document(tomorrow)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service
+            .activate_publication(&mut tx, prepared)
+            .await?
+            .unwrap()
+            .len(),
+        1
+    );
+    tx.commit().await?;
+
+    sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
+        .bind(db.version)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        db.service
+            .publish(
+                tomorrow,
+                definition(db.version, Kind::Atlas),
+                media(db.version, Kind::Atlas)
+            )
+            .await,
+        Err(Error::Conflict)
+    ));
+    let daily = db.service.today(db.account).await?;
+    assert_eq!(daily.len(), 1);
+    assert_eq!(daily[0].id, atlas);
+    db.close().await
+}

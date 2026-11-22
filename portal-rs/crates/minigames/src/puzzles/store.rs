@@ -96,6 +96,18 @@ impl Puzzles {
         media: Option<Media>,
         publication_id: Option<Uuid>,
     ) -> Result<Uuid, Error> {
+        // Match the operator path's lock order: active catalogue before day.
+        sqlx::query("SELECT version_id FROM world_active_version WHERE singleton FOR SHARE")
+            .execute(&mut **tx)
+            .await?;
+        // Lock the date even when it has no slots. The subsequent INSERT sees
+        // slots committed by the previous publisher before it released the lock.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock('puzzles_daily'::regclass::oid::int, $1::date - DATE '2000-01-01')",
+        )
+        .bind(day)
+        .execute(&mut **tx)
+        .await?;
         self.visible_locked(tx, definition).await?;
         match (&media, definition.kind) {
             (None, Kind::Quiz) => {}
@@ -118,10 +130,22 @@ impl Puzzles {
             _ => return Err(Error::Invalid),
         }
         let id = Uuid::now_v7();
-        let result = sqlx::query("INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image,publication_id) SELECT $1,$2,$3,$4,$5,$6,$7 WHERE $2 >= (clock_timestamp() AT TIME ZONE 'UTC')::date ON CONFLICT (day,kind) DO NOTHING")
-            .bind(id).bind(day).bind(definition.kind.key()).bind(definition.world_version)
-            .bind(sqlx::types::Json(definition)).bind(media.map(|media| media.bytes)).bind(publication_id)
-            .execute(&mut **tx).await?;
+        let result = sqlx::query(
+            "INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image,publication_id)
+             SELECT $1,$2,$3,$4,$5,$6,$7
+             WHERE $2 >= (clock_timestamp() AT TIME ZONE 'UTC')::date
+               AND NOT EXISTS (SELECT 1 FROM puzzles_daily WHERE day=$2 AND world_version<>$4)
+             ON CONFLICT (day,kind) DO NOTHING",
+        )
+        .bind(id)
+        .bind(day)
+        .bind(definition.kind.key())
+        .bind(definition.world_version)
+        .bind(sqlx::types::Json(definition))
+        .bind(media.map(|media| media.bytes))
+        .bind(publication_id)
+        .execute(&mut **tx)
+        .await?;
         if result.rows_affected() == 0 {
             return Err(Error::Conflict);
         }
