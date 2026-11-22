@@ -44,15 +44,16 @@ const currentStep = () => Math.floor(Date.now() / 30_000);
 async function submitProof(page, path, password, factor, { action, status = 200, afterCsrf } = {}) {
   const form = page.locator(`form[action="${path}"]`);
   if (action) await form.locator('[name=action]').selectOption(action);
-  if (!afterCsrf) await csrfRejected(page, path, { action, password, code: '000000' });
+  const validProofProbe = Boolean(action || afterCsrf);
+  if (!validProofProbe) await csrfRejected(page, path, { password, code: '000000' });
   await form.locator('[name=password]').fill(password);
   const firstUnused = (usedSteps.get(factor) ?? -1) + 1;
   await expect.poll(() => currentStep() + 1, { timeout: 35_000 }).toBeGreaterThanOrEqual(firstUnused);
   const step = Math.max(currentStep(), firstUnused);
   const code = factor.generate({ timestamp: step * 30_000 });
-  if (afterCsrf) {
+  if (validProofProbe) {
     await csrfRejected(page, path, { action, password, code });
-    await afterCsrf();
+    await afterCsrf?.();
   }
   await form.locator('[name=code]').fill(code);
   const [response] = await Promise.all([
@@ -130,7 +131,13 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   await expect(page.locator(`a[href="${path}"]`).first()).toBeVisible();
   await page.locator(`a[href="${path}"]`).first().click();
   const token = await csrf(page, path);
-  expect((await post(page, path, token, { display_name: 'x'.repeat(65) })).status()).toBe(400);
+  const invalid = await post(page, path, token, { display_name: 'x'.repeat(65) });
+  expect(invalid.status()).toBe(400);
+  const invalidPage = await invalid.text();
+  const message = lang === 'pl'
+    ? 'Wpisz maksymalnie 64 znaki bez znaków sterujących.'
+    : 'Use up to 64 characters without control characters.';
+  expect(invalidPage.includes(message) && invalidPage.includes(`action="${path}"`)).toBe(true);
   expect((await post(page, path, token, { display_name: 'Other', account_id: randomUUID() })).status()).toBe(422);
   await submit(page, 'main form', { display_name: 'Żółty Lis' });
   await expect(page.locator('[name=display_name]')).toHaveValue('Żółty Lis');
