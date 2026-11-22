@@ -58,6 +58,27 @@ async fn postgres_viewer_routes() -> TestResult {
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
+    let directory = tempfile::tempdir()?;
+    let cold = router(Viewer {
+        enabled: true,
+        directory: directory.path().into(),
+        world: WorldStore::new(pool.clone(), WorldOptions { enabled: true }),
+    });
+    for path in [
+        "/en/atlas".to_owned(),
+        format!("/atlas/tiles/{}/7/0/0/0.webp", "a".repeat(40)),
+    ] {
+        let response = cold
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL),
+            Some(&"no-store".parse()?)
+        );
+    }
+
     let version = "a".repeat(40);
     sqlx::query("INSERT INTO world_versions(id,source_commit,status) VALUES ('01900000-0000-7000-8000-000000000001',$1,'ready')").bind(&version).execute(&pool).await?;
     sqlx::query(
