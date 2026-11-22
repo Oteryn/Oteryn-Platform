@@ -45,14 +45,7 @@ where
 {
     let mut tx = pool.begin().await?;
     crate::mutation_budget(&mut tx).await?;
-    sqlx::query(
-        "SELECT CASE WHEN current_setting('server_version_num')::integer >= 170000 \
-         THEN set_config('transaction_timeout', \
-         (greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint + $1)::text || 'ms', true) END",
-    )
-    .bind(TRANSACTION_GRACE_MS)
-    .execute(&mut *tx)
-    .await?;
+    arm_timeout(&mut tx, TRANSACTION_GRACE_MS).await?;
     let mut budget = BudgetTx { tx };
     match work(&mut budget).await {
         Ok(value) => {
@@ -66,6 +59,19 @@ where
             Err(error)
         }
     }
+}
+
+/// Bound the whole transaction by the existing mutation deadline plus optional grace.
+pub async fn arm_timeout(connection: &mut PgConnection, grace_ms: i64) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "SELECT CASE WHEN current_setting('server_version_num')::integer >= 170000 \
+         THEN set_config('transaction_timeout', \
+         (greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint + $1)::text || 'ms', true) END",
+    )
+    .bind(grace_ms)
+    .execute(connection)
+    .await?;
+    Ok(())
 }
 
 /// Arm the timer and queue an absolute deadline check as the transaction's last write.

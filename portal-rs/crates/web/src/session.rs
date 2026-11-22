@@ -469,7 +469,8 @@ impl SessionMutationDeadline {
                 .bind(self.database)
                 .execute(&mut *tx)
                 .await?;
-            oteryn_db::mutation_budget(tx).await
+            oteryn_db::mutation_budget(tx).await?;
+            oteryn_db::transaction::arm_timeout(tx, 0).await
         }).await
     }
 
