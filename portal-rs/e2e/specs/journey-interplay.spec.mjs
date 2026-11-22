@@ -210,7 +210,8 @@ test('two players trade, report harassment, appeal through support and face staf
         note: 'Looking for a group in the Bazaar world',
       };
       expect((await clickForm(buyer.page, post, draft)).status()).toBe(403);
-      await expect(buyer.page).toHaveURL(/\/party$/);
+      // The refusal has an empty body, which Chromium displays as an error page.
+      await expect(buyer.page).toHaveURL('chrome-error://chromewebdata/');
       await buyer.page.goBack();
       await expect(main(buyer)).toContainText(t('No listings', 'Brak ogłoszeń'));
     });
