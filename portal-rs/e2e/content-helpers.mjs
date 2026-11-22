@@ -114,7 +114,8 @@ export async function title(page, expected, lang) {
 }
 
 export const editPath = page => new URL(page.url()).pathname;
-export const formFor = (page, suffix) => page.locator(`main form[action$="${suffix}"]`);
+export const formFor = (page, suffix) =>
+ page.locator(`main form:is([action$="${suffix}"], [action*="${suffix}?"])`);
 export const mainForm = page => page.locator('main form').first();
 export async function labels(form, lang, entries) {
  for (const [name, pl, en] of entries) {
