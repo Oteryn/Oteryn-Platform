@@ -116,7 +116,7 @@ struct Paging {
 <h1>{{ chrome.text("commerce-orders") }}</h1>
 {% if detail %}<a href="/{{ chrome.lang }}/account/store-orders">{{ chrome.text("commerce-orders") }}</a>{% endif %}
 {% for order in orders %}
-<article class="op-card op-stack">
+<article class="op-card">
 <h2>{% if detail %}{{ order.offer_key }}{% else %}<a href="/{{ chrome.lang }}/account/store-orders/{{ order.order_id }}">{{ order.offer_key }}</a>{% endif %}</h2>
 <p>{{ order.quantity }} × · {{ order.total_price }} COINS</p>
 <p>{{ order.placed_at }} UTC</p>

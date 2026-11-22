@@ -12,7 +12,7 @@
 </form>
 {% if actions %}<a href="/admin/commerce">{{ chrome.text("commerce-payment-actions") }}</a>{% endif %}
 {% for p in rows %}
-<article class="op-card op-stack">
+<article class="op-card">
 <h2>{% if detail %}{{ p.id }}{% else %}<a href="?lang={{ chrome.lang }}&amp;id={{ p.id }}">{{ p.id }}</a>{% endif %}</h2>
 <p>{{ p.price() }} · {{ chrome.text(p.status_key()) }}</p>
 <p>{{ chrome.text("commerce-updated") }} {{ p.updated_at }} UTC</p>
