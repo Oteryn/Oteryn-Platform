@@ -220,8 +220,10 @@ for (const actor of actors) {
     const covered = new Map();
     const evidence = [];
     const report = info.outputPath('quality-inventory.json');
-    const selected = process.env.PORTAL_QUALITY_ROUTE;
-    expect(inventory.some(row => !selected || row.pattern === selected), 'selected route exists').toBe(true);
+    const selected = process.env.PORTAL_QUALITY_ROUTE?.split(',').map(pattern => pattern.trim()) ?? [];
+    for (const pattern of selected) {
+      expect(inventory.some(row => row.pattern === pattern), `selected source pattern ${pattern} exists`).toBe(true);
+    }
     const probe = await playwrightRequest.newContext({
       baseURL: process.env.PORTAL_E2E_ORIGIN,
       ignoreHTTPSErrors: true,
@@ -231,7 +233,7 @@ for (const actor of actors) {
     try {
       // Discover seeded document links from the shell and collection pages first.
       for (const entry of inventory) {
-        if (selected && entry.pattern !== selected) continue;
+        if (selected.length && !selected.includes(entry.pattern)) continue;
         for (const target of entry.paths) {
           try {
             evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probe));

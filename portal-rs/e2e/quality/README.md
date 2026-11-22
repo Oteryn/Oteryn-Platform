@@ -14,7 +14,8 @@ Set `PORTAL_E2E_ADMIN_DATABASE_URL` privately before running. The launcher
 builds the portal with two Cargo build jobs. It accepts `PORTAL_E2E_BINARY`
 for a prebuilt portal. Standard Playwright filters such as `--project=en-390`
 and `--grep=platform_admin` apply. For single-route diagnosis,
-`PORTAL_QUALITY_ROUTE` selects one exact source pattern, such as `/{lang}/`.
+`PORTAL_QUALITY_ROUTE` accepts comma-separated exact source patterns, such as
+`/{lang}/,/account`.
 
 The launcher regenerates the existing Rust route inventory in scratch. The
 tests use GET registrations, navigation registry destinations and same-origin
