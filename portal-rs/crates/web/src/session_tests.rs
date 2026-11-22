@@ -548,7 +548,11 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
     );
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' AND built_in")
         .bind(account).execute(&db.pool).await?;
-    let session_before = snapshot(db.pool.clone()).await?;
+    let snapshot = || {
+        sqlx::query_scalar::<_, String>("SELECT row_to_json(s)::text FROM web_sessions s LIMIT 1")
+            .fetch_one(&db.pool)
+    };
+    let session_before = snapshot().await?;
     let same_host = render(panel.clone(), "staff.test", id.clone()).await?;
     assert!(same_host.contains(r#"href="/admin">Staff dashboard</a>"#));
     let public_host = render(panel.clone(), "public.test", id.clone()).await?;
@@ -563,7 +567,10 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
             .await?
             .contains("Staff dashboard")
     );
-    assert_eq!(snapshot(db.pool.clone()).await?, session_before);
+    assert!(
+        snapshot().await? == session_before,
+        "rendering the staff menu changed the session"
+    );
     db.close().await
 }
 
