@@ -116,6 +116,7 @@ struct PublicPage<'a> {
     events: Vec<PublicEvent>,
     detail: bool,
     next: u64,
+    next_label: String,
     more: bool,
 }
 async fn index(
@@ -126,16 +127,21 @@ async fn index(
     if let Err(e) = locale(&lang) {
         return response(e);
     }
-    match events.public_page(&lang, None, q.offset(200)).await {
-        Ok(rows) => oteryn_web::render(&PublicPage {
-            lang: &lang,
-            title: text(&lang, "events"),
-            empty: text(&lang, "empty"),
-            more: rows.len() == 200,
-            next: q.next(),
-            events: rows,
-            detail: false,
-        }),
+    match events.public_page(&lang, None, q.offset(200), 201).await {
+        Ok(mut rows) => {
+            let more = rows.len() > 200;
+            rows.truncate(200);
+            oteryn_web::render(&PublicPage {
+                lang: &lang,
+                title: text(&lang, "events"),
+                empty: text(&lang, "empty"),
+                more,
+                next: q.next(),
+                next_label: text(&lang, "next"),
+                events: rows,
+                detail: false,
+            })
+        }
         Err(e) => response(e),
     }
 }
@@ -155,6 +161,7 @@ async fn show(
             detail: true,
             more: false,
             next: 0,
+            next_label: String::new(),
         }),
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => response(e),

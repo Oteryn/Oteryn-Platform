@@ -19,19 +19,20 @@ impl Events {
         locale: &str,
         slug: Option<&str>,
     ) -> Result<Vec<PublicEvent>, Error> {
-        self.public_page(locale, slug, 0).await
+        self.public_page(locale, slug, 0, 200).await
     }
     pub(crate) async fn public_page(
         &self,
         locale: &str,
         slug: Option<&str>,
         offset: i64,
+        limit: i64,
     ) -> Result<Vec<PublicEvent>, Error> {
         if !matches!(locale, "pl" | "en") || slug.is_some_and(|s| !valid_slug(s)) {
             return Err(Error::Invalid);
         }
-        Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2) ORDER BY (e.ends_at>clock_timestamp()) DESC,e.featured DESC,e.starts_at,e.id LIMIT 200 OFFSET $3")
-            .bind(locale).bind(slug).bind(offset).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2) ORDER BY (e.ends_at>clock_timestamp()) DESC,e.featured DESC,e.starts_at,e.id LIMIT $4 OFFSET $3")
+            .bind(locale).bind(slug).bind(offset).bind(limit).fetch_all(&self.pool).await?)
     }
     pub(crate) async fn digest(
         &self,
