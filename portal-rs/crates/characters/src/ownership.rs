@@ -212,19 +212,22 @@ async fn initial_cut(tx: &mut PgConnection, character: Uuid) -> Result<Ownership
     })
 }
 
-/// Proves who owns `character` now. Pending or ambiguous evidence denies
-/// (`Unavailable`). Locks the character's commands and projection rows shared.
-pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) -> Result<Ownership> {
-    let feed = live_feed(tx).await?;
-    ownership_with_feed(tx, account, character, &feed).await
+/// Checks transfer receipts while the caller holds the shared issuance fence.
+pub(crate) async fn transfer_allows_owner(
+    tx: &mut PgConnection,
+    character: Uuid,
+    account: Uuid,
+) -> Result<bool> {
+    Ok(transfer_cuts(tx, character)
+        .await?
+        .last()
+        .is_none_or(|(_, cut)| cut.account == account))
 }
 
-pub async fn ownership_with_feed(
+async fn transfer_cuts(
     tx: &mut PgConnection,
-    account: Uuid,
     character: Uuid,
-    feed: &LiveFeed,
-) -> Result<Ownership> {
+) -> Result<Vec<(Uuid, OwnershipCut)>> {
     let rows = sqlx::query("SELECT state,receipt_json FROM character_commands WHERE command='TransferCharacterOwnership' AND binding_json::jsonb->>'character_id'=$1 ORDER BY source_revision LIMIT $2 FOR SHARE")
         .bind(character.to_string())
         .bind(MAX_TRANSFERS + 1)
@@ -243,6 +246,23 @@ pub async fn ownership_with_feed(
             .ok_or(Unavailable)?;
         transfers.extend(receipt(&json)?);
     }
+    Ok(transfers)
+}
+
+/// Proves who owns `character` now. Pending or ambiguous evidence denies
+/// (`Unavailable`). Locks the character's commands and projection rows shared.
+pub async fn ownership(tx: &mut PgConnection, account: Uuid, character: Uuid) -> Result<Ownership> {
+    let feed = live_feed(tx).await?;
+    ownership_with_feed(tx, account, character, &feed).await
+}
+
+pub async fn ownership_with_feed(
+    tx: &mut PgConnection,
+    account: Uuid,
+    character: Uuid,
+    feed: &LiveFeed,
+) -> Result<Ownership> {
+    let transfers = transfer_cuts(tx, character).await?;
     // Committed transfers chain from the initial cut: each seller is the
     // previous owner, at a later character revision. (A baseline's acceptance
     // time is no decision time; the login read refuses an inverted period.)

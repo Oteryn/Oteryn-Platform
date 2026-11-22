@@ -199,6 +199,12 @@ impl Service {
             matches.into_iter().next().ok_or(Error::NotFound)?
         };
         Self::unique_owner(tx, selected.0).await?;
+        if !crate::ownership::transfer_allows_owner(tx, selected.0, account)
+            .await
+            .unwrap_or(false)
+        {
+            return Err(Error::NotFound);
+        }
         Ok(selected)
     }
     async fn unique_owner(
@@ -238,11 +244,15 @@ impl Service {
         now: i64,
     ) -> Result<(String, Preferences), Error> {
         let mut tx = self.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
             .bind(account)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::NotFound)?;
+        crate::ownership::shared_fences(&mut tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
         Self::share_feed(&mut tx).await?;
         let c = self.owned(&mut tx, account, name, now).await?;
         let p = Self::preferences(&mut tx, account, c.0).await?;
@@ -313,6 +323,9 @@ impl Service {
         if status.as_deref() != Some("active") {
             return Err(SaveError::Domain(Error::NotFound));
         }
+        crate::ownership::shared_fences(&mut tx)
+            .await
+            .map_err(|_| SaveError::Domain(Error::Unavailable))?;
         Self::share_feed(&mut tx).await?;
         let c = self
             .owned(&mut tx, account, name, now)
