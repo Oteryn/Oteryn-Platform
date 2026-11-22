@@ -127,7 +127,12 @@ binary paths are resolved from `portal-rs` for services and browser seeds.
 `--exit-after-ready` stops after the report. Ctrl-C or SIGTERM stops the
 services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it after
 readiness). A startup failure or interruption triggers database cleanup and
-removes generated credentials. Database cleanup retries with fresh connections.
+removes generated credentials. Shutdown closes the staff proxy before giving
+children ten seconds to exit, then terminates stalled children. Database cleanup
+retries with fresh connections, increased timeouts, and backoff within 75 seconds.
+PostgreSQL URLs use one explicit loopback endpoint. `localhost` resolves to
+`127.0.0.1` and an omitted port defaults to `5432` unless the URL specifies a
+`port` option. Use an explicit `[::1]` for an IPv6-only listener.
 Managed staff-console teardown reports a failed harness exit and retains its
 diagnostic log.
 Browser seeding validates both testing flags and forwards only the local

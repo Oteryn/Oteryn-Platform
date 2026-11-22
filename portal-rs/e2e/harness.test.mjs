@@ -31,16 +31,38 @@ test('managed and direct launchers reject a remote PostgreSQL host override', as
   refusedBeforeProvisioning(t, dsn, {}, /Local PostgreSQL only/);
 });
 
-test('local PostgreSQL URL checks all host values and accepts loopback', () => {
-  for (const host of ['localhost', '127.0.0.1', '[::1]']) {
-    assert.equal(localDatabaseURL(`postgres://${host}/postgres`).hostname, host);
+test('local PostgreSQL URL checks all host values and normalizes the loopback endpoint', () => {
+  for (const [input, host] of [['localhost', '127.0.0.1'], ['127.0.0.1', '127.0.0.1'], ['[::1]', '[::1]']]) {
+    const url = localDatabaseURL(`postgres://${input}/postgres`);
+    assert.equal(url.hostname, host);
+    assert.equal(url.port, '5432');
   }
-  assert.equal(localDatabaseURL('postgres://localhost/postgres?host=127.0.0.1').hostname, 'localhost');
+  assert.equal(localDatabaseURL('postgres://localhost/postgres?host=127.0.0.1&hostaddr=127.0.0.1&port=5433').href,
+    'postgres://127.0.0.1:5433/postgres');
   for (const option of ['%68ost=remote.invalid', 'host=remote.invalid&host=localhost', 'hostaddr=192.0.2.1']) {
     assert.throws(() => localDatabaseURL(`postgres://localhost/postgres?${option}`), /Local PostgreSQL only/);
   }
   assert.throws(() => localDatabaseURL('postgres://localhost/portal_e2e_guard?dbname=other'),
     /database in the URL path/);
+});
+
+test('local PostgreSQL URL rejects conflicting local endpoints and ignores ambient PGPORT', t => {
+  const previous = process.env.PGPORT;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PGPORT;
+    else process.env.PGPORT = previous;
+  });
+  process.env.PGPORT = '5439';
+  assert.equal(localDatabaseURL('postgres://localhost/postgres').href, 'postgres://127.0.0.1:5432/postgres');
+  for (const dsn of [
+    'postgres://127.0.0.1/postgres?hostaddr=%3A%3A1',
+    'postgres://[::1]/postgres?host=localhost',
+  ]) assert.throws(() => localDatabaseURL(dsn), /Conflicting PostgreSQL host/);
+  for (const dsn of [
+    'postgres://localhost:5432/postgres?port=5433',
+    'postgres://localhost/postgres?port=5432&port=5433',
+    'postgres://localhost/postgres?port=5432extra',
+  ]) assert.throws(() => localDatabaseURL(dsn), /Invalid or conflicting PostgreSQL port/);
 });
 
 test('staff harness refuses either production environment flag before provisioning', t => {
@@ -57,7 +79,7 @@ test('external staff seed fixture forwards only the validated URL, testing flags
     PGHOSTADDR: '192.0.2.1', PGHOST: 'remote.invalid', PGPORT: '1', PGDATABASE: 'other', PGOPTIONS: '-c statement_timeout=1',
   });
   assert.deepEqual(env, {
-    OTERYN_ENV: 'testing', APP_ENV: 'testing', OTERYN_DATABASE_URL: databaseURL, OTERYN_MFA_KEY: 'test-key',
+    OTERYN_ENV: 'testing', APP_ENV: 'testing', OTERYN_DATABASE_URL: 'postgres://127.0.0.1:5432/portal_e2e_guard', OTERYN_MFA_KEY: 'test-key',
   });
 });
 

@@ -15,6 +15,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
+import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -55,12 +56,15 @@ const ports = {
 const adminURL = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
 if (!adminURL) throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a throwaway local PostgreSQL administrator URL');
 const adminDatabaseURL = localDatabaseURL(adminURL);
+const adminConnectionString = adminDatabaseURL.href;
+const databaseLock = 'SELECT pg_advisory_lock(hashtextextended($1, 0))';
 
 const abort = new AbortController();
 const children = new Map();
 const cleanup = [];
 let ready = false;
 let stopping = false;
+let childrenStopped;
 const onCleanup = action => cleanup.push(action);
 
 function readJSON(source, label) {
@@ -71,28 +75,55 @@ function readJSON(source, label) {
   }
 }
 
-async function dropDatabase(dbName) {
-  for (let remaining = 3; remaining > 0; remaining--) {
+async function dropDatabase(dbName, reconcile) {
+  const deadline = performance.now() + 75_000;
+  let failure;
+  for (let attempt = 0; ; attempt++) {
+    const remaining = Math.floor(deadline - performance.now());
+    if (remaining <= 0) throw failure;
+    const budget = Math.min(5_000 * 2 ** attempt, 30_000, remaining);
+    const attemptDeadline = performance.now() + budget;
+    const url = new URL(adminConnectionString);
+    url.searchParams.set('statement_timeout', String(budget));
+    const socket = new Socket();
     const client = new pg.Client({
-      connectionString: adminURL,
-      connectionTimeoutMillis: 5_000,
-      statement_timeout: 5_000,
+      connectionString: url.href,
+      connectionTimeoutMillis: budget,
+      stream: socket,
     });
     // An unexpected disconnect can also emit an idle-client error between
     // connect and query. The awaited operations determine whether to retry.
     client.on('error', () => {});
+    const query = (text, values) => {
+      const remaining = Math.floor(attemptDeadline - performance.now());
+      if (remaining <= 0) throw new Error('PostgreSQL cleanup attempt timed out');
+      return client.query({ text, values, query_timeout: remaining });
+    };
     try {
       await client.connect();
-      await client.query({
-        text: `DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`,
-        query_timeout: 6_000,
-      });
+      if (reconcile) {
+        // Wait until the creating backend releases its session lock, including
+        // when CREATE committed before the client lost its response.
+        await query(databaseLock, [dbName]);
+        const { rows } = await query(
+          'SELECT pg_get_userbyid(datdba) = current_user AS owned FROM pg_database WHERE datname = $1', [dbName],
+        );
+        if (!rows.length) return;
+        if (!rows[0].owned) throw Object.assign(new Error('Database belongs to another role'), { code: '42501' });
+      }
+      await query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
       return;
     } catch (error) {
-      if (remaining === 1) throw error;
+      if (error.code === '42501' || /^28/.test(error.code)) throw error;
+      failure = error;
     } finally {
+      socket.destroy();
       await client.end();
     }
+    const backoff = Math.min(250 * 2 ** attempt, 2_000);
+    if (performance.now() + backoff >= deadline) throw failure;
+    log('retrying database cleanup', failure.code ?? failure.name);
+    await delay(backoff);
   }
 }
 
@@ -109,10 +140,26 @@ function launch(program, args, options) {
   return { child, done };
 }
 
+async function stopChildren() {
+  const completed = Promise.all(children.values());
+  for (const child of children.keys()) child.kill('SIGINT');
+  const watchdog = new AbortController();
+  try {
+    await Promise.race([completed, (async () => {
+      await delay(10_000, undefined, { signal: watchdog.signal });
+      log('forcing shutdown of stalled children');
+      for (const child of children.keys()) child.kill('SIGKILL');
+      await delay(2_000, undefined, { signal: watchdog.signal });
+    })()]);
+  } finally {
+    watchdog.abort();
+  }
+}
+
 async function close(code) {
   if (stopping) return;
   stopping = true;
-  await Promise.all(children.values());
+  await childrenStopped;
   for (const action of cleanup.reverse()) {
     try {
       await action(code);
@@ -127,7 +174,7 @@ async function close(code) {
 function stop(code, message) {
   if (abort.signal.aborted) return;
   abort.abort({ code, message });
-  for (const child of children.keys()) child.kill('SIGINT');
+  childrenStopped = stopChildren();
   if (ready) {
     if (message) log(message);
     void close(code);
@@ -207,17 +254,34 @@ async function start() {
 
   // ---- database ----------------------------------------------------------------
   const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-  const admin = new pg.Client({ connectionString: adminURL, connectionTimeoutMillis: 10_000 });
+  const adminSocket = new Socket();
+  const admin = new pg.Client({ connectionString: adminConnectionString, connectionTimeoutMillis: 10_000, stream: adminSocket });
   admin.on('error', () => stop(1, 'PostgreSQL administrator connection lost'));
-  onCleanup(() => admin.end());
-  await admin.connect();
-  abort.signal.throwIfAborted();
-  await admin.query(`CREATE DATABASE "${dbName}"`);
+  let creation = 'not-issued';
   onCleanup(async () => {
-    if (!ready || process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
-      await dropDatabase(dbName);
+    if ((creation === 'created' || creation === 'pending')
+        && (!ready || process.env.PORTAL_E2E_KEEP_DATABASE !== '1')) {
+      await dropDatabase(dbName, creation === 'pending');
     }
   });
+  onCleanup(() => {
+    adminSocket.destroy();
+    return admin.end();
+  });
+  await admin.connect();
+  abort.signal.throwIfAborted();
+  await admin.query({ text: databaseLock, values: [dbName], query_timeout: 15_000 });
+  abort.signal.throwIfAborted();
+  creation = 'pending';
+  try {
+    await admin.query({ text: `CREATE DATABASE "${dbName}"`, query_timeout: 60_000 });
+    creation = 'created';
+  } catch (error) {
+    // A PostgreSQL statement error establishes that CREATE failed. Connection
+    // loss and client-side timeouts leave the result unknown.
+    if (error.code === '42P04' || error.code === '23505' || error.severity === 'ERROR') creation = 'failed';
+    throw error;
+  }
   abort.signal.throwIfAborted();
   adminDatabaseURL.pathname = `/${dbName}`;
   const databaseURL = adminDatabaseURL.href;
@@ -231,7 +295,7 @@ async function start() {
   fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).digest('hex')}\n`, { mode: 0o600 });
 
   const staffConsole = staffMode
-    ? await (await import('./admin-agent.mjs')).prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, onCleanup })
+    ? await (await import('./admin-agent.mjs')).prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, signal: abort.signal })
     : undefined;
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
@@ -261,9 +325,18 @@ async function start() {
     const { child, done } = launch(program, args, { env, ...options });
     let stdout = '';
     child.stdout?.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
-    const result = await done;
-    abort.signal.throwIfAborted();
-    return { ...result, stdout };
+    let cancel;
+    const interrupted = new Promise((_, reject) => {
+      cancel = () => reject(abort.signal.reason);
+      abort.signal.addEventListener('abort', cancel, { once: true });
+    });
+    try {
+      const result = await Promise.race([done, interrupted]);
+      abort.signal.throwIfAborted();
+      return { ...result, stdout };
+    } finally {
+      abort.signal.removeEventListener('abort', cancel);
+    }
   }
 
   async function checkedRun(program, args, options) {

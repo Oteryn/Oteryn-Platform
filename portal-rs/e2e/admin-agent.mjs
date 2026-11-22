@@ -149,7 +149,8 @@ export async function startStaffConsoleHarness(databaseURL) {
   }
 }
 
-export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, onCleanup }) {
+export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, signal }) {
+  signal.throwIfAborted();
   const cn = `oteryn-admin-agent/${agentId}`;
   const san = `${agentId}.e2e.test`;
   const client = { cert: path.join(dirs.secrets, 'admin-agent.pem'), key: path.join(dirs.secrets, 'admin-agent.key') };
@@ -182,11 +183,18 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
       response.writeHead(incoming.statusCode, incoming.headers);
       incoming.pipe(response);
     });
-    upstream.on('error', () => { response.writeHead(502).end(); });
+    upstream.on('error', () => {
+      if (response.headersSent) response.destroy();
+      else if (!response.destroyed) response.writeHead(502).end();
+    });
     request.pipe(upstream);
   });
-  onCleanup(() => proxy.close());
-  await once(proxy.listen(0, '127.0.0.1'), 'listening');
+  signal.addEventListener('abort', () => {
+    proxy.close();
+    proxy.closeAllConnections();
+  }, { once: true });
+  await once(proxy.listen(0, '127.0.0.1'), 'listening', { signal });
+  signal.throwIfAborted();
   const host = `localhost:${proxy.address().port}`;
   const origin = `https://${host}`;
   // Login configures the real security-notification consumer. Its disposable
@@ -207,11 +215,15 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
       stream.resume();
     },
   });
-  onCleanup(() => smtp.close());
   await new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => {
+      smtp.close();
+      reject(signal.reason);
+    }, { once: true });
     smtp.once('error', reject);
     smtp.listen(0, '127.0.0.1', resolve);
   });
+  signal.throwIfAborted();
   const file = path.join(out, 'secrets', 'admin-agent.json');
   fs.writeFileSync(file, JSON.stringify({
     origin, internalPort: ports.internal, caFile, client,

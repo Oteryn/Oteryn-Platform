@@ -95,6 +95,7 @@ async function post(page, route, form, status) {
     form, headers: { origin: new URL(page.url()).origin }, maxRedirects: 0,
   });
   expect(response.status(), `${route} ${form.operation ?? 'player.search'}`).toBe(status);
+  return response;
 }
 
 async function received(agent, operation, target, params = {}) {
@@ -344,8 +345,14 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
         await unavailableSection(page, heading, copy.unavailable);
       }
       await expect(page.locator('main')).not.toContainText(characterName);
-      await post(page, players, search, 303);
-      expect((await page.goto(url(players, { lang, q: search.q }))).status()).toBe(200);
+      const response = await post(page, players, search, 303);
+      const location = response.headers().location;
+      expect(location).toBeTruthy();
+      const destination = new URL(location, page.url());
+      expect(destination.origin).toBe(new URL(page.url()).origin);
+      expect(destination.pathname).toBe(players);
+      expect([...destination.searchParams].sort()).toEqual([['lang', lang], ['q', search.q]]);
+      expect((await page.goto(destination.href)).status()).toBe(200);
       for (const heading of copy.playerSections) {
         await unavailableSection(page, heading, copy.unavailable);
       }
