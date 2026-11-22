@@ -283,24 +283,20 @@ async fn queue_email_change(
     .bind(token_hash(&revert))
     .fetch_one(&mut *db)
     .await?;
-    let subject = text(&locale, "title")?;
-    for (recipient, route, token) in [(address, "confirm", confirmation), (&old, "revert", revert)]
-    {
-        let body = format!(
-            "{}\n\n{origin}/email-change/{route}/{token}",
-            text(&locale, route)?
-        );
-        sqlx::query(
-            "INSERT INTO account_email_change_mail(change_id,recipient,subject,body)
-             VALUES($1,$2,$3,$4)",
-        )
-        .bind(id)
-        .bind(recipient)
-        .bind(&subject)
-        .bind(body)
-        .execute(&mut *db)
-        .await?;
-    }
+    let body = format!(
+        "{}\n\n{address}\n\n{origin}/{locale}/account/security/email",
+        text(&locale, "assisted")?
+    );
+    sqlx::query(
+        "INSERT INTO account_email_change_mail(change_id,recipient,subject,body)
+         VALUES($1,$2,$3,$4)",
+    )
+    .bind(id)
+    .bind(&old)
+    .bind(text(&locale, "title")?)
+    .bind(body)
+    .execute(&mut *db)
+    .await?;
     Ok(id)
 }
 

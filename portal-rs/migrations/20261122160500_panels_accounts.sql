@@ -91,14 +91,25 @@ CREATE TABLE staff_account_flags (
 );
 
 ALTER TABLE account_email_changes
-    ADD COLUMN initiated_by_staff boolean NOT NULL DEFAULT false;
+    ADD COLUMN initiated_by_staff boolean NOT NULL DEFAULT false,
+    ADD COLUMN owner_approved_at timestamptz CHECK (owner_approved_at IS NULL OR initiated_by_staff);
 
--- Cancel the assisted request when assigning any role. The membership writers
--- lock the account and this update serializes with the existing email worker.
+-- Cancel a pending assisted request on promotion. An applied change must
+-- finish its reversal window before its account can receive a role.
+-- Taking the same account lock as identity serializes with apply and revert.
 CREATE FUNCTION cancel_staff_email_on_role_grant() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
     PERFORM id FROM accounts WHERE id = NEW.account_id FOR UPDATE;
+    IF EXISTS (
+        SELECT 1 FROM account_email_changes
+        WHERE account_id = NEW.account_id AND initiated_by_staff
+          AND applied_at IS NOT NULL AND reverted_at IS NULL
+          AND revert_until > clock_timestamp()
+    ) THEN
+        RAISE EXCEPTION 'assisted email change is still reversible'
+            USING ERRCODE = '23514', CONSTRAINT = 'role_grant_assisted_email_reversible';
+    END IF;
     UPDATE account_email_changes SET cancelled_at = now(), updated_at = now()
     WHERE account_id = NEW.account_id AND initiated_by_staff
       AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL;
@@ -106,5 +117,5 @@ BEGIN
 END $$;
 
 CREATE TRIGGER cancel_staff_email_on_role_grant
-AFTER INSERT ON account_roles FOR EACH ROW
+AFTER INSERT OR UPDATE OF account_id, role_id ON account_roles FOR EACH ROW
 EXECUTE FUNCTION cancel_staff_email_on_role_grant();

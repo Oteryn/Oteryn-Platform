@@ -2311,6 +2311,16 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
         assert_eq!(rows[0].2, "Verified support case");
         assert!(!rows[0].1.to_string().contains("example.test"));
     }
+    let recipients: (i64, bool) = sqlx::query_as(
+        "SELECT count(*), bool_and(m.recipient=c.old_email)
+         FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id
+         WHERE c.account_id=$1",
+    )
+    .bind(db.target)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(recipients, (1, true));
     let saved: (String, bool, bool) = sqlx::query_as(
         "SELECT a.status, f.needs_review, c.confirmed_at IS NULL AND a.email=c.old_email
          FROM accounts a JOIN staff_account_flags f ON f.account_id=a.id
