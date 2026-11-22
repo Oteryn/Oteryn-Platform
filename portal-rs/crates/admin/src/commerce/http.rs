@@ -4,10 +4,11 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{
-        Path, Query, State,
+        Path, Query, Request as HttpRequest, State,
         rejection::{FormRejection, PathRejection},
     },
     http::{HeaderMap, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -54,7 +55,32 @@ fn routes<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
         .route("/admin/commerce/{action}", post(submit::<A, E>))
         .route("/admin/commerce/approvals/{id}", post(approve::<A, E>))
         .route("/admin/commerce/cancellations/{id}", post(cancel::<A, E>))
-        .with_state(service)
+        .with_state(service.clone())
+        .route_layer(middleware::from_fn_with_state(
+            service,
+            authorize_panel::<A, E>,
+        ))
+}
+
+async fn authorize_panel<A: rbac::AccountStateReader, E: Effects>(
+    State(s): State<Arc<Commerce<A, E>>>,
+    Extension(context): Extension<rbac::CheckContext>,
+    request: HttpRequest,
+    next: Next,
+) -> Response {
+    let locale = Locale::from_headers(request.headers());
+    for permission in [
+        rbac::Permission::ManagePremiumTime,
+        rbac::Permission::ManageMarketplace,
+        rbac::Permission::ReconcilePayments,
+    ] {
+        match s.auth.check(context, permission).await {
+            Ok(()) => return next.run(request).await,
+            Err(rbac::Error::Denied) => (),
+            Err(error) => return failure(locale, error.into()),
+        }
+    }
+    failure(locale, Error::Denied)
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let flags = Flags {

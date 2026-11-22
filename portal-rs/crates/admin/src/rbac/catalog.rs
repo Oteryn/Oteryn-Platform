@@ -394,6 +394,7 @@ impl BuiltInRole {
                 Permission::ManageGameCatalogOverrides,
             ],
             Self::GameViewer => &[
+                Permission::Access,
                 Permission::GameOpsRead,
                 Permission::GameOpsLogsRead,
                 Permission::GameWorldRead,
@@ -405,6 +406,7 @@ impl BuiltInRole {
                 Permission::GameAuditRead,
             ],
             Self::GameSupport => &[
+                Permission::Access,
                 Permission::GameOpsRead,
                 Permission::GameOpsLogsRead,
                 Permission::GameWorldRead,
@@ -419,6 +421,7 @@ impl BuiltInRole {
                 Permission::GameSanctionWrite,
             ],
             Self::GameMasterSenior => &[
+                Permission::Access,
                 Permission::GameOpsRead,
                 Permission::GameOpsLogsRead,
                 Permission::GameWorldRead,
@@ -438,6 +441,7 @@ impl BuiltInRole {
                 Permission::GameEconomyModerate,
             ],
             Self::GameOperator => &[
+                Permission::Access,
                 Permission::GameOpsRead,
                 Permission::GameOpsLogsRead,
                 Permission::GameWorldRead,
@@ -454,6 +458,7 @@ impl BuiltInRole {
                 Permission::GameOpsWrite,
             ],
             Self::GameAdmin => &[
+                Permission::Access,
                 Permission::GameOpsRead,
                 Permission::GameOpsLogsRead,
                 Permission::GameWorldRead,
@@ -474,18 +479,21 @@ impl BuiltInRole {
                 Permission::GameStaffAdmin,
             ],
             Self::GameDba => &[
+                Permission::Access,
                 Permission::GameDbRead,
                 Permission::GameDbBackup,
                 Permission::GameDbQuery,
                 Permission::GameAnalyticsSql,
             ],
             Self::GameAnalyst => &[
+                Permission::Access,
                 Permission::GameAnalyticsRead,
                 Permission::GameAnalyticsPlayer,
                 Permission::GameAnalyticsSql,
                 Permission::GameAnalyticsExport,
             ],
             Self::GameSecurity => &[
+                Permission::Access,
                 Permission::GameAnalyticsRead,
                 Permission::GameAnalyticsPlayer,
                 Permission::GameAnalyticsSql,
@@ -494,7 +502,7 @@ impl BuiltInRole {
                 Permission::GameAuditRead,
                 Permission::GameSanctionRead,
             ],
-            Self::GameRelease => &[Permission::GameNodeDeploy],
+            Self::GameRelease => &[Permission::Access, Permission::GameNodeDeploy],
         }
     }
 }

@@ -623,7 +623,17 @@ async fn render<P: Permissions, C: Channel>(
         sections.push(section);
     }
     if allowed && operations.contains(&Operation::Overview) {
-        sections.push(dashboard::section(&s.pool, language).await);
+        let auth = rbac::Authorizer::new(
+            s.pool.clone(),
+            web::PortalIdentity::configured(s.pool.clone()),
+        );
+        if auth
+            .check(context, Permission::AdminAnalyticsView)
+            .await
+            .is_ok()
+        {
+            sections.push(dashboard::section(&s.pool, language).await);
+        }
         sections.push(alerts::section(&s.pool, language).await);
     }
     let mut nav = Vec::new();

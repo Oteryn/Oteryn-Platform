@@ -745,3 +745,106 @@ async fn a3_stored_ledger_read_audit_references_source_query()
     );
     result
 }
+
+#[tokio::test]
+async fn game_staff_access_respects_console_and_platform_permissions()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    let root = PgPool::connect(&url).await?;
+    let schema = format!("game_staff_{}", Uuid::now_v7().simple());
+    sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await?;
+    let search_path = schema.clone();
+    let pool = PgPoolOptions::new()
+        .after_connect(move |connection, _| {
+            let search_path = search_path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(search_path)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+    oteryn_db::migrate(&pool).await?;
+
+    let flags = access::Flags { console: true };
+    let control = control::Config { enabled: true };
+    for (role, expected_console, expected_platform) in [
+        ("game_master_senior", StatusCode::OK, StatusCode::FORBIDDEN),
+        ("platform_admin", StatusCode::OK, StatusCode::OK),
+    ] {
+        let actor: Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,email_verified_at,locale) VALUES($1,'test-only','active',now(),'en') RETURNING id")
+            .bind(format!("{role}@example.test"))
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(
+            sqlx::query(
+                "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2"
+            )
+            .bind(actor)
+            .bind(role)
+            .execute(&pool)
+            .await?
+            .rows_affected(),
+            1
+        );
+        let panel = web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        };
+        let accounts = web::PortalIdentity::configured(pool.clone());
+        let channel = StoredChannel {
+            pool: pool.clone(),
+            store: control::Store::new(pool.clone(), control),
+            signer: None,
+            bindings: vec![],
+        };
+        let backend = access::StoredMetadata::new(pool.clone(), flags, accounts.clone(), control)
+            .with_channel(channel.clone());
+        let app = web::guarded(
+            super::super::configured_routes(pool.clone(), true, channel),
+            pool.clone(),
+            panel.clone(),
+            Browser(actor),
+            accounts.clone(),
+            Permission::Access,
+        )
+        .merge(access::router(
+            pool.clone(),
+            flags,
+            panel.clone(),
+            Browser(actor),
+            accounts.clone(),
+            backend,
+        ))
+        .merge(web::router(pool.clone(), panel, Browser(actor), accounts));
+
+        for (path, expected) in [
+            ("/console/dashboard", expected_console),
+            ("/admin/console/players", expected_console),
+            ("/admin/console/audit", expected_console),
+            ("/admin/roles", expected_platform),
+            ("/admin/console/access", expected_platform),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(path)
+                        .header("host", "staff.test")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), expected, "{role} GET {path}");
+        }
+    }
+    pool.close().await;
+    sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}

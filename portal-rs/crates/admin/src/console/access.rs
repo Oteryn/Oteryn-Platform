@@ -428,12 +428,8 @@ where
     });
     let mut routes = Router::new();
     for (path, permission, area) in [
-        (
-            "/admin/console/players",
-            Permission::ManageSupportTickets,
-            "players",
-        ),
-        ("/admin/console/audit", Permission::ViewAudit, "audit"),
+        ("/admin/console/players", Permission::Access, "players"),
+        ("/admin/console/audit", Permission::Access, "audit"),
         ("/admin/console/access", Permission::ManageRoles, "access"),
         (
             "/admin/console/approvals",
