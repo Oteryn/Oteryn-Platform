@@ -36,7 +36,20 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
 
       expect((await staff.page.request.get(playerPath)).status()).toBe(404);
       expect((await page.request.get(staffPath)).status()).toBe(403);
-      const list = await page.goto(index);
+      expect((await page.goto(`/${lang}/`)).status()).toBe(200);
+      const mobileMenu = page.locator('#portal-menu-toggle');
+      if (await mobileMenu.isVisible()) await mobileMenu.click();
+      await page.locator('[data-account-link]').click();
+      const appealsLink = page.locator('#podglad-konta').getByRole('link', {
+        name: lang === 'pl' ? 'Odwołania od sankcji' : 'Sanction appeals',
+        exact: true,
+      });
+      await expect(appealsLink).toHaveAttribute('href', index);
+      const [list] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === index),
+        appealsLink.click(),
+      ]);
+      await expect(page).toHaveURL(index);
       expect(list.status()).toBe(200);
       expect(list.headers()['cache-control']).toContain('no-store');
       expect(list.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
