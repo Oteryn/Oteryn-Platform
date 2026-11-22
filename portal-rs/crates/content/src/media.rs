@@ -163,6 +163,9 @@ fn verify_png_end(bytes: &[u8]) -> Option<()> {
         if crc32fast::hash(chunk) != u32::from_be_bytes(*checksum) {
             return None;
         }
+        if matches!(chunk.get(..4)?, b"acTL" | b"fcTL" | b"fdAT") {
+            return None;
+        }
         if chunk.starts_with(b"IEND") {
             return (chunk.len() == 4 && next.is_empty()).then_some(());
         }
@@ -176,10 +179,7 @@ fn verify_webp_chunks(bytes: &[u8]) -> Option<()> {
     if u64::from(u32::from_le_bytes(*size)) != data.len() as u64 {
         return None;
     }
-    verify_webp_chunk_list(data.strip_prefix(b"WEBP")?, true)
-}
-
-fn verify_webp_chunk_list(mut rest: &[u8], allow_frame: bool) -> Option<()> {
+    let mut rest = data.strip_prefix(b"WEBP")?;
     while !rest.is_empty() {
         let (kind, body) = rest.split_first_chunk::<4>()?;
         let (size, data) = body.split_first_chunk::<4>()?;
@@ -189,12 +189,8 @@ fn verify_webp_chunk_list(mut rest: &[u8], allow_frame: bool) -> Option<()> {
         if length % 2 != 0 {
             rest = rest.strip_prefix(&[0])?;
         }
-        if kind == b"ANMF" {
-            if !allow_frame {
-                return None;
-            }
-            // Animated WebP frames contain a 16-byte header and nested chunks.
-            verify_webp_chunk_list(payload.get(16..)?, false)?;
+        if matches!(kind, b"ANIM" | b"ANMF") || (kind == b"VP8X" && payload.first()? & 0x02 != 0) {
+            return None;
         }
     }
     Some(())

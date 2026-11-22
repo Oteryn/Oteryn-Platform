@@ -354,6 +354,8 @@ const rejectedImages = [
     return { ...webp, buffer };
   }, 422],
   ['PNG with truncated pixel data', () => file('png', 'image/png', 'truncated-pixels'), 422],
+  ['APNG with damaged pixels in the second frame', () => file('png', 'image/png', 'animated-damaged'), 422],
+  ['animated WebP with damaged pixels in the second frame', () => file('webp', 'image/webp', 'animated-damaged'), 422],
   ['JPEG with a truncated scan', () => file('jpeg', 'image/jpeg', 'truncated-scan'), 422],
   ['two JPEG images in one file', () => {
     const jpeg = file('jpeg', 'image/jpeg');

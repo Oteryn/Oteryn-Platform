@@ -168,6 +168,31 @@ fn png_checks_the_crc_of_ancillary_chunks_after_pixel_data() {
 }
 
 #[test]
+fn animated_uploads_are_rejected_even_when_the_first_frame_decodes() {
+    for (name, format, bytes) in [
+        (
+            "animated-damaged.png",
+            ImageFormat::Png,
+            include_bytes!("../../../e2e/fixtures/uploads/animated-damaged.png").as_slice(),
+        ),
+        (
+            "animated-damaged.webp",
+            ImageFormat::WebP,
+            include_bytes!("../../../e2e/fixtures/uploads/animated-damaged.webp").as_slice(),
+        ),
+    ] {
+        let first_frame = ImageReader::with_format(Cursor::new(bytes), format)
+            .decode()
+            .unwrap();
+        assert_eq!(first_frame.dimensions(), (16, 16));
+        assert_eq!(
+            process(name, bytes).err(),
+            Some(StatusCode::UNPROCESSABLE_ENTITY)
+        );
+    }
+}
+
+#[test]
 fn webp_requires_complete_trailing_chunks_and_padding() {
     fn append_chunk(mut webp: Vec<u8>, trailing: &[u8]) -> Vec<u8> {
         webp.extend_from_slice(trailing);
