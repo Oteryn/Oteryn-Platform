@@ -235,12 +235,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
             let app = app.merge(credentials_http::configured_router(db.clone()));
             let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
-            let export_confirmation_enabled = [
-                "OTERYN_ACCOUNT_CREDENTIALS",
-                "OTERYN_ACCOUNT_EXPORT_ENABLED",
-            ]
-            .into_iter()
-            .all(|flag| std::env::var(flag).as_deref() == Ok("true"));
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
                 db.clone(),
@@ -369,6 +363,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.merge(oteryn_atlas::delivery::configured_router(db.clone()));
             let app = oteryn_community::today::configured_mount(app, db.clone());
+            let export_confirmation_enabled = [
+                "OTERYN_ACCOUNT_CREDENTIALS",
+                "OTERYN_ACCOUNT_EXPORT_ENABLED",
+            ]
+            .into_iter()
+            .all(|flag| std::env::var(flag).as_deref() == Ok("true"));
             let mut navigation = oteryn_ui::Registry::default();
             navigation.registration = true; // register::routes is always mounted.
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");

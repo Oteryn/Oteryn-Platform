@@ -15,24 +15,6 @@ pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
 }
-pub type StaffAccess = std::sync::Arc<
-    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
-        + Send
-        + Sync,
->;
-
-#[derive(Clone)]
-pub struct StaffDashboard {
-    pub url: String,
-    pub allows: StaffAccess,
-}
-
-impl std::fmt::Debug for StaffDashboard {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StaffDashboard").finish_non_exhaustive()
-    }
-}
-
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
@@ -354,6 +336,24 @@ fn without_attribute(tag: &str, name: &str) -> String {
     match tag[value..].find('"') {
         Some(end) => format!("{}{}", &tag[..at], &tag[value + end + 1..]),
         None => tag.to_owned(),
+    }
+}
+
+pub type StaffAccess = std::sync::Arc<
+    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct StaffDashboard {
+    pub url: String,
+    pub allows: StaffAccess,
+}
+
+impl std::fmt::Debug for StaffDashboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffDashboard").finish_non_exhaustive()
     }
 }
 
