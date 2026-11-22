@@ -73,6 +73,14 @@ configuration. Other staff specs use the default single origin.
 
 The local launcher supplies a disposable Bazaar Game producer and the real private transport. Character/item Bazaar and account listing reads require HTTP 200, no-store, the shared shell and CSRF refusal for every rendered mutation. Missing listing references require HTTP 404; malformed UUIDs require HTTP 400. Both retain no-store and the shared shell without account disclosure. The dedicated Bazaar spec proves funded bids, delivery, seller credit and Game-refusal behavior against synthetic fixtures; it does not qualify a production Game integration.
 
+The GM read spec uses the local launcher's disposable ADM-01 agent certificate
+and signing keys. It registers the agent, verifies Platform-signed requests
+claimed over the TLS 1.3 internal channel, and posts signed results. The Rust
+suite validates the result payloads against the pinned ADM-01 schemas. The
+Bazaar spec seeds an eligible account's pending Platform report and submits
+the moderator's decision through the staff form. The public intake refusal is
+covered separately through the existing authority boundary.
+
 Game-login-history, journal-report and dashboard startup adapters still document missing accepted game authority. Those cases assert exactly HTTP 503, no-store and no account-data disclosure; they do not prove a successful game-backed flow.
 
 The focused `specs/season-pass.spec.mjs` uses the `local.mjs` browser launcher

@@ -128,6 +128,7 @@ impl Db {
 }
 fn suspend(listing: Uuid) -> StaffCommand {
     StaffCommand::Suspend {
+        id: Uuid::now_v7(),
         listing,
         reason: "Verified moderation reason".into(),
     }
@@ -253,8 +254,9 @@ async fn postgres_staff_http_actor_to_result_csrf_and_localization() {
             .split('"')
             .next()
             .unwrap();
+        let id = Uuid::now_v7();
         let body = format!(
-            "action=suspend&listing={listing}&reason=Verified+moderation+reason&_csrf={token}"
+            "action=suspend&id={id}&listing={listing}&reason=Verified+moderation+reason&_csrf={token}"
         );
         let bad = app
             .clone()
@@ -309,7 +311,10 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let api = db.service();
-    api.execute(db.context(), suspend(listing)).await.unwrap();
+    let original_suspension = suspend(listing);
+    api.execute(db.context(), original_suspension.clone())
+        .await
+        .unwrap();
     let id = Uuid::now_v7();
     api.execute(
         db.context(),
@@ -322,9 +327,15 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
     .await
     .unwrap();
     assert!(
-        api.execute(db.context(), StaffCommand::ApproveInvalidation { id })
-            .await
-            .is_err()
+        api.execute(
+            db.context(),
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await
+        .is_err()
     );
     let second = Uuid::now_v7();
     let context = CheckContext {
@@ -332,19 +343,115 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
         ..db.context()
     };
     assert!(
-        api.execute(context, StaffCommand::ApproveInvalidation { id })
-            .await
-            .is_err()
+        api.execute(
+            context,
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await
+        .is_err()
     );
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(second).execute(&db.pool).await.unwrap();
-    api.execute(context, StaffCommand::ApproveInvalidation { id })
+    assert!(matches!(
+        api.execute(
+            context,
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: " ".into()
+            }
+        )
+        .await,
+        Err(Error::Domain(oteryn_bazaar::Error::InvalidInput))
+    ));
+    api.execute(
+        context,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        api.execute(context, original_suspension.clone()).await,
+        Err(Error::Domain(oteryn_bazaar::Error::IdempotencyConflict))
+    ));
+    api.execute(db.context(), original_suspension.clone())
         .await
         .unwrap();
+    let (revision, approved): (i64, bool) = sqlx::query_as(
+        "SELECT h.revision,r.state='approved' FROM bazaar_moderation_holds h
+         JOIN bazaar_invalidation_requests r ON r.listing_id=h.listing_id AND r.hold_revision=h.revision
+         WHERE r.id=$1",
+    ).bind(id).fetch_one(&db.pool).await.unwrap();
+    assert_eq!((revision, approved), (1, true));
+    let suspensions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='bazaar.suspend' AND target=$1",
+    )
+    .bind(listing.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(suspensions, 1);
+    api.execute(
+        context,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Different reason supplied by a retry".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM bazaar_moderation_holds WHERE listing_id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='cancelled' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    api.execute(db.context(), original_suspension)
+        .await
+        .unwrap();
+    api.execute(
+        context,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Approval replay after reconciliation".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='bazaar.invalidation.approve' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 1);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_moderation_outbox")
         .fetch_one(&db.pool)
         .await
         .unwrap();
     assert_eq!(count, 1);
+    let (before, after): (Value, Value) = sqlx::query_as(
+        "SELECT before,after FROM audit_log WHERE action='bazaar.invalidation.approve' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(before["invalidation"][0]["state"], "pending");
+    assert_eq!(after["invalidation"][0]["state"], "approved");
+    assert_eq!(after["reason"], "Documented moderation decision");
+
     db.end().await;
 }
 
@@ -473,6 +580,7 @@ async fn postgres_a3_bazaar_target_and_gate_waits_share_deadline_and_release_poo
         StaffCommand::ReviewReport {
             id: report,
             accepted: false,
+            reason: "Documented moderation decision".into(),
         },
         StaffCommand::Fees {
             id: Uuid::now_v7(),
@@ -674,4 +782,237 @@ async fn delta_bazaar_listing_before_staff_account_avoids_deadlock() {
         moderation.is_ok(),
         "staff moderation failed: {moderation:?}"
     );
+}
+
+#[tokio::test]
+async fn pending_invalidations_have_their_own_paginated_queue() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Db::new().await.expect("PostgreSQL required");
+    let listing = db.listing().await;
+    let pending = Uuid::now_v7();
+    let approver = Uuid::now_v7();
+    let api = db.service();
+    api.execute(db.context(), suspend(listing)).await.unwrap();
+    sqlx::query(
+        "INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
+        VALUES($1,$2,1,$3,'Original pending investigation')",
+    )
+    .bind(pending)
+    .bind(listing)
+    .bind(db.actor)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("WITH listings AS (
+            INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
+            SELECT uuidv7(),$1,'item','auction','coins',100,false,'cancelled',now()
+            FROM generate_series(1,100) RETURNING id
+        )
+        INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,approved_by,reason,state)
+        SELECT uuidv7(),id,1,$1,$2,'Previously approved investigation','approved' FROM listings")
+        .bind(db.actor).bind(approver).execute(&db.pool).await.unwrap();
+
+    let resuspended = db.listing().await;
+    let superseded = Uuid::now_v7();
+    api.execute(db.context(), suspend(resuspended))
+        .await
+        .unwrap();
+    api.execute(
+        db.context(),
+        StaffCommand::RequestInvalidation {
+            id: superseded,
+            listing: resuspended,
+            reason: "Original hold investigation".into(),
+        },
+    )
+    .await
+    .unwrap();
+    api.execute(db.context(), suspend(resuspended))
+        .await
+        .unwrap();
+    let archived = db.listing().await;
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,100,$2,'Current investigation')")
+        .bind(archived).bind(db.actor).execute(&db.pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
+        SELECT uuidv7(),$1,n,$2,'Previous hold investigation' FROM generate_series(1,99) n",
+    )
+    .bind(archived)
+    .bind(db.actor)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+
+    let page = db
+        .app()
+        .oneshot(
+            Request::get("/admin/en/bazaar")
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(page.into_body(), 2_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(&format!(
+        r#"data-invalidation="{pending}" data-request-state="pending""#
+    )));
+    assert!(html.contains("Approved invalidation history"));
+    assert!(html.contains("Superseded invalidation history"));
+    assert!(html.contains(&format!(
+        r#"data-invalidation="{superseded}" data-request-state="superseded""#
+    )));
+    assert_eq!(
+        html.matches(r#"data-request-state="superseded""#).count(),
+        100
+    );
+    assert_eq!(html.matches(r#"data-request-state="pending""#).count(), 1);
+    assert_eq!(
+        html.matches(r#"data-request-state="approved""#).count(),
+        100
+    );
+    assert!(!html.contains("pending_after="));
+
+    sqlx::query(
+        "WITH listings AS (
+            INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
+            SELECT uuidv7(),$1,'item','auction','coins',100,false,'active',clock_timestamp()+interval '2 days'
+            FROM generate_series(1,100)
+            RETURNING id
+         ), holds AS (
+            INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason)
+            SELECT id,1,$1,'Active moderation hold' FROM listings RETURNING listing_id
+         )
+         INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
+         SELECT uuidv7(),listing_id,1,$1,'Further pending investigation' FROM holds",
+    )
+    .bind(db.actor)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let mut conn = db.pool.acquire().await.unwrap();
+    let [first, history, stale] = invalidation_sections(&mut conn, None).await.unwrap();
+    assert_eq!(first.rows.len(), 100);
+    let cursor = first.next.unwrap();
+    assert_eq!(cursor, first.rows.last().unwrap().id);
+    // The cursor must remain valid when a moderator approves a row between pages.
+    sqlx::query(
+        "UPDATE bazaar_invalidation_requests SET state='approved',approved_by=$2 WHERE id=$1",
+    )
+    .bind(cursor)
+    .bind(approver)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let [second, next_history, next_stale] = invalidation_sections(&mut conn, Some(cursor))
+        .await
+        .unwrap();
+    assert_eq!(second.rows.len(), 1);
+    assert!(second.rows[0].id > cursor);
+    assert!(second.next.is_none());
+    assert_eq!(history.rows.len(), 100);
+    assert_eq!(next_history.rows.len(), 100);
+    assert_eq!(stale.rows.len(), 100);
+    assert_eq!(next_stale.rows.len(), 100);
+    assert!(
+        next_history
+            .rows
+            .iter()
+            .all(|row| row.request_state == "approved")
+    );
+    drop(conn);
+    db.end().await;
+}
+
+#[tokio::test]
+async fn approved_history_follows_the_hold_revision_and_preserves_the_audit() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Db::new().await.expect("PostgreSQL required");
+    let listing = db.listing().await;
+    let api = db.service();
+    let approver = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(approver).execute(&db.pool).await.unwrap();
+    let old = Uuid::now_v7();
+    let current = Uuid::now_v7();
+    let approval_reason = "Confirmed marketplace violation";
+    for id in [old, current] {
+        api.execute(db.context(), suspend(listing)).await.unwrap();
+        api.execute(
+            db.context(),
+            StaffCommand::RequestInvalidation {
+                id,
+                listing,
+                reason: "Request listing invalidation".into(),
+            },
+        )
+        .await
+        .unwrap();
+        api.execute(
+            CheckContext {
+                account: approver,
+                ..db.context()
+            },
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: approval_reason.into(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let mut conn = db.pool.acquire().await.unwrap();
+    let [_, approved, superseded] = invalidation_sections(&mut conn, None).await.unwrap();
+    assert_eq!(
+        approved.rows.iter().map(|r| r.id).collect::<Vec<_>>(),
+        [current]
+    );
+    assert_eq!(
+        superseded.rows.iter().map(|r| r.id).collect::<Vec<_>>(),
+        [old]
+    );
+    assert_eq!(superseded.rows[0].listing_state, "active");
+    let (actor, state, reason): (Uuid, String, String) = sqlx::query_as(
+        "SELECT actor,after->'invalidation'->0->>'state',after->>'reason' FROM audit_log
+         WHERE action='bazaar.invalidation.approve' AND target=$1",
+    )
+    .bind(old.to_string())
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    assert_eq!(
+        (actor, state.as_str(), reason.as_str()),
+        (approver, "approved", approval_reason)
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM bazaar_moderation_holds WHERE listing_id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='cancelled' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let [_, approved, superseded] = invalidation_sections(&mut conn, None).await.unwrap();
+    assert_eq!(
+        approved.rows.iter().map(|r| r.id).collect::<Vec<_>>(),
+        [current]
+    );
+    assert_eq!(approved.rows[0].listing_state, "cancelled");
+    assert_eq!(
+        superseded.rows.iter().map(|r| r.id).collect::<Vec<_>>(),
+        [old]
+    );
+    drop(conn);
+    db.end().await;
 }

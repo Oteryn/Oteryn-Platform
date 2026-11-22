@@ -85,6 +85,7 @@ async fn staff_suspend(db: &BrowserFixture, listing: Uuid) -> Result<(), crate::
         &mut tx,
         uid("81"),
         &StaffCommand::Suspend {
+            id: Uuid::now_v7(),
             listing,
             reason: "Lifecycle test suspension".into(),
         },
@@ -523,7 +524,10 @@ async fn lifecycle_active_invalidate() {
     execute_staff(
         &mut tx,
         uid("82"),
-        &StaffCommand::ApproveInvalidation { id: request },
+        &StaffCommand::ApproveInvalidation {
+            id: request,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await
     .unwrap();

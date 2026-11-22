@@ -278,6 +278,7 @@ async fn run_until(
         let count = tokio::select! {
             biased;
             () = &mut shutdown => {
+                tracing::info!(name: "outbox_worker_drain_started", "outbox worker draining in-flight batch");
                 if let Ok(result) = tokio::time::timeout(registry.shutdown_budget, &mut batch).await {
                     result?;
                 } else {

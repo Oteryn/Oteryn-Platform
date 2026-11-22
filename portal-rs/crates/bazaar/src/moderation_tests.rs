@@ -163,6 +163,7 @@ fn fees() -> StaffCommand {
 }
 fn suspend(listing: Uuid) -> StaffCommand {
     StaffCommand::Suspend {
+        id: Uuid::now_v7(),
         listing,
         reason: "Review requires suspension".into(),
     }
@@ -274,14 +275,32 @@ async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
     )
     .await?;
     assert!(matches!(
-        db.staff(first, StaffCommand::ApproveInvalidation { id })
-            .await,
+        db.staff(
+            first,
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
     ));
-    db.staff(second, StaffCommand::ApproveInvalidation { id })
-        .await?;
-    db.staff(second, StaffCommand::ApproveInvalidation { id })
-        .await?;
+    db.staff(
+        second,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        second,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_moderation_outbox")
         .fetch_one(&db.pool)
         .await?;
@@ -319,8 +338,14 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     .await?;
     db.staff(first, suspend(listing)).await?;
     assert!(matches!(
-        db.staff(Uuid::now_v7(), StaffCommand::ApproveInvalidation { id })
-            .await,
+        db.staff(
+            Uuid::now_v7(),
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
     ));
     let replacement = Uuid::now_v7();
@@ -335,7 +360,10 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: replacement },
+        StaffCommand::ApproveInvalidation {
+            id: replacement,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     let requests: i64 =
@@ -759,13 +787,36 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
         .report(actor, input)
         .await?;
     assert!(matches!(
-        db.staff(actor, StaffCommand::ReviewReport { id, accepted: true })
-            .await,
+        db.staff(
+            actor,
+            StaffCommand::ReviewReport {
+                id,
+                accepted: true,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
+    ));
+    assert!(matches!(
+        db.staff(
+            Uuid::now_v7(),
+            StaffCommand::ReviewReport {
+                id,
+                accepted: true,
+                reason: " ".into()
+            },
+        )
+        .await,
+        Err(Error::InvalidInput)
     ));
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ReviewReport { id, accepted: true },
+        StaffCommand::ReviewReport {
+            id,
+            accepted: true,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     assert!(matches!(
@@ -773,7 +824,8 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
             Uuid::now_v7(),
             StaffCommand::ReviewReport {
                 id,
-                accepted: false
+                accepted: false,
+                reason: "Documented moderation decision".into()
             }
         )
         .await,
@@ -963,7 +1015,10 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: approval },
+        StaffCommand::ApproveInvalidation {
+            id: approval,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
 
@@ -982,7 +1037,10 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: stale_request },
+        StaffCommand::ApproveInvalidation {
+            id: stale_request,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     db.staff(requester, suspend(stale)).await?;
@@ -1004,8 +1062,6 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .bind(listing)
     .fetch_one(&db.pool)
     .await?;
-    std::fs::remove_dir_all(directory)?;
-    db.end().await;
     assert_eq!(
         state,
         State::Cancelled,
@@ -1014,5 +1070,49 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     assert_eq!(stale_state, State::Active);
     assert_eq!(balances, [(200, 0), (200, 0)]);
     assert_eq!(releases, 2);
+
+    // The worker may have selected the old request before a new hold and
+    // approval took effect. Rechecking must match the selected request itself.
+    let current_request = Uuid::now_v7();
+    db.staff(
+        requester,
+        StaffCommand::RequestInvalidation {
+            id: current_request,
+            listing: stale,
+            reason: "Confirmed policy violation".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        Uuid::now_v7(),
+        StaffCommand::ApproveInvalidation {
+            id: current_request,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
+    runtime.invalidate(stale_request, stale).await?;
+    let state = || {
+        sqlx::query_scalar::<_, State>("SELECT state FROM bazaar_listings WHERE id=$1")
+            .bind(stale)
+            .fetch_one(&db.pool)
+    };
+    assert_eq!(state().await?, State::Active);
+    runtime.invalidate(current_request, stale).await?;
+    assert_eq!(state().await?, State::Cancelled);
+    std::fs::remove_dir_all(directory)?;
+    db.end().await;
     Ok(())
+}
+
+#[test]
+fn moderation_reason_fits_persisted_character_limit() {
+    let at_limit = format!("{}{}", "Reason for moderation", " ".repeat(479));
+    assert_eq!(at_limit.chars().count(), 500);
+    assert!(reason_valid(&at_limit).is_ok());
+    let beyond_limit = format!("{at_limit} ");
+    assert!(matches!(
+        reason_valid(&beyond_limit),
+        Err(Error::InvalidInput)
+    ));
 }

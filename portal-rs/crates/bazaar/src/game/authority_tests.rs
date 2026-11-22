@@ -937,6 +937,7 @@ async fn item_wallet_scenario(compensate: bool, suspended: bool, scenario: ItemS
                 &mut tx,
                 uid("11"),
                 &crate::moderation::StaffCommand::Suspend {
+                    id: Uuid::now_v7(),
                     listing: listing.id,
                     reason: "staff suspended sale".into(),
                 },
@@ -5182,6 +5183,7 @@ async fn r8_suspend_settled_listing() {
         &mut tx,
         uid("11"),
         &crate::moderation::StaffCommand::Suspend {
+            id: Uuid::now_v7(),
             listing: uid("20"),
             reason: "staff suspended sale".into(),
         },
@@ -5615,6 +5617,7 @@ async fn r10_suspend_settled_character() {
         &mut tx,
         uid("11"),
         &crate::moderation::StaffCommand::Suspend {
+            id: Uuid::now_v7(),
             listing: uid("30"),
             reason: "staff suspended sale".into(),
         },

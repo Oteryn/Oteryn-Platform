@@ -180,7 +180,12 @@ impl<A: AccountStateReader + 'static> Permissions for PgPermissions<A> {
 #[derive(Debug, Clone)]
 pub struct Field {
     pub label: FieldLabel,
-    pub value: String,
+    pub value: FieldValue,
+}
+#[derive(Debug, Clone)]
+pub enum FieldValue {
+    Text(String),
+    Label(&'static str),
 }
 #[derive(Debug, Clone, Copy)]
 pub enum FieldLabel {
@@ -194,7 +199,10 @@ pub enum FieldLabel {
     Disk,
     Tick,
     State,
-    Revision,
+    MapRevision,
+    ContentRevision,
+    RulesetRevision,
+    PolicyRevision,
     Rates,
     Channels,
     Size,
@@ -224,7 +232,10 @@ impl FieldLabel {
             Self::Disk => "disk",
             Self::Tick => "tick",
             Self::State => "state",
-            Self::Revision => "revision",
+            Self::MapRevision => "map-revision",
+            Self::ContentRevision => "content-revision",
+            Self::RulesetRevision => "ruleset-revision",
+            Self::PolicyRevision => "policy-revision",
             Self::Rates => "rates",
             Self::Channels => "channels",
             Self::Size => "size",
@@ -244,8 +255,13 @@ impl FieldLabel {
     }
 }
 #[derive(Debug, Clone)]
+pub enum RecordName {
+    Text(String),
+    Label(&'static str),
+}
+#[derive(Debug, Clone)]
 pub struct Record {
-    pub name: String,
+    pub name: RecordName,
     pub fields: Vec<Field>,
 }
 #[derive(Debug, Clone)]
@@ -688,12 +704,21 @@ async fn render<P: Permissions, C: Channel>(
                     .into_iter()
                     .take(200)
                     .map(|r| DisplayRecord {
-                        name: r.name,
+                        name: match r.name {
+                            RecordName::Text(name) => name,
+                            RecordName::Label(key) => text(language, key),
+                        },
                         fields: r
                             .fields
                             .into_iter()
                             .take(32)
-                            .map(|f| (text(language, f.label.key()), f.value))
+                            .map(|f| {
+                                let value = match f.value {
+                                    FieldValue::Text(value) => value,
+                                    FieldValue::Label(key) => text(language, key),
+                                };
+                                (text(language, f.label.key()), value)
+                            })
                             .collect(),
                     })
                     .collect();
