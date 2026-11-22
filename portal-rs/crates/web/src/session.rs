@@ -532,6 +532,7 @@ fn cookie_id(headers: &HeaderMap) -> Result<Option<&str>, sqlx::Error> {
 pub struct SignedInSession {
     pub account_id: Uuid,
     pub csrf: String,
+    passkeys_eligible: bool,
 }
 impl std::fmt::Debug for SignedInSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -552,15 +553,27 @@ async fn read_signed_in(
     let Some(id) = cookie_id(request.headers())? else {
         return Ok(None);
     };
-    let row: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT account_id,csrf_token FROM web_sessions WHERE id_hash=$1
-         AND account_id IS NOT NULL AND idle_expires_at>clock_timestamp()
-         AND absolute_expires_at>clock_timestamp()",
+    let row: Option<(Uuid, String, String, bool, bool)> = sqlx::query_as(
+        "SELECT ws.account_id, ws.csrf_token, COALESCE(a.status, ''), a.email_verified_at IS NOT NULL,
+                COALESCE(a.login_mfa_required, true)
+         FROM web_sessions ws LEFT JOIN accounts a ON a.id=ws.account_id
+         WHERE ws.id_hash=$1 AND ws.account_id IS NOT NULL AND ws.idle_expires_at>clock_timestamp()
+           AND ws.absolute_expires_at>clock_timestamp()",
     )
     .bind(hash(id))
     .fetch_optional(&layer.pool)
     .await?;
-    Ok(row.map(|(account_id, csrf)| SignedInSession { account_id, csrf }))
+    Ok(row.map(
+        |(account_id, csrf, status, verified, mfa_required)| SignedInSession {
+            account_id,
+            csrf,
+            passkeys_eligible: oteryn_identity::passkeys::account_eligible(
+                &status,
+                verified,
+                mfa_required,
+            ),
+        },
+    ))
 }
 
 /// Attach existing session data to a read-only route without refreshing or creating a session.
@@ -588,28 +601,16 @@ pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
 ) -> (oteryn_ui::Account, Option<Uuid>) {
-    let Ok(Some(session)) = read_signed_in(layer, request).await else {
-        return (oteryn_ui::Account::Anonymous, None);
-    };
-    let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
-        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
-         FROM accounts WHERE id=$1",
-    )
-    .bind(session.account_id)
-    .fetch_optional(&layer.pool)
-    .await;
-    let passkeys_eligible = matches!(
-        policy,
-        Ok(Some((status, verified, mfa_required)))
-            if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
-    );
-    (
-        oteryn_ui::Account::SignedIn {
-            csrf: session.csrf,
-            passkeys_eligible,
-        },
-        Some(session.account_id),
-    )
+    match read_signed_in(layer, request).await {
+        Ok(Some(session)) => (
+            oteryn_ui::Account::SignedIn {
+                csrf: session.csrf,
+                passkeys_eligible: session.passkeys_eligible,
+            },
+            Some(session.account_id),
+        ),
+        _ => (oteryn_ui::Account::Anonymous, None),
+    }
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.

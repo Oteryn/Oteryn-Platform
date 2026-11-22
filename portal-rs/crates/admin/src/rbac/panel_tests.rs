@@ -321,6 +321,44 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
     let protected: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
         .fetch_one(&db.pool)
         .await?;
+    let denied_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='admin.access.denied'
+         AND target='/admin/roles' AND actor=$1",
+    )
+    .bind(db.actor.account)
+    .fetch_one(&db.pool)
+    .await?;
+    for (account, rejected_role) in [(db.actor.account, role), (target, protected)] {
+        assert_eq!(
+            post(
+                &db,
+                &cookie,
+                &csrf,
+                format!(
+                    "action=grant&account={account}&role={rejected_role}&reason=role_assignment"
+                )
+            )
+            .await?,
+            StatusCode::FORBIDDEN,
+        );
+        assert!(
+            !sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+            )
+            .bind(account)
+            .bind(rejected_role)
+            .fetch_one(&db.pool)
+            .await?
+        );
+    }
+    let denied_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='admin.access.denied'
+         AND target='/admin/roles' AND actor=$1",
+    )
+    .bind(db.actor.account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(denied_after, denied_before + 2);
     assert_eq!(
         post(
             &db,

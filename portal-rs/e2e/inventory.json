@@ -1462,6 +1462,71 @@
       ]
     },
     {
+      "route": "/admin/operations/flags",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/operations/mod.rs:45"
+      ]
+    },
+    {
+      "route": "/admin/operations/health",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/operations/mod.rs:47"
+      ]
+    },
+    {
+      "route": "/admin/operations/rate-limits",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/operations/mod.rs:42"
+      ]
+    },
+    {
+      "route": "/admin/operations/rate-limits.csv",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/operations/mod.rs:43"
+      ]
+    },
+    {
+      "route": "/admin/operations/statistics",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/operations/mod.rs:39"
+      ]
+    },
+    {
       "route": "/admin/pages",
       "crate": "content",
       "flags": [

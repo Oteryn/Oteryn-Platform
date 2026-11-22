@@ -8,6 +8,9 @@ pub enum Permission {
     Access,
     AdminAnalyticsView,
     AdminAnalyticsExport,
+    ViewRateLimits,
+    ViewEffectiveFlags,
+    ViewPlatformHealth,
     ManageRoles,
     ViewAudit,
     ManageNews,
@@ -95,6 +98,9 @@ impl Permission {
         Self::Access,
         Self::AdminAnalyticsView,
         Self::AdminAnalyticsExport,
+        Self::ViewRateLimits,
+        Self::ViewEffectiveFlags,
+        Self::ViewPlatformHealth,
         Self::ManageRoles,
         Self::ViewAudit,
         Self::ManageNews,
@@ -168,6 +174,9 @@ impl Permission {
         match self {
             Self::AdminAnalyticsView => "admin.analytics.view",
             Self::AdminAnalyticsExport => "admin.analytics.export",
+            Self::ViewRateLimits => "admin.rate_limits.view",
+            Self::ViewEffectiveFlags => "admin.flags.view",
+            Self::ViewPlatformHealth => "admin.health.view",
             Self::Access => "admin.access",
             Self::ManageRoles => "admin.roles.manage",
             Self::ViewAudit => "audit.view",
@@ -316,6 +325,9 @@ impl BuiltInRole {
             Self::PlatformAdmin => &[
                 Permission::AdminAnalyticsView,
                 Permission::AdminAnalyticsExport,
+                Permission::ViewRateLimits,
+                Permission::ViewEffectiveFlags,
+                Permission::ViewPlatformHealth,
                 Permission::Access,
                 Permission::ManageRoles,
                 Permission::ViewAudit,
@@ -514,6 +526,30 @@ impl BuiltInRole {
 
 /// Platform and Game panel sections reuse the permissions enforced by their routes.
 pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
+    (
+        "/admin/operations/statistics",
+        "ops-statistics",
+        Permission::AdminAnalyticsView,
+        None,
+    ),
+    (
+        "/admin/operations/rate-limits",
+        "ops-rate-limits",
+        Permission::ViewRateLimits,
+        None,
+    ),
+    (
+        "/admin/operations/flags",
+        "ops-flags",
+        Permission::ViewEffectiveFlags,
+        None,
+    ),
+    (
+        "/admin/operations/health",
+        "ops-health",
+        Permission::ViewPlatformHealth,
+        None,
+    ),
     ("/admin", "panel-admin", Permission::Access, None),
     ("/admin/roles", "panel-roles", Permission::ManageRoles, None),
     (

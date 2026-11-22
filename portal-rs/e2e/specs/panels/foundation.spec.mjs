@@ -91,6 +91,9 @@ test('panel navigation enforces scope and role grants require a reason', async (
   ]) {
     await expect(playerNav.getByRole('link', {name, exact: true})).toHaveAttribute('href', `/${lang}/account/${suffix}`);
   }
+  const exportResponse = await page.request.get(`/${lang}/account/privacy/export`, {maxRedirects: 0});
+  expect(exportResponse.status()).toBe(303);
+  expect(exportResponse.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
   await playerNav.getByRole('link', {name: label.email, exact: true}).click();
   await expect(page).toHaveURL(new RegExp(`/${lang}/account/security/email$`));
   await expect(page.locator('[data-staff-dashboard]')).toHaveCount(0);
@@ -158,6 +161,12 @@ test('panel navigation enforces scope and role grants require a reason', async (
       'aria-label', preferred === 'pl' ? 'Nawigacja główna' : 'Main navigation',
     );
     await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
+    const saved = lang === 'pl' ? 'en' : 'pl';
+    expect((await visit(admin, `/language/${saved}`)).status()).toBe(200);
+    expect((await visit(admin, '/console')).status()).toBe(200);
+    await expect(admin).toHaveURL(new RegExp(`/console/dashboard\\?lang=${saved}$`));
+    await expect(admin.getByRole('navigation', {name: labels[saved].gm, exact: true})).toBeVisible();
+    expect((await visit(admin, `/language/${lang}`)).status()).toBe(200);
 
     const [{id: roleId}] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [unique()]);
     await rolePage(admin, roleId);
@@ -176,6 +185,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
     expect(await audit()).toEqual([]);
 
     const reason = 'role_assignment';
+    await query("UPDATE web_sessions SET sudo_until=clock_timestamp()-interval '1 second' WHERE account_id=$1", [staff]);
     const unconfirmed = await admin.request.post('/admin/roles', {
       form: {_csrf: csrf, action: 'grant', account: recipient, role: roleId, reason},
       maxRedirects: 0,

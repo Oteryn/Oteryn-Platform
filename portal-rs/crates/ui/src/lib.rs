@@ -103,7 +103,11 @@ impl Registry {
                         panel: panels::Panel::Player,
                         route: entry.path,
                         label: entry.label,
-                        permission: panels::Permission::AccountOwner,
+                        permission: if entry.section == "account-passkeys" {
+                            panels::Permission::PasskeyManagement
+                        } else {
+                            panels::Permission::AccountOwner
+                        },
                     },
                 );
             }
@@ -145,26 +149,30 @@ impl Registry {
                     clean.trim_start_matches('/')
                 }
             });
+        let signed_in = matches!(account, Account::SignedIn { .. });
+        let passkeys_eligible = matches!(
+            account,
+            Account::SignedIn {
+                passkeys_eligible: true,
+                ..
+            }
+        );
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
-            .filter(|entry| {
-                entry.section != "account-passkeys"
-                    || !matches!(
-                        account,
-                        Account::SignedIn {
-                            passkeys_eligible: false,
-                            ..
-                        }
-                    )
-            })
+            .filter(|entry| entry.section != "account-passkeys" || !signed_in || passkeys_eligible)
             .map(|e| {
-                let url = if e.path.starts_with('/') {
-                    e.path.to_owned()
+                let route = if e.section == "account-passkeys" && !signed_in {
+                    "account/passkeys"
                 } else {
-                    format!("/{lang}/{}", e.path)
+                    e.path
                 };
-                let section_path = e.path.trim_start_matches('/');
+                let url = if route.starts_with('/') {
+                    route.to_owned()
+                } else {
+                    format!("/{lang}/{route}")
+                };
+                let section_path = route.trim_start_matches('/');
                 let current = suffix == section_path
                     || suffix
                         .strip_prefix(section_path)
@@ -203,7 +211,6 @@ impl Registry {
                 })
             })
             .collect();
-        let signed_in = matches!(account, Account::SignedIn { .. });
         Chrome {
             lang: lang.to_owned(),
             alternate_url: if let Some(rest) = clean
@@ -237,6 +244,7 @@ impl Registry {
             {
                 self.panels.links(panels::Panel::Player, lang, |p| {
                     p == panels::Permission::AccountOwner
+                        || (p == panels::Permission::PasskeyManagement && passkeys_eligible)
                 })
             } else {
                 Vec::new()

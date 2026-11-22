@@ -9,7 +9,7 @@ for (const requiresMfa of [false, true]) {
   test(`passkey management matches route access with mandatory MFA ${requiresMfa ? 'on' : 'off'}`, async ({ page, context }, info) => {
     const lang = info.project.metadata.locale;
     const account = await seedAccount(lang);
-    const route = `/${lang}/account/passkeys`;
+    const route = `/${lang}/account/passkeys/manage`;
     if (requiresMfa) {
       const { recoveryCodes } = await seedEntity('account-mfa', {
         accountId: account.id,

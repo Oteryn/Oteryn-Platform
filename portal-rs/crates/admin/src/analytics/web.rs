@@ -11,7 +11,7 @@ use askama::Template;
 use axum::{
     Router,
     extract::{Request, State},
-    http::{StatusCode, header},
+    http::StatusCode,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -63,6 +63,8 @@ struct Cell {
     end_utc: String,
     cut_utc: String,
     age: u64,
+    #[serde(skip)]
+    drill_down: String,
 }
 #[derive(Template)]
 #[template(path = "admin/analytics.html", config = "src/web_askama.toml")]
@@ -70,10 +72,6 @@ struct Page {
     lang: &'static str,
     title: &'static str,
     unavailable: &'static str,
-    cut: &'static str,
-    range: &'static str,
-    freshness: &'static str,
-    epoch: &'static str,
     cells: Vec<Cell>,
     world: String,
     from: String,
@@ -81,6 +79,48 @@ struct Page {
     policy: String,
     family: String,
 }
+
+impl Page {
+    fn text(&self, key: &str) -> String {
+        oteryn_ui::text(self.lang, key)
+    }
+}
+
+pub(crate) const OVERVIEW_ROUTE: &str = "/admin/analytics";
+
+pub(crate) fn view_authorizer<A: AccountStateReader>(
+    pool: PgPool,
+    accounts: A,
+    enabled: bool,
+) -> Authorizer<A> {
+    Authorizer::new(pool, accounts).with_game_flags(crate::rbac::GamePermissionFlags {
+        enabled,
+        deploy: false,
+    })
+}
+
+// Both callers first enforce staff MFA and admin.access.
+pub(crate) async fn view_permission<A: AccountStateReader>(
+    auth: &Authorizer<A>,
+    context: CheckContext,
+) -> Option<Permission> {
+    if auth
+        .check(context, Permission::AdminAnalyticsView)
+        .await
+        .is_ok()
+    {
+        Some(Permission::AdminAnalyticsView)
+    } else if auth
+        .check(context, Permission::GameAnalyticsRead)
+        .await
+        .is_ok()
+    {
+        Some(Permission::GameAnalyticsRead)
+    } else {
+        None
+    }
+}
+
 pub fn configured_router(
     pool: PgPool,
     config: Config,
@@ -105,11 +145,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![panel.csrf_origin()];
     let admin_csrf = session.csrf.clone();
-    let auth =
-        Authorizer::new(pool.clone(), accounts).with_game_flags(crate::rbac::GamePermissionFlags {
-            enabled: config.present,
-            deploy: false,
-        });
+    let auth = view_authorizer(pool.clone(), accounts, config.present);
     let state = Arc::new(Context {
         pool: pool.clone(),
         config,
@@ -118,7 +154,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     });
     let mut routes = Router::new();
     for path in [
-        "/admin/analytics",
+        OVERVIEW_ROUTE,
         "/admin/analytics/creatures",
         "/admin/analytics/activity",
         "/admin/analytics/levels",
@@ -221,16 +257,9 @@ async fn authorize<I: StaffSession, A: AccountStateReader>(
             session_proof: None,
         };
         if identity.mfa_satisfied && s.auth.check(context, Permission::Access).await.is_ok() {
-            platform = s
-                .auth
-                .check(context, Permission::AdminAnalyticsView)
-                .await
-                .is_ok();
-            allowed = platform
-                || s.auth
-                    .check(context, Permission::GameAnalyticsRead)
-                    .await
-                    .is_ok();
+            let permission = view_permission(&s.auth, context).await;
+            platform = permission == Some(Permission::AdminAnalyticsView);
+            allowed = permission.is_some();
         }
     }
     let context = {
@@ -329,6 +358,7 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
         if records.len() <= 8192 && covered {
             for record in records {
                 let cell = (|| -> Result<Cell, sqlx::Error> {
+                    let start: String = record.try_get("start")?;
                     let end: String = record.try_get("end")?;
                     let expired = wire::uint(&end)
                         .ok()
@@ -349,11 +379,11 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
                         key: record.try_get("key")?,
                         state,
                         values,
-                        start: record.try_get("start")?,
+                        start: start.clone(),
                         end: end.clone(),
                         epoch: record.try_get("epoch")?,
                         revision: record.try_get("revision")?,
-                        start_utc: utc(&record.try_get::<String, _>("start")?),
+                        start_utc: utc(&start),
                         end_utc: utc(&end),
                         cut_utc: utc(&record.try_get::<String, _>("observed")?),
                         age: now.saturating_sub(
@@ -361,6 +391,13 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
                                 .map_err(|_| sqlx::Error::Protocol("invalid watermark".into()))?,
                         ),
                         observed: record.try_get("observed")?,
+                        drill_down: bucket_link(
+                            request.uri().path(),
+                            world,
+                            family_name,
+                            &start,
+                            &end,
+                        ),
                     })
                 })();
                 match cell {
@@ -411,46 +448,26 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":state,"cells":cells})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
-    let title = match (request.uri().path().trim_end_matches("/data"), english) {
-        ("/admin/analytics/creatures", true) => "Creature and boss deaths by world",
-        ("/admin/analytics/creatures", false) => "Zgony stworzeń i bossów według świata",
-        ("/admin/analytics/activity", true) => "Hourly activity — exact ONLINE concurrency",
-        ("/admin/analytics/activity", false) => "Aktywność godzinowa — dokładna liczba ONLINE",
-        ("/admin/analytics/levels", true) => "Daily level distribution",
-        ("/admin/analytics/levels", false) => "Dzienny rozkład poziomów",
-        ("/admin/analytics/health", true) => "Analytics feed health",
-        ("/admin/analytics/health", false) => "Stan źródła analitycznego",
-        (_, true) => "Admin analytics overview",
-        (_, false) => "Przegląd analityki administratora",
+    let lang = crate::web::page_language(
+        request.headers(),
+        request.extensions().get::<oteryn_ui::Chrome>(),
+    );
+    let title = match request.uri().path() {
+        "/admin/analytics/creatures" => "ops-analytics-creatures-title",
+        "/admin/analytics/activity" => "ops-analytics-activity-title",
+        "/admin/analytics/levels" => "ops-analytics-levels-title",
+        "/admin/analytics/health" => "ops-analytics-feed-health",
+        _ => "ops-analytics-overview-title",
     };
     let page = Page {
-        lang: if english { "en" } else { "pl" },
+        lang,
         title,
         unavailable: if expired {
-            if english { "Expired" } else { "Wygasłe" }
+            "ops-analytics-expired"
         } else if available {
-            if english {
-                "No eligible cells — no zero inferred"
-            } else {
-                "Brak kwalifikujących się komórek — nie oznacza zera"
-            }
-        } else if english {
-            "Unavailable — accepted resync baseline and fresh evidence required"
+            "ops-analytics-empty"
         } else {
-            "Niedostępne — wymagana zaakceptowana baza synchronizacji i aktualne dane"
-        },
-        cut: if english { "Data cut" } else { "Stan danych" },
-        range: if english { "UTC range" } else { "Zakres UTC" },
-        freshness: if english { "Freshness" } else { "Aktualność" },
-        epoch: if english {
-            "Epoch / revision"
-        } else {
-            "Epoka / rewizja"
+            "ops-analytics-unavailable"
         },
         cells,
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
@@ -468,6 +485,10 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+fn bucket_link(path: &str, world: Uuid, family: &str, start: &str, end: &str) -> String {
+    format!("{path}?world={world}&family={family}&start={start}&end={end}")
+}
+
 fn selection(query: Option<&str>, path: &str) -> Result<Selection, ()> {
     let query = query.unwrap_or_default();
     if query.len() > 512 {
@@ -554,4 +575,27 @@ fn utc(s: &str) -> String {
         .map(input_time)
         .map(|s| format!("{s} UTC"))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod drill_down_tests {
+    use super::*;
+
+    #[test]
+    fn drill_down_preserves_world_family_and_bucket() -> Result<(), ()> {
+        let world = Uuid::now_v7();
+        let path = "/admin/analytics/activity";
+        let link = bucket_link(path, world, "world_activity_hourly", "3600", "7200");
+        let (route, query) = link.split_once('?').ok_or(())?;
+        let selection = selection(Some(query), route)?;
+        assert_eq!(route, path);
+        assert_eq!(selection.world, Some(world));
+        assert!(matches!(
+            selection.family,
+            Some(wire::Family::WorldActivityHourly)
+        ));
+        assert_eq!((selection.start, selection.end), (Some(3600), Some(7200)));
+        assert!(super::selection(Some("world=invalid"), route).is_err());
+        Ok(())
+    }
 }

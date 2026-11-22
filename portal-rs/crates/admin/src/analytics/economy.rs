@@ -34,6 +34,23 @@ struct EconomyPage {
     policy: String,
     groups: Vec<Group>,
 }
+impl EconomyPage {
+    fn text(&self, key: &str) -> String {
+        oteryn_ui::text(self.lang, key)
+    }
+
+    fn group_text(&self, group: &Group, field: &str) -> String {
+        let family = match group.family.as_str() {
+            "economy_circulation_daily" => "circulation",
+            "economy_flows_daily" => "flows",
+            "economy_trades_daily" => "trades",
+            "economy_market_daily" => "market",
+            "economy_store_daily" => "store",
+            _ => "purchases",
+        };
+        self.text(&format!("ops-economy-{family}-{field}"))
+    }
+}
 pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     s: Arc<Context<I, A>>,
     request: Request,
@@ -211,13 +228,11 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":if expired {"expired"} else if groups.iter().all(|g|g.state=="unavailable") {"unavailable"} else {"available"},"groups":groups})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
     let page = EconomyPage {
-        lang: if english { "en" } else { "pl" },
+        lang: crate::web::page_language(
+            request.headers(),
+            request.extensions().get::<oteryn_ui::Chrome>(),
+        ),
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
         from: input_time(start),
         to: input_time(end),

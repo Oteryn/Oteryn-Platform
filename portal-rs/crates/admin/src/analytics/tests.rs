@@ -56,6 +56,28 @@ fn uint64_and_activity_arithmetic_boundaries() {
         assert!(wire::parse("page", &serde_json::to_vec(&p).unwrap(), NOW).is_err());
     }
 }
+#[test]
+fn configured_ingestion_requires_the_flag_and_its_peer_mapping() {
+    let config = Config {
+        ingest: true,
+        ..Config::default()
+    };
+    assert!(!resolve_ingest(&config, None).unwrap().1.0);
+    assert!(
+        resolve_ingest(&config, Some("game-admin-analytics"))
+            .unwrap()
+            .1
+            .0
+    );
+    assert!(resolve_ingest(&config, Some("another-purpose")).is_err());
+    assert!(
+        !resolve_ingest(&Config::default(), Some("game-admin-analytics"))
+            .unwrap()
+            .1
+            .0
+    );
+}
+
 #[tokio::test]
 async fn wrong_purpose_transport_and_bounds() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -860,7 +882,7 @@ async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
     };
     // The historical down migration predates later permissions; remove their
     // grants first so the head schema returns to the analytics-era catalog.
-    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate','admin.roles.grant')")
+    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate','admin.roles.grant','admin.rate_limits.view','admin.flags.view','admin.health.view')")
         .execute(&pool)
         .await
         .unwrap();
@@ -1229,14 +1251,13 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
         "48210377",
         "low-n (below five)",
         "depot source coverage not yet delivered by Game",
-        "gold_in / gold_out",
-        "median_unit_price",
+        "Gold in / gold out",
+        "median unit price",
         "purchased",
         "Platform wallet ledger",
         "spent_in_game/coin",
         "refund/coin",
-        "Data cut",
-        "freshness",
+        "Data cut / age",
     ] {
         assert!(body.contains(text), "{text}");
     }
@@ -1244,6 +1265,29 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
     assert!(!body.contains("/journal"));
     let audit:i64=sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='admin.analytics.read' AND target='/admin/analytics/economy'").fetch_one(&pool).await.unwrap();
     assert_eq!(audit, 1);
+    let response = get(
+        panel(pool.clone(), Some(admin), true),
+        &path.replace("/economy?", "/economy/data?"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let wire: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 200000).await.unwrap()).unwrap();
+    let groups = wire["groups"].as_array().unwrap();
+    for (family, columns) in [
+        ("economy_flows_daily", "gold_in / gold_out"),
+        (
+            "economy_market_daily",
+            "traded_units / traded_gold / offers_created / median_unit_price",
+        ),
+    ] {
+        let group = groups
+            .iter()
+            .find(|group| group["family"] == family)
+            .unwrap();
+        assert_eq!(group["columns"], columns);
+        assert!(group["age"].is_u64());
+    }
     for query in [
         "family=characters_created_daily",
         "account=0192f4a0-7c00-7000-8000-000000000001",

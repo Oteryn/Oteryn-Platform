@@ -198,6 +198,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 app
             };
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
+            let app = app.merge(oteryn_admin::operations::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
                 db.clone(),
             )?);
@@ -517,8 +518,19 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             record_route_registrations("internal", &app)?;
             #[cfg(test)]
             record_route_registrations("public", &public_app)?;
-            let internal_listener = internal_tls::start(app, game_ingress).await?;
-            let app = public_app;
+            let export_status = axum::Extension(oteryn_admin::operations::AccountExportReachable(
+                export_available,
+            ));
+            let internal_listener = internal_tls::start(
+                app.layer(export_status).layer(axum::Extension(
+                    oteryn_admin::operations::InternalListenerRunning(true),
+                )),
+                game_ingress,
+            )
+            .await?;
+            let app = public_app.layer(export_status).layer(axum::Extension(
+                oteryn_admin::operations::InternalListenerRunning(internal_listener.is_some()),
+            ));
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             #[cfg(test)]
             if native_listener.is_some() {

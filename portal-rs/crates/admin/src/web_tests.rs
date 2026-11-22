@@ -391,6 +391,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     let page = std::str::from_utf8(&page).unwrap();
     assert!(page.contains("value=\"revoke\""));
     assert!(!page.contains("/admin/roles/confirm"));
+    assert!(!page.contains("return_to=roles"));
     assert!(!page.contains("value=\"grant\""));
     let disabled_grant = disabled
         .oneshot(

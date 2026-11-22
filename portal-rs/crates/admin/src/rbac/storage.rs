@@ -189,6 +189,54 @@ impl<A: AccountStateReader> Authorizer<A> {
         Ok(())
     }
 
+    /// Apply a role edit under the staff-action transaction's authorization and locks.
+    pub(crate) async fn edit_role_with_grant_controls(
+        &self,
+        connection: &mut PgConnection,
+        context: CheckContext,
+        change: Change<'_>,
+    ) -> Result<Option<AuditChange>, Error> {
+        self.check_in(connection, context, Permission::ManageRoles)
+            .await?;
+        let (permissions, role) = match &change {
+            Change::CreateRole { permissions, .. } => (*permissions, None),
+            Change::SetPermissions { role, permissions } => (*permissions, Some(*role)),
+            _ => return Err(Error::InvalidInput),
+        };
+        if permissions.contains(&Permission::ManageRoles) {
+            return Err(Error::Denied);
+        }
+        let audit = match (&change, role) {
+            (Change::CreateRole { key, .. }, None) => AuditChange::RoleCreated {
+                role: create_role(connection, key, permissions).await?,
+                permissions: permissions.to_vec(),
+            },
+            (_, Some(role)) => {
+                ensure_panel_role_grant(connection, role).await?;
+                let Some(before) =
+                    set_role_permissions(connection, context, role, permissions, true).await?
+                else {
+                    return Ok(None);
+                };
+                AuditChange::RolePermissions {
+                    role,
+                    before: before
+                        .iter()
+                        .map(|permission| permission.parse())
+                        .collect::<Result<_, _>>()?,
+                    after: permissions.to_vec(),
+                }
+            }
+            _ => return Err(Error::InvalidInput),
+        };
+        self.check_in(connection, context, Permission::ManageRoles)
+            .await?;
+        change
+            .revoke_browser_credentials(connection, context)
+            .await?;
+        Ok(Some(audit))
+    }
+
     async fn change_impl(
         &self,
         context: CheckContext,

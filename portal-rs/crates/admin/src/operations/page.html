@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text(title) }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <nav aria-label="{{ self.text("panel-admin") }}"><a href="/admin">{{ self.text("panel-admin") }}</a></nav>
+  <h1>{{ self.text(title) }}</h1>
+  {% if let Some(selected) = days %}
+  <form method="get" class="op-stack">
+    <label>{{ self.text("ops-days") }}
+      <select name="days" class="op-input">
+        {% for day in 1u8..31u8 %}<option value="{{ day }}"{% if day == *selected %} selected{% endif %}>{{ day }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="op-button">{{ self.text("ops-show") }}</button>
+  </form>
+  {% endif %}
+  {% if let Some(updated) = refreshed_at %}<p>{{ self.text("ops-statistics-updated") }} <time datetime="{{ updated }}">{{ updated }}</time></p>{% endif %}
+  {% if !note.is_empty() %}<p>{{ self.text(note) }}</p>{% endif %}
+  {% if export %}<p><a href="/admin/operations/rate-limits.csv">{{ self.text("ops-csv") }}</a></p>{% endif %}
+  <div class="op-table-wrap" tabindex="0" role="region" aria-label="{{ self.text(title) }}">
+  <table class="op-table">
+    <thead><tr>{% for column in columns %}<th scope="col">{{ self.text(column) }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in rows %}<tr>{% for cell in row %}{% if loop.first %}<th scope="row">{{ cell }}</th>{% else %}<td>{{ cell }}</td>{% endif %}{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  {% if title == "ops-health" && note.is_empty() %}
+    <h2>{{ self.text("ops-incidents") }}</h2>
+    {% if incidents.is_empty() %}<p>{{ self.text("ops-no-incidents") }}</p>{% else %}
+    <ul>{% for incident in incidents %}<li>{% for value in incident %}{{ value }} {% endfor %}</li>{% endfor %}</ul>
+    {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

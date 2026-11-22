@@ -62,7 +62,7 @@ impl Error {
             oteryn_ui::error_with_message(
                 chrome,
                 status,
-                &chrome.text("staff-action-reason-invalid"),
+                &chrome.text("staff-action-approved-reason-required"),
             )
         } else if matches!(self, Self::StepUp) {
             oteryn_ui::error_with_message(
@@ -247,39 +247,48 @@ pub(crate) async fn run_locked<T, F>(
 where
     F: for<'a> FnOnce(&'a mut PgConnection, T) -> Mutation<'a>,
 {
-    let permissions = [Permission::Access, action.permission];
-    for permission in permissions {
-        guard
-            .authority
-            .check(&mut tx, guard.actor, permission)
-            .await?;
-    }
-    check_step_up(&mut tx, guard.actor, action.step_up).await?;
-    let change = mutate(&mut tx, input).await?;
-    let affected = match &change {
-        Some(AuditChange::RoleGrant { account, .. }) => Some((Some(*account), None)),
-        Some(AuditChange::RolePermissions { role, .. }) => Some((None, Some(*role))),
-        _ => None,
-    };
-    let changed = change.is_some();
-    if let Some(change) = change {
-        record(&mut tx, guard.actor, Uuid::now_v7(), change, Some(reason)).await?;
-    }
-    for permission in permissions {
-        guard
-            .authority
-            .check(&mut tx, guard.actor, permission)
-            .await?;
-    }
-    check_step_up(&mut tx, guard.actor, action.step_up).await?;
-    if changed {
-        if let Some((account, role)) = affected {
-            Change::revoke_affected_browser_credentials(&mut tx, guard.actor, account, role)
+    let result = async {
+        let permissions = [Permission::Access, action.permission];
+        for permission in permissions {
+            guard
+                .authority
+                .check(&mut tx, guard.actor, permission)
                 .await?;
         }
-        tx.commit().await?;
-    } else {
-        tx.rollback().await?;
+        check_step_up(&mut tx, guard.actor, action.step_up).await?;
+        let change = mutate(&mut tx, input).await?;
+        let affected = match &change {
+            Some(AuditChange::RoleGrant { account, .. }) => Some((Some(*account), None)),
+            Some(AuditChange::RolePermissions { role, .. }) => Some((None, Some(*role))),
+            _ => None,
+        };
+        let changed = change.is_some();
+        if let Some(change) = change {
+            record(&mut tx, guard.actor, Uuid::now_v7(), change, Some(reason)).await?;
+        }
+        for permission in permissions {
+            guard
+                .authority
+                .check(&mut tx, guard.actor, permission)
+                .await?;
+        }
+        check_step_up(&mut tx, guard.actor, action.step_up).await?;
+        if changed {
+            if let Some((account, role)) = affected {
+                Change::revoke_affected_browser_credentials(&mut tx, guard.actor, account, role)
+                    .await?;
+            }
+        }
+        Ok::<_, Error>(changed)
+    }
+    .await;
+    match result {
+        Ok(true) => tx.commit().await?,
+        Ok(false) => tx.rollback().await?,
+        Err(error) => {
+            tx.rollback().await?;
+            return Err(error);
+        }
     }
     Ok(())
 }

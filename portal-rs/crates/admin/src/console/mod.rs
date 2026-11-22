@@ -24,7 +24,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -413,6 +413,7 @@ async fn landing<P: Permissions, C: Channel>(
     State(s): State<Arc<Console<P, C>>>,
     Extension(context): Extension<CheckContext>,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Query(q): Query<Selection>,
 ) -> Result<Response, Error> {
     if !s.enabled {
@@ -420,7 +421,12 @@ async fn landing<P: Permissions, C: Channel>(
     }
     q.validate()?;
     s.permissions.navigation(context).await?;
-    let links = navigation(&s.permissions, context, lang(&headers, &q)).await;
+    let links = navigation(
+        &s.permissions,
+        context,
+        lang(&headers, chrome.as_deref(), &q),
+    )
+    .await;
     let first = links.first().ok_or(Error::Denied)?;
     Ok(Redirect::to(&first.url).into_response())
 }
@@ -479,8 +485,8 @@ async fn console_refusal_locale(
     if selection.validate().is_err() {
         return next.run(request).await;
     }
-    let locale = lang(request.headers(), &selection);
     let existing = request.extensions().get::<oteryn_ui::Chrome>();
+    let locale = lang(request.headers(), existing, &selection);
     let chrome = existing
         .filter(|chrome| selection.lang.is_none() || chrome.lang == locale)
         .cloned()
@@ -547,11 +553,15 @@ struct QueryForm {
     lang: String,
     _csrf: String,
 }
-fn lang(headers: &HeaderMap, selection: &Selection) -> &'static str {
+fn lang(
+    headers: &HeaderMap,
+    chrome: Option<&oteryn_ui::Chrome>,
+    selection: &Selection,
+) -> &'static str {
     match selection.lang.as_deref() {
-        Some("pl") => "pl",
         Some("en") => "en",
-        _ => oteryn_web::negotiate(headers).code(),
+        Some("pl") => "pl",
+        _ => web::page_language(headers, chrome),
     }
 }
 fn text(lang: &str, key: &str) -> String {
@@ -628,7 +638,7 @@ async fn render<P: Permissions, C: Channel>(
     s: Arc<Console<P, C>>,
     context: CheckContext,
     session: BrowserSession,
-    headers: HeaderMap,
+    language: &'static str,
     q: Selection,
     operations: &[Operation],
 ) -> Result<Response, Error> {
@@ -647,7 +657,6 @@ async fn render<P: Permissions, C: Channel>(
     for op in operations {
         s.permissions.check(context, *op).await?;
     }
-    let language = lang(&headers, &q);
     let mut sections = Vec::new();
     for op in operations {
         let mut section = Section {
@@ -780,6 +789,7 @@ macro_rules! page_handler {
             Extension(context): Extension<CheckContext>,
             Extension(session): Extension<BrowserSession>,
             headers: HeaderMap,
+            chrome: Option<Extension<oteryn_ui::Chrome>>,
             Query(mut q): Query<Selection>,
         ) -> Result<Response, Error> {
             if q.agent.as_deref() == Some("") {
@@ -789,7 +799,8 @@ macro_rules! page_handler {
                 q.target = None;
             }
             let op = if q.target.is_some() { $detail } else { $base };
-            render(s, context, session, headers, q, &[op]).await
+            let language = lang(&headers, chrome.as_deref(), &q);
+            render(s, context, session, language, q, &[op]).await
         }
     };
 }
@@ -801,6 +812,7 @@ async fn database_page<P: Permissions, C: Channel>(
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Query(mut q): Query<Selection>,
 ) -> Result<Response, Error> {
     if q.agent.as_deref() == Some("") {
@@ -813,7 +825,7 @@ async fn database_page<P: Permissions, C: Channel>(
         s,
         context,
         session,
-        headers,
+        lang(&headers, chrome.as_deref(), &q),
         q,
         &[Operation::Database, Operation::Migrations],
     )

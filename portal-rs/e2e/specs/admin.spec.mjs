@@ -17,6 +17,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  }finally{await db.end();}
  await login(page,lang,staff);
  expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(403);
+ const saved=lang==='pl'?'en':'pl';
+ expect((await page.goto(`/language/${saved}`)).status()).toBe(200);
+ expect((await page.goto('/admin')).status()).toBe(403);
+ await expect(page.locator('html')).toHaveAttribute('lang',saved);
+ await expect(page.locator('main h1')).toHaveText(saved==='pl'?'Wymagane uwierzytelnianie wieloskładnikowe':'Multi-factor authentication required');
+ expect((await page.goto(`/language/${lang}`)).status()).toBe(200);
  await page.goto(`/${lang}/mfa`);
  await submit(page,'main form[action$="/mfa/enroll"]',{password:staff.password});
  const secret=await page.locator('main .op-prose').innerText();
@@ -45,7 +51,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
        attempted.push(path);
        try {
          await test.step(path,async()=>{
-           const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
+           const localized=linked.includes(path)||['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
            const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
            const status=response.status();
            const expected=path==='/console/dashboard'?403:200;
@@ -53,7 +59,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
            if(status===expected) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
-             await assertShell(screen,{status:expected});
+             await assertShell(screen,{status:expected,isolateLanguageProbes:true});
            } else {
              failures.push(`${path}: HTTP ${status}`);
              const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));

@@ -4,7 +4,7 @@ mod test_clock;
 use super::*;
 use axum::{
     body::{Body, to_bytes},
-    http::Request,
+    http::{Request, header},
 };
 use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
 use std::sync::atomic::{AtomicUsize, Ordering};
