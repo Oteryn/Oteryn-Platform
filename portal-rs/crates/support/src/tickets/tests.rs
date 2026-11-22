@@ -724,6 +724,10 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
             format!("_csrf={csrf}&body=answer&lock_version=1"),
             StatusCode::FOUND,
         ),
+        (
+            format!("_csrf={csrf}&body=stale&lock_version=1"),
+            StatusCode::CONFLICT,
+        ),
     ] {
         let response = app
             .clone()
@@ -739,6 +743,18 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
             )
             .await?;
         assert_eq!(response.status(), expected);
+        let conflict = response
+            .extensions()
+            .get::<oteryn_web::chrome::TicketConflict>();
+        if expected == StatusCode::CONFLICT {
+            assert!(matches!(
+                conflict,
+                Some(oteryn_web::chrome::TicketConflict::StaleVersion { recovery_path })
+                    if recovery_path == &path
+            ));
+        } else {
+            assert!(conflict.is_none());
+        }
     }
     assert_eq!(t.list(owner, false, 0).await?[0].status, "waiting_user");
     db.finish().await

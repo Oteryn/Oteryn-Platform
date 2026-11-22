@@ -219,15 +219,27 @@ impl Tickets {
         version: i64,
         change: Change<'_>,
     ) -> Result<Ticket> {
-        self.validate_change(actor, staff, version, change)?;
-        let mut tx = self.pool.begin().await?;
-        let (ticket, _) = self
-            .change_in(&mut tx, actor, staff, (id, version), change, true)
+        self.change_checked(actor, staff, id, version, change)
             .await
             .map_err(|error| match error {
                 Error::StaleVersion | Error::StateConflict => Error::Conflict,
                 error => error,
-            })?;
+            })
+    }
+
+    pub(super) async fn change_checked(
+        &self,
+        actor: Uuid,
+        staff: Option<CheckContext>,
+        id: Uuid,
+        version: i64,
+        change: Change<'_>,
+    ) -> Result<Ticket> {
+        self.validate_change(actor, staff, version, change)?;
+        let mut tx = self.pool.begin().await?;
+        let (ticket, _) = self
+            .change_in(&mut tx, actor, staff, (id, version), change, true)
+            .await?;
         if let Some(context) = staff {
             self.check_staff_permissions(&mut tx, context).await?;
         }

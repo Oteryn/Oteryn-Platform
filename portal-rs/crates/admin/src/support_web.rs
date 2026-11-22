@@ -421,7 +421,9 @@ async fn change<A: AccountStateReader, B: Backend>(
         Err(error) => {
             use oteryn_web::chrome::TicketConflict;
             let reason = match error {
-                Error::StaleTicketVersion => Some(TicketConflict::StaleVersion(id)),
+                Error::StaleTicketVersion => Some(TicketConflict::StaleVersion {
+                    recovery_path: format!("{}/{id}", base(area)),
+                }),
                 Error::TicketStateConflict => Some(TicketConflict::State),
                 _ => None,
             };

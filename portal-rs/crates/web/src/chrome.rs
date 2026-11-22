@@ -18,7 +18,10 @@ pub struct Shell {
 /// A ticket mutation's conflict reason from the authorized, locked domain check.
 #[derive(Clone, Debug)]
 pub enum TicketConflict {
-    StaleVersion(oteryn_db::outbox::Uuid),
+    StaleVersion {
+        /// Server-built same-origin GET path of the current ticket form.
+        recovery_path: String,
+    },
     State,
 }
 
@@ -52,15 +55,20 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
     let chrome = shell.registry.chrome(lang, request.uri().path(), account);
-    let browser = matches!(
+    let browser_method = matches!(
         request.method(),
         &axum::http::Method::GET | &axum::http::Method::POST
-    ) && !crate::surface::oauth_protocol_path(path)
+    );
+    let browser = !crate::surface::oauth_protocol_path(path)
         && crate::surface::error_representation(request.headers())
             == crate::surface::ErrorRepresentation::Html;
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
-    if browser && (response.status().is_client_error() || response.status().is_server_error()) {
+    let ticket_conflict = response.extensions().get::<TicketConflict>();
+    if browser
+        && (browser_method || ticket_conflict.is_some())
+        && (response.status().is_client_error() || response.status().is_server_error())
+    {
         let html = response
             .headers()
             .get(header::CONTENT_TYPE)
@@ -68,10 +76,11 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .is_some_and(|v| v.starts_with("text/html"));
         if !html {
             let status = response.status();
-            let mut replacement = match (status, response.extensions().get::<TicketConflict>()) {
-                (axum::http::StatusCode::CONFLICT, Some(TicketConflict::StaleVersion(id))) => {
-                    oteryn_ui::stale_form(&chrome, &format!("/admin/support/tickets/{id}"))
-                }
+            let mut replacement = match (status, ticket_conflict) {
+                (
+                    axum::http::StatusCode::CONFLICT,
+                    Some(TicketConflict::StaleVersion { recovery_path }),
+                ) => oteryn_ui::stale_form(&chrome, recovery_path),
                 (axum::http::StatusCode::CONFLICT, Some(TicketConflict::State)) => {
                     oteryn_ui::error_with_message(
                         &chrome,
