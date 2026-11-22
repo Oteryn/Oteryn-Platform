@@ -47,6 +47,26 @@ test('T45 owner settings control live online and public profile privacy',async({
   expect(await onlineBody()).not.toContain(name); // account status remains the upper bound
   await page.goto(`/${lang}/account/privacy`);await submit(page,'main form',{public_status_visible:true});
   let body=await onlineBody();expect(body).toContain(name);expect(body).not.toContain('UnknownPrivacySubject');expect(body).not.toContain(owner);
+  await test.step('submit the localized and unprefixed roster filters', async () => {
+   for (const path of [`/${lang}/online`, '/online']) {
+    await heartbeat();
+    expect((await page.goto(path)).status()).toBe(200);
+    const filter = page.locator('main form[method=get]:has(select[name=world])');
+    await filter.locator('[name=world]').selectOption(world);
+    await filter.locator('[name=sort]').selectOption('level');
+    const [result] = await Promise.all([
+     page.waitForResponse(response => response.request().isNavigationRequest() && new URL(response.url()).pathname === path),
+     filter.getByRole('button').click(),
+    ]);
+    expect(result.status()).toBe(200);
+    expect(result.headers()['cache-control']).toContain('no-store');
+    expect(Object.fromEntries(new URL(result.url()).searchParams)).toEqual({world, sort: 'level'});
+    await expect(page.locator('main section li').filter({hasText: name})).toBeVisible();
+    await expect(page.locator('main')).not.toContainText('UnknownPrivacySubject');
+    await expect(filter.locator('[name=world]')).toHaveValue(world);
+    await expect(filter.locator('[name=sort]')).toHaveValue('level');
+   }
+  });
   const profileResponse=await page.request.get(`/${lang}/characters/${name}`);expect(profileResponse.status()).toBe(200);const html=await profileResponse.text();expect(html).not.toContain('<script>private comment</script>');expect(html).toContain('private comment');
   await page.goto(target);await submit(page,'main form',{show_status:false});expect(await onlineBody()).not.toContain(name);
   await submit(page,'main form',{show_status:true,hidden:true});expect(await onlineBody()).not.toContain(name);

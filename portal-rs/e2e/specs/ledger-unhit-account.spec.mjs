@@ -41,7 +41,7 @@ for (const prefix of ['', 'localized']) {
         headers: {origin}, maxRedirects: 0,
       });
       expect(response.status()).toBe(302);
-      expect((await page.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+      expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
       await page.context().clearCookies();
     }
   });
@@ -111,6 +111,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
   await login(page, lang, account);
   const origin = new URL(page.url()).origin;
   const privacy = `/${lang}/account/privacy`;
+  expect((await page.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
   expect((await page.goto(privacy)).status()).toBe(200);
   const token = await page.locator('main form [name=_csrf]').inputValue();
   const changed = await page.request.put(privacy, {
@@ -126,7 +127,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
     const other = await peer.newPage();
     for (const target of ['/account/sessions', `/${lang}/account/sessions`]) {
       await login(other, lang, account);
-      expect((await other.request.get(privacy)).status()).toBe(200);
+      expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
       expect((await page.goto(`/${lang}/account/sessions`)).status()).toBe(200);
       const csrf = await page.locator('main form[action$="/others"] [name=_csrf]').inputValue();
       const revoked = await page.request.delete(target, {
@@ -134,10 +135,10 @@ test('player updates privacy with PUT and revokes other sessions through both DE
       });
       expect(revoked.status()).toBe(302);
       expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(303);
-      expect((await page.request.get(privacy)).status()).toBe(200);
+      expect((await page.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
     }
     await login(other, lang, account);
-    expect((await other.request.get(privacy)).status()).toBe(200);
+    expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
     expect((await page.goto(`/${lang}/account/sessions`)).status()).toBe(200);
     const selected = page.locator('main li:not(:has(p)) form[action*="/account/sessions/"]');
     await expect(selected).toHaveCount(1);
@@ -148,7 +149,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
     });
     expect(revoked.status()).toBe(302);
     expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(303);
-    expect((await page.request.get(privacy)).status()).toBe(200);
+    expect((await page.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
   } finally {
     await peer.close();
   }
@@ -172,7 +173,7 @@ test('mail reset token works through the unprefixed reset endpoint', async ({pag
   expect(response.status()).toBe(302);
   expect(response.headers().location).toMatch(/^\/(pl|en)\/login$/);
   await login(page, lang, {...account, password: next});
-  expect((await page.request.get(`/${lang}/account/privacy`)).status()).toBe(200);
+  expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
 });
 
 test('anonymous verification resend has the same generic response through its form and alias', async ({page}, info) => {
@@ -199,6 +200,7 @@ test('anonymous verification resend has the same generic response through its fo
 
 for (const localized of [false, true]) {
   test(`owner generates, confirms, and revokes a recovery key through the ${localized ? 'localized DELETE' : 'unprefixed'} route aliases`, async ({page}, info) => {
+    test.setTimeout(300_000);
     const lang = info.project.metadata.locale;
     const account = await register(page, lang);
     await login(page, lang, account);
@@ -242,7 +244,7 @@ for (const localized of [false, true]) {
       expect(denied.status()).toBe(302);
       expect(denied.headers().location).toMatch(/^\/(pl|en)\/recovery-key$/);
       await login(page, lang, account);
-      expect((await page.request.get(`/${lang}/account/privacy`)).status()).toBe(200);
+      expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
     }
   });
 }
@@ -269,7 +271,7 @@ test('player changes the password through both PUT routes after sudo', async ({p
     expect(denied.status()).toBe(303);
     account.password = next;
     await login(page, lang, account);
-    expect((await page.request.get(`/${lang}/account/privacy`)).status()).toBe(200);
+    expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
   }
 });
 

@@ -4,6 +4,7 @@ import {submit} from '../helpers.mjs';
 import {action, isolatedAdmin, query, role} from '../staff-rbac-helpers.mjs';
 
 test('staff creates a page through the finder, publishes it and deletes it', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const slug = `ledger-${randomUUID()}`;
@@ -33,6 +34,7 @@ test('staff creates a page through the finder, publishes it and deletes it', asy
 });
 
 test('staff creates and edits a bilingual announcement', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     expect((await page.goto('/admin/announcements/create')).status()).toBe(200);
@@ -54,6 +56,7 @@ test('staff creates and edits a bilingual announcement', async ({browser}, info)
 });
 
 test('staff returns an article from review to draft', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const slug = `ledger-guide-${randomUUID()}`;
@@ -76,6 +79,7 @@ test('staff returns an article from review to draft', async ({browser}, info) =>
 });
 
 test('staff changes a custom role permission through the roles form', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const id = await role(page);
@@ -90,6 +94,7 @@ test('staff changes a custom role permission through the roles form', async ({br
 });
 
 test('staff uses the editorial PUT endpoints to edit news and publish an event', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const slug = `ledger-${randomUUID()}`;

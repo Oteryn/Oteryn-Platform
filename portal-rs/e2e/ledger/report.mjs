@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 
@@ -8,6 +9,23 @@ const refusals = new Set([400, 401, 403, 404, 422]);
 const rows = new Map();
 const ids = new Set();
 const key = (...parts) => JSON.stringify(parts);
+
+const resultsFile = new URL('../test-results/results.json', import.meta.url);
+const passing = new Set();
+function collectPassing(suite, parents = []) {
+  for (const spec of suite.specs ?? []) {
+    const title = [...parents, spec.title].join(' › ');
+    for (const test of spec.tests) {
+      for (const result of test.results) {
+        if (result.status === 'passed' && test.expectedStatus === 'passed') {
+          passing.add(key(`specs/${spec.file}`, title, test.projectName, result.workerIndex, result.retry));
+        }
+      }
+    }
+  }
+  for (const child of suite.suites ?? []) collectPassing(child, [...parents, child.title]);
+}
+for (const suite of JSON.parse(readFileSync(resultsFile)).suites) collectPassing(suite);
 
 function row(kind, crate, parts, properties) {
   const index = key(kind, ...parts);
@@ -39,16 +57,19 @@ function observe(destination, hit) {
   if (!destination) return;
   const index = key(hit.actor, hit.status);
   if (!destination.evidence.has(index)) {
-    destination.evidence.set(index, { actor: hit.actor, status: hit.status, projects: new Set() });
+    destination.evidence.set(index, { actor: hit.actor, status: hit.status, projects: new Set(), cases: new Map() });
   }
-  destination.evidence.get(index).projects.add(hit.project);
+  const evidence = destination.evidence.get(index);
+  evidence.projects.add(hit.project);
+  const provenance = { spec: hit.spec, test: hit.test, project: hit.project };
+  evidence.cases.set(key(hit.spec, hit.test, hit.project), provenance);
 }
 
 if (existsSync(hitDirectory)) {
   for (const file of readdirSync(hitDirectory).filter(name => name.endsWith('.jsonl')).sort()) {
     for (const line of readFileSync(new URL(file, hitDirectory), 'utf8').split('\n').filter(Boolean)) {
       const hit = JSON.parse(line);
-      if (hit.status === null) continue;
+      if (hit.status === null || !passing.has(key(hit.spec, hit.test, hit.project, hit.worker, hit.retry))) continue;
       observe(rows.get(key('R', hit.route_pattern, hit.method)), hit);
       if (hit.form_action) {
         for (const button of hit.form_action.buttons) {
@@ -65,7 +86,11 @@ const result = [...rows.values()].sort((a, b) =>
   ...entry,
   evidence: [...evidence.values()].sort((a, b) =>
     compare(key(a.actor), key(b.actor)) || a.status - b.status)
-    .map(hit => ({ ...hit, projects: [...hit.projects].sort() })),
+    .map(({ cases, projects, ...hit }) => ({
+      ...hit,
+      projects: [...projects].sort(),
+      cases: [...cases.entries()].sort(([a], [b]) => compare(a, b)).map(([, evidence]) => evidence),
+    })),
   hit: evidence.size > 0,
   success: [...evidence.values()].some(hit => hit.status >= 200 && hit.status < 400),
   refusal: [...evidence.values()].some(hit => refusals.has(hit.status)),
@@ -103,8 +128,38 @@ const markdown = [
   '',
 ];
 
-writeFileSync(new URL('./ledger.json', import.meta.url), JSON.stringify({ totals, rows: result }, null, 2) + '\n');
-writeFileSync(new URL('./LEDGER.md', import.meta.url), markdown.join('\n'));
+if (process.argv.includes('--delta')) {
+  const baseline = JSON.parse(readFileSync(new URL('./ledger.json', import.meta.url)));
+  const baselineIds = new Set(baseline.rows.filter(row => !row.hit).map(row => row.id));
+  const gained = result.filter(row => row.hit && baselineIds.has(row.id));
+  const stillUnhit = result.filter(row => !row.hit && baselineIds.has(row.id));
+  const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: new URL('.', import.meta.url), encoding: 'utf8',
+  }).trim();
+  const lines = [
+    '# Portal ledger coverage delta',
+    '',
+    `Tested revision \`${revision}\`.`,
+    '',
+    `${gained.length} of ${baselineIds.size} baseline gaps hit by passing tests, including ${gained.filter(row => row.action).length} form rows. ${stillUnhit.length} baseline gaps remain.`,
+    '',
+    '| Row | Method and path | Actor and status | Passing test and project |',
+    '| --- | --- | --- | --- |',
+  ];
+  for (const row of gained) {
+    for (const { actor, status, cases } of row.evidence) {
+      for (const { spec, test, project } of cases) {
+        lines.push(`| ${row.id} | ${row.method} ${code(row.action ?? row.route)} | ${code(actor ?? 'unknown')} ${status} | ${code(spec)} · ${code(test)} · ${code(project)} |`);
+      }
+    }
+  }
+  lines.push('', '## Baseline gaps still unhit', '');
+  for (const row of stillUnhit) lines.push(`- ${row.id} ${row.method} ${code(row.action ?? row.route)}`);
+  writeFileSync(new URL('./DELTA.md', import.meta.url), lines.join('\n') + '\n');
+} else {
+  writeFileSync(new URL('./ledger.json', import.meta.url), JSON.stringify({ totals, rows: result }, null, 2) + '\n');
+  writeFileSync(new URL('./LEDGER.md', import.meta.url), markdown.join('\n'));
+}
 
 if (process.argv.includes('--gate') && unhit.length) {
   for (const entry of unhit) {

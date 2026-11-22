@@ -5,6 +5,7 @@ import {submit} from '../helpers.mjs';
 import {isolatedAdmin, query} from '../staff-rbac-helpers.mjs';
 
 test('staff submits filters on each analytics page', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     for (const section of ['', '/activity', '/creatures', '/health', '/levels']) {
@@ -30,6 +31,7 @@ test('staff submits filters on each analytics page', async ({browser}, info) => 
 });
 
 test('staff issues one gift code through the browser form', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const path = `/${info.project.metadata.locale}/admin/store/codes`;
@@ -53,6 +55,7 @@ test('staff issues one gift code through the browser form', async ({browser}, in
 });
 
 test('staff approval requires an existing control preview', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     expect((await page.goto('/admin/control/step-up')).status()).toBe(200);

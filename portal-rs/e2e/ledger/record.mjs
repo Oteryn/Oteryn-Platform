@@ -87,7 +87,6 @@ function formAction(url, method, contentType, body, referer) {
   if (selected.length) {
     return { action, buttons: [...new Map(selected.map(button => [JSON.stringify(button), button])).values()] };
   }
-  // A GET navigation with unrelated query parameters is not form evidence.
   // Fields that can also be submitter names must match a declared value.
   if (matching.some(form => form.buttons.includes(null) &&
       form.fields.some(name => fields.has(name) && !buttons.some(button => button.name === name)))) {
@@ -104,24 +103,25 @@ let database;
 
 async function actorFor(cookie) {
   const token = sessionCookie.exec(cookie ?? '')?.[1];
-  if (!token) return 'anonymous';
+  if (!token) return cookie === undefined ? null : 'anonymous';
   if (!database) {
     database = pool();
     database.options.allowExitOnIdle = true;
   }
   const hash = createHash('sha256').update(token).digest();
   const { rows } = await database.query(`
-    SELECT ARRAY(SELECT r.key FROM account_roles ar JOIN roles r ON r.id = ar.role_id
+    SELECT s.account_id, ARRAY(SELECT r.key FROM account_roles ar JOIN roles r ON r.id = ar.role_id
                  WHERE ar.account_id = s.account_id ORDER BY r.key) AS roles
-    FROM web_sessions s JOIN accounts a ON a.id = s.account_id
+    FROM web_sessions s
     WHERE s.id_hash = $1 AND s.idle_expires_at > clock_timestamp()
       AND s.absolute_expires_at > clock_timestamp()
   `, [hash]);
-  if (!rows.length) return 'anonymous';
+  if (!rows.length) return null;
+  if (!rows[0].account_id) return 'anonymous';
   return rows[0].roles.length ? rows[0].roles : ['player'];
 }
 
-function start(url, method, contentType, body, cookie, referer) {
+function start(url, method, cookie) {
   let info;
   try {
     info = test.info();
@@ -135,13 +135,16 @@ function start(url, method, contentType, body, cookie, referer) {
     route_pattern: local ? routes.find(route => route.match.test(target.pathname))?.pattern ?? null : null,
     method,
     status: null,
-    actor: 'anonymous',
-    form_action: local ? formAction(target, method, contentType, body, referer) : null,
+    actor: null,
+    form_action: null,
     spec: relative(testDirectory, info.file),
     test: info.titlePath.slice(1).join(' › '),
     project: info.project.name,
+    worker: info.workerIndex,
+    retry: info.retry,
   };
   const request = {
+    origin,
     file: resolve(directory, `${row.project}-${info.workerIndex}.jsonl`),
     row,
     actor: local ? Promise.resolve(cookie).then(actorFor).then(actor => { row.actor = actor; }) : Promise.resolve(),
@@ -179,22 +182,73 @@ export function installRecorder() {
     // intermediate status and the cookies actually sent on that hop.
     const implementation = context._connection.toImpl(context);
     implementation.on('request', event => {
-      const { url, method, headers, postData } = event;
+      const { url, method, headers } = event;
       const header = name => Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1];
-      apiRequests.set(event, start(url, method, header('content-type') ?? '', postData, header('cookie'), header('referer')));
+      apiRequests.set(event, start(url, method, header('cookie') ?? null));
     });
     implementation.on('requestfinished', event => finish(apiRequests.get(event.requestEvent), event.statusCode));
+  };
+  const watchForms = async (context, page) => {
+    const cdp = await context.newCDPSession(page);
+    const requested = new Map();
+    const submissions = new Map();
+
+    cdp.on('Page.frameRequestedNavigation', ({ frameId, reason, url }) => {
+      if (reason === 'formSubmissionGet' || reason === 'formSubmissionPost') {
+        requested.set(frameId, { url, method: reason === 'formSubmissionGet' ? 'GET' : 'POST' });
+      } else {
+        requested.delete(frameId);
+      }
+    });
+    cdp.on('Page.frameStartedNavigating', ({ frameId, loaderId, url, navigationType }) => {
+      const submission = requested.get(frameId);
+      requested.delete(frameId);
+      if (navigationType === 'differentDocument' && submission?.url === url) {
+        submissions.set(loaderId, submission);
+      }
+    });
+    await cdp.send('Page.enable');
+    return submissions;
   };
   playwright._instrumentation.addListener({
     runAfterCreateBrowserContext(context) {
       watchApi(context.request);
-      context.on('request', request => {
-        const headers = request.headers();
-        const cookie = request.headerValue('cookie').catch(() => null);
-        browserRequests.set(request, start(request.url(), request.method(),
-          headers['content-type'] ?? '', request.postDataBuffer(), cookie, headers.referer));
+      const pageForms = new WeakMap();
+      context.on('page', page => {
+        pageForms.set(page, watchForms(context, page).catch(() => {
+          if (!page.isClosed()) process.exitCode = 1;
+          return new Map();
+        }));
       });
-      context.on('response', response => finish(browserRequests.get(response.request()), response.status()));
+      context.on('request', request => {
+        const cookie = request.headerValue('cookie').catch(() => undefined);
+        browserRequests.set(request, start(request.url(), request.method(), cookie));
+      });
+      context.on('response', response => {
+        const request = response.request();
+        const hit = browserRequests.get(request);
+        if (!hit || !request.isNavigationRequest() || request.redirectedFrom()) {
+          finish(hit, response.status());
+          return;
+        }
+        // Chromium document IDs are CDP loader IDs. A redirect carries the
+        // same loader ID but is a separate request with no new form submission.
+        const document = request._connection.toImpl(request)._documentId;
+        const forms = pageForms.get(request.frame().page());
+        void Promise.resolve(forms).then(submissions => {
+          const submission = submissions?.get(document);
+          submissions?.delete(document);
+          if (submission?.method === request.method() && submission.url === request.url()) {
+            const headers = request.headers();
+            const url = new URL(request.url());
+            if (url.origin === hit.origin) {
+              hit.row.form_action = formAction(url, request.method(),
+                headers['content-type'] ?? '', request.postDataBuffer(), headers.referer);
+            }
+          }
+          finish(hit, response.status());
+        });
+      });
       context.on('requestfailed', request => {
         const hit = browserRequests.get(request);
         if (hit?.row.status === null) finish(hit, null);

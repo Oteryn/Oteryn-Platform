@@ -99,10 +99,15 @@ test('unprefixed portal search submits the pagination form for editorial results
       INSERT INTO pages(id,slug)
       SELECT uuidv7(), $1 || '-' || n FROM generate_series(1,21) n
       RETURNING id, slug
+    ), english AS (
+      INSERT INTO editorial_pages(page_id,locale,title,body,published_at)
+      SELECT id, 'en', slug, 'Local editorial search result.', now()
+      FROM seeded
+      RETURNING page_id, title, body, revision
     )
-    INSERT INTO editorial_pages(page_id,locale,title,body,published_at)
-    SELECT id, locale, slug, 'Local editorial search result.', now()
-    FROM seeded CROSS JOIN unnest(ARRAY['en','pl']) locale
+    INSERT INTO editorial_pages(page_id,locale,title,body,published_at,source_revision)
+    SELECT page_id, 'pl', title, body, now(), revision
+    FROM english
   `, [term]);
   try {
     await waitForWikiBudget('/search', 2);
@@ -127,7 +132,6 @@ test('unprefixed portal search submits the pagination form for editorial results
 // F-community-3881337848774, F-community-16287300610837,
 // F-community-193593469157960, F-community-219222581560817 (deaths).
 // F-community-4730707544746, F-community-274165327503467 (guild directory).
-// F-community-188835548187730, F-community-215566307321900 (online roster).
 // F-community-71546943467822 (community rankings need a complete watermark).
 // F-stats-216992143813701, F-stats-222324429744041: the stats filter is
 // available, but forward/back controls require multiple pages of Game ranks.
