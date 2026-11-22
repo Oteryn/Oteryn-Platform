@@ -27,6 +27,5 @@ export function registeredRedirect(target, locale) {
       return [303, '/pl/events']; // content/events/web.rs
     default:
       if (path === '/language/' + locale) return [303, '/' + locale + '/'];
-      if (path.startsWith('/events/')) return [303, '/pl' + path];
   }
 }
