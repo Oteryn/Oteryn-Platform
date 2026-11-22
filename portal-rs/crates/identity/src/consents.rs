@@ -248,6 +248,12 @@ impl ConsentConfig {
         db: impl PgExecutor<'e>,
         locale: &str,
     ) -> Result<SignupEditions, sqlx::Error> {
+        if !self.validate() {
+            tracing::error!(locale, "sign-up blocked: invalid configured legal versions");
+            return Err(sqlx::Error::Protocol(
+                "invalid configured signup legal versions".into(),
+            ));
+        }
         let documents: Vec<PublishedDocument> = sqlx::query_as(
             "SELECT p.slug,e.legal_version AS version,e.title,e.body,v.page_id,
                     COALESCE(v.content @> '{\"final_approved\":true}'::jsonb,false) AS final_approved

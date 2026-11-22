@@ -162,8 +162,8 @@ async fn live_signup_preflight_requires_staged_bilingual_editions_before_migrati
     };
     assert!(!migration_applied().await?);
 
-    let version = "approved-fixture-v2";
-    for locale in ["en", "pl"] {
+    let approved = "approved-fixture-v2";
+    for (version, locale) in [(" ", "en"), (" ", "pl"), (approved, "en"), (approved, "pl")] {
         sqlx::query(
             "WITH staged AS (
                 UPDATE editorial_pages SET legal_version=$1 WHERE locale=$2 RETURNING *
@@ -177,10 +177,11 @@ async fn live_signup_preflight_requires_staged_bilingual_editions_before_migrati
         .bind(locale)
         .execute(&pool)
         .await?;
-        assert_eq!(check(strict, version, false)?.success(), locale == "pl");
-        assert_eq!(check(upgrade, version, false)?.success(), locale == "pl");
+        let ready = version == approved && locale == "pl";
+        assert_eq!(check(strict, version, false)?.success(), ready);
+        assert_eq!(check(upgrade, version, false)?.success(), ready);
     }
-    assert!(check("migrate", version, true)?.success());
+    assert!(check("migrate", approved, true)?.success());
     assert!(migration_applied().await?);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM page_legal_versions WHERE version=$1")
