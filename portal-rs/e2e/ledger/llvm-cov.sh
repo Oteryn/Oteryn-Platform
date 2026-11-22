@@ -13,6 +13,7 @@ e2e="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 portal="$(dirname "$e2e")"
 cd "$portal"
 : "${PORTAL_E2E_ADMIN_DATABASE_URL:?Set the disposable local PostgreSQL administrator URL}"
+source_commit="$(git rev-parse HEAD)"
 target_dir="${PORTAL_E2E_LLVM_TARGET_DIR:-$portal/target/e2e-llvm-cov}"
 mkdir -p "$target_dir"
 target_dir="$(cd "$target_dir" && pwd)"
@@ -110,7 +111,7 @@ else
         "${sources[@]}" >"$run_dir/llvmcov.json"
 fi
 
-python3 - "$portal" "$run_dir" "$suite_status" "${#serve_profiles[@]}" "${#worker_profiles[@]}" <<'PYTHON'
+python3 - "$portal" "$run_dir" "$suite_status" "${#serve_profiles[@]}" "${#worker_profiles[@]}" "$source_commit" <<'PYTHON'
 from bisect import bisect_right
 from collections import Counter, defaultdict
 from functools import cache
@@ -121,7 +122,8 @@ import subprocess
 import sys
 
 portal, run = map(Path, sys.argv[1:3])
-suite_status, serve_profiles, worker_profiles = map(int, sys.argv[3:])
+suite_status, serve_profiles, worker_profiles = map(int, sys.argv[3:6])
+revision = sys.argv[6]
 coverage = json.loads((run / "llvmcov.json").read_text())["data"][0]
 playwright = json.loads((run / "playwright.json").read_text())
 metrics = ("lines", "functions", "regions")
@@ -342,9 +344,8 @@ executed_projects = [
            if status not in ("not_run", "skipped", "interrupted"))
 ]
 stats = {name: playwright["stats"][name] for name in ("expected", "unexpected", "flaky", "skipped")}
-revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=portal, text=True).strip()
-parents = subprocess.check_output(["git", "log", "-1", "--format=%P"], cwd=portal, text=True).split()
-tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=portal, text=True).strip()
+parents = subprocess.check_output(["git", "log", "-1", "--format=%P", revision], cwd=portal, text=True).split()
+tree = subprocess.check_output(["git", "rev-parse", f"{revision}^{{tree}}"], cwd=portal, text=True).strip()
 summary = {
     "source_commit": revision,
     "source_tree": tree,
