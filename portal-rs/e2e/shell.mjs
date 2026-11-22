@@ -28,7 +28,7 @@ async function assertModuleNavigation(page) {
   }
 }
 
-export async function assertShell(page, {accessibility=true,status=200}={}) {
+export async function assertShell(page, {accessibility=true,status=200,isolateLanguageProbes=false}={}) {
   const home = isHome(page);
   if (home) {
     await expect(page.locator('header a.om-brand')).toHaveAttribute('aria-current','page');
@@ -54,7 +54,7 @@ export async function assertShell(page, {accessibility=true,status=200}={}) {
   const links=await page.locator('main a[href], footer a[hreflang]').evaluateAll(nodes=>nodes.map(n=>({href:n.getAttribute('href'),language:n.hasAttribute('hreflang')})).filter(n=>n.href.startsWith('/')&&!n.href.startsWith('//')));
   // A language link can update the saved locale. Preserve the browser session
   // for later assertions and for concurrent pages sharing its context.
-  const localeProbe = links.some(link => link.language) ? await request.newContext({
+  const localeProbe = isolateLanguageProbes && links.some(link => link.language) ? await request.newContext({
     baseURL: new URL(page.url()).origin,
     ignoreHTTPSErrors: true,
     storageState: await page.context().storageState(),
@@ -62,7 +62,7 @@ export async function assertShell(page, {accessibility=true,status=200}={}) {
   try {
     for(const link of links) {
       await waitForWikiBudget(link.href);
-      const client = link.language ? localeProbe : page.request;
+      const client = link.language && localeProbe ? localeProbe : page.request;
       const response=await client.get(link.href,{headers:{accept:'text/html'}});
       expect(link.language?[200,503,status]:[200,503],`linked destination ${link.href}`).toContain(response.status());
       if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
