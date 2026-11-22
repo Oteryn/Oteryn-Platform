@@ -541,7 +541,7 @@ async fn postgres_profile_takes_account_before_feed_like_termination()
                     };
                     let account_hide = Some(value.hide_all_characters);
                     service
-                        .save(account, "Aldric", value, account_hide, 1000)
+                        .save(account, "Aldric", value, account_hide, None, 1000)
                         .await
                         .is_ok()
                 }

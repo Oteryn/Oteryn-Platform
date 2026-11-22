@@ -336,6 +336,7 @@ mod tests {
                 "missing",
                 "unavailable",
                 "invalid",
+                "edit-conflict",
                 "updated",
             ] {
                 assert!(!text(lang, key).is_empty());
@@ -349,6 +350,7 @@ mod tests {
             title: text("en", "title"),
             name: "<script>".into(),
             csrf: "secret",
+            revision: 7,
             guild: text("en", "guild"),
             main: text("en", "main"),
             save: text("en", "save"),
@@ -362,6 +364,7 @@ mod tests {
         assert!(!html.contains("<script>"));
         assert!(html.contains("script"));
         assert!(html.contains("name=\"_csrf\""));
+        assert!(html.contains(r#"name="expected_revision" value="7""#));
         assert!(html.contains(r#"name="rendered_hide_all_characters" value="0""#));
         assert!(html.contains("for=\"show_guild\""));
         assert!(html.contains("width=device-width"));
