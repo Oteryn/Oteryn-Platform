@@ -36,20 +36,27 @@ const puzzleSourceCommit = 'b'.repeat(40);
 
 async function puzzleTransaction(db, work) {
   const client = await db.connect();
+  let disconnected;
+  const recordDisconnect = error => { disconnected ??= error; };
+  client.on('error', recordDisconnect);
   try {
     await client.query('BEGIN');
     const result = await work(client);
     await client.query('COMMIT');
     return result;
   } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // Preserve the original error so teardown can retry a lost connection.
+    if (retryableConnection(error)) disconnected ??= error;
+    if (!disconnected) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollback) {
+        disconnected ??= rollback;
+      }
     }
     throw error;
   } finally {
-    client.release();
+    client.release(Boolean(disconnected));
+    client.off('error', recordDisconnect);
   }
 }
 
@@ -93,6 +100,10 @@ async function cleanPuzzle(db, fixture) {
 
 export async function withPublishedPuzzle(run) {
   const db = pool();
+  let idleError;
+  db.on('error', error => {
+    if (!retryableConnection(error)) idleError ??= error;
+  });
   try {
     const fixture = await puzzleTransaction(db, async client => {
       const { rows: [previous] } = await client.query(`
@@ -141,6 +152,7 @@ export async function withPublishedPuzzle(run) {
     }
   } finally {
     await db.end();
+    if (idleError) throw idleError;
   }
 }
 

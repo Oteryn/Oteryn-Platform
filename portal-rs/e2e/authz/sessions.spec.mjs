@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+import { pool } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { accountBadgeRoutes, exerciseBadges } from './account-writes.mjs';
 import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
@@ -181,7 +182,7 @@ test.describe('session, support and content authorization', () => {
               await exerciseUnavailableAuthorities(request, locale, anonymous, token, routes);
               await exercisePublishedContent(request, locale, routes);
               await exerciseCharacterFamilies(request, accountId, routes);
-              await exerciseResourceReads(request, accountId, locale, token, routes);
+              await exerciseResourceReads(request, accountId, locale, token, routes, snapshot, verify);
               await exerciseCollection(request, locale, token, accountId, routes, snapshot, verify);
               await exerciseJournal(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
               await exerciseDownloads(request, routes);
@@ -288,5 +289,52 @@ test('puzzle world fixture leaves the next project atlas and puzzle state intact
     }
   } finally {
     await polish.request.dispose();
+  }
+});
+
+test('puzzle teardown retries after its database connection is terminated', async () => {
+  const db = pool();
+  let interrupt;
+  try {
+    const puzzle = await withPublishedPuzzle(async fixture => {
+      const blocker = await db.connect();
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query('LOCK TABLE puzzles_daily IN SHARE MODE');
+      } catch (error) {
+        blocker.release(true);
+        throw error;
+      }
+      interrupt = (async () => {
+        try {
+          await expect.poll(async () => {
+            const { rows } = await db.query(`
+              SELECT pg_terminate_backend(pid) AS terminated FROM pg_stat_activity
+              WHERE datname=current_database() AND wait_event_type='Lock'
+                AND query='ALTER TABLE puzzles_daily DISABLE TRIGGER puzzles_daily_immutable'
+            `);
+            expect(rows.length, 'at most one cleanup transaction is waiting').toBeLessThanOrEqual(1);
+            return rows[0]?.terminated;
+          }, { timeout: 5_000 }).toBe(true);
+        } finally {
+          try {
+            await blocker.query('ROLLBACK');
+          } finally {
+            blocker.release();
+          }
+        }
+      })();
+      // Join the interruption even when teardown itself reports an error.
+      void interrupt.catch(() => {});
+      return fixture;
+    });
+    const [{ remaining }] = await query('SELECT count(*)::int AS remaining FROM puzzles_daily WHERE id=$1', [puzzle.id]);
+    expect(remaining).toBe(0);
+  } finally {
+    try {
+      await interrupt;
+    } finally {
+      await db.end();
+    }
   }
 });

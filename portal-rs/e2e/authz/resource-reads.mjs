@@ -60,7 +60,7 @@ async function privateListing(accountId) {
   return listing.listing_id;
 }
 
-export async function exerciseResourceReads(request, accountId, locale, token, routes) {
+export async function exerciseResourceReads(request, accountId, locale, token, routes, snapshot, verifyRefusal) {
   const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
   const ids = accountId ? await seedHunts(accountId) : [unusedId, unusedId];
   const listing = await privateListing(accountId);
@@ -77,6 +77,7 @@ export async function exerciseResourceReads(request, accountId, locale, token, r
     else if (!accountId) expected = newListing ? 403 : 404;
     const target = path.replace(/\{(?:lang|locale)\}/, locale).replace('{id}', ids[0]).replace('{listing}', listing);
     await test.step(`${method} ${path}`, async () => {
+      const before = share ? await snapshot() : null;
       const response = await request.fetch(comparison ? `${target}?ids=${ids.join(',')}` : target, {
         method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
         ...(method === 'POST' && { form: { _csrf: token } }),
@@ -87,6 +88,7 @@ export async function exerciseResourceReads(request, accountId, locale, token, r
         expect(response.status(), policy).toBe(expected);
         if (method === 'GET') await mirrorHead(request, path, comparison ? `${target}?ids=${ids.join(',')}` : target, response);
         if (expected === 303) expect(response.headers().location).toBe(`/${locale}/login`);
+        if (before) await verifyRefusal(before);
         if (hunts && expected === 200) {
           const html = await response.text();
           for (const id of comparison ? ids : [ids[0]]) expect(html.includes(id), 'owned hunt rendered').toBe(true);

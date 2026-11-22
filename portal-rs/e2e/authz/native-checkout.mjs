@@ -32,9 +32,8 @@ export async function exerciseNativeCheckout(request, locale, token, accountId, 
   const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
   const [{ id: escrow }] = await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'");
   const foreign = await closedOrder(escrow);
-  const awaiting = Boolean(accountId) && !restricted;
-  const owned = awaiting ? await coinOrder(accountId, 'awaiting_payment', 'COIN_ORDER_AWAITING_PAYMENT')
-    : accountId ? await closedOrder(accountId) : foreign;
+  const owned = accountId ? await coinOrder(accountId, 'awaiting_payment', 'COIN_ORDER_AWAITING_PAYMENT')
+    : foreign;
   const orderState = async id => (await query('SELECT state FROM coin_purchase_orders WHERE id=$1', [id]))[0].state;
   for (const [method, routePath] of nativeCheckoutRoutes) {
     const route = routes.find(r => r.listener === 'public' && r.method === method && r.path === routePath);
@@ -62,41 +61,38 @@ export async function exerciseNativeCheckout(request, locale, token, accountId, 
               }
             });
           }
-          expect(await orderState(order)).toBe(awaiting ? 'awaiting_payment' : 'failed');
+          expect(await orderState(order)).toBe('awaiting_payment');
         }
-        const refused = !ownership;
-        const before = method === 'POST' && refused ? await snapshot() : null;
+        const blocked = ownership && restricted;
+        const before = blocked || (method === 'POST' && !ownership) ? await snapshot() : null;
         const response = await request.fetch(target, {
           method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
           ...(method === 'POST' && { form: { action: 'fail' } }),
         });
         try {
-          const status = accountId ? ownership ? method === 'POST' ? 303 : 200 : 404 : 303;
+          const status = !accountId ? 303 : !ownership ? 404 : blocked ? 409 : method === 'POST' ? 303 : 200;
           expect(response.status(), source).toBe(status);
           if (!accountId) expect(response.headers().location).toBe(`/${locale}/login`);
           if (method === 'HEAD') expect((await response.body()).length).toBe(0);
-          if (ownership && method === 'GET') {
+          if (ownership && !blocked && method === 'GET') {
             const html = await response.text();
             expect(/<html\b[^>]*\blang="(pl|en)"/.exec(html)?.[1], "checkout document locale").toBe(locale);
             const heading = locale === 'pl' ? 'Testowy zakup monet' : 'Sandbox coin checkout';
             expect(html.includes(`<h1>${heading}</h1>`), 'localized checkout heading').toBe(true);
-            if (awaiting) {
-              const payment = locale === 'pl' ? 'Zakończ płatność testową' : 'Complete test payment';
-              expect(html.includes(payment), 'awaiting order exposes the localized payment action').toBe(true);
-            }
+            const payment = locale === 'pl' ? 'Zakończ płatność testową' : 'Complete test payment';
+            expect(html.includes(payment), 'awaiting order exposes the localized payment action').toBe(true);
           }
-          if (ownership && method === 'POST') {
+          if (ownership && !blocked && method === 'POST') {
             expect(response.headers().location).toBe(target);
             expect(await orderState(order)).toBe('failed');
-            if (awaiting) {
-              const [intent] = await query(`
-                SELECT p.state, o.code FROM coin_purchase_orders o
-                JOIN payment_intents p ON p.id=o.payment_intent_id WHERE o.id=$1
-              `, [order]);
-              expect(intent).toEqual({ state: 'failed', code: 'COIN_ORDER_FAILED' });
-            }
+            const [intent] = await query(`
+              SELECT p.state, o.code FROM coin_purchase_orders o
+              JOIN payment_intents p ON p.id=o.payment_intent_id WHERE o.id=$1
+            `, [order]);
+            expect(intent).toEqual({ state: 'failed', code: 'COIN_ORDER_FAILED' });
           }
-          if (before) await verifyRefusal(before);
+          if (blocked) expect(await orderState(order)).toBe('awaiting_payment');
+          if (before) await verifyRefusal(before, blocked ? ['coin_purchase.payment_refused'] : []);
         } finally {
           await response.dispose();
         }
