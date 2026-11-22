@@ -5,6 +5,9 @@
   <p class="op-eyebrow">{{ status }}</p>
   <h1>{{ title }}</h1>
   <p>{{ description }}</p>
+  {% if let Some(path) = recovery_path %}
+  <div><a class="op-button" href="{{ path }}">{{ chrome.text("error-409-open-form") }}</a></div>
+  {% endif %}
   <div><a class="op-button" href="{{ chrome.home_url() }}">{{ chrome.text("shell-back") }}</a></div>
 </section>
 {% endblock %}

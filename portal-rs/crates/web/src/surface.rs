@@ -205,14 +205,25 @@ async fn switch_language(Path(lang): Path<String>) -> Response {
 
 pub(crate) fn error_accept(headers: &HeaderMap) -> (bool, bool) {
     let accepts = |media_type: &str| {
-        headers.get_all(header::ACCEPT).iter().filter_map(|value| value.to_str().ok())
+        headers
+            .get_all(header::ACCEPT)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
             .flat_map(|value| value.split(','))
             .any(|item| {
                 let mut parts = item.split(';');
-                parts.next().is_some_and(|kind| kind.trim().eq_ignore_ascii_case(media_type))
-                    && parts.filter_map(|parameter| parameter.split_once('='))
+                parts
+                    .next()
+                    .is_some_and(|kind| kind.trim().eq_ignore_ascii_case(media_type))
+                    && parts
+                        .filter_map(|parameter| parameter.split_once('='))
                         .filter(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
-                        .all(|(_, value)| value.trim().parse::<f32>().is_ok_and(|q| q > 0.0 && q <= 1.0))
+                        .all(|(_, value)| {
+                            value
+                                .trim()
+                                .parse::<f32>()
+                                .is_ok_and(|q| q > 0.0 && q <= 1.0)
+                        })
             })
     };
     let json = accepts("application/json");

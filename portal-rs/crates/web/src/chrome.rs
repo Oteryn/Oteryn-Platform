@@ -45,12 +45,20 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
     let chrome = shell.registry.chrome(lang, request.uri().path(), account);
-    request.extensions_mut().insert(chrome.clone());
     let browser = matches!(
         request.method(),
         &axum::http::Method::GET | &axum::http::Method::POST
     ) && !crate::surface::oauth_protocol_path(path)
         && crate::surface::error_accept(request.headers()).1;
+    // Ticket record routes serve the current form on GET at the same path.
+    let ticket_path = if browser && request.method() == axum::http::Method::POST {
+        path.strip_prefix("/admin/support/tickets/")
+            .and_then(|id| oteryn_db::outbox::Uuid::parse_str(id).ok())
+            .map(|id| format!("/admin/support/tickets/{id}"))
+    } else {
+        None
+    };
+    request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
         let html = response
@@ -59,7 +67,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("text/html"));
         if !html {
-            let mut replacement = oteryn_ui::error(&chrome, response.status());
+            let mut replacement = match (response.status(), ticket_path.as_deref()) {
+                (axum::http::StatusCode::CONFLICT, Some(path)) => {
+                    oteryn_ui::conflict(&chrome, path)
+                }
+                (status, _) => oteryn_ui::error(&chrome, status),
+            };
             for name in [
                 header::ALLOW,
                 header::RETRY_AFTER,
