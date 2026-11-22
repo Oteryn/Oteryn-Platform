@@ -11,13 +11,40 @@ use sqlx::{PgConnection, PgPool};
 use std::{collections::BTreeMap, future::Future, pin::Pin};
 use uuid::Uuid;
 
-pub const MIN_REASON_CHARS: usize = 8;
-pub const MAX_REASON_CHARS: usize = 500;
+#[derive(Debug, Clone, Copy)]
+pub enum StepUp {
+    SessionMfa,
+    RecentPassword,
+}
+
+async fn check_step_up(
+    connection: &mut PgConnection,
+    actor: CheckContext,
+    requirement: StepUp,
+) -> Result<(), Error> {
+    if matches!(requirement, StepUp::RecentPassword) {
+        let proof = actor.session_proof.ok_or(Error::StepUp)?;
+        // RBAC has already locked and verified the durable session and MFA grant.
+        let fresh: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM web_sessions
+             WHERE account_id=$1 AND id_hash=$2 AND sudo_until>clock_timestamp())",
+        )
+        .bind(actor.account)
+        .bind(proof.session_hash.as_slice())
+        .fetch_one(connection)
+        .await?;
+        if !fresh {
+            return Err(Error::StepUp);
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub enum Error {
     Forbidden,
     Reason,
+    StepUp,
     Invalid,
     Conflict,
     Unavailable,
@@ -26,7 +53,7 @@ pub enum Error {
 impl Error {
     pub fn response(self, chrome: &Chrome) -> Response {
         let status = match self {
-            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Forbidden | Self::StepUp => StatusCode::FORBIDDEN,
             Self::Reason | Self::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
             Self::Conflict => StatusCode::CONFLICT,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
@@ -36,6 +63,12 @@ impl Error {
                 chrome,
                 status,
                 &chrome.text("staff-action-reason-invalid"),
+            )
+        } else if matches!(self, Self::StepUp) {
+            oteryn_ui::error_with_message(
+                chrome,
+                status,
+                &chrome.text("staff-action-step-up-required"),
             )
         } else {
             oteryn_ui::error(chrome, status)
@@ -90,6 +123,8 @@ pub struct Action<'a> {
     pub permission: Permission,
     pub action: &'static str,
     pub reason: &'a str,
+    pub reason_codes: &'static [&'static str],
+    pub step_up: StepUp,
 }
 
 impl std::fmt::Debug for Action<'_> {
@@ -130,12 +165,12 @@ where
     {
         return Err(Error::Forbidden);
     }
-    let reason = action.reason.trim();
-    if !(MIN_REASON_CHARS..=MAX_REASON_CHARS).contains(&reason.chars().count())
-        || reason.contains('\0')
-    {
-        return Err(Error::Reason);
-    }
+    let reason = action
+        .reason_codes
+        .iter()
+        .copied()
+        .find(|code| *code == action.reason)
+        .ok_or(Error::Reason)?;
     let (accounts, input) = validate()?;
     let mut tx = pool.begin().await?;
     rbac::mutation_budget(&mut tx).await?;
@@ -148,6 +183,7 @@ where
         &permissions,
     )
     .await?;
+    check_step_up(&mut tx, guard.actor, action.step_up).await?;
     let change = mutate(&mut tx, input).await?;
     let changed = change.is_some();
     if let Some(change) = change {
@@ -173,6 +209,7 @@ where
             .check(&mut tx, guard.actor, permission)
             .await?;
     }
+    check_step_up(&mut tx, guard.actor, action.step_up).await?;
     if changed {
         tx.commit().await?;
     } else {

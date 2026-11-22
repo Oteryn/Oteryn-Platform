@@ -351,7 +351,7 @@ panel-worlds = Światy
 panel-nodes = Węzły
 panel-database = Baza danych
 staff-action-reason = Powód działania
-staff-action-reason-invalid = Podaj powód liczący od 8 do 500 znaków.
+staff-action-reason-invalid = Wybierz zatwierdzony powód.
 error-409-title = Konflikt zmian
 error-409-description = Rekord został zmieniony lub działanie jest sprzeczne z jego bieżącym stanem.
 
@@ -372,3 +372,6 @@ panel-identity-native-devices = Zapamiętane klienty gry
 panel-identity-no-native-devices = Brak zapamiętanych klientów gry.
 panel-identity-recent-auth = Potwierdź tożsamość przed cofnięciem dostępu klienta gry
 panel-identity-last-browser-login = Ostatnie logowanie w przeglądarce (UTC)
+staff-action-role-assignment = Przypisanie roli
+staff-action-step-up = Potwierdź hasło, aby nadawać role
+staff-action-step-up-required = Przed nadaniem roli potwierdź hasło na stronie ról.

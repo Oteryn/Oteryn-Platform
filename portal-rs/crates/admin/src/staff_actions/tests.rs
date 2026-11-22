@@ -30,6 +30,8 @@ struct TestForm {
     reason: String,
     #[serde(default)]
     conflict: bool,
+    #[serde(default)]
+    expire_step_up: bool,
 }
 
 async fn apply(
@@ -49,9 +51,11 @@ async fn apply(
             permission: Permission::GrantRoles,
             action: "staff.action.test",
             reason: &form.reason,
+            reason_codes: &["role_assignment"],
+            step_up: StepUp::RecentPassword,
         },
-        || Ok((vec![actor], form.conflict)),
-        move |connection, conflict| {
+        || Ok((vec![actor], (form.conflict, form.expire_step_up))),
+        move |connection, (conflict, expire_step_up)| {
             Box::pin(async move {
                 let before: String = sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
                     .bind(actor)
@@ -62,10 +66,25 @@ async fn apply(
                 }
                 sqlx::query("UPDATE accounts SET locale='en' WHERE id=$1")
                     .bind(actor)
-                    .execute(connection)
+                    .execute(&mut *connection)
                     .await?;
                 if conflict {
                     return Err(Error::Conflict);
+                }
+                if expire_step_up {
+                    sqlx::query(
+                        "UPDATE web_sessions SET sudo_until=clock_timestamp() WHERE id_hash=$1",
+                    )
+                    .bind(
+                        fixture
+                            .actor
+                            .session_proof
+                            .ok_or(Error::Forbidden)?
+                            .session_hash
+                            .as_slice(),
+                    )
+                    .execute(&mut *connection)
+                    .await?;
                 }
                 Ok(Some(AuditChange {
                     target: actor,
@@ -178,7 +197,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
                 .unwrap(),
         )
     };
-    let good = "reason=Valid+staff+reason";
+    let good = "reason=role_assignment";
     let unchanged = || async {
         let locale: String = sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
             .bind(account)
@@ -205,11 +224,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .execute(&pool)
         .await?;
 
-    for form in [
-        "",
-        "reason=%20%20short",
-        &format!("reason={}", "a".repeat(MAX_REASON_CHARS + 1)),
-    ] {
+    for form in ["", "reason=arbitrary+credential-shaped+text"] {
         assert_eq!(
             post(&token, form).await?.status(),
             StatusCode::UNPROCESSABLE_ENTITY
@@ -227,11 +242,39 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .bind("1 minute")
         .execute(&pool)
         .await?;
-    let conflict = post(&token, "reason=Valid+staff+reason&conflict=true").await?;
+    assert_eq!(post(&token, good).await?.status(), StatusCode::FORBIDDEN);
+    // Fresh sudo in a different session must not elevate this request.
+    crate::test_staff::browser(&pool, account, &cookie).await?;
+    crate::test_staff::recent_password(&pool, &cookie).await?;
+    assert_eq!(post(&token, good).await?.status(), StatusCode::FORBIDDEN);
+    sqlx::query("UPDATE web_sessions SET sudo_until=clock_timestamp()+interval '15 minutes' WHERE id_hash=$1")
+        .bind(proof.session_hash.as_slice()).execute(&pool).await?;
+    let conflict = post(&token, "reason=role_assignment&conflict=true").await?;
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
     assert!(
         String::from_utf8(to_bytes(conflict.into_body(), 100_000).await?.to_vec())?
             .contains("Change conflict")
+    );
+    unchanged().await;
+
+    // The sequence is deliberately nontransactional. It attests that the
+    // audit INSERT ran even though the final freshness check rolls it back.
+    sqlx::raw_sql(
+        "CREATE SEQUENCE staff_action_audit_attempts;
+        CREATE FUNCTION count_staff_action_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN PERFORM nextval('staff_action_audit_attempts'); RETURN NEW; END $$;
+        CREATE TRIGGER count_staff_action_audit AFTER INSERT ON audit_log
+        FOR EACH ROW WHEN (NEW.action='staff.action.test')
+        EXECUTE FUNCTION count_staff_action_audit()",
+    )
+    .execute(&pool)
+    .await?;
+    let expired = post(&token, "reason=role_assignment&expire_step_up=true").await?;
+    assert_eq!(expired.status(), StatusCode::FORBIDDEN);
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT is_called FROM staff_action_audit_attempts")
+            .fetch_one(&pool)
+            .await?
     );
     unchanged().await;
 
@@ -246,7 +289,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         vec![(
             serde_json::json!({"locale": "pl"}),
             serde_json::json!({"locale": "en"}),
-            "Valid staff reason".into(),
+            "role_assignment".into(),
         )]
     );
     pool.close().await;

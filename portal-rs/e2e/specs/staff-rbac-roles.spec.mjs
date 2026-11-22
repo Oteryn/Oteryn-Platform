@@ -1,13 +1,14 @@
 import {test,expect} from '../fixtures.mjs';
-import {staff,player,role,membership,audit,enrollMfa,loginWithRecoveryCode,expectLoginRedirect} from '../staff-rbac-helpers.mjs';
+import {isolatedAdmin,confirmStaffPassword,player,role,membership,audit,enrollMfa,loginWithRecoveryCode,expectLoginRedirect} from '../staff-rbac-helpers.mjs';
 test('role grant enables only permitted pages and revocation refuses the next request',async({page,browser},info)=>{
- test.setTimeout(300000);const lang=info.project.metadata.locale;const account=await player(page,lang);const s=await staff(browser,info);
+ test.setTimeout(300000);const lang=info.project.metadata.locale;const account=await player(page,lang);const s=await isolatedAdmin(browser,info);
  try{
   const codes=await enrollMfa(page,lang,account);
   await loginWithRecoveryCode(page,lang,account,codes[0]);
   const id=await role(s.page,'admin.access audit.view');
   await page.goto(`/${lang}/`);const ordinaryToken=await page.locator('input[name=_csrf]').first().inputValue();
   expect((await page.request.post('/admin/roles',{form:{_csrf:ordinaryToken,account:account.id,role:id,action:'grant'},headers:{origin:new URL(page.url()).origin},maxRedirects:0})).status(),'ordinary player cannot grant a role').toBe(403);
+  await confirmStaffPassword(s.page,lang,s.account.password);
   await membership(s.page,account.id,id,'grant');
   await expectLoginRedirect(page,'/admin/console/audit');
   await loginWithRecoveryCode(page,lang,account,codes[1]);

@@ -142,6 +142,24 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
             stream_download(&pool, &config, &token).await.err(),
             Some(StatusCode::FORBIDDEN)
         );
+        for locale in ["en", "pl"] {
+            let response = router(pool.clone(), config.clone())
+                .oneshot(
+                    axum::http::Request::get(format!("/{locale}/account/privacy/export"))
+                        .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                        .body(axum::body::Body::empty())?,
+                )
+                .await?;
+            if query.ends_with("sudo_until=NULL") {
+                assert_eq!(response.status(), StatusCode::SEE_OTHER);
+                assert_eq!(
+                    response.headers()[header::LOCATION],
+                    format!("/{locale}/account/sudo?return_to=export")
+                );
+            } else {
+                assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            }
+        }
     }
     eprintln!(
         "postgres_owner_export_and_refusals duration: {:?}",

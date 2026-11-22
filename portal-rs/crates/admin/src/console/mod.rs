@@ -360,6 +360,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool,
         Permission::Access,
     )
+    .map(with_refusal_locale)
 }
 pub(super) fn configured_routes(pool: PgPool, enabled: bool, channel: StoredChannel) -> Router {
     routes(Console {
@@ -447,15 +448,59 @@ pub fn router<P: Permissions, C: Channel, I: web::StaffSession, A: AccountStateR
     accounts: A,
 ) -> Router {
     let pool = console.pool.clone();
-    web::guarded(
+    with_refusal_locale(web::guarded(
         routes(console),
         pool,
         panel,
         identity,
         accounts,
         Permission::Access,
-    )
+    ))
 }
+
+fn with_refusal_locale(router: Router) -> Router {
+    router.route_layer(axum::middleware::from_fn(console_refusal_locale))
+}
+
+async fn console_refusal_locale(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let Ok(Query(selection)) = Query::<Selection>::try_from_uri(request.uri()) else {
+        return next.run(request).await;
+    };
+    if selection.validate().is_err() {
+        return next.run(request).await;
+    }
+    let locale = lang(request.headers(), &selection);
+    let mut chrome = request
+        .extensions()
+        .get::<oteryn_ui::Chrome>()
+        .cloned()
+        .unwrap_or_else(|| {
+            oteryn_ui::Registry::default().chrome(
+                locale,
+                request.uri().path(),
+                oteryn_ui::Account::Anonymous,
+            )
+        });
+    if selection.lang.is_some() {
+        chrome.lang = locale.into();
+    }
+    request.extensions_mut().insert(chrome.clone());
+    let response = next.run(request).await;
+    if response.status() != StatusCode::FORBIDDEN
+        || response.headers().contains_key(header::CONTENT_TYPE)
+    {
+        return response;
+    }
+    let mut localized = oteryn_ui::error(&chrome, StatusCode::FORBIDDEN);
+    let mut headers = response.headers().clone();
+    headers.remove(header::CONTENT_LENGTH);
+    localized.headers_mut().extend(headers);
+    localized
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {

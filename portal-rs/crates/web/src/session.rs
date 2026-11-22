@@ -410,11 +410,16 @@ pub async fn middleware(
         .get::<crate::csrf::CsrfConfig>()
         .cloned()
         .unwrap_or_else(|| layer.csrf.clone());
-    // The login router knows both deployment origins. Bind logout to the
-    // configured origin matching this host, including the dedicated staff host.
+    // Logout and password confirmation are available on the staff host.
+    // Use the configured origin matching the request host for those routes.
     if matches!(
         request.uri().path(),
-        "/logout" | "/en/logout" | "/pl/logout"
+        "/logout"
+            | "/en/logout"
+            | "/pl/logout"
+            | "/account/sudo"
+            | "/en/account/sudo"
+            | "/pl/account/sudo"
     ) {
         let mut hosts = request.headers().get_all(header::HOST).iter();
         if let Some(host) = hosts.next().and_then(|value| value.to_str().ok())

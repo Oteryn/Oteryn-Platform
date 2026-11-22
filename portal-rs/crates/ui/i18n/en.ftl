@@ -351,7 +351,7 @@ panel-worlds = Worlds
 panel-nodes = Nodes
 panel-database = Database
 staff-action-reason = Action reason
-staff-action-reason-invalid = Enter a reason of 8 to 500 characters.
+staff-action-reason-invalid = Choose an approved reason.
 error-409-title = Change conflict
 error-409-description = The record changed or the action conflicts with its current state.
 
@@ -372,3 +372,6 @@ panel-identity-native-devices = Remembered game clients
 panel-identity-no-native-devices = No remembered game clients.
 panel-identity-recent-auth = Confirm your identity before revoking a game client
 panel-identity-last-browser-login = Last browser sign-in (UTC)
+staff-action-role-assignment = Role assignment
+staff-action-step-up = Confirm password for role grants
+staff-action-step-up-required = Confirm your password from the roles page before granting a role.
