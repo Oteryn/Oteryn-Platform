@@ -160,11 +160,13 @@ async fn configured_https_port_matches_browser_host_and_csrf_origin() {
 }
 #[test]
 fn localized_responsive_labelled_template() {
-    for lang in ["pl", "en"] {
+    for (lang, reports_label) in [("pl", "Zgłoszenia graczy"), ("en", "Player reports")] {
         let html = Page {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            reports_label: text(lang, "player-reports"),
+            reports_url: Some(REPORTS_PATH),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -176,6 +178,7 @@ fn localized_responsive_labelled_template() {
         }
         .render()
         .unwrap();
+        assert!(html.contains(&format!(r#"href="{REPORTS_PATH}">{reports_label}</a>"#)));
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
         assert!(html.contains("for=\"account\""));
@@ -451,6 +454,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     let panel = Panel {
         config: PanelConfig::default(),
         required: None,
+        reports_enabled: false,
         identity: Identity(identity),
         auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),
         pool: pool.clone(),
