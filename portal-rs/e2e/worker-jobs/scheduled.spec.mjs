@@ -113,6 +113,24 @@ test('expired sessions are retried with database backoff and drained under SIGTE
 
     await jobs.parkRecurring('cleanup.sessions', 3600);
     const id = await enqueue('cleanup.sessions');
+    // The trigger records the retry in the same transaction as the queue update.
+    await jobs.db.query(`
+      CREATE TABLE worker_jobs_session_retries(
+        job_id uuid, attempts integer, released boolean, failed boolean, backoff double precision
+      );
+      CREATE FUNCTION worker_jobs_record_session_retry() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        INSERT INTO worker_jobs_session_retries VALUES (
+          NEW.id, NEW.attempts, NEW.leased_until IS NULL, NEW.last_error IS NOT NULL,
+          extract(epoch FROM NEW.run_after - NEW.updated_at)
+        );
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER worker_jobs_session_retry AFTER UPDATE OF state ON outbox
+      FOR EACH ROW WHEN (OLD.state='running' AND NEW.state='pending' AND NEW.kind='cleanup.sessions')
+      EXECUTE FUNCTION worker_jobs_record_session_retry();
+    `);
     const locker = await jobs.db.connect();
     try {
       await locker.query('BEGIN');
@@ -123,14 +141,18 @@ test('expired sessions are retried with database backoff and drained under SIGTE
       const blocked = await blockedBy(locker, [worker], 'DELETE FROM web_sessions');
       expect(blocked).toHaveLength(1);
       expect(await query('SELECT pg_terminate_backend($1, 1000) AS killed', [blocked[0].pid])).toEqual([{ killed: true }]);
-      const { backoff } = await waitForJob(id, 'pending', 1);
-      expect(backoff).toBeGreaterThanOrEqual(1);
-      expect(backoff).toBeLessThanOrEqual(2);
-
       await waitForJob(id, 'running', 2);
       expect(await blockedBy(locker, [worker], 'DELETE FROM web_sessions')).toHaveLength(1);
-      // SIGTERM is sent only after this attempt is observed inside PostgreSQL.
+      const retries = await query(
+        'SELECT attempts, released, failed, backoff FROM worker_jobs_session_retries WHERE job_id=$1', [id],
+      );
+      expect(retries).toEqual([{ attempts: 1, released: true, failed: true, backoff: expect.any(Number) }]);
+      expect(retries[0].backoff).toBeGreaterThanOrEqual(1);
+      expect(retries[0].backoff).toBeLessThanOrEqual(2);
+
       expect(worker.child.kill('SIGTERM')).toBe(true);
+      await expect.poll(() => worker.draining).toBe(true);
+      expect(await blockedBy(locker, [worker], 'DELETE FROM web_sessions')).toHaveLength(1);
       await locker.query('COMMIT');
       expect(await worker.exited).toEqual([0, null]);
     } finally {
@@ -146,7 +168,15 @@ test('expired sessions are retried with database backoff and drained under SIGTE
     expect((await page.goto(sessions)).status()).toBe(200);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(lang === 'pl' ? 'Sesje web' : 'Web sessions');
   } finally {
-    await expired.close();
+    try {
+      await jobs.db.query(`
+        DROP TRIGGER IF EXISTS worker_jobs_session_retry ON outbox;
+        DROP FUNCTION IF EXISTS worker_jobs_record_session_retry();
+        DROP TABLE IF EXISTS worker_jobs_session_retries;
+      `);
+    } finally {
+      await expired.close();
+    }
   }
 });
 

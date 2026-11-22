@@ -40,15 +40,23 @@ const ready = new Promise(resolve => {
     if (line.includes('outbox worker started')) resolve();
   });
 });
-async function drain() {
-  await Promise.race([ready, exited]);
-  worker.kill('SIGTERM');
-  return exited;
+let stopping;
+function stopWorker() {
+  if (!stopping) {
+    worker.kill('SIGTERM');
+    // The production drain budget is ten seconds. Reap a child that cannot
+    // handle SIGTERM so harness teardown can still close its database.
+    const deadline = setTimeout(() => worker.kill('SIGKILL'), 12_000);
+    stopping = exited.finally(() => clearTimeout(deadline));
+  }
+  return stopping;
 }
 
 // EOF acknowledges the actual worker exit while retaining serve and gateway.
 const control = createServer(socket => {
-  drain().then(([code, signal]) => socket.end(String(code ?? signal)), () => socket.end('1'));
+  socket.on('error', () => socket.destroy());
+  Promise.race([ready, exited]).then(stopWorker)
+    .then(([code, signal]) => socket.end(String(code ?? signal)), () => socket.end('1'));
 });
 const controlFile = path.join(path.dirname(scratch), 'worker.sock');
 control.listen(controlFile, () => {
@@ -64,6 +72,6 @@ worker.once('exit', (code, signal) => {
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
     control.close();
-    void drain();
+    void stopWorker().catch(() => { process.exitCode = 1; });
   });
 }

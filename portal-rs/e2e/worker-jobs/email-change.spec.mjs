@@ -185,6 +185,9 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
 
     const workers = [first, second];
     for (const worker of workers) expect(worker.child.kill('SIGTERM')).toBe(true);
+    await expect.poll(() => first.draining).toBe(true);
+    expect(await status(retry)).toMatchObject({ state: 'running', attempts: 1, released: false });
+    expect(accepted).toHaveLength(1);
     releaseMail();
     releaseMail = undefined;
     for (const worker of workers) expect(await worker.exited).toEqual([0, null]);
@@ -216,7 +219,10 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
     }).catch(() => null);
     expect(missingCsrf?.status()).toBe(403);
     await page.locator('main form button[type=submit]').click();
-    await expect(page).toHaveURL(/\/login(?:\?|$)/);
+    const loginUrl = new URL(`/${lang}/login`, jobs.env.OTERYN_PUBLIC_ORIGIN).href;
+    await expect.poll(() => page.url() === loginUrl, {
+      message: 'Confirmation redirects to the localized login page',
+    }).toBe(true);
     expect(await query('SELECT email FROM accounts WHERE id=$1', [account.id])).toEqual([{ email: nextEmail }]);
     await login(page, lang, { ...account, email: nextEmail });
     expect((await page.goto(`/${lang}/account/sessions`)).status()).toBe(200);

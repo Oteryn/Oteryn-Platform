@@ -55,17 +55,19 @@ export const test = base.extend({
             stdio: ['ignore', 'pipe', 'ignore'],
           });
           const exited = once(child, 'exit');
+          let draining = false;
           // The production ready message follows installation of SIGTERM.
           const ready = new Promise((resolve, reject) => {
             const lines = createInterface({ input: child.stdout });
             lines.on('line', line => {
               if (line.includes('outbox worker started')) resolve();
+              if (line.includes('outbox worker draining in-flight batch')) draining = true;
             });
             lines.once('close', () => reject(new Error('Worker exited before installing its signal handler')));
             child.once('error', () => reject(new Error('Worker could not start')));
           });
           ready.catch(() => {});
-          const worker = { name, child, ready, exited };
+          const worker = { name, child, ready, exited, get draining() { return draining; } };
           workers.push(worker);
           return worker;
         },

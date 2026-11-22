@@ -2,7 +2,7 @@
 // and its owned worker subprocesses have exited.
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync, writeSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,7 @@ if (!binary || !path.isAbsolute(binary)) {
 
 const scratch = mkdtempSync(path.join(os.tmpdir(), 'worker-jobs-'));
 const output = path.join(scratch, 'harness');
+const artifacts = path.join(scratch, 'playwright-artifacts');
 const wrapper = path.join(scratch, 'portal');
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const invocation = [process.execPath, path.join(here, 'role.mjs'), binary].map(quote).join(' ');
@@ -55,6 +56,45 @@ async function waitForWorkerControl(workerEnv) {
   }
 }
 
+async function drainInitialWorker() {
+  const socket = createConnection({
+    path: path.join(scratch, 'worker.sock'),
+    signal: AbortSignal.timeout(30_000),
+  });
+  socket.setEncoding('utf8');
+  try {
+    let drained = '';
+    for await (const chunk of socket) drained += chunk;
+    if (drained !== '0') throw new Error('Initial harness worker failed to drain');
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('Initial worker control handshake timed out');
+    throw error;
+  } finally {
+    socket.destroy();
+  }
+}
+
+function redactCapabilities(text) {
+  return text.replace(/(\/email-change\/(?:confirm|revert)\/)[a-f0-9]{64}\b/gi, '$1[redacted]');
+}
+
+async function captureDiagnostics(stream, log) {
+  for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+    writeSync(log, `${redactCapabilities(line)}\n`);
+  }
+}
+
+function redactPageSnapshots() {
+  if (!existsSync(artifacts)) return;
+  for (const file of readdirSync(artifacts, { recursive: true })) {
+    if (path.basename(file) !== 'error-context.md') continue;
+    const snapshot = path.join(artifacts, file);
+    const text = readFileSync(snapshot, 'utf8');
+    const redacted = redactCapabilities(text);
+    if (redacted !== text) writeFileSync(snapshot, redacted);
+  }
+}
+
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
     if (tests) tests.kill('SIGINT');
@@ -74,11 +114,7 @@ try {
   // The harness report only establishes readiness of the HTTP listeners.
   const workerEnv = path.join(output, 'secrets', 'worker-env.json');
   await waitForWorkerControl(workerEnv);
-  const socket = createConnection(path.join(scratch, 'worker.sock'));
-  socket.setEncoding('utf8');
-  let drained = '';
-  for await (const chunk of socket) drained += chunk;
-  if (drained !== '0') throw new Error('Initial harness worker failed to drain');
+  await drainInitialWorker();
 
   const env = JSON.parse(readFileSync(workerEnv, 'utf8'));
   const logPath = path.join(scratch, 'playwright.log');
@@ -93,18 +129,27 @@ try {
       PORTAL_E2E_ORIGIN: env.OTERYN_PUBLIC_ORIGIN,
       PORTAL_E2E_DATABASE_URL: env.OTERYN_DATABASE_URL,
       PORTAL_WORKER_JOBS_ENV: workerEnv,
-      PORTAL_WORKER_JOBS_ARTIFACTS: path.join(scratch, 'playwright-artifacts'),
+      PORTAL_WORKER_JOBS_ARTIFACTS: artifacts,
       PORTAL_E2E_OUTBOX_BINARY: binary,
       PORTAL_E2E_OUTBOX_REPORT: path.join(output, 'report.json'),
       OTERYN_DATABASE_URL: env.OTERYN_DATABASE_URL,
       OTERYN_ENV: env.OTERYN_ENV,
       OTERYN_MFA_KEY: env.OTERYN_MFA_KEY,
     },
-    stdio: ['ignore', log, log],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  closeSync(log);
   process.stdout.write('Running worker-jobs Playwright tests\n');
-  const [code] = await once(tests, 'close');
+  let code;
+  try {
+    [[code]] = await Promise.all([
+      once(tests, 'close'),
+      captureDiagnostics(tests.stdout, log),
+      captureDiagnostics(tests.stderr, log),
+    ]);
+  } finally {
+    closeSync(log);
+    redactPageSnapshots();
+  }
   process.exitCode = code ?? 1;
   passed = code === 0;
   for (const line of readFileSync(logPath, 'utf8').split('\n')) {
