@@ -119,9 +119,13 @@ process.execve(${JSON.stringify(binary)}, [${JSON.stringify(binary)}, ...process
   });
   const publicPort = new URL(report.baseUrls.public).port;
   proxy = https.createServer(tls, (request, response) => {
+    // Select the real TCP source of the proxy-to-portal connection. Do not
+    // forward the harness selector or rely on an asserted forwarding header.
+    const { 'x-e2e-abuse-source': source, ...headers } = request.headers;
     const upstream = http.request({
+      localAddress: source === 'secondary' ? '127.0.0.2' : '127.0.0.1',
       host: '127.0.0.1', port: publicPort, path: request.url,
-      method: request.method, headers: request.headers,
+      method: request.method, headers,
     }, result => {
       response.writeHead(result.statusCode, result.headers);
       result.pipe(response);
