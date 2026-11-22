@@ -138,8 +138,12 @@ export async function startPaintTrace(page) {
 }
 
 export function collectResponses(page) {
+  const pending = new Set();
   const transfers = [];
+  page.on('request', request => pending.add(request));
+  page.on('requestfailed', request => pending.delete(request));
   page.on('requestfinished', request => {
+    pending.delete(request);
     transfers.push((async () => {
       const response = await request.response();
       const { responseBodySize: bytes } = await request.sizes();
@@ -150,7 +154,12 @@ export function collectResponses(page) {
       };
     })());
   });
-  return async () => Promise.all(transfers);
+  return async () => {
+    await expect.poll(() => pending.size, {
+      message: 'Browser requests finish before checking transfer budgets',
+    }).toBe(0);
+    return Promise.all(transfers);
+  };
 }
 
 export function assertBudgets(measurement, transfers, label) {
@@ -166,6 +175,7 @@ export function assertBudgets(measurement, transfers, label) {
       expect.soft(cache, `${label}: cache policy for ${pathname}`).toBeTruthy();
       if (pathname.startsWith('/static/')) {
         expect.soft(cache, `${label}: reusable static asset ${pathname}`).toMatch(/\bmax-age=[1-9]\d*/i);
+        expect.soft(cache, `${label}: cacheable static asset ${pathname}`).not.toMatch(/\bno-(?:cache|store)\b/i);
       }
       if (/(?:^|[.-])[\da-f]{8,}(?=[.-]|$)/i.test(pathname.split('/').at(-1))) {
         expect.soft(cache, `${label}: content-hashed asset ${pathname}`).toMatch(/\bimmutable\b/i);
