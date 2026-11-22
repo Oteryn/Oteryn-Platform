@@ -365,6 +365,28 @@ async fn postgres_http_owner_csrf_and_downloads() -> TestResult {
         )
         .await?;
     assert_eq!(missing_preference_token.status(), StatusCode::FORBIDDEN);
+    for (lang, message) in [
+        ("en", "Check your email preference and try again."),
+        ("pl", "Sprawdź ustawienie wiadomości e-mail i spróbuj ponownie."),
+    ] {
+        let invalid = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/{lang}/account/journal/reports/email"))
+                    .header(
+                        header::COOKIE,
+                        format!("__Host-oteryn_session={}", "a".repeat(64)),
+                    )
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={}&enabled=invalid", "c".repeat(64))))?,
+            )
+            .await?;
+        assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            to_bytes(invalid.into_body(), 2048).await?.as_ref(),
+            message.as_bytes(),
+        );
+    }
     for lang in ["pl", "en"] {
         let response = app
             .clone()

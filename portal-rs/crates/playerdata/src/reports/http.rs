@@ -176,18 +176,18 @@ async fn preference(
     Path(lang): Path<String>,
     headers: HeaderMap,
     Form(form): Form<PreferenceForm>,
-) -> std::result::Result<StatusCode, StatusCode> {
-    Locale::parse(&lang).map_err(status)?;
+) -> std::result::Result<Response, StatusCode> {
+    let locale = Locale::parse(&lang).map_err(status)?;
     let (account, token) = actor(&service, &headers).await?;
     csrf(&token, &form.csrf)?;
     if form.enabled.as_deref().is_some_and(|v| v != "true") {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        return preference_error(locale);
     }
     service
         .email_preference(account, form.enabled.is_some())
         .await
         .map_err(status)?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 async fn notes_export(
     State(service): State<Reports>,
@@ -256,6 +256,11 @@ pub fn configured_router(pool: PgPool) -> Router {
             weekly_email: false,
         },
     })
+}
+
+fn preference_error(locale: Locale) -> std::result::Result<Response, StatusCode> {
+    let message = render::message(locale, "invalid-preference").map_err(status)?;
+    Ok((StatusCode::UNPROCESSABLE_ENTITY, message).into_response())
 }
 
 #[cfg(test)]

@@ -11,3 +11,4 @@ optin = Email me a link to my weekly report (also requires news email consent)
 preferences = Save email preference
 drops = Drops
 character-note = Character note
+invalid-preference = Check your email preference and try again.
