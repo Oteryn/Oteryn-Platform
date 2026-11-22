@@ -670,12 +670,18 @@ async fn email(
     // SMTP must be configured before creating a fallback code; no browser response contains it.
     let host = std::env::var("OTERYN_SMTP_HOST").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let from = std::env::var("OTERYN_MAIL_FROM").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let Some((to, code)) = context.mfa.email_code(&token).await.map_err(unavailable)? else {
+    let Some((to, code, locale)) = context.mfa.email_code(&token).await.map_err(unavailable)?
+    else {
         return Ok(redirect(language, "/login"));
     };
+    let mail_language = match locale.as_str() {
+        "pl" => Language::Pl,
+        "en" => Language::En,
+        _ => return Err(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let text = Page {
-        lang: language.code(),
-        language,
+        lang: mail_language.code(),
+        language: mail_language,
         csrf: String::new(),
         mode: "",
         failed: false,
