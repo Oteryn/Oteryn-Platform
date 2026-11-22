@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Request, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -464,19 +464,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
     let session = BrowserSession::new(layer.pool.clone(), layer.config, ip, agent);
-    let mut identifiers = request
-        .headers()
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .filter_map(|v| v.trim().split_once('='))
-        .filter(|(name, _)| *name == COOKIE_NAME)
-        .map(|(_, value)| value);
-    if let Some(id) = identifiers.next() {
-        if !valid_id(id) || identifiers.next().is_some() {
-            return Err(sqlx::Error::Protocol("invalid session cookie".into()));
-        }
+    if let Some(id) = cookie_id(request.headers())? {
         let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
             "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
                 idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
@@ -500,21 +488,8 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
     Ok(session)
 }
 
-/// Read presentation state without refreshing expiry, creating a session or setting cookies.
-pub(crate) async fn chrome_account(
-    layer: &SessionLayer,
-    request: &mut Request,
-) -> oteryn_ui::Account {
-    let config = request
-        .extensions()
-        .get::<SessionConfig>()
-        .copied()
-        .unwrap_or(layer.config);
-    if config.validate().is_err() {
-        return oteryn_ui::Account::Anonymous;
-    }
-    let mut identifiers = request
-        .headers()
+fn cookie_id(headers: &HeaderMap) -> Result<Option<&str>, sqlx::Error> {
+    let mut identifiers = headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
@@ -522,17 +497,76 @@ pub(crate) async fn chrome_account(
         .filter_map(|v| v.trim().split_once('='))
         .filter(|(name, _)| *name == COOKIE_NAME)
         .map(|(_, value)| value);
-    let Some(id) = identifiers.next().filter(|id| valid_id(id)) else {
-        return oteryn_ui::Account::Anonymous;
-    };
-    if identifiers.next().is_some() {
-        return oteryn_ui::Account::Anonymous;
+    let id = identifiers.next();
+    if id.is_some_and(|id| !valid_id(id)) || identifiers.next().is_some() {
+        return Err(sqlx::Error::Protocol("invalid session cookie".into()));
     }
-    let row: Result<Option<(String, Option<Uuid>)>, _> = sqlx::query_as(
-        "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(id)).fetch_optional(&layer.pool).await;
-    match row {
-        Ok(Some((csrf, Some(_)))) => oteryn_ui::Account::SignedIn { csrf },
+    Ok(id)
+}
+
+/// Existing authenticated session data for a read-only page.
+#[derive(Clone)]
+pub struct SignedInSession {
+    pub account_id: Uuid,
+    pub csrf: String,
+}
+impl std::fmt::Debug for SignedInSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignedInSession").finish_non_exhaustive()
+    }
+}
+
+async fn read_signed_in(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> Result<Option<SignedInSession>, sqlx::Error> {
+    request
+        .extensions()
+        .get::<SessionConfig>()
+        .copied()
+        .unwrap_or(layer.config)
+        .validate()?;
+    let Some(id) = cookie_id(request.headers())? else {
+        return Ok(None);
+    };
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT account_id,csrf_token FROM web_sessions WHERE id_hash=$1
+         AND account_id IS NOT NULL AND idle_expires_at>clock_timestamp()
+         AND absolute_expires_at>clock_timestamp()",
+    )
+    .bind(hash(id))
+    .fetch_optional(&layer.pool)
+    .await?;
+    Ok(row.map(|(account_id, csrf)| SignedInSession { account_id, csrf }))
+}
+
+/// Attach existing session data to a read-only route without refreshing or creating a session.
+pub async fn read_only_middleware(
+    State(layer): State<SessionLayer>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    match read_signed_in(&layer, &mut request).await {
+        Ok(session) => {
+            if let Some(session) = session {
+                request.extensions_mut().insert(session);
+            }
+            next.run(request).await
+        }
+        Err(sqlx::Error::Protocol(message)) if message == "invalid session cookie" => {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Read presentation state without refreshing expiry, creating a session or setting cookies.
+pub(crate) async fn chrome_account(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> oteryn_ui::Account {
+    match read_signed_in(layer, request).await {
+        Ok(Some(session)) => oteryn_ui::Account::SignedIn { csrf: session.csrf },
         _ => oteryn_ui::Account::Anonymous,
     }
 }

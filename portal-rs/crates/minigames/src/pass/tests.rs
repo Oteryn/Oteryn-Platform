@@ -702,6 +702,14 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
             ..CsrfConfig::default()
         },
     );
+    let timestamps = || {
+        sqlx::query_as::<_, (OffsetDateTime, OffsetDateTime, OffsetDateTime, OffsetDateTime)>(
+            "SELECT last_seen_at,updated_at,idle_expires_at,absolute_expires_at FROM web_sessions WHERE account_id=$1",
+        )
+        .bind(db.account)
+        .fetch_one(&db.pool)
+    };
+    let before = timestamps().await?;
     let response = router
         .clone()
         .oneshot(
@@ -717,6 +725,8 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
         response.headers()[header::CACHE_CONTROL],
         "private, no-store"
     );
+    assert!(!response.headers().contains_key(header::SET_COOKIE));
+    assert_eq!(timestamps().await?, before);
     let html = String::from_utf8(to_bytes(response.into_body(), 64000).await?.to_vec())?;
     assert!(html.contains("Game journal challenge"));
     assert!(html.contains("Portal challenge"));
@@ -725,12 +735,50 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
         db.service().progress(db.account, db.season.id).await?,
         Progress { xp: 0, paid: false }
     );
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM pass_progress")
-        .fetch_one(&db.pool)
-        .await?;
-    assert_eq!(rows, 0);
+    let rows: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM pass_progress), (SELECT count(*) FROM pass_challenge_progress),
+                (SELECT count(*) FROM pass_events), (SELECT count(*) FROM pass_claims)",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(rows, (0, 0, 0, 0));
     let operation = Uuid::now_v7();
     let uri = format!("/en/pass/{}/buy", db.season.id);
+    let mut blocker = db.pool.begin().await?;
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('season-pass-buy:' || $1::uuid::text, 0))",
+    )
+    .bind(operation)
+    .execute(&mut *blocker)
+    .await?;
+    for (lang, notice, check) in [
+        (
+            "en",
+            "We could not confirm the purchase outcome.",
+            "Check your season pass before trying again.",
+        ),
+        (
+            "pl",
+            "Nie udało się potwierdzić wyniku zakupu.",
+            "Sprawdź swoją przepustkę sezonową przed ponowną próbą.",
+        ),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::post(format!("/{lang}/pass/{}/buy", db.season.id))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::ORIGIN, "https://portal.example.invalid")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={csrf}&operation={operation}")))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let html = String::from_utf8(to_bytes(response.into_body(), 64000).await?.to_vec())?;
+        assert!(html.contains(notice));
+        assert!(html.contains(&format!(r#"<a href="/{lang}/pass">{check}</a>"#)));
+    }
+    blocker.rollback().await?;
     let response = router
         .clone()
         .oneshot(
@@ -1040,30 +1088,30 @@ async fn postgres_platform_purchase_reconciles_and_refuses_changed_account() -> 
     db.close().await
 }
 
+async fn wait_for_blocked(
+    observer: &PgPool,
+    holder: i32,
+) -> std::result::Result<i32, Box<dyn std::error::Error>> {
+    Ok(tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let blocked: Option<i32> = sqlx::query_scalar(
+                "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)) LIMIT 1",
+            )
+            .bind(holder)
+            .fetch_optional(observer)
+            .await?;
+            if let Some(pid) = blocked {
+                return Ok::<_, sqlx::Error>(pid);
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??)
+}
+
 #[tokio::test]
 async fn postgres_purchase_key_waits_for_in_flight_receipt_before_refusing_unknown_season()
 -> TestResult {
-    async fn wait_for_blocked(
-        observer: &PgPool,
-        holder: i32,
-    ) -> std::result::Result<i32, Box<dyn std::error::Error>> {
-        Ok(tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                let blocked: Option<i32> = sqlx::query_scalar(
-                    "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)) LIMIT 1",
-                )
-                .bind(holder)
-                .fetch_optional(observer)
-                .await?;
-                if let Some(pid) = blocked {
-                    return Ok::<_, sqlx::Error>(pid);
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await??)
-    }
-
     let db = Db::new().await?.ok_or("PostgreSQL required")?;
     let ledger = oteryn_wallet::Ledger::new(
         db.pool.clone(),
@@ -1120,5 +1168,50 @@ async fn postgres_purchase_key_waits_for_in_flight_receipt_before_refusing_unkno
             .await?;
     assert_eq!(purchases, [-100]);
     assert_eq!(ledger.balance(db.account).await?.available, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_overview_uses_one_snapshot_during_first_progress() -> TestResult {
+    let db = Db::new().await?.ok_or("PostgreSQL required")?;
+    let service = db.service();
+    let mut writer = db.pool.begin().await?;
+    sqlx::query("LOCK TABLE pass_challenge_progress IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *writer)
+        .await?;
+    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await?;
+    // Prepare the first committed progress state behind the table lock.
+    let challenge = &db.season.challenges[0];
+    sqlx::query("INSERT INTO pass_progress (account_id,season_id,xp) VALUES ($1,$2,$3)")
+        .bind(db.account)
+        .bind(db.season.id)
+        .bind(challenge.xp)
+        .execute(&mut *writer)
+        .await?;
+    sqlx::query("INSERT INTO pass_challenge_progress (account_id,season_id,challenge_id,amount) VALUES ($1,$2,$3,$4)")
+        .bind(db.account).bind(db.season.id).bind(challenge.id).bind(challenge.target)
+        .execute(&mut *writer).await?;
+    // Establish a connection before starting the overview's bounded transaction.
+    drop(db.pool.acquire().await?);
+    let mut overview = std::pin::pin!(service.overview(db.account));
+    tokio::select! {
+        result = &mut overview => return Err(format!("overview completed before the challenge lock was released: {result:?}").into()),
+        waiting = wait_for_blocked(&db.admin, holder) => { waiting?; },
+    }
+    writer.commit().await?;
+
+    let before = overview.await?;
+    assert_eq!(before.progress.xp, 0);
+    assert!(before.challenges.iter().all(|view| view.amount == 0));
+    let after = service.overview(db.account).await?;
+    assert_eq!(after.progress.xp, challenge.xp);
+    assert!(
+        after
+            .challenges
+            .iter()
+            .any(|view| { view.definition.id == challenge.id && view.amount == challenge.target })
+    );
     db.close().await
 }

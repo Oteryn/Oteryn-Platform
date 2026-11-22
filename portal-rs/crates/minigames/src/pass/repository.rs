@@ -106,7 +106,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         season: Uuid,
     ) -> Result<Progress> {
         let (xp, paid) = sqlx::query_as(
-            "SELECT xp,paid FROM pass_progress WHERE account_id=$1 AND season_id=$2 FOR SHARE",
+            "SELECT xp,paid FROM pass_progress WHERE account_id=$1 AND season_id=$2",
         )
         .bind(account)
         .bind(season)
@@ -143,6 +143,11 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             return Err(Error::Invalid);
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
+        // Progress, challenge amounts and claims must reflect the same snapshot,
+        // including when the first progress row is inserted concurrently.
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await?;
         self.authority.account(&mut tx, account).await?;
         let row = sqlx::query("SELECT id,ends_at,price FROM pass_seasons WHERE starts_at<=clock_timestamp() AND ends_at>clock_timestamp()")
             .fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;

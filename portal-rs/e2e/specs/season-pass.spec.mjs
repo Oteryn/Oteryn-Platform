@@ -37,6 +37,10 @@ test('season pass spends sandbox coins once and keeps Game claims closed', async
     expect(anonymous.status()).toBe(303);
     expect(anonymous.headers().location).toBe(`/${lang}/login`);
     await login(page, lang, account);
+    const sessionTimestamps = () => query(`SELECT last_seen_at::text, updated_at::text,
+      idle_expires_at::text, absolute_expires_at::text FROM web_sessions WHERE account_id=$1`, [seeded.accountId]);
+    const before = await sessionTimestamps();
+    expect(before).toHaveLength(1);
     const overview = await page.goto(pass);
     expect(overview.status()).toBe(200);
     expect(overview.headers()['cache-control']).toBe('private, no-store');
@@ -44,9 +48,10 @@ test('season pass spends sandbox coins once and keeps Game claims closed', async
     await expect(page.locator('main')).toContainText('synthetic.reward');
     expect(await query('SELECT season_id FROM pass_progress WHERE account_id=$1 AND season_id=$2',
       [seeded.accountId, season])).toEqual([]);
+    expect(await sessionTimestamps()).toEqual(before);
     const form = page.locator(`form[action="${buy}"]`);
-    const operation = await form.locator('[name=operation]').inputValue();
-    const csrf = await form.locator('[name=_csrf]').inputValue();
+    let operation = await form.locator('[name=operation]').inputValue();
+    let csrf = await form.locator('[name=_csrf]').inputValue();
     const post = (target, payload) => page.request.post(target, {
       form: { _csrf: csrf, operation, ...payload },
       headers: { origin: new URL(page.url()).origin },
@@ -61,9 +66,17 @@ test('season pass spends sandbox coins once and keeps Game claims closed', async
     const funding = await paidTopup(page, lang, db);
     expect(funding.coins).toBe('1234');
     expect((await page.goto(pass)).status()).toBe(200);
-    const first = await post(buy, {});
+    operation = await form.locator('[name=operation]').inputValue();
+    csrf = await form.locator('[name=_csrf]').inputValue();
+    await expect(form).toHaveAttribute('method', 'post');
+    const buyUrl = new URL(buy, page.url()).href;
+    const [first] = await Promise.all([
+      page.waitForResponse(response => response.url() === buyUrl && response.request().method() === 'POST'),
+      form.getByRole('button', { name: lang === 'pl' ? 'Kup ścieżkę płatną' : 'Buy paid track', exact: true }).click(),
+    ]);
     expect(first.status()).toBe(303);
     expect(first.headers().location).toBe(pass);
+    await expect(page).toHaveURL(new URL(pass, buyUrl).href);
     expect((await post(buy, {})).status()).toBe(303);
     expect((await post(buy, { operation: uuid7() })).status()).toBe(409);
     expect((await post(`${pass}/${uuid7()}/buy`, {})).status()).toBe(409);
