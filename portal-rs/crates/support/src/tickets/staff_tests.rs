@@ -851,28 +851,50 @@ async fn browser_appeals(
         async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?) }
     };
     let valid = format!("_csrf={csrf}&version=1&message=Please+review");
-    let unavailable =
-        super::staff::configured_support_router_from(pool.clone(), &origin, &|_| None)
+    for disabled in [
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ACCOUNT_LOGIN",
+    ] {
+        let unavailable =
+            super::staff::configured_support_router_from(pool.clone(), &origin, &|key| {
+                if key == disabled {
+                    return Some("false".into());
+                }
+                match key {
+                    "OTERYN_ADMIN_PANEL" | "OTERYN_ACCOUNT_MFA" | "OTERYN_ACCOUNT_LOGIN" => {
+                        Some("true".into())
+                    }
+                    "OTERYN_ADMIN_HOST" => Some(host.into()),
+                    "OTERYN_MFA_KEY" => Some("ab".repeat(32)),
+                    "OTERYN_NOTIFY_UNSUBSCRIBE_KEY" => Some("k".repeat(32)),
+                    "OTERYN_NOTIFY_UNSUBSCRIBE_URL" => {
+                        Some("https://portal.test/unsubscribe".into())
+                    }
+                    _ => None,
+                }
+            })
             .map_err(|error| error.to_string())?;
-    let history = unavailable
-        .clone()
-        .oneshot(
-            Request::get(&path)
-                .header("cookie", &owner_cookie)
-                .body(Body::empty())?,
-        )
-        .await?;
-    assert_eq!(history.status(), StatusCode::OK);
-    let html = String::from_utf8(to_bytes(history.into_body(), 100000).await?.to_vec())?;
-    assert!(html.contains("Restriction"));
-    assert!(!html.contains("Submit appeal"));
-    assert_eq!(
-        unavailable
-            .oneshot(request(&owner_cookie, "en", sanction, &valid, 1)?)
-            .await?
-            .status(),
-        StatusCode::METHOD_NOT_ALLOWED
-    );
+        let history = unavailable
+            .clone()
+            .oneshot(
+                Request::get(&path)
+                    .header("cookie", &owner_cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(history.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(history.into_body(), 100000).await?.to_vec())?;
+        assert!(html.contains("Restriction"));
+        assert!(!html.contains("Submit appeal"));
+        assert_eq!(
+            unavailable
+                .oneshot(request(&owner_cookie, "en", sanction, &valid, 1)?)
+                .await?
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
     assert!(
         !sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM support_appeal_workflows WHERE sanction_id=$1)"
@@ -1019,6 +1041,42 @@ async fn browser_appeals(
     let application: String = sqlx::query_scalar("SELECT current_setting('application_name')")
         .fetch_one(pool)
         .await?;
+    use oteryn_web::ratelimit::{Keys, NamedPolicy, RateLimiter};
+    let mut quota_key = Keys::source([127, 0, 0, 7].into());
+    quota_key.account = Some(owner.to_string());
+    let policy = NamedPolicy::SupportEnforcementAppeal;
+    let limiter = RateLimiter::new(pool.clone());
+    // Leave enough time in the current fixed window for the row lock to remain relevant.
+    tokio::time::timeout(std::time::Duration::from_secs(6), async {
+        loop {
+            if sqlx::query_scalar::<_, bool>("SELECT extract(second FROM clock_timestamp()) < 55")
+                .fetch_one(pool)
+                .await?
+            {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    limiter.check(policy, &[quota_key]).await?;
+    let mut quota_lock = pool.begin().await?;
+    sqlx::query("SELECT key_hash FROM web_rate_limits WHERE limiter_name=$1 FOR UPDATE")
+        .bind(policy.name())
+        .execute(&mut *quota_lock)
+        .await?;
+    let quota =
+        tokio::spawn(
+            player_app
+                .clone()
+                .oneshot(request(&owner_cookie, "en", fresh, &valid, 7)?),
+        );
+    wait_staff_locks(pool, &application, 1).await?;
+    let blocked = tokio::time::timeout(std::time::Duration::from_secs(4), quota).await???;
+    assert_eq!(blocked.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(blocked.headers().contains_key("retry-after"));
+    quota_lock.rollback().await?;
+
     let mut session_lock = pool.begin().await?;
     sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
         .bind(oteryn_identity::mfa::digest(&bearer))
@@ -1106,16 +1164,7 @@ async fn browser_appeals(
                 .clone()
                 .oneshot(request(&commit_cookie, "en", fresh, &valid, 6)?),
         );
-    tokio::time::timeout(std::time::Duration::from_secs(1), async {
-        loop {
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND query='COMMIT' AND wait_event_type='Lock' AND wait_event='advisory')")
-                .bind(&application).fetch_one(pool).await?;
-            if blocked {
-                return Ok::<_, sqlx::Error>(());
-            }
-            tokio::task::yield_now().await;
-        }
-    }).await??;
+    wait_for_appeal_commit(pool, &application).await?;
     // Wait for the session deadline to abort COMMIT while its blocker remains held.
     // A request that only has the three-second mutation timer cannot finish in this window.
     let expired =
@@ -1125,6 +1174,42 @@ async fn browser_appeals(
     sqlx::raw_sql("DROP TRIGGER f4_wait_in_commit ON audit_log; DROP FUNCTION f4_wait_in_commit()")
         .execute(pool)
         .await?;
+
+    let rejected: Uuid = sqlx::query_scalar("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','New evidence test',now(),now()+interval '1 hour',$2) RETURNING id")
+        .bind(owner).bind(staff).fetch_one(pool).await?;
+    sqlx::query("INSERT INTO support_appeal_workflows(sanction_id,owner_id,status,message,outcome,version) VALUES($1,$2,'rejected','Initial evidence','Previous decision',4)")
+        .bind(rejected).bind(owner).execute(pool).await?;
+    let rejected_page = player_app
+        .clone()
+        .oneshot(
+            Request::get(format!("/en/support/appeals/{rejected}"))
+                .header("cookie", &owner_cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(rejected_page.status(), StatusCode::OK);
+    let body = String::from_utf8(to_bytes(rejected_page.into_body(), 100000).await?.to_vec())?;
+    assert!(body.contains("Submit appeal"));
+    assert!(body.contains("Previous decision"));
+    let retry = format!("_csrf={csrf}&version=4&message=New+evidence");
+    assert_eq!(
+        player_app
+            .clone()
+            .oneshot(request(&owner_cookie, "en", rejected, &retry, 8)?)
+            .await?
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let stored: (String, String, Option<String>, i64) = sqlx::query_as(
+        "SELECT status,message,outcome,version FROM support_appeal_workflows WHERE sanction_id=$1",
+    )
+    .bind(rejected)
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(stored, ("requested".into(), "New evidence".into(), None, 5));
+    let prior: (String, i64) = sqlx::query_as("SELECT before->>'status',(before->>'version')::bigint FROM audit_log WHERE action='support.enforcement_appeal_submitted' AND target=$1")
+        .bind(rejected.to_string()).fetch_one(pool).await?;
+    assert_eq!(prior, ("rejected".into(), 4));
 
     let mut lock = lock_appeal_owner(pool, owner).await?;
     let pending = tokio::spawn(player_app.oneshot(request(&owner_cookie, "en", fresh, &valid, 2)?));
@@ -1204,6 +1289,74 @@ async fn appeal_decision_race(
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator'")
         .bind(staff).execute(pool).await?;
 
+    let application: String = sqlx::query_scalar("SELECT current_setting('application_name')")
+        .fetch_one(pool)
+        .await?;
+    sqlx::raw_sql(
+        "CREATE FUNCTION f4_wait_in_commit() RETURNS trigger LANGUAGE plpgsql AS
+         $$ BEGIN PERFORM pg_advisory_xact_lock(84209, 9130); RETURN NEW; END $$;
+         CREATE CONSTRAINT TRIGGER f4_wait_in_commit AFTER INSERT ON audit_log
+         DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+         WHEN (NEW.action = 'support.enforcement_appeal_updated')
+         EXECUTE FUNCTION f4_wait_in_commit()",
+    )
+    .execute(pool)
+    .await?;
+    // Make each authorization component the earliest deadline in turn.
+    for (shorten, restore) in [
+        (
+            "UPDATE web_sessions SET absolute_expires_at=clock_timestamp()+interval '1700 milliseconds' WHERE account_id=$1",
+            "UPDATE web_sessions SET absolute_expires_at=clock_timestamp()+interval '1 hour',idle_expires_at=clock_timestamp()+interval '1 hour' WHERE account_id=$1",
+        ),
+        (
+            "UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1700 milliseconds' WHERE account_id=$1 AND purpose='grant'",
+            "UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1 hour' WHERE account_id=$1 AND purpose='grant'",
+        ),
+    ] {
+        let mut blocker = pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(84209, 9130)")
+            .execute(&mut *blocker)
+            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(shorten))
+            .bind(staff)
+            .execute(pool)
+            .await?;
+        let staff_app = app.clone();
+        let cookie = cookie.to_owned();
+        let csrf = csrf.to_owned();
+        let pending = tokio::spawn(async move {
+            staff_post(
+                staff_app,
+                host,
+                &cookie,
+                &csrf,
+                "moderation/enforcement",
+                sanction,
+                accepted,
+            )
+            .await
+        });
+        wait_for_appeal_commit(pool, &application).await?;
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_millis(2300), pending).await???,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        blocker.rollback().await?;
+        sqlx::query(sqlx::AssertSqlSafe(restore))
+            .bind(staff)
+            .execute(pool)
+            .await?;
+        let state: (String, String, i64) = sqlx::query_as(
+            "SELECT s.status,a.status,a.version FROM sanctions s JOIN support_appeal_workflows a ON a.sanction_id=s.id WHERE s.id=$1")
+            .bind(sanction).fetch_one(pool).await?;
+        assert_eq!(state, ("active".into(), "requested".into(), 1));
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1 AND action='support.enforcement_appeal_updated'")
+            .bind(sanction.to_string()).fetch_one(pool).await?, 0);
+    }
+    sqlx::raw_sql("DROP TRIGGER f4_wait_in_commit ON audit_log; DROP FUNCTION f4_wait_in_commit()")
+        .execute(pool)
+        .await?;
+
     let lock = lock_appeal_owner(pool, owner).await?;
     let start = |form: &'static str| {
         let app = app.clone();
@@ -1224,9 +1377,6 @@ async fn appeal_decision_race(
     };
     let accept = start(accepted);
     let reject = start(rejected);
-    let application: String = sqlx::query_scalar("SELECT current_setting('application_name')")
-        .fetch_one(pool)
-        .await?;
     wait_staff_locks(pool, &application, 2).await?;
     lock.commit().await?;
     let (accept, reject) = (accept.await??, reject.await??);
@@ -1256,5 +1406,19 @@ async fn appeal_decision_race(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1 AND action='support.enforcement_appeal_updated'")
             .bind(sanction.to_string()).fetch_one(pool).await?, 1
     );
+    Ok(())
+}
+
+async fn wait_for_appeal_commit(pool: &PgPool, application: &str) -> TestResult {
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND query='COMMIT' AND wait_event_type='Lock' AND wait_event='advisory')")
+                .bind(application).fetch_one(pool).await?;
+            if blocked {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    }).await??;
     Ok(())
 }

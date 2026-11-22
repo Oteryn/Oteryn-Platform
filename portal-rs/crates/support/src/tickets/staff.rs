@@ -125,6 +125,7 @@ pub(crate) fn configured_support_router_from(
 ) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
     let staff = StaffSupport::configured_from(pool.clone(), lookup)?;
     let submissions = staff.available(Area::Enforcement).is_ok()
+        && oteryn_identity::mfa::challenge_enabled(lookup)
         && oteryn_identity::mfa::Mfa::configured_from(pool.clone(), lookup).is_ok();
     let routes = oteryn_admin::support::web::configured_router_from(pool.clone(), staff, lookup)?;
     Ok(routes.merge(crate::appeals::web::router(pool, origin, submissions)))

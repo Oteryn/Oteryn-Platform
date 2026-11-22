@@ -331,7 +331,21 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         crate::rbac::Error::Storage(_) => Error::Unavailable,
         _ => Error::Denied,
     })?;
+    let expiry = crate::rbac::SessionExpiry::capture(&mut tx, context)
+        .await
+        .map_err(commit_authorization_error)?;
+    expiry
+        .arm_commit(&mut tx)
+        .await
+        .map_err(commit_authorization_error)?;
     tx.commit().await.map_err(|_| Error::Unavailable)
+}
+
+fn commit_authorization_error(error: crate::rbac::Error) -> Error {
+    match error {
+        crate::rbac::Error::Storage(_) => Error::Unavailable,
+        _ => Error::Denied,
+    }
 }
 
 #[cfg(test)]

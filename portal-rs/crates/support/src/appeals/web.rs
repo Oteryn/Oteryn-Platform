@@ -1,4 +1,4 @@
-use super::{Entry, Error, browser_session_live, player_entries, submit_player};
+use super::{Entry, Error, browser_session_expiry, player_entries, submit_player};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -10,7 +10,7 @@ use axum::{
 };
 use oteryn_web::{
     Language,
-    ratelimit::{ClientSource, Keys, NamedPolicy, RateLimiter},
+    ratelimit::{ClientSource, Keys, RateLimiter},
     session::{BrowserSession, SessionLayer, SessionMutationDeadline},
 };
 use serde::Deserialize;
@@ -124,6 +124,7 @@ async fn actor(
     session: &BrowserSession,
     lang: &str,
     path: &str,
+    deadline: Option<&SessionMutationDeadline>,
 ) -> Result<(Uuid, Vec<u8>), Response> {
     if !matches!(lang, "en" | "pl") {
         return Err(StatusCode::NOT_FOUND.into_response());
@@ -136,10 +137,13 @@ async fn actor(
         .identity_hash()
         .await
         .ok_or_else(|| reauthenticate(lang, path))?;
-    if !browser_session_live(pool, id, &hash)
-        .await
-        .map_err(|_| refusal(lang, path, StatusCode::SERVICE_UNAVAILABLE, None))?
-    {
+    let expiry = browser_session_expiry(pool, id, &hash);
+    let expiry = match deadline {
+        Some(deadline) => deadline.read(expiry).await,
+        None => expiry.await,
+    }
+    .map_err(|_| refusal(lang, path, StatusCode::SERVICE_UNAVAILABLE, None))?;
+    if expiry.is_none() {
         return Err(reauthenticate(lang, path));
     }
     Ok((id, hash))
@@ -162,7 +166,7 @@ async fn index(
     Query(paging): Query<Paging>,
 ) -> Result<Response, Response> {
     let path = format!("/{lang}/support/appeals");
-    let (actor, _) = actor(&pool, &session, &lang, &path).await?;
+    let (actor, _) = actor(&pool, &session, &lang, &path, None).await?;
     let mut rows = player_entries(&pool, actor, None, i64::from(paging.page) * 20)
         .await
         .map_err(|error| status(error).into_response())?;
@@ -189,7 +193,7 @@ async fn detail(
     Extension(submissions): Extension<Submissions>,
 ) -> Result<Response, Response> {
     let path = format!("/{lang}/support/appeals/{id}");
-    let (actor, _) = actor(&pool, &session, &lang, &path).await?;
+    let (actor, _) = actor(&pool, &session, &lang, &path, None).await?;
     let mut rows = player_entries(&pool, actor, Some(id), 0)
         .await
         .map_err(|error| status(error).into_response())?;
@@ -240,13 +244,20 @@ async fn submit(
     let path = format!("/{lang}/support/appeals/{id}");
     let error = |status| refusal(&lang, &path, status, None);
     let Form(input) = form.map_err(|rejection| error(rejection.status()))?;
-    let (actor, session_hash) = actor(&pool, &session, &lang, &path).await?;
+    let (actor, session_hash) = actor(
+        &pool,
+        &session,
+        &lang,
+        &path,
+        deadline.as_ref().map(|deadline| &deadline.0),
+    )
+    .await?;
     let Extension(deadline) = deadline.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let peer = peer.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let mut keys = Keys::source(peer.0);
     keys.account = Some(actor.to_string());
     RateLimiter::new(pool.clone())
-        .check(NamedPolicy::SupportEnforcementAppeal, &[keys])
+        .check_appeal(&keys, &deadline)
         .await
         .map_err(|denial| denial.response(language, false))?;
     submit_player(

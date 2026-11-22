@@ -67,3 +67,29 @@ where
         }
     }
 }
+
+/// Keep the database mutation deadline (and any earlier authorization expiry)
+/// armed through deferred work during COMMIT. Requires an initialized budget.
+pub async fn arm_commit(
+    connection: &mut PgConnection,
+    authorization_expiry: Option<sqlx::types::time::OffsetDateTime>,
+) -> Result<bool, sqlx::Error> {
+    // PostgreSQL does not re-arm an already active transaction timeout.
+    sqlx::query("SET LOCAL transaction_timeout = 0")
+        .execute(&mut *connection)
+        .await?;
+    let armed: Option<String> = sqlx::query_scalar(
+        "WITH remaining AS MATERIALIZED (
+            SELECT floor((least(
+                extract(epoch FROM $1::timestamptz),
+                current_setting('oteryn.mutation_deadline')::numeric
+            ) - extract(epoch FROM clock_timestamp())) * 1000)::bigint AS ms
+         )
+         SELECT set_config('transaction_timeout', ms::text || 'ms', true)
+         FROM remaining WHERE ms > 0",
+    )
+    .bind(authorization_expiry)
+    .fetch_optional(connection)
+    .await?;
+    Ok(armed.is_some())
+}

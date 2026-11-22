@@ -196,6 +196,16 @@ impl SessionExpiry {
         Ok(Self(Some(expiry)))
     }
 
+    /// Keep the locked browser proof's earliest expiry active during COMMIT.
+    pub(crate) async fn arm_commit(self, connection: &mut PgConnection) -> Result<(), Error> {
+        if let Some(expiry) = self.0
+            && !oteryn_db::transaction::arm_commit(connection, Some(expiry)).await?
+        {
+            return Err(Error::Denied);
+        }
+        Ok(())
+    }
+
     pub(crate) async fn check(self, connection: &mut PgConnection) -> Result<(), Error> {
         if let Some(expiry) = self.0
             && !sqlx::query_scalar::<_, bool>("SELECT clock_timestamp() < $1::timestamptz")

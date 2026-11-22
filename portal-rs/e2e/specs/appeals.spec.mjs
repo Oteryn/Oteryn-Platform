@@ -115,7 +115,12 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       await expect(page.locator('main')).toContainText(label);
       await expect(page.locator('main')).toContainText(outcome);
       await expect(page.locator('main')).not.toContainText(privateNote);
-      await expect(page.locator('main form')).toHaveCount(0);
+      if (decision === 'rejected') {
+        await expect(page.locator('main form')).toHaveCount(1);
+        await expect(page.locator('main form [name=message]')).toBeVisible();
+      } else {
+        await expect(page.locator('main form')).toHaveCount(0);
+      }
       await audit(staff.page, 'support.enforcement_appeal_updated', id);
       expect(await query(
         'SELECT actor FROM audit_log WHERE action=$1 AND target=$2',
@@ -125,6 +130,20 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
         'SELECT action FROM audit_log WHERE action=$1 AND target=$2',
         ['support.enforcement_appeal_updated', id],
       )).toHaveLength(1);
+      if (decision === 'rejected') {
+        await expect.poll(async () => Number((await query(
+          "SELECT coalesce(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='support-enforcement-appeal' AND window_start=date_trunc('minute', clock_timestamp())",
+        ))[0].count), { timeout: 65_000 }).toBeLessThan(3);
+        const newEvidence = `New evidence ${unique()}`;
+        await submit(page, 'main form', { message: newEvidence });
+        await expect(page.locator('main')).toContainText(newEvidence);
+        await expect(page.locator('main')).not.toContainText(outcome);
+        await expect(page.locator('main form')).toHaveCount(0);
+        expect(await query(
+          "SELECT before->>'status' AS status FROM audit_log WHERE action=$1 AND target=$2 ORDER BY created_at, id",
+          ['support.enforcement_appeal_submitted', id],
+        )).toEqual([{ status: 'none' }, { status: 'rejected' }]);
+      }
     }
     const detail = new URL(page.url()).pathname;
     const playerAdmin = `/admin/players/${owner.id}`;

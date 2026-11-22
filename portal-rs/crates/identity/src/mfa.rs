@@ -11,6 +11,13 @@ use subtle::ConstantTimeEq;
 use totp_rs::{Algorithm, TOTP};
 use uuid::Uuid;
 
+/// Whether browser login mounts the MFA challenge used by staff.
+pub fn challenge_enabled(lookup: &dyn Fn(&str) -> Option<String>) -> bool {
+    ["OTERYN_ACCOUNT_MFA", "OTERYN_ACCOUNT_LOGIN"]
+        .into_iter()
+        .all(|key| lookup(key).as_deref() == Some("true"))
+}
+
 type Tx<'a> = Transaction<'a, Postgres>;
 /// Session adapters use this key with their typed server-side session API.
 pub const SESSION_GRANT_KEY: &str = "mfa_grant";

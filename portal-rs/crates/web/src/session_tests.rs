@@ -644,3 +644,41 @@ async fn r10_admin_logout_uses_route_origin() -> TestResult {
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     Ok(())
 }
+
+#[tokio::test]
+async fn appeal_quota_pool_wait_uses_session_deadline() -> TestResult {
+    use crate::ratelimit::{Denial, Keys, NamedPolicy, RateLimiter};
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(db.pool.acquire().await?);
+    }
+    let database: String =
+        sqlx::query_scalar("SELECT (extract(epoch FROM clock_timestamp())+0.2)::text")
+            .fetch_one(&mut *held[0])
+            .await?;
+    let deadline = SessionMutationDeadline {
+        database,
+        local: tokio::time::Instant::now() + std::time::Duration::from_millis(200),
+    };
+    let mut keys = Keys::source([127, 0, 0, 1].into());
+    keys.account = Some(Uuid::now_v7().to_string());
+    let limiter = RateLimiter::new(db.pool.clone());
+    let denied = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        limiter.check_appeal(&keys, &deadline),
+    )
+    .await?;
+    assert_eq!(denied, Err(Denial::Unavailable));
+    drop(held);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM web_rate_limits WHERE limiter_name=$1")
+            .bind(NamedPolicy::SupportEnforcementAppeal.name())
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
+}

@@ -375,16 +375,34 @@ fn cookie(id: &str) -> String {
 
 /// Database deadline established before refreshing a session on a mutation route.
 #[derive(Clone, Debug)]
-pub struct SessionMutationDeadline(String);
+pub struct SessionMutationDeadline {
+    database: String,
+    local: tokio::time::Instant,
+}
 
 impl SessionMutationDeadline {
-    /// Carry the same deadline into the domain transaction.
-    pub async fn apply(&self, db: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
+    /// Bound admission work that cannot write, including its pool wait.
+    pub async fn read<T>(
+        &self,
+        read: impl std::future::Future<Output = Result<T, sqlx::Error>>,
+    ) -> Result<T, sqlx::Error> {
+        tokio::time::timeout_at(self.local, read)
+            .await
+            .map_err(|_| sqlx::Error::PoolTimedOut)?
+    }
+
+    /// Acquire a transaction before the request deadline and carry the database budget into it.
+    pub async fn begin(
+        &self,
+        pool: &PgPool,
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, sqlx::Error> {
+        let mut tx = self.read(pool.begin()).await?;
         sqlx::query("SELECT set_config('oteryn.mutation_deadline', $1, true)")
-            .bind(&self.0)
-            .execute(db)
+            .bind(&self.database)
+            .execute(&mut *tx)
             .await?;
-        Ok(())
+        oteryn_db::mutation_budget(&mut tx).await?;
+        Ok(tx)
     }
 }
 
@@ -535,10 +553,18 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         let (row, deadline) = if layer.bounded_refresh && !request.method().is_safe() {
             let result = oteryn_db::transaction::run_transaction(&layer.pool, async |tx| {
                 let db = tx.connection().await?;
-                let deadline =
-                    sqlx::query_scalar("SELECT current_setting('oteryn.mutation_deadline')")
-                        .fetch_one(&mut *db)
-                        .await?;
+                let sampled_at = tokio::time::Instant::now();
+                let (database, remaining_ms): (String, i64) = sqlx::query_as(
+                    "SELECT current_setting('oteryn.mutation_deadline'),
+                            greatest(0, floor((current_setting('oteryn.mutation_deadline')::numeric
+                                - extract(epoch FROM clock_timestamp())) * 1000))::bigint",
+                )
+                .fetch_one(&mut *db)
+                .await?;
+                let deadline = SessionMutationDeadline {
+                    database,
+                    local: sampled_at + std::time::Duration::from_millis(remaining_ms as u64),
+                };
                 // Evaluate expiry in the refresh statement after the row lock is acquired.
                 sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
                     .bind(&id_hash)
@@ -547,7 +573,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
                 let row =
                     refresh_session(tx.connection().await?, id_hash, layer.config.idle_seconds)
                         .await?;
-                Ok::<_, sqlx::Error>((row, SessionMutationDeadline(deadline)))
+                Ok::<_, sqlx::Error>((row, deadline))
             })
             .await?;
             (result.0, Some(result.1))

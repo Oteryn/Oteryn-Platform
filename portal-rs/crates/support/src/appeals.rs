@@ -50,6 +50,8 @@ pub enum Status {
     Accepted,
     Rejected,
 }
+const SUBMITTABLE: [Status; 2] = [Status::None, Status::Rejected];
+
 impl Status {
     fn parse(s: &str) -> Result<Self, Error> {
         match s {
@@ -105,7 +107,7 @@ impl History {
             }
             Action::Submit(message) => {
                 let message = text(message, true)?;
-                if !matches!(self.status, Status::None | Status::Rejected) {
+                if !SUBMITTABLE.contains(&self.status) {
                     return Err(Error::Conflict);
                 }
                 self.message = message;
@@ -400,7 +402,7 @@ async fn player_entries(
     let query = format!(
         "SELECT s.id, s.public_reason, coalesce(a.status, 'none') AS status,
                 a.message, a.outcome, coalesce(a.version, 1) AS version,
-                ({ACTIVE} AND coalesce(a.status, 'none') = 'none') AS can_submit
+                ({ACTIVE} AND coalesce(a.status, 'none') = ANY($4)) AS can_submit
          FROM sanctions s
          LEFT JOIN support_appeal_workflows a ON a.sanction_id = s.id AND a.owner_id = s.account_id
          WHERE s.account_id = $1 AND ($2::uuid IS NULL OR s.id = $2)
@@ -411,28 +413,28 @@ async fn player_entries(
         .bind(actor)
         .bind(id)
         .bind(offset)
+        .bind(SUBMITTABLE.map(Status::wire).as_slice())
         .fetch_all(pool)
         .await?)
 }
 
-async fn browser_session_live<'e>(
+async fn browser_session_expiry<'e>(
     db: impl sqlx::PgExecutor<'e>,
     actor: Uuid,
     session_hash: &[u8],
-) -> Result<bool, sqlx::Error> {
+) -> Result<Option<sqlx::types::time::OffsetDateTime>, sqlx::Error> {
     sqlx::query_scalar(
-        "SELECT EXISTS (
-            SELECT 1 FROM web_sessions s JOIN accounts a ON a.id = s.account_id
+        "SELECT least(s.idle_expires_at, s.absolute_expires_at)
+            FROM web_sessions s JOIN accounts a ON a.id = s.account_id
             WHERE s.id_hash = $1 AND s.account_id = $2
               AND a.status IN ('active', 'suspended')
               AND s.authorization_generation = a.native_security_generation
               AND s.idle_expires_at > clock_timestamp()
-              AND s.absolute_expires_at > clock_timestamp()
-         )",
+              AND s.absolute_expires_at > clock_timestamp()",
     )
     .bind(session_hash)
     .bind(actor)
-    .fetch_one(db)
+    .fetch_optional(db)
     .await
 }
 
@@ -452,9 +454,7 @@ async fn submit_player(
         return Err(Error::Invalid);
     }
     text(message, true)?;
-    let mut tx = pool.begin().await?;
-    deadline.apply(&mut tx).await?;
-    oteryn_db::mutation_budget(&mut tx).await?;
+    let mut tx = deadline.begin(pool).await?;
     sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE")
         .bind(actor)
         .execute(&mut *tx)
@@ -468,7 +468,10 @@ async fn submit_player(
     .bind(actor)
     .execute(&mut *tx)
     .await?;
-    if !browser_session_live(&mut *tx, actor, session_hash).await? {
+    if browser_session_expiry(&mut *tx, actor, session_hash)
+        .await?
+        .is_none()
+    {
         return Err(Error::SessionRevoked);
     }
     oteryn_db::mutation_budget(&mut tx).await?;
@@ -498,10 +501,13 @@ async fn submit_player(
     .await?;
     oteryn_db::mutation_budget(&mut tx).await?;
     let appeals = Appeals { enabled: true };
-    match state.as_deref() {
-        None => appeals.register(&mut tx, id, actor).await?,
-        Some("none") => {}
-        Some(_) => return Err(Error::Conflict),
+    let prior = state
+        .as_deref()
+        .map(Status::parse)
+        .transpose()?
+        .unwrap_or(Status::None);
+    if state.is_none() {
+        appeals.register(&mut tx, id, actor).await?;
     }
     oteryn_db::mutation_budget(&mut tx).await?;
     let history = appeals
@@ -517,42 +523,18 @@ async fn submit_player(
             },
             action: "support.enforcement_appeal_submitted",
             target: &id.to_string(),
-            before: json!({"status": "none", "version": version}),
+            before: json!({"status": prior.wire(), "version": version}),
             after: json!({"status": history.status.wire(), "version": history.version}),
         },
     )
     .await
     .map_err(|_| Error::AuditUnavailable)?;
     oteryn_db::mutation_budget(&mut tx).await?;
-    if !browser_session_live(&mut *tx, actor, session_hash).await? {
-        return Err(Error::SessionRevoked);
-    }
-    // PostgreSQL keeps this timer armed through deferred work in COMMIT.
-    // Reset any inherited timer so the new interval takes effect immediately.
-    sqlx::query("SET LOCAL transaction_timeout = 0")
-        .execute(&mut *tx)
-        .await?;
-    let armed: Option<String> = sqlx::query_scalar(
-        "WITH remaining AS MATERIALIZED (
-            SELECT floor((least(
-                extract(epoch FROM least(idle_expires_at, absolute_expires_at)),
-                current_setting('oteryn.mutation_deadline')::numeric
-            ) - extract(epoch FROM clock_timestamp())) * 1000)::bigint AS ms
-            FROM web_sessions WHERE id_hash = $1 AND account_id = $2
-         )
-         SELECT set_config('transaction_timeout', ms::text || 'ms', true)
-         FROM remaining WHERE ms > 0",
-    )
-    .bind(session_hash)
-    .bind(actor)
-    .fetch_optional(&mut *tx)
-    .await?;
-    if armed.is_none() {
-        return if browser_session_live(&mut *tx, actor, session_hash).await? {
-            Err(Error::Deadline)
-        } else {
-            Err(Error::SessionRevoked)
-        };
+    let expiry = browser_session_expiry(&mut *tx, actor, session_hash)
+        .await?
+        .ok_or(Error::SessionRevoked)?;
+    if !oteryn_db::transaction::arm_commit(&mut tx, Some(expiry)).await? {
+        return Err(Error::Deadline);
     }
     tx.commit().await?;
     Ok(())

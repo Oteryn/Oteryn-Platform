@@ -247,6 +247,37 @@ impl RateLimiter {
         }
         check(self, policy, keys).await
     }
+    /// Charge an appeal against the budget started before refreshing its browser session.
+    pub async fn check_appeal(
+        &self,
+        keys: &Keys,
+        deadline: &crate::session::SessionMutationDeadline,
+    ) -> Result<(), Denial> {
+        let policy = NamedPolicy::SupportEnforcementAppeal;
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
+        let hash = keys.hash(policy)?;
+        let mut tx = deadline
+            .begin(&self.pool)
+            .await
+            .map_err(|_| self.unavailable(policy))?;
+        let (count, delay) = charge(&mut *tx, policy, hash)
+            .await
+            .map_err(|_| self.unavailable(policy))?;
+        if !oteryn_db::transaction::arm_commit(&mut tx, None)
+            .await
+            .map_err(|_| self.unavailable(policy))?
+        {
+            return Err(self.unavailable(policy));
+        }
+        tx.commit().await.map_err(|_| self.unavailable(policy))?;
+        if count > policy.limit() {
+            return Err(Denial::Limited { retry_after: delay });
+        }
+        Ok(())
+    }
+
     pub(crate) async fn check_recovery_submission(&self, keys: Keys) -> Result<(), Denial> {
         let policy = NamedPolicy::IdentityRecoveryKeyUse;
         let mut aggregate = Keys::source(keys.source);
@@ -284,18 +315,9 @@ pub async fn check(
         .collect::<Result<Vec<_>, _>>()?;
     let mut retry = 0_i64;
     for hash in hashes {
-        // One atomic upsert using the database clock across all processes.
-        // Saturate refusals to prevent overflow under sustained abuse.
-        let (count, delay) = sqlx::query_as::<_, (i64, i64)>(
-            "WITH clock AS MATERIALIZED (SELECT statement_timestamp() AS now), \
-             bucket AS (SELECT to_timestamp((floor(extract(epoch FROM now) / $3::bigint) * $3::bigint)::double precision) AS start, \
-             greatest(1, ceil($3::bigint - mod(extract(epoch FROM now), $3::bigint)))::bigint AS retry FROM clock), \
-             charged AS (INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count) \
-             SELECT $1, $2, start, 1 FROM bucket \
-             ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE \
-             SET count = least(web_rate_limits.count + 1, $4 + 1) RETURNING count) \
-             SELECT count, retry FROM charged CROSS JOIN bucket"
-        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit()).fetch_one(&limiter.pool).await.map_err(|_| limiter.unavailable(policy))?;
+        let (count, delay) = charge(&limiter.pool, policy, hash)
+            .await
+            .map_err(|_| limiter.unavailable(policy))?;
         if count > policy.limit() {
             retry = retry.max(delay);
         }
@@ -306,6 +328,25 @@ pub async fn check(
         Ok(())
     }
 }
+async fn charge<'e>(
+    db: impl sqlx::PgExecutor<'e>,
+    policy: NamedPolicy,
+    hash: Vec<u8>,
+) -> Result<(i64, i64), sqlx::Error> {
+    // One atomic upsert using the database clock across all processes.
+    // Saturate refusals to prevent overflow under sustained abuse.
+    sqlx::query_as(
+            "WITH clock AS MATERIALIZED (SELECT statement_timestamp() AS now), \
+             bucket AS (SELECT to_timestamp((floor(extract(epoch FROM now) / $3::bigint) * $3::bigint)::double precision) AS start, \
+             greatest(1, ceil($3::bigint - mod(extract(epoch FROM now), $3::bigint)))::bigint AS retry FROM clock), \
+             charged AS (INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count) \
+             SELECT $1, $2, start, 1 FROM bucket \
+             ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE \
+             SET count = least(web_rate_limits.count + 1, $4 + 1) RETURNING count) \
+             SELECT count, retry FROM charged CROSS JOIN bucket"
+        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit()).fetch_one(db).await
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Denial {
     Limited { retry_after: i64 },
