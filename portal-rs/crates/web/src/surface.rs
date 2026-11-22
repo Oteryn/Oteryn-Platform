@@ -203,16 +203,24 @@ async fn switch_language(Path(lang): Path<String>) -> Response {
     response
 }
 
-fn accepts(headers: &HeaderMap, media_type: &str) -> bool {
-    headers
-        .get(header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|accept| {
-            accept.split(',').any(|item| {
-                let mut parts = item.trim().split(';');
-                parts.next() == Some(media_type) && !parts.any(|p| p.trim() == "q=0")
+pub(crate) fn error_accept(headers: &HeaderMap) -> (bool, bool) {
+    let accepts = |media_type: &str| {
+        headers.get_all(header::ACCEPT).iter().filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .any(|item| {
+                let mut parts = item.split(';');
+                parts.next().is_some_and(|kind| kind.trim().eq_ignore_ascii_case(media_type))
+                    && parts.filter_map(|parameter| parameter.split_once('='))
+                        .filter(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
+                        .all(|(_, value)| value.trim().parse::<f32>().is_ok_and(|q| q > 0.0 && q <= 1.0))
             })
-        })
+    };
+    let json = accepts("application/json");
+    (json, !json && accepts("text/html"))
+}
+
+pub(crate) fn oauth_protocol_path(path: &str) -> bool {
+    matches!(path, "/oauth/authorize" | "/oauth/token")
 }
 
 /// Whether the browser shell owns the response for this path.
@@ -225,8 +233,7 @@ pub(crate) fn browser_path(path: &str) -> bool {
 async fn policy(mut request: Request, next: Next) -> Response {
     let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
     let chrome = request_chrome(&request, lang);
-    let json = accepts(request.headers(), "application/json");
-    let html = accepts(request.headers(), "text/html");
+    let (json, html) = error_accept(request.headers());
     let path = request.uri().path().to_owned();
     let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
@@ -249,11 +256,12 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
-    if path != oteryn_gameauth::locator::PATH
+    if !oauth_protocol_path(&path)
+        && path != oteryn_gameauth::locator::PATH
         && (matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
-        ) || (status == StatusCode::UNAUTHORIZED && html && !json && browser_path(&path)))
+        ) || (status == StatusCode::UNAUTHORIZED && html && browser_path(&path)))
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
     {
@@ -362,6 +370,20 @@ mod tests {
                 .to_vec(),
         )?)
     }
+    #[test]
+    fn error_accept_respects_explicit_json_and_zero_quality_html() {
+        for (accept, expected) in [
+            ("application/json, text/html;q=0", (true, false)),
+            ("text/html;q=0.0", (false, false)),
+            ("TEXT/HTML ; q=0.8, application/json;q=0", (false, true)),
+            ("text/html, application/json", (true, false)),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT, HeaderValue::from_static(accept));
+            assert_eq!(error_accept(&headers), expected);
+        }
+    }
+
     #[tokio::test]
     async fn r7_device_keeps_contract_error() -> TestResult {
         let response = app()?
