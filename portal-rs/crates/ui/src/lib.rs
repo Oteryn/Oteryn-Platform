@@ -485,6 +485,38 @@ mod tests {
         assert_eq!(active, ["calculators"]);
     }
     #[test]
+    fn unauthorized_page_has_a_localized_title_and_description() -> Result<(), askama::Error> {
+        for (lang, title, description) in [
+            (
+                "pl",
+                "Zaloguj się, aby kontynuować",
+                "Zaloguj się na swoje konto, aby otworzyć tę stronę.",
+            ),
+            (
+                "en",
+                "Sign in to continue",
+                "Sign in to your account to open this page.",
+            ),
+        ] {
+            let chrome = registry().chrome(lang, "/atlas/private-markers", Account::Anonymous);
+            let html = ErrorPage {
+                chrome: &chrome,
+                status: 401,
+                title: chrome.text("error-401-title"),
+                description: chrome.text("error-401-description"),
+            }
+            .render()?;
+            assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
+            assert!(html.contains(description));
+            assert_eq!(
+                error(&chrome, StatusCode::UNAUTHORIZED).status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn home_and_account_states_in_both_languages() -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {
             for enabled in [false, true] {
