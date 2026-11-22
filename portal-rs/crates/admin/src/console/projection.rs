@@ -56,16 +56,10 @@ fn world(v: &Value) -> Result<Record, Error> {
         name: RecordName::Text(format!("{} · {}", text(v, "world_id")?, text(v, "name")?)),
         fields: vec![
             field(L::State, text(v, "state")?),
-            field(
-                L::Revision,
-                format!(
-                    "map={} · content={} · ruleset={} · policy={}",
-                    text(v, "map_revision")?,
-                    text(v, "content_revision")?,
-                    text(v, "ruleset_revision")?,
-                    text(v, "policy_revision")?
-                ),
-            ),
+            field(L::MapRevision, text(v, "map_revision")?),
+            field(L::ContentRevision, text(v, "content_revision")?),
+            field(L::RulesetRevision, text(v, "ruleset_revision")?),
+            field(L::PolicyRevision, text(v, "policy_revision")?),
             field(L::Channels, list(v, "channels")?),
         ],
     })
