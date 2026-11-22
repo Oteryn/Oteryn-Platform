@@ -55,12 +55,15 @@ async fn private(request: Request, next: Next) -> Response {
     for (name, value) in [
         (header::CACHE_CONTROL, "no-store"),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        (header::REFERRER_POLICY, "no-referrer"),
     ] {
         response
             .headers_mut()
             .insert(name, HeaderValue::from_static(value));
     }
+    response
+        .headers_mut()
+        .entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static("no-referrer"));
     response
 }
 
@@ -226,6 +229,18 @@ impl CheckoutPage {
     fn awaiting(&self) -> bool {
         self.state == OrderState::AwaitingPayment
     }
+
+    fn response(&self) -> Response {
+        let mut response = oteryn_web::render(self);
+        if response.status() == StatusCode::OK {
+            // Keep the Origin header on same-origin form submissions for CSRF validation.
+            response.headers_mut().insert(
+                header::REFERRER_POLICY,
+                HeaderValue::from_static("same-origin"),
+            );
+        }
+        response
+    }
 }
 
 #[derive(Deserialize)]
@@ -260,7 +275,7 @@ async fn page(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let price = order.price.display_for_locale(&chrome.lang);
-    oteryn_web::render(&CheckoutPage {
+    CheckoutPage {
         labels: CheckoutPage::labels(&chrome.lang),
         lang: chrome.lang,
         csrf,
@@ -268,7 +283,8 @@ async fn page(
         coins: order.coins,
         price,
         state: order.state,
-    })
+    }
+    .response()
 }
 
 /// CSRF is verified by the session layer before this runs.
@@ -335,6 +351,10 @@ mod tests {
                 .display_for_locale(lang),
                 state: OrderState::AwaitingPayment,
             };
+            assert_eq!(
+                page.response().headers()[header::REFERRER_POLICY],
+                "same-origin"
+            );
             let html = page.render().unwrap();
             assert!(html.contains(&format!("<html lang=\"{lang}\">")));
             assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
