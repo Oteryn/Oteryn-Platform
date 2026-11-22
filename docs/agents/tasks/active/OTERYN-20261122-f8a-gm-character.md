@@ -31,11 +31,11 @@ separate Support enforcement implementation, outside this GM read scenario.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T15:06:21Z
-head: 1cb95b5faf05b0aae01331311cb8d762d762886d
+updated_at: 2026-11-22T15:23:52Z
+head: e7bc1f4dbfe43ec00077d10d95dee44f77d384d8
 branch: codex/feat-gm-character
 pr: none
-status: validating
+status: ready
 context_routes:
   - admin console
   - browser qualification
@@ -70,13 +70,13 @@ validation:
     result: PASS
     evidence: Built the portal binary exercised by the harness.
   - command: cargo test --locked -p oteryn-admin --lib
-    result: NOT_RUN
-    evidence: The runner started 232 tests with PostgreSQL enabled.
+    result: PASS
+    evidence: PostgreSQL 18.6, 232 passed and zero failed or ignored. The dossier regression and default-off catalogue checks passed.
   - command: Playwright gm-player-console.spec.mjs
     result: PASS
     evidence: pl-1440, pl-390, en-1440 and en-390 each passed on the first attempt. No runner errors.
 blockers: []
-next_action: Finish the focused Rust library suite against PostgreSQL.
+next_action: Coordinator reviews the retained branch evidence for Issue #2002.
 ```
 
 ## Source branch closeout
@@ -84,5 +84,5 @@ next_action: Finish the focused Rust library suite against PostgreSQL.
 ```yaml
 source_branch_disposition: retain
 source_branch_reason: Coordinator review of the GM player console evidence, with no PR requested.
-source_branch_evidence: Dedicated codex/feat-gm-character branch.
+source_branch_evidence: Published and verified on origin as codex/feat-gm-character.
 ```
