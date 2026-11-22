@@ -106,7 +106,7 @@ async function postAfterStepUpExpires(screen, account, target, fields, lock, que
     const [{ pid }] = (await locker.query('SELECT pg_backend_pid() AS pid')).rows;
     const [{ deadline }] = (await db.query(
       `UPDATE web_sessions SET data=jsonb_set(data,$2::text[],
-         to_jsonb(floor(extract(epoch FROM clock_timestamp()))::bigint-298))
+         to_jsonb(floor(extract(epoch FROM clock_timestamp()))::bigint-297))
        WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL
        RETURNING (data#>>$2::text[])::bigint+300 AS deadline`,
       [account, stepUpPath],
@@ -119,7 +119,7 @@ async function postAfterStepUpExpires(screen, account, target, fields, lock, que
     )).rows[0].waiting, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
     await expect.poll(async () => (await db.query(
       'SELECT extract(epoch FROM clock_timestamp()) >= $1::bigint AS expired', [deadline],
-    )).rows[0].expired, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
+    )).rows[0].expired, { intervals: [20, 40, 80], timeout: 3500 }).toBe(true);
   } finally {
     await locker.query('ROLLBACK');
     locker.release();
@@ -699,6 +699,7 @@ test('GM rejects a stale seller until transfer receipt and both projections agre
   const appeal = await formPayload(page.locator('form').filter({ has: page.locator('[name=appeal_status]') }));
   expect((await post(page, appeal.target, {
     ...appeal.fields, appeal_status: 'accepted', appeal_outcome: 'Appeal granted',
+    reason: 'Reviewed the historical appeal and its resolved enforcement record',
   })).status()).toBe(303);
   expect(await query('SELECT status,owner_id FROM support_appeal_workflows WHERE sanction_id=$1', [history]))
     .toEqual([{ status: 'accepted', owner_id: seller.id }]);
