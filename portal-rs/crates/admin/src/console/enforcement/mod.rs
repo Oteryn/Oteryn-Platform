@@ -473,7 +473,7 @@ async fn dossier<B: Backend>(
         let character = query.character()?;
         let edit = state
             .auth
-            .check(actor, Permission::GameSanctionWrite)
+            .check(actor, Permission::GameSanctionEnforce)
             .await
             .is_ok();
         let mut tx = state.pool.begin().await?;
@@ -533,7 +533,7 @@ async fn submit<B: Backend>(
     let result = async {
         state
             .auth
-            .check(actor, Permission::GameSanctionWrite)
+            .check(actor, Permission::GameSanctionEnforce)
             .await?;
         state
             .auth
@@ -569,7 +569,7 @@ async fn submit<B: Backend>(
             &[
                 Permission::Access,
                 Permission::GameSanctionRead,
-                Permission::GameSanctionWrite,
+                Permission::GameSanctionEnforce,
             ],
         )
         .await?;
@@ -629,7 +629,7 @@ async fn step_up<B: Backend>(
     let result = async {
         state
             .auth
-            .check(actor, Permission::GameSanctionWrite)
+            .check(actor, Permission::GameSanctionEnforce)
             .await?;
         state
             .auth

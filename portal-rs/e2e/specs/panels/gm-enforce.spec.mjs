@@ -138,7 +138,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
   const lang = info.project.metadata.locale;
   const text = messages[lang];
   const target = await seededAccount(lang);
-  const gm = await staffActor(page, lang, 'game_support');
+  const gm = await staffActor(page, lang, 'game_master_senior');
   const lcfa = gamePeer('lcfa');
   const character = uuid7();
   const name = 'Aldric <Archive>';
@@ -206,16 +206,19 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
   });
   try {
     const readOnly = await viewer.newPage();
-    await staffActor(readOnly, lang, 'game_viewer');
+    const warningWriter = await staffActor(readOnly, lang, 'game_support');
     await refreshProjection();
     expect((await readOnly.goto(url)).status()).toBe(200);
     await expect(readOnly.locator('[data-action], form[action*="/step-up?"]')).toHaveCount(0);
-    // Obtain a real viewer-bound CSRF token before trying the write.
+    // Use the warning writer’s own CSRF token and valid TOTP.
     await readOnly.goto(`/${lang}/account`);
-    const viewerCsrf = await readOnly.locator('input[name=_csrf]').first().inputValue();
+    const warningWriterCsrf = await readOnly.locator('input[name=_csrf]').first().inputValue();
+    await refused(await post(readOnly, step.target, {
+      ...step.fields, _csrf: warningWriterCsrf, code: warningWriter.totp.generate(),
+    }), 403, text.denied);
     const apply = await formPayload(page.locator('[data-profile=MUTE] [data-action=apply]'));
     await refused(await postFresh(readOnly, apply.target, {
-      ...apply.fields, _csrf: viewerCsrf, minutes: '15', reason: 'rule_violation',
+      ...apply.fields, _csrf: warningWriterCsrf, minutes: '15', reason: 'rule_violation',
     }), 403, text.denied);
   } finally {
     await viewer.close();

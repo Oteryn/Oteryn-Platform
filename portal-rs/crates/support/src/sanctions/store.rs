@@ -717,7 +717,7 @@ impl Service {
                                     deploy: false,
                                 });
                         game_authorizer
-                            .check_in(tx, context, Permission::GameSanctionWrite)
+                            .check_in(tx, context, Permission::GameSanctionEnforce)
                             .await
                             .map_err(|error| match error {
                                 rbac::Error::Storage(_) => StaffError::Unavailable,
