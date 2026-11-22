@@ -388,8 +388,16 @@ impl SessionLayer {
         }
     }
 }
-#[derive(Clone, Copy)]
-pub(crate) struct ChromeSessionAccount(pub Uuid);
+pub(crate) async fn chrome_session_account(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> Option<Uuid> {
+    read_signed_in(layer, request)
+        .await
+        .ok()
+        .flatten()
+        .map(|session| session.account_id)
+}
 
 /// Attach after route matching. Deployment overrides can be supplied as outer
 /// `Extension<SessionConfig>` and `Extension<CsrfConfig>` layers on the public router.
@@ -563,11 +571,6 @@ async fn read_signed_in(
     .bind(hash(id))
     .fetch_optional(&layer.pool)
     .await?;
-    if let Some((account_id, _)) = &row {
-        request
-            .extensions_mut()
-            .insert(ChromeSessionAccount(*account_id));
-    }
     Ok(row.map(|(account_id, csrf)| SignedInSession { account_id, csrf }))
 }
 
