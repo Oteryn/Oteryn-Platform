@@ -33,7 +33,7 @@
     <section class="op-stack" data-profile="{{ row.profile.name() }}">
       <h3>{{ lang.profile(row.profile) }}</h3>
       <dl>
-        <dt>{{ lang.text("Stan sankcji w grze", "Current Game enforcement") }}</dt>
+        <dt>{{ lang.text("Ostatni potwierdzony stan w grze", "Last confirmed Game state") }}</dt>
         <dd data-current>{{ lang.state(row.current) }}</dd>
         {% if row.current_received_at != row.received_at %}
         {% if let Some(confirmed_at) = row.current_received_at %}
@@ -49,7 +49,7 @@
         {% endif %}
         {% if let Some(until) = row.effective_until %}
         <dt>{{ lang.text("Obowiązuje do (UTC)", "Effective until (UTC)") }}</dt>
-        <dd><time datetime="{{ until }}">{{ until }}</time></dd>
+        <dd><time data-effective-until datetime="{{ until }}">{{ until }}</time></dd>
         {% endif %}
         {% if let Some(code) = row.result_code %}<dt>{{ lang.text("Kod odmowy", "Refusal code") }}</dt><dd>{{ code }}</dd>{% endif %}
       </dl>

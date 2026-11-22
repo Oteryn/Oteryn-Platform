@@ -998,10 +998,6 @@ async fn result(State(shared): State<Arc<Shared>>, request: Request) -> Response
     answer(tokio::time::timeout(TIMEOUT, write).await)
 }
 
-#[cfg(test)]
-#[path = "enforcement_tests.rs"]
-mod enforcement_tests;
-
 /// Browser actions use the same profile switches as the internal command
 /// stream. The caller also verifies that both mTLS purposes are operational.
 pub fn configured_browser(
@@ -1126,17 +1122,25 @@ impl Latest {
         }
     }
 
+    fn pending(&self) -> bool {
+        matches!(self.state.as_deref(), None | Some("ACCEPTED_PENDING"))
+    }
+
     fn confirmed_state(&self) -> StateLabel {
-        // Pending and refused attempts never become successful enforcement.
-        // A terminal rejection can nevertheless report that the old stream ended.
+        let confirmed = self
+            .confirmed
+            .as_deref()
+            .map_or(StateLabel::Unconfirmed, operation_state);
+        // ACCEPTED_PENDING can describe durable Game state before the runtime
+        // effect. Continue showing the last terminal confirmation in that case.
+        if self.pending() {
+            return confirmed;
+        }
         match self.stream_state.as_deref() {
             Some("NONE") => StateLabel::None,
             Some("EXPIRED") => StateLabel::Expired,
             Some("REVOKED") => StateLabel::Revoked,
-            _ => self
-                .confirmed
-                .as_deref()
-                .map_or(StateLabel::Unconfirmed, operation_state),
+            _ => confirmed,
         }
     }
 }
@@ -1257,18 +1261,19 @@ impl Backend for BrowserJournal {
                     .map_or(StateLabel::Pending, operation_state);
                 row.version = last.position;
                 row.operation = Some(last.operation_id);
-                row.current_received_at = match last.stream_state.as_deref() {
-                    Some("NONE" | "EXPIRED" | "REVOKED") => last.received_at.clone(),
-                    _ => last.confirmed_received_at,
+                row.current_received_at = match (last.pending(), last.stream_state.as_deref()) {
+                    (false, Some("NONE" | "EXPIRED" | "REVOKED")) => last.received_at.clone(),
+                    _ => last.confirmed_received_at.clone(),
                 };
+                if matches!(row.current, StateLabel::Applied) {
+                    row.effective_until =
+                        if !last.pending() && last.stream_state.as_deref() == Some("ACTIVE") {
+                            utc(last.effective_until_ms)
+                        } else {
+                            utc(last.confirmed_until_ms)
+                        };
+                }
                 row.received_at = last.received_at;
-                row.effective_until = match last.stream_state.as_deref() {
-                    Some("ACTIVE") => utc(last.effective_until_ms),
-                    None | Some("PENDING") if matches!(row.current, StateLabel::Applied) => {
-                        utc(last.confirmed_until_ms)
-                    }
-                    _ => None,
-                };
                 if matches!(row.state, StateLabel::Refused) {
                     row.result_code = last.result_code;
                 }
@@ -1399,3 +1404,7 @@ impl Backend for BrowserJournal {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "enforcement_tests.rs"]
+mod enforcement_tests;

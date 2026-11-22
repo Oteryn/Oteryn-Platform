@@ -96,7 +96,7 @@ function enforcementGame() {
   const reader = gamePeer('enforcement-reader');
   const publisher = gamePeer('enforcement-results');
   let cursor = null;
-  return async (operation, expected, result) => {
+  return async (operation, expected, result, finalResult) => {
     // Consume the actual journal, then hash the original command representation.
     let command;
     for (;;) {
@@ -124,12 +124,14 @@ function enforcementGame() {
       accepted_decision_revision: command.decision_revision,
       effective_until_ms: command.expires_at_ms,
       decided_at_ms: Date.now(),
-      ...result,
     };
-    const response = await publisher(`${exchange}/results`, receipt);
-    expect(response.status).toBe(200);
-    expect(response.raw).toBe(fixture(wireFixtures, 'result-ack.json').toString());
-    return command;
+    async function publish(outcome) {
+      const response = await publisher(`${exchange}/results`, { ...receipt, ...outcome });
+      expect(response.status).toBe(200);
+      expect(response.raw).toBe(fixture(wireFixtures, 'result-ack.json').toString());
+    }
+    await publish(result);
+    return finalResult ? { command, finish: () => publish(finalResult) } : command;
   };
 }
 
@@ -242,13 +244,23 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     await browserSubmit(page, form('replace'), { ...valid, minutes: '30' }, path);
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.applied);
-    await readGame(refusedReplace.fields.operation, {
+    const beforeReplace = new Date(applied.expires_at_ms).toISOString();
+    const replacing = await readGame(refusedReplace.fields.operation, {
       ...common, intent: 'REPLACE', decision_revision: 2, prior_decision_revision: 1,
       sanction_stream_id: applied.sanction_stream_id,
     }, {
-      state: 'REJECTED', result_code: 'LIFECYCLE_CONFLICT', accepted_decision_revision: 1,
+      state: 'ACCEPTED_PENDING', result_code: 'PENDING_RUNTIME',
+    }, {
+      receipt_revision: 2, state: 'REJECTED', result_code: 'LIFECYCLE_CONFLICT', accepted_decision_revision: 1,
       effective_until_ms: applied.expires_at_ms, runtime_effect: 'NONE',
     });
+    await page.reload();
+    await expect(status()).toHaveText(text.pending);
+    await expect(current()).toHaveText(text.applied);
+    await expect(panel.locator('time[data-current-receipt]')).toBeVisible();
+    const appliedUntil = await panel.locator('time[data-effective-until]').getAttribute('datetime');
+    expect(new Date(appliedUntil).toISOString()).toBe(beforeReplace);
+    await replacing.finish();
     await page.reload();
     await expect(status()).toHaveText(text.refused);
     await expect(current()).toHaveText(text.applied);
@@ -272,10 +284,18 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     await browserSubmit(page, form('revoke'), { reason: 'rule_violation' }, path);
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.applied);
-    await readGame(revoke.fields.operation, {
+    const revoking = await readGame(revoke.fields.operation, {
       ...common, intent: 'REVOKE', decision_revision: 4, prior_decision_revision: 3,
       sanction_stream_id: applied.sanction_stream_id, effective_at_ms: null, expires_at_ms: null,
-    }, { state: 'REVOKED', stream_state: 'REVOKED' });
+    }, {
+      state: 'ACCEPTED_PENDING', result_code: 'PENDING_RUNTIME', stream_state: 'REVOKED',
+      runtime_effect: 'NONE',
+    }, { receipt_revision: 2, state: 'REVOKED', stream_state: 'REVOKED' });
+    await page.reload();
+    await expect(status()).toHaveText(text.pending);
+    await expect(current()).toHaveText(text.applied);
+    await expect(panel.locator('time[data-current-receipt]')).toBeVisible();
+    await revoking.finish();
     await page.reload();
     await expect(status()).toHaveText(text.revoked);
     await expect(current()).toHaveText(text.revoked);
