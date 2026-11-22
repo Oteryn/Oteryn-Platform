@@ -28,6 +28,7 @@ const argv = process.argv.slice(2);
 const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
+const gameData = argv.includes('--game-data');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -124,9 +125,13 @@ const tokenHashFile = path.join(dirs.secrets, 'gateway-token.sha256');
 fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
 fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).digest('hex')}\n`, { mode: 0o600 });
 
+const gameDataBrowser = gameData ? await (await import('./game-publishers.mjs')).startGameDataBrowser({
+  server, caFile, publicPort: ports.http, authority: testEnv.PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY,
+}) : undefined;
 const env = {
   PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
   ...identityEnv,
+  ...gameDataBrowser?.env,
   OTERYN_DATABASE_URL: databaseURL,
   OTERYN_BIND: `127.0.0.1:${ports.http}`,
   OTERYN_STATIC_DIR: path.join(root, 'static'),
@@ -175,6 +180,7 @@ async function close(code = 0) {
   await Promise.all(children.map(child => child.exitCode !== null ? null : new Promise(resolve => child.once('exit', resolve))));
   if (process.env.PORTAL_E2E_KEEP_DATABASE !== '1') await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {});
   await admin.end().catch(() => {});
+  await gameDataBrowser?.close();
   process.exit(code);
 }
 process.on('SIGINT', () => close(0));
@@ -243,6 +249,7 @@ const report = {
     gateway: `http://127.0.0.1:${ports.gateway}`,
   },
   outputDirectory: out,
+  ...(gameData ? {binary: path.resolve(binary)} : {}),
   certificateDirectory: dirs.clients,
   caFile,
   internalServerName: 'localhost',
