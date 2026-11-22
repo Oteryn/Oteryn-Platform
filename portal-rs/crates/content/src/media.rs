@@ -488,7 +488,7 @@ async fn multipart_csrf(
         .map_err(|_| StatusCode::REQUEST_TIMEOUT)?;
         let access = match preflight {
             Ok(access) => access,
-            Err(response) => return Ok(response),
+            Err(error) => return Ok(error.into_response()),
         };
         let deadline = match access {
             UploadPreflight::Long => started + SIGNED_IN_FORM_UPLOAD_TIMEOUT,

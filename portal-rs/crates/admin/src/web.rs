@@ -198,11 +198,34 @@ pub struct StaffPreflight {
     sessions: SessionLayer,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UploadPreflight {
     Short,
     Long,
     Denied,
+}
+
+#[derive(Debug)]
+pub enum StaffGuardError {
+    Status(StatusCode),
+    Login,
+    Mfa(&'static str),
+}
+
+impl From<StatusCode> for StaffGuardError {
+    fn from(status: StatusCode) -> Self {
+        Self::Status(status)
+    }
+}
+
+impl IntoResponse for StaffGuardError {
+    fn into_response(self) -> Response {
+        match self {
+            Self::Status(status) => status.into_response(),
+            Self::Login => Redirect::to("/login").into_response(),
+            Self::Mfa(lang) => mfa_refusal(lang),
+        }
+    }
 }
 
 impl std::fmt::Debug for StaffPreflight {
@@ -241,9 +264,8 @@ impl StaffPreflight {
         &self,
         headers: &axum::http::HeaderMap,
         path: &str,
-    ) -> Result<UploadPreflight, Response> {
-        oteryn_web::csrf::verify_origin(headers, &self.sessions.csrf.trusted_origins)
-            .map_err(IntoResponse::into_response)?;
+    ) -> Result<UploadPreflight, StaffGuardError> {
+        oteryn_web::csrf::verify_origin(headers, &self.sessions.csrf.trusted_origins)?;
         if !headers.contains_key(header::ORIGIN) || !headers.contains_key(header::COOKIE) {
             return Ok(UploadPreflight::Short);
         }
@@ -268,14 +290,14 @@ impl StaffPreflight {
             .await
             .map_err(preflight_error)?;
         let Some(proof) = session_proof(&session, grant).await else {
-            return Err(mfa_refusal(headers));
+            return Err(StaffGuardError::Mfa(language(headers)));
         };
         if self.state.identity.mfa.is_none()
             || !crate::rbac::valid_durable_session_in(&mut tx, account, proof, None)
                 .await
                 .map_err(preflight_error)?
         {
-            return Err(mfa_refusal(headers));
+            return Err(StaffGuardError::Mfa(language(headers)));
         }
         for required in [Permission::Access, staff_permission(&self.state, path)] {
             let check = match self.state.auth.check_permission_flag(required) {
@@ -299,18 +321,19 @@ impl StaffPreflight {
     }
 }
 
-fn preflight_error(error: sqlx::Error) -> Response {
-    match error {
+fn preflight_error(error: sqlx::Error) -> StaffGuardError {
+    let status = match error {
         sqlx::Error::Protocol(message) if message == "invalid session cookie" => {
-            StatusCode::BAD_REQUEST.into_response()
+            StatusCode::BAD_REQUEST
         }
         sqlx::Error::Database(error)
             if matches!(error.code().as_deref(), Some("55P03" | "57014")) =>
         {
-            StatusCode::REQUEST_TIMEOUT.into_response()
+            StatusCode::REQUEST_TIMEOUT
         }
-        _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    }
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    status.into()
 }
 
 /// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
@@ -478,7 +501,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     };
     let context = match staff_context(&s, session, request.headers(), request.uri().path()).await {
         Ok(context) => context,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     request.extensions_mut().insert(context);
     request
@@ -491,12 +514,12 @@ async fn staff_context<I: StaffSession, A: AccountStateReader + 'static>(
     session: &BrowserSession,
     headers: &axum::http::HeaderMap,
     path: &str,
-) -> Result<CheckContext, Response> {
+) -> Result<CheckContext, StaffGuardError> {
     let Some(identity) = s.identity.resolve(session).await else {
-        return Err(Redirect::to("/login").into_response());
+        return Err(StaffGuardError::Login);
     };
     if !identity.mfa_satisfied {
-        return Err(mfa_refusal(headers));
+        return Err(StaffGuardError::Mfa(language(headers)));
     }
     let context = CheckContext {
         account: identity.account,
@@ -509,12 +532,13 @@ async fn staff_context<I: StaffSession, A: AccountStateReader + 'static>(
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
-                return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+                return Err(StatusCode::SERVICE_UNAVAILABLE.into());
             }
             return Err(match refusal(&s.pool, context.account, path).await {
-                Ok(()) => StatusCode::FORBIDDEN.into_response(),
-                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            });
+                Ok(()) => StatusCode::FORBIDDEN,
+                Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+            }
+            .into());
         }
     }
     Ok(context)
@@ -544,8 +568,7 @@ fn staff_permission<I, A>(s: &Panel<I, A>, path: &str) -> Permission {
     })
 }
 
-fn mfa_refusal(headers: &axum::http::HeaderMap) -> Response {
-    let lang = language(headers);
+fn mfa_refusal(lang: &str) -> Response {
     (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{lang}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(lang, "mfa")))).into_response()
 }
 
