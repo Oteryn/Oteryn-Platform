@@ -109,10 +109,7 @@ pub async fn show(
                 "/{}/account/consents",
                 if lang == "en" { "pl" } else { "en" }
             ),
-            account: oteryn_ui::Account::SignedIn {
-                csrf: csrf.into(),
-                passkeys_eligible: false,
-            },
+            account: oteryn_ui::Account::SignedIn { csrf: csrf.into() },
             ..oteryn_ui::Chrome::default()
         },
         lang,

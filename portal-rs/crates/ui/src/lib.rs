@@ -5,37 +5,38 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
-fn catalogue(lang: &str) -> Option<&'static FluentBundle<FluentResource>> {
-    static EN: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
-    static PL: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
-    let (cache, locale, source) = if lang == "en" {
-        (
-            &EN,
-            unic_langid::langid!("en"),
-            include_str!("../i18n/en.ftl"),
-        )
-    } else {
-        (
-            &PL,
-            unic_langid::langid!("pl"),
-            include_str!("../i18n/pl.ftl"),
-        )
-    };
-    cache
-        .get_or_init(|| {
-            let resource = FluentResource::try_new(source.to_owned()).ok()?;
-            let mut bundle = FluentBundle::new_concurrent(vec![locale]);
-            bundle.add_resource(resource).ok()?;
-            Some(bundle)
-        })
-        .as_ref()
+type Catalogue = FluentBundle<FluentResource>;
+
+fn load_catalogue(locale: unic_langid::LanguageIdentifier, source: &str) -> Option<Catalogue> {
+    #[cfg(test)]
+    {
+        use std::sync::atomic::Ordering;
+
+        if locale.language.as_str() == "en" {
+            tests::EN_PARSES.fetch_add(1, Ordering::Relaxed);
+        } else {
+            tests::PL_PARSES.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    let resource = FluentResource::try_new(source.to_owned()).ok()?;
+    let mut bundle = FluentBundle::new_concurrent(vec![locale]);
+    bundle.add_resource(resource).ok()?;
+    Some(bundle)
 }
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {
-    if let Some(bundle) = catalogue(lang)
+    static EN: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load_catalogue(unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
+    });
+    static PL: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load_catalogue(unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
+    });
+
+    let catalogue = if lang == "en" { &EN } else { &PL };
+    if let Some(bundle) = catalogue.as_ref()
         && let Some(pattern) = bundle.get_message(key).and_then(|m| m.value())
     {
         return bundle
@@ -133,16 +134,6 @@ impl Registry {
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
-            .filter(|entry| {
-                entry.section != "account-passkeys"
-                    || !matches!(
-                        account,
-                        Account::SignedIn {
-                            passkeys_eligible: false,
-                            ..
-                        }
-                    )
-            })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
                     e.path.to_owned()
@@ -223,7 +214,6 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
-        passkeys_eligible: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -278,7 +268,7 @@ impl Chrome {
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf, .. } => csrf,
+            Account::SignedIn { csrf } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -411,24 +401,38 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        Barrier,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    pub(super) static EN_PARSES: AtomicUsize = AtomicUsize::new(0);
+    pub(super) static PL_PARSES: AtomicUsize = AtomicUsize::new(0);
+
     #[test]
-    fn shell_reuses_the_correct_catalogue_for_each_language()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let en = catalogue("en").ok_or("English catalogue missing")?;
-        let pl = catalogue("pl").ok_or("Polish catalogue missing")?;
-        assert!(!std::ptr::eq(en, pl));
-        assert!(std::ptr::eq(
-            en,
-            catalogue("en").ok_or("English catalogue missing")?
-        ));
-        assert!(std::ptr::eq(
-            pl,
-            catalogue("pl").ok_or("Polish catalogue missing")?
-        ));
-        assert_eq!(text("en", "stage-my-account"), "My account");
-        assert_eq!(text("pl", "stage-my-account"), "Moje konto");
-        assert_eq!(text("en", "missing-test-key"), "");
-        Ok(())
+    fn catalogues_parse_once_and_preserve_translations() {
+        let inputs = [
+            ("en", "My account", "News"),
+            ("pl", "Moje konto", "Aktualności"),
+            ("en", "My account", "News"),
+            ("unsupported", "Moje konto", "Aktualności"),
+        ];
+        let ready = Barrier::new(inputs.len());
+        std::thread::scope(|scope| {
+            for (lang, account, news) in inputs {
+                let ready = &ready;
+                scope.spawn(move || {
+                    ready.wait();
+                    for _ in 0..2 {
+                        assert_eq!(text(lang, "stage-my-account"), account);
+                        assert_eq!(text(lang, "shell-news"), news);
+                        assert_eq!(text(lang, "missing-test-key"), "");
+                    }
+                });
+            }
+        });
+        assert_eq!(EN_PARSES.load(Ordering::Relaxed), 1, "English parses");
+        assert_eq!(PL_PARSES.load(Ordering::Relaxed), 1, "Polish parses");
     }
 
     fn registry() -> Registry {
@@ -564,7 +568,6 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     csrf: "escaped<&token".into(),
-                    passkeys_eligible: true,
                 },
             );
             let html = Home::new(&chrome, &HomeData::default()).render()?;

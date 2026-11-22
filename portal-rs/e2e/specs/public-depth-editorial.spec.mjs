@@ -160,10 +160,22 @@ test('server information, help aliases and rules track localized editorial publi
       ['report-a-bug', ['support/report-a-bug']],
     ]) {
       const title = { en: `Public information: ${slug}`, pl: `Informacje publiczne: ${slug}` };
+      const helpFallback = slug === 'support' || slug === 'report-a-bug';
       for (const route of aliases) {
         await visit(page, `/${lang}/${route}`, 200, { lang });
-        await expect(page.locator('main h1')).toHaveText(t['not-published']);
         await expect(page.locator('main article')).toBeEmpty();
+        if (!helpFallback) {
+          await expect(page.locator('main h1')).toHaveText(t['not-published']);
+          continue;
+        }
+        // Unpublished support pages show their own heading and localized entry points (#2021).
+        await expect(page.locator('main h1')).toHaveText(t[slug]);
+        const entries = page.locator('main ul a');
+        await expect(entries).toHaveCount(2);
+        await expect(entries.nth(0)).toHaveText(t['help-tickets']);
+        await expect(entries.nth(0)).toHaveAttribute('href', `/${lang}/support/tickets/create`);
+        await expect(entries.nth(1)).toHaveText(t['help-password']);
+        await expect(entries.nth(1)).toHaveAttribute('href', `/${lang}/forgot-password`);
       }
       const link = { en: 'View events', pl: 'Zobacz wydarzenia' };
       await withEditorialPages(editor.page, slug, async save => {

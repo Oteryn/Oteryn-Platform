@@ -479,7 +479,30 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
         assert_eq!(html.contains("action=\"/en/logout\""), cookie.is_some());
         assert_eq!(html.contains(&csrf), cookie.is_some());
     }
-    assert_eq!(snapshot(db.pool.clone()).await?, before);
+    let static_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../static");
+    let css = std::fs::read(format!("{static_dir}/css/tokens.css"))?;
+    let response = crate::router(
+        crate::AppState {
+            db: db.pool.clone(),
+        },
+        static_dir,
+    )
+    .oneshot(
+        HttpRequest::get("/static/css/tokens.css")
+            .header(header::COOKIE, format!("{COOKIE_NAME}={id}"))
+            .body(Body::empty())?,
+    )
+    .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!response.headers().contains_key(header::SET_COOKIE));
+    assert_eq!(
+        to_bytes(response.into_body(), 65536).await?.as_ref(),
+        css.as_slice()
+    );
+    assert!(
+        snapshot(db.pool.clone()).await? == before,
+        "reads changed the session row"
+    );
     db.close().await
 }
 
@@ -532,68 +555,6 @@ async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestRe
     let unconfigured = crate::public_sessions(session.pool.clone(), None);
     assert!(unconfigured.csrf.trusted_origins.is_empty());
     Ok(())
-}
-
-#[tokio::test]
-async fn account_navigation_hides_passkeys_when_mfa_is_required() -> TestResult {
-    let db = Database::new().await?.ok_or("PostgreSQL required")?;
-    let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
-        .bind(id).execute(&db.pool).await?;
-    let mut registry = oteryn_ui::Registry::default();
-    registry.login = true;
-    registry.account = true;
-    registry.section(
-        true,
-        "account-passkeys",
-        "shell-account-passkeys",
-        "account/passkeys",
-        oteryn_ui::Group::Account,
-        false,
-    );
-    let app = Router::new()
-        .route(
-            "/en/",
-            get(
-                |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
-                    oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
-                },
-            ),
-        )
-        .layer(axum::middleware::from_fn_with_state(
-            crate::chrome::Shell {
-                registry,
-                sessions: SessionLayer::new(db.pool.clone()),
-            },
-            crate::chrome::middleware,
-        ));
-    for required in [false, true] {
-        sqlx::query("UPDATE accounts SET login_mfa_required=$1 WHERE id=$2")
-            .bind(required)
-            .bind(id)
-            .execute(&db.pool)
-            .await?;
-        let browser = BrowserSession::new(db.pool.clone(), SessionConfig::default(), None, "test");
-        rotate(&browser, PrivilegeChange::Login(id)).await?;
-        let cookie = {
-            let state = browser.inner.lock().await;
-            let session = state.record.as_ref().ok_or("missing signed-in session")?;
-            format!("{COOKIE_NAME}={}", session.id)
-        };
-        let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::get("/en/")
-                    .header(header::COOKIE, &cookie)
-                    .body(Body::empty())?,
-            )
-            .await?;
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = String::from_utf8(to_bytes(response.into_body(), 1 << 20).await?.to_vec())?;
-        assert!(body.contains("action=\"/en/logout\""));
-        assert_eq!(body.contains("href=\"/en/account/passkeys\""), !required);
-    }
-    db.close().await
 }
 
 #[tokio::test]

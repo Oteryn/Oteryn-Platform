@@ -378,6 +378,37 @@ impl Runtime {
         crate::locking::listing_gate(&mut tx).await?;
         let replay =
             check_bid_request(&mut tx, key, listing, actor, buyer_character, maximum).await?;
+        if replay == Some(Currency::Coins) {
+            // The binding is append-only and committed with the funded bid.
+            // Release any writer lock before revalidating current account policy.
+            let observed = tokio::time::Instant::now();
+            let (deadline, remaining_ms): (String, i64) = sqlx::query_as(
+                "SELECT current_setting('oteryn.mutation_deadline'),
+                        floor((current_setting('oteryn.mutation_deadline')::numeric
+                               - extract(epoch FROM clock_timestamp())) * 1000)::bigint",
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if remaining_ms <= 0 {
+                return Err(Error::Unavailable);
+            }
+            let expires = observed + std::time::Duration::from_millis(remaining_ms as u64);
+            let core = self.core(None);
+            tokio::time::timeout_at(expires, async {
+                tx.commit().await?;
+                core.replay_coin_bid(listing, actor, maximum, &key.to_string(), &deadline)
+                    .await
+                    .map_err(core_error)
+            })
+            .await
+            .map_err(|_| Error::Unavailable)??;
+            // A ready future can win the same poll as its timeout.
+            return if tokio::time::Instant::now() < expires {
+                Ok(())
+            } else {
+                Err(Error::Unavailable)
+            };
+        }
         crate::locking::listing_gate(&mut tx).await?;
         let row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(listing)
@@ -397,13 +428,8 @@ impl Runtime {
             return Ok(());
         }
 
-        if replay {
-            self.core(None)
-                .bid_in(&mut tx, listing, actor, maximum, &key.to_string())
-                .await
-                .map_err(core_error)?;
-            tx.commit().await?;
-            return Ok(());
+        if replay.is_some() {
+            return Err(Error::Conflict);
         }
         if row.kind == Kind::Item {
             let owned: bool = sqlx::query_scalar(
@@ -617,12 +643,30 @@ pub(super) async fn check_bid_request(
     buyer: Uuid,
     character: Uuid,
     maximum: i64,
-) -> Result<bool, Error> {
+) -> Result<Option<Currency>, Error> {
+    // Committed bindings are immutable. Only a missing binding needs the
+    // writer lock, and a concurrent creator can publish it while we wait.
+    let binding = read_bid_request(db, key, listing, buyer, character, maximum).await?;
+    if binding.is_some() {
+        return Ok(binding);
+    }
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64004))")
         .bind(key.to_string())
         .execute(&mut *db)
         .await?;
-    let rows = sqlx::query("SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_bid_requests WHERE request_id=$1 UNION ALL SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_gold_bids WHERE request_id=$1").bind(key).fetch_all(&mut *db).await?;
+    read_bid_request(db, key, listing, buyer, character, maximum).await
+}
+
+async fn read_bid_request(
+    db: &mut PgConnection,
+    key: Uuid,
+    listing: Uuid,
+    buyer: Uuid,
+    character: Uuid,
+    maximum: i64,
+) -> Result<Option<Currency>, Error> {
+    let rows = sqlx::query("SELECT listing_id,buyer,character_id,maximum,'coins'::bazaar_currency AS currency FROM bazaar_authority_bid_requests WHERE request_id=$1 UNION ALL SELECT listing_id,buyer,character_id,maximum,'gold'::bazaar_currency FROM bazaar_authority_gold_bids WHERE request_id=$1").bind(key).fetch_all(&mut *db).await?;
+    let mut currency = None;
     for row in &rows {
         if row.try_get::<Uuid, _>("listing_id")? != listing
             || row.try_get::<Uuid, _>("buyer")? != buyer
@@ -631,12 +675,54 @@ pub(super) async fn check_bid_request(
         {
             return Err(Error::Conflict);
         }
+        let kind = row.try_get::<Currency, _>("currency")?;
+        if currency.replace(kind).is_some() {
+            return Err(Error::Conflict);
+        }
     }
-    Ok(!rows.is_empty())
+    Ok(currency)
 }
 #[cfg(test)]
 mod request_key_tests {
     use super::*;
+    #[tokio::test]
+    async fn postgres_coin_bid_replay_respects_inherited_deadline()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::game::authority_tests::{BrowserFixture, uid};
+
+        let _guard = oteryn_db::test_support::global_lock_guard().await?;
+        let db = BrowserFixture::new().await;
+        let listing = uid("20");
+        let mut writer = db.pool.begin().await?;
+        sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+            .bind(listing)
+            .execute(&mut *writer)
+            .await?;
+        let deadline: String =
+            sqlx::query_scalar("SELECT (extract(epoch FROM clock_timestamp()) - 1)::text")
+                .fetch_one(&mut *writer)
+                .await?;
+        let core = db.runtime.core(None);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            core.replay_coin_bid(listing, uid("13"), 15000, "expired-replay", &deadline),
+        )
+        .await?;
+        writer.rollback().await?;
+        db.end().await;
+        assert!(
+            matches!(
+                result,
+                Err(crate::Error::Database(ref error))
+                    if error.as_database_error().is_some_and(|db| {
+                        matches!(db.code().as_deref(), Some("55P03" | "57014"))
+                    })
+            ),
+            "{result:?}"
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn postgres_concurrent_request_key_binding_conflicts_before_effect()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -652,7 +738,10 @@ mod request_key_tests {
         let buyer = Uuid::now_v7();
         let character = Uuid::now_v7();
         let mut first = pool.begin().await?;
-        assert!(!check_bid_request(&mut first, key, listing, buyer, character, 100).await?);
+        assert_eq!(
+            check_bid_request(&mut first, key, listing, buyer, character, 100).await?,
+            None
+        );
         let pool2 = pool.clone();
         let (ready, waiting) = tokio::sync::oneshot::channel();
         let mut second = tokio::spawn(async move {

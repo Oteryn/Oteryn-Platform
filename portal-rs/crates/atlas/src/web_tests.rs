@@ -58,28 +58,26 @@ async fn postgres_viewer_routes() -> TestResult {
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
-    let directory = tempfile::tempdir()?;
-    let cold = router(Viewer {
+    let dir = tempfile::tempdir()?;
+    let app = router(Viewer {
         enabled: true,
-        directory: directory.path().into(),
+        directory: dir.path().into(),
         world: WorldStore::new(pool.clone(), WorldOptions { enabled: true }),
     });
-    for path in [
-        "/en/atlas".to_owned(),
-        format!("/atlas/tiles/{}/7/0/0/0.webp", "a".repeat(40)),
-    ] {
-        let response = cold
+    let version = "a".repeat(40);
+    let tile = format!("/atlas/tiles/{version}/7/0/0/0.webp");
+    for path in ["/pl/atlas", "/en/atlas", tile.as_str()] {
+        let response = app
             .clone()
             .oneshot(Request::get(path).body(Body::empty())?)
             .await?;
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
         assert_eq!(
             response.headers().get(header::CACHE_CONTROL),
-            Some(&"no-store".parse()?)
+            Some(&header::HeaderValue::from_static("no-store")),
+            "{path}"
         );
     }
-
-    let version = "a".repeat(40);
     sqlx::query("INSERT INTO world_versions(id,source_commit,status) VALUES ('01900000-0000-7000-8000-000000000001',$1,'ready')").bind(&version).execute(&pool).await?;
     sqlx::query(
         "UPDATE world_active_version SET version_id='01900000-0000-7000-8000-000000000001'",
@@ -109,7 +107,6 @@ async fn postgres_viewer_routes() -> TestResult {
                 .await?;
         }
     }
-    let dir = tempfile::tempdir()?;
     let target = dir.path().join(&version).join("7");
     std::fs::create_dir_all(target.join("0/0"))?;
     let bytes = b"test-tile";
@@ -138,11 +135,6 @@ async fn postgres_viewer_routes() -> TestResult {
         }],
     };
     std::fs::write(target.join("manifest.json"), serde_json::to_vec(&m)?)?;
-    let app = router(Viewer {
-        enabled: true,
-        directory: dir.path().into(),
-        world: WorldStore::new(pool.clone(), WorldOptions { enabled: true }),
-    });
     for lang in ["pl", "en"] {
         let r = app
             .clone()
@@ -178,7 +170,6 @@ async fn postgres_viewer_routes() -> TestResult {
             StatusCode::BAD_REQUEST
         );
     }
-    let tile = format!("/atlas/tiles/{version}/7/0/0/0.webp");
     assert_eq!(
         app.clone()
             .oneshot(Request::get(&tile).body(Body::empty())?)
