@@ -124,24 +124,24 @@
     "route": "/console/worlds",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "bootstrap platform admin lacks Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "bootstrap platform admin lacks Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/database",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "bootstrap platform admin lacks Game read permission"
   },
   {
     "crate": "admin",
