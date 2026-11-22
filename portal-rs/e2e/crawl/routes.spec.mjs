@@ -15,6 +15,14 @@ const normalize = text => text.replace(/\s+/g, ' ').trim();
 const label = url => url.pathname.replace(/(\/(?:reset-password|email-change\/(?:confirm|revert))\/)[^/]+$/, '$1[token]')
   + (url.search ? '?' + [...url.searchParams.keys()].sort().join('&') : '');
 const staffRoute = route => /^(?:admin|console)(?:\/|$)/.test(route);
+const staffLocaleQuery = pathname => /^\/admin\/(?:console|news|media)(?:\/|$)/.test(pathname);
+
+function documentLocale(url, browserLocale) {
+  const localizedStaff = url.pathname.match(/^\/admin\/(pl|en)\//)?.[1]
+    ?? url.pathname.match(/^\/admin\/pages\/[^/]+\/(pl|en)$/)?.[1];
+  const fallback = url.pathname === '/' || staffLocaleQuery(url.pathname) ? 'pl' : browserLocale;
+  return localizedStaff ?? localeOf(url, url.searchParams.get('lang') ?? fallback);
+}
 
 function localURL(href, base, origin) {
   const url = new URL(href, base);
@@ -91,7 +99,8 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
     }
 
     // Seed the registered destinations so a missing link cannot hide a broken page.
-    enqueue(`/${locale}/`, 'home');
+    enqueue('/', 'home');
+    enqueue(`/${locale}/`, 'localized home');
     for (const { path } of sections) {
       enqueue(path.startsWith('/') ? path : `/${locale}/${path}`, 'registry');
     }
@@ -100,7 +109,10 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
     enqueue('/account/game-logins', 'game login history alias');
     if (actor === 'platform_admin') {
       for (const { route } of staffPages) {
-        enqueue(route.replaceAll('{lang}', locale).replace('{slug}', 'rules'), 'staff routes');
+        const target = new URL(route.replaceAll('{lang}', locale).replace('{slug}', 'rules'), origin);
+        // These staff pages select language through their documented query parameter.
+        if (staffLocaleQuery(target.pathname)) target.searchParams.set('lang', locale);
+        enqueue(target.href, 'staff routes');
       }
     }
 
@@ -207,8 +219,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
               .map(node => node.href || node.src),
           };
         }, { selector: view?.selector, filters: view?.filters, accountEmail: email });
-        const expectedLang = target.pathname === '/' ? 'pl'
-          : target.searchParams.get('lang') ?? target.pathname.match(/^\/admin\/(pl|en)\//)?.[1] ?? localeOf(target, locale);
+        const expectedLang = documentLocale(target, locale);
         if (!rendered.shell || !rendered.title) defects.add(`${current} is missing the shared shell or its main heading`);
         if (rendered.lang !== expectedLang) defects.add(`${current} document language should be ${expectedLang}`);
         if (rendered.overflow) defects.add(`${current} overflows the viewport`);
