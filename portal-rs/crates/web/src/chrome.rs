@@ -108,6 +108,20 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             response = replacement;
         }
     }
+    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE
+        && !response
+            .headers()
+            .get_all(header::CACHE_CONTROL)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .any(|directive| directive.trim().eq_ignore_ascii_case("no-store"))
+    {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
+    }
     let mut response = wrap_document(response, &chrome).await;
     if response
         .headers()
@@ -506,6 +520,21 @@ mod response_tests {
                 },
                 middleware,
             ));
+        for method in ["GET", "HEAD"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri("/en/cold")
+                        .header(header::ACCEPT, "application/json")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(response.headers()[header::RETRY_AFTER], "17");
+        }
         for lang in ["pl", "en"] {
             let response = app
                 .clone()
