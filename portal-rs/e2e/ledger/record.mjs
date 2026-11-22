@@ -96,7 +96,8 @@ function formAction(url, method, contentType, body, referer) {
   return null;
 }
 
-const directory = fileURLToPath(new URL('../test-results/ledger/', import.meta.url));
+const directory = process.env.PORTAL_E2E_LEDGER_HITS ??
+  fileURLToPath(new URL('../test-results/ledger/', import.meta.url));
 const testDirectory = fileURLToPath(new URL('../', import.meta.url));
 const sessionCookie = /(?:^|;\s*)__Host-oteryn_session=([^;]+)/;
 const pending = new Set();

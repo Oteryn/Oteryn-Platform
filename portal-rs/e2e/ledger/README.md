@@ -1,15 +1,14 @@
 # Portal E2E coverage ledger
 
-Run the browser suite using the disposable PostgreSQL and HTTPS setup in the [browser qualification README](../README.md). From `portal-rs/e2e`, regenerate the form inventory before starting the full run and then generate the coverage report.
+From the repository root, use the disposable PostgreSQL setup in the [browser qualification README](../README.md). With the local administrator URL available as `PORTAL_E2E_ADMIN_DATABASE_URL`, run:
 
 ```sh
-python3 ledger/forms.py
-node run.mjs /absolute/scratch/env.json test
-node ledger/report.mjs
-node ledger/report.mjs --gate
+CARGO_BUILD_JOBS=2 portal-rs/e2e/ledger/llvm-cov.sh
 ```
 
-Playwright clears its output directory at the start of a run. Use a single invocation for all four projects. Every worker appends to its own `test-results/ledger/<project>-<worker>.jsonl` file. The JSONL is local. Commit the generated form inventory and the two aggregate reports when refreshing the baseline.
+This entry point rebuilds the route and form inventories, runs all four Playwright projects against the same instrumented portal, and refreshes the request, form and LLVM reports. Pass `--gate` to also fail on every unhit request or form row. Playwright failures retain their usual nonzero exit status. Commit the regenerated inventories and aggregate reports when refreshing the baseline.
+
+Raw Playwright results, traces, per-worker JSONL and LLVM profiles stay in the private run directory printed by the command. The JSONL files are isolated per run and separate from the Playwright output directory that gets cleared at startup.
 
 The recorder installs in Playwright workers before context creation. Browser context events include popups and pages opened by specs. Playwright's pinned in-process transport exposes API request events for both standalone and browser-associated contexts, including individual redirect hops. Check these hooks when upgrading Playwright. Each request is associated with the active Playwright test, including its setup and teardown hooks.
 
@@ -22,7 +21,3 @@ Form rows group template locations by action pattern, method, and submitter name
 Form evidence is based on query or form-encoded fields sent to the matching action. It includes deliberate API form probes. An unnamed submitter is inferred from declared form fields. An ordinary navigation with a matching form query can produce the same evidence as a browser submission. Dynamic ranking pagination buttons are identified by the submitted page relative to the referring page.
 
 Reports list observed actor and status combinations and their projects. Success means 2xx or 3xx. Refusal means 400, 401, 403, 404, or 422. Row IDs use a deterministic number derived from the row's identity and survive report reruns and insertion of unrelated rows. The gate writes both reports and returns nonzero if any route or form row has no hit, listing each missing row.
-
-## Checked-in baseline
-
-The checked-in reports cover the completed `pl-1440` project. It ran 460 tests, with 457 passing and three failing on the calculator page's color contrast. Its request evidence includes all 460 tests. The four-project run was still in progress when this baseline was published.

@@ -4,6 +4,11 @@ set +x
 set -euo pipefail
 umask 077
 
+if (( $# > 1 )) || [[ "${1:-}" != "" && "${1:-}" != "--gate" ]]; then
+    echo 'Usage: llvm-cov.sh [--gate]' >&2
+    exit 2
+fi
+
 e2e="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 portal="$(dirname "$e2e")"
 cd "$portal"
@@ -33,6 +38,9 @@ export PORTAL_E2E_LLVM_PROFILES="$run_dir/profiles"
 export PORTAL_E2E_AUTH_DIRECTORY="$run_dir/auth"
 export PORTAL_E2E_SCRATCH="$run_dir/harness"
 export PLAYWRIGHT_JSON_OUTPUT_FILE="$run_dir/playwright.json"
+export PORTAL_E2E_LEDGER_HITS="$run_dir/ledger-hits"
+python3 "$e2e/inventory.py"
+python3 "$e2e/ledger/forms.py"
 cat >"$run_dir/portal" <<'WRAPPER'
 #!/usr/bin/env bash
 # Give startup, HTTP and worker profiles distinct names so they can be verified.
@@ -68,6 +76,8 @@ suite_status=0
 (cd "$e2e" && node run.mjs "$run_dir/harness/env.json" test --output "$run_dir/test-results") \
     >"$run_dir/playwright.log" 2>&1 || suite_status=$?
 stop_launcher
+ledger_status=0
+node "$e2e/ledger/report.mjs" "$@" || ledger_status=$?
 
 shopt -s nullglob
 serve_profiles=("$run_dir"/profiles/serve-*.profraw)
@@ -437,4 +447,6 @@ if any(counts["not_run"] or counts["interrupted"] for counts in project_results.
 if stats["skipped"]:
     sys.exit("Playwright reported skipped tests")
 PYTHON
-exit "$suite_status"
+cp "$run_dir/LLVMCOV.md" "$run_dir/llvmcov-summary.json" "$e2e/ledger/"
+if (( suite_status != 0 )); then exit "$suite_status"; fi
+exit "$ledger_status"

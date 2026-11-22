@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const inventory = JSON.parse(readFileSync(new URL('../inventory.json', import.meta.url)));
 const forms = JSON.parse(readFileSync(new URL('./forms.json', import.meta.url)));
-const hitDirectory = new URL('../test-results/ledger/', import.meta.url);
+const hitDirectory = process.env.PORTAL_E2E_LEDGER_HITS ??
+  fileURLToPath(new URL('../test-results/ledger/', import.meta.url));
 const refusals = new Set([400, 401, 403, 404, 422]);
 const rows = new Map();
 const ids = new Set();
@@ -44,16 +47,18 @@ function observe(destination, hit) {
   destination.evidence.get(index).projects.add(hit.project);
 }
 
-if (existsSync(hitDirectory)) {
-  for (const file of readdirSync(hitDirectory).filter(name => name.endsWith('.jsonl')).sort()) {
-    for (const line of readFileSync(new URL(file, hitDirectory), 'utf8').split('\n').filter(Boolean)) {
-      const hit = JSON.parse(line);
-      if (hit.status === null) continue;
-      observe(rows.get(key('R', hit.route_pattern, hit.method)), hit);
-      if (hit.form_action) {
-        for (const button of hit.form_action.buttons) {
-          observe(rows.get(key('F', hit.form_action.action, hit.method, button)), hit);
-        }
+const hitFiles = existsSync(hitDirectory)
+  ? readdirSync(hitDirectory).filter(name => name.endsWith('.jsonl')).sort()
+  : [];
+if (!hitFiles.length) throw new Error(`No Playwright ledger evidence in ${hitDirectory}`);
+for (const file of hitFiles) {
+  for (const line of readFileSync(join(hitDirectory, file), 'utf8').split('\n').filter(Boolean)) {
+    const hit = JSON.parse(line);
+    if (hit.status === null) continue;
+    observe(rows.get(key('R', hit.route_pattern, hit.method)), hit);
+    if (hit.form_action) {
+      for (const button of hit.form_action.buttons) {
+        observe(rows.get(key('F', hit.form_action.action, hit.method, button)), hit);
       }
     }
   }
