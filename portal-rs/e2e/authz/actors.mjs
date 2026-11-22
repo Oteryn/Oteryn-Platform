@@ -93,9 +93,12 @@ export async function openActor(locale, definition, sanctionIssuer) {
     let nextRecoveryCode;
     if (definition.role) {
       if (definition.custom) {
-        const [{ id }] = await query('INSERT INTO roles(key) VALUES ($1) RETURNING id', [definition.role]);
-        await query('INSERT INTO role_permissions(role_id,permission) VALUES ($1,$2)',
-          [id, definition.permissions[0]]);
+        await query('INSERT INTO roles(key) VALUES ($1) ON CONFLICT (key) DO NOTHING', [definition.role]);
+        await query(`
+          INSERT INTO role_permissions(role_id,permission)
+          SELECT id,$2 FROM roles WHERE key=$1
+          ON CONFLICT (role_id,permission) DO NOTHING
+        `, [definition.role, definition.permissions[0]]);
       }
       const [{ role_id: roleId }] = await query(`
         INSERT INTO account_roles(account_id,role_id)
