@@ -263,7 +263,7 @@ async fn postgres_news_lifecycle() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let _ = to_bytes(response.into_body(), 1024).await.unwrap();
 
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")

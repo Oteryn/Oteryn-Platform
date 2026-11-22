@@ -80,7 +80,7 @@ impl Options {
     fn offset(&self, size: i64) -> Result<i64, StatusCode> {
         let n = self.page.unwrap_or(1);
         if !(1..=MAX_PAGE).contains(&n) {
-            Err(StatusCode::UNPROCESSABLE_ENTITY)
+            Err(StatusCode::BAD_REQUEST)
         } else {
             Ok((n - 1) * size)
         }
