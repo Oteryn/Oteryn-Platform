@@ -24,7 +24,11 @@ The browser creates support tickets and reports through their real forms.
 The platform administrator signs in with the real MFA challenge. Source
 patterns that require a resource absent from the harness use a representative
 missing identifier, with the resulting status recorded. Each actor gets a
-fresh browser context for every measured destination.
+fresh browser context for every measured destination. A real HTTP discovery
+request classifies the destination before Chromium opens it. Redirect
+aliases and identical shared refusal screens retain route evidence and
+reuse the audit of the same document. Game-dependent views retain the
+harness's cold or unavailable responses when their authority is absent.
 
 All three actors run in Polish and English at 1440 × 900 and 390 × 900.
 Axe checks WCAG 2 A and AA with zero serious or critical violations. The suite

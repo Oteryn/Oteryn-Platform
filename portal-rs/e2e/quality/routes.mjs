@@ -42,7 +42,8 @@ export function routes(locale, ids) {
   for (const { path } of inventory.sections) {
     patterns.add(path.startsWith('/') ? path : '/{lang}/' + path);
   }
-  return [...patterns].map(pattern => ({
+  const landing = ['/{lang}/', '/{lang}/login', '/account', '/admin'];
+  return [...new Set([...landing.filter(pattern => patterns.has(pattern)), ...patterns])].map(pattern => ({
     pattern, paths: candidates(pattern, locale, ids),
     documentedStatuses: expectations.filter(row => row.route === pattern && row.method === 'GET')
       .map(row => row.status),

@@ -43,7 +43,10 @@ export async function installVitals(page) {
 }
 
 export async function vitals(page) {
-  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   await expect.poll(() => page.evaluate(() => window.portalQualityVitals().lcp), {
     message: 'Chromium reports a painted LCP candidate',
   }).not.toBeNull();

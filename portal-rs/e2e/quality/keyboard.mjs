@@ -18,7 +18,7 @@ async function focusState(page) {
         (link ? ' ' + new URL(link, location.href).pathname : ''),
       visible: Boolean(visible && bounds.width > 0 && bounds.height > 0 &&
         bounds.right > 0 && bounds.left < innerWidth && bounds.bottom > 0 && bounds.top < innerHeight),
-      inScope: !!element.closest('form, header, nav'),
+      inScope: !!(element.form || element.closest('form, header, nav')),
     };
   });
 }
@@ -45,7 +45,7 @@ async function tabStops(page) {
       const style = getComputedStyle(element);
       window.portalQualityFocusStyles.set(element,
         [style.boxShadow, style.backgroundColor, style.borderColor, style.textDecorationLine]);
-      return [{ index, inHeader: !!element.closest('header'), inDialog: !!element.closest('dialog'), inScope: !!element.closest('form, header, nav'), tabIndex: element.tabIndex }];
+      return [{ index, inHeader: !!element.closest('header'), inDialog: !!element.closest('dialog'), inScope: !!(element.form || element.closest('form, header, nav')), tabIndex: element.tabIndex }];
     });
   });
 }
@@ -171,6 +171,34 @@ async function resetTabStart(page) {
   });
 }
 
+async function assertDisclosedForms(page, label, bound) {
+  for (const summary of await page.locator('main details:not([open]):has(form) > summary:visible').all()) {
+    await resetTabStart(page);
+    const reached = await tabUntil(page, summary, bound);
+    soft(reached, `${label}: form disclosure is keyboard reachable`).toBe(true);
+    if (!reached) continue;
+    await page.keyboard.press('Enter');
+    const details = summary.locator('..');
+    await soft(details).toHaveAttribute('open', '');
+    const descendants = await details.evaluate(container => [...document.querySelectorAll('*')]
+      .flatMap((element, index) => element !== container && container.contains(element) ? [index] : []));
+    const summaryIndex = (await focusState(page)).index;
+    const stops = (await tabStops(page)).filter(stop =>
+      stop.index !== summaryIndex && descendants.includes(stop.index));
+    for (const stop of stops) {
+      await page.keyboard.press('Tab');
+      const focus = await focusState(page);
+      soft(focus.index, `${label}: keyboard order in form disclosure`).toBe(stop.index);
+      if (stop.inScope) soft(focus.visible, `${label}: disclosed form control has visible focus`).toBe(true);
+    }
+    await page.keyboard.press('Tab');
+    soft(descendants.includes((await focusState(page)).index), `${label}: Tab leaves the disclosed form`).toBe(false);
+    await resetTabStart(page);
+    if (await tabUntil(page, summary, bound)) await page.keyboard.press('Space');
+    await soft(details).not.toHaveAttribute('open', '');
+  }
+}
+
 export async function assertKeyboard(page, label) {
   const stops = await tabStops(page);
   const scoped = stops.filter(stop => stop.inScope);
@@ -214,4 +242,5 @@ export async function assertKeyboard(page, label) {
   } else {
     await assertNativeMenu(page, label, stops.length + 4);
   }
+  await assertDisclosedForms(page, label, stops.length + 4);
 }

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import axeCore from 'axe-core';
-import { test, expect } from '@playwright/test';
+import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
@@ -99,14 +99,69 @@ function addLinks(inventory, links, origin) {
   }
 }
 
-async function assessPage(browser, info, state, entry, target, covered, inventory) {
+async function discover(probe, entry, target, covered) {
   const origin = process.env.PORTAL_E2E_ORIGIN;
+  await waitForWikiBudget(target, 2);
+  let requested = target;
+  let response;
+  for (let hop = 0; hop < 10; hop++) {
+    response = await probe.get(requested, { maxRedirects: 0 });
+    const location = response.headers().location;
+    if (![301, 302, 303, 307, 308].includes(response.status()) || !location) break;
+    const url = new URL(location, response.url());
+    const status = response.status();
+    await response.dispose();
+    response = undefined;
+    if (url.origin !== origin) {
+      return { record: {
+        pattern: entry.pattern, requestedPath: new URL(target, origin).pathname,
+        status, outcome: 'external redirect',
+      } };
+    }
+    requested = url.href;
+  }
+  expect(response, 'local redirect chain terminates').toBeDefined();
+  try {
+    const url = new URL(response.url());
+    expect(url.origin, 'local document origin').toBe(origin);
+    const status = response.status();
+    const label = url.pathname;
+    const record = { pattern: entry.pattern, requestedPath: new URL(target, origin).pathname, path: label, status };
+    expect.soft(status === 503 || status < 500, `${label}: navigation response`).toBe(true);
+    const headers = response.headers();
+    if (!headers['content-type']?.startsWith('text/html')) return { record: { ...record, outcome: 'non-document' } };
+    if (status === 503) {
+      if (entry.documentedStatuses.length) {
+        expect.soft(entry.documentedStatuses, `${label}: documented cold response`).toContain(503);
+      }
+      expect.soft(headers['cache-control'], `${label}: 503 cache policy`).toContain('no-store');
+    }
+    const markup = await response.text();
+    if (!/<html[\s>]/i.test(markup)) return { record: { ...record, outcome: 'HTML fragment' } };
+    // The shared refusal renderer can return the same document for many
+    // resources. Keep each route outcome and audit each distinct refusal.
+    const main = status >= 400 && markup.match(/<main[\s>][\s\S]*?<\/main>/i)?.[0];
+    const resources = main && markup.match(/<(?:link|script|img)\b[^>]*(?:href|src)="[^"]+"[^>]*>/gi);
+    const key = main
+      ? JSON.stringify([status, headers['content-language'], main, resources])
+      : status + ' ' + label + url.search;
+    if (covered.has(key)) return { record: { ...record, outcome: 'already audited', auditedAt: covered.get(key) } };
+    return { record, key };
+  } finally {
+    await response.dispose();
+  }
+}
+
+async function assessPage(browser, info, state, entry, target, covered, inventory, probe) {
+  const origin = process.env.PORTAL_E2E_ORIGIN;
+  const { record, key } = await discover(probe, entry, target, covered);
+  if (record.outcome) return record;
+  const { status, path: label } = record;
   const context = await browser.newContext({ ...info.project.use, baseURL: origin, storageState: state });
   try {
     const page = await context.newPage();
     await installVitals(page);
     const transfers = collectResponses(page);
-    await waitForWikiBudget(target);
     let response;
     let attachment;
     page.on('download', download => { attachment = download; });
@@ -121,30 +176,9 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
     expect(response, 'navigation produced a response').not.toBeNull();
     const url = new URL(page.url());
     expect(url.origin, 'local document origin').toBe(origin);
-    const status = response.status();
-    const label = url.pathname;
-    const record = { pattern: entry.pattern, requestedPath: new URL(target, origin).pathname, path: label, status };
-    expect.soft(status === 503 || status < 500, `${label}: navigation response`).toBe(true);
-    const contentType = await response.headerValue('content-type');
-    if (!contentType?.startsWith('text/html')) return { ...record, outcome: 'non-document' };
-    if (status === 503) {
-      if (entry.documentedStatuses.length) {
-        expect.soft(entry.documentedStatuses, `${label}: documented cold response`).toContain(503);
-      }
-      expect.soft(await response.headerValue('cache-control'), `${label}: 503 cache policy`).toContain('no-store');
-    }
-    const documentRoot = await page.evaluate(() => Boolean(document.doctype));
-    if (!documentRoot && !/<html[\s>]/i.test(await response.text())) {
-      return { ...record, outcome: 'HTML fragment' };
-    }
-    // The shared refusal renderer can return the exact same document at many
-    // missing resources. Keep every route outcome and audit each distinct refusal.
-    const key = status >= 400
-      ? status + ' ' + await page.evaluate(() =>
-          JSON.stringify([document.documentElement.lang, document.title, document.querySelector('main')?.innerHTML]))
-      : status + ' ' + label + url.search;
-    if (covered.has(key)) return { ...record, outcome: 'already audited', auditedAt: covered.get(key) };
-
+    expect(response.status(), `${label}: browser and source discovery agree on status`).toBe(status);
+    expect(url.pathname, 'browser and source discovery agree on destination').toBe(label);
+    const measurement = await vitals(page);
     expect.soft(await page.locator('html').getAttribute('lang'), `${label}: document language`)
       .toBe(url.pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1] ?? info.project.metadata.locale);
     await expect.soft(page.getByRole('main'), `${label}: main landmark`).toHaveCount(1);
@@ -160,7 +194,6 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
       ...[...document.forms].filter(form => form.method === 'get').map(form => form.action),
     ]);
     addLinks(inventory, links, origin);
-    const measurement = await vitals(page);
     await assertKeyboard(page, label);
     const resources = await transfers();
     const totals = assertBudgets(measurement, resources, label);
@@ -184,13 +217,19 @@ for (const actor of actors) {
     const report = info.outputPath('quality-inventory.json');
     const selected = process.env.PORTAL_QUALITY_ROUTE;
     expect(inventory.some(row => !selected || row.pattern === selected), 'selected route exists').toBe(true);
+    const probe = await playwrightRequest.newContext({
+      baseURL: process.env.PORTAL_E2E_ORIGIN,
+      ignoreHTTPSErrors: true,
+      storageState: state.storage ?? state,
+      extraHTTPHeaders: { accept: 'text/html', 'accept-language': locale },
+    });
     try {
       // Discover seeded document links from the shell and collection pages first.
       for (const entry of inventory) {
         if (selected && entry.pattern !== selected) continue;
         for (const target of entry.paths) {
           try {
-            evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory));
+            evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probe));
           } catch (error) {
             // Browser exceptions can include full URLs. Preserve the category and route without query data.
             const requestedPath = new URL(target, process.env.PORTAL_E2E_ORIGIN).pathname;
@@ -203,6 +242,7 @@ for (const actor of actors) {
       }
       expect(covered.size, 'rendered documents audited').toBeGreaterThan(0);
     } finally {
+      await probe.dispose();
       await info.attach('quality-inventory', {
         contentType: 'application/json', body: JSON.stringify({ actor, locale, evidence }),
       });
