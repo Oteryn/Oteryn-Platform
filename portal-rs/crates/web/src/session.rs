@@ -163,13 +163,13 @@ impl BrowserSession {
             .map(|r| r.csrf.clone())
             .ok_or(sqlx::Error::RowNotFound)
     }
-    pub(crate) async fn existing_csrf_token(&self) -> Option<String> {
+    pub(crate) async fn csrf_proof(&self) -> Option<(String, [u8; 32])> {
         self.inner
             .lock()
             .await
             .record
             .as_ref()
-            .map(|r| r.csrf.clone())
+            .map(|r| (r.csrf.clone(), Sha256::digest(r.id.as_bytes()).into()))
     }
     pub async fn account_id(&self) -> Option<Uuid> {
         self.inner
@@ -400,11 +400,16 @@ pub async fn middleware(
         .get::<crate::csrf::CsrfConfig>()
         .cloned()
         .unwrap_or_else(|| layer.csrf.clone());
-    // The login router knows both deployment origins. Bind logout to the
-    // configured origin matching this host, including the dedicated staff host.
+    // Logout and password confirmation are available on the staff host.
+    // Use the configured origin matching the request host for those routes.
     if matches!(
         request.uri().path(),
-        "/logout" | "/en/logout" | "/pl/logout"
+        "/logout"
+            | "/en/logout"
+            | "/pl/logout"
+            | "/account/sudo"
+            | "/en/account/sudo"
+            | "/pl/account/sudo"
     ) {
         let mut hosts = request.headers().get_all(header::HOST).iter();
         if let Some(host) = hosts.next().and_then(|value| value.to_str().ok())
@@ -434,6 +439,24 @@ pub async fn middleware(
         Ok(session) => {
             request.extensions_mut().insert(session.clone());
             if let Err(status) = crate::csrf::verify(&layer.csrf, &session, &mut request).await {
+                if status == StatusCode::FORBIDDEN
+                    && request
+                        .extensions()
+                        .get::<crate::csrf::LocalizedRefusal>()
+                        .is_some()
+                {
+                    let lang = crate::surface::negotiate(request.headers()).code();
+                    let fallback = oteryn_ui::Registry::default().chrome(
+                        lang,
+                        request.uri().path(),
+                        oteryn_ui::Account::Anonymous,
+                    );
+                    let chrome = request
+                        .extensions()
+                        .get::<oteryn_ui::Chrome>()
+                        .unwrap_or(&fallback);
+                    return oteryn_ui::error(chrome, status);
+                }
                 return status.into_response();
             }
             let mut response = next.run(request).await;
@@ -564,9 +587,9 @@ pub async fn read_only_middleware(
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
-) -> oteryn_ui::Account {
+) -> (oteryn_ui::Account, Option<Uuid>) {
     let Ok(Some(session)) = read_signed_in(layer, request).await else {
-        return oteryn_ui::Account::Anonymous;
+        return (oteryn_ui::Account::Anonymous, None);
     };
     let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
         "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
@@ -580,10 +603,13 @@ pub(crate) async fn chrome_account(
         Ok(Some((status, verified, mfa_required)))
             if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
     );
-    oteryn_ui::Account::SignedIn {
-        csrf: session.csrf,
-        passkeys_eligible,
-    }
+    (
+        oteryn_ui::Account::SignedIn {
+            csrf: session.csrf,
+            passkeys_eligible,
+        },
+        Some(session.account_id),
+    )
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.

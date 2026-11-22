@@ -1,5 +1,5 @@
 use super::{
-    http::{router, session_cookie},
+    http::{configured_browser_router, link_available, session_cookie},
     *,
 };
 use axum::{
@@ -34,6 +34,28 @@ async fn disabled_and_bad_input() -> TestResult {
     );
     Ok(())
 }
+#[tokio::test]
+async fn browser_export_mounting_is_independent_of_password_confirmation() -> TestResult {
+    let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+    for (enabled, password_confirmation, mounted) in [
+        (false, false, false),
+        (false, true, false),
+        (true, false, true),
+        (true, true, true),
+    ] {
+        assert_eq!(
+            configured_browser_router(
+                pool.clone(),
+                ExportConfig { enabled },
+                password_confirmation
+            )
+            .has_routes(),
+            mounted
+        );
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn postgres_owner_export_and_refusals() -> TestResult {
     let started = std::time::Instant::now();
@@ -102,68 +124,82 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     assert_eq!(data["account"]["id"], id.to_string());
     assert_eq!(data["sessions"].as_array().map(Vec::len), Some(1));
     use tower::ServiceExt;
-    let app = router(pool.clone(), config.clone());
-    for locale in ["pl", "en"] {
-        let target = format!("/{locale}/account/privacy/export");
-        let request = |method| -> Result<_, Box<dyn std::error::Error>> {
-            axum::http::Request::builder()
-                .method(method)
-                .uri(&target)
-                .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
-                .extension(ConnectInfo("192.0.2.1:1000".parse::<SocketAddr>()?))
-                .body(axum::body::Body::empty())
-                .map_err(Into::into)
-        };
-        let count = || {
-            sqlx::query_scalar::<_, i64>(
-                "SELECT coalesce(sum(count),0)::bigint FROM web_rate_limits",
-            )
-            .fetch_one(&pool)
-        };
-        let before = count().await?;
-        for method in [axum::http::Method::GET, axum::http::Method::HEAD] {
-            let response = app.clone().oneshot(request(method)?).await?;
-            assert_eq!(response.status(), StatusCode::OK);
-            assert!(!response.headers().contains_key(header::CONTENT_DISPOSITION));
-            assert!(
-                response.headers()[header::CONTENT_SECURITY_POLICY]
-                    .to_str()?
-                    .split(';')
-                    .any(|directive| directive.trim() == "frame-ancestors 'none'")
-            );
-            assert_eq!(count().await?, before);
-        }
-        let mut post = request(axum::http::Method::POST)?;
-        let missing = app
-            .clone()
-            .oneshot(request(axum::http::Method::POST)?)
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::COOKIE,
+        format!("__Host-oteryn_session={token}").parse()?,
+    );
+    assert!(link_available(&pool, &headers, id, false).await);
+    assert!(!link_available(&pool, &headers, uuid::Uuid::nil(), true).await);
+    for password_confirmation in [true, false] {
+        // Exercise both deployment modes with a fresh quota in the isolated schema.
+        sqlx::query("DELETE FROM web_rate_limits")
+            .execute(&pool)
             .await?;
-        assert_eq!(missing.status(), StatusCode::FORBIDDEN);
-        assert_eq!(count().await?, before);
-
-        post.headers_mut()
-            .insert("x-csrf-token", "c".repeat(64).parse()?);
-        let response = app.clone().oneshot(post).await?;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers()[header::CACHE_CONTROL],
-            "no-store, private"
-        );
-        assert_eq!(
-            response.headers()[header::CONTENT_DISPOSITION],
-            "attachment; filename=\"account-data.json\""
-        );
-        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
-        let exported: Value = serde_json::from_slice(&body)?;
-        // The browser middleware refreshes the current session's last-seen time.
-        let mut expected = data.clone();
-        expected["sessions"][0]["last_seen_at"] =
-            sqlx::query_scalar("SELECT to_jsonb(last_seen_at) FROM web_sessions WHERE id_hash=$1")
-                .bind(Sha256::digest(token.as_bytes()).to_vec())
+        let app = configured_browser_router(pool.clone(), config.clone(), password_confirmation);
+        for locale in ["pl", "en"] {
+            let target = format!("/{locale}/account/privacy/export");
+            let request = |method| -> Result<_, Box<dyn std::error::Error>> {
+                axum::http::Request::builder()
+                    .method(method)
+                    .uri(&target)
+                    .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                    .extension(ConnectInfo("192.0.2.1:1000".parse::<SocketAddr>()?))
+                    .body(axum::body::Body::empty())
+                    .map_err(Into::into)
+            };
+            let count = || {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT coalesce(sum(count),0)::bigint FROM web_rate_limits",
+                )
                 .fetch_one(&pool)
+            };
+            let before = count().await?;
+            for method in [axum::http::Method::GET, axum::http::Method::HEAD] {
+                let response = app.clone().oneshot(request(method)?).await?;
+                assert_eq!(response.status(), StatusCode::OK);
+                assert!(!response.headers().contains_key(header::CONTENT_DISPOSITION));
+                assert!(
+                    response.headers()[header::CONTENT_SECURITY_POLICY]
+                        .to_str()?
+                        .split(';')
+                        .any(|directive| directive.trim() == "frame-ancestors 'none'")
+                );
+                assert_eq!(count().await?, before);
+            }
+            let mut post = request(axum::http::Method::POST)?;
+            let missing = app
+                .clone()
+                .oneshot(request(axum::http::Method::POST)?)
                 .await?;
-        assert_eq!(exported, expected);
-        assert_eq!(count().await?, before + 2);
+            assert_eq!(missing.status(), StatusCode::FORBIDDEN);
+            assert_eq!(count().await?, before);
+
+            post.headers_mut()
+                .insert("x-csrf-token", "c".repeat(64).parse()?);
+            let response = app.clone().oneshot(post).await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "no-store, private"
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_DISPOSITION],
+                "attachment; filename=\"account-data.json\""
+            );
+            let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
+            let exported: Value = serde_json::from_slice(&body)?;
+            // The browser middleware refreshes the current session's last-seen time.
+            let mut expected = data.clone();
+            expected["sessions"][0]["last_seen_at"] = sqlx::query_scalar(
+                "SELECT to_jsonb(last_seen_at) FROM web_sessions WHERE id_hash=$1",
+            )
+            .bind(Sha256::digest(token.as_bytes()).to_vec())
+            .fetch_one(&pool)
+            .await?;
+            assert_eq!(exported, expected);
+            assert_eq!(count().await?, before + 2);
+        }
     }
     assert_eq!(data["consents"].as_array().map(Vec::len), Some(194));
     assert!(include_str!("export.rs").contains("FETCH FORWARD 64"));
@@ -191,6 +227,44 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
             stream_download(&pool, &config, &token).await.err(),
             Some(StatusCode::FORBIDDEN)
         );
+        assert!(!link_available(&pool, &headers, id, false).await);
+        assert_eq!(
+            link_available(&pool, &headers, id, true).await,
+            query.ends_with("sudo_until=NULL")
+        );
+        for locale in ["en", "pl"] {
+            let response = configured_browser_router(pool.clone(), config.clone(), true)
+                .oneshot(
+                    axum::http::Request::get(format!("/{locale}/account/privacy/export"))
+                        .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                        .body(axum::body::Body::empty())?,
+                )
+                .await?;
+            if query.ends_with("sudo_until=NULL") {
+                assert_eq!(response.status(), StatusCode::SEE_OTHER);
+                assert_eq!(
+                    response.headers()[header::LOCATION],
+                    format!("/{locale}/account/sudo?return_to=export")
+                );
+            } else {
+                assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            }
+            let without_confirmation =
+                configured_browser_router(pool.clone(), config.clone(), false)
+                    .oneshot(
+                        axum::http::Request::get(format!("/{locale}/account/privacy/export"))
+                            .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                            .body(axum::body::Body::empty())?,
+                    )
+                    .await?;
+            assert_eq!(without_confirmation.status(), StatusCode::FORBIDDEN);
+            assert!(
+                without_confirmation
+                    .headers()
+                    .get(header::LOCATION)
+                    .is_none()
+            );
+        }
     }
     eprintln!(
         "postgres_owner_export_and_refusals duration: {:?}",

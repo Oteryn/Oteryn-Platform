@@ -185,9 +185,29 @@ async fn authorized_account<'e>(
     executor: impl PgExecutor<'e>,
     session: &str,
 ) -> Result<Uuid, StatusCode> {
-    let id: Option<Uuid> = sqlx::query_scalar("SELECT a.id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND s.sudo_until>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
-        .bind(Sha256::digest(session.as_bytes()).to_vec()).fetch_optional(executor).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    id.ok_or(StatusCode::FORBIDDEN)
+    session_owner(executor, session)
+        .await?
+        .filter(|(_, confirmed)| *confirmed)
+        .map(|(account, _)| account)
+        .ok_or(StatusCode::FORBIDDEN)
+}
+
+/// Resolve the eligible owner and sudo state for the supplied browser session.
+pub async fn session_owner<'e>(
+    executor: impl PgExecutor<'e>,
+    session: &str,
+) -> Result<Option<(Uuid, bool)>, StatusCode> {
+    validate_request(&ExportConfig { enabled: true }, session)?;
+    sqlx::query_as(
+        "SELECT a.id, COALESCE(s.sudo_until>now(),false)
+         FROM web_sessions s JOIN accounts a ON a.id=s.account_id
+         WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
+           AND a.status='active' AND a.email_verified_at IS NOT NULL",
+    )
+    .bind(Sha256::digest(session.as_bytes()).to_vec())
+    .fetch_optional(executor)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 /// Resolve the same sudo-authorized account used by the streaming snapshot.

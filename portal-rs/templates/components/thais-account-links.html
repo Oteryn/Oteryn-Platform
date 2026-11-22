@@ -1,4 +1,9 @@
-<a class="account-overview" href="/account"{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("shell-account-overview") }}</a>
+{% if let Some(url) = chrome.staff_dashboard %}
+<a href="{{ url }}" data-staff-dashboard>{{ chrome.text("panel-admin") }}</a>
+{% endif %}
+{% if let Some(overview) = chrome.link("account-overview") %}
+<a class="account-overview" href="{{ overview.url }}"{% if overview.current %} aria-current="page"{% endif %}><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ overview.label }}</a>
+{% endif %}
 <nav class="account-grid" aria-label="{{ chrome.text("thais-account-nav") }}">
   {% for (title, keys) in [
     ("thais-account-play", "create-character,hirelings,hunts,reports,account-bazaar"),

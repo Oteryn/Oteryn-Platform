@@ -15,11 +15,32 @@ pub struct CsrfConfig {
     pub api_allow_list: Vec<(Method, String)>,
 }
 
+/// Request evidence emitted after a browser mutation passes token and origin verification.
+#[derive(Clone, Copy)]
+pub struct Verified([u8; 32]);
+
+impl Verified {
+    pub fn matches_session(self, session_hash: &[u8; 32]) -> bool {
+        bool::from(self.0.ct_eq(session_hash))
+    }
+}
+
+impl std::fmt::Debug for Verified {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Verified").finish_non_exhaustive()
+    }
+}
+
+/// Opt a browser route into localized CSRF refusal pages.
+#[derive(Clone, Copy, Debug)]
+pub struct LocalizedRefusal;
+
 pub async fn verify(
     config: &CsrfConfig,
     session: &BrowserSession,
     request: &mut Request,
 ) -> Result<(), StatusCode> {
+    request.extensions_mut().remove::<Verified>();
     if matches!(
         *request.method(),
         Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
@@ -61,10 +82,7 @@ pub async fn verify(
             return Err(StatusCode::FORBIDDEN);
         }
     }
-    let expected = session
-        .existing_csrf_token()
-        .await
-        .ok_or(StatusCode::FORBIDDEN)?;
+    let (expected, session_hash) = session.csrf_proof().await.ok_or(StatusCode::FORBIDDEN)?;
     let headers = request.headers().get_all("x-csrf-token");
     if headers.iter().count() > 1 {
         return Err(StatusCode::FORBIDDEN);
@@ -100,5 +118,6 @@ pub async fn verify(
     if supplied.len() != 64 || !bool::from(expected.as_bytes().ct_eq(supplied.as_bytes())) {
         return Err(StatusCode::FORBIDDEN);
     }
+    request.extensions_mut().insert(Verified(session_hash));
     Ok(())
 }

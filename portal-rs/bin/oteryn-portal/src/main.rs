@@ -176,7 +176,27 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
-            let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
+            let credentials = credentials_http::configured_router(db.clone());
+            let player_confirmation = credentials.has_routes();
+            let staff_confirmation = if std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
+            {
+                credentials_http::staff_confirmation_routes(db.clone())
+            } else {
+                axum::Router::new()
+            };
+            let app = app.merge(oteryn_admin::web::configured_router(
+                db.clone(),
+                staff_confirmation.has_routes(),
+            )?);
+            let app = if staff_confirmation.has_routes() {
+                app.merge(oteryn_admin::web::configured_guard(
+                    staff_confirmation,
+                    db.clone(),
+                    oteryn_admin::rbac::Permission::GrantRoles,
+                )?)
+            } else {
+                app
+            };
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
                 db.clone(),
@@ -239,17 +259,22 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready.clone()),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
-            let app = app.merge(credentials_http::configured_router(db.clone()));
-            let app = app.merge(export_http::router(
+            let app = app.merge(credentials);
+            let export = export_http::configured_browser_router(
                 db.clone(),
                 export::ExportConfig::configured(),
-            ));
+                player_confirmation,
+            );
+            let export_enabled = export.has_routes();
+            let app = app.merge(export);
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
                 db.clone(),
                 oteryn_content::announcements::banner,
             ));
-            let app = app.merge(email_change_http::configured_router(db.clone()));
+            let email_change = email_change_http::configured_router(db.clone());
+            let email_change_enabled = email_change.has_routes();
+            let app = app.merge(email_change);
             let app = app.merge(oteryn_admin::commerce::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());
@@ -388,6 +413,30 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             oteryn_payments::navigation::register(&mut navigation);
             oteryn_support::navigation::register(&mut navigation);
             oteryn_bazaar::navigation::register(&mut navigation);
+            use oteryn_ui::panels::{Entry, Panel, Permission};
+            for (enabled, route, label) in [
+                (
+                    email_change_enabled,
+                    "account/security/email",
+                    "panel-email",
+                ),
+                (export_enabled, "account/privacy/export", "panel-export"),
+                (
+                    true, // The owner check includes pending cancellations.
+                    "account/privacy/delete",
+                    "panel-delete",
+                ),
+            ] {
+                navigation.panels.register(
+                    enabled,
+                    Entry {
+                        panel: Panel::Player,
+                        route,
+                        label,
+                        permission: Permission::AccountOwner,
+                    },
+                );
+            }
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
                     registry: navigation,
@@ -395,6 +444,44 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 },
                 oteryn_web::chrome::middleware,
             ));
+            let terminations = closure.terminations.clone();
+            let export_pool = db.clone();
+            let app = app.layer(axum::Extension(vec![
+                oteryn_web::chrome::OwnerLink {
+                    route: "account/privacy/export",
+                    allows: std::sync::Arc::new(move |account, headers| {
+                        let pool = export_pool.clone();
+                        Box::pin(async move {
+                            export_http::link_available(
+                                &pool,
+                                headers,
+                                account,
+                                player_confirmation,
+                            )
+                            .await
+                        })
+                    }),
+                },
+                oteryn_web::chrome::OwnerLink {
+                    route: "account/privacy/delete",
+                    allows: std::sync::Arc::new(move |account, _| {
+                        let terminations = terminations.clone();
+                        Box::pin(async move {
+                            terminations
+                                .deletion_page(account)
+                                .await
+                                .is_ok_and(|page| page.is_some())
+                        })
+                    }),
+                },
+            ]));
+            let app = if let Some(dashboard) =
+                oteryn_admin::web::configured_dashboard_link(db.clone())?
+            {
+                app.layer(axum::Extension(dashboard))
+            } else {
+                app
+            };
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);

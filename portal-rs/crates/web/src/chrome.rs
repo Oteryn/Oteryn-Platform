@@ -1,5 +1,5 @@
 //! Read the existing browser session for presentation without adding a CSRF gate.
-use crate::session::SessionLayer;
+use crate::{session::SessionLayer, surface::Language};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -18,13 +18,81 @@ pub struct Shell {
 /// CSP for portal HTML that only loads same-origin scripts and styles.
 pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
+pub type StaffAccess = std::sync::Arc<
+    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct StaffDashboard {
+    pub url: String,
+    pub allows: StaffAccess,
+}
+
+impl std::fmt::Debug for StaffDashboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffDashboard").finish_non_exhaustive()
+    }
+}
+
+pub type OwnerAccess = std::sync::Arc<
+    dyn for<'a> Fn(
+            sqlx::types::Uuid,
+            &'a axum::http::HeaderMap,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct OwnerLink {
+    pub route: &'static str,
+    pub allows: OwnerAccess,
+}
+
+impl std::fmt::Debug for OwnerLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnerLink")
+            .field("route", &self.route)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The GM console accepts an explicit locale before its guard runs.
+fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+    if !matches!(
+        uri.path(),
+        "/console"
+            | "/console/dashboard"
+            | "/console/worlds"
+            | "/console/nodes"
+            | "/console/database"
+    ) {
+        return None;
+    }
+    let axum::extract::Query(query) =
+        axum::extract::Query::<LocaleQuery>::try_from_uri(uri).ok()?;
+    match query.lang.as_deref() {
+        Some("pl") => Some(Language::Pl),
+        Some("en") => Some(Language::En),
+        _ => None,
+    }
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
+        .or_else(|| console_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -44,8 +112,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
-    request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
         && !request.uri().path().starts_with("/internal/")
@@ -54,6 +120,27 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
+    let mut chrome = shell.registry.chrome(lang, path, account);
+    if browser
+        && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
+        && (staff.allows)(id).await
+    {
+        chrome.staff_dashboard = Some(staff.url.clone());
+    }
+    if let (Some(id), Some(links)) = (account_id, request.extensions().get::<Vec<OwnerLink>>()) {
+        for rule in links {
+            let url = format!("/{lang}/{}", rule.route);
+            if let Some(index) = chrome
+                .player_navigation
+                .iter()
+                .position(|link| link.url == url)
+                && !(rule.allows)(id, request.headers()).await
+            {
+                chrome.player_navigation.remove(index);
+            }
+        }
+    }
+    request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
         let html = response
