@@ -29,7 +29,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
- fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
+ expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
@@ -38,6 +38,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    const page=await staffContext.newPage();
    try {
    let response;try{response=await page.goto(['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`)?path:`${path}?lang=${lang}`);}catch(error){failures.push(`${path}: ${error.message}`);return;}
+   expect(new URL(response.url()).pathname, 'terminal staff route').toBe(new URL(path, page.url()).pathname);
    const expected=path==='/console/dashboard'?403:200;
    if(response.status()!==expected)failures.push(`${path}: HTTP ${response.status()}`);
    if(response.status()===expected && await page.locator('html').getAttribute('lang')!==lang)failures.push(`${path}: wrong page language`);
@@ -57,6 +58,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
      await confirmStaffPassword(page,lang,staff.password);
+     fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
      const token=await page.locator('input[name=_csrf]').first().inputValue();
      const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);

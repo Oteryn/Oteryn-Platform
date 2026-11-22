@@ -53,6 +53,7 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
    const sudo = `/${lang}/account/sudo?return_to=export`;
    expect(challenge.headers().location).toBe(sudo);
    expect((await page.goto(sudo)).status()).toBe(200);
+   await csrfRejected(page, sudo, {current_password: account.password});
    const token = await page.locator('main input[name=_csrf]').inputValue();
    const confirmed = await page.request.post(sudo, {
      form: {_csrf: token, current_password: account.password},

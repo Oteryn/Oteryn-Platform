@@ -118,6 +118,12 @@ test('panel navigation enforces scope and role grants require a reason', async (
       await staffContext.addCookies([{name: 'portal_language', value: locale === 'pl' ? 'en' : 'pl', url: origin}]);
       expect((await visit(admin, `/console/dashboard?lang=${locale}`)).status()).toBe(403);
       await expect(admin.locator('html')).toHaveAttribute('lang', locale);
+      await expect(admin.locator('main h1')).toHaveText(locale === 'pl' ? 'Brak dostępu' : 'Access denied');
+      await expect(admin.locator('#portal-navigation')).toHaveAttribute(
+        'aria-label', locale === 'pl' ? 'Nawigacja główna' : 'Main navigation',
+      );
+      const news = admin.locator(`#portal-navigation a[href="/${locale}/news"]`);
+      await expect(news.first()).toHaveText(locale === 'pl' ? 'Aktualności' : 'News');
     }
     await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
     expect((await visit(admin, '/console/worlds')).status()).toBe(403);

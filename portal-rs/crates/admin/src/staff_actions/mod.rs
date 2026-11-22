@@ -6,9 +6,9 @@ use crate::{
 use axum::{http::StatusCode, response::Response};
 use oteryn_ui::Chrome;
 use oteryn_web::csrf::Verified;
-use serde::Serialize;
+use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool};
-use std::{collections::BTreeMap, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
@@ -99,29 +99,75 @@ impl From<sqlx::Error> for Error {
     }
 }
 
-/// Audit projections accept only explicitly selected, non-secret domain values.
-/// Use opaque domain IDs and stable enums represented by trusted static labels.
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum AuditValue {
-    Id(Uuid),
-    Flag(bool),
-    Count(i64),
-    Label(&'static str),
+/// Closed audit projections. Each variant chooses its event name, fields and
+/// value types. Form data and arbitrary runtime values never reach this API.
+#[derive(Debug)]
+pub enum AuditChange {
+    RoleGrant {
+        account: Uuid,
+        role: Uuid,
+    },
+    RoleCreated {
+        role: Uuid,
+        permissions: Vec<Permission>,
+    },
+    RolePermissions {
+        role: Uuid,
+        before: Vec<Permission>,
+        after: Vec<Permission>,
+    },
+    #[cfg(test)]
+    TestLocale {
+        account: Uuid,
+    },
 }
 
-pub type Snapshot = BTreeMap<&'static str, AuditValue>;
-
-#[derive(Debug)]
-pub struct AuditChange {
-    pub target: Uuid,
-    pub before: Snapshot,
-    pub after: Snapshot,
+impl AuditChange {
+    fn project(self) -> (&'static str, Uuid, Value, Value) {
+        let permissions = |permissions: Vec<Permission>| {
+            let mut names: Vec<_> = permissions.into_iter().map(Permission::as_str).collect();
+            names.sort_unstable();
+            json!({"permissions": names})
+        };
+        match self {
+            Self::RoleGrant { account, role } => (
+                "rbac.role.granted",
+                account,
+                json!({"role": role, "assigned": false}),
+                json!({"role": role, "assigned": true}),
+            ),
+            Self::RoleCreated {
+                role,
+                permissions: assigned,
+            } => (
+                "rbac.role.created",
+                role,
+                Value::Null,
+                permissions(assigned),
+            ),
+            Self::RolePermissions {
+                role,
+                before,
+                after,
+            } => (
+                "rbac.role.permissions_changed",
+                role,
+                permissions(before),
+                permissions(after),
+            ),
+            #[cfg(test)]
+            Self::TestLocale { account } => (
+                "staff.action.test",
+                account,
+                json!({"locale": "pl"}),
+                json!({"locale": "en"}),
+            ),
+        }
+    }
 }
 
 pub struct Action<'a> {
     pub permission: Permission,
-    pub action: &'static str,
     pub reason: &'a str,
     pub reason_codes: &'static [&'static str],
     pub step_up: StepUp,
@@ -131,7 +177,6 @@ impl std::fmt::Debug for Action<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Action")
             .field("permission", &self.permission)
-            .field("action", &self.action)
             .finish_non_exhaustive()
     }
 }
@@ -158,7 +203,11 @@ pub async fn run<T, F>(
 where
     F: for<'a> FnOnce(&'a mut PgConnection, T) -> Mutation<'a>,
 {
-    if guard.csrf.is_none()
+    let same_session = guard
+        .csrf
+        .zip(guard.actor.session_proof)
+        .is_some_and(|(csrf, proof)| csrf.matches_session(&proof.session_hash));
+    if !same_session
         || !guard.actor.require_staff_mfa
         || !guard.actor.mfa_verified
         || action.permission == Permission::Access
@@ -187,6 +236,7 @@ where
     let change = mutate(&mut tx, input).await?;
     let changed = change.is_some();
     if let Some(change) = change {
+        let (event, target, before, after) = change.project();
         audit::append_with_reason(
             &mut tx,
             Entry {
@@ -194,10 +244,10 @@ where
                     actor: Some(guard.actor.account),
                     request_id: Uuid::now_v7(),
                 },
-                action: action.action,
-                target: &change.target.to_string(),
-                before: serde_json::to_value(change.before).map_err(|_| Error::Unavailable)?,
-                after: serde_json::to_value(change.after).map_err(|_| Error::Unavailable)?,
+                action: event,
+                target: &target.to_string(),
+                before,
+                after,
             },
             Some(reason),
         )
