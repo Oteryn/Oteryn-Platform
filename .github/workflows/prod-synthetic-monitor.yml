@@ -1,0 +1,125 @@
+name: Production synthetic monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prod-synthetic-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check monitor configuration
+        id: config
+        env:
+          MONITOR_EMAIL: ${{ secrets.MONITOR_EMAIL }}
+        run: |
+          if [[ -z "$MONITOR_EMAIL" ]]; then
+            echo "::notice::Production synthetic monitor is not configured yet."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.config.outputs.enabled == 'true'
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        if: steps.config.outputs.enabled == 'true'
+        id: node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install E2E dependencies and Chromium
+        if: steps.config.outputs.enabled == 'true'
+        id: install
+        working-directory: portal-rs/e2e
+        run: |
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install --with-deps chromium
+
+      - name: Run production monitor
+        if: steps.config.outputs.enabled == 'true'
+        id: probe
+        working-directory: portal-rs/e2e
+        env:
+          MONITOR_EMAIL: ${{ secrets.MONITOR_EMAIL }}
+          MONITOR_PASSWORD: ${{ secrets.MONITOR_PASSWORD }}
+          MONITOR_TOTP_SECRET: ${{ secrets.MONITOR_TOTP_SECRET }}
+          MONITOR_OUTPUT_DIR: ${{ runner.temp }}/prod-monitor-results
+          FORCE_COLOR: '0'
+        run: |
+          set +e
+          npx --no-install playwright test --config prod/playwright.prod.config.mjs | tee "$RUNNER_TEMP/prod-monitor.log"
+          result=${PIPESTATUS[0]}
+          if (( result != 0 )); then
+            step="$(sed -nE 's/^ *Error: MONITOR_FAILURE: ([[:alnum:] _-]+) \(.*/\1/p' "$RUNNER_TEMP/prod-monitor.log" | head -n 1)"
+            echo "failing_step=${step:-Run production monitor}" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$result"
+
+      - name: Update monitor incident
+        if: ${{ !cancelled() && steps.config.outputs.enabled == 'true' }}
+        id: incident
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          FAILING_STEP: ${{ steps.probe.outputs.failing_step || (steps.checkout.outcome == 'failure' && 'Checkout') || (steps.node.outcome == 'failure' && 'Set up Node') || (steps.install.outcome == 'failure' && 'Install E2E dependencies and Chromium') || 'Run production monitor' }}
+        with:
+          script: |
+            const repo = context.repo;
+            const label = 'prod-monitor';
+            const title = 'Production synthetic monitor failing';
+            const url = `${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`;
+            const failed = process.env.PROBE_OUTCOME !== 'success';
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              ...repo, state: 'open', labels: label, per_page: 100,
+            });
+            const incident = open.find(issue => issue.title === title && !issue.pull_request);
+            if (failed) {
+              const body = `Failing step: ${process.env.FAILING_STEP}\n\nRun: ${url}`;
+              if (incident) {
+                await github.rest.issues.createComment({ ...repo, issue_number: incident.number, body });
+              } else {
+                try {
+                  await github.rest.issues.getLabel({ ...repo, name: label });
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                  await github.rest.issues.createLabel({ ...repo, name: label, color: 'b60205' });
+                }
+                await github.rest.issues.create({ ...repo, title, body, labels: [label] });
+                core.setOutput('transition', 'failing');
+              }
+            } else if (incident) {
+              const issue = { ...repo, issue_number: incident.number };
+              await github.rest.issues.createComment({ ...issue, body: `recovered\n\nRun: ${url}` });
+              await github.rest.issues.update({ ...issue, state: 'closed' });
+              core.setOutput('transition', 'recovered');
+            }
+
+      - name: Email support on state change
+        if: ${{ !cancelled() && steps.incident.outcome == 'success' }}
+        env:
+          MONITOR_SMTP_HOST: ${{ secrets.MONITOR_SMTP_HOST }}
+          MONITOR_SMTP_USER: ${{ secrets.MONITOR_SMTP_USER }}
+          MONITOR_SMTP_PASSWORD: ${{ secrets.MONITOR_SMTP_PASSWORD }}
+          MONITOR_TRANSITION: ${{ steps.incident.outputs.transition }}
+        run: |
+          if [[ -z "$MONITOR_SMTP_HOST" || -z "$MONITOR_SMTP_USER" || -z "$MONITOR_SMTP_PASSWORD" ]]; then
+            echo "::notice::Production monitor SMTP is not configured."
+          elif [[ -n "$MONITOR_TRANSITION" ]]; then
+            node portal-rs/e2e/prod/notify.mjs
+          fi
