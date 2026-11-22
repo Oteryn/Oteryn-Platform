@@ -268,7 +268,7 @@ body.op-shell::before {
 .op-shell .op-shell__page main:has(> form:is([action$="/login"], [action$="/register"])) {
   max-width: 39rem;
 }
-.op-shell__page form[action$="/login"] {
+.op-shell main form:is([action$="/login"], [action$="/register"], [action$="/forgot-password"], [action$="/reset-password"], [action$="/recovery-key"], [action$="/recovery-key/confirm"]) {
   width: min(100%, 28rem);
   gap: 1.15rem;
 }
@@ -399,7 +399,7 @@ body.op-shell::before {
 }
 
 .op-shell__page form:has(input[autocomplete="current-password"]) {
-  width: min(100%, 30rem);
+  width: min(100%, 28rem);
   justify-self: start;
 }
 .op-shell :is(.op-shell__page, main.op-main) .op-input:focus-visible {
