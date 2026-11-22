@@ -21,7 +21,7 @@ export function publicURL(url, origins) {
 }
 
 export function diagnosticURL(value) {
-  const absolute = /^https?:\/\//i.test(String(value));
+  const absolute = /^(?:https?:)?\/\//i.test(String(value));
   let url;
   try {
     url = new URL(value, 'https://redacted.invalid');
@@ -37,5 +37,8 @@ export function diagnosticURL(value) {
 }
 
 export function redactURLs(text) {
-  return text.replace(/https?:\/\/[^\s"'<>]+|(?<![\w/])\/(?!\/)[^\s"'<>]+/gi, diagnosticURL);
+  return text
+    .replace(/(?:https?:)?\/\/[^\s"'<>]+|(?<![\w/])\/(?!\/)[^\s"'<>]+/gi, diagnosticURL)
+    .replace(/([?&](?:token|code|signature|access_token|refresh_token|id_token|state|csrf|_csrf)=)[^&\s"'<>]+/gi,
+      '$1[redacted]');
 }

@@ -183,7 +183,7 @@ async function checkRegistration(page, url, language, defect) {
   }
 }
 
-async function openPage(context, source, report, note, request, responseNote, origins) {
+async function openPage(context, source, report, note, request, responseNote) {
   const page = await context.newPage();
   const session = await context.newCDPSession(page);
   const documentResponses = new Map();
@@ -332,7 +332,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       const result = await request(url);
       const evidence = check(result);
       if (evidence) defect('other', url, evidence);
-      else note(url, `edge check HTTP ${result.status}${result.headers.has('location') ? ` Location=${result.headers.get('location')}` : ''}`);
+      else note(url, `edge check HTTP ${result.status}${result.headers.has('location') ? ` Location=${diagnosticURL(result.headers.get('location'))}` : ''}`);
     } catch (error) {
       defect('other', url, `${error.message}${error.cause ? ` (${error.cause.message})` : ''}`);
     }
@@ -367,7 +367,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       defect('other', url, `expected a rendered HTML page, received ${first.headers.get('content-type') || '(no content-type)'}`);
       continue;
     }
-    const browser = await openPage(context, url.href, defect, note, request, responseNote, origins);
+    const browser = await openPage(context, url.href, defect, note, request, responseNote);
     const { page, documentResponses } = browser;
     try {
       await page.goto(url.href, { waitUntil: 'load', timeout: 90_000 });
@@ -455,7 +455,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
     await edgeCheck(www, ({ status, headers }) => {
       const location = headers.get('location');
       return redirects.includes(status) && location && new URL(location, www).origin === home.origin
-        ? null : `HTTP ${status}, Location=${location}; expected apex redirect`;
+        ? null : `HTTP ${status}, Location=${location ? diagnosticURL(location) : "(missing)"}; expected apex redirect`;
     });
     for (const path of ['/', '/pl/', '/en/', '/favicon.ico']) {
       await edgeCheck(new URL(path, api), ({ status }) => status === 404 ? null : `HTTP ${status}; expected 404`);
