@@ -817,6 +817,143 @@ async fn pg_approval_form_review_csrf_and_submit() -> TestResult {
     db.close().await
 }
 
+// The HTTP fixture supplies catalog metadata and checks the operation grant
+// against PostgreSQL. The viewer's step-up uses the existing TOTP fixture.
+struct RoleCheckedAuthority(rbac::Authorizer<Staff>);
+
+impl Authority for RoleCheckedAuthority {
+    async fn staff(&self, session: &BrowserSession) -> Result<Uuid, Refusal> {
+        Auth.staff(session).await
+    }
+
+    async fn authorize(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        session: &BrowserSession,
+        name: &str,
+    ) -> Result<(Identity, Operation), Refusal> {
+        let (identity, operation) = Auth.authorize(connection, session, name).await?;
+        self.0
+            .check_in(
+                connection,
+                rbac::CheckContext {
+                    account: identity.admin_id,
+                    require_staff_mfa: true,
+                    mfa_verified: true,
+                    session_proof: None,
+                },
+                operation.permission.parse().map_err(|_| Refusal::Denied)?,
+            )
+            .await
+            .map_err(|error| match error {
+                rbac::Error::Denied => Refusal::Denied,
+                _ => Refusal::Unavailable,
+            })?;
+        Ok((identity, operation))
+    }
+
+    async fn approver(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        actor: Uuid,
+        operation: &Operation,
+    ) -> Result<(), Refusal> {
+        Auth.approver(connection, actor, operation).await
+    }
+}
+
+#[tokio::test]
+async fn pg_game_viewer_step_up_does_not_authorize_approval() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::open().await?.ok_or("PostgreSQL required")?;
+    let (requester, _) = session(&db.pool, 0).await?;
+    let pending = preview(&controls(&db), &requester).await?;
+    stored_preview_fixture(
+        &db.pool,
+        pending,
+        requester.account_id().await.ok_or("requester")?,
+    )
+    .await?;
+    let (viewer, mut cookie) = session(&db.pool, 301).await?;
+    let actor = viewer.account_id().await.ok_or("viewer")?;
+    assert_eq!(
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'")
+            .bind(actor)
+            .execute(&db.pool)
+            .await?
+            .rows_affected(),
+        1
+    );
+
+    let auth =
+        rbac::Authorizer::new(db.pool.clone(), Staff).with_game_flags(rbac::GamePermissionFlags {
+            enabled: true,
+            deploy: false,
+        });
+    let app = http::router(
+        Controls::new(db.pool.clone(), RoleCheckedAuthority(auth), Verifier, true),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "admin.test".into(),
+        },
+        Staff,
+        Staff,
+    );
+    let mut csrf = viewer.csrf_token().await?;
+    const PROOF_KEY: SessionKey<Value> = SessionKey::new("admin_control_request_step_up");
+    assert!(viewer.get(PROOF_KEY).await?.is_none());
+    let step_up = format!("/admin/control/step-up?request_id={pending}");
+    let approval = format!("/admin/control/approvals/{pending}");
+    for (method, path, fields, expected) in [
+        ("GET", step_up.as_str(), "", StatusCode::OK),
+        ("POST", step_up.as_str(), "&code=123456", StatusCode::OK),
+        ("GET", approval.as_str(), "", StatusCode::FORBIDDEN),
+        ("POST", approval.as_str(), "", StatusCode::FORBIDDEN),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("host", "admin.test")
+                    .header("cookie", &cookie)
+                    .header("origin", "https://admin.test")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={csrf}{fields}")))?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected, "{method} {path}");
+        if method == "POST" && path == step_up {
+            cookie = response.headers()["set-cookie"]
+                .to_str()?
+                .split(';')
+                .next()
+                .ok_or("missing rotated cookie")?
+                .to_owned();
+            let (rotated_csrf, proof, sudo_absent): (String, Value, bool) = sqlx::query_as(
+                "SELECT csrf_token, data->'admin_control_request_step_up', sudo_until IS NULL
+                 FROM web_sessions WHERE account_id=$1",
+            )
+            .bind(actor)
+            .fetch_one(&db.pool)
+            .await?;
+            csrf = rotated_csrf;
+            assert_eq!(proof["request_id"], json!(pending));
+            assert_eq!(proof["step"]["account"], json!(actor));
+            assert!(sudo_absent, "control step-up granted account sudo");
+        }
+    }
+    let no_approval: bool = sqlx::query_scalar(
+        "SELECT NOT EXISTS (SELECT 1 FROM admin_control_approvals WHERE preview_id=$1)",
+    )
+    .bind(pending)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(no_approval, "the viewer approved the pending request");
+    db.close().await
+}
+
 async fn stored_preview_fixture(pool: &PgPool, id: Uuid, actor: Uuid) -> TestResult {
     sqlx::query("INSERT INTO admin_control_requests(request_id,admin_operation_id,operation,operation_version,kind,target,params,params_digest,dry_run,risk_class,actor,reason,approvals,issued_at,expires_at,nonce,signer_key_id,canonical_envelope,signature,status) VALUES($1,$2,'world.retire',1,'command','{\"world_id\":\"test\"}','{}',$3,true,'R4',$4,$5,'[]',now()-interval '1 second',now()+interval '5 minutes',$6,'test',$7,$8,'succeeded')")
         .bind(id).bind(Uuid::now_v7()).bind(vec![1u8;32]).bind(actor).bind(json!(reason())).bind(vec![1u8;16]).bind(b"fixture".to_vec()).bind(vec![1u8;64]).execute(pool).await?;

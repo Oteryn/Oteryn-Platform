@@ -30,6 +30,9 @@ struct Attempt {
     context: Arc<tokio::sync::Mutex<AuditContext>>,
     recorded: Arc<AtomicBool>,
 }
+#[derive(Clone, Copy)]
+struct PlatformAnalytics(bool);
+
 struct Context<I, A> {
     pool: PgPool,
     config: Config,
@@ -102,11 +105,16 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![panel.csrf_origin()];
     let admin_csrf = session.csrf.clone();
+    let auth =
+        Authorizer::new(pool.clone(), accounts).with_game_flags(crate::rbac::GamePermissionFlags {
+            enabled: config.present,
+            deploy: false,
+        });
     let state = Arc::new(Context {
         pool: pool.clone(),
         config,
         identity,
-        auth: Authorizer::new(pool.clone(), accounts),
+        auth,
     });
     let mut routes = Router::new();
     for path in [
@@ -201,6 +209,7 @@ async fn authorize<I: StaffSession, A: AccountStateReader>(
     };
     let mut actor = None;
     let mut allowed = false;
+    let mut platform = false;
     if let Some(session) = request.extensions().get::<BrowserSession>()
         && let Some(identity) = s.identity.resolve(session).await
     {
@@ -211,12 +220,18 @@ async fn authorize<I: StaffSession, A: AccountStateReader>(
             mfa_verified: identity.mfa_satisfied,
             session_proof: None,
         };
-        allowed = identity.mfa_satisfied
-            && s.auth.check(context, Permission::Access).await.is_ok()
-            && s.auth
+        if identity.mfa_satisfied && s.auth.check(context, Permission::Access).await.is_ok() {
+            platform = s
+                .auth
                 .check(context, Permission::AdminAnalyticsView)
                 .await
                 .is_ok();
+            allowed = platform
+                || s.auth
+                    .check(context, Permission::GameAnalyticsRead)
+                    .await
+                    .is_ok();
+        }
     }
     let context = {
         let mut context = attempt.context.lock().await;
@@ -227,6 +242,7 @@ async fn authorize<I: StaffSession, A: AccountStateReader>(
         return StatusCode::FORBIDDEN.into_response();
     }
     request.extensions_mut().insert(context);
+    request.extensions_mut().insert(PlatformAnalytics(platform));
     next.run(request).await
 }
 async fn read<I: StaffSession, A: AccountStateReader>(

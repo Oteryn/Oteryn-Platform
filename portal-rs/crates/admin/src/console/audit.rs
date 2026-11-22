@@ -71,29 +71,33 @@ pub(crate) async fn page<B: Backend>(
     headers: axum::http::HeaderMap,
     Query(filter): Query<Filter>,
 ) -> Result<Response, Error> {
-    state.check(actor, "audit.view").await?;
+    let platform = state.check(actor, "audit.view").await.is_ok();
+    let game = state.check(actor, "game.audit.read").await.is_ok();
+    if !platform && !game {
+        return Err(Error::Denied);
+    }
     filter.validate()?;
     let lang = language(filter.lang.as_deref())?;
-    let rows: Vec<(Uuid,Option<Uuid>,String,String,String)> = sqlx::query_as("SELECT request_id, actor, COALESCE(operation,action), COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target), created_at::text FROM audit_log WHERE ($1::uuid IS NULL OR request_id=$1) AND ($2::uuid IS NULL OR actor=$2) AND ($3::text IS NULL OR COALESCE(operation,action)=$3) AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target)=$4) ORDER BY created_at DESC, id DESC LIMIT 100")
-        .bind(filter.request_id).bind(filter.admin).bind(&filter.operation).bind(&filter.target).fetch_all(&state.pool).await?;
     let mut page = Page::new(lang, "audit");
     page.filters = true;
-    page.section(
-        "platform-source",
-        Some(
-            rows.into_iter()
-                .map(|(request, admin, operation, target, time)| {
-                    format!(
-                        "{request} · {} · {operation} · {target} · {time}",
-                        admin.map(|id| id.to_string()).unwrap_or_default()
-                    )
-                })
-                .collect(),
-        ),
-    );
-    let ledger = if state.backend.permitted(actor, "game.audit.read").await
-        && state.backend.advertised("admin.ledger.query").await
-    {
+    if platform {
+        let rows: Vec<(Uuid,Option<Uuid>,String,String,String)> = sqlx::query_as("SELECT request_id, actor, COALESCE(operation,action), COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target), created_at::text FROM audit_log WHERE ($1::uuid IS NULL OR request_id=$1) AND ($2::uuid IS NULL OR actor=$2) AND ($3::text IS NULL OR COALESCE(operation,action)=$3) AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target)=$4) ORDER BY created_at DESC, id DESC LIMIT 100")
+            .bind(filter.request_id).bind(filter.admin).bind(&filter.operation).bind(&filter.target).fetch_all(&state.pool).await?;
+        page.section(
+            "platform-source",
+            Some(
+                rows.into_iter()
+                    .map(|(request, admin, operation, target, time)| {
+                        format!(
+                            "{request} · {} · {operation} · {target} · {time}",
+                            admin.map(|id| id.to_string()).unwrap_or_default()
+                        )
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    let ledger = if game && state.backend.advertised("admin.ledger.query").await {
         state
             .backend
             .for_navigation(session, &headers)
@@ -146,6 +150,13 @@ pub(crate) async fn page<B: Backend>(
                 .collect()
         }),
     );
-    page.source = tr(lang, "combined-source");
+    page.source = tr(
+        lang,
+        if platform {
+            "combined-source"
+        } else {
+            "game-source"
+        },
+    );
     page.response()
 }

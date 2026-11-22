@@ -137,51 +137,57 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         }
         groups.push(group);
     }
-    let released = end.checked_add(86400).is_some_and(|release| release <= now);
-    let mut purchased = Group {
-        family: "purchased — Platform wallet ledger (all worlds)".into(),
-        source: "Platform",
-        columns: "credited top-ups / coins; paid amounts in minor units by payment currency",
-        state: if expired {
-            "expired"
-        } else if released {
-            "available"
-        } else {
-            "unavailable"
-        },
-        epoch: String::new(),
-        revision: String::new(),
-        cut: utc(&now.to_string()),
-        age: 0,
-        cells: Vec::new(),
-    };
-    if !expired && released {
-        let aggregate = match super::super::purchased::read_in(&mut tx, start, end).await {
-            Ok(v) => v,
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        };
-        let cell = |key, values| EconomyCell {
-            key,
-            values,
-            state: "visible".into(),
-            gap: String::new(),
-            cut: utc(&now.to_string()),
-            age: 0,
+    if request
+        .extensions()
+        .get::<PlatformAnalytics>()
+        .is_some_and(|scope| scope.0)
+    {
+        let released = end.checked_add(86400).is_some_and(|release| release <= now);
+        let mut purchased = Group {
+            family: "purchased — Platform wallet ledger (all worlds)".into(),
+            source: "Platform",
+            columns: "credited top-ups / coins; paid amounts in minor units by payment currency",
+            state: if expired {
+                "expired"
+            } else if released {
+                "available"
+            } else {
+                "unavailable"
+            },
             epoch: String::new(),
             revision: String::new(),
+            cut: utc(&now.to_string()),
+            age: 0,
+            cells: Vec::new(),
         };
-        purchased.cells.push(cell(
-            "purchased/coins".into(),
-            vec![aggregate.count, aggregate.coins],
-        ));
-        for paid in aggregate.paid {
+        if !expired && released {
+            let aggregate = match super::super::purchased::read_in(&mut tx, start, end).await {
+                Ok(v) => v,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            };
+            let cell = |key, values| EconomyCell {
+                key,
+                values,
+                state: "visible".into(),
+                gap: String::new(),
+                cut: utc(&now.to_string()),
+                age: 0,
+                epoch: String::new(),
+                revision: String::new(),
+            };
             purchased.cells.push(cell(
-                format!("paid/{}/minor_units", paid.currency),
-                vec![paid.count, paid.minor_units],
+                "purchased/coins".into(),
+                vec![aggregate.count, aggregate.coins],
             ));
+            for paid in aggregate.paid {
+                purchased.cells.push(cell(
+                    format!("paid/{}/minor_units", paid.currency),
+                    vec![paid.count, paid.minor_units],
+                ));
+            }
         }
+        groups.push(purchased);
     }
-    groups.push(purchased);
     let metadata = json!({"world":selection.world,"start":start,"end":end,"privacy_policy_revision":s.config.privacy,"sources":groups.iter().map(|g|json!({"family":g.family,"state":g.state,"epoch":g.epoch,"revision":g.revision,"cut":g.cut,"age_seconds":g.age})).collect::<Vec<_>>()});
     if audit::append(
         &mut tx,
