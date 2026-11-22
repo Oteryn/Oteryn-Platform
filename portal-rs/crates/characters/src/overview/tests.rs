@@ -111,21 +111,38 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1 WHERE id=1")
         .execute(&pool)
         .await?;
-    let create = Uuid::now_v7();
-    let mut created: serde_json::Value =
-        serde_json::from_str(include_str!("../commands/fixtures/create-receipt.json"))?;
-    created["operation_id"] = serde_json::json!(create);
-    created["account_id"] = serde_json::json!(id);
-    created["character_id"] = serde_json::json!(character);
-    created["world_id"] = serde_json::json!(world);
-    created["projection_revision"] = serde_json::json!("1");
-    sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$1,$2,'CreateCharacter',$3,'{}','',$4,'TERMINAL')")
-        .bind(create).bind(create.to_string()).bind(id).bind(created.to_string()).execute(&pool).await?;
+    seed_creation(&pool, id, character, world).await?;
+    let settings = Settings {
+        enabled: true,
+        environment: oteryn_core::Environment::Testing,
+        source_authority: authority.into(),
+        ..Settings::default()
+    };
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
+    let candidates = Projection::new(
+        pool.clone(),
+        settings.clone(),
+        Arc::new(Accounts(pool.clone())),
+    )
+    .list_characters(AccountId::parse(&id.to_string())?, now)
+    .await?
+    .characters;
+    let before = show(&pool, Some(id), "en", true, settings.clone()).await;
+    let before = String::from_utf8(
+        axum::body::to_bytes(before.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(before.contains("/characters/Aldric"));
+    assert!(before.contains("/en/account/characters/Aldric/profile"));
     let profile = serde_json::json!({"profile":[{"name":"Aldric","world_id":world,"level":"412","vocation":4,"guild":[],"guild_visible":false}]});
     sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('character_profile',$1,false,1,1,0,$2), ('character_profile','',true,1,1,floor(extract(epoch FROM now()))::bigint,'{}')")
         .bind(character.to_string()).bind(profile).execute(&pool).await?;
-    let facts = progression::load(&pool, id).await;
-    let facts = facts.get(&character).ok_or("fresh progression missing")?;
+    let facts = progression::load(&pool, id, &candidates, true).await;
+    let facts = facts
+        .get(&character)
+        .and_then(Option::as_ref)
+        .ok_or("fresh progression missing")?;
     assert_eq!((facts.level, facts.vocation), (412, 4));
     let mut writer = pool.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
@@ -133,17 +150,30 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
         .await?;
     let during_write = tokio::time::timeout(
         std::time::Duration::from_secs(6),
-        progression::load(&pool, id),
+        progression::load(&pool, id, &candidates, true),
     )
     .await?;
     assert!(during_write.is_empty());
     writer.rollback().await?;
-    assert!(progression::load(&pool, id).await.contains_key(&character));
-    assert!(progression::load(&pool, Uuid::now_v7()).await.is_empty());
+    assert!(
+        progression::load(&pool, id, &candidates, true)
+            .await
+            .contains_key(&character)
+    );
+    assert!(
+        progression::load(&pool, Uuid::now_v7(), &candidates, true)
+            .await
+            .is_empty()
+    );
     sqlx::query("UPDATE public_snapshots SET watermark=0 WHERE is_watermark")
         .execute(&pool)
         .await?;
-    assert!(progression::load(&pool, id).await.is_empty());
+    assert!(matches!(
+        progression::load(&pool, id, &candidates, true)
+            .await
+            .get(&character),
+        Some(None)
+    ));
     sqlx::query("UPDATE public_snapshots SET watermark=floor(extract(epoch FROM now()))::bigint WHERE is_watermark")
         .execute(&pool)
         .await?;
@@ -166,14 +196,17 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
             .fetch_one(&pool)
             .await?;
     assert_eq!(projection_owner, id);
-    assert!(progression::load(&pool, id).await.is_empty());
+    assert!(
+        progression::load(&pool, id, &candidates, true)
+            .await
+            .is_empty()
+    );
 
-    let settings = Settings {
-        enabled: true,
-        environment: oteryn_core::Environment::Testing,
-        source_authority: authority.into(),
-        ..Settings::default()
-    };
+    assert!(
+        progression::load(&pool, id, &candidates, false)
+            .await
+            .is_empty()
+    );
     let response = show(&pool, Some(id), "en", true, settings.clone()).await;
     assert_eq!(response.status(), StatusCode::OK);
     let html = String::from_utf8(
@@ -181,7 +214,7 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
             .await?
             .to_vec(),
     )?;
-    assert!(html.contains("/characters/Aldric"));
+    assert!(!html.contains("Aldric"));
     assert!(html.contains("Current game connection"));
     assert!(html.contains("1970-01-01 00:00:00 UTC"));
     assert!(html.contains("Ownership transfer"));
@@ -276,6 +309,7 @@ async fn audit_a210_postgres_overview_main_selection_and_removed_ownership()
     for sql in [
         include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
         include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
+        include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql"),
         include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),
         include_str!("../../../../migrations/20261105220226_t09c_privacy.sql"),
@@ -293,7 +327,9 @@ async fn audit_a210_postgres_overview_main_selection_and_removed_ownership()
     }
     sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority='oteryn:character-authority:primary',complete_through=1000,observed_at=1000 WHERE id=1").execute(&pool).await?;
     for (id, name) in [(one, "Aldric"), (two, "Belric")] {
-        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')").bind(account).bind(id).bind(Uuid::now_v7()).bind(name).execute(&pool).await?;
+        let world = Uuid::now_v7();
+        seed_creation(&pool, account, id, world).await?;
+        sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')").bind(account).bind(id).bind(world).bind(name).execute(&pool).await?;
     }
     sqlx::query("UPDATE accounts SET email_verified_at=now()")
         .execute(&pool)
@@ -380,5 +416,24 @@ async fn audit_a210_postgres_overview_main_selection_and_removed_ownership()
         "audit_a210_postgres_overview_main_selection_and_removed_ownership duration={:?}",
         started.elapsed()
     );
+    Ok(())
+}
+
+async fn seed_creation(
+    pool: &PgPool,
+    id: Uuid,
+    character: Uuid,
+    world: Uuid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let create = Uuid::now_v7();
+    let mut created: serde_json::Value =
+        serde_json::from_str(include_str!("../commands/fixtures/create-receipt.json"))?;
+    created["operation_id"] = serde_json::json!(create);
+    created["account_id"] = serde_json::json!(id);
+    created["character_id"] = serde_json::json!(character);
+    created["world_id"] = serde_json::json!(world);
+    created["projection_revision"] = serde_json::json!("1");
+    sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$1,$2,'CreateCharacter',$3,'{}','',$4,'TERMINAL')")
+        .bind(create).bind(create.to_string()).bind(id).bind(created.to_string()).execute(pool).await?;
     Ok(())
 }

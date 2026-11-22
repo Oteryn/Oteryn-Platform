@@ -206,29 +206,32 @@ async fn load(
         .as_ref()
         .and_then(|view| view.observed_at.clone())
         .unwrap_or_else(|| t("unavailable"));
-    let progression = if read_state == Some(ReadState::Ready)
-        && crate::navigation::flag("PORTAL_PUBLIC_PROFILES_ENABLED")
-    {
-        progression::load(pool, account).await
-    } else {
-        Default::default()
+    let visible = match &view {
+        Some(view) if view.state == ReadState::Ready => {
+            progression::load(
+                pool,
+                account,
+                &view.characters,
+                crate::navigation::flag("PORTAL_PUBLIC_PROFILES_ENABLED"),
+            )
+            .await
+        }
+        _ => Default::default(),
     };
     let characters = view
         .filter(|v| v.state == ReadState::Ready)
         .map(|v| {
             v.characters
                 .into_iter()
-                .map(|c| {
+                .filter_map(|c| {
+                    let facts = visible.get(&c.character_id.as_uuid())?.as_ref();
                     let availability =
                         t(if c.availability == crate::lcfa::Availability::Available {
                             "available"
                         } else {
                             "unavailable"
                         });
-                    let facts = progression.get(&c.character_id.as_uuid()).filter(|facts| {
-                        facts.name == c.name && facts.world == c.world_id.as_uuid()
-                    });
-                    Character {
+                    Some(Character {
                         segment: segment(&c.name),
                         name: c.name,
                         world: c.world_id.to_string(),
@@ -247,7 +250,7 @@ async fn load(
                                 vocation => vocation.to_string(),
                             })
                             .unwrap_or_else(|| t("unavailable")),
-                    }
+                    })
                 })
                 .collect()
         })
