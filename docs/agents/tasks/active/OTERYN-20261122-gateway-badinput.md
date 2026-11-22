@@ -21,7 +21,7 @@ checkpoint_version: 1
 updated_at: 2026-11-22T13:53:24Z
 head: 4a608fc30a65d36e6af3397d2cfc1f1a0c46db24
 branch: codex/e2e-gateway-badinput
-pr: none
+pr: 2012
 status: ready
 context_routes:
   - native gateway and private admission
