@@ -210,10 +210,8 @@ test('two players trade, report harassment, appeal through support and face staf
         note: 'Looking for a group in the Bazaar world',
       };
       expect((await clickForm(buyer.page, post, draft)).status()).toBe(403);
-      // The refusal has an empty body, which Chromium displays as an error page.
-      await expect(buyer.page).toHaveURL('chrome-error://chromewebdata/');
-      await buyer.page.goBack();
-      await expect(main(buyer)).toContainText(t('No listings', 'Brak ogłoszeń'));
+      await expect(buyer.page).toHaveURL(url => url.pathname === local('party'));
+      await heading(buyer, t('Access denied', 'Brak dostępu'));
     });
 
     await test.step('A records the harassment and sees the submission in private report history', async () => {
