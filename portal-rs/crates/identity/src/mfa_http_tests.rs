@@ -266,18 +266,31 @@ async fn browser_flow(
             .fetch_one(&db.pool)
             .await?;
     let device = mfa.devices(id).await?.pop().ok_or("remembered device")?;
-    let response = app
-        .clone()
-        .oneshot(
-            axum::http::Request::post("/en/mfa/devices")
-                .header(header::COOKIE, authenticated_cookie)
-                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
-                .body(axum::body::Body::from(format!(
-                    "_csrf={authenticated_csrf}&device={device}"
-                )))?,
-        )
+    let remove_request = || -> Result<_, Box<dyn std::error::Error>> {
+        Ok(axum::http::Request::post("/en/mfa/devices")
+            .header(header::COOKIE, authenticated_cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+            .body(axum::body::Body::from(format!(
+                "_csrf={authenticated_csrf}&device={device}"
+            )))?)
+    };
+    sqlx::raw_sql(
+        "CREATE FUNCTION refuse_browser_reissue() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN RAISE EXCEPTION 'test refusal of browser reissue'; END $$;
+         CREATE TRIGGER refuse_browser_reissue BEFORE UPDATE OF id_hash ON web_sessions
+         FOR EACH ROW WHEN (OLD.id_hash IS DISTINCT FROM NEW.id_hash)
+         EXECUTE FUNCTION refuse_browser_reissue();",
+    )
+    .execute(&db.pool)
+    .await?;
+    let failed = app.clone().oneshot(remove_request()?).await?;
+    assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(mfa.devices(id).await?, [device.clone()]);
+    sqlx::query("DROP TRIGGER refuse_browser_reissue ON web_sessions")
+        .execute(&db.pool)
         .await?;
+    let response = app.clone().oneshot(remove_request()?).await?;
     assert_eq!(response.status(), StatusCode::OK);
     assert!(mfa.devices(id).await?.is_empty());
     let settings = String::from_utf8(

@@ -946,26 +946,22 @@ async fn remove_device(
         return Err(StatusCode::FORBIDDEN);
     }
     let input = form.map(|v| v.0).unwrap_or_default();
+    let actor = MutationActor::browser(id, session.csrf_token().await.map_err(unavailable)?);
+    let mut tx = context.mfa.pool().begin().await.map_err(unavailable)?;
     let removed = context
         .mfa
-        .remove_device(
-            oteryn_identity::mutation_actor::MutationActor::browser(
-                id,
-                session
-                    .csrf_token()
-                    .await
-                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-            ),
-            &input.device,
-        )
+        .remove_device_in_transaction(&mut tx, actor, &input.device)
         .await
         .map_err(unavailable)?;
     if !removed {
+        tx.commit().await.map_err(unavailable)?;
         return Err(StatusCode::FORBIDDEN);
     }
-    session::rotate(&session, PrivilegeChange::Reissue)
+    let rotation = session::rotate_in_transaction(&session, &mut tx, None)
         .await
         .map_err(unavailable)?;
+    tx.commit().await.map_err(unavailable)?;
+    session::apply_rotation(&session, rotation).await;
     settings(State(context), Extension(language), Extension(session)).await
 }
 #[derive(Deserialize)]

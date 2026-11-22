@@ -256,7 +256,7 @@ pub struct CommittedRotation {
 pub async fn rotate_in_transaction(
     session: &BrowserSession,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    until: OffsetDateTime,
+    until: impl Into<Option<OffsetDateTime>>,
 ) -> Result<CommittedRotation, sqlx::Error> {
     let inner = session.inner.lock().await;
     let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
@@ -264,7 +264,7 @@ pub async fn rotate_in_transaction(
     let id = random_token()?;
     let csrf = random_token()?;
     let changed = sqlx::query("UPDATE web_sessions SET id_hash=$2,csrf_token=$3,sudo_until=$4,updated_at=clock_timestamp() WHERE id_hash=$1 AND account_id=$5 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(until).bind(account).execute(&mut **tx).await?;
+        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(until.into()).bind(account).execute(&mut **tx).await?;
     if changed.rows_affected() != 1 {
         return Err(sqlx::Error::RowNotFound);
     }

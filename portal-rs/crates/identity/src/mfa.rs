@@ -848,21 +848,35 @@ impl Mfa {
         id: impl Into<crate::mutation_actor::MutationActor>,
         identifier: &str,
     ) -> Result<bool, sqlx::Error> {
-        let actor = id.into();
-        let id = actor.account;
         let mut tx = self.pool.begin().await?;
-        let active = Self::lock(&mut tx, id).await?.is_some();
-        if !actor.live(&mut tx).await? {
+        let removed = self
+            .remove_device_in_transaction(&mut tx, id, identifier)
+            .await?;
+        tx.commit().await?;
+        Ok(removed)
+    }
+
+    /// Keep the owner lock and device change within the caller's rotation transaction.
+    pub async fn remove_device_in_transaction(
+        &self,
+        tx: &mut Tx<'_>,
+        actor: impl Into<crate::mutation_actor::MutationActor>,
+        identifier: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let actor = actor.into();
+        let id = actor.account;
+        let active = Self::lock(tx, id).await?.is_some();
+        if !actor.live(tx).await? {
             return Ok(false);
         }
 
         let removed = if active && valid_token(identifier) {
-            sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND encode(token_hash,'hex')=$2").bind(id).bind(identifier).execute(&mut *tx).await?.rows_affected()==1
+            sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND encode(token_hash,'hex')=$2").bind(id).bind(identifier).execute(&mut **tx).await?.rows_affected()==1
         } else {
             false
         };
         Self::audit(
-            &mut tx,
+            tx,
             Some(id),
             if removed {
                 "mfa.device_removed"
@@ -871,7 +885,6 @@ impl Mfa {
             },
         )
         .await?;
-        tx.commit().await?;
         Ok(removed)
     }
 }
