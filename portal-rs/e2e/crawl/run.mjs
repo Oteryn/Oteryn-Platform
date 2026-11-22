@@ -5,21 +5,9 @@ import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
+import { localPostgresUrl } from '../postgres-url.mjs';
 
-function validateAdminUrl(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a disposable local PostgreSQL URL');
-  }
-  if (!['postgres:', 'postgresql:'].includes(url.protocol)
-    || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-    || url.hash || [...url.searchParams.keys()].some(key => key !== 'sslmode')) {
-    throw new Error('The crawl requires local PostgreSQL with no connection destination overrides');
-  }
-}
-validateAdminUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
 
 const e2e = fileURLToPath(new URL('..', import.meta.url));
 const parent = path.join(e2e, '.harness');
@@ -59,9 +47,11 @@ try {
   ]);
   if (!ready || signalCode) throw new Error('Crawl harness did not become ready');
   const env = JSON.parse(fs.readFileSync(path.join(out, 'secrets', 'env.json'), 'utf8'));
-  const runnerEnvironment = { ...process.env };
-  for (const key of ['PORTAL_E2E_ADMIN_DATABASE_URL', 'DATABASE_URL', 'PORTAL_TEST_DATABASE_URL', 'OTERYN_DATABASE_URL']) {
-    delete runnerEnvironment[key];
+  // The runner and its workers need the fixture login, never the admin DSN
+  // or other credentials inherited by the launcher.
+  const runnerEnvironment = {};
+  for (const key of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'CHROMIUM_PATH', 'CI', 'TERM']) {
+    if (process.env[key] !== undefined) runnerEnvironment[key] = process.env[key];
   }
   runner = spawn(process.execPath, [
     'node_modules/@playwright/test/cli.js', 'test', '--config=crawl/playwright.config.mjs',
@@ -71,6 +61,7 @@ try {
     env: {
       ...runnerEnvironment,
       PORTAL_E2E_ORIGIN: env.PORTAL_E2E_ORIGIN,
+      PORTAL_E2E_CRAWL_PROXY: env.PORTAL_E2E_CRAWL_PROXY,
       PORTAL_E2E_DATABASE_URL: env.OTERYN_DATABASE_URL,
       PORTAL_E2E_BINARY: env.PORTAL_E2E_BINARY,
       PORTAL_E2E_CRAWL_OUTPUT: path.join(scratch, 'results'),

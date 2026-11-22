@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { test as base, expect } from '@playwright/test';
 import { disposableDatabaseUrl, login, password, seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
-import { localeOf, projectionPaths, redirectDestination, routeOf, unavailableView } from './contracts.mjs';
+import { localeOf, projectionPaths, redirectDestination, routeOf, staffDenied, unavailableView } from './contracts.mjs';
 
 const test = base.extend({
   offlinePage: async ({ browser }, use) => {
@@ -22,12 +22,10 @@ const test = base.extend({
 const { sections } = JSON.parse(fs.readFileSync(new URL('../inventory.json', import.meta.url)));
 const expectations = JSON.parse(fs.readFileSync(new URL('../route-expectations.json', import.meta.url)));
 const staffPages = expectations.filter(row => row.actor === 'staff' && row.method === 'GET' && row.status === 200
-  && !row.route.endsWith('/data') && !row.route.replaceAll('{lang}', '').replace('{slug}', '').includes('{'));
-const normalize = text => text.replace(/\s+/g, ' ').trim();
+  && !row.route.replaceAll('{lang}', '').replace('{slug}', '').includes('{'));
 // Diagnostics omit URL query values, request headers and rendered account data.
 const label = url => url.pathname.replace(/(\/(?:reset-password|email-change\/(?:confirm|revert))\/)[^/]+$/, '$1[token]')
   + (url.search ? '?' + [...url.searchParams.keys()].sort().join('&') : '');
-const staffRoute = route => /^(?:admin|console)(?:\/|$)/.test(route);
 const staffLocaleQuery = pathname => /^\/admin\/(?:console|news|media)(?:\/|$)/.test(pathname);
 
 function documentLocale(url, browserLocale) {
@@ -44,19 +42,31 @@ function localURL(href, base, origin) {
   return url;
 }
 
-function inspectDocument({ html, selector, filters, accountEmail }) {
+function inspectDocument({ html, view, privateValues }) {
   const doc = html === undefined ? document : new DOMParser().parseFromString(html, 'text/html');
   const main = doc.querySelector('main');
   const contents = {
     lang: doc.documentElement.lang,
     shell: Boolean(doc.querySelector('header#portal-header') && doc.querySelector('footer.foot')),
     title: Boolean(main?.querySelector('h1')?.textContent.trim()),
-    unavailable: selector
-      ? [...(main?.querySelectorAll(selector) ?? [])].map(node => node.textContent)
-      : [...(main?.childNodes ?? [])].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent),
-    privateData: Boolean(accountEmail && doc.documentElement.outerHTML.includes(accountEmail)),
-    dataOrMutation: Boolean(main?.querySelector(filters ? 'article, ol > li, form:not([method="get" i])' : 'article, form, ol > li')),
   };
+  if (view && main) {
+    const normalize = text => text.replace(/\s+/g, ' ').trim();
+    const children = [...main.children];
+    const rawText = [...main.childNodes].filter(node => node.nodeType === Node.TEXT_NODE)
+      .map(node => normalize(node.textContent)).filter(Boolean);
+    const textMatches = view.selector
+      ? rawText.length === 0 && [...main.querySelectorAll(view.selector)].some(node => normalize(node.textContent) === view.text)
+      : rawText.length === 1 && rawText[0] === view.text;
+    const layoutMatches = children.length === view.layout.length
+      && children.every((node, index) => node.matches(view.layout[index]));
+    const raw = doc.documentElement.outerHTML;
+    const text = doc.documentElement.textContent;
+    const privateData = privateValues.some(value => raw.includes(value) || text.includes(value));
+    const data = main.querySelector('article, table, [role="table"], [role="grid"], dl, li:not(nav li)');
+    const mutation = main.querySelector(view.filters ? 'form:not([method="get" i])' : 'form');
+    contents.empty = textMatches && layoutMatches && !privateData && !data && !mutation;
+  }
   if (html !== undefined) return contents;
   return {
     ...contents,
@@ -68,10 +78,9 @@ function inspectDocument({ html, selector, filters, accountEmail }) {
   };
 }
 
-function unavailableMatches(view, response, contents) {
+function unavailableMatches(response, contents) {
   const noStore = response.headers()['cache-control']?.split(',').some(value => value.trim() === 'no-store');
-  const localized = contents.unavailable.map(normalize).includes(view.text);
-  return noStore && localized && !contents.dataOrMutation && !contents.privateData;
+  return noStore && contents.empty;
 }
 
 function seed(entity, args) {
@@ -87,9 +96,21 @@ test.beforeAll(async () => {
   await seedPasswordRange(password());
 });
 
-async function authenticate(page, locale, actor) {
+async function seedPrivateAccount(locale) {
   const account = { email: `crawl-${crypto.randomUUID()}@example.invalid`, password: password() };
   seed('account', { ...account, locale });
+  // Platform-owned private notes exist even without a Game Journal source.
+  const note = `crawl-note-${crypto.randomUUID()}`;
+  const rows = await query(`
+    INSERT INTO pd_report_notes(account_id, target_kind, target_id, body)
+    SELECT id, 'session', uuidv7(), $2 FROM accounts WHERE email=$1
+    RETURNING account_id, target_id
+  `, [account.email, note]);
+  expect(rows.length, 'fixture account has a private Journal note').toBe(1);
+  return { account, privateValues: [account.email, rows[0].account_id, rows[0].target_id, note] };
+}
+
+async function authenticate(page, locale, actor, account) {
   const admin = actor === 'platform_admin';
   if (admin) {
     const rows = await query(`
@@ -120,14 +141,16 @@ async function authenticate(page, locale, actor) {
     // Action errors can include the value typed into a credential input.
     throw new Error(`${actor} could not complete ${step} (${error.name})`);
   }
-  return account.email;
 }
 
 for (const actor of ['anonymous', 'player', 'platform_admin']) {
   test(`crawl as ${actor}`, async ({ page, baseURL, offlinePage }, info) => {
     const locale = info.project.metadata.locale;
     const origin = new URL(baseURL).origin;
-    const email = actor === 'anonymous' ? undefined : await authenticate(page, locale, actor);
+    const own = await seedPrivateAccount(locale);
+    const other = await seedPrivateAccount(locale);
+    const privateValues = [...own.privateValues, ...other.privateValues];
+    if (actor !== 'anonymous') await authenticate(page, locale, actor, own.account);
     const queue = new Map();
     const visited = new Set();
     const loadedAssets = new Set();
@@ -154,13 +177,31 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
     for (const path of projectionPaths(actor)) enqueue(`/${locale}/${path}`, 'projection');
     enqueue('/admin', 'staff panel');
     enqueue('/account/game-logins', 'game login history alias');
-    if (actor === 'platform_admin') {
-      for (const { route } of staffPages) {
-        const target = new URL(route.replaceAll('{lang}', locale).replace('{slug}', 'rules'), origin);
-        // These staff pages select language through their documented query parameter.
-        if (staffLocaleQuery(target.pathname)) target.searchParams.set('lang', locale);
-        enqueue(target.href, 'staff routes');
+    enqueue(`/${locale}/account/passkeys`, 'passkey access');
+    for (const { route } of staffPages) {
+      const target = new URL(route.replaceAll('{lang}', locale).replace('{slug}', 'rules'), origin);
+      if (target.pathname.endsWith('/data')) {
+        const allowed = actor === 'platform_admin';
+        const expected = allowed ? 200 : 403;
+        const response = await page.request.get(target.href, {
+          maxRedirects: 0, headers: { accept: 'application/json' },
+        });
+        try {
+          const headers = response.headers();
+          if (response.status() !== expected || headers.location
+            || (allowed && !headers['content-type']?.startsWith('application/json'))) {
+            defects.add(`staff routes → ${label(target)} expected HTTP ${expected}${allowed ? ' with JSON' : ''}, got HTTP ${response.status()}`);
+          } else {
+            covered.push({ path: label(target), status: expected });
+          }
+        } finally {
+          await response.dispose();
+        }
+        continue;
       }
+      // These staff pages select language through their documented query parameter.
+      if (staffLocaleQuery(target.pathname)) target.searchParams.set('lang', locale);
+      enqueue(target.href, 'staff routes');
     }
 
     await page.addInitScript(() => {
@@ -176,6 +217,11 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         defects.add(`${current} attempted a non-GET or cross-origin navigation`);
       }
       return route.abort();
+    });
+    page.on('request', request => {
+      if (request.redirectedFrom() && !localURL(request.url(), origin, origin)) {
+        defects.add(`${current} attempted a cross-origin redirect`);
+      }
     });
     page.on('pageerror', () => defects.add(`${current} raised a browser script error`));
     page.on('response', response => {
@@ -215,8 +261,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
 
         const route = routeOf(url);
         const view = unavailableView(url, actor, locale);
-        const staff = staffRoute(route);
-        const forbidden = (staff && actor === 'player')
+        const forbidden = staffDenied(route, actor)
           || (route === 'account/passkeys' && actor === 'platform_admin');
         const redirectPath = redirectDestination(url, actor, locale);
         const expectedStatus = forbidden && !redirectPath ? 403 : view ? 503 : 200;
@@ -225,7 +270,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
           && /^(?:\/(?:pl|en)(?:\/|$)|\/admin\/(?:pl|en)\/)/.test(target.pathname);
         const headers = { accept: 'text/html', 'accept-language': locale };
         const expectedLang = documentLocale(target, locale);
-        const inspection = { selector: view?.selector, filters: view?.filters, accountEmail: email };
+        const inspection = { view, privateValues };
 
         if (redirectPath) {
           const redirectStatus = actor === 'anonymous' && route === 'password/change' ? 302 : 303;
@@ -255,7 +300,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
             }
             const contents = await offlinePage.evaluate(inspectDocument, { ...inspection, html: await response.text() });
             if (!contents.shell || !contents.title || contents.lang !== expectedLang
-              || (view && !unavailableMatches(view, response, contents))) {
+              || (view && !unavailableMatches(response, contents))) {
               defects.add(`${from} → ${current} invalid ${expectedLang} alternate document`);
             }
             covered.push({ path: label(target), status: expectedStatus, locale: expectedLang, ...(view && { reason: view.reason }) });
@@ -285,12 +330,8 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         if (!rendered.shell || !rendered.title) defects.add(`${current} is missing the shared shell or its main heading`);
         if (rendered.lang !== expectedLang) defects.add(`${current} document language should be ${expectedLang}`);
         if (rendered.overflow) defects.add(`${current} overflows the viewport`);
-        if (actor === 'platform_admin' && /^\/(pl|en)\/?$/.test(target.pathname)
-          && rendered.links.some(href => new URL(href).pathname === `/${expectedLang}/account/passkeys`)) {
-          defects.add(`${current} advertises passkey management to an MFA-required account`);
-        }
         if (rendered.csp.length) defects.add(`${current} violated CSP (${rendered.csp.join(', ')})`);
-        if (view && !unavailableMatches(view, response, rendered)) {
+        if (view && !unavailableMatches(response, rendered)) {
           defects.add(`${current} invalid unavailable view (${view.reason})`);
         }
         for (const href of rendered.links) enqueue(href, label(target));

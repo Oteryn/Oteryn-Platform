@@ -48,6 +48,10 @@ const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const outbox = argv.includes('--outbox');
+const crawl = argv.includes('--browser-crawl');
+if (crawl && (outbox || seedPlanFile || process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
+  throw new Error('The crawl requires its own disposable fixture');
+}
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -162,6 +166,7 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
+const crawlDatabase = crawl ? (await import('./crawl/database.mjs')).crawlDatabase(dbName, adminURL) : undefined;
 async function withAdminConnection(operation) {
   const socket = new Socket();
   const admin = new pg.Client({
@@ -230,7 +235,7 @@ async function stopChild({ child, closed }) {
   }
 }
 let closing = false;
-let outboxBrowser;
+let browserNetwork;
 let createRequested = false;
 let creation;
 async function close(code = 0) {
@@ -239,17 +244,28 @@ async function close(code = 0) {
   // A signal can arrive while CREATE DATABASE is in flight.
   await creation.catch(() => {});
   await Promise.all([...children].map(stopChild));
-  const closeOutboxBrowser = await outboxBrowser?.catch(() => {});
-  closeOutboxBrowser?.();
-  if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+  const closeBrowserNetwork = await browserNetwork?.catch(() => {});
+  closeBrowserNetwork?.();
+  if ((createRequested || crawlDatabase?.roleRequested) && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
       await withAdminConnection(async admin => {
         await lockDatabaseName(admin);
-        await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+        if (createRequested) await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+        await crawlDatabase?.dropRole(admin);
       });
     } catch {
       log('failed to reconcile disposable database', dbName);
       code = 1;
+    }
+  }
+  if (crawl) {
+    for (const directory of [dirs.secrets, dirs.certs]) {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        log('failed to remove crawl credentials');
+        code = 1;
+      }
     }
   }
   process.exit(code);
@@ -265,14 +281,17 @@ async function createDatabase() {
     const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
     if (closing) return;
     if (existing.rowCount !== 0) throw new Error('Disposable database name already exists');
+    await crawlDatabase?.createRole(admin);
+    if (closing) return;
     createRequested = true;
     try {
-      await admin.query('CREATE DATABASE "' + dbName + '"');
+      await admin.query('CREATE DATABASE "' + dbName + '"' + (crawlDatabase?.ownerClause ?? ''));
     } catch (error) {
       // A definite name collision belongs to the existing database owner.
       if (error.code === '42P04') createRequested = false;
       throw error;
     }
+    await crawlDatabase?.restrictAccess(admin);
   });
 }
 creation = createDatabase();
@@ -280,7 +299,7 @@ creation = createDatabase();
 async function start() {
   await creation;
   if (closing) return;
-  const databaseURL = new URL(`/${dbName}`, adminURL).href;
+  const databaseURL = crawlDatabase?.url ?? new URL(`/${dbName}`, adminURL).href;
   log('database', dbName);
 
   // Gateway service token for the native admission listener (sha256 hex on the portal side).
@@ -337,7 +356,9 @@ async function start() {
   let binary = process.env.PORTAL_E2E_BINARY;
   if (!binary) {
     log('cargo build --locked -p oteryn-portal');
-    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], commandEnv: process.env });
+    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], {
+      stdio: ['ignore', 'inherit', 'inherit'], commandEnv: process.env, reportPid: crawl,
+    });
     const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: process.env, maxBuffer: 64 << 20 })).stdout);
     // A private copy: a shared target directory may be rebuilt by another checkout.
     binary = path.join(dirs.bin, 'oteryn-portal');
@@ -358,8 +379,15 @@ async function start() {
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
     if (closing) return;
-    outboxBrowser = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
-    await outboxBrowser;
+    browserNetwork = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    await browserNetwork;
+    if (closing) return;
+  }
+  if (crawl) {
+    const { startCrawlBrowser } = await import('./crawl/profile.mjs');
+    if (closing) return;
+    browserNetwork = startCrawlBrowser({ upstreamPort: ports.http, certificate: server, caFile, env, out });
+    await browserNetwork;
     if (closing) return;
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });

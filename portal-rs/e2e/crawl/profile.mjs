@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseEnv } from 'node:util';
 import { startOutboxBrowser } from '../support/outbox-browser.mjs';
+import { startOriginProxy } from './origin-proxy.mjs';
 
 export async function startCrawlBrowser({ upstreamPort, certificate, caFile, env, out }) {
   // Apply fixed settings after test.env so shell overrides cannot enable a
@@ -24,5 +25,15 @@ export async function startCrawlBrowser({ upstreamPort, certificate, caFile, env
   const close = await startOutboxBrowser({ upstreamPort, certificate, caFile, env });
   env.OTERYN_ADMIN_HOST = new URL(env.PORTAL_E2E_ORIGIN).host;
   env.OTERYN_NOTIFY_UNSUBSCRIBE_URL = `${env.PORTAL_E2E_ORIGIN}/en/unsubscribe`;
-  return close;
+  try {
+    const proxy = await startOriginProxy(env.PORTAL_E2E_ORIGIN);
+    env.PORTAL_E2E_CRAWL_PROXY = proxy.url;
+    return () => {
+      proxy.close();
+      close();
+    };
+  } catch (error) {
+    close();
+    throw error;
+  }
 }
