@@ -99,6 +99,21 @@ pub fn negotiate(headers: &HeaderMap) -> Language {
     }
 }
 
+/// Resolve the public document language before constructing portal chrome.
+pub fn document_language(uri: &axum::http::Uri, headers: &HeaderMap) -> Language {
+    if let Some(lang) = path_language(uri.path()) {
+        return lang;
+    }
+    if (uri.path() == "/news" || uri.path().starts_with("/news/"))
+        && let Some(query) = uri.query()
+        && let Ok(options) = serde_urlencoded::from_str::<Vec<(String, String)>>(query)
+        && let Some((_, lang)) = options.iter().find(|(key, _)| key == "lang")
+    {
+        return Language::parse(lang).unwrap_or(Language::Pl);
+    }
+    negotiate(headers)
+}
+
 fn message(lang: Language, id: &str) -> String {
     oteryn_ui::text(lang.code(), id)
 }
@@ -149,7 +164,7 @@ pub(crate) async fn resolve(data: Option<HomeFuture>) -> oteryn_ui::HomeData {
     }
 }
 async fn localized_home(request: Request) -> Response {
-    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let lang = document_language(request.uri(), request.headers());
     let chrome = request_chrome(&request, lang);
     let data = home_data(&request, lang);
     drop(request);
@@ -185,7 +200,7 @@ fn wants_json(headers: &HeaderMap) -> bool {
 }
 
 async fn policy(mut request: Request, next: Next) -> Response {
-    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let lang = document_language(request.uri(), request.headers());
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();

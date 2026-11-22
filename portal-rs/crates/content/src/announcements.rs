@@ -227,26 +227,8 @@ pub async fn banner(
         ]
         .iter()
         .any(|p| path.starts_with(p));
-    let lang = if path.starts_with("/en/")
-        || request
-            .uri()
-            .query()
-            .is_some_and(|q| q.split('&').any(|p| p == "lang=en"))
-    {
-        "en"
-    } else {
-        "pl"
-    };
-    let mut response = next.run(request).await;
-    let lang = match response
-        .headers()
-        .get(header::CONTENT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-    {
-        Some("en") => "en",
-        Some("pl") => "pl",
-        _ => lang,
-    };
+    let lang = oteryn_web::document_language(request.uri(), request.headers()).code();
+    let response = next.run(request).await;
     if !eligible
         || response.headers().contains_key(header::CONTENT_ENCODING)
         || !response.status().is_success()
@@ -281,8 +263,7 @@ pub async fn banner(
             HeaderValue::from_static("no-store, max-age=0"),
         );
     }
-    response = axum::response::Response::from_parts(parts, Body::from(html));
-    response
+    axum::response::Response::from_parts(parts, Body::from(html))
 }
 
 #[path = "announcements_staff.rs"]

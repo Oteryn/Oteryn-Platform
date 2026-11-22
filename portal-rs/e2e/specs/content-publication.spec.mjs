@@ -114,13 +114,20 @@ test('unprefixed news renders the announcement in the resolved page locale', asy
    ) VALUES ($1, 'published', 'warning', now(), 'English title', 'English body', $2, '/en/rules',
     'Polski tytuł', 'Polska treść', $3, now(), now(), $1, $1)
   `, [id, english, polish]);
-  const response = await request.get('/news', { headers: { 'Accept-Language': locale } });
-  expect(response.status()).toBe(200);
-  expect(response.headers()['content-language']).toBe(locale);
-  const html = await response.text();
-  expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${locale}"`));
-  expect(html).toContain(t(locale, polish, english));
-  expect(html).not.toContain(t(locale, english, polish));
+  for (const [path, preference, expected] of [
+   ['/news', locale, locale],
+   ['/news?lang=en', 'pl', 'en'],
+   ['/pl/news?lang=en', 'en', 'pl'],
+  ]) {
+   const response = await request.get(path, { headers: { 'Accept-Language': preference } });
+   expect(response.status()).toBe(200);
+   expect(response.headers()['content-language']).toBe(expected);
+   const html = await response.text();
+   expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${expected}"`));
+   expect(html).toContain(t(expected, polish, english));
+   expect(html).not.toContain(t(expected, english, polish));
+   expect(html).toMatch(new RegExp(String.raw`<header\b[^>]*id="portal-header"[\s\S]*?href="/${expected}/news"`));
+  }
  } finally {
   await db.query('DELETE FROM announcements WHERE id=$1', [id]);
   await db.end();

@@ -1,7 +1,7 @@
 //! News storage and public and staff routes.
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
+    extract::{OriginalUri, Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -170,9 +170,10 @@ fn language(lang: &str) -> Result<(), StatusCode> {
 async fn index(
     State(pool): State<PgPool>,
     Query(q): Query<Options>,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let lang = q.lang(&headers);
+    let lang = oteryn_web::document_language(&uri, &headers).code();
     let html = listing(&pool, lang, &q).await?;
     Ok((
         [(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())],
@@ -256,10 +257,11 @@ async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>,
 async fn show(
     State(pool): State<PgPool>,
     Path(slug): Path<String>,
-    Query(q): Query<Options>,
+    Query(_): Query<Options>,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let lang = q.lang(&headers);
+    let lang = oteryn_web::document_language(&uri, &headers).code();
     let html = article(&pool, lang, &slug).await?;
     Ok((
         [(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())],
