@@ -206,9 +206,12 @@ async fn postgres_support_atomic_audit_and_refusal() {
         .unwrap();
     sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) SELECT $1,account_id,generation,$2,'grant',clock_timestamp()+interval '1 hour' FROM account_mfa_totp WHERE account_id=$3")
         .bind(proof.grant_hash.as_slice()).bind(Sha256::digest(b"unused").to_vec()).bind(actor).execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,idle_expires_at,absolute_expires_at,data,csrf_token,authorization_generation) SELECT $1,id,'support-test',now()+interval '1 hour',now()+interval '1 day',jsonb_build_object('mfa_grant',$2::text),'support-test-csrf',native_security_generation FROM accounts WHERE id=$3")
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,idle_expires_at,absolute_expires_at,data,csrf_token,authorization_generation) SELECT $1,id,'support-test',now()+interval '1 hour',now()+interval '1 day',jsonb_build_object('mfa_grant',$2::text),repeat('a',64),native_security_generation FROM accounts WHERE id=$3")
         .bind(proof.session_hash.as_slice()).bind(grant).bind(actor).execute(&pool).await.unwrap();
-    let auth = Authorizer::new(pool.clone(), Active);
+    let auth = Authorizer::new(
+        pool.clone(),
+        crate::web::PortalIdentity::configured(pool.clone()),
+    );
     let context = CheckContext {
         account: actor,
         require_staff_mfa: true,
