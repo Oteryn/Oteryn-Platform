@@ -8,8 +8,9 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
+use oteryn_web::Language;
 use oteryn_web::ratelimit::ClientSource;
-use oteryn_web::ratelimit::{Keys, NamedPolicy, RateLimiter};
+use oteryn_web::ratelimit::{Denial, Keys, NamedPolicy, RateLimiter};
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::{Deserialize, Serialize};
 
@@ -234,14 +235,25 @@ async fn limited(
     policy: NamedPolicy,
     account: Uuid,
     peer: Option<ClientSource>,
-) -> std::result::Result<(), StatusCode> {
-    let peer = peer.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+) -> std::result::Result<(), Denial> {
+    let peer = peer.ok_or(Denial::Unavailable)?;
     let mut keys = Keys::source(peer.0);
     keys.account = Some(account.to_string());
     RateLimiter::new(t.pool.clone())
         .check(policy, &[keys])
         .await
-        .map_err(|e| e.status())
+}
+
+fn limiter_response(error: Denial, language: &str) -> Response {
+    if matches!(error, Denial::Limited { .. }) {
+        let locale = if language == "pl" {
+            Language::Pl
+        } else {
+            Language::En
+        };
+        return error.response(locale, false);
+    }
+    error.status().into_response()
 }
 #[derive(Deserialize, Default)]
 struct Paging {
@@ -574,7 +586,7 @@ async fn create(
         Err(_) => return fail(Error::Invalid, &language),
     };
     if let Err(e) = limited(&t, NamedPolicy::SupportTicketCreate, account, peer).await {
-        return e.into_response();
+        return limiter_response(e, &language);
     }
     match t
         .create(
@@ -703,7 +715,7 @@ async fn mutate(
     )
     .await
     {
-        return e.into_response();
+        return limiter_response(e, &language);
     }
     let change = if reply {
         Change::Reply {
@@ -728,4 +740,19 @@ pub(super) fn test_render(language: &str) -> std::result::Result<String, askama:
     page.showing = true;
     page.subject = "<script>alert(1)</script>".into();
     page.render()
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn limiter_response_preserves_retry_after_and_locale() {
+    for (lang, title) in [("en", "Too many requests"), ("pl", "Zbyt wiele żądań")] {
+        let response = limiter_response(Denial::Limited { retry_after: 23 }, lang);
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "23");
+        assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+        let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("localized limiter response body");
+        assert!(String::from_utf8_lossy(&body).contains(title));
+    }
 }
