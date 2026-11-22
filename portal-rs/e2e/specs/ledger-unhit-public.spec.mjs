@@ -99,10 +99,15 @@ test('unprefixed portal search submits the pagination form for editorial results
       INSERT INTO pages(id,slug)
       SELECT uuidv7(), $1 || '-' || n FROM generate_series(1,21) n
       RETURNING id, slug
+    ), source AS (
+      INSERT INTO editorial_pages(page_id,locale,title,body,published_at)
+      SELECT id, 'en', slug, 'Local editorial search result.', now()
+      FROM seeded
+      RETURNING page_id, revision, title
     )
-    INSERT INTO editorial_pages(page_id,locale,title,body,published_at)
-    SELECT id, locale, slug, 'Local editorial search result.', now()
-    FROM seeded CROSS JOIN unnest(ARRAY['en','pl']) locale
+    INSERT INTO editorial_pages(page_id,locale,title,body,published_at,source_revision)
+    SELECT page_id, 'pl', title, 'Lokalny wynik wyszukiwania.', now(), revision
+    FROM source
   `, [term]);
   try {
     await waitForWikiBudget('/search', 2);
