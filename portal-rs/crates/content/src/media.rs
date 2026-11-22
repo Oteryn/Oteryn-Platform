@@ -65,7 +65,7 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         return Err(bad);
     }
     let boundary = match format {
-        ImageFormat::Jpeg => bytes.ends_with(&[255, 217]),
+        ImageFormat::Jpeg => verify_jpeg_end(bytes).is_some(),
         ImageFormat::Png => bytes.ends_with(b"\0\0\0\0IEND\xaeB`\x82"),
         ImageFormat::WebP => bytes
             .get(4..8)
@@ -130,6 +130,38 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         height,
     })
 }
+/// Require the first parsed EOI to terminate the upload. Segment payloads
+/// can contain marker-like bytes, and scans can contain stuffed and restart bytes.
+fn verify_jpeg_end(bytes: &[u8]) -> Option<()> {
+    use oxiarc_jpeg::Marker;
+
+    let mut rest = bytes.strip_prefix(b"\xff\xd8")?;
+    let mut in_scan = false;
+    loop {
+        if in_scan {
+            rest = &rest[memchr::memchr(0xff, rest)?..];
+        }
+        rest = rest.strip_prefix(&[0xff])?;
+        let code_index = rest.iter().position(|&byte| byte != 0xff)?;
+        let (&code, tail) = rest[code_index..].split_first()?;
+        rest = tail;
+        match Marker::from_code(code) {
+            None | Some(Marker::Rst(_)) if in_scan => continue,
+            Some(Marker::Eoi) => return rest.is_empty().then_some(()),
+            None | Some(Marker::Soi | Marker::Rst(_)) => return None,
+            Some(Marker::Tem) => continue,
+            Some(marker) => {
+                let length = usize::from(u16::from_be_bytes(rest.get(..2)?.try_into().ok()?));
+                if length < 2 {
+                    return None;
+                }
+                rest = rest.get(length..)?;
+                in_scan = marker == Marker::Sos;
+            }
+        }
+    }
+}
+
 fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicImage, StatusCode> {
     use zune_jpeg::{
         JpegDecoder,

@@ -224,6 +224,10 @@ const rejectedImages = [
   }), 422],
   ['PNG with truncated pixel data', () => file('png', 'image/png', 'truncated-pixels'), 422],
   ['JPEG with a truncated scan', () => file('jpeg', 'image/jpeg', 'truncated-scan'), 422],
+  ['two JPEG images in one file', () => {
+    const jpeg = file('jpeg', 'image/jpeg');
+    return { ...jpeg, buffer: Buffer.concat([jpeg.buffer, jpeg.buffer]) };
+  }, 422],
   ['zero-byte PNG', () => ({ ...png, buffer: Buffer.alloc(0) }), 422],
 ];
 

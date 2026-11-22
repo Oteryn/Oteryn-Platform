@@ -33,6 +33,21 @@ fn normalizes_large_progressive_jpeg_with_full_chroma() {
 }
 
 #[test]
+fn jpeg_ends_at_first_parsed_eoi() {
+    let jpeg = fixture(ImageFormat::Jpeg, 64, 64);
+    let mut with_comment = jpeg[..2].to_vec();
+    with_comment.extend_from_slice(b"\xff\xfe\x00\x04\xff\xd9");
+    with_comment.extend_from_slice(&jpeg[2..]);
+    assert!(process("comment.jpeg", &with_comment).is_ok());
+
+    let two_images = [jpeg.as_slice(), jpeg.as_slice()].concat();
+    assert_eq!(
+        process("two-images.jpeg", &two_images).err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+}
+
+#[test]
 fn jpeg_with_incomplete_scan_passes_header_checks_but_is_rejected() {
     let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-scan.jpeg");
     assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Jpeg);
