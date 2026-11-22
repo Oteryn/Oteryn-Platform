@@ -90,6 +90,7 @@ test('account menu shows a localized staff link only with admin.access', async (
     await expect(page).toHaveURL(destination);
   }
 
+  await expect(page.getByRole('navigation').locator('a[href="/admin/moderation/reports"]')).toHaveCount(0);
   expect((await page.goto(staffUrl(`/${lang}/`))).status()).toBe(200);
   await openAccountMenu(page);
   await submit(page, 'dialog form[action$="/logout"]');
@@ -183,7 +184,19 @@ test('moderator can review reports and is refused Platform admin areas', async (
   expect((await page.request.get(staffUrl(`/admin/${lang}/party`), {maxRedirects: 0})).status()).toBe(403);
   const queue = '/admin/moderation/reports';
   expect((await page.request.get(staffUrl(queue), {maxRedirects: 0})).status()).toBe(200);
-  expect((await page.goto(staffUrl(`${queue}/${reportId}`))).status()).toBe(200);
+  const queueLink = page.getByRole('navigation').getByRole('link', {
+    name: lang === 'pl' ? 'Zgłoszenia graczy' : 'Player reports',
+  });
+  await expect(queueLink).toHaveAttribute('href', queue);
+  const queueResponse = page.waitForResponse(response => response.url() === staffUrl(queue));
+  await queueLink.click();
+  expect((await queueResponse).status()).toBe(200);
+  await expect(page).toHaveURL(staffUrl(queue));
+
+  const detail = `${queue}/${reportId}`;
+  const reportResponse = page.waitForResponse(response => response.url() === staffUrl(detail));
+  await page.locator(`main a[href="${detail}"]`).click();
+  expect((await reportResponse).status()).toBe(200);
   await expect(page.locator('main')).toContainText(evidence);
 
   const outcome = unique();

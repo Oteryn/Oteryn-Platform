@@ -5,6 +5,10 @@ use crate::{
         AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, Change,
         CheckContext, Error, Permission,
     },
+    support::{
+        Area,
+        web::{REPORTS_FLAG, REPORTS_PATH},
+    },
 };
 use askama::Template;
 use axum::{
@@ -155,6 +159,7 @@ struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
     required: Option<Vec<Permission>>,
+    reports_enabled: bool,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -179,11 +184,12 @@ pub(crate) fn config_from(
 }
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(router(
+    Ok(router_with_reports(
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool),
+        std::env::var(REPORTS_FLAG).is_ok_and(|value| value == "true"),
     ))
 }
 
@@ -253,6 +259,7 @@ pub(crate) fn guarded_any<I: StaffSession, A: AccountStateReader + 'static>(
     let state = Arc::new(Panel {
         config,
         required: Some(permissions.to_vec()),
+        reports_enabled: false,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -276,12 +283,23 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     identity: I,
     accounts: A,
 ) -> Router {
+    router_with_reports(pool, config, identity, accounts, false)
+}
+
+fn router_with_reports<I: StaffSession, A: AccountStateReader + 'static>(
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    reports_enabled: bool,
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: None,
+        reports_enabled,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -511,6 +529,8 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    reports_label: String,
+    reports_url: Option<&'static str>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -563,6 +583,15 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let reports_url = if s.reports_enabled {
+        match s.auth.check_any(context, Area::Reports.permissions()).await {
+            Ok(()) => Some(REPORTS_PATH),
+            Err(Error::Denied) => None,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        None
+    };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
             Ok(v) => v,
@@ -584,6 +613,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        reports_label: text(lang, "player-reports"),
+        reports_url,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),
