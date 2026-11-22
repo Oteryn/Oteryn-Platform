@@ -1,0 +1,11 @@
+{
+  "tag": "@smoke",
+  "projects": ["pl-1440", "en-390"],
+  "titles": [
+    "registration, mail verification, wrong password, login, logout, reset and single-use link",
+    "overview: owner page and CSRF on every rendered mutation",
+    "bazaar: owner page and CSRF on every rendered mutation",
+    "staff bootstrap, mandatory MFA, admin navigation and non-staff refusal",
+    "player search and force logout revoke the player session and allow fresh login"
+  ]
+}

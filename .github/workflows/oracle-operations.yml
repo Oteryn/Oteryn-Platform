@@ -25,6 +25,9 @@ concurrency:
 jobs:
   operate:
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: read
     runs-on:
       group: platform-runners
       labels: [oteryn-platform, oteryn-oracle, ARM64]
@@ -35,6 +38,29 @@ jobs:
       OPERATION: ${{ inputs.action }}
       SOURCE_SHA: ${{ inputs.source_sha }}
     steps:
+      - name: Require a successful nightly E2E on main
+        if: inputs.action == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from urllib.request import Request, urlopen
+
+          api = os.environ["GITHUB_API_URL"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          workflow = "portal-rs-e2e-nightly.yml"
+          url = f"{api}/repos/{repo}/actions/workflows/{workflow}/runs?branch=main&status=completed&per_page=1"
+          request = Request(url, headers={
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+          })
+          with urlopen(request, timeout=20) as response:
+              runs = json.load(response)["workflow_runs"]
+          if not runs or runs[0]["conclusion"] != "success":
+              raise SystemExit("Deploy requires the latest completed nightly E2E on main to be successful.")
+          PYTHON
       - name: Validate target and bounded operation
         env:
           ACTUAL_RUNNER_NAME: ${{ runner.name }}

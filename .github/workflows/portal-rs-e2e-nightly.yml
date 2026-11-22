@@ -1,0 +1,105 @@
+name: Portal RS E2E Nightly
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portal-rs-e2e-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/portal-rs-e2e-smoke.yml
+
+  full:
+    needs: build
+    name: Full (${{ matrix.project }}, shard ${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [pl-1440, pl-390, en-1440, en-390]
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: portal-e2e-tier-binary
+          path: ${{ runner.temp }}/portal-bin
+      - name: Run the full shard
+        working-directory: portal-rs/e2e
+        env:
+          PORTAL_E2E_BINARY: ${{ runner.temp }}/portal-bin/oteryn-portal
+          PROJECT: ${{ matrix.project }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          chmod +x "$PORTAL_E2E_BINARY"
+          bash tiers/ci.sh nightly "$PROJECT" "$SHARD"
+      - name: Upload the HTML results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-${{ matrix.project }}-${{ matrix.shard }}
+          path: portal-rs/e2e/tier-report.html
+          retention-days: 7
+          if-no-files-found: ignore
+
+  track:
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    needs: [build, full]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RESULT: ${{ needs.build.result }}
+      FULL_RESULT: ${{ needs.full.result }}
+    steps:
+      - name: Track the nightly failure or recovery
+        run: |
+          title='Nightly E2E failing'
+          label=e2e-nightly
+          if ! labels="$(gh api --paginate "repos/$GITHUB_REPOSITORY/labels?per_page=100" --jq '.[] | .name')"; then
+            exit 1
+          fi
+          if ! grep -Fxq "$label" <<< "$labels"; then
+            if [[ "$BUILD_RESULT" == success && "$FULL_RESULT" == success ]]; then
+              exit 0
+            fi
+            gh api --method POST "repos/$GITHUB_REPOSITORY/labels" -f name="$label" -f color=b60205 >/dev/null
+          fi
+          issues="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=all&labels=$label&per_page=100" \
+            --jq '.[] | select(.pull_request == null and .title == "Nightly E2E failing") | [.number, .state] | @tsv')"
+          if [[ "$issues" == *$'\n'* ]]; then
+            echo 'Multiple nightly tracking issues exist' >&2
+            exit 1
+          fi
+          read -r number state <<< "$issues"
+          run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [[ "$BUILD_RESULT" == success && "$FULL_RESULT" == success ]]; then
+            if [[ "$state" == open ]]; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/$number" \
+                -f state=closed -f state_reason=completed >/dev/null
+            fi
+            exit 0
+          fi
+          body="Nightly E2E failed in $run. Build: $BUILD_RESULT. Full suite: $FULL_RESULT."
+          if [[ -z "$number" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues" \
+              -f title="$title" -f 'labels[]=e2e-nightly' -f body="$body" >/dev/null
+          else
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/$number" \
+              -f body="$body" -f state=open >/dev/null
+          fi
