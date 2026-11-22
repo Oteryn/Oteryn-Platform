@@ -617,6 +617,15 @@ async fn export_and_profile_budgets_are_independent_by_account_and_source() -> T
             NamedPolicy::CharacterProfileUpdateSource,
         ),
     ] {
+        let counters = || {
+            sqlx::query_as::<_, (String, Vec<u8>, String, i64)>(
+                "SELECT limiter_name, key_hash, window_start::text, count FROM web_rate_limits
+                 WHERE limiter_name IN ($1, $2) ORDER BY limiter_name, key_hash, window_start",
+            )
+            .bind(policy.name())
+            .bind(source.name())
+            .fetch_all(&db.pool)
+        };
         let mut first = keys("192.0.2.1")?;
         assert_eq!(
             limiter.check(policy, &[first.clone()]).await,
@@ -635,10 +644,12 @@ async fn export_and_profile_budgets_are_independent_by_account_and_source() -> T
         }
         let mut rotated = keys("192.0.2.2")?;
         rotated.account.clone_from(&first.account);
+        let before = counters().await?;
         assert!(matches!(
             limiter.check(policy, &[rotated]).await,
             Err(Denial::Limited { .. })
         ));
+        assert_eq!(counters().await?, before);
 
         for index in 0..source.limit() - policy.limit() {
             first.account = Some(format!("source-account-{index}"));
@@ -650,15 +661,19 @@ async fn export_and_profile_budgets_are_independent_by_account_and_source() -> T
         for _ in 1..policy.limit() {
             limiter.check(policy, &[first.clone()]).await?;
         }
+        let before = counters().await?;
         let result = limiter.check(policy, &[exhausted_source]).await;
         assert!(
             matches!(result, Err(Denial::Limited { retry_after }) if (1..=source.window_seconds()).contains(&retry_after))
         );
+        assert_eq!(counters().await?, before);
         limiter.check(policy, &[first.clone()]).await?;
+        let before = counters().await?;
         assert!(matches!(
             limiter.check(policy, &[first]).await,
             Err(Denial::Limited { .. })
         ));
+        assert_eq!(counters().await?, before);
     }
     db.close().await
 }
