@@ -320,14 +320,20 @@ async fn exercise_reads(
                 _ => return Err(missing().into()),
             };
             let result = signed_result(agent_key, request, value)?;
-            channel.store.record_result(&control::NewResult {
-                request_id: request.request_id,
-                agent_id: result.agent_id.clone(),
-                status: control::Status::Succeeded,
-                game_ledger_id: None,
-                error_code: None,
-                payload: serde_json::to_value(result)?,
-            }, 1).await?;
+            channel
+                .store
+                .record_result(
+                    &control::NewResult {
+                        request_id: request.request_id,
+                        agent_id: result.agent_id.clone(),
+                        status: control::Status::Succeeded,
+                        game_ledger_id: None,
+                        error_code: None,
+                        payload: serde_json::to_value(result)?,
+                    },
+                    1,
+                )
+                .await?;
         }
         for (path, marker) in [
             ("/admin/console/access?lang=en", "legacy-policy"),
@@ -340,7 +346,10 @@ async fn exercise_reads(
         let replacement = poll(internal).await?;
         assert_eq!(replacement.len(), 2);
         for fresh in &replacement {
-            let old = requests.iter().find(|r| r.operation == fresh.operation).ok_or_else(missing)?;
+            let old = requests
+                .iter()
+                .find(|r| r.operation == fresh.operation)
+                .ok_or_else(missing)?;
             assert_ne!(fresh.request_id, old.request_id);
         }
         requests = replacement;

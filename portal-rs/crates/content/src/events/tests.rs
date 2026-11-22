@@ -650,7 +650,10 @@ async fn postgres_event_save_audits_changed_content_and_removed_locale() {
         .save(&auth, context, None, initial.clone())
         .await
         .unwrap();
-    events.transition(&auth, context, id, 1, "published", "Publish original event").await.unwrap();
+    events
+        .transition(&auth, context, id, 1, "published", "Publish original event")
+        .await
+        .unwrap();
     initial.en.title = "Edited title".into();
     initial.en.body = "Edited body".into();
     initial.pl = None;

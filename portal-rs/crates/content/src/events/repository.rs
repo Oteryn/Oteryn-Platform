@@ -159,12 +159,15 @@ impl Events {
             let translations = translation_snapshot(&mut tx, id).await?;
             let published_by = sqlx::query_scalar("UPDATE events SET status='draft',starts_at=$2,ends_at=$3,featured=$4,updated_by=$5,published_by=NULL,lock_version=lock_version+1,updated_at=now() WHERE id=$1 RETURNING published_by")
                 .bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).fetch_one(&mut *tx).await?;
-            (json!({
-                "published_by": row.published_by,
-                "status": row.status, "version": version, "featured": row.featured,
-                "starts_at": row.starts_at.unix_timestamp(), "ends_at": row.ends_at.unix_timestamp(),
-                "translations": translations,
-            }), published_by)
+            (
+                json!({
+                    "published_by": row.published_by,
+                    "status": row.status, "version": version, "featured": row.featured,
+                    "starts_at": row.starts_at.unix_timestamp(), "ends_at": row.ends_at.unix_timestamp(),
+                    "translations": translations,
+                }),
+                published_by,
+            )
         } else {
             let published_by = sqlx::query_scalar("INSERT INTO events (id,starts_at,ends_at,featured,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$5) RETURNING published_by").bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).fetch_one(&mut *tx).await?;
             (json!(null), published_by)

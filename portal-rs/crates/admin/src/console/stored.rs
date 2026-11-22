@@ -454,10 +454,17 @@ impl StoredChannel {
             return Err(Error::Unavailable);
         }
         let bounded = bounded_json(&result.result.0, 0);
-        if matches!(request.operation.as_str(), "admin.ledger.query" | "admin.policy.get") {
-            if !bounded || !control::result_schema::valid_success(
-                &request.operation, request.operation_version, &result.result.0,
-            ) {
+        if matches!(
+            request.operation.as_str(),
+            "admin.ledger.query" | "admin.policy.get"
+        ) {
+            if !bounded
+                || !control::result_schema::valid_success(
+                    &request.operation,
+                    request.operation_version,
+                    &result.result.0,
+                )
+            {
                 return Ok(None);
             }
         } else if !bounded {
