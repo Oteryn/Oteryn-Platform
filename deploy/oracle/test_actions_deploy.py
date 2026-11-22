@@ -21,6 +21,32 @@ spec.loader.exec_module(deploy)
 
 
 class NightlyAuthorization(unittest.TestCase):
+    def test_requires_the_successful_main_push_heavy_run_for_the_exact_sha(self):
+        sha = 'a' * 40
+        green = dict(event='push', head_branch='main', head_sha=sha, display_title='Platform Heavy Tests',
+                     status='completed', conclusion='success')
+        invalid = [
+            [],
+            [dict(green, status='queued', conclusion=None), green],
+            [dict(green, conclusion='failure')],
+            [dict(green, event='workflow_dispatch')],
+            [dict(green, head_branch='other')],
+            [dict(green, head_sha='b' * 40)],
+            [dict(green, display_title='Portal RS E2E')],
+        ]
+        for runs in invalid + [[green]]:
+            with self.subTest(runs=runs), patch.object(deploy, 'api', return_value={'workflow_runs': runs}) as api:
+                if runs == [green]:
+                    deploy.qualify_platform_push(sha)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'protected-main push'):
+                        deploy.qualify_platform_push(sha)
+                path = urlsplit(api.call_args.args[0])
+                self.assertEqual(path.path, 'Oteryn-Platform/actions/workflows/portal-rs-e2e.yml/runs')
+                self.assertEqual(parse_qs(path.query), {
+                    'branch': ['main'], 'event': ['push'], 'head_sha': [sha], 'per_page': ['1'],
+                })
+
     def test_newest_scheduled_run_must_be_fresh_completed_and_successful(self):
         for now, since in [('2026-11-22T02:16:59+00:00', '2026-11-21T02:17:00Z'),
                            ('2026-11-22T02:17:00+00:00', '2026-11-22T02:17:00Z')]:
@@ -323,6 +349,7 @@ class LivePortalDeployment(unittest.TestCase):
              patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
              patch.object(deploy, 'qualify_workflow', side_effect=reauthorize), \
              patch.object(deploy, 'qualify'), \
+             patch.object(deploy, 'qualify_platform_push'), \
              patch.object(deploy, 'require_platform_main', side_effect=protected_head), \
              patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly or (lambda: (deploy.nightly_window(), 200, 1))), \
              patch.object(deploy, 'wait_platform', side_effect=ready or (lambda image_id: calls.append((['ready', image_id], {})))):
@@ -443,8 +470,10 @@ class LivePortalDeployment(unittest.TestCase):
         now = datetime.fromisoformat('2026-11-22T03:00:00+00:00')
         green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly',
                      created_at='2026-11-22T02:17:00Z', status='completed', conclusion='success')
-        for change in ('protected main advanced', 'workflow canceled'):
-            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary:
+        # Each earlier authorization reads twice. Lookup seven is the boundary refresh.
+        for change_at, change in [(lookup, change) for lookup in (6, 7)
+                                  for change in ('protected main advanced', 'workflow canceled')]:
+            with self.subTest(change_at=change_at, change=change), tempfile.TemporaryDirectory() as temporary:
                 portal, state = self.host(temporary)
                 lookups = 0
                 authority_checks = []
@@ -452,14 +481,15 @@ class LivePortalDeployment(unittest.TestCase):
                     nonlocal lookups
                     if path == 'Oteryn-Platform/branches/main':
                         authority_checks.append(('main', lookups))
-                        return {'protected': True, 'commit': {'sha': 'b' * 40}}
+                        sha = 'b' * 40 if lookups >= change_at else self.sha
+                        return {'protected': True, 'commit': {'sha': sha}}
                     self.assertIn('/workflows/portal-rs-e2e.yml/runs?', path)
                     lookups += 1
                     return {'workflow_runs': [green]}
                 def check_workflow(component, sha, run_id, attempt):
                     self.assertEqual((component, sha, run_id, attempt), ('platform', self.sha, 100, 1))
                     authority_checks.append(('workflow', lookups))
-                    if lookups == 6 and change == 'workflow canceled':
+                    if lookups >= change_at and change == 'workflow canceled':
                         raise ValueError(change)
                 reason = 'current protected main' if change == 'protected main advanced' else change
                 with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
@@ -469,9 +499,12 @@ class LivePortalDeployment(unittest.TestCase):
                     self.deploy(portal, state, nightly=deploy.qualify_platform_nightly,
                                 reauthorize=check_workflow, protected_head=deploy.require_platform_main)
                 expected = [('workflow', 1), ('workflow', 3), ('workflow', 5), ('workflow', 6)]
+                if change_at == 7:
+                    expected.extend([('main', 6), ('workflow', 7)])
                 if change == 'protected main advanced':
-                    expected.append(('main', 6))
+                    expected.append(('main', change_at))
                 self.assertEqual(authority_checks, expected)
+                self.assertEqual(lookups, change_at)
                 self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
                 self.assertFalse((state / 'platform-pending.json').exists())
                 self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
@@ -511,7 +544,10 @@ class LivePortalDeployment(unittest.TestCase):
                     clock.now.return_value = now
                     self.deploy(portal, state, nightly=deploy.qualify_platform_nightly,
                                 reauthorize=check_workflow, protected_head=deploy.require_platform_main)
-                self.assertEqual(authority_reads[-4:], ['nightly', 'attempt', 'head', 'nightly'])
+                expected = ['nightly', 'attempt', 'head', 'nightly']
+                if reason == 'authority reads expired':
+                    expected.extend(['attempt', 'head'])
+                self.assertEqual(authority_reads[-len(expected):], expected)
                 self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
                 self.assertFalse((state / 'platform-pending.json').exists())
                 self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
@@ -569,6 +605,7 @@ class LivePortalDeployment(unittest.TestCase):
             calls = []
             image = {'Architecture': 'arm64', 'Id': 'new-id', 'Config': {'Labels': {}}}
             with patch.object(deploy, 'PORTAL', portal), patch.object(deploy, 'STATE', state), \
+                 patch.object(deploy, 'qualify_platform_push'), \
                  patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), \
                  patch.object(deploy, 'inspect_image', return_value=image), \
                  patch.object(deploy, 'contract', return_value='portal-rs-1'), \

@@ -76,6 +76,9 @@ LEGACY_TOOLCHAIN_MARKERS = (
 
 GLOBAL_PULL_REQUEST_WORKFLOWS = {
     "ci.yml",
+    # platform-heavy-gate must report for every PR, including docs-only PRs.
+    # The database and browser jobs are admitted by the heavy-tests label.
+    "portal-rs-e2e.yml",
     # This housekeeping workflow has a tiny trusted PR observation job and a
     # separately trusted pull_request_target closeout job. It is intentionally
     # repository-wide and therefore cannot be path-admitted like a domain gate.
@@ -84,6 +87,8 @@ GLOBAL_PULL_REQUEST_WORKFLOWS = {
 
 GLOBAL_MAIN_PUSH_WORKFLOWS = {
     "ci.yml",
+    # Required post-merge heavy qualification of every main SHA.
+    "portal-rs-e2e.yml",
 }
 
 ACTIVE_TASK_TRIGGER = re.compile(
@@ -264,8 +269,32 @@ assert (
 assert has_superseded_run_cancellation(agent_governance)
 assert has_stable_pr_concurrency_identity(agent_governance)
 
+portal_heavy = (WORKFLOW_ROOT / "portal-rs-e2e.yml").read_text(encoding="utf-8")
+portal_triggers = trigger_prefix(portal_heavy)
+assert targets_main(event_block(portal_triggers, "pull_request"))
+assert targets_main(event_block(portal_triggers, "push"))
+assert "types: [opened, reopened, synchronize, ready_for_review, labeled]" in portal_triggers
+scope = portal_heavy.split("\n  scope:\n", 1)[1].split("\n  rust_heavy:\n", 1)[0]
+assert "!github.event.pull_request.draft" in scope
+assert "contains(github.event.pull_request.labels.*.name, 'heavy-tests')" in scope
+assert "(github.event.action != 'labeled' || github.event.label.name == 'heavy-tests')" in scope
+assert "needs: [scope, rust_heavy, build, full, verify]" in portal_heavy
+for job in ("rust_heavy", "build"):
+    assert f"\n  {job}:\n" in portal_heavy
+    assert "needs: scope" in portal_heavy.split(f"\n  {job}:\n", 1)[1].split("\n\n", 1)[0]
+
+portal_rust_heavy = (WORKFLOW_ROOT / "portal-rs-ci.yml").read_text(encoding="utf-8")
+assert "needs: [test, browser]" in portal_rust_heavy
+assert "workflow_call:" in trigger_prefix(portal_rust_heavy)
+assert "pull_request:" not in trigger_prefix(portal_rust_heavy)
+
 ci = (WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8")
 ci_trigger = trigger_prefix(ci)
+portal_fast = ci.split("\n  portal_rs:\n", 1)[1].split("\n  platform_gate:\n", 1)[0]
+assert "cargo test --locked --workspace --lib" in portal_fast
+assert "PORTAL_TEST_DATABASE_URL" not in portal_fast
+assert "cargo clippy --locked --all-targets -- -D warnings" in portal_fast
+assert "portal-rs-ci.yml" not in portal_fast
 assert (
     "group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}"
     in ci

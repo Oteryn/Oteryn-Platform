@@ -31,6 +31,7 @@ BUILD = Path('/opt/oteryn-build')
 REPOS = {'platform': 'Oteryn-Platform', 'game': 'Oteryn-Game'}
 SHA = r'[0-9a-f]{40}'
 PLATFORM_MIGRATION_AUTH_MAX_AGE_SECONDS = 10
+PLATFORM_HEAVY_RUNS = 'Oteryn-Platform/actions/workflows/portal-rs-e2e.yml/runs?'
 # The Game runtime image (Debian slim plus three release binaries) is a few
 # hundred MiB as `docker save` output. 1 GiB of zip stream and 3 GiB unpacked
 # leave several times that headroom while bounding what one transfer may write
@@ -157,7 +158,7 @@ def qualify_platform_nightly():
     window = nightly_window()
     since = window.strftime('%Y-%m-%dT%H:%M:%SZ')
     query = urlencode({'branch': 'main', 'event': 'schedule', 'created': '>=' + since, 'per_page': 1})
-    runs = api(REPOS['platform'] + '/actions/workflows/portal-rs-e2e.yml/runs?' + query)['workflow_runs']
+    runs = api(PLATFORM_HEAVY_RUNS + query)['workflow_runs']
     if nightly_window() != window:
         raise ValueError('nightly E2E window changed during deployment authorization')
     if not runs or runs[0]['display_title'] != 'Portal RS E2E Nightly' or runs[0]['created_at'] < since:
@@ -169,6 +170,15 @@ def qualify_platform_nightly():
     if any(type(value) is not int or value < 1 for value in identity):
         raise ValueError('nightly E2E run or attempt is invalid')
     return window, *identity
+
+
+def qualify_platform_push(sha):
+    query = urlencode({'branch': 'main', 'event': 'push', 'head_sha': sha, 'per_page': 1})
+    runs = api(PLATFORM_HEAVY_RUNS + query)['workflow_runs']
+    expected = {'event': 'push', 'head_branch': 'main', 'head_sha': sha,
+                'display_title': 'Platform Heavy Tests', 'status': 'completed', 'conclusion': 'success'}
+    if not runs or any(runs[0].get(key) != value for key, value in expected.items()):
+        raise ValueError('protected-main push has not passed its Platform heavy gate')
 
 
 def reauthorize_platform(sha, run_id, attempt):
@@ -190,17 +200,23 @@ def require_platform_main(sha):
 
 
 def authorize_platform_migration(sha, run_id, attempt):
+    qualify_platform_push(sha)
     approved = reauthorize_platform(sha, run_id, attempt)
     started = time.monotonic()
     qualify_workflow('platform', sha, run_id, attempt)
     require_platform_main(sha)
-    # A rerun can start during either authority read. Refresh the nightly last
-    # and include the time spent on that request in the authority age.
+    # A rerun can start during either authority read, so refresh the nightly.
     final = qualify_platform_nightly()
-    if final[0] != approved[0] or nightly_window() != approved[0]:
+    if final[0] != approved[0]:
         raise ValueError('nightly E2E window changed before migration')
     if final != approved:
         raise ValueError('nightly E2E run or attempt changed before migration')
+    # The nightly request can itself outlive the protected head or the active
+    # deploy attempt. These reads share the same deadline as the nightly read.
+    qualify_workflow('platform', sha, run_id, attempt)
+    require_platform_main(sha)
+    if nightly_window() != approved[0]:
+        raise ValueError('nightly E2E window changed before migration')
     if time.monotonic() - started >= PLATFORM_MIGRATION_AUTH_MAX_AGE_SECONDS:
         raise ValueError('deployment authority reads expired before migration')
 
@@ -407,6 +423,7 @@ def wait_platform(image_id):
 
 
 def platform_deploy(directory, sha, run_id, attempt):
+    qualify_platform_push(sha)
     image = portal_image(sha)
     schema = contract(directory)
     run(['docker', 'build', '--label', REVISION + '=' + sha,

@@ -15,8 +15,7 @@ on:
         type: string
         required: false
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: oracle-operations
@@ -26,7 +25,6 @@ jobs:
   operate:
     if: github.ref == 'refs/heads/main'
     permissions:
-      contents: read
       actions: read
     runs-on:
       group: platform-runners

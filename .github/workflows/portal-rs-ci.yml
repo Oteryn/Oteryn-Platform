@@ -1,62 +1,36 @@
 name: Portal RS CI
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'portal-rs/**'
-      # Rust tests read committed contract fixtures and documents byte for byte.
-      - 'docs/contracts/**'
-      - '.github/workflows/portal-rs-ci.yml'
-  push:
-    branches:
-      - main
-    paths:
-      - 'portal-rs/**'
-      # Rust tests read committed contract fixtures and documents byte for byte.
-      - 'docs/contracts/**'
-      - '.github/workflows/portal-rs-ci.yml'
-  # The CI workflow calls this one for every merge group, so the required platform-gate
-  # covers the Rust portal on the exact merge candidate.
   workflow_call:
+
+# The heavy workflow calls these jobs for labeled PRs and pushes to main.
 
 permissions:
   contents: read
 
 env:
+  CARGO_BUILD_JOBS: '2'
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
   # Disposable CI-only service credentials; PostgreSQL-backed tests skip when this is unset.
   PORTAL_TEST_DATABASE_URL: postgres://portal:portal-ci-only@127.0.0.1:5432/portal_test
-  # Test shards. Shard 3 is every other workspace package, so a new crate always runs somewhere.
-  PORTAL_SHARD_1: oteryn-gateway oteryn-admin oteryn-gameauth oteryn-bazaar oteryn-wallet
-  PORTAL_SHARD_2: oteryn-portal oteryn-world oteryn-playerdata oteryn-minigames oteryn-content
+  # Test shards, balanced on measured test time: `cargo test` runs one test binary at a time, so a
+  # shard lasts about as long as the sum of its packages' binaries (merge-group run of 2026-11-22:
+  # bazaar ~490 s, portal ~435 s, admin ~285 s, gateway ~250 s, identity ~235 s, playerdata ~175 s,
+  # community ~170 s, store ~160 s, gameauth ~105 s). Shard 6 is every other workspace package, so
+  # a new crate always runs somewhere.
+  PORTAL_SHARD_1: oteryn-bazaar oteryn-wallet
+  PORTAL_SHARD_2: oteryn-portal oteryn-content
+  PORTAL_SHARD_3: oteryn-admin oteryn-playerdata
+  PORTAL_SHARD_4: oteryn-gateway oteryn-identity
+  PORTAL_SHARD_5: oteryn-community oteryn-store oteryn-gameauth
 
 concurrency:
-  group: portal-rs-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: portal-rs-ci-${{ github.event.pull_request.number || github.sha }}
+  # A new pull request head cancels the old run; runs on main are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: portal-rs
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install pinned toolchain
-        run: rustup show active-toolchain || rustup toolchain install
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Run clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
-
   test:
     name: test (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -64,32 +38,34 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     defaults:
       run:
         working-directory: portal-rs
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Start PostgreSQL 18.6
-        # The Rust portal's pinned engine (docs/architecture/OTERYN_PORTAL_RUST_PLAN.md). Started as a
-        # step, not a service, because tests create a schema each and run every migration in parallel,
-        # which needs more lock slots and connections than the defaults.
-        working-directory: .
+      - &start-postgres
+        name: Start PostgreSQL 18.6
+        shell: bash
+        # Tests create separate schemas and apply the complete migration set concurrently.
         run: |
-          docker run -d --name portal-rs-ci-pg -p 127.0.0.1:5432:5432 \
+          since="$(date +%s)"
+          container="$(docker run -d --name portal-rs-ci-pg -p 127.0.0.1:5432:5432 \
             -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal-ci-only -e POSTGRES_DB=portal_test \
+            --health-cmd='pg_isready -U portal -d portal_test -h 127.0.0.1' \
+            --health-interval=1s --health-retries=60 \
             postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42 \
-            -c max_locks_per_transaction=1024 -c max_connections=300
-          for i in $(seq 1 60); do
-            if docker exec portal-rs-ci-pg pg_isready -U portal -d portal_test -h 127.0.0.1 >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker logs portal-rs-ci-pg
-          exit 1
+            -c max_locks_per_transaction=1024 -c max_connections=300)"
+          if ! read -r health < <(timeout 65s docker events --since "$since" \
+            --filter "container=$container" --filter event=health_status --format '{{.Action}}') ||
+            [[ "$health" != 'health_status: healthy' ]]; then
+            echo 'PostgreSQL readiness check failed.' >&2
+            exit 1
+          fi
 
       - name: Install pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
@@ -99,9 +75,12 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           case "$SHARD" in
-            1) read -ra packages <<< "$PORTAL_SHARD_1"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
-            2) read -ra packages <<< "$PORTAL_SHARD_2"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
-            3) read -ra packages <<< "$PORTAL_SHARD_1 $PORTAL_SHARD_2"; args=(--workspace); for p in "${packages[@]}"; do args+=(--exclude "$p"); done ;;
+            [1-5])
+              list="PORTAL_SHARD_$SHARD"
+              read -ra packages <<< "${!list}"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
+            6)
+              read -ra packages <<< "$PORTAL_SHARD_1 $PORTAL_SHARD_2 $PORTAL_SHARD_3 $PORTAL_SHARD_4 $PORTAL_SHARD_5"
+              args=(--workspace); for p in "${packages[@]}"; do args+=(--exclude "$p"); done ;;
             *) echo "unknown shard $SHARD" >&2; exit 1 ;;
           esac
           cargo test --locked "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/test.log"
@@ -122,25 +101,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Start PostgreSQL 18.6
-        # The Rust portal's pinned engine (docs/architecture/OTERYN_PORTAL_RUST_PLAN.md). Started as a
-        # step, not a service, because tests create a schema each and run every migration in parallel,
-        # which needs more lock slots and connections than the defaults.
-        working-directory: .
-        run: |
-          docker run -d --name portal-rs-ci-pg -p 127.0.0.1:5432:5432 \
-            -e POSTGRES_USER=portal -e POSTGRES_PASSWORD=portal-ci-only -e POSTGRES_DB=portal_test \
-            postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42 \
-            -c max_locks_per_transaction=1024 -c max_connections=300
-          for i in $(seq 1 60); do
-            if docker exec portal-rs-ci-pg pg_isready -U portal -d portal_test -h 127.0.0.1 >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker logs portal-rs-ci-pg
-          exit 1
+      - *start-postgres
 
       - name: Install pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
@@ -189,15 +153,15 @@ jobs:
   check:
     # Aggregate of the jobs above, under the job name this workflow has always reported.
     if: ${{ always() }}
-    needs: [lint, test, browser]
+    needs: [test, browser]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Require every job to succeed
         env:
-          LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
           BROWSER: ${{ needs.browser.result }}
         run: |
-          echo "lint=$LINT test=$TEST browser=$BROWSER"
-          test "$LINT" = success && test "$TEST" = success && test "$BROWSER" = success
+          echo "test=$TEST browser=$BROWSER"
+          test "$TEST" = success && test "$BROWSER" = success

@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { get } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { discoveredCases, planNightly, playwrightCases } from './nightly-plan.mjs';
+import { discoveredCases, playwrightCases, requireNightlyPlan } from './nightly-plan.mjs';
 import { escapeHtml, reportCases, reportRow } from './nightly-report.mjs';
 import { createInterface } from 'node:readline';
 import { setTimeout as pollInterval } from 'node:timers/promises';
@@ -24,6 +24,9 @@ if (tier === 'smoke' && !shard && smokeProjects.every(name => manifest.projects.
     '--grep', ` (?:${manifest.titles.map(escape).join('|')})$`,
   ];
 } else if (tier === 'nightly' && project && ['1', '2', '3'].includes(shard)) {
+  if (!process.env.PORTAL_E2E_PLAN_DIRECTORY || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(project)) {
+    throw new Error('Nightly requires a project manifest in PORTAL_E2E_PLAN_DIRECTORY');
+  }
   selection = [`--project=${project}`];
 } else {
   throw new Error('Usage: node tiers/run.mjs smoke [PROJECT] | nightly PROJECT SHARD');
@@ -31,6 +34,7 @@ if (tier === 'smoke' && !shard && smokeProjects.every(name => manifest.projects.
 
 const scratch = await mkdtemp(join(tmpdir(), 'portal-ci-e2e-'));
 const reportFile = join(scratch, 'results.json');
+const output = process.env.PORTAL_E2E_OUTPUT_DIRECTORY || scratch;
 const env = {
   ...process.env,
   PORTAL_E2E_SCRATCH: scratch,
@@ -98,8 +102,9 @@ try {
 
   let plannedCases;
   if (tier === 'nightly') {
-    const plans = await planNightly(async (filters, label) => discoveredCases(await discover(filters, label)));
-    const plan = plans[Number(shard) - 1];
+    const path = join(process.env.PORTAL_E2E_PLAN_DIRECTORY, `${project}.json`);
+    const nightly = requireNightlyPlan(JSON.parse(await readFile(path, 'utf8')), project);
+    const plan = nightly.shards[Number(shard) - 1];
     args.push(...plan.filters);
     plannedCases = plan.cases;
   } else {
@@ -134,13 +139,17 @@ try {
   }
   if (tier === 'nightly') {
     const rows = cases.map(reportRow);
-    await writeFile(join(cwd, 'tier-report.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Portal E2E</title><h1>Portal E2E</h1><p>${escapeHtml(summary)}</p><table><thead><tr><th>Case ID</th><th>Route</th><th>Source</th><th>Outcome</th><th>Reason</th></tr></thead><tbody>${rows.join('\n')}</tbody></table></html>\n`);
+    await writeFile(join(output, 'tier-report.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Portal E2E</title><h1>Portal E2E</h1><p>${escapeHtml(summary)}</p><table><thead><tr><th>Case ID</th><th>Route</th><th>Source</th><th>Outcome</th><th>Reason</th></tr></thead><tbody>${rows.join('\n')}</tbody></table></html>\n`);
   }
-  if (JSON.stringify(discoveredCases(suites)) !== JSON.stringify(plannedCases)) {
+  const executed = discoveredCases(suites);
+  if (JSON.stringify(executed) !== JSON.stringify(plannedCases)) {
     throw new Error('Playwright execution differs from discovery');
   }
   if (status !== 0 || passed !== count || stats.expected !== count || stats.unexpected || stats.flaky || stats.skipped) {
     throw new Error('Playwright did not pass every selected test');
+  }
+  if (tier === 'nightly') {
+    await writeFile(join(output, 'tier-execution.json'), JSON.stringify({ project, shard: Number(shard), cases: executed }));
   }
 } catch (error) {
   console.error(error instanceof SyntaxError ? 'Invalid Playwright report' : error.message);

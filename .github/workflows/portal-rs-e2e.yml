@@ -1,12 +1,19 @@
 name: Portal RS E2E
-run-name: ${{ github.event_name == 'pull_request' && 'Portal RS E2E Smoke' || 'Portal RS E2E Nightly' }}
+run-name: >-
+  ${{ github.event_name == 'schedule' && 'Portal RS E2E Nightly' ||
+      github.event_name == 'workflow_dispatch' && 'Portal RS E2E Manual' ||
+      'Platform Heavy Tests' }}
 
-# Portal PR smoke and scheduled/on-demand full qualification share one binary build.
-# Review when portal-rs-ci.yml gains equivalent browser coverage or the suite moves.
-# Retire with portal-rs/e2e.
-
+# PRs opt into the full Rust database and Playwright suites with heavy-tests.
+# Review when the Rust database or Playwright suites move.
 on:
   pull_request:
+    branches:
+      - main
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+  push:
+    branches:
+      - main
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
@@ -15,11 +22,42 @@ permissions:
   contents: read
 
 concurrency:
-  group: portal-rs-e2e-${{ github.event_name }}-${{ github.ref }}
+  # An unrelated label notification must never cancel a real PR run.
+  group: platform-heavy-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.sha) || github.ref }}${{ (github.event.action == 'labeled' && github.event.label.name != 'heavy-tests') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_BUILD_JOBS: '2'
+
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - id: scope
+        env:
+          RUN_HEAVY: >-
+            ${{ github.event_name != 'pull_request' ||
+                (!github.event.pull_request.draft &&
+                 contains(github.event.pull_request.labels.*.name, 'heavy-tests') &&
+                 (github.event.action != 'labeled' || github.event.label.name == 'heavy-tests')) }}
+        run: printf 'run=%s\n' "$RUN_HEAVY" >> "$GITHUB_OUTPUT"
+
+  rust_heavy:
+    if: ${{ needs.scope.outputs.run == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    needs: scope
+    uses: ./.github/workflows/portal-rs-ci.yml
+    permissions:
+      contents: read
+
   build:
+    if: ${{ needs.scope.outputs.run == 'true' }}
+    needs: scope
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
@@ -36,24 +74,23 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: github.event_name != 'pull_request'
         with:
           node-version: '22'
-      - name: Discover the full-suite projects
-        if: github.event_name != 'pull_request'
+      - name: Plan all cases and shards for each configured Playwright project
         id: projects
         working-directory: portal-rs/e2e
         run: |
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund
-          node --input-type=module <<'JS'
-          import { appendFileSync } from 'node:fs';
-          import config from './tiers/playwright.config.mjs';
-          const names = config.projects.map(project => project.name);
-          if (!names.length || names.some(name => !name) || new Set(names).size !== names.length) {
-            throw new Error('Playwright projects must have unique, nonempty names');
-          }
-          appendFileSync(process.env.GITHUB_OUTPUT, `names=${JSON.stringify(names)}\n`);
-          JS
+          node --test tiers/nightly-plan.test.mjs tiers/nightly-report.test.mjs
+          names="$(node tiers/nightly-manifest.mjs plan "$RUNNER_TEMP/nightly-plan")"
+          printf 'names=%s\n' "$names" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: portal-e2e-plan
+          path: ${{ runner.temp }}/nightly-plan
+          overwrite: true
+          retention-days: 30
+          if-no-files-found: error
       - name: Build the portal with the pinned toolchain
         run: |
           rustup show active-toolchain || rustup toolchain install
@@ -67,38 +104,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  smoke:
-    if: github.event_name == 'pull_request'
-    needs: build
-    name: Smoke (${{ matrix.project }})
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [pl-1440, en-390]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 11
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: portal-e2e-tier-binary
-          path: ${{ runner.temp }}/portal-bin
-      - name: Run the smoke manifest
-        working-directory: portal-rs/e2e
-        env:
-          PROJECT: ${{ matrix.project }}
-          PORTAL_E2E_BINARY: ${{ runner.temp }}/portal-bin/oteryn-portal
-        run: |
-          chmod +x "$PORTAL_E2E_BINARY"
-          bash tiers/ci.sh smoke "$PROJECT"
-
   full:
-    if: github.event_name != 'pull_request'
     needs: build
     name: Full (${{ matrix.project }}, shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04
@@ -119,12 +125,18 @@ jobs:
         with:
           name: portal-e2e-tier-binary
           path: ${{ runner.temp }}/portal-bin
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: portal-e2e-plan
+          path: ${{ runner.temp }}/nightly-plan
       - name: Run the full shard
         working-directory: portal-rs/e2e
         env:
           PORTAL_E2E_BINARY: ${{ runner.temp }}/portal-bin/oteryn-portal
           PROJECT: ${{ matrix.project }}
           SHARD: ${{ matrix.shard }}
+          PORTAL_E2E_PLAN_DIRECTORY: ${{ runner.temp }}/nightly-plan
+          PORTAL_E2E_OUTPUT_DIRECTORY: ${{ runner.temp }}
         run: |
           chmod +x "$PORTAL_E2E_BINARY"
           bash tiers/ci.sh nightly "$PROJECT" "$SHARD"
@@ -133,13 +145,105 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nightly-${{ matrix.project }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
-          path: portal-rs/e2e/tier-report.html
+          path: ${{ runner.temp }}/tier-report.html
           retention-days: 7
           if-no-files-found: ignore
 
+      - name: Upload successful execution case IDs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-cases-${{ matrix.project }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/tier-execution.json
+          overwrite: true
+          retention-days: 30
+          if-no-files-found: error
+
+  verify:
+    needs: [build, full]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: portal-e2e-plan
+          path: ${{ runner.temp }}/nightly-plan
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: nightly-cases-*
+          path: ${{ runner.temp }}/nightly-executions
+      - name: Verify exact-once execution against the shared plans
+        working-directory: portal-rs/e2e
+        env:
+          PROJECTS: ${{ needs.build.outputs.projects }}
+        run: node tiers/nightly-manifest.mjs verify "$RUNNER_TEMP/nightly-plan" "$RUNNER_TEMP/nightly-executions" "$PROJECTS"
+
+  heavy_gate:
+    # Unrelated label events still run this job, under a different check name so
+    # they cannot supersede the required result (successful, failed, or pending).
+    name: >-
+      ${{ (github.event.action == 'labeled' && github.event.label.name != 'heavy-tests') &&
+          'platform-heavy-gate (unrelated label)' || 'platform-heavy-gate' }}
+    if: ${{ always() }}
+    needs: [scope, rust_heavy, build, full, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Qualify the selected heavy jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OTHER_LABEL: ${{ github.event.action == 'labeled' && github.event.label.name != 'heavy-tests' }}
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          RUN_HEAVY: ${{ needs.scope.outputs.run }}
+          RUST_RESULT: ${{ needs.rust_heavy.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          FULL_RESULT: ${{ needs.full.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          set -euo pipefail
+          test "$SCOPE_RESULT" = success
+          if [[ "$OTHER_LABEL" == true ]]; then
+            echo 'Unrelated label event; the qualifying event publishes platform-heavy-gate.'
+            exit 0
+          fi
+          if [[ -n "$PR_NUMBER" && "$RUN_HEAVY" == false ]]; then
+            live_heavy="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" | jq -r '
+              if (.draft | type) != "boolean" or (.labels | type) != "array" then
+                error("Invalid pull request response")
+              else
+                (.draft == false and any(.labels[]; .name == "heavy-tests"))
+              end
+            ')"
+            if [[ "$live_heavy" == true ]]; then
+              echo 'The PR is now eligible for heavy tests; the heavy-tests run publishes platform-heavy-gate.'
+              exit 1
+            fi
+            test "$live_heavy" = false
+            echo 'Not a heavy-tests PR; platform-gate governs qualification.'
+            exit 0
+          fi
+          test "$RUN_HEAVY" = true
+          echo "Heavy results: rust=$RUST_RESULT build=$BUILD_RESULT full=$FULL_RESULT verify=$VERIFY_RESULT"
+          case "$GITHUB_EVENT_NAME" in
+            pull_request|push) test "$RUST_RESULT" = success ;;
+            schedule|workflow_dispatch) test "$RUST_RESULT" = skipped ;;
+            *) exit 1 ;;
+          esac
+          for result in "$BUILD_RESULT" "$FULL_RESULT" "$VERIFY_RESULT"; do
+            test "$result" = success
+          done
+
   track:
     if: ${{ always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
-    needs: [build, full]
+    needs: [heavy_gate]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -147,22 +251,38 @@ jobs:
       issues: write
     env:
       GH_TOKEN: ${{ github.token }}
-      BUILD_RESULT: ${{ needs.build.result }}
-      FULL_RESULT: ${{ needs.full.result }}
+      HEAVY_RESULT: ${{ needs.heavy_gate.result }}
       NIGHTLY_ISSUE_NUMBER: ${{ vars.PORTAL_E2E_NIGHTLY_ISSUE_NUMBER }}
     steps:
       - name: Track the nightly failure or recovery
         shell: bash
         run: |
+          set -euo pipefail
           require_latest_schedule() {
-            local latest
-            latest="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/portal-rs-e2e.yml/runs" \
-              -f branch=main -f event=schedule -F per_page=1 \
-              --jq '.workflow_runs[0] | "\(.id):\(.run_attempt)"')"
-            if [[ "$latest" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" ]]; then
+            local latest id run_number attempt
+            if ! latest="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/portal-rs-e2e.yml/runs" \
+              -f branch=main -f event=schedule -F per_page=1 | jq -er '
+                def positive_integer: type == "number" and . > 0 and . <= 9007199254740991 and floor == .;
+                .workflow_runs[0]
+                | select(.event == "schedule" and .head_branch == "main"
+                    and .display_title == "Portal RS E2E Nightly"
+                    and (.id | positive_integer) and (.run_number | positive_integer)
+                    and (.run_attempt | positive_integer))
+                | [.id, .run_number, .run_attempt] | @tsv')"; then
+              echo 'Actions returned no valid newest scheduled run on main.' >&2
+              return 1
+            fi
+            read -r id run_number attempt <<< "$latest"
+            if [[ "$id" == "$GITHUB_RUN_ID" && "$run_number" == "$GITHUB_RUN_NUMBER" && "$attempt" == "$GITHUB_RUN_ATTEMPT" ]]; then
+              return 0
+            fi
+            if { [[ "$id" != "$GITHUB_RUN_ID" ]] && (( run_number > GITHUB_RUN_NUMBER )); } ||
+               { [[ "$id" == "$GITHUB_RUN_ID" && "$run_number" == "$GITHUB_RUN_NUMBER" ]] && (( attempt > GITHUB_RUN_ATTEMPT )); }; then
               echo 'Nightly issue belongs to a newer scheduled run or attempt.'
               exit 0
             fi
+            echo 'Actions returned an older or inconsistent scheduled run or attempt.' >&2
+            return 1
           }
           require_latest_schedule
           number="$NIGHTLY_ISSUE_NUMBER"
@@ -172,7 +292,7 @@ jobs:
             echo 'Set PORTAL_E2E_NIGHTLY_ISSUE_NUMBER to the provisioned tracking issue number.' >&2
             exit 1
           fi
-          state="$(gh api "$issue_endpoint" | jq -er \
+          if ! state="$(gh api "$issue_endpoint" | jq -er \
             --argjson number "$number" --arg repo "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY" \
             --arg marker "$marker" '
               select(.number == $number and .repository_url == $repo and .pull_request == null
@@ -180,9 +300,12 @@ jobs:
                      and any(.labels[]; .name == "e2e-nightly")
                      and ((.body // "") | split("\n")[0] == $marker)
                      and (.state == "open" or .state == "closed"))
-              | .state')"
+              | .state')"; then
+            echo 'The configured nightly tracking issue is unavailable or does not match its required identity.' >&2
+            exit 1
+          fi
           run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          if [[ "$BUILD_RESULT" == success && "$FULL_RESULT" == success ]]; then
+          if [[ "$HEAVY_RESULT" == success ]]; then
             if [[ "$state" == open ]]; then
               require_latest_schedule
               gh api --method PATCH "$issue_endpoint" \
@@ -190,7 +313,7 @@ jobs:
             fi
             exit 0
           fi
-          body="$(printf '%s\n\nNightly E2E failed in %s. Build: %s. Full suite: %s.' \
-            "$marker" "$run" "$BUILD_RESULT" "$FULL_RESULT")"
+          body="$(printf '%s\n\nNightly E2E failed in %s. Heavy gate: %s.' \
+            "$marker" "$run" "$HEAVY_RESULT")"
           require_latest_schedule
           gh api --method PATCH "$issue_endpoint" -f body="$body" -f state=open >/dev/null

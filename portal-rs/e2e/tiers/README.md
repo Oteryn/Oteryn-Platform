@@ -17,28 +17,36 @@ CHROMIUM_PATH=/usr/bin/chromium node tiers/run.mjs smoke
 
 The tier runner starts and stops `local.mjs` and invokes `run.mjs` once the HTTPS
 probe succeeds. Set `PORTAL_E2E_BINARY` to use a binary built from the same
-checkout. Each smoke project gets a separate 11-minute job after the shared
-binary build. The `tiers/ci.sh` entry point installs Chromium from the
+checkout. The `tiers/ci.sh` entry point installs Chromium from the
 lockfile-pinned Playwright package by default. Set `CHROMIUM_PATH` explicitly
 to use an installed Chromium for a local run. Pass a project name after
 `smoke` to run that project locally.
 
-The nightly matrix discovers the configured Playwright projects and runs three
+The full matrix discovers the configured Playwright projects and runs three
 file shards per project. The tier config preserves the browser suite's test
 patterns, including legacy Bazaar and authentication security cases when
-configured. For each project, the runner discovers all cases, lists each shard,
-and checks that the combined case identities equal the full discovery exactly
-once. Smoke and nightly both require the execution report to match discovery
-and contain exactly one passing result for each case.
+configured. The build publishes a discovery manifest per project. Each shard
+uses that manifest and publishes its successful case IDs. The verification job
+requires the reports to match the published assignments and cover every planned
+case exactly once, including across partial reruns. Smoke and full runs both
+require exactly one passing result for each case.
 The first shard keeps the staff bootstrap with the Bazaar moderation, content,
 routes and staff specs that consume its browser storage state. The other two shards
 split the remaining sorted spec filenames. Each shard gets separate databases
 and browser state. Its HTML artifact includes case IDs, catalogued route labels, source locations,
 outcomes and fixed failure descriptions.
-Raw browser output and harness logs stay in the private scratch directory.
+Raw browser output and harness logs stay in the private scratch directory. To
+run one full-suite shard locally, first run
+`node tiers/nightly-manifest.mjs plan "$PLAN_DIR"`, then set
+`PORTAL_E2E_PLAN_DIRECTORY="$PLAN_DIR"` when invoking
+`bash tiers/ci.sh nightly PROJECT SHARD`.
 
-The registered `portal-rs-e2e.yml` workflow runs smoke for PRs and the full
-matrix on schedule or dispatch. Deploy requires the newest scheduled run on
+The registered `portal-rs-e2e.yml` workflow runs the PostgreSQL test shards,
+Rust browser tests, and full Playwright matrix for non-draft PRs with the
+`heavy-tests` label and pushes to `main`. Scheduled and manual runs execute
+the full Playwright matrix. The smoke cases are included in that matrix
+and remain available as a local command. Deploy requires the exact
+`main` push's heavy workflow and the newest scheduled run on
 `main` for the current nightly window to complete successfully. Each window
 starts at 02:17 UTC. The root-owned Oracle deploy wrapper checks the window
 again immediately before migration. The workflow sends `deploy-v2`. Install
@@ -48,6 +56,10 @@ Manual runs can qualify the suite on demand. Only the newest scheduled run on
 `main` can update the failure issue.
 
 ## Rollout steps for the owner
+
+Keep `platform-gate` required on `main` and add the GitHub Actions check
+`platform-heavy-gate` to the same required status checks in repository Settings.
+The heavy gate passes without running the heavy jobs for PRs without the label.
 
 1. Create the `e2e-nightly` label in the Platform repository.
 2. Provision a dedicated issue titled `Nightly E2E failing` with that label.
