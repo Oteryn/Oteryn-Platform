@@ -95,7 +95,7 @@ test('announcements draft, severity, expired window, approval and public action'
   expect(response.status()).toBe(200);
   expect(response.headers()['content-language']).toBe(locale);
   const html = await response.text();
-  expect(html).toContain(`<html lang="${locale}"`);
+  expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${locale}"`));
   expect(html).toContain(t(locale, values.action_label_pl, values.action_label));
  }
  await submitForm(mainForm(page), { publication_state: 'draft' });
