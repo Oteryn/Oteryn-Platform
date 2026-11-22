@@ -77,6 +77,13 @@ impl Options {
             "pl"
         }
     }
+    fn staff_lang(&self, headers: &axum::http::HeaderMap) -> &str {
+        if self.lang.is_some() {
+            self.lang()
+        } else {
+            crate::staff_language(headers)
+        }
+    }
     fn offset(&self, size: i64) -> Result<i64, StatusCode> {
         let n = self.page.unwrap_or(1);
         if !(1..=MAX_PAGE).contains(&n) {
@@ -271,6 +278,7 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
 async fn admin_index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     let rows = sqlx::query(
@@ -280,7 +288,7 @@ async fn admin_index(
     .fetch_all(&pool)
     .await
     .map_err(unavailable)?;
-    let lang = q.lang();
+    let lang = q.staff_lang(&headers);
     let mut html = format!(
         "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
         label(lang, "new")
@@ -305,10 +313,11 @@ async fn admin_index(
 async fn new(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     Ok(form(
-        q.lang(),
+        q.staff_lang(&headers),
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
@@ -319,11 +328,12 @@ async fn edit(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     Ok(form(
-        q.lang(),
+        q.staff_lang(&headers),
         Some(id),
         Input {
             expected_revision: row.get("expected_revision"),
