@@ -101,7 +101,7 @@ export async function startStaffConsoleHarness(databaseURL) {
   const lines = createInterface({ input: child.stdout });
   async function stop() {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-    await closed;
+    return closed;
   }
   try {
     const ready = await Promise.race([
@@ -109,7 +109,16 @@ export async function startStaffConsoleHarness(databaseURL) {
       closed.then(([code]) => { throw new Error(`Staff console harness exited (${code}). See ${directory}/harness.log`); }),
     ]);
     assert.equal(ready, 'ready');
-    return { out, async close() { await stop(); fs.rmSync(directory, { recursive: true, force: true }); } };
+    return {
+      out,
+      async close() {
+        const [code, signal] = await stop();
+        if (code !== 0) {
+          throw new Error(`Staff console harness cleanup failed (${signal ?? code}). See ${directory}/harness.log`);
+        }
+        fs.rmSync(directory, { recursive: true, force: true });
+      },
+    };
   } catch (error) {
     await stop();
     throw error;
