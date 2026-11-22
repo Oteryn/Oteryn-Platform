@@ -274,7 +274,7 @@ def guard_for(files, file, url, method, permission, permissions):
     if group in {"player-api/src/lib.rs", "player-api/src/account_feed.rs"}:
         return "public", {"kind": "bearer"}
     if group == "gameauth/src/devices_http.rs":
-        return "native", {"kind": "device-credentials"}
+        return "native", {"kind": "anonymous" if "{*rest}" in url else "device-credentials"}
     if group in {"payments/src/provider_webhook.rs", "store/src/web_payments.rs"}:
         return "public", {"kind": "provider-signature"}
 
@@ -326,9 +326,31 @@ def guard_for(files, file, url, method, permission, permissions):
                 else:
                     expression = section(handler, r"let can_search = (.*?)let lang =")
                 result["any"] = re.findall(r'\.check\(actor, "([^"]+)"\)', expression)
-        if group == "wiki/src/web.rs" and path == "/admin/wiki/articles/create":
-            required = section(files[file], r'async fn create_form.*?\.authorize\(context, Permission::(\w+)')
-            result["all"].append(permissions[required])
+        if group == "wiki/src/web.rs":
+            repo = files["crates/wiki/src/repository.rs"]
+            article = "/admin/wiki/articles"
+            editor_paths = {
+                article + "/create", article + "/{id}", article + "/{id}/edit",
+                article + "/{id}/preview/{locale}", article + "/{id}/revisions",
+            }
+            manage = section(repo, r'pub async fn create\(.*?\.authorize\(context, Permission::(\w+)')
+            publish = section(repo, r'pub async fn restore\(.*?\.authorize\(context, Permission::(\w+)')
+            if path in editor_paths or (path == article and method == "post"):
+                result["all"].append(permissions[manage])
+            if path == article + "/{id}/revisions/{source}/restore":
+                result["all"].append(permissions[publish])
+            if path == article + "/{id}/{action}":
+                transition = section(repo, r'pub async fn transition(.*?)let mut tx')
+                choices = re.findall(r'Permission::(\w+)', transition)
+                result["actions"] = {
+                    "publisher": permissions[choices[0]], "editor": permissions[choices[1]],
+                }
+        if group == "content/src/events/web.rs" and path == "/admin/events/{id}/status":
+            repository = files["crates/content/src/events/repository.rs"]
+            transition = section(repository, r"pub async fn transition.*?&\[(.*?)\]")
+            result["all"] = list(dict.fromkeys([
+                *result["all"], *(permissions[p] for p in re.findall(r"Permission::(\w+)", transition)),
+            ]))
         if group == "admin/src/players/http.rs" and path == "/admin/players":
             required = section(files[file], r'async fn search.*?s.check\(context, Permission::(\w+)')
             result["all"].append(permissions[required])
@@ -345,6 +367,12 @@ def guard_for(files, file, url, method, permission, permissions):
         return public
     if group == "stats/src/watch/http.rs":
         return "public", {"kind": "bearer"}
+    if group == "atlas/src/bestiary/web.rs":
+        return "public", {"kind": "logged-in"}
+    if group == "bazaar/src/game/runtime/browser.rs" and path == "/bazaar/items/new":
+        return "public", {"kind": "logged-in"}
+    if group == "playerdata/src/hunts_web.rs" and path.endswith("/share"):
+        return public
     if path.startswith(("/account/", "/panel/", "/support/tickets", "/support/reports",
                         "/password/change", "/atlas/private-markers", "/atlas/map-reports",
                         "/atlas/places", "/puzzles", "/collection", "/pass", "/shop",
@@ -390,6 +418,12 @@ def refusal_for(files, listener, file, url):
     elif url == "/__test/payments/webhook":
         marker = "let Some(signature) = signature else"
         status = 400
+    elif url == "/api/v1/payments/provider-webhook":
+        marker = "Delivery::Unauthenticated => StatusCode::UNAUTHORIZED"
+        status = 401
+    elif file == "crates/atlas/src/bestiary/web.rs":
+        marker = "return StatusCode::UNAUTHORIZED.into_response()"
+        status = 401
     else:
         return None
     source = files[file]

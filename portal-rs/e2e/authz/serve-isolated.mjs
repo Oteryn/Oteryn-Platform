@@ -1,11 +1,13 @@
+import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const [file, port = '18447'] = process.argv.slice(2);
+const [file, port = '18447', nativePort = '18444'] = process.argv.slice(2);
 const binary = process.env.PORTAL_E2E_BINARY;
-if (!file || !binary || !/^\d+$/.test(port) || Number(port) < 1024 || Number(port) > 65535) {
-  throw new Error('Provide the browser harness environment, portal binary, and an unused loopback port');
+const validPort = value => /^\d+$/.test(value) && Number(value) >= 1024 && Number(value) <= 65535;
+if (!file || !binary || !validPort(port) || !validPort(nativePort) || port === nativePort) {
+  throw new Error('Provide the browser harness environment, portal binary, and distinct unused loopback ports');
 }
 
 const env = JSON.parse(readFileSync(file, 'utf8'));
@@ -18,7 +20,17 @@ if (env.OTERYN_ENV !== 'testing' || !['localhost', '127.0.0.1', '[::1]'].include
 
 const child = spawn(binary, ['serve'], {
   cwd: fileURLToPath(new URL('../../', import.meta.url)),
-  env: { ...process.env, ...env, OTERYN_INTERNAL_TLS_BIND: `127.0.0.1:${port}` },
+  env: {
+    ...process.env, ...env,
+    OTERYN_INTERNAL_TLS_BIND: `127.0.0.1:${port}`,
+    OTERYN_NATIVE_TLS_BIND: `127.0.0.1:${nativePort}`,
+    OTERYN_NATIVE_TLS_CERT_FILE: env.OTERYN_INTERNAL_TLS_CERT_FILE,
+    OTERYN_NATIVE_TLS_KEY_FILE: env.OTERYN_INTERNAL_TLS_KEY_FILE,
+    OTERYN_ATLAS_BESTIARY_ENABLED: 'true',
+    PORTAL_GROWTH_RANKINGS_ENABLED: 'true',
+    PORTAL_PAYMENTS_PROVIDER_WEBHOOK_ENABLED: 'true',
+    PORTAL_PAYMENTS_PROVIDER_WEBHOOK_SECRET: randomBytes(32).toString('hex'),
+  },
   stdio: ['ignore', 'inherit', 'inherit'],
 });
 for (const signal of ['SIGINT', 'SIGTERM']) {

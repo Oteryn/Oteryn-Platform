@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { expect } from '@playwright/test';
+import { createHash, randomUUID } from 'node:crypto';
+import { expect, request as playwrightRequest } from '@playwright/test';
 import { password, waitForLoginBudget } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -63,16 +63,24 @@ async function signIn(request, locale, account, recoveryCode) {
   await mfa.dispose();
 }
 
-export async function openActor(browser, info, definition, sanctionIssuer) {
-  const locale = info.project.metadata.locale;
-  const context = await browser.newContext({
-    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true, locale,
-    viewport: info.project.use.viewport,
-    ...(process.env.PORTAL_E2E_DISABLE_KEEPALIVE === '1' && { extraHTTPHeaders: { connection: 'close' } }),
+export async function sessionHash(request) {
+  const { cookies } = await request.storageState();
+  const session = cookies.find(({ name }) => name === '__Host-oteryn_session');
+  expect(Boolean(session), 'current browser session exists').toBe(true);
+  return createHash('sha256').update(session.value).digest();
+}
+
+export async function openActor(locale, definition, sanctionIssuer) {
+  const request = await playwrightRequest.newContext({
+    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
+    ignoreHTTPSErrors: true,
+    extraHTTPHeaders: {
+      'accept-language': locale,
+      ...(process.env.PORTAL_E2E_DISABLE_KEEPALIVE === '1' && { connection: 'close' }),
+    },
   });
   try {
-    const { request } = context;
-    if (definition.key === 'anonymous') return { context, request };
+    if (definition.key === 'anonymous') return { request };
 
     const account = { email: `matrix-${randomUUID()}@example.invalid`, password: password() };
     const { accountId } = seed('account', { ...account, locale });
@@ -102,9 +110,9 @@ export async function openActor(browser, info, definition, sanctionIssuer) {
         VALUES ($1,'restriction','active','Local authorization matrix',now(),now()+interval '1 hour',$2)
       `, [accountId, sanctionIssuer]);
     }
-    return { context, request, accountId, account };
+    return { request, accountId, account };
   } catch (error) {
-    await context.close();
+    await request.dispose();
     throw error;
   }
 }

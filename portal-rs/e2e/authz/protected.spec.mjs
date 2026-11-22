@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
-import { actorDefinitions, csrfPage, openActor } from './actors.mjs';
+import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
 import { assertRefusalState, database } from './database.mjs';
 import { editorialRoutes, exerciseEditorial } from './editorial.mjs';
 
@@ -32,13 +31,13 @@ function expectedRead(fixture, definition) {
 
 test.describe('protected reads and identity writes', () => {
   for (const definition of actorDefinitions(roles)) {
-    test(definition.key, async ({ browser }, info) => {
+    test(definition.key, async ({}, info) => {
       const { locale } = info.project.metadata;
       const anonymous = definition.key === 'anonymous';
       const issuer = definition.restricted
         ? (await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'"))[0].id
         : undefined;
-      const { context, request, account, accountId } = await openActor(browser, info, definition, issuer);
+      const { request, account, accountId } = await openActor(info.project.metadata.locale, definition, issuer);
       try {
         for (const fixture of reads) {
           const target = fixturePath(fixture.target, locale);
@@ -60,11 +59,11 @@ test.describe('protected reads and identity writes', () => {
             }
           });
         }
-        await assertIdentityWrites(context, request, locale, account);
+        await assertIdentityWrites(request, locale, account);
         await assertExport(request, locale, accountId);
-        await exerciseEditorial(context, request, locale, definition, publicRoutes);
+        await exerciseEditorial(request, locale, definition, publicRoutes);
       } finally {
-        await context.close();
+        await request.dispose();
       }
     });
   }
@@ -108,7 +107,7 @@ for (const { method, path } of [...identityWrites, ...editorialRoutes.map(([meth
   if (!publicRoutes.has(`${method} ${path}`)) throw new Error(`No public registration for ${method} ${path}`);
 }
 
-async function assertIdentityWrites(context, request, locale, account) {
+async function assertIdentityWrites(request, locale, account) {
   const db = database();
   const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
   const entry = account ? `/${locale}/` : `/${locale}/login`;
@@ -119,9 +118,7 @@ async function assertIdentityWrites(context, request, locale, account) {
       const allowed = Boolean(account) && !fixture.bearer;
       await test.step(`${fixture.method} ${fixture.path}`, async () => {
         const token = await csrfPage(request, entry);
-        const cookie = (await context.cookies(origin)).find(({ name }) => name === '__Host-oteryn_session');
-        expect(Boolean(cookie), 'session for mutation').toBe(true);
-        const sessionHash = createHash('sha256').update(cookie.value).digest();
+        const sessionHash = await hashSession(request);
         const before = allowed ? null : await db.snapshot(sessionHash);
         const response = await request.fetch(url, {
           method: fixture.method,

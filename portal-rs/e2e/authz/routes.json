@@ -2201,7 +2201,7 @@
         {
           "source": "crates/gameauth/src/devices_http.rs:60",
           "guard": {
-            "kind": "device-credentials"
+            "kind": "anonymous"
           }
         }
       ]
@@ -3863,7 +3863,8 @@
             "kind": "staff",
             "all": [
               "admin.access",
-              "wiki.access"
+              "wiki.access",
+              "wiki.articles.manage"
             ]
           }
         }
@@ -3898,7 +3899,8 @@
             "kind": "staff",
             "all": [
               "admin.access",
-              "wiki.access"
+              "wiki.access",
+              "wiki.articles.manage"
             ]
           }
         }
@@ -3915,7 +3917,8 @@
             "kind": "staff",
             "all": [
               "admin.access",
-              "wiki.access"
+              "wiki.access",
+              "wiki.articles.manage"
             ]
           }
         }
@@ -3932,7 +3935,8 @@
             "kind": "staff",
             "all": [
               "admin.access",
-              "wiki.access"
+              "wiki.access",
+              "wiki.articles.manage"
             ]
           }
         }
@@ -3949,7 +3953,8 @@
             "kind": "staff",
             "all": [
               "admin.access",
-              "wiki.access"
+              "wiki.access",
+              "wiki.articles.manage"
             ]
           }
         }
@@ -3966,7 +3971,8 @@
             "kind": "staff",
             "all": [
               "admin.access",
-              "wiki.access"
+              "wiki.access",
+              "wiki.publish"
             ]
           }
         }
@@ -3984,7 +3990,11 @@
             "all": [
               "admin.access",
               "wiki.access"
-            ]
+            ],
+            "actions": {
+              "publisher": "wiki.publish",
+              "editor": "wiki.articles.manage"
+            }
           }
         }
       ]
@@ -4219,6 +4229,10 @@
           "source": "crates/payments/src/provider_webhook.rs:496",
           "guard": {
             "kind": "provider-signature"
+          },
+          "refusal": {
+            "status": 401,
+            "source": "crates/payments/src/provider_webhook.rs:459"
           }
         }
       ]
@@ -8407,7 +8421,7 @@
         {
           "source": "crates/playerdata/src/hunts_web.rs:38",
           "guard": {
-            "kind": "logged-in"
+            "kind": "anonymous"
           }
         }
       ]
@@ -8420,7 +8434,7 @@
         {
           "source": "crates/playerdata/src/hunts_web.rs:38",
           "guard": {
-            "kind": "logged-in"
+            "kind": "anonymous"
           }
         }
       ]
@@ -8765,7 +8779,11 @@
         {
           "source": "crates/atlas/src/bestiary/web.rs:72",
           "guard": {
-            "kind": "anonymous"
+            "kind": "logged-in"
+          },
+          "refusal": {
+            "status": 401,
+            "source": "crates/atlas/src/bestiary/web.rs:106"
           }
         }
       ]
@@ -9950,7 +9968,7 @@
         {
           "source": "crates/bazaar/src/game/runtime/browser.rs:195",
           "guard": {
-            "kind": "anonymous"
+            "kind": "logged-in"
           }
         },
         {

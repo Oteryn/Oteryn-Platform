@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import https from 'node:https';
 import { expect, test } from '@playwright/test';
-import { actorDefinitions, csrfPage, openActor } from './actors.mjs';
+import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
 import { assertRefusalState, database } from './database.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { waitForWikiBudget } from '../helpers.mjs';
@@ -58,8 +58,11 @@ async function assertPublicReads(request, locale, anonymous) {
       await waitForWikiBudget(url);
       const response = await request.fetch(url, { method: row.method, maxRedirects: 0 });
       try {
-        const status = row.status;
+        const status = anonymous ? row.status : row.signedInStatus ?? row.status;
         expect(response.status(), `${row.method} ${url} (${row.source})`).toBe(status);
+        if (!anonymous && row.signedInLocation) {
+          expect(response.headers().location).toBe(row.signedInLocation);
+        }
         if (row.pendingChallenge) {
           const lang = /^\/(en|pl)\//.exec(url)?.[1] ?? locale;
           expect(response.headers().location).toBe(anonymous ? `/${lang}/login` : `/${lang}/`);
@@ -73,20 +76,19 @@ async function assertPublicReads(request, locale, anonymous) {
 
 test.describe('browser authorization', () => {
   for (const definition of actorDefinitions(roles)) {
-    test(definition.key, async ({ browser }, info) => {
+    test(definition.key, async ({}, info) => {
       const anonymous = definition.key === 'anonymous';
       const issuer = definition.restricted
         ? (await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'"))[0].id
         : undefined;
-      const { context, request } = await openActor(browser, info, definition, issuer);
+      const { request } = await openActor(info.project.metadata.locale, definition, issuer);
       const db = database();
       try {
+        await query('UPDATE registration_abuse_policy SET enabled=true WHERE singleton AND NOT enabled');
         const entry = anonymous ? 'login' : '';
         const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
         const token = await csrfPage(request, `/${info.project.metadata.locale}/${entry}`);
-        const cookie = (await context.cookies(origin)).find(({ name }) => name === '__Host-oteryn_session');
-        expect(Boolean(cookie), 'browser session exists').toBe(true);
-        const sessionHash = createHash('sha256').update(cookie.value).digest();
+        const sessionHash = await hashSession(request);
 
         for (const { path, method, registrations: [{ guard, refusal }] } of browserRoutes) {
           await test.step(`${method} ${path}`, async () => {
@@ -147,7 +149,7 @@ test.describe('browser authorization', () => {
         }
       } finally {
         await db.close();
-        await context.close();
+        await request.dispose();
       }
     });
   }

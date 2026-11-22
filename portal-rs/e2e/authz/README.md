@@ -41,7 +41,10 @@ node authz/serve-isolated.mjs /absolute/path/to/browser/env.json 18447
 The browser proxy still reaches the real portal, and the independent private
 harness serves the TLS and service-token checks. This keeps periodic producer
 and outbox writes out of the observation window while retaining the affected
-tables in the assertion.
+tables in the assertion. The launcher also enables the provider webhook with
+an ephemeral signing key and starts the direct native TLS listener on 18444
+by default. Pass a third argument to use a different native port and set
+`PORTAL_E2E_BROWSER_NATIVE_ORIGIN` in the test environment.
 
 ## Run
 
@@ -52,29 +55,31 @@ seed CLI. Use the existing harness launchers described in [the E2E README](../RE
 ```sh
 PORTAL_E2E_BINARY=/absolute/path/to/oteryn-portal \
 PORTAL_E2E_HARNESS_REPORT=/absolute/path/to/private-harness/report.json \
-node run.mjs /absolute/path/to/browser/env.json test --config authz/playwright.config.mjs --project=pl-1440
+node run.mjs /absolute/path/to/browser/env.json test --config authz/all.config.mjs
 ```
 
-Run the protected reads, identity writes, and editorial workflows against the
-same isolated browser profile using `--config authz/protected.config.mjs`.
-Omit `--project` in both commands to exercise all four projects. Use separate
-disposable databases for concurrent project runs because refusal comparisons
-include every application table in the database.
+The command exercises all four projects. The narrower configs run public and
+private listener checks (`playwright.config.mjs`), protected reads and editorial
+workflows (`protected.config.mjs`), account sessions, support and content
+(`sessions.config.mjs`), or wiki editorial workflows (`wiki.config.mjs`). Use
+separate disposable databases for concurrent project runs because refusal
+comparisons include every application table in the database.
 
 ## Executable coverage
 
 The inventory records 672 listener/path/method entries. The executable matrix
-covers 414 of these entries for each of the 19 actors, for 7,866 cells. The spec
-exercises public reads, staff reads and role creation in the browser, the missing signature on the
-test payment webhook, the internal listener's certificate requirement, and
-the native admission listener's token requirement, and listener health endpoints. The browser portal's isolated private listener covers the Bazaar, account closure, and league TLS admission cases. Set `PORTAL_E2E_BROWSER_PRIVATE_ORIGIN` when using another private port. The private mTLS scope
-assignment probe also presents a CA-valid certificate assigned to a different
-route identity and expects HTTP refusal. A TLS alert occurs before HTTP
-dispatch and establishes the listener's admission property.
+covers 518 of these entries for each of the 19 actors, for 9,842 cells. The
+browser cases cover public reads, staff reads and mutations, player support,
+sessions and recovery keys, and the missing signatures on both payment
+webhooks. The isolated private listener covers Bazaar, account closure, and
+league mTLS. Set `PORTAL_E2E_BROWSER_PRIVATE_ORIGIN` when using another private
+port. The mTLS scope assignment probe also presents a CA-valid certificate
+assigned to a different route identity and expects HTTP refusal. The native
+admission listener checks its service token independently.
 
 Resource-bound browser reads and mutations still need route-specific
 fixtures, including owned resources and minimally valid payloads. The
 inventory also includes registration variants and other listeners that require
 their own deployment profiles and fixtures. [Local limitations](local-limitations.json)
-records 13 entries with source references. The other 245 entries still need
+records 51 entries with source references. The other 103 entries still need
 an executable fixture or a confirmed local limitation.

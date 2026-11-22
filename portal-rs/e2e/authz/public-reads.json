@@ -226,6 +226,15 @@
   },
   {
     "method": "GET",
+    "path": "/en/register",
+    "target": "/en/register",
+    "status": 200,
+    "signedInStatus": 303,
+    "signedInLocation": "/account",
+    "source": "crates/web/src/routes/register.rs:54"
+  },
+  {
+    "method": "GET",
     "path": "/en/register/check-inbox",
     "target": "/en/register/check-inbox",
     "status": 200,
@@ -585,6 +594,15 @@
   },
   {
     "method": "GET",
+    "path": "/pl/register",
+    "target": "/pl/register",
+    "status": 200,
+    "signedInStatus": 303,
+    "signedInLocation": "/account",
+    "source": "crates/web/src/routes/register.rs:54"
+  },
+  {
+    "method": "GET",
     "path": "/pl/register/check-inbox",
     "target": "/pl/register/check-inbox",
     "status": 200,
@@ -694,6 +712,15 @@
     "target": "/register/abuse.js",
     "status": 200,
     "source": "crates/identity/src/abuse/http.rs:20"
+  },
+  {
+    "method": "GET",
+    "path": "/register",
+    "target": "/register",
+    "status": 200,
+    "signedInStatus": 303,
+    "signedInLocation": "/account",
+    "source": "crates/web/src/routes/register.rs:54"
   },
   {
     "method": "GET",
@@ -1058,5 +1085,33 @@
     "target": "/atlas/spawns?version=fixture&floor=0&min_x=0&max_x=0&min_y=0&max_y=0",
     "status": 503,
     "source": "crates/atlas/src/spawns.rs:117"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/rankings/{kind}",
+    "target": "/{lang}/rankings/level",
+    "status": 503,
+    "source": "crates/community/src/rankings.rs:273"
+  },
+  {
+    "method": "GET",
+    "path": "/houses/{key}",
+    "target": "/houses/oteryn:content.house.fixture?world=019a541b-a000-7000-8000-000000000001",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:398"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/houses/{key}",
+    "target": "/pl/houses/oteryn:content.house.fixture?world=019a541b-a000-7000-8000-000000000001",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:398"
+  },
+  {
+    "method": "GET",
+    "path": "/en/houses/{key}",
+    "target": "/en/houses/oteryn:content.house.fixture?world=019a541b-a000-7000-8000-000000000001",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:398"
   }
 ]

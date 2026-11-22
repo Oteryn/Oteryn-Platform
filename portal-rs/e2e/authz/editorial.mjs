@@ -1,7 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
-import { csrfPage } from './actors.mjs';
+import { csrfPage, sessionHash as hashSession } from './actors.mjs';
 import { assertRefusalState, database } from './database.mjs';
 
 const emptyId = '019a541b-a000-7000-8000-000000000001';
@@ -25,15 +25,13 @@ function hasPermission(route, definition) {
   return route.registrations[0].guard.all.every(p => definition.permissions.includes(p));
 }
 
-export async function exerciseEditorial(context, request, locale, definition, publicRoutes) {
+export async function exerciseEditorial(request, locale, definition, publicRoutes) {
   const db = database();
   const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
   const anonymous = definition.key === 'anonymous';
   try {
     const token = await csrfPage(request, anonymous ? `/${locale}/login` : `/${locale}/`);
-    const cookie = (await context.cookies(origin)).find(row => row.name === '__Host-oteryn_session');
-    expect(Boolean(cookie), 'editorial actor has a session').toBe(true);
-    const sessionHash = createHash('sha256').update(cookie.value).digest();
+    const sessionHash = await hashSession(request);
 
     async function staffRequest(method, pattern, target, status, payload = {}) {
       const route = publicRoutes.get(`${method} ${pattern}`);
