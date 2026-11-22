@@ -145,6 +145,12 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
   const world = uuid7();
   const url = `${path}?lang=${lang}&character=${character}`;
   const readGame = enforcementGame();
+  async function expectAccountEligible(eligible) {
+    expect(await query(
+      'SELECT account_value_eligible($1) AS value, community_invitation_delivery_eligible($1) AS invitation',
+      [target.id],
+    )).toEqual([{ value: eligible, invitation: eligible }]);
+  }
   const snapshotHead = {
     contract_version: 1, source_authority: process.env.OTERYN_LCFA_SOURCE_AUTHORITY,
     projection_epoch: '1',
@@ -279,6 +285,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     await submitFresh(form('apply'), valid, path);
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.unconfirmed);
+    await expectAccountEligible(true);
     expect((await postFresh(page, first.target, { ...first.fields, ...valid })).status()).toBe(303);
     await refused(await postFresh(page, first.target, { ...first.fields, ...valid, minutes: '16' }), 409, text.conflict);
     await refused(await postFresh(page, early.target, { ...early.fields, ...valid }), 409, text.conflict);
@@ -312,6 +319,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     await expect(status()).toHaveText(text.refused);
     await expect(current()).toHaveText(text.applied);
     await expect(panel.getByText('LIFECYCLE_CONFLICT', { exact: true })).toBeVisible();
+    await expectAccountEligible(true);
     await refused(await postFresh(page, staleRevoke.target, {
       ...staleRevoke.fields, reason: 'rule_violation',
     }), 409, text.conflict);
@@ -399,4 +407,10 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
       first.fields.operation, refusedReplace.fields.operation, replace.fields.operation, revoke.fields.operation,
     ]);
   }
+  await query(
+    `INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by)
+     VALUES($1,'restriction','active','Account restriction',clock_timestamp(),clock_timestamp()+interval '1 hour',$2)`,
+    [target.id, gm.account.id],
+  );
+  await expectAccountEligible(false);
 });

@@ -128,7 +128,7 @@ impl Authority for ProductionAuthority {
                 .execute(&mut *tx)
                 .await
                 .ok()?;
-            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND s.status='active' AND s.category IN ('restriction','suspension') AND s.effective_at<=clock_timestamp() AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())))")
+            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND s.enforcement_profile IS NULL AND s.status='active' AND s.category IN ('restriction','suspension') AND s.effective_at<=clock_timestamp() AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())))")
                 .bind(account).fetch_one(&mut *tx).await.ok()?;
             allowed.then_some(())
         })
