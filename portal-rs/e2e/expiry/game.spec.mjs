@@ -16,7 +16,7 @@ async function nativeAccess(page, lang, seedEntity) {
 
 async function issue(page, bearer) {
   const response = await page.request.post('/api/v1/game-auth/tickets', {
-    headers: { authorization: `Bearer ${bearer}` }, data: { protocol_version: 1 },
+    headers: { authorization: `Bearer ${bearer}` }, data: { protocol_version: 1 }, maxRedirects: 0,
   });
   expect(response.headers()['cache-control']).toBe('no-store, private');
   return response;
@@ -40,7 +40,7 @@ test('a game ticket crosses the redemption gate only before expiry', async ({ pa
   const attempt = uuid7();
   const character = uuid7();
   const request = () => page.request.post('http://127.0.0.1:8091/internal/v1/game-auth/native-admissions', {
-    headers: { authorization: `Bearer ${serviceToken}` },
+    headers: { authorization: `Bearer ${serviceToken}` }, maxRedirects: 0,
     data: {
       protocol_version: 2, game_login_ticket: ticket.ticket, attempt_ref: attempt, character_id: character,
       channel_id: null, offer: { client_build: 'expiry', client_platform: 'windows',

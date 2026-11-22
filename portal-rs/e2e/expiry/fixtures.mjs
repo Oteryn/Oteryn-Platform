@@ -70,11 +70,15 @@ export async function sweep(db, kind, read, expected) {
 
 export async function formPost(page, selector, values = {}, headers = {}) {
   const form = page.locator(selector);
-  const action = await form.evaluate(element => new URL(element.getAttribute('action') || '', document.baseURI).href);
+  const action = new URL(await form.evaluate(element =>
+    new URL(element.getAttribute('action') || '', document.baseURI).href));
+  const origin = new URL(page.url()).origin;
+  expect(action.origin === origin && ['localhost', '127.0.0.1', '[::1]'].includes(action.hostname),
+    'credential form posts to the originating loopback portal').toBe(true);
   const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
-  return page.request.post(action, {
+  return page.request.post(action.href, {
     form: { ...fields, ...values },
-    headers: { origin: new URL(page.url()).origin, ...headers },
+    headers: { origin, ...headers },
     maxRedirects: 0,
   });
 }

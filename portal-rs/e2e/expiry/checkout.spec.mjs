@@ -10,7 +10,7 @@ test('expired native checkout quote creates no order or payment intent', async (
   const headers = { authorization: `Bearer ${issued.access_token}` };
   const api = '/api/v1/native-account/coin-purchases';
   const quote = async () => {
-    const response = await page.request.get(`${api}/catalogue`, { headers });
+    const response = await page.request.get(`${api}/catalogue`, { headers, maxRedirects: 0 });
     expect(response.status()).toBe(200);
     const payload = await response.json();
     expect(payload.sandbox).toBe(true);
@@ -20,7 +20,7 @@ test('expired native checkout quote creates no order or payment intent', async (
     return item;
   };
   const order = item => page.request.post(`${api}/orders`, {
-    headers, data: { version: 1, request_id: uuid7(), quote_id: item.quote_id,
+    headers, maxRedirects: 0, data: { version: 1, request_id: uuid7(), quote_id: item.quote_id,
       package_id: item.id, character_id: null },
   });
   const move = (id, seconds) => one(db, `UPDATE coin_purchase_quotes SET expires_at=clock_timestamp()+make_interval(secs=>$3)

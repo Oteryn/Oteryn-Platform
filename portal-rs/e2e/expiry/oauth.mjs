@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { waitForLoginBudget } from '../helpers.mjs';
 import { digest, expect, formPost, text } from './fixtures.mjs';
 
 export async function authorize(page, lang, scope = 'game:ticket', clientId = 'e2e-local') {
@@ -9,6 +10,9 @@ export async function authorize(page, lang, scope = 'game:ticket', clientId = 'e
     response_type: 'code', client_id: clientId, redirect_uri: redirect, scope, state,
     code_challenge: digest(verifier).toString('base64url'), code_challenge_method: 'S256',
   };
+  // The authorize GET, consent POST and immediate token exchange use the
+  // same source bucket as browser login.
+  await waitForLoginBudget(3);
   expect((await page.goto(`/oauth/authorize?${new URLSearchParams(params)}`)).status()).toBe(200);
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
   const approve = 'main form[action="/oauth/authorize"]';

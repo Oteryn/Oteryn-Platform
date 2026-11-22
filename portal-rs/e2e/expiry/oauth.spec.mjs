@@ -1,4 +1,4 @@
-import { login } from '../helpers.mjs';
+import { login, waitForLoginBudget } from '../helpers.mjs';
 import { after, before, digest, expect, one, test } from './fixtures.mjs';
 import { authorize, token, tokens } from './oauth.mjs';
 
@@ -22,6 +22,7 @@ test('authorization codes expire before exchange and cannot create a token famil
     expect(await state(digest(form.code))).toEqual({ used_at: null, revoked_at: null, lifetime: 300 });
   }
 
+  await waitForLoginBudget(2);
   await move(digest(valid.code), before);
   await tokens(page, valid);
   expect((await state(digest(valid.code))).used_at).toBeInstanceOf(Date);
@@ -50,6 +51,7 @@ test('expired refresh family cannot rotate even an unused refresh token', async 
   expect(liveFamily.lifetime).toBe(3600);
   expect(expiredFamily.lifetime).toBe(3600);
 
+  await waitForLoginBudget(2);
   await move(liveFamily.id, before);
   const rotated = await tokens(page, refresh(valid));
   expect(rotated.refresh_token !== valid.refresh_token, 'refresh token rotated').toBe(true);
