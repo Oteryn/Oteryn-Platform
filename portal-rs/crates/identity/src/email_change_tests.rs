@@ -915,7 +915,6 @@ async fn delayed_primary_revert_removes_backup_confirmed_during_wait() -> TestRe
 #[tokio::test]
 async fn assisted_change_requires_owner_proof_and_blocks_promotion_until_reversal_expires()
 -> TestResult {
-    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let (db, service, owner) = setup().await?.ok_or("PORTAL_TEST_DATABASE_URL required")?;
     let unapproved = random_token()?;
     let cancellation = random_token()?;
