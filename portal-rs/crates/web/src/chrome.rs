@@ -121,9 +121,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .headers()
             .get_all(header::CACHE_CONTROL)
             .iter()
-            .filter_map(|value| value.to_str().ok())
-            .flat_map(|value| value.split(','))
-            .any(|directive| directive.trim().eq_ignore_ascii_case("no-store"))
+            .any(has_no_store)
     {
         response.headers_mut().append(
             header::CACHE_CONTROL,
@@ -147,6 +145,27 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+fn has_no_store(value: &header::HeaderValue) -> bool {
+    let mut quoted = false;
+    let mut escaped = false;
+    value
+        .as_bytes()
+        .split(|byte| {
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            match byte {
+                b'"' => quoted = !quoted,
+                b'\\' if quoted => escaped = true,
+                b',' if !quoted => return true,
+                _ => {}
+            }
+            false
+        })
+        .any(|directive| directive.trim_ascii().eq_ignore_ascii_case(b"no-store"))
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit
@@ -492,6 +511,19 @@ mod response_tests {
         assert!(html.contains("components.css"));
         assert!(html.contains("<p>op-theme op-shell</p>"));
         Ok(())
+    }
+
+    #[test]
+    fn no_store_must_be_a_directive_not_quoted_text() {
+        for value in [
+            r#"private, ext="v,no-store,v""#,
+            r#"private, ext="escaped\",no-store,text""#,
+        ] {
+            assert!(!has_no_store(&header::HeaderValue::from_static(value)));
+        }
+        assert!(has_no_store(&header::HeaderValue::from_static(
+            r#"private, ext="v,no-store,v", NO-STORE"#
+        )));
     }
 
     #[tokio::test]
