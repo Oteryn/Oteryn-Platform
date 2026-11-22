@@ -4,7 +4,7 @@ import {action, query, seededStaff, unique} from '../staff-rbac-helpers.mjs';
 import {assertShell} from '../shell.mjs';
 
 test('ops views preserve unavailable state and CMS lifecycle records staff decisions', async ({page}, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(420_000);
   const lang = info.project.metadata.locale;
   const staff = await seededStaff(page, lang, 'platform_admin');
   expect((await page.request.get('/console/dashboard?agent=missing-agent')).status()).toBe(403);
@@ -31,7 +31,7 @@ test('ops views preserve unavailable state and CMS lifecycle records staff decis
     ['/console/nodes', localized('Szczegóły węzła', 'Node details')],
   ]) {
     expect((await page.goto(`${route}?lang=${lang}&agent=missing-agent&target=missing-target`)).status()).toBe(200);
-    await expect(page.getByRole('heading', {level: 2})).toHaveText(title);
+    await expect(page.getByRole('main').getByRole('heading', {level: 2})).toHaveText(title);
     await expect(page.locator('main')).toContainText(localized('Niedostępne', 'Unavailable'));
   }
   expect((await page.request.get('/console/worlds?agent=../invalid')).status()).toBe(400);

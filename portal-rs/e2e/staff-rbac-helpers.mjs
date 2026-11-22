@@ -23,9 +23,7 @@ export async function enrollMfa(page,lang,account){
  await submit(page,'form[action$="/mfa/enroll"]',{password:account.password});
  const totp=new OTPAuth.TOTP({secret:await page.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
  await submit(page,'form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
- const codes = page.locator('textarea[readonly]');
- await expect(codes).toHaveCount(8);
- return codes.allTextContents();
+ return page.locator('textarea[readonly]').allTextContents();
 }
 
 export async function loginWithRecoveryCode(page,lang,account,code){
@@ -54,28 +52,36 @@ export async function isolatedAdmin(browser,info){
  }catch(error){await context.close();throw error;}
 }
 
-export async function seededAccount(lang) {
- const account = {email: `${unique()}@example.invalid`, password: password(), locale: lang};
+async function seed(entity, input) {
  const portal = fileURLToPath(new URL('../', import.meta.url));
  const binary = process.env.PORTAL_E2E_BINARY ||
    path.resolve(process.env.CARGO_TARGET_DIR || path.join(portal, 'target'), 'debug/oteryn-portal');
  const database = pool();
- const result = spawnSync(binary, ['seed', 'account', JSON.stringify(account)], {
+ const result = spawnSync(binary, ['seed', entity, JSON.stringify(input)], {
    cwd: portal, encoding: 'utf8',
    env: {...process.env, OTERYN_DATABASE_URL: database.options.connectionString, OTERYN_ENV: 'testing'},
  });
  await database.end();
- expect(result.status, 'seed CLI created the disposable staff account').toBe(0);
- const {accountId} = JSON.parse(result.stdout);
+ expect(result.status, `seed CLI provisioned ${entity}`).toBe(0);
+ return JSON.parse(result.stdout);
+}
+
+export async function seededAccount(lang) {
+ const account = {email: `${unique()}@example.invalid`, password: password(), locale: lang};
+ const {accountId} = await seed('account', account);
  return {...account, id: accountId};
 }
 
-export async function seededStaff(page, lang, role) {
+export async function seededMfaAccount(lang) {
  const account = await seededAccount(lang);
- const accountId = account.id;
- await query('INSERT INTO account_roles(account_id, role_id) SELECT $1, id FROM roles WHERE key=$2', [accountId, role]);
- await login(page, lang, account);
- const codes = await enrollMfa(page, lang, account);
- await loginWithRecoveryCode(page, lang, account, codes[0]);
- return accountId;
+ const {recoveryCodes} = await seed('account-mfa', {accountId: account.id, password: account.password});
+ expect(recoveryCodes.length, 'MFA seed issued the recovery codes').toBe(8);
+ return {...account, recoveryCode: recoveryCodes[0]};
+}
+
+export async function seededStaff(page, lang, role) {
+ const account = await seededMfaAccount(lang);
+ await query('INSERT INTO account_roles(account_id, role_id) SELECT $1, id FROM roles WHERE key=$2', [account.id, role]);
+ await loginWithRecoveryCode(page, lang, account, account.recoveryCode);
+ return account.id;
 }

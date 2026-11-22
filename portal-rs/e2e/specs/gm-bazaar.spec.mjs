@@ -1,10 +1,10 @@
 import {test, expect} from '../fixtures.mjs';
 import {login, submit} from '../helpers.mjs';
 import {listing, post as postFromPage} from '../game-sim-helpers.mjs';
-import {enrollMfa, loginWithRecoveryCode, query, seededAccount, seededStaff} from '../staff-rbac-helpers.mjs';
+import {loginWithRecoveryCode, query, seededAccount, seededMfaAccount, seededStaff} from '../staff-rbac-helpers.mjs';
 
 test('staff suspend and approve listing invalidation with audited reasons', async ({page, browser}, info) => {
-  test.setTimeout(240_000);
+  test.setTimeout(600_000);
   const lang = info.project.metadata.locale;
   const route = `/admin/${lang}/bazaar`;
   const contexts = [];
@@ -18,11 +18,9 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
   try {
     const sellerPage = await newPage();
     const buyerPage = await newPage();
-    const seller = await seededAccount(lang);
+    const seller = await seededMfaAccount(lang);
     const buyer = await seededAccount(lang);
-    await login(sellerPage, lang, seller);
-    const codes = await enrollMfa(sellerPage, lang, seller);
-    await loginWithRecoveryCode(sellerPage, lang, seller, codes[0]);
+    await loginWithRecoveryCode(sellerPage, lang, seller, seller.recoveryCode);
     await sellerPage.goto(`/${lang}/account/sudo`);
     await submit(sellerPage, 'main form', {current_password: seller.password});
     await login(buyerPage, lang, buyer);

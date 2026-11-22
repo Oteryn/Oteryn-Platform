@@ -22,7 +22,7 @@ ADM-01 ratifies transport framing. The allowlisted `analytics.catalog` entry has
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T14:52:00Z
+updated_at: 2026-11-22T15:06:00Z
 head: 33145d6ec7662cd01f91e304ba09fa904edeaf37
 branch: codex/feat-gm-world
 pr: none
@@ -33,10 +33,13 @@ owned_paths:
   - portal-rs/crates/admin/src/bazaar.rs
   - portal-rs/crates/bazaar/src/moderation.rs
   - portal-rs/e2e/specs/gm-world.spec.mjs
+  - portal-rs/e2e/specs/gm-bazaar.spec.mjs
+  - portal-rs/e2e/staff-rbac-helpers.mjs
 proven:
   - Live governing issue 2002 is open and owner correction defines the feature scope.
   - ADM-01 transport framing is ratified and existing ops reads use the control store.
   - The current portal binary built with the lockfile. The mTLS harness reached ready and seeded a disposable world on PostgreSQL 18.6.
+  - The pl-1440 ops and CMS scenario passed. The Bazaar case reached the staff panel and needed a longer scenario budget on the shared runner.
 derived: []
 unknown:
   - Final focused library and four-project browser results are pending.
@@ -57,7 +60,7 @@ validation:
     result: NOT_RUN
     evidence: qualification in progress
 blockers: []
-next_action: Complete local qualification and publish the authorized branch.
+next_action: Complete the remaining focused Rust and browser verification.
 ```
 
 ## Source branch closeout
@@ -65,5 +68,5 @@ next_action: Complete local qualification and publish the authorized branch.
 ```yaml
 source_branch_disposition: retain
 source_branch_reason: Coordinator review of the corrected scope and coverage evidence.
-source_branch_evidence: pending
+source_branch_evidence: GitHub readback confirmed the feature commit 5384cc56c88980ba374d8ea641a99734e9107d00.
 ```
