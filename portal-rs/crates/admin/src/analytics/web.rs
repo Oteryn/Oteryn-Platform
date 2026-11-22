@@ -411,7 +411,7 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":state,"cells":cells})).into_response();
     }
-    let lang = oteryn_ui::preferred_language(request.headers());
+    let lang = oteryn_web::negotiate(request.headers()).code();
     let english = lang == "en";
     let title = match (request.uri().path().trim_end_matches("/data"), english) {
         ("/admin/analytics/creatures", true) => "Creature and boss deaths by world",
