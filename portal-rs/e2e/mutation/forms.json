@@ -55,7 +55,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:13",
+      "source": "templates/account/mfa/page.html:14",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/challenge",
       "actionVariants": [],
@@ -69,7 +69,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:18",
+      "source": "templates/account/mfa/page.html:19",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/email",
       "actionVariants": [],
@@ -81,7 +81,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:21",
+      "source": "templates/account/mfa/page.html:22",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/confirm",
       "actionVariants": [],
@@ -95,7 +95,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:32",
+      "source": "templates/account/mfa/page.html:33",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/enroll",
       "actionVariants": [],
@@ -108,7 +108,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:37",
+      "source": "templates/account/mfa/page.html:38",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/devices",
       "actionVariants": [],
@@ -191,7 +191,8 @@
         "pl_title",
         "pl_slug",
         "pl_summary",
-        "pl_body"
+        "pl_body",
+        "reason"
       ],
       "submits": [
         {}
@@ -205,7 +206,8 @@
       "fields": [
         "_csrf",
         "lock_version",
-        "status"
+        "status",
+        "reason"
       ],
       "submits": [
         {
@@ -277,7 +279,7 @@
       ]
     },
     {
-      "source": "templates/admin/roles.html:5",
+      "source": "templates/admin/roles.html:6",
       "ordinal": 1,
       "action": "/admin/roles",
       "actionVariants": [],
@@ -299,7 +301,7 @@
       ]
     },
     {
-      "source": "templates/admin/roles.html:8",
+      "source": "templates/admin/roles.html:9",
       "ordinal": 1,
       "action": "/admin/roles",
       "actionVariants": [],
@@ -317,7 +319,25 @@
       ]
     },
     {
-      "source": "templates/admin/roles.html:16",
+      "source": "templates/admin/roles.html:19",
+      "ordinal": 1,
+      "action": "/admin/roles",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "key",
+        "permissions",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "create-grant-role"
+        }
+      ]
+    },
+    {
+      "source": "templates/admin/roles.html:29",
       "ordinal": 1,
       "action": "/admin/roles",
       "actionVariants": [],
@@ -675,7 +695,7 @@
       ]
     },
     {
-      "source": "templates/components/thais-account-links.html:25",
+      "source": "templates/components/thais-account-links.html:30",
       "ordinal": 1,
       "action": "/{{ chrome.lang }}/logout",
       "actionVariants": [],
@@ -687,7 +707,7 @@
       ]
     },
     {
-      "source": "templates/components/thais-header.html:112",
+      "source": "templates/components/thais-header.html:123",
       "ordinal": 1,
       "action": "/{{ chrome.lang }}/logout",
       "actionVariants": [],
@@ -704,36 +724,15 @@
       "action": "{{ action }}",
       "actionVariants": [
         "/admin/announcements",
-        "/admin/announcements/{id}/edit"
+        "/admin/announcements/{id}/edit",
+        "/admin/announcements"
       ],
       "fields": [
         "_csrf",
         "lock_version",
-        "publication_state",
-        "severity",
         "{{ field.0 }}"
       ],
       "submits": [
-        {
-          "name": "publication_state",
-          "value": "draft"
-        },
-        {
-          "name": "publication_state",
-          "value": "published"
-        },
-        {
-          "name": "severity",
-          "value": "info"
-        },
-        {
-          "name": "severity",
-          "value": "maintenance"
-        },
-        {
-          "name": "severity",
-          "value": "warning"
-        },
         {}
       ]
     },
@@ -885,7 +884,7 @@
       ]
     },
     {
-      "source": "crates/admin/src/bazaar.rs:274",
+      "source": "crates/admin/src/bazaar.rs:282",
       "ordinal": 1,
       "action": "",
       "actionVariants": [],
@@ -893,7 +892,8 @@
         "_csrf",
         "action",
         "id",
-        "accepted"
+        "accepted",
+        "reason"
       ],
       "submits": [
         {
@@ -912,7 +912,7 @@
       ]
     },
     {
-      "source": "crates/admin/src/bazaar.rs:278",
+      "source": "crates/admin/src/bazaar.rs:289",
       "ordinal": 1,
       "action": "",
       "actionVariants": [],
@@ -947,14 +947,13 @@
       ]
     },
     {
-      "source": "crates/admin/src/commerce/page.html:6",
+      "source": "crates/admin/src/commerce/page.html:7",
       "ordinal": 1,
       "action": "/admin/commerce/{{action.key}}",
       "actionVariants": [
         "/admin/commerce/grant",
         "/admin/commerce/revoke",
         "/admin/commerce/adjust",
-        "/admin/commerce/reconcile",
         "/admin/commerce/refund"
       ],
       "fields": [
@@ -970,18 +969,67 @@
       ]
     },
     {
-      "source": "crates/admin/src/commerce/page.html:17",
+      "source": "crates/admin/src/commerce/page.html:20",
       "ordinal": 1,
       "action": "/admin/commerce/approvals/{{item.id}}",
       "actionVariants": [],
       "fields": [
-        "_csrf"
+        "_csrf",
+        "reason"
       ],
       "submits": [
         {},
         {
           "formaction": "/admin/commerce/cancellations/{{item.id}}"
         }
+      ]
+    },
+    {
+      "source": "crates/admin/src/commerce/panels/catalog.html:13",
+      "ordinal": 1,
+      "action": "?lang={{ chrome.lang }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "current",
+        "generation",
+        "revision",
+        "reason"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/commerce/panels/catalog.html:35",
+      "ordinal": 1,
+      "action": "?lang={{ chrome.lang }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "current",
+        "offer",
+        "price",
+        "reason"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/commerce/panels/payments.html:36",
+      "ordinal": 1,
+      "action": "{{ path }}?lang={{ chrome.lang }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "id",
+        "request_id",
+        "version",
+        "reason"
+      ],
+      "submits": [
+        {}
       ]
     },
     {
@@ -1211,7 +1259,7 @@
       ]
     },
     {
-      "source": "crates/admin/src/support_web.rs:361",
+      "source": "crates/admin/src/support_web.rs:401",
       "ordinal": 1,
       "action": "{}/{}",
       "actionVariants": [
@@ -1298,10 +1346,6 @@
         {
           "name": "status",
           "value": "revoked"
-        },
-        {
-          "name": "appeal_status",
-          "value": "reviewing"
         },
         {
           "name": "appeal_status",
@@ -1651,7 +1695,7 @@
       ]
     },
     {
-      "source": "crates/identity/src/credentials_http.rs:129",
+      "source": "crates/identity/src/credentials_http.rs:149",
       "ordinal": 1,
       "action": "",
       "actionVariants": [],
@@ -1678,6 +1722,18 @@
         "proof",
         "recovery",
         "backup"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/export_http.rs:62",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
       ],
       "submits": [
         {}
@@ -2079,6 +2135,20 @@
       ]
     },
     {
+      "source": "crates/support/templates/appeals/page.html:27",
+      "ordinal": 1,
+      "action": "/{{ lang }}/support/appeals/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "version",
+        "message"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
       "source": "crates/web/src/routes/verify.rs:78",
       "ordinal": 1,
       "action": "/{{ lang }}/verify-email?token={{ token }}",
@@ -2239,7 +2309,7 @@
       "route": "/account/badges",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:473",
+          "source": "crates/web/src/lib.rs:498",
           "handler": "inline closure"
         }
       ]
@@ -2249,7 +2319,7 @@
       "route": "/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:476",
+          "source": "crates/web/src/lib.rs:501",
           "handler": "inline closure"
         }
       ]
@@ -2329,7 +2399,7 @@
       "route": "/account/sudo",
       "sources": [
         {
-          "source": "crates/identity/src/credentials_http.rs:107",
+          "source": "crates/identity/src/credentials_http.rs:120",
           "handler": "sudo"
         }
       ]
@@ -2339,7 +2409,7 @@
       "route": "/admin/announcements",
       "sources": [
         {
-          "source": "crates/content/src/announcements_staff.rs:41",
+          "source": "crates/content/src/announcements_staff.rs:43",
           "handler": "create::"
         }
       ]
@@ -2349,7 +2419,7 @@
       "route": "/admin/announcements/{id}/edit",
       "sources": [
         {
-          "source": "crates/content/src/announcements_staff.rs:43",
+          "source": "crates/content/src/announcements_staff.rs:45",
           "handler": "update::"
         }
       ]
@@ -2359,7 +2429,7 @@
       "route": "/admin/commerce/approvals/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/commerce/http.rs:56",
+          "source": "crates/admin/src/commerce/http.rs:86",
           "handler": "approve::"
         }
       ]
@@ -2369,8 +2439,18 @@
       "route": "/admin/commerce/cancellations/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/commerce/http.rs:57",
+          "source": "crates/admin/src/commerce/http.rs:87",
           "handler": "cancel::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/commerce/reconcile",
+      "sources": [
+        {
+          "source": "crates/admin/src/commerce/http.rs:71",
+          "handler": "panels::payments::record_review"
         }
       ]
     },
@@ -2379,7 +2459,7 @@
       "route": "/admin/commerce/{action}",
       "sources": [
         {
-          "source": "crates/admin/src/commerce/http.rs:55",
+          "source": "crates/admin/src/commerce/http.rs:85",
           "handler": "submit::"
         }
       ]
@@ -2419,7 +2499,7 @@
       "route": "/admin/events",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:189",
+          "source": "crates/content/src/events/web.rs:206",
           "handler": "save_new::"
         }
       ]
@@ -2429,7 +2509,7 @@
       "route": "/admin/events/{id}",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:192",
+          "source": "crates/content/src/events/web.rs:209",
           "handler": "save_existing::"
         }
       ]
@@ -2439,7 +2519,7 @@
       "route": "/admin/events/{id}/status",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:196",
+          "source": "crates/content/src/events/web.rs:213",
           "handler": "status::"
         }
       ]
@@ -2469,7 +2549,7 @@
       "route": "/admin/moderation/enforcement/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/support_web.rs:123",
+          "source": "crates/admin/src/support_web.rs:131",
           "handler": "change::"
         }
       ]
@@ -2479,7 +2559,7 @@
       "route": "/admin/moderation/reports/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/support_web.rs:123",
+          "source": "crates/admin/src/support_web.rs:131",
           "handler": "change::"
         }
       ]
@@ -2526,6 +2606,16 @@
     },
     {
       "method": "POST",
+      "route": "/admin/payment-review",
+      "sources": [
+        {
+          "source": "crates/admin/src/commerce/panels/payments.rs:28",
+          "handler": "record_review"
+        }
+      ]
+    },
+    {
+      "method": "POST",
       "route": "/admin/players/{id}",
       "sources": [
         {
@@ -2539,8 +2629,28 @@
       "route": "/admin/roles",
       "sources": [
         {
-          "source": "crates/admin/src/web.rs:255",
+          "source": "crates/admin/src/web.rs:277",
           "handler": "change::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/store-activation",
+      "sources": [
+        {
+          "source": "crates/admin/src/commerce/panels/catalog.rs:29",
+          "handler": "activate"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/store-catalog",
+      "sources": [
+        {
+          "source": "crates/admin/src/commerce/panels/catalog.rs:23",
+          "handler": "stage"
         }
       ]
     },
@@ -2549,7 +2659,7 @@
       "route": "/admin/support/tickets/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/support_web.rs:123",
+          "source": "crates/admin/src/support_web.rs:131",
           "handler": "change::"
         }
       ]
@@ -2609,7 +2719,7 @@
       "route": "/admin/{lang}/bazaar",
       "sources": [
         {
-          "source": "crates/admin/src/bazaar.rs:169",
+          "source": "crates/admin/src/bazaar.rs:174",
           "handler": "store::"
         }
       ]
@@ -2659,7 +2769,7 @@
       "route": "/console/dashboard",
       "sources": [
         {
-          "source": "crates/admin/src/console/mod.rs:377",
+          "source": "crates/admin/src/console/mod.rs:438",
           "handler": "submit::"
         }
       ]
@@ -2669,7 +2779,7 @@
       "route": "/console/database",
       "sources": [
         {
-          "source": "crates/admin/src/console/mod.rs:389",
+          "source": "crates/admin/src/console/mod.rs:450",
           "handler": "submit::"
         }
       ]
@@ -2679,7 +2789,7 @@
       "route": "/console/nodes",
       "sources": [
         {
-          "source": "crates/admin/src/console/mod.rs:385",
+          "source": "crates/admin/src/console/mod.rs:446",
           "handler": "submit::"
         }
       ]
@@ -2689,7 +2799,7 @@
       "route": "/console/worlds",
       "sources": [
         {
-          "source": "crates/admin/src/console/mod.rs:381",
+          "source": "crates/admin/src/console/mod.rs:442",
           "handler": "submit::"
         }
       ]
@@ -2749,7 +2859,7 @@
       "route": "/mfa/challenge",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:69",
+          "source": "crates/identity/src/mfa_http.rs:66",
           "handler": "challenge"
         }
       ]
@@ -2759,7 +2869,7 @@
       "route": "/mfa/confirm",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:76",
+          "source": "crates/identity/src/mfa_http.rs:73",
           "handler": "confirm"
         }
       ]
@@ -2769,7 +2879,7 @@
       "route": "/mfa/devices",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:77",
+          "source": "crates/identity/src/mfa_http.rs:74",
           "handler": "remove_device"
         }
       ]
@@ -2779,7 +2889,7 @@
       "route": "/mfa/email",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:73",
+          "source": "crates/identity/src/mfa_http.rs:70",
           "handler": "email"
         }
       ]
@@ -2789,7 +2899,7 @@
       "route": "/mfa/enroll",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:75",
+          "source": "crates/identity/src/mfa_http.rs:72",
           "handler": "enroll"
         }
       ]
@@ -2799,7 +2909,7 @@
       "route": "/mfa/login",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:68",
+          "source": "crates/identity/src/mfa_http.rs:65",
           "handler": "login"
         }
       ]
@@ -2809,7 +2919,7 @@
       "route": "/native-account/coin-checkout/{order_id}",
       "sources": [
         {
-          "source": "crates/payments/src/coin_http.rs:40",
+          "source": "crates/payments/src/coin_http.rs:42",
           "handler": "act"
         }
       ]
@@ -2829,7 +2939,7 @@
       "route": "/password/change",
       "sources": [
         {
-          "source": "crates/identity/src/credentials_http.rs:103",
+          "source": "crates/identity/src/credentials_http.rs:116",
           "handler": "change"
         }
       ]
@@ -2899,11 +3009,11 @@
       "route": "/{lang}/account/badges",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:474",
+          "source": "crates/web/src/lib.rs:499",
           "handler": "inline closure"
         },
         {
-          "source": "crates/web/src/lib.rs:475",
+          "source": "crates/web/src/lib.rs:500",
           "handler": "inline closure"
         }
       ]
@@ -2981,7 +3091,7 @@
       "route": "/{lang}/account/characters/{character}/services",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:482",
+          "source": "crates/web/src/lib.rs:507",
           "handler": "inline closure"
         }
       ]
@@ -2991,11 +3101,11 @@
       "route": "/{lang}/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:477",
+          "source": "crates/web/src/lib.rs:502",
           "handler": "inline closure"
         },
         {
-          "source": "crates/web/src/lib.rs:481",
+          "source": "crates/web/src/lib.rs:506",
           "handler": "inline closure"
         }
       ]
@@ -3005,7 +3115,7 @@
       "route": "/{lang}/account/consents",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:331",
+          "source": "crates/web/src/lib.rs:356",
           "handler": "inline closure"
         }
       ]
@@ -3055,7 +3165,7 @@
       "route": "/{lang}/account/passkeys/authenticate/finish",
       "sources": [
         {
-          "source": "crates/identity/src/passkeys_http.rs:48",
+          "source": "crates/identity/src/passkeys_http.rs:49",
           "handler": "authenticate_finish"
         }
       ]
@@ -3065,7 +3175,7 @@
       "route": "/{lang}/account/passkeys/authenticate/start",
       "sources": [
         {
-          "source": "crates/identity/src/passkeys_http.rs:44",
+          "source": "crates/identity/src/passkeys_http.rs:45",
           "handler": "authenticate_start"
         }
       ]
@@ -3075,7 +3185,7 @@
       "route": "/{lang}/account/passkeys/register/finish",
       "sources": [
         {
-          "source": "crates/identity/src/passkeys_http.rs:40",
+          "source": "crates/identity/src/passkeys_http.rs:41",
           "handler": "register_finish"
         }
       ]
@@ -3085,7 +3195,7 @@
       "route": "/{lang}/account/passkeys/register/start",
       "sources": [
         {
-          "source": "crates/identity/src/passkeys_http.rs:36",
+          "source": "crates/identity/src/passkeys_http.rs:37",
           "handler": "register_start"
         }
       ]
@@ -3095,7 +3205,7 @@
       "route": "/{lang}/account/passkeys/{id}/remove",
       "sources": [
         {
-          "source": "crates/identity/src/passkeys_http.rs:52",
+          "source": "crates/identity/src/passkeys_http.rs:53",
           "handler": "remove"
         }
       ]
@@ -3127,6 +3237,20 @@
         {
           "source": "crates/identity/src/account_lifecycle_http.rs:138",
           "handler": "cancel"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/privacy/export",
+      "sources": [
+        {
+          "source": "crates/identity/src/export_http.rs:193",
+          "handler": "handler"
+        },
+        {
+          "source": "crates/identity/src/export_http.rs:199",
+          "handler": "handler"
         }
       ]
     },
@@ -3215,7 +3339,21 @@
       "route": "/{lang}/account/sudo",
       "sources": [
         {
-          "source": "crates/identity/src/credentials_http.rs:107",
+          "source": "crates/identity/src/credentials_http.rs:120",
+          "handler": "sudo"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/admin/roles/confirm",
+      "sources": [
+        {
+          "source": "crates/identity/src/staff_confirmation_http.rs:16",
+          "handler": "sudo"
+        },
+        {
+          "source": "crates/identity/src/staff_confirmation_http.rs:17",
           "handler": "sudo"
         }
       ]
@@ -3235,7 +3373,7 @@
       "route": "/{lang}/admin/support/tickets/{id}/reply",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:129",
+          "source": "crates/support/src/tickets/web.rs:130",
           "handler": "reply"
         }
       ]
@@ -3245,7 +3383,7 @@
       "route": "/{lang}/admin/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:133",
+          "source": "crates/support/src/tickets/web.rs:134",
           "handler": "status"
         }
       ]
@@ -3307,7 +3445,7 @@
       "route": "/{lang}/collection/battles/{id}",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:91",
+          "source": "crates/minigames/src/collection/http.rs:111",
           "handler": "turn"
         }
       ]
@@ -3317,7 +3455,7 @@
       "route": "/{lang}/collection/battles/{id}/forfeit",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:95",
+          "source": "crates/minigames/src/collection/http.rs:115",
           "handler": "forfeit"
         }
       ]
@@ -3327,7 +3465,7 @@
       "route": "/{lang}/collection/decks/{id}/battle",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:90",
+          "source": "crates/minigames/src/collection/http.rs:110",
           "handler": "start"
         }
       ]
@@ -3337,7 +3475,7 @@
       "route": "/{lang}/collection/decks/{id}/delete",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:96",
+          "source": "crates/minigames/src/collection/http.rs:116",
           "handler": "delete_deck"
         }
       ]
@@ -3347,7 +3485,7 @@
       "route": "/{lang}/collection/{character}/decks",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:85",
+          "source": "crates/minigames/src/collection/http.rs:105",
           "handler": "save"
         }
       ]
@@ -3415,7 +3553,7 @@
       "route": "/{lang}/mfa/challenge",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:69",
+          "source": "crates/identity/src/mfa_http.rs:66",
           "handler": "challenge"
         }
       ]
@@ -3425,7 +3563,7 @@
       "route": "/{lang}/mfa/confirm",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:76",
+          "source": "crates/identity/src/mfa_http.rs:73",
           "handler": "confirm"
         }
       ]
@@ -3435,7 +3573,7 @@
       "route": "/{lang}/mfa/devices",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:77",
+          "source": "crates/identity/src/mfa_http.rs:74",
           "handler": "remove_device"
         }
       ]
@@ -3445,7 +3583,7 @@
       "route": "/{lang}/mfa/email",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:73",
+          "source": "crates/identity/src/mfa_http.rs:70",
           "handler": "email"
         }
       ]
@@ -3455,7 +3593,7 @@
       "route": "/{lang}/mfa/enroll",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:75",
+          "source": "crates/identity/src/mfa_http.rs:72",
           "handler": "enroll"
         }
       ]
@@ -3465,7 +3603,7 @@
       "route": "/{lang}/mfa/login",
       "sources": [
         {
-          "source": "crates/identity/src/mfa_http.rs:68",
+          "source": "crates/identity/src/mfa_http.rs:65",
           "handler": "login"
         }
       ]
@@ -3505,7 +3643,7 @@
       "route": "/{lang}/pass/{season}/buy",
       "sources": [
         {
-          "source": "crates/minigames/src/pass/web.rs:116",
+          "source": "crates/minigames/src/pass/web.rs:126",
           "handler": "buy::"
         }
       ]
@@ -3515,7 +3653,7 @@
       "route": "/{lang}/pass/{season}/claim",
       "sources": [
         {
-          "source": "crates/minigames/src/pass/web.rs:120",
+          "source": "crates/minigames/src/pass/web.rs:130",
           "handler": "claim::"
         }
       ]
@@ -3525,7 +3663,7 @@
       "route": "/{lang}/password/change",
       "sources": [
         {
-          "source": "crates/identity/src/credentials_http.rs:103",
+          "source": "crates/identity/src/credentials_http.rs:116",
           "handler": "change"
         }
       ]
@@ -3650,6 +3788,16 @@
     },
     {
       "method": "POST",
+      "route": "/{lang}/support/appeals/{id}",
+      "sources": [
+        {
+          "source": "crates/support/src/appeals/web.rs:36",
+          "handler": "submit"
+        }
+      ]
+    },
+    {
+      "method": "POST",
       "route": "/{lang}/support/reports",
       "sources": [
         {
@@ -3663,7 +3811,7 @@
       "route": "/{lang}/support/tickets",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:99",
+          "source": "crates/support/src/tickets/web.rs:100",
           "handler": "create"
         }
       ]
@@ -3673,7 +3821,7 @@
       "route": "/{lang}/support/tickets/{id}/read",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:102",
+          "source": "crates/support/src/tickets/web.rs:103",
           "handler": "mark_read"
         }
       ]
@@ -3683,7 +3831,7 @@
       "route": "/{lang}/support/tickets/{id}/reply",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:106",
+          "source": "crates/support/src/tickets/web.rs:107",
           "handler": "reply"
         }
       ]
@@ -3693,7 +3841,7 @@
       "route": "/{lang}/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:110",
+          "source": "crates/support/src/tickets/web.rs:111",
           "handler": "status"
         }
       ]
@@ -3741,7 +3889,7 @@
       "route": "/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:476",
+          "source": "crates/web/src/lib.rs:501",
           "handler": "inline closure"
         }
       ]
@@ -3751,7 +3899,7 @@
       "route": "/admin/events/{id}",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:192",
+          "source": "crates/content/src/events/web.rs:209",
           "handler": "save_existing::"
         }
       ]
@@ -3761,7 +3909,7 @@
       "route": "/admin/events/{id}/status",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:196",
+          "source": "crates/content/src/events/web.rs:213",
           "handler": "status::"
         }
       ]
@@ -3781,7 +3929,7 @@
       "route": "/password/change",
       "sources": [
         {
-          "source": "crates/identity/src/credentials_http.rs:103",
+          "source": "crates/identity/src/credentials_http.rs:116",
           "handler": "change"
         }
       ]
@@ -3791,11 +3939,11 @@
       "route": "/{lang}/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:477",
+          "source": "crates/web/src/lib.rs:502",
           "handler": "inline closure"
         },
         {
-          "source": "crates/web/src/lib.rs:481",
+          "source": "crates/web/src/lib.rs:506",
           "handler": "inline closure"
         }
       ]
@@ -3815,7 +3963,7 @@
       "route": "/{lang}/admin/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:133",
+          "source": "crates/support/src/tickets/web.rs:134",
           "handler": "status"
         }
       ]
@@ -3825,7 +3973,7 @@
       "route": "/{lang}/password/change",
       "sources": [
         {
-          "source": "crates/identity/src/credentials_http.rs:103",
+          "source": "crates/identity/src/credentials_http.rs:116",
           "handler": "change"
         }
       ]
@@ -3835,7 +3983,7 @@
       "route": "/{lang}/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:110",
+          "source": "crates/support/src/tickets/web.rs:111",
           "handler": "status"
         }
       ]

@@ -9,7 +9,7 @@ python3 mutation/generate.py --check
 
 `forms.json` records source POST forms, including Rust-rendered markup, and write-method router registrations. A form's source and ordinal identify it when several forms share a line. An empty `action` submits to the current document. `actionVariants` captures finite template expansions inferred from literals or the form's rendering code. Runtime identifiers remain template expressions. Locale-prefixed routes share a row, while unprefixed aliases retain their own rows. The inventory includes source registrations behind feature gates and compatibility routes. Native and internal protocol receivers and provider webhooks are outside the browser inventory. The generator fails when it finds an unresolved write-route binding, so indirect registrations require an explicit source mapping.
 
-There are 108 source forms and 165 write-method and route pairs. The table
+There are 114 source forms and 172 write-method and route pairs. The table
 covers route aliases and named submit choices together where they use the same
 form, authorization and persistence rules.
 
