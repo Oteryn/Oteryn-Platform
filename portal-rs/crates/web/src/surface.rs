@@ -91,43 +91,11 @@ impl Language {
 }
 
 pub(crate) fn negotiate(headers: &HeaderMap) -> Language {
-    for cookie in headers.get_all(header::COOKIE) {
-        if let Ok(cookie) = cookie.to_str() {
-            for part in cookie.split(';') {
-                if let Some(("portal_language", value)) = part.trim().split_once('=')
-                    && let Some(lang) = Language::parse(value)
-                {
-                    return lang;
-                }
-            }
-        }
+    if oteryn_ui::preferred_language(headers) == "en" {
+        Language::En
+    } else {
+        Language::Pl
     }
-    let mut candidates = Vec::new();
-    if let Some(value) = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-    {
-        for (index, item) in value.split(',').enumerate() {
-            let mut parts = item.trim().split(';');
-            let tag = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
-            let quality = match parts.next() {
-                None => 1.0,
-                Some(q) => q
-                    .trim()
-                    .strip_prefix("q=")
-                    .and_then(|q| q.parse::<f32>().ok())
-                    .unwrap_or(0.0),
-            };
-            if quality > 0.0
-                && quality <= 1.0
-                && let Some(lang) = Language::parse(tag.split('-').next().unwrap_or_default())
-            {
-                candidates.push((quality, index, lang));
-            }
-        }
-    }
-    candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-    candidates.first().map_or(Language::Pl, |item| item.2)
 }
 
 fn message(lang: Language, id: &str) -> String {
