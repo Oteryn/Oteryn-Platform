@@ -15,10 +15,10 @@ FROM (
 CROSS JOIN LATERAL (
     SELECT
         CASE WHEN jsonb_typeof(event.before) = 'object' THEN
-            coalesce(jsonb_object_agg(field, snapshot -> field) FILTER (WHERE NOT is_after), '{}'::jsonb)
+            coalesce(jsonb_object_agg(field, normalized.value) FILTER (WHERE NOT is_after), '{}'::jsonb)
         ELSE 'null'::jsonb END AS before,
         CASE WHEN jsonb_typeof(event.after) = 'object' THEN
-            coalesce(jsonb_object_agg(field, snapshot -> field) FILTER (WHERE is_after), '{}'::jsonb)
+            coalesce(jsonb_object_agg(field, normalized.value) FILTER (WHERE is_after), '{}'::jsonb)
         ELSE 'null'::jsonb END AS after
     FROM (VALUES (false, event.before), (true, event.after)) AS sides(is_after, snapshot)
     CROSS JOIN LATERAL jsonb_array_elements_text(
@@ -27,6 +27,21 @@ CROSS JOIN LATERAL (
                 THEN $8::jsonb ELSE '[]'::jsonb END
         || '["email"]'::jsonb
     ) AS allowed(field)
+    CROSS JOIN LATERAL (SELECT snapshot -> field AS value) AS recorded
+    CROSS JOIN LATERAL (
+        SELECT CASE
+            WHEN field IN ('published_at', 'translation_published_at')
+            -- Restrict the cast to absolute ISO dates with an explicit offset.
+            -- PostgreSQL's parser handles offset variants and rounds to microseconds.
+            -- Relative legacy values such as "today" must remain unknown.
+            AND jsonb_typeof(recorded.value) = 'string'
+            AND recorded.value #>> '{}' ~
+                '^[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt]|[[:space:]]+)[0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?[[:space:]]*([Zz]|[+-]([0-9]{3,4}|[0-9]{1,2}(:[0-9]{1,2}(:[0-9]{1,2})?)?))[[:space:]]*$'
+            AND pg_input_is_valid(recorded.value #>> '{}', 'timestamp with time zone')
+            THEN to_jsonb((to_jsonb((recorded.value #>> '{}')::timestamptz AT TIME ZONE 'UTC') #>> '{}') || 'Z')
+            ELSE recorded.value
+        END AS value
+    ) AS normalized
     WHERE jsonb_typeof(snapshot) = 'object' AND snapshot ? field
 ) AS projected
 ORDER BY event.created_at DESC, event.id DESC

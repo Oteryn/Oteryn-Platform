@@ -597,6 +597,80 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let _guard = oteryn_db::test_support::global_lock_guard().await?;
+        let db = super::super::players::tests::Database::open(&std::env::var(
+            "PORTAL_TEST_DATABASE_URL",
+        )?)
+        .await?;
+        let request_id = Uuid::now_v7();
+        for (legacy, canonical) in [
+            ("2020-01-01 00:00:00+0000", "2020-01-01T00:00:00Z"),
+            ("2020-01-01 00:00:00-0230", "2020-01-01T02:30:00Z"),
+            ("2020-01-01 00:00:00+01:30:59", "2019-12-31T22:29:01Z"),
+            (
+                "2020-01-01 00:00:00.1234565Z",
+                "2020-01-01T00:00:00.123456Z",
+            ),
+            ("2020-01-01 00:00:00.0002495Z", "2020-01-01T00:00:00.00025Z"),
+            ("2020-01-01 23:59:59.9999995Z", "2020-01-02T00:00:00Z"),
+        ] {
+            let mut tx = db.pool.begin().await?;
+            crate::audit::append(
+                &mut tx,
+                crate::audit::Entry {
+                    context: crate::audit::AuditContext {
+                        actor: None,
+                        request_id,
+                    },
+                    action: "cms.news_updated",
+                    target: legacy,
+                    before: json!({"published_at":canonical,"translation_published_at":canonical}),
+                    after: json!({"published_at":legacy,"translation_published_at":legacy}),
+                },
+            )
+            .await?;
+            tx.commit().await?;
+        }
+        let mut tx = db.pool.begin().await?;
+        crate::audit::append(&mut tx, crate::audit::Entry {
+            context: crate::audit::AuditContext { actor: None, request_id },
+            action: "cms.news_updated",
+            target: "invalid",
+            before: json!({"published_at":null,"translation_published_at":null}),
+            after: json!({"published_at":"today","translation_published_at":"2020-02-30T00:00:00+0000"}),
+        }).await?;
+        tx.commit().await?;
+
+        let rows = platform_rows(
+            &db.pool,
+            &Filter {
+                request_id: Some(request_id),
+                ..Default::default()
+            },
+        )
+        .await?;
+        assert_eq!(rows.len(), 7);
+        for row in rows {
+            let changes = changes("en", &row.action, &row.target, &row.before, &row.after);
+            if row.target == "invalid" {
+                assert_eq!(changes.len(), 2);
+                assert!(
+                    changes
+                        .iter()
+                        .all(|change| change.before == "—" && change.after == "Unknown")
+                );
+            } else {
+                assert_eq!(row.before, row.after, "{}", row.target);
+                assert!(changes.is_empty(), "{}", row.target);
+            }
+        }
+        db.close().await?;
+        Ok(())
+    }
+
     #[test]
     fn diff_masks_email_and_omits_credentials_unknown_fields_and_unchanged_values() {
         let before = json!({"email":"alice@example.invalid", "title":"Private draft alice@example.invalid", "slug":"same"});
