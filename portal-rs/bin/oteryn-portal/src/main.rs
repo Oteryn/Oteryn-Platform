@@ -270,9 +270,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 db.clone(),
                 oteryn_content::announcements::banner,
             ));
-            let app = app.merge(email_change_http::configured_router(db.clone()));
-            let email_change_enabled =
-                email_change_http::configured_router(db.clone()).has_routes();
+            let email_change = email_change_http::configured_router(db.clone());
+            let email_change_enabled = email_change.has_routes();
+            let app = app.merge(email_change);
             let app = app.merge(oteryn_admin::commerce::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());
@@ -402,23 +402,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             navigation.registration = true; // register::routes is always mounted.
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
             navigation.account = true; // /account is always mounted.
-            oteryn_identity::navigation::register(&mut navigation, export_enabled);
-            oteryn_identity::navigation::register_identity_panel(&mut navigation.panels);
-            navigation.staff_host = oteryn_admin::web::configured_dashboard_host()?;
-            oteryn_characters::navigation::register(&mut navigation);
-            oteryn_characters::overview::register_navigation(&mut navigation);
-            oteryn_store::navigation::register(&mut navigation);
-            oteryn_content::navigation::register(&mut navigation);
-            oteryn_wiki::navigation::register(&mut navigation);
-            oteryn_community::navigation::register(&mut navigation);
-            oteryn_stats::navigation::register(&mut navigation);
-            oteryn_atlas::navigation::register(&mut navigation);
-            oteryn_minigames::navigation::register(&mut navigation);
-            oteryn_hirelings::navigation::register(&mut navigation);
-            oteryn_playerdata::navigation::register(&mut navigation);
-            oteryn_payments::navigation::register(&mut navigation);
-            oteryn_support::navigation::register(&mut navigation);
-            oteryn_bazaar::navigation::register(&mut navigation);
             use oteryn_ui::panels::{Entry, Panel, Permission};
             for (enabled, route, label) in [
                 (
@@ -443,6 +426,23 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     },
                 );
             }
+            oteryn_identity::navigation::register(&mut navigation, export_enabled);
+            oteryn_identity::navigation::register_identity_panel(&mut navigation.panels);
+            navigation.staff_host = oteryn_admin::web::configured_dashboard_host()?;
+            oteryn_characters::navigation::register(&mut navigation);
+            oteryn_characters::overview::register_navigation(&mut navigation);
+            oteryn_store::navigation::register(&mut navigation);
+            oteryn_content::navigation::register(&mut navigation);
+            oteryn_wiki::navigation::register(&mut navigation);
+            oteryn_community::navigation::register(&mut navigation);
+            oteryn_stats::navigation::register(&mut navigation);
+            oteryn_atlas::navigation::register(&mut navigation);
+            oteryn_minigames::navigation::register(&mut navigation);
+            oteryn_hirelings::navigation::register(&mut navigation);
+            oteryn_playerdata::navigation::register(&mut navigation);
+            oteryn_payments::navigation::register(&mut navigation);
+            oteryn_support::navigation::register(&mut navigation);
+            oteryn_bazaar::navigation::register(&mut navigation);
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
                     registry: navigation.clone(),

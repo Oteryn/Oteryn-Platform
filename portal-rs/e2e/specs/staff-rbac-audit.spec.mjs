@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { submit } from '../helpers.mjs';
-import { audit, confirmStaffPassword, enrollMfa, isolatedAdmin, loginWithRecoveryCode, membership, player, query, role } from '../staff-rbac-helpers.mjs';
+import { login, submit } from '../helpers.mjs';
+import { audit, confirmStaffPassword, enrollMfa, isolatedStaff, loginWithRecoveryCode, membership, query, role, seededAccount } from '../staff-rbac-helpers.mjs';
 
 test('Platform audit shows role changes and keeps them from Game audit staff', async ({ page, browser }, info) => {
   test.setTimeout(480_000);
   const lang = info.project.metadata.locale;
-  const account = await player(page, lang);
-  const staff = await isolatedAdmin(browser, info);
+  const account = await seededAccount(lang);
+  await login(page, lang, account);
+  const staff = await isolatedStaff(browser, info, 'platform_admin', await seededAccount(lang));
 
   try {
     const id = await role(staff.page, 'admin.access audit.view');

@@ -85,11 +85,14 @@ test('panel navigation enforces scope and role grants require a reason', async (
   const playerNav = page.getByRole('navigation', {name: label.player, exact: true});
   for (const [name, suffix] of [
     [label.email, 'security/email'],
-    [label.export, 'sudo?return_to=export'],
+    [label.export, 'privacy/export'],
     [label.deletion, 'privacy/delete'],
   ]) {
     await expect(playerNav.getByRole('link', {name, exact: true})).toHaveAttribute('href', `/${lang}/account/${suffix}`);
   }
+  const exportChallenge = await page.request.get(`/${lang}/account/privacy/export`, {maxRedirects: 0});
+  expect(exportChallenge.status()).toBe(303);
+  expect(exportChallenge.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
   await playerNav.getByRole('link', {name: label.email, exact: true}).click();
   await expect(page).toHaveURL(new RegExp(`/${lang}/account/security/email$`));
   await expect(page.locator('[data-staff-dashboard]')).toHaveCount(0);

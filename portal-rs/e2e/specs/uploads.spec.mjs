@@ -135,7 +135,7 @@ for (const { image, width, height, thumbnailHeight, responseBudget = 30_000 } of
       });
       expect((await response.body()).length).toBeGreaterThan(0);
     }
-    const localeQuery = lang === 'en' ? '?lang=en' : '';
+    const localeQuery = `?lang=${lang}`;
     await submit(page, `main form[action="${media}/delete${localeQuery}"]`);
     await expect(page).toHaveURL(`${route}${localeQuery}`);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
@@ -176,7 +176,7 @@ test('retrying a rendered upload returns success with one media row', async ({ p
   expect(conflict.status()).toBe(409);
   await expect(page.getByRole('heading', { name: lang === 'en' ? 'This form was already used' : 'Formularz został już użyty' })).toBeVisible();
   await expectNoMedia(changed);
-  const localeQuery = lang === 'en' ? '?lang=en' : '';
+  const localeQuery = `?lang=${lang}`;
   const back = backToMedia(page, lang);
   await expect(back).toHaveAttribute('href', `${route}${localeQuery}`);
   await back.click();
@@ -239,7 +239,7 @@ test('an upload filename with path segments cannot select the stored media path'
   const response = await page.request.get(`${media}/content`, { maxRedirects: 0 });
   expect(response.status()).toBe(200);
   expect(response.headers()['content-disposition']).toBe('inline');
-  const localeQuery = lang === 'en' ? '?lang=en' : '';
+  const localeQuery = `?lang=${lang}`;
   await submit(page, `main form[action="${media}/delete${localeQuery}"]`);
   await expectNoMedia(alt);
 });
@@ -311,7 +311,7 @@ test('signed-in editor submits a 7 MiB native form over a 10 Mbps uplink', async
     expect(await uploaded.request().headerValue('x-csrf-token')).toBeNull();
     expect(uploaded.status()).toBe(302);
     expect(performance.now() - started).toBeGreaterThan(5000);
-    const localeQuery = lang === 'en' ? '?lang=en' : '';
+    const localeQuery = `?lang=${lang}`;
     await expect(page).toHaveURL(`${route}${localeQuery}`);
     await expect(page.getByRole('img', { name: alt, exact: true })).toBeVisible();
     const rows = await query('SELECT id, mime_type FROM media WHERE alt_text=$1', [alt]);
