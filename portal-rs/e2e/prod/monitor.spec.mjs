@@ -1,5 +1,7 @@
 import { test } from '@playwright/test';
 import { Secret, TOTP } from 'otpauth';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const READ = 10_000;
@@ -16,15 +18,28 @@ function requireThat(condition, message) {
   if (!condition) throw new MonitorFailure(message);
 }
 
-test('Production portal synthetic monitor', async ({ page, context, baseURL }, info) => {
+test('Production portal synthetic monitor', async ({ browser, context, baseURL }, info) => {
+  const { lang, writePreference } = info.project.metadata;
   const origin = new URL(baseURL).origin;
+  const runDirectory = process.env.MONITOR_RUN_DIRECTORY;
+  const counter = join(runDirectory, 'requests');
+  const diagnostics = join(runDirectory, 'diagnostics');
+  const baseline = process.env.MONITOR_BASELINE_LOCALE ?? 'pl';
   const anonymousOnly = process.env.MONITOR_ANONYMOUS_ONLY === '1';
   const { MONITOR_EMAIL: email, MONITOR_PASSWORD: password, MONITOR_TOTP_SECRET: secret } = process.env;
+  const page = await context.newPage();
   const cdp = await context.newCDPSession(page);
-  let requestCount = 0;
+  const browserCdp = await browser.newBrowserCDPSession();
+  const { targetInfo } = await cdp.send('Target.getTargetInfo');
+  const { frameTree } = await cdp.send('Page.getFrameTree');
+  const mainFrame = frameTree.frame.id;
+  // Workers run sequentially, with a single request allowance shared by both projects.
+  let requestCount = Number(readFileSync(counter, 'utf8'));
+  requireThat(Number.isInteger(requestCount) && requestCount >= 0 && requestCount <= 60,
+    'invalid shared request count');
   const assets = new Map();
   let allowedPost;
-  let lastTotpCounter;
+  let privacyWritesForwarded = 0;
   let activeStep = 'browser setup';
   let nextScreenshot = 0;
   const problems = [];
@@ -32,6 +47,35 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
   function record(message) {
     problems.push({ step: activeStep, message });
   }
+
+  async function rejectTarget({ targetInfo: target }) {
+    if (target.targetId === targetInfo.targetId) return;
+    record(`unexpected browser target blocked (${target.type})`);
+    // Never resume a child. Close it where Chromium supports closing that target.
+    await browserCdp.send('Target.closeTarget', { targetId: target.targetId }).catch(() => {});
+  }
+
+  for (const session of [browserCdp, cdp]) {
+    session.on('Target.attachedToTarget', rejectTarget);
+    await session.send('Target.setAutoAttach', {
+      autoAttach: true, waitForDebuggerOnStart: true, flatten: true,
+      filter: ['browser', 'browser_ui', 'tab'].map((type) => ({ type, exclude: true })).concat({}),
+    });
+  }
+
+  // Context routing also sees a popup's first navigation, before Playwright
+  // can associate it with a page. Only the known top-level frame may proceed.
+  await context.route('**/*', async (route) => {
+    let main = false;
+    try {
+      main = route.request().frame() === page.mainFrame();
+    } catch {
+      // The request belongs to a target whose frame is not registered.
+    }
+    if (main) return route.fallback();
+    record('unexpected browser request blocked');
+    await route.abort('blockedbyclient');
+  });
 
   page.on('console', (message) => {
     if (message.type() === 'error') record('browser console error');
@@ -67,15 +111,15 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
   }
 
   // Chromium pauses every hop, including redirects, before sending it.
-  await cdp.send('Fetch.enable', { patterns: [{ urlPattern: 'http*' }] });
   cdp.on('Fetch.requestPaused', async (event) => {
     const { requestId, request, resourceType, responseStatusCode, responseHeaders } = event;
-    const { origin: targetOrigin, pathname } = new URL(request.url);
+    const { origin: targetOrigin, pathname, search } = new URL(request.url);
     const portal = targetOrigin === origin;
     const beacon = targetOrigin === 'https://static.cloudflareinsights.com'
       && pathname.startsWith('/beacon.min.js') && resourceType === 'Script';
     const asset = (portal && pathname.startsWith('/static/')
       && ['Stylesheet', 'Script'].includes(resourceType)) || beacon;
+    let privacyWrite = false;
     try {
       if (responseStatusCode !== undefined || event.responseErrorReason) {
         if (responseStatusCode === 200) {
@@ -100,9 +144,21 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
         await cdp.send('Fetch.fulfillRequest', { requestId, responseCode: 204 });
         return;
       }
-      if (request.method === 'POST' && targetOrigin === origin && pathname === allowedPost
+      if (resourceType === 'Document' && event.frameId !== mainFrame) {
+        record('unexpected frame navigation blocked');
+        await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
+        return;
+      }
+      if (request.method === 'POST' && portal && !search && pathname === allowedPost?.path
           && resourceType === 'Document') {
+        const fields = allowedPost.fields;
         allowedPost = undefined;
+        if (fields && !matchesPrivacyPost(request, fields)) {
+          record('unsafe privacy form submission blocked');
+          await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
+          return;
+        }
+        privacyWrite = Boolean(fields);
       } else if (request.method !== 'GET' && request.method !== 'HEAD') {
         record('unexpected mutation blocked');
         await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
@@ -126,6 +182,8 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
         return;
       }
       requestCount += 1;
+      writeFileSync(counter, String(requestCount));
+      if (privacyWrite) privacyWritesForwarded += 1;
       await cdp.send('Fetch.continueRequest', { requestId, interceptResponse: asset });
     } catch (error) {
       // Chromium can cancel a subresource when its document is replaced.
@@ -134,9 +192,20 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
         const method = /Protocol error \(Fetch\.([A-Za-z]+)\)/.exec(error.message)?.[1];
         record(`browser request interception failed (${resourceType}, ${method ?? 'unknown'})`);
       }
-
     }
   });
+
+  await cdp.send('Fetch.enable', { patterns: [{ urlPattern: 'http*' }] });
+
+  function matchesPrivacyPost(request, expected) {
+    const contentType = Object.entries(request.headers)
+      .find(([name]) => name.toLowerCase() === 'content-type')?.[1];
+    if (!/^application\/x-www-form-urlencoded(?:;|$)/i.test(contentType ?? '')
+        || typeof request.postData !== 'string') return false;
+    const entries = [...new URLSearchParams(request.postData)];
+    return entries.length === expected.size && new Set(entries.map(([name]) => name)).size === expected.size
+      && entries.every(([name, value]) => expected.get(name) === value);
+  }
 
   async function step(name, budget, run, publicHome) {
     activeStep = name;
@@ -160,6 +229,10 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
           await page.screenshot({ path: info.outputPath(`public-home-${++nextScreenshot}.png`),
             timeout: 2_000 }).catch(() => {});
         }
+        appendFileSync(diagnostics, `${info.project.name} failed at ${name}\n`);
+        for (const reason of [...new Set(diagnostic)]) {
+          appendFileSync(diagnostics, `Diagnostic: ${reason}\n`);
+        }
         throw new Error(`MONITOR_FAILURE: ${name} (${[...new Set(diagnostic)].join('; ')})`);
       }
       return result;
@@ -181,14 +254,16 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
     return response;
   }
 
-  async function submit(form, path) {
-    allowedPost = path;
+  async function submit(form, path, fields) {
+    allowedPost = { path, fields };
     try {
-      const [response] = await Promise.all([
+      const [navigation, click] = await Promise.allSettled([
         page.waitForNavigation(),
         form.locator('button[type="submit"], button:not([type])').first().click(),
       ]);
-      checkResponse(response);
+      if (click.status === 'rejected') throw click.reason;
+      if (navigation.status === 'rejected') throw navigation.reason;
+      checkResponse(navigation.value);
     } finally {
       allowedPost = undefined;
     }
@@ -201,121 +276,167 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
     return form;
   }
 
-  for (const lang of LANGUAGES) {
-    const home = `/${lang}/`;
-    await step(`Anonymous ${lang} home`, READ, () => go(home), home);
+  const home = `/${lang}/`;
+  const privacy = `/${lang}/account/privacy`;
+  const sessions = `/${lang}/account/sessions`;
+
+  const publicChecks = [];
+  if (writePreference) {
+    publicChecks.push(['Public health', async () => {
+      const response = await go('/healthz');
+      requireThat(response.ok() && currentPath() === '/healthz', 'unexpected health response');
+    }], ['Anonymous login form', async () => {
+      await go('/login');
+      await loginForm();
+    }]);
   }
-  await step('Public health', READ, async () => {
-    const response = await go('/healthz');
-    requireThat(response.ok() && currentPath() === '/healthz', 'unexpected health response');
-  });
-  await step('Anonymous login form', READ, async () => {
-    await go('/login');
-    await loginForm();
-  });
+  publicChecks.push([`Anonymous ${lang} home`, async () => {
+    await go(home);
+    requireThat(page.url() === new URL(home, origin).href, 'unexpected homepage destination');
+    requireThat(await page.locator('html').getAttribute('lang') === lang, 'wrong homepage language');
+    await page.locator('main #hero-title').waitFor();
+  }, home]);
+  const failures = [];
+  for (const [name, check, screenshot] of publicChecks) {
+    try {
+      await step(name, READ, check, screenshot);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length) throw failures[0];
+
+  async function finish() {
+    await step('Close browser page', READ, () => page.close());
+    appendFileSync(diagnostics, `${info.project.name} passed\n`);
+  }
 
   if (anonymousOnly) {
-    console.log(`Monitor completed with ${requestCount} requests.`);
+    await finish();
     return;
   }
   await step('Monitor credentials configured', READ, () => {
     requireThat(email && password, 'MONITOR_EMAIL and MONITOR_PASSWORD are required');
+    requireThat(LANGUAGES.includes(baseline), 'MONITOR_BASELINE_LOCALE must be pl or en');
   });
 
-  for (const lang of LANGUAGES) {
-    const home = `/${lang}/`;
-    const privacy = `/${lang}/account/privacy`;
-    const sessions = `/${lang}/account/sessions`;
-    await step(`${lang} home and login form`, READ, async () => {
-      await go(home);
-      checkResponse((await Promise.all([
-        page.waitForNavigation(),
-        page.locator(`.om-login[href="${home}login"]`).click(),
-      ]))[0]);
-      await loginForm();
-    }, home);
-
-    await step(`${lang} sign in`, FORM, async () => {
-      const form = await loginForm();
-      await form.locator('#email').fill(email);
-      await form.locator('#password').fill(password);
-      await submit(form, `${home}login`);
-      requireThat([home, `${home}mfa/challenge`].includes(currentPath()), 'sign-in refused');
-    });
-
-    if (currentPath() === `${home}mfa/challenge`) {
-      await step(`${lang} TOTP challenge`, MFA, async () => {
-        requireThat(secret, 'MONITOR_TOTP_SECRET is required for this account');
-        const form = page.locator(`form[action="${home}mfa/challenge"]`);
-        const totp = new TOTP({ secret: Secret.fromBase32(secret) });
-        // The portal consumes a TOTP counter, so the second locale needs a fresh code.
-        const now = Date.now();
-        const next = Math.max(lastTotpCounter === undefined ? 0 : (lastTotpCounter + 1) * 30_000,
-          30_000 - now % 30_000 < 3_000 ? now + 30_000 - now % 30_000 : 0);
-        if (next > now) await delay(next - now + 250);
-        const timestamp = Date.now();
-        lastTotpCounter = Math.floor(timestamp / 30_000);
-        await form.locator('#code[autocomplete="one-time-code"]').fill(totp.generate({ timestamp }));
-        await submit(form, `${home}mfa/challenge`);
-        requireThat(currentPath() === home, 'TOTP sign-in refused');
-      });
+  async function openMobileMenu() {
+    const toggle = page.locator('#portal-menu-toggle');
+    if (await toggle.isVisible() && await toggle.getAttribute('aria-expanded') === 'false') {
+      await toggle.click();
     }
+  }
 
-    await step(`${lang} account overview`, READ, async () => {
-      await page.locator(ACCOUNT_LINK).waitFor();
-      await go('/account');
-      await page.locator('main dl > dd').first().waitFor();
-      await page.locator('main #characters').waitFor();
-    });
-    const original = await step(`${lang} account settings`, READ, async () => {
-      await go(privacy);
-      const locale = await page.locator(LOCALE).inputValue();
-      requireThat(LANGUAGES.includes(locale), 'unexpected saved preference');
-      return { locale, visibility: await readVisibility() };
-    });
-    await step(`${lang} account security`, READ, async () => {
-      const response = await go(`${home}account/security`);
-      requireThat(currentPath() === `${home}password/change` && response.request().redirectedFrom(),
-        'unexpected security redirect');
-      await page.locator('main input#current[name="current_password"]').waitFor();
-    });
+  await step(`${lang} home to login form`, READ, async () => {
+    await openMobileMenu();
+    checkResponse((await Promise.all([
+      page.waitForNavigation(),
+      page.locator(`.om-login[href="${home}login"]`).click(),
+    ]))[0]);
+    await loginForm();
+  });
 
-    async function readVisibility() {
-      return Promise.all(VISIBILITY.map((name) => page.locator(`input[name="${name}"]`).isChecked()));
+  await step(`${lang} sign in`, FORM, async () => {
+    const form = await loginForm();
+    await form.locator('#email').fill(email);
+    await form.locator('#password').fill(password);
+    await submit(form, `${home}login`);
+    const challenge = currentPath() === `${home}mfa/challenge`;
+    requireThat(!secret || challenge, 'configured TOTP challenge was skipped');
+    requireThat(challenge || currentPath() === home, 'sign-in refused');
+  });
+
+  if (currentPath() === `${home}mfa/challenge`) {
+    await step(`${lang} TOTP challenge`, MFA, async () => {
+      requireThat(secret, 'MONITOR_TOTP_SECRET is required for this account');
+      const form = page.locator(`form[action="${home}mfa/challenge"]`);
+      const totp = new TOTP({ secret: Secret.fromBase32(secret) });
+      // The account is shared by sequential projects and the portal consumes each counter.
+      const totpCounter = join(runDirectory, 'totp-counter');
+      const previous = Number(readFileSync(totpCounter, { encoding: 'utf8', flag: 'a+' }) || 0);
+      const now = Date.now();
+      const boundary = now - now % 30_000 + 30_000;
+      // A manual run queued immediately after another run can share a counter.
+      const minimum = previous ? (previous + 1) * 30_000 : boundary;
+      const next = Math.max(minimum, boundary - now < 3_000 ? boundary : 0);
+      if (next > now) await delay(next - now + 250);
+      const timestamp = Date.now();
+      writeFileSync(totpCounter, String(Math.floor(timestamp / 30_000)));
+      await form.locator('#code[autocomplete="one-time-code"]').fill(totp.generate({ timestamp }));
+      await submit(form, `${home}mfa/challenge`);
+      requireThat(currentPath() === home, 'TOTP sign-in refused');
+    });
+  }
+
+  await step(`${lang} account overview`, READ, async () => {
+    await openMobileMenu();
+    await page.locator(ACCOUNT_LINK).waitFor();
+    await go('/account');
+    await page.locator('main dl > dd').first().waitFor();
+    await page.locator('main #characters').waitFor();
+  });
+  const settings = await step(`${lang} account settings`, READ, async () => {
+    await go(privacy);
+    const locale = await page.locator(LOCALE).inputValue();
+    requireThat(LANGUAGES.includes(locale), 'unexpected saved preference');
+    return { locale, visibility: await readVisibility() };
+  });
+  await step(`${lang} account security`, READ, async () => {
+    const response = await go(`${home}account/security`);
+    requireThat(currentPath() === `${home}password/change` && response.request().redirectedFrom(),
+      'unexpected security redirect');
+    await page.locator('main input#current[name="current_password"]').waitFor();
+  });
+
+  async function readVisibility() {
+    return Promise.all(VISIBILITY.map((name) => page.locator(`input[name="${name}"]`).isChecked()));
+  }
+
+  async function saveLocale(value) {
+    requireThat(/^\/(pl|en)\/account\/privacy$/.test(currentPath()), 'privacy page unavailable');
+    requireThat((await readVisibility()).every((checked, i) => checked === settings.visibility[i]),
+      'visibility settings changed');
+    await page.locator(LOCALE).selectOption(value);
+    const savedPath = `/${value}/account/privacy`;
+    const form = page.locator('main form').filter({ has: page.locator(LOCALE) });
+    const csrf = await form.locator('input[name="_csrf"]').inputValue();
+    requireThat(csrf, 'privacy form CSRF field is empty');
+    const fields = new Map([['_csrf', csrf], ['locale', value]]);
+    for (const [index, name] of VISIBILITY.entries()) {
+      if (settings.visibility[index]) fields.set(name, '1');
     }
+    await submit(form, currentPath(), fields);
+    requireThat(currentPath() === savedPath, 'preference save did not redirect');
+    requireThat(await page.locator(LOCALE).inputValue() === value, 'saved preference differs');
+    requireThat((await readVisibility()).every((checked, i) => checked === settings.visibility[i]),
+      'visibility settings changed');
+  }
 
-    async function saveLocale(value) {
-      requireThat(/^\/(pl|en)\/account\/privacy$/.test(currentPath()), 'privacy page unavailable');
-      requireThat((await readVisibility()).every((checked, i) => checked === original.visibility[i]),
-        'visibility settings changed');
-      await page.locator(LOCALE).selectOption(value);
-      const savedPath = `/${value}/account/privacy`;
-      await submit(page.locator('main form').filter({ has: page.locator(LOCALE) }), currentPath());
-      requireThat(currentPath() === savedPath, 'preference save did not redirect');
-      requireThat(await page.locator(LOCALE).inputValue() === value, 'saved preference differs');
-      requireThat((await readVisibility()).every((checked, i) => checked === original.visibility[i]),
-        'visibility settings changed');
+  if (writePreference) {
+    const alternate = LANGUAGES.find((value) => value !== baseline);
+    await step('Reopen account settings', READ, () => go(privacy));
+    if (settings.locale !== baseline) {
+      await step('Reconcile baseline language', FORM, () => saveLocale(baseline));
     }
-
-    const alternate = LANGUAGES.find((value) => value !== original.locale);
-    await step(`${lang} reopen account settings`, READ, () => go(privacy));
+    const writesBeforeToggle = privacyWritesForwarded;
     let toggleError;
     try {
-      await step(`${lang} save alternate language`, FORM, () => {
+      await step('Save alternate language', FORM, () => {
         requireThat(requestCount <= 52, 'request budget cannot cover preference restoration');
         return saveLocale(alternate);
       });
     } catch (error) {
       toggleError = error;
-    } finally {
+    }
+    // A rejected request cannot change the preference. An attempted delivery
+    // can still commit even when the browser reports a navigation failure.
+    if (!toggleError || privacyWritesForwarded > writesBeforeToggle) {
       try {
-        await step(`${lang} restore original language`, FORM, async () => {
+        await step('Restore baseline language', FORM, async () => {
           if (toggleError) await go(privacy);
-          if (await page.locator(LOCALE).inputValue() !== original.locale) {
-            await saveLocale(original.locale);
-          }
-          requireThat(await page.locator(LOCALE).inputValue() === original.locale,
-            'original preference was not restored');
+          if (await page.locator(LOCALE).inputValue() !== baseline) await saveLocale(baseline);
+          requireThat(await page.locator(LOCALE).inputValue() === baseline,
+            'baseline preference was not restored');
         });
       } catch (restoreError) {
         if (!toggleError) throw restoreError;
@@ -323,26 +444,27 @@ test('Production portal synthetic monitor', async ({ page, context, baseURL }, i
       }
     }
     if (toggleError) throw toggleError;
-
-    await step(`${lang} current session listed`, READ, async () => {
-      await go(sessions);
-      await page.locator('main li > p').filter({
-        hasText: lang === 'pl' ? /^Ta sesja$/ : /^This session$/,
-      }).waitFor();
-    });
-    await step(`${lang} log out`, FORM, async () => {
-      await go(home);
-      await page.locator(ACCOUNT_LINK).click();
-      const form = page.locator(`#podglad-konta[open] form[action="${home}logout"]`);
-      await submit(form, `${home}logout`);
-      requireThat(currentPath() === home, 'unexpected logout destination');
-    });
-    await step(`${lang} protected page redirects to login`, READ, async () => {
-      const response = await go(sessions);
-      requireThat(/^\/(?:pl\/|en\/)?login$/.test(currentPath()) &&
-        response.request().redirectedFrom(), 'protected page did not redirect to login');
-      await loginForm();
-    });
   }
-  console.log(`Monitor completed with ${requestCount} requests.`);
+
+  await step(`${lang} current session listed`, READ, async () => {
+    await go(sessions);
+    await page.locator('main li > p').filter({
+      hasText: lang === 'pl' ? /^Ta sesja$/ : /^This session$/,
+    }).waitFor();
+  });
+  await step(`${lang} log out`, FORM, async () => {
+    await go(home);
+    await openMobileMenu();
+    await page.locator(ACCOUNT_LINK).click();
+    const form = page.locator(`#podglad-konta[open] form[action="${home}logout"]`);
+    await submit(form, `${home}logout`);
+    requireThat(currentPath() === home, 'unexpected logout destination');
+  });
+  await step(`${lang} protected page redirects to login`, READ, async () => {
+    const response = await go(sessions);
+    requireThat(/^\/(?:pl\/|en\/)?login$/.test(currentPath()) &&
+      response.request().redirectedFrom(), 'protected page did not redirect to login');
+    await loginForm();
+  });
+  await finish();
 });

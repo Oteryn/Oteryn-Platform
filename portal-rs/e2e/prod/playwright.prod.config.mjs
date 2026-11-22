@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
-// Playwright otherwise captures a failure-time accessibility snapshot.
-process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
+if (!process.env.MONITOR_RUN_DIRECTORY || process.env.PLAYWRIGHT_NO_COPY_PROMPT !== '1') {
+  throw new Error('Start the production monitor with node prod/run.mjs.');
+}
 
 export default defineConfig({
   testDir: '.',
@@ -10,13 +11,19 @@ export default defineConfig({
   retries: 0,
   timeout: 360_000,
   outputDir: process.env.MONITOR_OUTPUT_DIR || 'test-results',
-  reporter: [['list', { printSteps: true }]],
+  reporter: 'dot',
+  projects: [
+    { name: 'pl-1440', metadata: { lang: 'pl', writePreference: true },
+      use: { viewport: { width: 1440, height: 900 }, locale: 'pl-PL' } },
+    { name: 'en-390', metadata: { lang: 'en', writePreference: false },
+      use: { viewport: { width: 390, height: 844 }, locale: 'en-US', isMobile: true, hasTouch: true } },
+  ],
   use: {
     browserName: 'chromium',
     baseURL: process.env.MONITOR_BASE_URL || 'https://oteryn.com',
     userAgent: 'OterynSyntheticMonitor/1.0 OterynE2E-32bec7675dad93274ee343bf',
-    viewport: { width: 1440, height: 900 },
     serviceWorkers: 'block',
+    bypassCSP: false,
     trace: 'off',
     video: 'off',
     screenshot: 'off',

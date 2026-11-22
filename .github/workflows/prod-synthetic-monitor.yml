@@ -5,9 +5,7 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  issues: write
+permissions: {}
 
 concurrency:
   group: prod-synthetic-monitor
@@ -15,6 +13,11 @@ concurrency:
 
 jobs:
   monitor:
+    permissions:
+      contents: read
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+      failing_step: ${{ steps.probe.outputs.failing_step || (steps.checkout.outcome == 'failure' && 'Checkout') || (steps.node.outcome == 'failure' && 'Set up Node') || (steps.install.outcome == 'failure' && 'Install E2E dependencies and Chromium') || 'Run production monitor' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -60,66 +63,147 @@ jobs:
           MONITOR_PASSWORD: ${{ secrets.MONITOR_PASSWORD }}
           MONITOR_TOTP_SECRET: ${{ secrets.MONITOR_TOTP_SECRET }}
           MONITOR_OUTPUT_DIR: ${{ runner.temp }}/prod-monitor-results
-          FORCE_COLOR: '0'
+          MONITOR_BASELINE_LOCALE: ${{ vars.MONITOR_BASELINE_LOCALE || 'pl' }}
         run: |
           set +e
-          npx --no-install playwright test --config prod/playwright.prod.config.mjs | tee "$RUNNER_TEMP/prod-monitor.log"
+          node prod/run.mjs | tee "$RUNNER_TEMP/prod-monitor.log"
           result=${PIPESTATUS[0]}
           if (( result != 0 )); then
-            step="$(sed -nE 's/^ *Error: MONITOR_FAILURE: ([[:alnum:] _-]+) \(.*/\1/p' "$RUNNER_TEMP/prod-monitor.log" | head -n 1)"
+            step="$(sed -nE 's/^(pl-1440|en-390) failed at ([[:alnum:] _-]+)$/\1 \2/p' "$RUNNER_TEMP/prod-monitor.log" | head -n 1)"
             echo "failing_step=${step:-Run production monitor}" >> "$GITHUB_OUTPUT"
           fi
           exit "$result"
 
+  incident:
+    needs: monitor
+    if: ${{ !cancelled() && needs.monitor.outputs.enabled == 'true' }}
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
       - name: Update monitor incident
-        if: ${{ !cancelled() && steps.config.outputs.enabled == 'true' }}
-        id: incident
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
-          PROBE_OUTCOME: ${{ steps.probe.outcome }}
-          FAILING_STEP: ${{ steps.probe.outputs.failing_step || (steps.checkout.outcome == 'failure' && 'Checkout') || (steps.node.outcome == 'failure' && 'Set up Node') || (steps.install.outcome == 'failure' && 'Install E2E dependencies and Chromium') || 'Run production monitor' }}
+          PROBE_OUTCOME: ${{ needs.monitor.result }}
+          FAILING_STEP: ${{ needs.monitor.outputs.failing_step }}
         with:
           script: |
             const repo = context.repo;
             const label = 'prod-monitor';
             const title = 'Production synthetic monitor failing';
+            const pending = (transition) => `prod-monitor-mail-${transition}-pending`;
             const url = `${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`;
-            const failed = process.env.PROBE_OUTCOME !== 'success';
+            async function ensureLabel(name, color) {
+              try {
+                await github.rest.issues.getLabel({ ...repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ ...repo, name, color });
+              }
+            }
             const open = await github.paginate(github.rest.issues.listForRepo, {
               ...repo, state: 'open', labels: label, per_page: 100,
             });
             const incident = open.find(issue => issue.title === title && !issue.pull_request);
-            if (failed) {
-              const body = `Failing step: ${process.env.FAILING_STEP}\n\nRun: ${url}`;
+            if (process.env.PROBE_OUTCOME !== 'success') {
+              const body = `Failing step: ${process.env.FAILING_STEP || 'Run production monitor'}\n\nRun: ${url}`;
               if (incident) {
                 await github.rest.issues.createComment({ ...repo, issue_number: incident.number, body });
               } else {
-                try {
-                  await github.rest.issues.getLabel({ ...repo, name: label });
-                } catch (error) {
-                  if (error.status !== 404) throw error;
-                  await github.rest.issues.createLabel({ ...repo, name: label, color: 'b60205' });
-                }
-                await github.rest.issues.create({ ...repo, title, body, labels: [label] });
-                core.setOutput('transition', 'failing');
+                await ensureLabel(label, 'b60205');
+                await ensureLabel(pending('failing'), 'fbca04');
+                await github.rest.issues.create({ ...repo, title, body, labels: [label, pending('failing')] });
               }
             } else if (incident) {
               const issue = { ...repo, issue_number: incident.number };
-              await github.rest.issues.createComment({ ...issue, body: `recovered\n\nRun: ${url}` });
-              await github.rest.issues.update({ ...issue, state: 'closed' });
-              core.setOutput('transition', 'recovered');
+              await ensureLabel(pending('recovered'), 'fbca04');
+              const marker = '<!-- prod-monitor:recovered -->';
+              const comments = await github.paginate(github.rest.issues.listComments, issue);
+              if (!comments.some(comment => comment.body?.includes(marker))) {
+                await github.rest.issues.createComment({ ...issue, body: `recovered\n\nRun: ${url}\n\n${marker}` });
+              }
+              // Closing and enqueueing are one issue update.
+              const labels = new Set(incident.labels.map(({ name }) => name));
+              labels.add(pending('recovered'));
+              await github.rest.issues.update({ ...issue, state: 'closed', labels: [...labels] });
             }
 
-      - name: Email support on state change
-        if: ${{ !cancelled() && steps.incident.outcome == 'success' }}
+      - name: Deliver pending monitor email
+        if: ${{ !cancelled() }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           MONITOR_SMTP_HOST: ${{ secrets.MONITOR_SMTP_HOST }}
           MONITOR_SMTP_USER: ${{ secrets.MONITOR_SMTP_USER }}
           MONITOR_SMTP_PASSWORD: ${{ secrets.MONITOR_SMTP_PASSWORD }}
-          MONITOR_TRANSITION: ${{ steps.incident.outputs.transition }}
-        run: |
-          if [[ -z "$MONITOR_SMTP_HOST" || -z "$MONITOR_SMTP_USER" || -z "$MONITOR_SMTP_PASSWORD" ]]; then
-            echo "::notice::Production monitor SMTP is not configured."
-          elif [[ -n "$MONITOR_TRANSITION" ]]; then
-            node portal-rs/e2e/prod/notify.mjs
-          fi
+        with:
+          script: |
+            const { MONITOR_SMTP_HOST: host, MONITOR_SMTP_USER: user,
+              MONITOR_SMTP_PASSWORD: password } = process.env;
+            if (!host || !user || !password) {
+              core.notice('Production monitor SMTP is not configured.');
+              return;
+            }
+
+            const queued = [];
+            const repo = context.repo;
+            for (const transition of ['failing', 'recovered']) {
+              const label = `prod-monitor-mail-${transition}-pending`;
+              const issues = await github.paginate(github.rest.issues.listForRepo, {
+                ...repo, state: 'all', labels: `prod-monitor,${label}`, per_page: 100,
+              });
+              for (const issue of issues) {
+                if (!issue.pull_request && issue.title === 'Production synthetic monitor failing') {
+                  queued.push({ issue, transition, label });
+                }
+              }
+            }
+            queued.sort((a, b) => a.issue.number - b.issue.number || a.transition.localeCompare(b.transition));
+            for (const entry of queued) {
+              try {
+                await send(entry);
+              } catch {
+                core.setFailed('Production monitor email delivery failed. Pending alerts will be retried.');
+                return;
+              }
+              await github.rest.issues.removeLabel({ ...repo, issue_number: entry.issue.number, name: entry.label });
+            }
+
+            async function send({ issue, transition }) {
+              const { spawn } = require('node:child_process');
+              const { once } = require('node:events');
+              const { mkdtemp, rm, writeFile } = require('node:fs/promises');
+              const { tmpdir } = require('node:os');
+              const { join } = require('node:path');
+              const smtp = new URL(host.includes('://') ? host : `smtp://${host}`);
+              if (!['smtp:', 'smtps:'].includes(smtp.protocol) || smtp.username || smtp.password ||
+                  /[:\x00-\x1f]/.test(user)) throw new Error('Invalid SMTP configuration');
+              smtp.port ||= smtp.protocol === 'smtp:' ? '587' : '465';
+
+              const to = 'support@oteryn.com';
+              const sender = /^[^\s<>@]+@[^\s<>@]+$/.test(user) ? user : to;
+              const messageId = `prod-monitor-${repo.owner}.${repo.repo}-${issue.number}-${transition}`;
+              const mail = [
+                `From: ${sender}`, `To: ${to}`, `Date: ${new Date().toUTCString()}`,
+                `Message-ID: <${messageId}@oteryn.com>`,
+                `Subject: Production synthetic monitor ${transition}`, '',
+                `Incident: ${issue.html_url}`, '',
+              ].join('\r\n');
+              // Keep credentials out of process arguments and curl diagnostics.
+              const quote = (value) => '"' + value.replace(/[\\"\r\n\t]/g, (char) =>
+                ({ '\\': '\\\\', '"': '\\"', '\r': '\\r', '\n': '\\n', '\t': '\\t' })[char]) + '"';
+              const scratch = await mkdtemp(join(tmpdir(), 'prod-monitor-mail-'));
+              try {
+                const message = join(scratch, 'message');
+                await writeFile(message, mail, { mode: 0o600 });
+                const client = spawn('curl', ['--disable', '--silent', '--ssl-reqd', '--max-time', '25',
+                  '--config', '-', '--upload-file', message, '--mail-rcpt', to],
+                { stdio: ['pipe', 'ignore', 'ignore'], env: { PATH: process.env.PATH } });
+                client.stdin.on('error', () => {});
+                client.stdin.end(`url = ${quote(smtp.href)}\nuser = ${quote(`${user}:${password}`)}\nmail-from = ${quote(sender)}\n`);
+                const [code] = await once(client, 'close');
+                if (code !== 0) throw new Error('SMTP delivery failed');
+              } finally {
+                await rm(scratch, { recursive: true, force: true });
+              }
+            }

@@ -1,8 +1,8 @@
 # Production synthetic monitor
 
-The monitor runs one Chromium worker at 1440 × 900. It checks the public Polish and English homepages, `/healthz`, and the form reached from `/login`. It then runs the account journey in Polish and English with the same dedicated test account. Use an account reserved for this monitor so no other process changes its settings.
+The monitor runs one Chromium worker with two sequential projects. `pl-1440` covers the Polish desktop journey at 1440 × 900. `en-390` covers the English mobile journey at 390 × 844. Each verifies the final localized home URL, document language and public news heading, then signs in through the header, opens account overview, Privacy and Security, checks the current session, and signs out through the account menu. It verifies that revisiting Sessions redirects to the login form. The desktop project also checks `/healthz` and `/login` directly.
 
-The account journey opens the home page, follows the sign-in link, submits the login form and completes a TOTP challenge if prompted. It opens the account overview, Privacy settings, and the Security landing page. It then switches the stored account language between Polish and English and restores the original. The redirect and selected option confirm each save. Both privacy checkboxes must retain their original values. After checking the current session marker, the journey signs out from the account menu and verifies that the sessions page redirects to a working login form.
+The desktop project alone writes the account language. It restores the configured baseline first if a previous run was interrupted, then verifies one switch to the other language and one restoration. The mobile project reads the settings. Before a privacy POST leaves the browser, its URL-encoded fields must match the intended locale, CSRF field and original visibility settings. Use a dedicated account so another process cannot change these values mid-run.
 
 ## Run
 
@@ -11,12 +11,12 @@ From `portal-rs/e2e`:
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
 npx playwright install chromium
-npx playwright test --config prod/playwright.prod.config.mjs
+node prod/run.mjs
 ```
 
-Supply `MONITOR_EMAIL` and `MONITOR_PASSWORD` through the environment. If the account uses TOTP, also supply its Base32 `MONITOR_TOTP_SECRET`. The monitor generates codes in memory and waits for a fresh time window when the second login needs it. Set `MONITOR_ANONYMOUS_ONLY=1` for the public checks alone.
+Supply `MONITOR_EMAIL` and `MONITOR_PASSWORD` through the environment. Set `MONITOR_BASELINE_LOCALE` to the dedicated account's intended preference (`pl` by default, or `en`). Supply the Base32 `MONITOR_TOTP_SECRET` for a TOTP-enabled account. The monitor requires a challenge whenever that secret is configured and uses a fresh code for the second project.
 
-The browser defaults to `https://oteryn.com`. For local validation, set `MONITOR_BASE_URL` to the isolated harness portal origin and use a disposable account from its `account` seed command. The optional `account-mfa` seed command enables the TOTP path. The harness portal needs `OTERYN_ACCOUNT_LOGIN`, `OTERYN_ACCOUNT_MFA`, `OTERYN_ACCOUNT_OVERVIEW_ENABLED`, `OTERYN_ACCOUNT_PRIVACY_ENABLED`, `OTERYN_ACCOUNT_CREDENTIALS`, and `OTERYN_ACCOUNT_SESSIONS` set to `true` for the serve process. Set `CHROMIUM_PATH` to use an installed browser.
+The browser defaults to `https://oteryn.com`. Set `MONITOR_ANONYMOUS_ONLY=1` for the public checks alone. For local verification set `MONITOR_BASE_URL` to the isolated harness portal origin, `CHROMIUM_PATH` if using an installed Chromium, and use a disposable account from the `account` seed command. The `account-mfa` seed enables the TOTP path. The harness serve process needs `OTERYN_ACCOUNT_LOGIN`, `OTERYN_ACCOUNT_MFA`, `OTERYN_ACCOUNT_OVERVIEW_ENABLED`, `OTERYN_ACCOUNT_PRIVACY_ENABLED`, `OTERYN_ACCOUNT_CREDENTIALS`, and `OTERYN_ACCOUNT_SESSIONS` set to `true`. The launcher accepts `--project=pl-1440` or `--project=en-390` for local diagnosis.
 
 ## Budgets and request limits
 
@@ -26,14 +26,16 @@ The browser defaults to `https://oteryn.com`. For local validation, set `MONITOR
 | Home to login form, overview, settings, security, reopening settings, current session and post-logout redirect | 10 s each |
 | Password sign-in, each language save and logout | 15 s each |
 | TOTP challenge, including the wait for a fresh code | 45 s |
-| Entire Playwright test | 6 min |
+| Each Playwright project | 6 min |
 
-A 5xx, browser console error, uncaught browser exception, CSP violation, or over-budget step fails the run. Chromium intercepts every outgoing navigation hop and limits the run to 60 requests, including redirects. The browser loads portal styles and scripts and the Cloudflare beacon script. It reuses successful asset responses within the run and suppresses network traffic for images, fonts, and browser telemetry. The only POSTs that reach the portal are password login, its optional TOTP challenge, the language saves, and logout. The monitor reserves request capacity for restoration and re-reads settings to recover if the alternate save fails.
+Any 5xx, browser console error, uncaught browser exception, CSP violation, unexpected browser target, or over-budget step fails the run. The 60-request allowance is shared across both projects and includes redirects. Chromium pauses unexpected targets at startup and context routing also rejects requests from outside the monitor frame. The browser loads portal styles and scripts and the Cloudflare Insights beacon script, reuses successful asset responses within each project, and suppresses network traffic for images, fonts and browser telemetry. The POST allowlist covers sign-in and its optional TOTP challenge, the verified language saves, and logout.
 
-Failure screenshots are limited to public home pages. Traces, video, and Playwright's automatic failure snapshots are disabled. Workflow diagnostics contain step names, status codes, and fixed error descriptions.
+Failure screenshots are limited to public home pages. Traces, video and Playwright's automatic failure snapshots are disabled. The launcher strips Playwright debug settings before startup and emits project names, step names, fixed diagnostics and the request count. Start the launcher with `NODE_DEBUG` unset because Node initializes that logger before loading the launcher.
 
 ## Scheduled runs and alerts
 
-The GitHub Actions workflow runs every 15 minutes on the default branch once this workflow lands, and supports manual dispatch. Add repository Actions secrets `MONITOR_EMAIL` and `MONITOR_PASSWORD`, plus `MONITOR_TOTP_SECRET` for a TOTP-enabled account. An empty `MONITOR_EMAIL` leaves the workflow idle with a notice.
+The workflow runs every 15 minutes on the default branch and supports manual dispatch. Add Actions secrets `MONITOR_EMAIL` and `MONITOR_PASSWORD`, plus `MONITOR_TOTP_SECRET` for a TOTP-enabled account. Set the Actions variable `MONITOR_BASELINE_LOCALE` to `en` if the account should retain English. An empty `MONITOR_EMAIL` leaves the workflow idle with a notice.
 
-For email, add `MONITOR_SMTP_HOST`, `MONITOR_SMTP_USER`, and `MONITOR_SMTP_PASSWORD`. The relay must accept the SMTP user as the sender when it is an email address, or `support@oteryn.com` when the user is a relay login. The host accepts a hostname, `smtp://host:port` for STARTTLS, or `smtps://host:port` for implicit TLS. The default ports are 587 and 465 respectively. The open `prod-monitor` issue records the outage across runs. Workflow runs comment on continued failures, close the issue after recovery, and attempt one email to support@oteryn.com per state change.
+The probe has read-only contents access. A separate issues-write job creates or updates one `prod-monitor` issue and closes it after recovery. It records each email transition on the issue with a pending label. Later runs retry pending alerts, including on closed issues, and clear each label after SMTP accepts the message. Each transition uses a stable Message-ID across retries. If the runner stops after the relay accepts a message and before GitHub clears its label, the next run may deliver it again.
+
+For email, add `MONITOR_SMTP_HOST`, `MONITOR_SMTP_USER`, and `MONITOR_SMTP_PASSWORD`. The relay must accept the SMTP user as sender when it is an email address, or `support@oteryn.com` when the user is a relay login. The host accepts a hostname, `smtp://host:port` for STARTTLS, or `smtps://host:port` for implicit TLS. The default ports are 587 and 465 respectively.
