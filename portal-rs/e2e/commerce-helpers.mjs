@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
 import { csrfRejected, fixtureDatabaseURL, login, password } from './helpers.mjs';
+import { localPostgresUrl } from './postgres-url.mjs';
 
 const exec = promisify(execFile);
 const portalRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -72,7 +73,7 @@ export async function pressCheckout(page, action, label) {
 
 
 export async function withFreshCommercePortal(browser, locale, flags, check) {
-  const adminURL = fixtureDatabaseURL();
+  const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL).href;
   const portNames = ['HTTP', 'INTERNAL', 'ADMISSION', 'GATEWAY'];
   const listeners = portNames.map(() => createServer());
   let ports;

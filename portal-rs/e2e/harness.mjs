@@ -233,6 +233,7 @@ async function stopChild({ child, closed }) {
 let closing = false;
 let outboxBrowser;
 let createRequested = false;
+let createConfirmed = false;
 let creation;
 async function close(code = 0) {
   if (closing) return;
@@ -242,7 +243,7 @@ async function close(code = 0) {
   await Promise.all([...children].map(stopChild));
   const closeOutboxBrowser = await outboxBrowser?.catch(() => {});
   closeOutboxBrowser?.();
-  if (createRequested && (code !== 0 || process.env.PORTAL_E2E_KEEP_DATABASE !== '1')) {
+  if (createRequested && !(createConfirmed && process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
     try {
       await withAdminConnection(async admin => {
         await lockDatabaseName(admin);
@@ -269,6 +270,7 @@ async function createDatabase() {
     createRequested = true;
     try {
       await admin.query('CREATE DATABASE "' + dbName + '"');
+      createConfirmed = true;
     } catch (error) {
       // A definite name collision belongs to the existing database owner.
       if (error.code === '42P04') createRequested = false;

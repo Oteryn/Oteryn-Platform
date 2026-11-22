@@ -28,37 +28,44 @@ test('canonical PostgreSQL URLs fence the disposable database and endpoint', () 
   }
 });
 
-test('the harness drops its database when the migration executable cannot start', async () => {
-  const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-early-failure-'));
-  const admin = new pg.Client({ connectionString: adminURL.href });
-  try {
-    await admin.connect();
-    const harness = fileURLToPath(new URL('../harness.mjs', import.meta.url));
-    const result = spawnSync(process.execPath, [harness], {
-      env: {
-        ...process.env,
-        PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href,
-        PORTAL_E2E_BINARY: path.join(directory, 'missing-binary'),
-        PORTAL_E2E_OUT: path.join(directory, 'run'),
-        PORTAL_E2E_KEEP_DATABASE: '0',
-      },
-      encoding: 'utf8',
-      timeout: 60_000,
-    });
-    assert.ok(!result.error, 'Harness terminates within the process deadline');
-    assert.equal(result.status, 1);
-    assert.ok(result.stdout === '', 'Failed migration does not report readiness');
-    assert.ok(result.stderr.includes('missing-binary migrate failed'), 'Harness reports the migration failure');
-    const database = result.stderr.match(/^\[harness\] database (portal_e2e_[a-f0-9]{12})$/m)?.[1];
-    assert.ok(database, 'Harness created a disposable database before migration');
-    const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
-    assert.deepEqual(rows, []);
-  } finally {
-    await admin.end();
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
+for (const keep of ['0', '1']) {
+  test(`failed migration ${keep === '1' ? 'keeps' : 'drops'} the confirmed database (keep=${keep})`, async () => {
+    const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-early-failure-'));
+    const admin = new pg.Client({ connectionString: adminURL.href });
+    let database;
+    try {
+      await admin.connect();
+      const harness = fileURLToPath(new URL('../harness.mjs', import.meta.url));
+      const result = spawnSync(process.execPath, [harness], {
+        env: {
+          ...process.env,
+          PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href,
+          PORTAL_E2E_BINARY: path.join(directory, 'missing-binary'),
+          PORTAL_E2E_OUT: path.join(directory, 'run'),
+          PORTAL_E2E_KEEP_DATABASE: keep,
+        },
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      assert.ok(!result.error, 'Harness terminates within the process deadline');
+      assert.equal(result.status, 1);
+      assert.ok(result.stdout === '', 'Failed migration does not report readiness');
+      assert.ok(result.stderr.includes('missing-binary migrate failed'), 'Harness reports the migration failure');
+      database = result.stderr.match(/^\[harness\] database (portal_e2e_[a-f0-9]{12})$/m)?.[1];
+      assert.ok(database, 'Harness created a disposable database before migration');
+      const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
+      assert.deepEqual(rows, keep === '1' ? [{ datname: database }] : []);
+    } finally {
+      try {
+        if (database) await admin.query('DROP DATABASE IF EXISTS "' + database + '" WITH (FORCE)');
+      } finally {
+        await admin.end();
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test('SIGTERM cancels a stopped migration and drops the disposable database', { timeout: 900_000 }, async t => {
   const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);

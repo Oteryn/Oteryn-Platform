@@ -135,7 +135,7 @@ export async function waitForWikiBudget(target, needed=1) {
     await db.end();
   }
 }
-export async function waitForLoginBudget(needed=1, databaseURL) {
+export async function waitForLoginBudget(needed=1,databaseURL) {
  const db=pool(databaseURL);
  try {
   if(needed>=6) await expect.poll(async()=>Number((await db.query("SELECT extract(second FROM clock_timestamp()) AS second")).rows[0].second),{timeout:65000,intervals:[1000]}).toBeLessThan(50);
