@@ -245,6 +245,7 @@ impl Service {
     }
     async fn authorize_update(&self, account: Uuid, name: &str, now: i64) -> Result<(), Error> {
         let mut tx = self.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         self.owner_for_edit(&mut tx, account, name, now).await?;
         tx.commit().await?;
         Ok(())
@@ -330,6 +331,10 @@ impl Service {
         if status.as_deref() != Some("active") {
             return Err(SaveError::Domain(Error::NotFound));
         }
+        // Serialize the ownership recheck through commit with receipt publication.
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(22005160000)")
+            .execute(&mut *tx)
+            .await?;
         Self::share_feed(&mut tx).await?;
         let c = self
             .owned(&mut tx, account, name, now)
