@@ -366,6 +366,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
             navigation.account = true; // /account is always mounted.
             oteryn_identity::navigation::register(&mut navigation);
+            navigation.staff_host = oteryn_admin::web::configured_dashboard_host()?;
             oteryn_characters::navigation::register(&mut navigation);
             oteryn_store::navigation::register(&mut navigation);
             oteryn_content::navigation::register(&mut navigation);

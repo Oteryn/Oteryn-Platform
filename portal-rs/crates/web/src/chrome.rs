@@ -41,7 +41,25 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    if matches!(
+        chrome.account,
+        oteryn_ui::Account::SignedIn { staff: true, .. }
+    ) && let Some(host) = &shell.registry.staff_host
+    {
+        chrome.staff_dashboard = Some(
+            if request
+                .headers()
+                .get(header::HOST)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|current| current.eq_ignore_ascii_case(host))
+            {
+                "/admin".into()
+            } else {
+                format!("https://{host}/admin")
+            },
+        );
+    }
     request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")

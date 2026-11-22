@@ -67,6 +67,7 @@ pub struct Registry {
     pub login: bool,
     pub registration: bool,
     pub account: bool,
+    pub staff_host: Option<String>,
 }
 impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.
@@ -119,6 +120,7 @@ impl Registry {
                         account,
                         Account::SignedIn {
                             passkeys_eligible: false,
+                            staff: false,
                             ..
                         }
                     )
@@ -193,6 +195,7 @@ impl Registry {
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
+            staff_dashboard: None,
         }
     }
 }
@@ -204,6 +207,7 @@ pub enum Account {
     SignedIn {
         csrf: String,
         passkeys_eligible: bool,
+        staff: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -242,6 +246,7 @@ pub struct Chrome {
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
+    pub staff_dashboard: Option<String>,
 }
 impl Default for Chrome {
     fn default() -> Self {
@@ -525,6 +530,7 @@ mod tests {
                 Account::SignedIn {
                     csrf: "escaped<&token".into(),
                     passkeys_eligible: false,
+                    staff: false,
                 },
             );
             let html = Home::new(&chrome, &HomeData::default()).render()?;

@@ -112,6 +112,7 @@ pub async fn show(
             account: oteryn_ui::Account::SignedIn {
                 csrf: csrf.into(),
                 passkeys_eligible: false,
+                staff: false,
             },
             ..oteryn_ui::Chrome::default()
         },

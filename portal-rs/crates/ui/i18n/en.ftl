@@ -212,6 +212,7 @@ shell-account-sessions = Account sessions
 shell-account-overview = Account overview
 shell-account-recovery-key = Recovery key
 shell-account-wizard = Security wizard
+shell-staff-dashboard = Staff dashboard
 shell-account-passkeys = Passkeys
 shell-account-notifications = Notifications
 shell-payments = Payments

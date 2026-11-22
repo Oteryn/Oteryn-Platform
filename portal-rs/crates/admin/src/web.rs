@@ -162,6 +162,12 @@ pub(crate) fn config_from(
     })
 }
 
+/// Register the dashboard destination from the same host and flag as the panel.
+pub fn configured_dashboard_host() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let config = config_from_env()?;
+    Ok(config.admin_panel.then_some(config.host))
+}
+
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(router(
         pool.clone(),

@@ -20,6 +20,9 @@
   {% endif %}
   {% endfor %}
 </nav>
+{% if let Some(url) = chrome.staff_dashboard %}
+<a class="account-overview" href="{{ url }}">{{ chrome.text("shell-staff-dashboard") }}</a>
+{% endif %}
 {% if chrome.login_mounted %}
 <div class="account-base">
   <form action="/{{ chrome.lang }}/logout" method="post"><input type="hidden" name="_csrf" value="{{ chrome.csrf() }}"><button type="submit">{{ chrome.text("shell-logout") }}</button></form>
