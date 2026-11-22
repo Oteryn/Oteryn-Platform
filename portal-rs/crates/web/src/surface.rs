@@ -104,7 +104,7 @@ pub fn document_language(uri: &axum::http::Uri, headers: &HeaderMap) -> Language
     if let Some(lang) = path_language(uri.path()) {
         return lang;
     }
-    if (uri.path() == "/news" || uri.path().starts_with("/news/"))
+    if (matches!(uri.path(), "/news" | "/today") || uri.path().starts_with("/news/"))
         && let Some(query) = uri.query()
         && let Ok(options) = serde_urlencoded::from_str::<Vec<(String, String)>>(query)
         && let Some((_, lang)) = options.iter().find(|(key, _)| key == "lang")
