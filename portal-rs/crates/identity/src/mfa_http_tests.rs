@@ -311,6 +311,7 @@ async fn postgres_mfa_limits_and_missing_transport() -> Result<(), Box<dyn std::
         return Ok(());
     };
     let context = Context {
+        native_enabled: false,
         mfa: Mfa::new(db.pool.clone(), [7; 32]),
         limiter: RateLimiter::new(db.pool.clone()),
     };
@@ -732,8 +733,9 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
         |path: &'static str, cookie: String, csrf: String, fields: Vec<(&'static str, String)>| {
             let app = app.clone();
             async move {
-                let body =
-                    serde_urlencoded::to_string(fields.into_iter().chain([("_csrf", csrf)]))?;
+                let mut fields = fields;
+                fields.push(("_csrf", csrf));
+                let body = serde_urlencoded::to_string(fields)?;
                 let request = axum::http::Request::post(path)
                     .header(header::COOKIE, format!("{}={cookie}", session::COOKIE_NAME))
                     .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
