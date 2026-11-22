@@ -191,6 +191,17 @@ pub fn segment(value: &str) -> String {
         })
         .collect()
 }
+#[derive(Clone, Copy)]
+pub(crate) struct SourceUnavailable;
+
+fn invalid(lang: &str) -> Response {
+    let mut response = StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    response
+        .extensions_mut()
+        .insert(oteryn_ui::RefusalMessage(text(lang, "invalid")));
+    response
+}
+
 async fn show(
     State(state): State<SearchState>,
     Extension(language): Extension<crate::Language>,
@@ -199,10 +210,10 @@ async fn show(
 ) -> Response {
     let lang = language.code();
     let Ok(Query(mut filters)) = query else {
-        return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, "invalid")).into_response();
+        return invalid(lang);
     };
     if filters.validate().is_err() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, "invalid")).into_response();
+        return invalid(lang);
     }
     let mut hits = vec![];
     let mut unavailable = false;
@@ -241,8 +252,9 @@ async fn show(
         more: more && next <= 1000,
         unavailable,
     });
-    if unavailable {
+    if unavailable && response.status() == StatusCode::OK {
         *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+        response.extensions_mut().insert(SourceUnavailable);
     }
     response.headers_mut().insert(
         header::CACHE_CONTROL,

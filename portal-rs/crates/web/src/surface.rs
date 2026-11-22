@@ -248,6 +248,12 @@ async fn policy(mut request: Request, next: Next) -> Response {
         )
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
+        && !(status == StatusCode::SERVICE_UNAVAILABLE
+            && !json
+            && response
+                .extensions()
+                .get::<crate::search::SourceUnavailable>()
+                .is_some())
     {
         let mut replacement = if json {
             let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
