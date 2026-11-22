@@ -41,14 +41,16 @@ pub fn with_browser_deadline(app: Router) -> Router {
 pub(crate) fn router(pool: PgPool, origin: &str, submissions: bool) -> Router {
     let mut session = SessionLayer::new(pool.clone()).with_bounded_refresh();
     session.csrf.trusted_origins = vec![origin.to_owned()];
-    let detail = if submissions {
-        get(detail).post(submit)
-    } else {
-        get(detail)
-    };
     Router::new()
         .route("/{lang}/support/appeals", get(index))
-        .route(APPEAL_DETAIL, detail)
+        .route(
+            APPEAL_DETAIL,
+            if submissions {
+                get(detail).post(submit)
+            } else {
+                get(detail)
+            },
+        )
         .layer(Extension(Submissions(submissions)))
         .route_layer(middleware::from_fn_with_state(
             session,

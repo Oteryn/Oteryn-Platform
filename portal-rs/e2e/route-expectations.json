@@ -1721,6 +1721,30 @@
   },
   {
     "crate": "support",
+    "route": "/{lang}/support/appeals",
+    "actor": "owner",
+    "method": "GET",
+    "status": 200,
+    "reason": "signed-in player can read their appeal list"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/appeals/{id}",
+    "actor": "owner",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing sanction reference is refused"
+  },
+  {
+    "crate": "support",
+    "route": "/{lang}/support/appeals/{id}",
+    "actor": "owner",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "support",
     "route": "/{lang}/support/tickets",
     "actor": "player",
     "method": "GET",

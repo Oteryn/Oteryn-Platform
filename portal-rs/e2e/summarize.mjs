@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
+import {routeCase,routeKey} from './route-cases.mjs';
 const root=path.resolve(import.meta.dirname,'..');
 const raw=JSON.parse(fs.readFileSync(process.argv[2]||new URL('./test-results/results.json',import.meta.url),'utf8'));
 const inventory=JSON.parse(fs.readFileSync(new URL('./inventory.json',import.meta.url),'utf8'));
@@ -11,11 +12,13 @@ function walk(suites){for(const suite of suites){for(const spec of suite.specs||
 walk(raw.suites||[]);
 const projects=raw.config.projects.map(p=>p.name);
 const counts=Object.fromEntries(projects.map(project=>{const set=cases.filter(c=>c.project===project);return [project,{passed:set.filter(c=>c.status==='passed').length,failed:set.filter(c=>!['passed','skipped'].includes(c.status)).length,skipped:set.filter(c=>c.status==='skipped').length,retries:set.reduce((n,c)=>n+Math.max(0,c.attempts-1),0)}];}));
-const routes=inventory.routes.map(row=>{
- const title=`route ${row.crate} ${row.route}`;
- const executed=projects.map(project=>cases.find(c=>c.project===project&&c.case===title));
- const expected=expectations.find(e=>e.crate===row.crate&&e.route===row.route);
- return {...row,actor:expected?.actor,method:expected?.method,status:expected?.status,reason:expected?.reason,case:title,result:executed.every(c=>c?.status==='passed'&&c.attempts===1)?(row.notApplicable?'NOT_APPLICABLE':'PASS'):'UNCOVERED'};
+const routes=inventory.routes.flatMap(row=>{
+ const expected=expectations.filter(e=>routeKey(e)===routeKey(row));
+ return (expected.length ? expected : [row]).map(entry=>{
+  const title=routeCase(entry,expectations);
+  const executed=projects.map(project=>cases.find(c=>c.project===project&&c.case===title));
+  return {...row,actor:entry.actor,method:entry.method,status:entry.status,reason:entry.reason,case:title,result:executed.every(c=>c?.status==='passed'&&c.attempts===1)?(row.notApplicable?'NOT_APPLICABLE':'PASS'):'UNCOVERED'};
+ });
 });
 const sections=inventory.sections.map(row=>({...row,result:projects.every(project=>cases.some(c=>c.project===project&&c.case===`registry ${row.section}: destination and shared shell`&&c.status==='passed'&&c.attempts===1))?'PASS':'UNCOVERED'}));
 const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','portal-rs'],{cwd:path.dirname(root),encoding:'utf8'}).trim().split('\n').filter(f=>!['portal-rs/e2e/REPORT.md','portal-rs/e2e/qualification.json','portal-rs/e2e/COVERAGE.md'].includes(f)).sort();
