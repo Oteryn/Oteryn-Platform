@@ -8,7 +8,7 @@ a:focus-visible { outline: 3px solid var(--gilt-light); outline-offset: 4px; }
 .shop-bar nav { display: flex; align-items: center; gap: clamp(14px, 3vw, 30px); font-size: .9375rem; }
 .shop-bar nav a { padding-block: 12px; }
 .shop-bar .shop-language { text-decoration: none; border: 1px solid var(--line); border-radius: 2rem; padding: 4px 12px; }
-.shop-banner { border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #0e1c21 5%, #0e1c21df 38%, #0e1c2145 74%), url("brama.webp") center 57% / cover; }
+.shop-banner { border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #0e1c21 5%, #0e1c21df 38%, #0e1c2145 74%), url("brama-8c66cbecc.webp") center 57% / cover; }
 .shop-banner .shop-content { padding-block: clamp(58px, 7vw, 96px); }
 .shop-banner h1, .shop-wallet h2 { margin: 0; font: 600 clamp(3.4rem, 7vw, 6rem)/1 var(--display); }
 .shop-banner p { max-width: 32ch; margin: 14px 0 0; font-size: 1.0625rem; }
@@ -25,7 +25,7 @@ a:focus-visible { outline: 3px solid var(--gilt-light); outline-offset: 4px; }
   .shop-bar .brand { gap: 6px; font-size: 18px; }
   .shop-bar .brand svg { width: 23px; height: 28px; }
   .shop-bar nav { gap: 10px; font-size: .8125rem; }
-  .shop-banner { background-image: linear-gradient(90deg, #0e1c21ed, #0e1c2180), url("brama.webp"); }
+  .shop-banner { background-image: linear-gradient(90deg, #0e1c21ed, #0e1c2180), url("brama-1692ad85.webp"); }
   .shop-wallet { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; }
   .shop-wallet .coin-icon { width: 40px; height: 40px; }
 }

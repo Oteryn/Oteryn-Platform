@@ -521,6 +521,22 @@ mod tests {
     }
 
     #[test]
+    fn shell_backgrounds_use_smaller_gate_images() {
+        let static_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../static/thais");
+        let full_size = std::fs::metadata(static_dir.join("brama.webp"))
+            .unwrap()
+            .len();
+        for stylesheet in ["interior.css", "shop.css"] {
+            let css = std::fs::read_to_string(static_dir.join(stylesheet)).unwrap();
+            for source in ["brama-8c66cbecc.webp", "brama-1692ad85.webp"] {
+                assert!(css.contains(&format!("url(\"{source}\")")));
+                assert!(std::fs::metadata(static_dir.join(source)).unwrap().len() < full_size);
+            }
+        }
+    }
+
+    #[test]
     fn home_panorama_offers_viewport_sized_sources() -> Result<(), askama::Error> {
         let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
         let html = Home::new(&chrome, &HomeData::default()).render()?;
