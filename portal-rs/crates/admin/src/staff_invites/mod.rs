@@ -25,28 +25,56 @@ struct Delivery {
     ciphertext: Vec<u8>,
 }
 
-/// Only live invitations whose digest matches the decrypted delivery credential
-/// can be sent. A delayed or retried job for a closed invitation is a no-op.
+pub enum DeliveryDecision {
+    Send {
+        email: String,
+        locale: String,
+        token: String,
+    },
+    AwaitingApproval,
+    Closed,
+}
+
+impl std::fmt::Debug for DeliveryDecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Send { .. } => "Send([redacted])",
+            Self::AwaitingApproval => "AwaitingApproval",
+            Self::Closed => "Closed",
+        })
+    }
+}
+
+/// Decide from the current role definitions and the exact delivery credential.
+/// An invite that is still awaiting approval keeps its encrypted outbox job.
 pub async fn delivery(
     pool: &PgPool,
     key: &DeliveryKey,
     payload: &str,
-) -> Result<Option<(String, String, String)>, &'static str> {
+) -> Result<DeliveryDecision, &'static str> {
     let job: Delivery = serde_json::from_str(payload).map_err(|_| "invalid staff invite job")?;
     let token = key
         .open(&job.ciphertext)
         .ok_or("invalid staff invite ciphertext")?;
-    let address: Option<(String, String)> = sqlx::query_as(
-        "SELECT email,locale FROM staff_invites WHERE id=$1 AND token_hash=$2
-         AND expires_at>clock_timestamp() AND accepted_at IS NULL AND revoked_at IS NULL
-         AND (NOT requires_approval OR approved_by IS NOT NULL)",
-    )
+    let address: Option<(String, String, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT i.email,i.locale,{awaiting} FROM staff_invites i WHERE i.id=$1 AND i.token_hash=$2
+         AND i.expires_at>clock_timestamp() AND i.accepted_at IS NULL AND i.revoked_at IS NULL",
+        awaiting = awaiting_approval_sql(),
+    )))
     .bind(job.invite)
     .bind(token_hash(&token))
     .fetch_optional(pool)
     .await
     .map_err(|_| "staff invite delivery unavailable")?;
-    Ok(address.map(|(email, locale)| (email, locale, token)))
+    Ok(match address {
+        Some((_, _, true)) => DeliveryDecision::AwaitingApproval,
+        Some((email, locale, false)) => DeliveryDecision::Send {
+            email,
+            locale,
+            token,
+        },
+        None => DeliveryDecision::Closed,
+    })
 }
 
 pub fn mail_text(locale: &str) -> (String, String) {
@@ -102,18 +130,27 @@ struct Listing {
     awaiting_approval: bool,
 }
 
+fn awaiting_approval_sql() -> String {
+    format!(
+        "(i.approved_by IS NULL AND (i.requires_approval OR
+          EXISTS (SELECT 1 FROM roles r WHERE r.id=ANY(i.role_ids) AND {})))",
+        rbac::PROTECTED_ROLE
+    )
+}
+
 async fn pending_for(
     pool: &PgPool,
     issuer: Uuid,
     before: Option<Uuid>,
 ) -> Result<Vec<Listing>, sqlx::Error> {
-    sqlx::query_as(
+    sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT i.id,i.email,ARRAY(SELECT r.key FROM roles r WHERE r.id=ANY(i.role_ids) ORDER BY r.key) AS roles,
-         i.requires_approval AND i.approved_by IS NULL AS awaiting_approval
+         {awaiting} AS awaiting_approval
          FROM staff_invites i WHERE i.invited_by=$1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL
          AND i.expires_at>clock_timestamp() AND ($2::uuid IS NULL OR i.id<$2)
          ORDER BY i.id DESC LIMIT 51",
-    ).bind(issuer).bind(before).fetch_all(pool).await
+        awaiting = awaiting_approval_sql(),
+    ))).bind(issuer).bind(before).fetch_all(pool).await
 }
 
 struct Invites<A> {

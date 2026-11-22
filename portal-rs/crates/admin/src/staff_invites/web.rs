@@ -189,19 +189,31 @@ async fn limit(
 ) -> Result<(), Box<Response>> {
     let mut keys = Keys::source(ip);
     keys.account = actor.map(|id| id.to_string());
-    app.limits
-        .check(policy, &[keys])
-        .await
-        .map_err(|error: Denial| {
-            Box::new(error.response(
-                if lang == "en" {
-                    Language::En
-                } else {
-                    Language::Pl
-                },
-                false,
-            ))
-        })
+    let account_policy = match policy {
+        NamedPolicy::StaffInviteManage => Some(NamedPolicy::StaffInviteManageAccount),
+        NamedPolicy::StaffInviteAccept => Some(NamedPolicy::StaffInviteAcceptAccount),
+        _ => None,
+    };
+    async {
+        app.limits
+            .check(policy, std::slice::from_ref(&keys))
+            .await?;
+        if let Some(account_policy) = account_policy {
+            app.limits.check(account_policy, &[keys]).await?;
+        }
+        Ok(())
+    }
+    .await
+    .map_err(|error: Denial| {
+        Box::new(error.response(
+            if lang == "en" {
+                Language::En
+            } else {
+                Language::Pl
+            },
+            false,
+        ))
+    })
 }
 
 async fn create(

@@ -485,6 +485,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "email.password-reset",
         "email.verify",
         "email.account_exists",
+        oteryn_admin::staff_invites::MAIL_KIND,
         oteryn_notify::EMAIL_JOB,
         "bazaar.authority",
         "league.ingest",

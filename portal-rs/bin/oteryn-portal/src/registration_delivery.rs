@@ -1,6 +1,6 @@
 //! Delivery of registration verification jobs through the existing outbox worker.
 //! Delivery is at least once: a crash after SMTP acceptance and before outbox acknowledgement can resend the message.
-use crate::worker::{Handler, HandlerFuture, Registry};
+use crate::worker::{DeliveryFuture, DeliveryOutcome, Handler, HandlerFuture, Registry};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use oteryn_admin::staff_invites;
 use oteryn_identity::{reset::DeliveryKey, verify::token_hash};
@@ -36,12 +36,24 @@ fn mail_configured() -> bool {
         .iter()
         .any(|name| std::env::var_os(name).is_some())
 }
+
 pub fn staff_invite_key() -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
-    if !mail_configured() {
+    staff_invite_key_from(
+        std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true"),
+        mail_configured(),
+        || std::env::var("OTERYN_RESET_DELIVERY_KEY").ok(),
+    )
+}
+
+fn staff_invite_key_from(
+    panel_enabled: bool,
+    mail_configured: bool,
+    key: impl FnOnce() -> Option<String>,
+) -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
+    if !panel_enabled || !mail_configured {
         return Ok(None);
     }
-    std::env::var("OTERYN_RESET_DELIVERY_KEY")
-        .ok()
+    key()
         .map(|value| DeliveryKey::parse(&value).ok_or_else(|| "invalid mail delivery key".into()))
         .transpose()
 }
@@ -59,12 +71,22 @@ impl std::fmt::Debug for StaffInviteMailer {
 
 impl Handler for StaffInviteMailer {
     fn run<'a>(&'a self, job: &'a oteryn_db::outbox::Job) -> HandlerFuture<'a> {
+        Box::pin(async move { self.deliver(job).await.map(|_| ()) })
+    }
+
+    fn deliver<'a>(&'a self, job: &'a oteryn_db::outbox::Job) -> DeliveryFuture<'a> {
         Box::pin(async move {
-            let Some((email, locale, token)) =
-                staff_invites::delivery(&self.mailer.pool, &self.key, &job.payload).await?
-            else {
-                return Ok(());
-            };
+            use staff_invites::DeliveryDecision;
+            let (email, locale, token) =
+                match staff_invites::delivery(&self.mailer.pool, &self.key, &job.payload).await? {
+                    DeliveryDecision::Send {
+                        email,
+                        locale,
+                        token,
+                    } => (email, locale, token),
+                    DeliveryDecision::AwaitingApproval => return Ok(DeliveryOutcome::Deferred),
+                    DeliveryDecision::Closed => return Ok(DeliveryOutcome::Complete),
+                };
             let (subject, body) = staff_invites::mail_text(&locale);
             let message = Message::builder()
                 .from(self.mailer.from.clone())
@@ -82,7 +104,7 @@ impl Handler for StaffInviteMailer {
                 .send(message)
                 .await
                 .map_err(|_| "staff invite delivery failed")?;
-            Ok(())
+            Ok(DeliveryOutcome::Complete)
         })
     }
 }
@@ -412,4 +434,15 @@ fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
             next.run(request).await
         },
     ))
+}
+
+#[cfg(test)]
+#[test]
+fn staff_invite_delivery_requires_panel_mail_and_key() -> Result<(), Box<dyn std::error::Error>> {
+    let configured_key = || Some("ab".repeat(32));
+    assert!(staff_invite_key_from(false, true, configured_key)?.is_none());
+    assert!(staff_invite_key_from(true, false, configured_key)?.is_none());
+    assert!(staff_invite_key_from(true, true, || None)?.is_none());
+    assert!(staff_invite_key_from(true, true, configured_key)?.is_some());
+    Ok(())
 }

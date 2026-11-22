@@ -58,6 +58,23 @@ async function memberships(email) {
   )).map(row=>row.key);
 }
 
+async function expectInviteQuota(page,path,form,unlimitedStatus) {
+  let host=0;
+  await expect.poll(async()=>{
+    for(let attempt=0;attempt<13;attempt++){
+      const response=await page.request.post(path,{
+        form,headers:{origin:origin(),'x-forwarded-for':`192.0.2.${++host}`},maxRedirects:0,
+      });
+      if(response.status()===429){
+        expect(Number(response.headers()['retry-after'])).toBeGreaterThan(0);
+        return response.status();
+      }
+      expect(response.status()).toBe(unlimitedStatus);
+    }
+    return null;
+  }).toBe(429);
+}
+
 test('staff invitations reach verified registered and existing accounts through email and MFA',async({browser,page},info)=>{
   test.setTimeout(300_000);
   const lang=info.project.metadata.locale;
@@ -156,6 +173,12 @@ test('staff invitations reach verified registered and existing accounts through 
     await audit(admin,'staff.invite.accepted',freshId);
     await audit(admin,'staff.invite.accepted',existingId);
     await audit(admin,'staff.invite.revoked',revokedId);
+    expect((await admin.goto(manage)).status()).toBe(200);
+    const manageCsrf=await admin.locator(`form[action="${manage}"] input[name="_csrf"]`).inputValue();
+    await expectInviteQuota(admin,manage,{_csrf:manageCsrf},400);
+    expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
+    const redeemCsrf=await page.locator('main input[name="_csrf"]').first().inputValue();
+    await expectInviteQuota(page,`/${lang}/staff-invite`,{_csrf:redeemCsrf,token:'invalid'},403);
   } finally {
     await staff.close();
   }

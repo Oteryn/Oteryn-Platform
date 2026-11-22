@@ -23,8 +23,8 @@ Allow staff role managers to send and revoke email invitations. Accept only from
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T14:43:17Z
-head: 8a4769a1c84312ca75b09508e85a337a69a67965
+updated_at: 2026-11-22T16:00:01Z
+head: 4c2729a595abfebe2385cb7d6ebbddd71ba3a08c
 branch: codex/feat-staff-invite
 pr: none
 status: ready
@@ -75,6 +75,12 @@ validation:
   - command: Playwright staff-invite.spec.mjs in pl-1440 and en-390
     result: PASS
     evidence: Both projects passed with the real mail catcher. The spec also checks sign-out for MFA reauthentication and rejects a copy of the pre-acceptance cookie.
+  - command: Staff invite, rate-limit and disabled-worker regressions
+    result: PASS
+    evidence: Seven invite tests, fifteen rate-limit tests and two worker tests passed. Reclassification requires approval in listing, delivery and redemption. Disabled delivery preserves queued work with zero attempts.
+  - command: Staff invite Playwright in pl-1440 and en-390 after merging main
+    result: PASS
+    evidence: Both browsers saw HTTP 429 on management and redemption across forwarded source addresses. The launcher started from /tmp using a portal-root-relative binary path.
 blockers: []
 next_action: Deliver the verified feature branch for owner review.
 ```

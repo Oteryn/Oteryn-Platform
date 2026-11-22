@@ -79,9 +79,14 @@ impl Fixture {
         .bind(id.to_string())
         .fetch_one(&self.invites.pool)
         .await?;
-        let (email, locale, token) = delivery(&self.invites.pool, &self.key, &payload)
-            .await?
-            .ok_or("invite should be deliverable")?;
+        let DeliveryDecision::Send {
+            email,
+            locale,
+            token,
+        } = delivery(&self.invites.pool, &self.key, &payload).await?
+        else {
+            return Err("invite should be deliverable".into());
+        };
         assert_eq!(email, "recipient@example.invalid");
         assert_eq!(locale, "en");
         assert!(!payload.contains(&token), "outbox stores only ciphertext");
@@ -321,7 +326,10 @@ async fn privileged_invite_requires_independent_current_authority() -> TestResul
             .bind(id.to_string())
             .fetch_one(pool)
             .await?;
-    assert!(delivery(pool, &f.key, &payload).await?.is_none());
+    assert!(matches!(
+        delivery(pool, &f.key, &payload).await?,
+        DeliveryDecision::AwaitingApproval
+    ));
     let job: Delivery = serde_json::from_str(&payload)?;
     let token = f.key.open(&job.ciphertext).ok_or("missing token")?;
     assert!(matches!(
@@ -354,7 +362,10 @@ async fn privileged_invite_requires_independent_current_authority() -> TestResul
         .execute(pool)
         .await?;
     f.invites.approve(second, id).await?;
-    assert!(delivery(pool, &f.key, &payload).await?.is_some());
+    assert!(matches!(
+        delivery(pool, &f.key, &payload).await?,
+        DeliveryDecision::Send { .. }
+    ));
 
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(second.account)
@@ -444,5 +455,48 @@ async fn redemption_bounds_the_first_invitation_read() -> TestResult {
     ddl.rollback().await?;
     assert_eq!(f.memberships().await?, 0);
     f.invites.accept(f.recipient, &token).await?;
+    f.close().await
+}
+
+#[tokio::test]
+async fn pending_invite_follows_role_reclassification() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let f = Fixture::open().await?;
+    let (id, token) = f.create().await?;
+    let pool = &f.invites.pool;
+    let payload: String =
+        sqlx::query_scalar("SELECT payload::text FROM outbox WHERE kind=$1 AND idempotency_key=$2")
+            .bind(MAIL_KIND)
+            .bind(id.to_string())
+            .fetch_one(pool)
+            .await?;
+    assert!(!pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage')")
+        .bind(f.role)
+        .execute(pool)
+        .await?;
+    assert!(pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
+    assert!(matches!(
+        delivery(pool, &f.key, &payload).await?,
+        DeliveryDecision::AwaitingApproval
+    ));
+    assert!(matches!(
+        f.invites.accept(f.recipient, &token).await,
+        Err(Error::Denied)
+    ));
+    let second = account(pool, "approver@example.invalid").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(second.account)
+        .bind(f.role)
+        .execute(pool)
+        .await?;
+    f.invites.approve(second, id).await?;
+    assert!(!pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
+    assert!(matches!(
+        delivery(pool, &f.key, &payload).await?,
+        DeliveryDecision::Send { .. }
+    ));
+    f.invites.accept(f.recipient, &token).await?;
+    assert_eq!(f.memberships().await?, 1);
     f.close().await
 }
