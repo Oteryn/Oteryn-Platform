@@ -299,7 +299,8 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   if (checkPublicEndpoints) {
     publicChecks.push(['Public health', async () => {
       const response = await go('/healthz');
-      requireThat(response.ok() && currentPath() === '/healthz', 'unexpected health response');
+      requireThat(response.ok() && currentPath() === '/healthz' && await response.text() === 'ok',
+        'unexpected health response');
     }]);
     if (localAuth) {
       publicChecks.push(['Anonymous login form', async () => {

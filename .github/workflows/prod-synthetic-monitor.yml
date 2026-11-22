@@ -152,7 +152,7 @@ jobs:
             }
             async function complete(record) {
               await reconcile(record);
-              await save({ sequence: record.sequence, failed: record.failed });
+              await save({ sequence: record.sequence, failed: record.failed, createdAt: record.createdAt });
             }
 
             const saved = state ? JSON.parse(state.body) : null;
@@ -165,27 +165,91 @@ jobs:
               `${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}`);
             if (currentRun < lastRun) return;
 
-            // GitHub Actions stores completed probe jobs independently of Issues.
-            // Read the original jobs, including attempts that ran before an incident retry.
-            const branch = context.payload.repository.default_branch;
-            const runs = [];
-            let currentListed = false;
-            for await (const { data } of github.paginate.iterator(github.rest.actions.listWorkflowRuns, {
-              ...repo, workflow_id: 'prod-synthetic-monitor.yml', branch, per_page: 100,
-            })) {
-              for (const run of data) {
-                const number = BigInt(run.run_number);
-                if (number >= lastRun && number <= currentRun) runs.push(run);
-                if (run.id === context.runId && BigInt(run.run_attempt) >= currentAttempt) currentListed = true;
-              }
-              if (data.some(run => BigInt(run.run_number) < lastRun)) break;
+            const workflow = { ...repo, workflow_id: 'prod-synthetic-monitor.yml', per_page: 100 };
+            const { data: current } = await github.rest.actions.getWorkflowRun({ ...repo, run_id: context.runId });
+            if (BigInt(current.run_number) !== currentRun || BigInt(current.run_attempt) < currentAttempt) {
+              throw new Error('Current monitor run is not visible in Actions history');
             }
-            if (!currentListed) throw new Error('Current monitor run is not visible in Actions history');
-            runs.sort((a, b) => a.run_number - b.run_number);
+            function second(value) {
+              const time = Date.parse(value);
+              if (!Number.isFinite(time)) throw new Error('Invalid monitor history timestamp');
+              return Math.floor(time / 1000);
+            }
+            const timestamp = value => new Date(value * 1000).toISOString().replace('.000Z', 'Z');
+            const anchorNumber = lastRun || 1n;
+            let anchorTime = saved?.createdAt;
+            if (!anchorTime) {
+              // Bootstrap or upgrade a checkpoint written before it stored a timestamp.
+              // This request has no search filters and so is not subject to the search cap.
+              for await (const { data } of github.paginate.iterator(github.rest.actions.listWorkflowRuns, workflow)) {
+                const anchor = data.find(run => BigInt(run.run_number) === anchorNumber);
+                if (anchor) {
+                  anchorTime = anchor.created_at;
+                  break;
+                }
+                if (data.some(run => BigInt(run.run_number) < anchorNumber)) break;
+              }
+              if (!anchorTime) throw new Error(`Monitor history gap at run ${anchorNumber}`);
+            }
 
-            const outcomes = [];
+            async function readWindow(from, to) {
+              const options = { ...workflow, created: `${timestamp(from)}..${timestamp(to)}` };
+              const { data: first } = await github.rest.actions.listWorkflowRuns({ ...options, page: 1 });
+              if (first.total_count >= 1000) {
+                if (from === to) throw new Error('Monitor history exceeds the search cap in one second');
+                const mid = Math.floor((from + to) / 2);
+                return [...await readWindow(from, mid), ...await readWindow(mid + 1, to)];
+              }
+              const rows = [...first.workflow_runs];
+              for (let page = 2; page <= Math.ceil(first.total_count / workflow.per_page); page++) {
+                const { data } = await github.rest.actions.listWorkflowRuns({ ...options, page });
+                if (data.total_count !== first.total_count) throw new Error('Monitor history changed during paging');
+                rows.push(...data.workflow_runs);
+              }
+              if (rows.length !== first.total_count || new Set(rows.map(run => run.id)).size !== rows.length) {
+                throw new Error('Monitor history has a missing or duplicate page result');
+              }
+              return rows;
+            }
+
+            // Include runs on other refs in the continuity check. They can consume run numbers
+            // even when preflight prevents them from executing the production probe.
+            const runs = [];
+            const end = second(current.created_at);
+            for (let from = second(anchorTime); from <= end; from += 86400) {
+              runs.push(...await readWindow(from, Math.min(from + 86399, end)));
+            }
+            const ordered = runs.filter(run => {
+              const number = BigInt(run.run_number);
+              return number >= anchorNumber && number <= currentRun;
+            }).sort((a, b) => a.run_number - b.run_number);
+            let expected = anchorNumber;
+            for (const run of ordered) {
+              if (BigInt(run.run_number) !== expected) throw new Error(`Monitor history gap at run ${expected}`);
+              expected++;
+            }
+            if (expected !== currentRun + 1n || !ordered.some(run =>
+              run.id === context.runId && BigInt(run.run_attempt) >= currentAttempt)) {
+              throw new Error(`Monitor history gap or incomplete current attempt at run ${currentRun}`);
+            }
+
+            const branch = context.payload.repository.default_branch;
+            async function apply(next) {
+              if (stateNumber) {
+                await save(next);
+              } else {
+                await ensureLabel(stateLabel, '5319e7');
+                const { data: created } = await github.rest.issues.create({
+                  ...repo, title: stateTitle, body: JSON.stringify(next), labels: [stateLabel],
+                });
+                stateNumber = created.number;
+              }
+              await complete(next);
+            }
+
             let currentProbeVisible = currentRun === lastRun;
-            for (const run of runs) {
+            for (const run of ordered) {
+              if (run.head_branch !== branch) continue;
               const number = BigInt(run.run_number);
               if (number < currentRun && run.status !== 'completed') {
                 throw new Error('An earlier monitor run has not completed');
@@ -201,8 +265,9 @@ jobs:
                 if (probe.conclusion !== 'success' && probe.conclusion !== 'failure' &&
                     probe.conclusion !== 'timed_out') continue;
                 if (run.id === context.runId) currentProbeVisible = true;
-                outcomes.push({
+                await apply({
                   sequence: `${run.run_number}.${attempt}`,
+                  createdAt: run.created_at,
                   failed: probe.conclusion !== 'success',
                   pending: {
                     url: `${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${run.id}/attempts/${attempt}`,
@@ -213,18 +278,6 @@ jobs:
             }
             if (!currentProbeVisible) throw new Error('Current probe outcome is not visible in Actions history');
 
-            for (const next of outcomes) {
-              if (stateNumber) {
-                await save(next);
-              } else {
-                await ensureLabel(stateLabel, '5319e7');
-                const { data: created } = await github.rest.issues.create({
-                  ...repo, title: stateTitle, body: JSON.stringify(next), labels: [stateLabel],
-                });
-                stateNumber = created.number;
-              }
-              await complete(next);
-            }
 
       - name: Deliver pending monitor email
         if: ${{ !cancelled() }}
@@ -263,21 +316,25 @@ jobs:
               });
               for (const issue of issues) {
                 const attempted = `prod-monitor-mail-${transition}-attempted`;
+                const rejected = `prod-monitor-mail-${transition}-rejected`;
                 if (!issue.pull_request && issue.title === 'Production synthetic monitor failing' &&
-                    !issue.labels.some(({ name }) => name === attempted)) {
-                  queued.push({ issue, transition, label, attempted });
+                    !issue.labels.some(({ name }) => name === attempted || name === rejected)) {
+                  queued.push({ issue, transition, label, attempted, rejected });
                 }
               }
             }
             queued.sort((a, b) => a.issue.number - b.issue.number || a.transition.localeCompare(b.transition));
-            for (const entry of queued) {
-              const issue = { ...repo, issue_number: entry.issue.number };
+            async function ensureMailLabel(name, color) {
               try {
-                await github.rest.issues.getLabel({ ...repo, name: entry.attempted });
+                await github.rest.issues.getLabel({ ...repo, name });
               } catch (error) {
                 if (error.status !== 404) throw error;
-                await github.rest.issues.createLabel({ ...repo, name: entry.attempted, color: 'c5def5' });
+                await github.rest.issues.createLabel({ ...repo, name, color });
               }
+            }
+            for (const entry of queued) {
+              const issue = { ...repo, issue_number: entry.issue.number };
+              await ensureMailLabel(entry.attempted, 'c5def5');
               try {
                 const outcome = await send(entry, () =>
                   github.rest.issues.addLabels({ ...issue, labels: [entry.attempted] }));
@@ -285,6 +342,13 @@ jobs:
                   await github.rest.issues.removeLabel({ ...issue, name: entry.attempted });
                   core.setFailed('Production monitor SMTP failed before submission. This alert remains queued.');
                   return;
+                }
+                if (outcome === 'permanent-rejection') {
+                  await ensureMailLabel(entry.rejected, 'b60205');
+                  await github.rest.issues.addLabels({ ...issue, labels: [entry.rejected] });
+                  await github.rest.issues.removeLabel({ ...issue, name: entry.label });
+                  core.setFailed(`SMTP permanently rejected the ${entry.transition} alert for issue #${issue.issue_number}.`);
+                  continue;
                 }
                 if (outcome !== 'accepted') {
                   core.setFailed('Production monitor email outcome is uncertain. Check the relay before any manual resend.');
@@ -330,6 +394,7 @@ jobs:
                 // and retain only the SMTP phase. Never print or save the trace.
                 let phase = 'connect';
                 let envelopeReply = false;
+                let rejection;
                 createInterface({ input: client.stderr, terminal: false }).on('line', (line) => {
                   if (phase === 'accepted' || phase === 'rejected') return;
                   if (/^> (?:MAIL FROM:|RCPT TO:)/i.test(line)) {
@@ -344,7 +409,10 @@ jobs:
                   const reply = /^< ([2345][0-9]{2})(?: |$)/.exec(line)?.[1];
                   if (!reply) return;
                   if (reply[0] === '4' || reply[0] === '5') {
-                    if (envelopeReply || phase === 'data' || phase === 'body') phase = 'rejected';
+                    if (envelopeReply || phase === 'data' || phase === 'body') {
+                      phase = 'rejected';
+                      rejection = reply[0];
+                    }
                   } else if (phase === 'data' && reply === '354') {
                     phase = 'body';
                   } else if (phase === 'body' && reply === '250') {
@@ -362,7 +430,7 @@ jobs:
                   return 'not-submitted';
                 }
                 if (code === 0 || phase === 'accepted') return 'accepted';
-                if (phase === 'rejected') return 'not-submitted';
+                if (phase === 'rejected') return rejection === '5' ? 'permanent-rejection' : 'not-submitted';
                 // curl failed to initialise, resolve, connect, validate TLS, or authenticate.
                 const beforeSubmission = [2, 3, 4, 5, 6, 7, 60, 67, 77];
                 return phase === 'connect' && beforeSubmission.includes(code) ? 'not-submitted' : 'uncertain';
