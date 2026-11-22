@@ -280,15 +280,16 @@ impl Reports {
                 .ok_or(StaffError::NotFound)?;
         // Staff resolve existing reports even when their reporter is suspended
         // or closed; submission/owner-access admission does not govern moderation.
-        let owner_state: Option<String> =
-            sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
+        let owner_state: Option<(String, String)> =
+            sqlx::query_as("SELECT status,locale FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(owner)
                 .fetch_optional(&mut **tx)
                 .await
                 .map_err(|_| StaffError::Unavailable)?;
+        let (owner_state, locale) = owner_state.ok_or(StaffError::Denied)?;
         if !matches!(
-            owner_state.as_deref(),
-            Some("active" | "pending_verification" | "suspended" | "closed")
+            owner_state.as_str(),
+            "active" | "pending_verification" | "suspended" | "closed"
         ) {
             return Err(StaffError::Denied);
         }
@@ -308,7 +309,7 @@ impl Reports {
             tx,
             notifications,
             owner,
-            format!("{status}: {}", public_outcome.trim()),
+            web::moderation_notice(&locale, status, public_outcome),
         )
         .await?;
         Ok((
