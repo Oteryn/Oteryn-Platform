@@ -33,63 +33,39 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  expect(response.status()).toBe(200);
  expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- const terminalRoutes=new Map();
- const recordTerminal=response=>{
-   let request=response.request();
-   if(!request.isNavigationRequest() || (response.status()>=300 && response.status()<400)) return;
-   while(request.redirectedFrom()) request=request.redirectedFrom();
-   terminalRoutes.set(new URL(request.url()).pathname,new URL(response.url()).pathname);
- };
- page.context().on('response',recordTerminal);
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(path=>path!=='/console/dashboard');
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
- // Each worker checks one destination and issues one link probe at a time.
- const pageWorkers=3;
- const sweeps=await Promise.allSettled(Array.from({length:pageWorkers},async(_,offset)=>{
+ for(const path of paths) await test.step(path,async()=>{
    const screen=await staffContext.newPage();
+   attempted.push(path);
    try {
-     for(let i=offset;i<paths.length;i+=pageWorkers) {
-       const path=paths[i];
-       attempted.push(path);
-       try {
-         await test.step(path,async()=>{
-           const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
-           const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
-           const status=response.status();
-           if(status===200) {
-             if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
-             // assertShell also checks CSRF on every POST form.
-             await assertShell(screen);
-           } else {
-             failures.push(`${path}: HTTP ${status}`);
-             const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
-             for(const form of forms) await csrfRejected(screen,form.action,form.fields);
-           }
-         });
-       } catch(error) {
-         failures.push(`${path}: ${error.message}`);
-       }
+     const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
+     const response=await screen.goto(localized?path:`${path}?lang=${lang}`,{waitUntil:'domcontentloaded'});
+     const expected=new URL(path,page.url()).pathname;
+     expect(new URL(response.url()).pathname,'terminal staff route').toBe(expected);
+     if(response.status()===200) {
+       if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
+       // assertShell also checks CSRF on every POST form.
+       await assertShell(screen);
+     } else {
+       failures.push(`${path}: HTTP ${response.status()}`);
+       const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
+       for(const form of forms) await csrfRejected(screen,form.action,form.fields);
      }
+   } catch(error) {
+     failures.push(`${path}: ${error.message}`);
    } finally {
      await screen.close();
    }
- }));
- for(const [index,result] of sweeps.entries()) {
-   if(result.status==='rejected') failures.push(`worker ${index+1}: ${result.reason.message}`);
- }
+ });
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
- page.context().off('response',recordTerminal);
- for(const path of paths) {
-   const expected=new URL(path,page.url()).pathname;
-   expect(terminalRoutes.get(expected),'terminal staff route').toBe(expected);
- }
  await test.step('/console/dashboard',async()=>{
    const denied=await page.context().newPage();
    try {
