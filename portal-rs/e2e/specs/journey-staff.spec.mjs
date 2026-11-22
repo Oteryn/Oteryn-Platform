@@ -12,8 +12,9 @@ async function openAccountMenu(page) {
     await page.locator('.om-fallback-account > summary').click();
     return page.locator('.om-fallback-account[open]');
   }
-  const toggle = page.locator('#portal-menu-toggle');
-  if (await toggle.isVisible()) await toggle.click();
+  await expect(page.locator('#portal-header')).toHaveClass(/\bis-enhanced\b/);
+  const mobile = await page.evaluate(() => matchMedia('(max-width: 960px)').matches);
+  if (mobile) await page.locator('#portal-menu-toggle').click();
   await page.locator('[data-account-link]').click();
   const menu = page.locator('#podglad-konta');
   await expect(menu).toBeVisible();
@@ -196,7 +197,13 @@ test('staff publish content and handle a player’s support, safety and account 
       const moderator = actors.moderator.page;
       const report = reportPath.split('/').at(-1);
       await open(moderator, '/admin/moderation/reports');
-      await moderator.locator(`main a[href="/admin/moderation/reports/${report}"]`).click();
+      const reportLink = moderator.locator(`main a[href="/admin/moderation/reports/${report}"]`);
+      const next = moderator.locator('main a[href^="/admin/moderation/reports?page="]');
+      while (!(await reportLink.count())) {
+        await expect(next).toBeVisible();
+        await next.click();
+      }
+      await reportLink.click();
       const reportForm = 'main form:has(input[value=moderate])';
       const notes = `Review evidence for report ${report}`;
       const review = { status: 'reviewing', public_outcome: '', moderator_notes: notes };
