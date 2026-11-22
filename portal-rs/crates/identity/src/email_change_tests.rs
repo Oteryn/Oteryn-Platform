@@ -571,6 +571,17 @@ impl oteryn_notify::EmailSender for RejectOld {
 }
 #[tokio::test]
 async fn email_change_mail_quarantines_invalid_links_and_retries_other_origins() -> TestResult {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Debug, Default)]
+    struct RecordingSender(AtomicUsize);
+    impl oteryn_notify::EmailSender for RecordingSender {
+        fn send<'a>(&'a self, _: &'a oteryn_notify::Email) -> oteryn_notify::NotifyFuture<'a, ()> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async { Err("unexpected email delivery".into()) })
+        }
+    }
+
     let Some(db) = database::Database::open().await? else {
         return Ok(());
     };
@@ -609,17 +620,10 @@ async fn email_change_mail_quarantines_invalid_links_and_retries_other_origins()
             [9; 32],
         ))),
     };
+    let sender = Arc::new(RecordingSender::default());
     let worker = super::mail::Worker {
         service,
-        sender: Arc::new(
-            oteryn_notify::SmtpSender::new(
-                "localhost",
-                "local".into(),
-                "unused".into(),
-                "portal@example.invalid".into(),
-            )
-            .map_err(|_| "local SMTP configuration invalid")?,
-        ),
+        sender: sender.clone(),
     };
     #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
     struct MailState {
@@ -645,6 +649,7 @@ async fn email_change_mail_quarantines_invalid_links_and_retries_other_origins()
     };
     let before = state().await?;
     worker.tick().await?;
+    assert_eq!(sender.0.load(Ordering::Relaxed), 0);
     let first = state().await?;
     assert_eq!(first.len(), before.len());
     assert_eq!(first.len(), 8);
@@ -667,6 +672,7 @@ async fn email_change_mail_quarantines_invalid_links_and_retries_other_origins()
         }
     }
     worker.tick().await?;
+    assert_eq!(sender.0.load(Ordering::Relaxed), 0);
     assert_eq!(state().await?, first);
     db.close().await
 }

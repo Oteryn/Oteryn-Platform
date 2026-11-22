@@ -97,14 +97,19 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
   expect(await failed.exited).toEqual([0, null]);
   const [quarantine] = await poisonState();
   expect(quarantine).toMatchObject({ unsent: true, erased: true, quarantined: true });
-  expect(await query(
-    `SELECT delivery_attempts,delivered_at IS NULL AS unsent,
+  const retryState = () => query(
+    `SELECT id, delivery_attempts, delivered_at IS NULL AS unsent,
+            next_attempt_at::text, updated_at::text, sha256(convert_to(body,'UTF8')) AS body_digest,
             extract(epoch FROM next_attempt_at-updated_at) BETWEEN 29 AND 31 AS backed_off
      FROM account_email_change_mail WHERE change_id=$1 AND id<>$2 ORDER BY recipient`,
     [change.id, poison.id],
-  )).toEqual(Array.from({ length: 2 }, () => ({ delivery_attempts: 1, unsent: true, backed_off: true })));
+  );
+  const backedOff = await retryState();
+  expect(backedOff).toEqual(Array.from({ length: 2 }, () =>
+    expect.objectContaining({ delivery_attempts: 1, unsent: true, backed_off: true })));
 
   const accepted = [];
+  let holdNext = false;
   let heldMail;
   let releaseMail;
   const up = catcher(jobs.env, (message, callback) => {
@@ -118,7 +123,7 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
       accepted.push(message);
       callback();
     };
-    if (heldMail) {
+    if (!holdNext || heldMail) {
       accept();
     } else {
       heldMail = message;
@@ -127,12 +132,30 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
   });
   await listen(up, port);
   try {
+    // With SMTP available, the sweep must finish before either retry is due.
+    const earlySweep = await enqueue('identity.email-change');
+    const earlyWorker = jobs.start(smtp);
+    await earlyWorker.ready;
+    await waitForJob(earlySweep, 'done', 1);
+    expect(earlyWorker.child.kill('SIGTERM')).toBe(true);
+    expect(await earlyWorker.exited).toEqual([0, null]);
+    expect(accepted).toHaveLength(0);
+    expect(await retryState()).toEqual(backedOff);
+    expect(await poisonState()).toEqual([quarantine]);
+    expect(await query(
+      `SELECT updated_at < ALL(
+         SELECT next_attempt_at FROM account_email_change_mail WHERE change_id=$1 AND id<>$2
+       ) AS before_deadlines FROM outbox WHERE id=$3`,
+      [change.id, poison.id, earlySweep],
+    )).toEqual([{ before_deadlines: true }]);
+
     // Follow the actual PostgreSQL deadline with the same time source as the worker.
     await expect.poll(async () => (await query(
       `SELECT count(*)::int AS due FROM account_email_change_mail
        WHERE change_id=$1 AND delivered_at IS NULL AND next_attempt_at<=clock_timestamp()`,
       [change.id],
     ))[0].due, { timeout: 40_000 }).toBe(2);
+    holdNext = true;
     const retry = await enqueue('identity.email-change');
     const first = jobs.start(smtp);
     await first.ready;
@@ -230,6 +253,7 @@ test('two workers deliver one referral invitation and the recipient opens it', a
   const port = await listen(sink, 0);
   const recipient = await browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN, locale: lang, ignoreHTTPSErrors: true,
+    viewport: info.project.use.viewport,
   });
   try {
     await query('UPDATE referral_campaign_settings SET enabled=true WHERE singleton');

@@ -1968,7 +1968,8 @@ async fn configured_referral_job_commits_stalled_delivery_backoffs_before_deadli
         VALUES($1,'primary','inviter@example.test','new@example.test',decode(repeat('ab',32),'hex'),decode(repeat('cd',32),'hex'),false,now()+interval '1 day',now()+interval '2 days',now()+interval '30 days')
         RETURNING id
     ) INSERT INTO account_email_change_mail(change_id,recipient,subject,body)
-      SELECT id,'change-'||n||'@example.test','Email change',E'Test body\n\nhttps://portal.example.test/email-change/fixture'
+      SELECT id,'change-'||n||'@example.test','Email change',
+        E'Test body\n\nhttps://portal.example.test/email-change/confirm/' || lpad(to_hex(n),64,'0')
       FROM change CROSS JOIN generate_series(1,8) n")
       .bind(inviter).execute(&db.pool).await?;
     let registry = configured(db.pool.clone()).await?;
