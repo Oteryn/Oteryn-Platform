@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { readStaffFixture, staffSeedEnvironment, startStaffConsoleHarness } from './admin-agent.mjs';
-import { localDatabaseURL } from './local-database.mjs';
+import { HarnessProcesses } from './harness-processes.mjs';
+import { fixtureDatabasePool, localDatabaseURL } from './local-database.mjs';
 
 function refusedBeforeProvisioning(t, databaseURL, overrides, message) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-harness-guard-'));
@@ -52,6 +55,51 @@ test('local PostgreSQL URL preserves its TLS name and pins the TCP address', () 
   assert.equal(url.searchParams.get('hostaddr'), '127.0.0.1');
   assert.equal(url.searchParams.get('sslmode'), 'verify-full');
   assert.equal(localDatabaseURL(url.href).href, url.href);
+});
+
+test('fixture pool rejects PostgreSQL connection overrides before connecting', () => {
+  assert.throws(() => fixtureDatabasePool('postgres://localhost/portal_e2e_guard?host=remote.invalid'), /Local PostgreSQL only/);
+  assert.throws(() => fixtureDatabasePool('postgres://localhost/portal_e2e_guard?hostaddr=::1'), /Conflicting PostgreSQL host/);
+  assert.throws(() => fixtureDatabasePool('postgres://localhost/postgres'), /require a local portal_e2e_ database/);
+});
+
+test('harness shutdown waits for a stalled descendant after its group leader exits', { timeout: 20_000 }, async t => {
+  const processes = new HarnessProcesses();
+  const descendant = `
+    import net from 'node:net';
+    process.on('SIGINT', () => {});
+    net.createServer().listen(0, '127.0.0.1', () => console.log(process.pid));
+  `;
+  const leader = `
+    import { spawn } from 'node:child_process';
+    const child = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(descendant)}],
+      { stdio: ['ignore', 'pipe', 'inherit'] });
+    child.stdout.once('data', data => process.stdout.write(data, () => process.exit(0)));
+  `;
+  const { child, done } = processes.launch(process.execPath, ['--input-type=module', '-e', leader],
+    { stdio: ['ignore', 'pipe', 'inherit'] });
+  const lines = createInterface({ input: child.stdout });
+  t.after(async () => {
+    lines.close();
+    await processes.stop(() => {});
+  });
+  const [pid] = await once(lines, 'line', { signal: AbortSignal.timeout(5_000) });
+  assert.match(pid, /^[1-9]\d*$/);
+  assert.equal((await done).status, 0);
+  const live = () => {
+    try {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return !/^[ZX]/.test(stat.slice(stat.lastIndexOf(')') + 2));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      return false;
+    }
+  };
+  assert.equal(live(), true);
+  const messages = [];
+  assert.equal(await processes.stop(message => messages.push(message)), true);
+  assert.deepEqual(messages, ['forcing shutdown of stalled children']);
+  assert.equal(live(), false);
 });
 
 test('local PostgreSQL URL rejects conflicting local endpoints and ignores ambient PGPORT', t => {

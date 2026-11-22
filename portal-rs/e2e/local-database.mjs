@@ -43,14 +43,28 @@ export function localDatabaseURL(connectionString) {
   return url;
 }
 
-export function localDatabaseClient(url, connectionTimeoutMillis) {
+function pinnedConnection(url) {
   const address = loopback.get(url.hostname);
   if (!address) throw new Error('Local PostgreSQL only');
   // pg ignores hostaddr. Give pg the hostname for TLS and pin its socket to
   // the same address as SQLx without querying the system name resolver.
-  const socket = new class extends Socket {
-    connect(port) { return super.connect(port, address); }
-  }();
-  const client = new pg.Client({ connectionString: url.href, connectionTimeoutMillis, stream: socket });
+  return {
+    connectionString: url.href,
+    stream: () => new class extends Socket {
+      connect(port) { return super.connect(port, address); }
+    }(),
+  };
+}
+
+export function localDatabaseClient(url, connectionTimeoutMillis) {
+  const config = pinnedConnection(url);
+  const socket = config.stream();
+  const client = new pg.Client({ ...config, connectionTimeoutMillis, stream: socket });
   return { client, socket };
+}
+
+export function fixtureDatabasePool(connectionString) {
+  const url = localDatabaseURL(connectionString);
+  if (!url.pathname.startsWith('/portal_e2e_')) throw new Error('Fixtures require a local portal_e2e_ database');
+  return new pg.Pool(pinnedConnection(url));
 }

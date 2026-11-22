@@ -109,6 +109,28 @@ export function readStaffFixture(directory) {
   };
 }
 
+export const startupBindConflict = 75;
+
+export async function reserveStaffPorts(signal) {
+  const listeners = [];
+  const ports = {};
+  const release = async () => {
+    await Promise.all(listeners.splice(0).map(listener => new Promise(resolve => listener.close(resolve))));
+  };
+  try {
+    for (const name of ['http', 'internal', 'admission', 'gateway']) {
+      const listener = net.createServer(socket => socket.destroy()).listen({ port: 0, host: '127.0.0.1', signal });
+      listeners.push(listener);
+      await once(listener, 'listening', { signal });
+      ports[name] = listener.address().port;
+    }
+  } catch (error) {
+    await release();
+    throw error;
+  }
+  return { ports, release };
+}
+
 // The browser qualification launcher already supplies a disposable database.
 // Start a separate harness so attaching an agent cannot change another spec.
 export async function startStaffConsoleHarness(databaseURL) {
@@ -116,23 +138,21 @@ export async function startStaffConsoleHarness(databaseURL) {
   const adminURL = localDatabaseURL(databaseURL);
   assert(adminURL.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
   adminURL.pathname = '/postgres';
-  const listeners = [];
-  const portEnv = {};
-  try {
-    for (const name of ['HTTP', 'INTERNAL', 'ADMISSION', 'GATEWAY']) {
-      const listener = net.createServer().listen(0, '127.0.0.1');
-      listeners.push(listener);
-      await once(listener, 'listening');
-      portEnv[`PORTAL_E2E_${name}_PORT`] = String(listener.address().port);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await startStaffConsoleAttempt(adminURL);
+    } catch (error) {
+      if (error.exitCode !== startupBindConflict || attempt === 3) throw error;
     }
-  } finally {
-    for (const listener of listeners) listener.close();
   }
+}
+
+async function startStaffConsoleAttempt(adminURL) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'staff-console-e2e-'));
   const out = path.join(directory, 'run');
   const logPath = path.join(directory, 'harness.log');
   const log = fs.openSync(logPath, 'a', 0o600);
-  const env = { ...process.env, ...portEnv, PORTAL_E2E_OUT: out, PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href };
+  const env = { ...process.env, PORTAL_E2E_OUT: out, PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href };
   delete env.PORTAL_E2E_SEED_PLAN;
   delete env.PORTAL_E2E_KEEP_DATABASE;
   const child = spawn(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)),
@@ -149,7 +169,9 @@ export async function startStaffConsoleHarness(databaseURL) {
   try {
     const ready = await Promise.race([
       once(lines, 'line').then(([line]) => JSON.parse(line).status),
-      closed.then(([code, signal]) => { throw new Error(`Staff console harness exited (${signal || code}). See ${logPath}`); }),
+      closed.then(([code, signal]) => {
+        throw Object.assign(new Error(`Staff console harness exited (${signal || code}). See ${logPath}`), { exitCode: code });
+      }),
     ]);
     assert.equal(ready, 'ready');
     return {

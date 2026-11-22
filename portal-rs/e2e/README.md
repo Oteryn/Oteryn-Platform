@@ -69,8 +69,9 @@ the exact destination assertions, production proof difficulty and zero retries.
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 
 One command starts portal-rs for an external E2E harness. It needs Node 22+,
-OpenSSL, the repository Rust toolchain and a throwaway **local** PostgreSQL 18.6
-administrator URL; everything else is generated per run:
+OpenSSL, `flock`, `ps`, the repository Rust toolchain and a throwaway **local**
+PostgreSQL 18.6 administrator URL. The harness generates the remaining settings
+per run.
 
 ```sh
 set +x
@@ -130,17 +131,20 @@ binary paths are resolved from `portal-rs` for services and browser seeds.
 services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it after
 readiness). A startup failure or interruption triggers database cleanup and
 removes generated credentials. Shutdown closes the staff proxy before giving
-children ten seconds to exit, then terminates stalled children. Database cleanup
+each command's process group ten seconds to exit, then terminates stalled groups.
+Teardown fails if a group still has live processes. Database cleanup
 retries with fresh connections, increased timeouts, and backoff within 75 seconds.
 PostgreSQL URLs use one explicit loopback endpoint. `localhost` connects to
 `127.0.0.1` and retains `localhost` for TLS certificate verification. An omitted
 port defaults to `5432` unless the URL specifies a `port` option. Use an explicit
 `[::1]` for an IPv6-only listener.
-The managed staff-console harness stops when its Playwright worker closes the
-lifetime pipe, including during startup. Managed teardown reports a failed
-harness exit and retains its diagnostic log.
-Browser seeding validates both testing flags and forwards only the local
-disposable database URL, testing flags, and MFA key.
+The managed staff-console harness holds its ports through migration and retries
+a startup bind conflict with fresh ports after cleanup, up to three attempts.
+It stops when its Playwright worker closes the lifetime pipe, including during
+startup. Managed teardown reports a failed harness exit and retains its log.
+Browser fixture SQL uses the same pinned database endpoint. Seeding validates
+both testing flags and forwards only the local disposable database URL, testing
+flags, and MFA key.
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 

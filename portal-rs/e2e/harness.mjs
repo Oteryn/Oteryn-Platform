@@ -15,9 +15,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { HarnessProcesses } from './harness-processes.mjs';
 import { localDatabaseClient, localDatabaseURL } from './local-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -45,7 +46,7 @@ const port = name => {
   if (!Number.isInteger(value) || value < 1024 || value > 65535) throw new Error(`${name} must be a port`);
   return value;
 };
-const ports = {
+const configuredPorts = parentLifetime && staffMode ? undefined : {
   http: port('PORTAL_E2E_HTTP_PORT'),
   internal: port('PORTAL_E2E_INTERNAL_PORT'),
   admission: Number(process.env.PORTAL_E2E_ADMISSION_PORT || 18091),
@@ -59,7 +60,7 @@ const adminConnectionString = adminDatabaseURL.href;
 const databaseLock = 'SELECT pg_advisory_lock(hashtextextended($1, 0))';
 
 const abort = new AbortController();
-const children = new Map();
+const processes = new HarnessProcesses();
 const cleanup = [];
 let ready = false;
 let stopping = false;
@@ -123,37 +124,13 @@ async function dropDatabase(dbName, reconcile) {
 
 function launch(program, args, options) {
   abort.signal.throwIfAborted();
-  const child = spawn(program, args, { cwd: root, ...options });
-  const done = new Promise(resolve => {
-    let error;
-    child.once('error', failure => { error = failure; });
-    child.once('close', (status, signal) => resolve({ status, signal, error }));
-  });
-  children.set(child, done);
-  void done.then(() => children.delete(child));
-  return { child, done };
-}
-
-async function stopChildren() {
-  const completed = Promise.all(children.values());
-  for (const child of children.keys()) child.kill('SIGINT');
-  const watchdog = new AbortController();
-  try {
-    await Promise.race([completed, (async () => {
-      await delay(10_000, undefined, { signal: watchdog.signal });
-      log('forcing shutdown of stalled children');
-      for (const child of children.keys()) child.kill('SIGKILL');
-      await delay(2_000, undefined, { signal: watchdog.signal });
-    })()]);
-  } finally {
-    watchdog.abort();
-  }
+  return processes.launch(program, args, { cwd: root, ...options });
 }
 
 async function close(code) {
   if (stopping) return;
   stopping = true;
-  await childrenStopped;
+  if (!await childrenStopped) code = 1;
   for (const action of cleanup.reverse()) {
     try {
       await action(code);
@@ -168,7 +145,7 @@ async function close(code) {
 function stop(code, message) {
   if (abort.signal.aborted) return;
   abort.abort({ code, message });
-  childrenStopped = stopChildren();
+  childrenStopped = processes.stop(log);
   if (ready) {
     if (message) log(message);
     void close(code);
@@ -245,6 +222,10 @@ async function start() {
     fs.mkdirSync(dir, { mode: 0o700 });
     if (privatePaths.has(dir)) owned.push(dir);
   }
+  const staffTools = staffMode ? await import('./admin-agent.mjs') : undefined;
+  const reservations = parentLifetime && staffTools ? await staffTools.reserveStaffPorts(abort.signal) : undefined;
+  if (reservations) onCleanup(reservations.release);
+  const ports = reservations?.ports ?? configuredPorts;
 
   // ---- certificates (openssl, as local.mjs) ----------------------------------
   function openssl(args) {
@@ -338,9 +319,7 @@ async function start() {
   fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
   fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).digest('hex')}\n`, { mode: 0o600 });
 
-  const staffConsole = staffMode
-    ? await (await import('./admin-agent.mjs')).prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, signal: abort.signal })
-    : undefined;
+  const staffConsole = await staffTools?.prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, signal: abort.signal });
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
     ...identityEnv,
@@ -416,10 +395,24 @@ async function start() {
   await withLog('migrate', stdio => checkedRun(binary, ['migrate'], { stdio }));
 
   // ---- services ----------------------------------------------------------------
+  if (reservations) await reservations.release();
   for (const role of ['serve', 'worker', 'gateway']) {
     const { done } = withLog(role, stdio => launch(binary, [role], { env, stdio }));
-    void done.then(({ status, signal, error }) =>
-      stop(1, `${role} exited (${error?.code ?? signal ?? status}); see ${path.join(dirs.logs, role + '.log')}`));
+    void done.then(({ status, signal, error }) => {
+      if (abort.signal.aborted) return;
+      const file = path.join(dirs.logs, role + '.log');
+      let code = 1;
+      if (reservations && !ready && status === 1 && (role === 'serve' || role === 'gateway')) {
+        try {
+          if (/"error":"[^"\n]*Address already in use \(os error 98\)"/.test(fs.readFileSync(file, 'utf8'))) {
+            code = staffTools.startupBindConflict;
+          }
+        } catch {
+          // If the service log is unreadable, report the original service failure.
+        }
+      }
+      stop(code, `${role} exited (${error?.code ?? signal ?? status}); see ${file}`);
+    });
   }
 
   const deadline = Date.now() + 120_000;
@@ -453,6 +446,7 @@ async function start() {
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.http, path: '/', method: 'GET' }).then(() => true), 'public listener');
   await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
+  if (reservations) await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/ready', method: 'GET' }).then(code => code === 200), 'gateway listener');
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------
