@@ -31,18 +31,59 @@ const MAIL_SETTINGS: [&str; 7] = [
     "OTERYN_SMTP_FROM",
     "OTERYN_MAIL_FROM",
 ];
-fn mail_configured() -> bool {
+struct MailTransport {
+    smtp: AsyncSmtpTransport<Tokio1Executor>,
+    from: lettre::message::Mailbox,
+    origin: String,
+}
+
+fn mail_settings_present() -> bool {
     MAIL_SETTINGS
         .iter()
         .any(|name| std::env::var_os(name).is_some())
 }
 
-pub fn staff_invite_key() -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
-    staff_invite_key_from(
-        std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true"),
-        mail_configured(),
-        || std::env::var("OTERYN_RESET_DELIVERY_KEY").ok(),
+fn mail_transport() -> Result<Option<MailTransport>, Box<dyn std::error::Error>> {
+    if !mail_settings_present() {
+        return Ok(None);
+    }
+    let host =
+        std::env::var("OTERYN_SMTP_HOST").map_err(|_| "registration SMTP host is required")?;
+    let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
+    let uri: axum::http::Uri = origin
+        .parse()
+        .map_err(|_| "invalid registration mail origin")?;
+    if uri.scheme_str() != Some("https")
+        || uri.authority().is_none()
+        || uri.path() != "/"
+        || uri.query().is_some()
+    {
+        return Err("registration mail origin must be an HTTPS origin".into());
+    }
+    let smtp = oteryn_notify::smtp::transport(
+        &host,
+        std::env::var("OTERYN_SMTP_USERNAME")?,
+        std::env::var("OTERYN_SMTP_PASSWORD")?,
     )
+    .map_err(|_| "SMTP configuration invalid")?;
+    let from = std::env::var("OTERYN_MAIL_FROM")?
+        .parse()
+        .map_err(|_| "invalid registration sender address")?;
+    Ok(Some(MailTransport {
+        smtp,
+        from,
+        origin: origin.trim_end_matches('/').into(),
+    }))
+}
+
+pub fn staff_invite_key() -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
+    let panel_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
+    let smtp_ready = panel_enabled && mail_transport().is_ok_and(|transport| transport.is_some());
+    staff_invite_key_from(panel_enabled, smtp_ready, invite_key_env)
+}
+
+fn invite_key_env() -> Option<String> {
+    std::env::var("OTERYN_RESET_DELIVERY_KEY").ok()
 }
 
 fn staff_invite_key_from(
@@ -111,33 +152,17 @@ impl Handler for StaffInviteMailer {
 }
 
 pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    if !mail_configured() {
+    let Some(MailTransport { smtp, from, origin }) = mail_transport()? else {
         return Ok(());
-    }
-    let host =
-        std::env::var("OTERYN_SMTP_HOST").map_err(|_| "registration SMTP host is required")?;
-    let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
-    let uri: axum::http::Uri = origin.parse()?;
-    if uri.scheme_str() != Some("https")
-        || uri.authority().is_none()
-        || uri.path() != "/"
-        || uri.query().is_some()
-    {
-        return Err("registration mail origin must be an HTTPS origin".into());
-    }
-    let smtp = oteryn_notify::smtp::transport(
-        &host,
-        std::env::var("OTERYN_SMTP_USERNAME")?,
-        std::env::var("OTERYN_SMTP_PASSWORD")?,
-    )
-    .map_err(|_| "SMTP configuration invalid")?;
+    };
     let mailer = Arc::new(Mailer {
         pool,
         smtp,
-        from: std::env::var("OTERYN_MAIL_FROM")?.parse()?,
-        origin: origin.trim_end_matches('/').into(),
+        from,
+        origin,
     });
-    if let Some(key) = staff_invite_key()? {
+    let panel_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
+    if let Some(key) = staff_invite_key_from(panel_enabled, true, invite_key_env)? {
         registry.register(
             staff_invites::MAIL_KIND,
             Arc::new(StaffInviteMailer {
@@ -404,7 +429,7 @@ mod account_exists_tests {
 /// Freeze delivery readiness at startup, before registration body/session work.
 /// Serve and worker use the identical validated configuration.
 pub fn admission(app: axum::Router, pool: PgPool) -> axum::Router {
-    let ready = mail_configured() && register(&mut Registry::default(), pool).is_ok();
+    let ready = mail_settings_present() && register(&mut Registry::default(), pool).is_ok();
     admission_with_readiness(app, ready)
 }
 fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
