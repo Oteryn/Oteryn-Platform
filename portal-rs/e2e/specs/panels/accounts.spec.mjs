@@ -86,11 +86,14 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
         expect(proposal).toEqual({needs_owner: true, unconfirmed: true, sent_to_owner: true});
         expect(await query('SELECT id FROM account_email_change_mail WHERE recipient=$1', [nextEmail])).toHaveLength(0);
 
+        const settingsLink = await mailLink(
+          page, target.email, new RegExp(`https://localhost:18443/${locale}/account/security/email`), 85_000,
+        );
         await page.goto(`/${locale}/account/recovery-key`);
         await submit(page, 'main form', {current_password: target.password});
         const key = (await page.locator('.op-code').innerText()).trim();
         await submit(page, 'main form', {current_password: target.password, recovery_key: key});
-        await page.goto(`/${locale}/account/security/email`);
+        await page.goto(settingsLink);
         await submit(page, 'main form', {
           email: nextEmail, email_confirmation: nextEmail, current_password: target.password,
           proof: key, recovery: true,

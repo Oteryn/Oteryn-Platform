@@ -113,38 +113,61 @@ impl Worker {
             .begin()
             .await
             .map_err(|_| "email delivery unavailable".to_owned())?;
-        let row:Option<(Uuid,String,String,String)>=sqlx::query_as("SELECT m.id,m.recipient,m.subject,m.body FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id WHERE m.delivered_at IS NULL AND m.next_attempt_at<=clock_timestamp() AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL ORDER BY m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED").fetch_optional(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
-        let Some((id, recipient, subject, text)) = row else {
+        let row: Option<(Uuid, String, String, String, bool)> = sqlx::query_as(
+            "SELECT m.id,m.recipient,m.subject,m.body,
+                    c.initiated_by_staff AND c.owner_approved_at IS NULL
+             FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id
+             WHERE m.delivered_at IS NULL AND m.next_attempt_at<=clock_timestamp()
+               AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL
+               AND (NOT c.initiated_by_staff OR c.owner_approved_at IS NOT NULL
+                    OR (c.expires_at>clock_timestamp() AND m.recipient=c.old_email))
+             ORDER BY m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED",
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| "email delivery unavailable".to_owned())?;
+        let Some((id, recipient, subject, text, owner_proposal)) = row else {
             return Ok(false);
         };
         if Instant::now() >= last_send {
             return Ok(false);
         }
-        let (message, url) = text
-            .rsplit_once("\n\n")
-            .ok_or_else(|| "invalid email payload".to_owned())?;
-        if !url.starts_with(&format!("{}/email-change/", self.service.origin)) {
-            return Err("invalid email link".into());
-        }
-        let escape = |value: &str| {
-            value
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
-                .replace('"', "&quot;")
+        let origin = &self.service.origin;
+        let link = text.rsplit_once("\n\n").filter(|(_, url)| {
+            if owner_proposal {
+                ["pl", "en"]
+                    .iter()
+                    .any(|locale| *url == format!("{origin}/{locale}/account/security/email"))
+            } else {
+                url.starts_with(&format!("{origin}/email-change/"))
+            }
+        });
+        let sent = if let Some((message, url)) = link {
+            let escape = |value: &str| {
+                value
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+                    .replace('"', "&quot;")
+            };
+            let html = format!("<p><a href=\"{}\">{}</a></p>", escape(url), escape(message));
+            let email = oteryn_notify::Email {
+                id,
+                recipient,
+                subject,
+                text,
+                html,
+                unsubscribe: None,
+            };
+            let send_deadline = last_send.min(Instant::now() + Duration::from_secs(5));
+            matches!(
+                timeout_at(send_deadline, self.sender.send(&email)).await,
+                Ok(Ok(()))
+            )
+        } else {
+            false
         };
-        let html = format!("<p><a href=\"{}\">{}</a></p>", escape(url), escape(message));
-        let email = oteryn_notify::Email {
-            id,
-            recipient,
-            subject,
-            text,
-            html,
-            unsubscribe: None,
-        };
-        let send_deadline = last_send.min(Instant::now() + Duration::from_secs(5));
-        let sent = timeout_at(send_deadline, self.sender.send(&email)).await;
-        if !matches!(sent, Ok(Ok(()))) {
+        if !sent {
             sqlx::query("UPDATE account_email_change_mail SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_| "email delivery unavailable".to_owned())?;
         } else {
             sqlx::query("UPDATE account_email_change_mail SET delivered_at=now(),body='',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
