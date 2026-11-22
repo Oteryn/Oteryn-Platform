@@ -211,34 +211,85 @@ pub(crate) enum ErrorRepresentation {
     Unacceptable,
 }
 
+fn split_media_header(value: &str, delimiter: char) -> impl Iterator<Item = &str> {
+    let mut quoted = false;
+    let mut escaped = false;
+    value.split(move |character| {
+        if escaped {
+            escaped = false;
+        } else if quoted && character == '\\' {
+            escaped = true;
+        } else if character == '"' {
+            quoted = !quoted;
+        } else if !quoted && character == delimiter {
+            return true;
+        }
+        false
+    })
+}
+
+fn accepts_utf8(value: &str) -> bool {
+    let Some(quoted) = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    else {
+        return value.eq_ignore_ascii_case("utf-8");
+    };
+    let mut bytes = quoted.bytes();
+    b"utf-8".iter().all(|expected| {
+        let actual = match bytes.next() {
+            Some(b'\\') => bytes.next(),
+            other => other,
+        };
+        actual.is_some_and(|actual| actual.eq_ignore_ascii_case(expected))
+    }) && bytes.next().is_none()
+}
+
 pub(crate) fn error_representation(headers: &HeaderMap) -> ErrorRepresentation {
     use ErrorRepresentation::*;
     if !headers.contains_key(header::ACCEPT) {
         return DefaultHtml;
     }
 
-    let mut html = (0, 0.0_f32);
-    let mut json = (0, 0.0_f32);
-    for item in headers
+    let mut html = (0, false, 0.0_f32);
+    let mut json = (0, false, 0.0_f32);
+    'media_range: for item in headers
         .get_all(header::ACCEPT)
         .iter()
         .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(','))
+        .flat_map(|value| split_media_header(value, ','))
     {
-        let mut parts = item.split(';');
-        let range = parts.next().unwrap_or_default().trim();
-        let quality = parts
-            .filter_map(|parameter| parameter.split_once('='))
-            .find(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
-            .map_or(Some(1.0), |(_, value)| value.trim().parse::<f32>().ok())
-            .filter(|q| (0.0..=1.0).contains(q))
-            .unwrap_or(0.0);
+        let mut parts = split_media_header(item, ';').map(str::trim);
+        let range = parts.next().unwrap_or_default();
+        let mut quality = 1.0;
+        let mut requires_utf8 = false;
+        for parameter in parts.filter(|part| !part.is_empty()) {
+            let Some((name, value)) = parameter.split_once('=') else {
+                continue 'media_range;
+            };
+            let (name, value) = (name.trim(), value.trim());
+            if name.eq_ignore_ascii_case("q") {
+                quality = value
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|q| (0.0..=1.0).contains(q))
+                    .unwrap_or(0.0);
+            } else if name.eq_ignore_ascii_case("charset") && accepts_utf8(value) {
+                requires_utf8 = true;
+            } else {
+                continue 'media_range;
+            }
+        }
 
-        // The most specific range governs each representation, including q=0.
+        // HTML emits charset=utf-8. JSON has no media-type parameters.
+        // Apply the most specific matching range, including a q=0 exclusion.
         for (exact, range_type, score) in [
             ("text/html", "text/*", &mut html),
             ("application/json", "application/*", &mut json),
         ] {
+            if requires_utf8 && exact != "text/html" {
+                continue;
+            }
             let specificity = if range.eq_ignore_ascii_case(exact) {
                 3
             } else if range.eq_ignore_ascii_case(range_type) {
@@ -248,16 +299,16 @@ pub(crate) fn error_representation(headers: &HeaderMap) -> ErrorRepresentation {
             } else {
                 continue;
             };
-            if (specificity, quality) > *score {
-                *score = (specificity, quality);
+            if (specificity, requires_utf8, quality) > *score {
+                *score = (specificity, requires_utf8, quality);
             }
         }
     }
 
     match (html, json) {
-        ((_, 0.0), (_, 0.0)) => Unacceptable,
-        ((1, h), (1, j)) if h == j => DefaultHtml,
-        ((hs, h), (js, j)) if (h, hs) > (j, js) => Html,
+        ((_, _, 0.0), (_, _, 0.0)) => Unacceptable,
+        ((1, false, h), (1, false, j)) if h == j => DefaultHtml,
+        ((hs, hp, h), (js, jp, j)) if (h, hs, hp) > (j, js, jp) => Html,
         _ => Json,
     }
 }
@@ -430,6 +481,24 @@ mod tests {
             ("text/html;q=0, */*;q=0.8", Json),
             ("application/json;q=0, */*;q=0.8", Html),
             ("text/*, application/json;q=0.1", Html),
+            (
+                "text/html; charset=iso-8859-1, application/json;q=0.5",
+                Json,
+            ),
+            ("text/html; CHARSET=\"UTF-8\", application/json;q=0.5", Html),
+            (
+                "text/html; charset=utf-8;q=0, text/html;q=1, application/json;q=0.5",
+                Json,
+            ),
+            (
+                "text/html; charset=iso-8859-1;q=0, text/*;q=0.8, application/json;q=0.5",
+                Html,
+            ),
+            ("application/json; charset=utf-8, */*;q=0.5", DefaultHtml),
+            (
+                "text/html; note=\"value; text/html, text/html\", application/json;q=0.5",
+                Json,
+            ),
             ("application/xml", Unacceptable),
             ("*/*", DefaultHtml),
         ] {

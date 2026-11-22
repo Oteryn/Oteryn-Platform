@@ -61,6 +61,12 @@ test('public browser errors use the localized shell and no-store', async ({ page
   expect(wildcard.status()).toBe(404);
   expect(wildcard.headers()['content-type']).toMatch(/^application\/json\b/);
   expect(await wildcard.json()).toEqual({ status: 404, error: titles[404][lang === 'pl' ? 0 : 1] });
+  const charsetRefusal = await page.request.get(`/api/missing-${randomUUID()}`, {
+    ...options, headers: { ...headers, accept: 'text/html; charset=iso-8859-1, application/json;q=0.5' },
+  });
+  expect(charsetRefusal.status()).toBe(404);
+  expect(charsetRefusal.headers()['content-type']).toMatch(/^application\/json\b/);
+  expect(await charsetRefusal.json()).toEqual({ status: 404, error: titles[404][lang === 'pl' ? 0 : 1] });
   const forbidden = await page.request.post(`/${lang}/login`, { ...options, form: {} });
   await assertError(page, lang, 403, forbidden);
   for (const accept of ['application/json, text/html;q=0', 'application/json, text/html']) {
