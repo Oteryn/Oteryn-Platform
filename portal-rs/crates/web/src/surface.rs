@@ -215,7 +215,7 @@ fn accepts(headers: &HeaderMap, media_type: &str) -> bool {
         })
 }
 
-/// Paths whose responses are owned by a wire protocol rather than the browser shell.
+/// Whether the browser shell owns the response for this path.
 pub(crate) fn browser_path(path: &str) -> bool {
     !matches!(path, "/api" | "/internal" | "/oauth/token")
         && !path.starts_with("/api/")
@@ -472,8 +472,8 @@ mod tests {
 
     #[tokio::test]
     async fn native_runtime_refusal_remains_empty_for_html_accept() -> TestResult {
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgresql://localhost/unused")?;
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
         let app = finish(oteryn_gameauth::runtime::configured_routes(pool, |key| {
             match key {
                 "GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED" => Some("true".into()),

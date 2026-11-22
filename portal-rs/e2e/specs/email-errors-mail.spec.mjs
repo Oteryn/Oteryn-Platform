@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { request as playwrightRequest } from '@playwright/test';
 import { test, expect } from '../fixtures.mjs';
 import { login, logout, password, register, seedPasswordRange, submit } from '../helpers.mjs';
 import { action, enrollMfa, loginWithRecoveryCode, player, query, unique } from '../staff-rbac-helpers.mjs';
@@ -55,6 +56,7 @@ function mime(raw) {
   const parts = boundary ? content.split(`--${boundary}`).slice(1, -1)
     .flatMap(part => mime(part.replace(/^\r?\n/, '')).parts) : [{
     type: type.split(';')[0].toLowerCase(),
+    contentType: headers.get('content-type'),
     text: decode(content, headers.get('content-transfer-encoding')).replace(/\r\n/g, '\n').trim(),
   }];
   const subject = headers.get('subject')?.replace(/(\?=) +(?==\?)/g, '$1')
@@ -98,6 +100,10 @@ function bearerLink(page, message, lang, kind) {
   const [intro, candidate, ...extra] = message.text.split('\n\n');
   expect(intro === body && extra.length === 0, 'only the localized copy and one link').toBe(true);
   expect(message.headers.has('list-unsubscribe')).toBe(false);
+  if (kind === 'verification' || kind === 'reset') {
+    expect(message.parts.find(part => part.type === 'text/plain').contentType)
+      .toMatch(/^text\/plain;\s*charset="?utf-8"?$/i);
+  }
   const path = {
     verification: new RegExp(`^/${lang}/verify-email$`),
     reset: new RegExp(`^/${lang}/reset-password/[a-f0-9]{64}$`),
@@ -174,7 +180,7 @@ test('email change delivers separate confirmation and reversal capabilities', as
   }
 });
 
-test('security notices and the MFA fallback use the account language', async ({ page }, info) => {
+test('security notices use the account language and the existing MFA fallback rejects replay', async ({ page }, info) => {
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const other = lang === 'pl' ? 'en' : 'pl';
@@ -204,10 +210,10 @@ test('security notices and the MFA fallback use the account language', async ({ 
   await login(page, other, updated);
   await expect(page).toHaveURL(/\/mfa\/challenge$/);
   await submit(page, 'form[action$="/mfa/email"]');
-  const fallback = await securityMail(page, account.email, lang, 'mfa');
+  const fallback = await securityMail(page, account.email, other, 'mfa');
   const [intro, code, ...extra] = fallback.text.split('\n\n');
-  expect(intro === copy.mfa[lang === 'pl' ? 0 : 1][1] && extra.length === 0).toBe(true);
-  expect(/^[a-f0-9]{64}$/.test(code), 'MFA mail contains exactly one code').toBe(true);
+  expect(intro === copy.mfa[other === 'pl' ? 0 : 1][1] && extra.length === 0).toBe(true);
+  expect(/^[a-f0-9]{64}$/.test(code), 'the existing MFA challenge supplies exactly one code').toBe(true);
   expect(fallback.headers.has('list-unsubscribe')).toBe(false);
   await submit(page, 'form[action$="/mfa/challenge"]', { code });
   await expect(page).not.toHaveURL(/\/mfa\/challenge$/);
@@ -242,8 +248,26 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     const recovery = staffPage.locator("textarea[readonly]").first();
     await expect(recovery).toBeVisible();
     await loginWithRecoveryCode(staffPage, other, staff, await recovery.inputValue());
-    await page.goto(`/${lang}/account/notifications`);
-    await submit(page, 'main form', { support_email: true, support_portal: true });
+    const [staffAccount] = await query('SELECT id FROM accounts WHERE email=$1', [staff.email]);
+    await staffPage.goto(`/${other}/account/notifications`);
+    await submit(staffPage, 'main form', { support_email: true, support_portal: true });
+
+    const enableSupport = async () => {
+      await page.goto(`/${lang}/account/notifications`);
+      await submit(page, 'main form', { support_email: true, support_portal: true, news_email: true });
+    };
+    const preferences = async () => {
+      const [row] = await query(
+        `SELECT
+          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS support,
+          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='news') AS news,
+          (SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS portal,
+          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$2 AND category='support') AS other_support`,
+        [account.id, staffAccount.id],
+      );
+      return row;
+    };
+    await enableSupport();
     await page.goto(`/${lang}/support/tickets/create`);
     const title = unique();
     await submit(page, 'main form', { subject: title, body: title });
@@ -251,21 +275,39 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     const ticket = new URL(page.url()).pathname;
     const id = ticket.split('/').at(-1);
     expect((await staffPage.goto(`/admin/support/tickets/${id}`)).status()).toBe(200);
+    const replyForm = staffPage.locator('form:has(input[value=reply])');
+    const stale = await replyForm.evaluate(form => Object.fromEntries(new FormData(form)));
     const reply = unique();
     await action(staffPage, 'form:has(input[value=reply])', { body: reply });
     await expect(staffPage.locator('main')).toContainText(reply);
+    expect(await staffPage.locator('form:has(input[value=reply]) [name=lock_version]').inputValue())
+      .not.toBe(stale.lock_version);
+    const staleBody = unique();
+    const conflict = await staffPage.request.post(`/admin/support/tickets/${id}`, {
+      headers: { accept: 'text/html', 'accept-language': lang, origin: new URL(staffPage.url()).origin },
+      form: { ...stale, body: staleBody },
+      maxRedirects: 0,
+    });
+    expect(conflict.status()).toBe(409);
+    expect(conflict.headers()['content-language']).toBe(lang);
+    expect(conflict.headers()['cache-control']).toBe('no-store');
+    const conflictHtml = await conflict.text();
+    const [heading, description] = lang === 'pl'
+      ? ['Konflikt zmian', 'Dane zostały zmienione. Odśwież stronę i spróbuj ponownie.']
+      : ['Update conflict', 'The data has changed. Reload the page and try again.'];
+    expect(conflictHtml).toContain(`<h1>${heading}</h1>`);
+    expect(conflictHtml).toContain(`<p>${description}</p>`);
+    expect(conflictHtml).not.toContain(staleBody);
     await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'resolved' });
 
     const messages = [];
     for (const copy of [replyCopy, statusCopy]) {
       const message = await mail(page, account.email, subject, copy, copy);
       const candidate = message.text.slice(`${subject}\n\n${copy} `.length);
-      const target = absoluteLink(page, candidate, /^\/(?:en|pl)\/support\/tickets\/[a-f0-9-]+$/);
-      expect(target.pathname).toBe(ticket);
-      expect(target.search).toBe('');
-      expect(message.text === `${subject}\n\n${copy} ${target.href}`, 'only localized copy and the ticket link').toBe(true);
+      expect(candidate === ticket, 'ticket mail uses the exact localized relative path').toBe(true);
+      expect(message.text === `${subject}\n\n${copy} ${ticket}`, 'only localized copy and the ticket path').toBe(true);
       expect(message.parts.filter(part => part.type === 'text/html').length).toBe(1);
-      expect((await page.goto(target.href)).status()).toBe(200);
+      expect((await page.goto(ticket)).status()).toBe(200);
       await expect(page.locator('main')).toContainText(reply);
       messages.push(message);
     }
@@ -280,9 +322,9 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     await action(staffPage, 'form:has(input[value=moderate])', {
       status: 'actioned', public_outcome: outcome, moderator_notes: unique(),
     });
-    const reportCopy = `${lang === 'pl' ? 'Podjęto działanie' : 'Action taken'}: ${outcome}`;
+    const reportCopy = `actioned: ${outcome}`;
     const reportNotice = await mail(page, account.email, subject, reportCopy, outcome);
-    expect(reportNotice.text === `${subject}\n\n${reportCopy}`, 'only the localized public report outcome is mailed').toBe(true);
+    expect(reportNotice.text === `${subject}\n\n${reportCopy}`, 'only the public report outcome is mailed').toBe(true);
     messages.push(reportNotice);
 
     const reason = unique();
@@ -314,15 +356,15 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(requested).toEqual([{ status: 'requested' }]);
     await staffPage.reload();
     await action(staffPage, 'form:has(input[value=appeal])', { appeal_status: 'reviewing', appeal_outcome: '' });
-    const reviewCopy = lang === 'pl' ? 'Odwołanie w trakcie rozpatrywania' : 'Appeal under review';
+    const reviewCopy = 'reviewing:';
     const review = await mail(page, account.email, subject, reviewCopy, reviewCopy);
-    expect(review.text === `${subject}\n\n${reviewCopy}`, 'only the localized appeal status is mailed').toBe(true);
+    expect(review.text === `${subject}\n\n${reviewCopy}`, 'only the appeal status is mailed').toBe(true);
     messages.push(review);
     const decision = unique();
     await action(staffPage, 'form:has(input[value=appeal])', { appeal_status: 'accepted', appeal_outcome: decision });
-    const appealCopy = `${lang === 'pl' ? 'Odwołanie przyjęte' : 'Appeal accepted'}: ${decision}`;
+    const appealCopy = `accepted: ${decision}`;
     const appeal = await mail(page, account.email, subject, appealCopy, decision);
-    expect(appeal.text === `${subject}\n\n${appealCopy}`, 'only the localized public appeal outcome is mailed').toBe(true);
+    expect(appeal.text === `${subject}\n\n${appealCopy}`, 'only the public appeal outcome is mailed').toBe(true);
     messages.push(appeal);
 
     for (const message of messages) {
@@ -338,8 +380,20 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
       const target = absoluteLink(page, candidate, /^\/(?:en|pl)\/unsubscribe$/);
       expect([...target.searchParams.keys()]).toEqual(['token']);
       expect(Boolean(target.searchParams.get('token')), 'one signed unsubscribe capability').toBe(true);
-      const response = await page.request.post(target.href, { form: { 'List-Unsubscribe': 'One-Click' } });
-      expect(response.status()).toBe(200);
+      await enableSupport();
+      const enabled = { support: true, news: true, portal: true, other_support: true };
+      await expect.poll(preferences).toEqual(enabled);
+      const anonymous = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
+      try {
+        expect((await anonymous.storageState()).cookies).toEqual([]);
+        const response = await anonymous.post(target.href, {
+          form: { 'List-Unsubscribe': 'One-Click' }, maxRedirects: 0,
+        });
+        expect(response.status()).toBe(200);
+        expect(await preferences()).toEqual({ ...enabled, support: false });
+      } finally {
+        await anonymous.dispose();
+      }
     }
     await page.goto(`/${lang}/account/notifications`);
     await expect(page.locator('[name=support_email]')).not.toBeChecked();
