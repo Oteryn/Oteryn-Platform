@@ -82,4 +82,16 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  })).toBeVisible();
  await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
  expect((await page.request.get('/admin/analytics/export')).status()).toBe(404);
+
+ const preferred=lang==='pl' ? 'en' : 'pl';
+ await page.goto(`/language/${preferred}`);
+ await expect(page).toHaveURL(new RegExp(`/${preferred}/$`));
+ for(const [path,title] of [
+  ['/admin/analytics', preferred==='pl' ? 'Przegląd analityki administratora' : 'Admin analytics overview'],
+  ['/admin/analytics/economy', preferred==='pl' ? 'Analityka gospodarki' : 'Economy analytics'],
+ ]) {
+  expect((await page.goto(path)).status()).toBe(200);
+  await expect(page.locator('html')).toHaveAttribute('lang',preferred);
+  await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();
+ }
 });

@@ -11,7 +11,7 @@ use askama::Template;
 use axum::{
     Router,
     extract::{Request, State},
-    http::{StatusCode, header},
+    http::StatusCode,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -411,11 +411,8 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":state,"cells":cells})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
+    let lang = oteryn_ui::preferred_language(request.headers());
+    let english = lang == "en";
     let title = match (request.uri().path().trim_end_matches("/data"), english) {
         ("/admin/analytics/creatures", true) => "Creature and boss deaths by world",
         ("/admin/analytics/creatures", false) => "Zgony stworzeń i bossów według świata",
@@ -429,7 +426,7 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
         (_, false) => "Przegląd analityki administratora",
     };
     let page = Page {
-        lang: if english { "en" } else { "pl" },
+        lang,
         title,
         unavailable: if expired {
             if english { "Expired" } else { "Wygasłe" }

@@ -231,13 +231,9 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":if expired {"expired"} else if groups.iter().all(|g|g.state=="unavailable") {"unavailable"} else {"available"},"groups":groups})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
+    let lang = oteryn_ui::preferred_language(request.headers());
     let page = EconomyPage {
-        lang: if english { "en" } else { "pl" },
+        lang,
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
         from: input_time(start),
         to: input_time(end),
