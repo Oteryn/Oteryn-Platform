@@ -10,7 +10,9 @@ const gameDataInCi = process.env.GITHUB_ACTIONS === 'true';
 export default defineConfig({
   testIgnore: gameDataInCi ? [] : ['**/game-data.spec.mjs'],
   globalSetup: gameDataInCi ? './game-data.setup.mjs' : undefined,
-  testDir: './specs', timeout: 120_000, expect: { timeout: 10_000 },
+  testDir: '.',
+  testMatch: ['specs/**/*.@(spec|test).?(c|m)[jt]s?(x)', 'bazaar/legacy.spec.mjs'],
+  timeout: 120_000, expect: { timeout: 10_000 },
   fullyParallel: false, workers: 1, retries: 0,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: { baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true,

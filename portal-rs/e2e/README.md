@@ -15,7 +15,9 @@ node local.mjs
 
 `local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates two uniquely named databases, generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, TLS SMTP sink and HTTPS proxy on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops only its two databases; the scratch directory is retained for local investigation and should be removed after inspecting the report.
 
-In a second shell, using the scratch path printed by that process:
+In a second shell, export the same local `PORTAL_E2E_ADMIN_DATABASE_URL` for the
+Bazaar fallback test, which creates its own disposable database. Use the scratch
+path printed by the launcher:
 
 ```sh
 cd portal-rs/e2e
@@ -26,7 +28,9 @@ That is the exact browser command; it runs every project. `--project=pl-390` can
 
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
-For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
+For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. The Bazaar legacy spec also needs the matching
+`OTERYN_DATABASE_URL`, the built `PORTAL_E2E_BINARY`, and the local administrator
+URL for the fallback harness. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
 
 The local launcher supplies a disposable Bazaar Game producer and the real private transport. Character/item Bazaar and account listing reads require HTTP 200, no-store, the shared shell and CSRF refusal for every rendered mutation. Missing listing references require HTTP 404; malformed UUIDs require HTTP 400. Both retain no-store and the shared shell without account disclosure. The dedicated Bazaar spec proves funded bids, delivery, seller credit and Game-refusal behavior against synthetic fixtures; it does not qualify a production Game integration.
 
@@ -142,6 +146,33 @@ default one `Entry` scope). Ports come from `PORTAL_E2E_HTTP_PORT`,
 services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
+
+For the native admission refusal check, use a player-only seed plan. Set
+`PORTAL_E2E_ADMIN_DATABASE_URL` as above, then run from the repository root:
+
+```sh
+seed_plan=$(mktemp)
+node --input-type=module -e '
+  import { randomBytes } from "node:crypto";
+  import { writeFileSync } from "node:fs";
+  writeFileSync(process.argv[1], JSON.stringify({ steps: [{
+    name: "player", entity: "account",
+    args: { email: "native-refusal@example.invalid",
+      password: "Local!" + randomBytes(24).toString("hex"), locale: "en" },
+  }] }), { mode: 0o600 });
+' "$seed_plan"
+portal-rs/e2e/start.sh --seed-plan "$seed_plan"
+```
+
+Leave the harness running. In another terminal, pass the path to the report
+under its `outputDirectory` to the check:
+
+```sh
+node portal-rs/e2e/native-admission-refusals.mjs /path/to/report.json
+```
+
+The check uses the disposable database and the harness-generated credentials.
+After stopping the harness, remove the temporary seed plan.
 
 ### Seed commands
 
