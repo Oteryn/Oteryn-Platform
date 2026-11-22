@@ -528,7 +528,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
         return;
     };
     sqlx::query(
-        "INSERT INTO accounts(id,email,password_hash) VALUES($1,'note@example.test','test-only')",
+        "INSERT INTO accounts(id,email,password_hash,locale) VALUES($1,'note@example.test','test-only','en')",
     )
     .bind(db.target)
     .execute(&db.pool)
@@ -2144,7 +2144,7 @@ async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
             app(moderator),
             &path,
             &cookie,
-            format!("_csrf={csrf}&action=note&body=Note")
+            format!("_csrf={csrf}&action=note&body=Note&reason=Verified+support+case")
         )
         .await,
         StatusCode::FORBIDDEN
