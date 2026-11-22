@@ -191,14 +191,14 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     await expect(page.getByText(copy.unavailable, {exact: true}).first()).toBeVisible();
     await agent.answer(found[0], 'success');
     expect((await page.reload()).status()).toBe(200);
-    await expect(page.locator('main > p')).toContainText(copy.source);
-    await expect(page.locator('main > p')).toContainText(found[0].request_id);
+    await expect(page.locator('main > h1 + p')).toContainText(copy.source);
+    await expect(page.locator('main > h1 + p')).toContainText(found[0].request_id);
     await expect(page.locator('main')).toContainText(characterName);
     await expectReadAudit(found[0], gm.accountId, {view: 'search'});
     expect((await secondPage.goto(url(lang, {q: fields.q}))).status()).toBe(200);
     await expect(secondPage.getByText(copy.unavailable, {exact: true}).first()).toBeVisible();
     await expect(secondPage.locator('main')).not.toContainText(characterName);
-    await expect(secondPage.locator('main > p')).not.toContainText(found[0].request_id);
+    await expect(secondPage.locator('main > h1 + p')).not.toContainText(found[0].request_id);
     expect(await agent.poll()).toEqual([]);
 
     const dossiers = page.locator(dossierForm);
@@ -216,7 +216,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expectRequest(dossier[0], 'player.character.get', gm.accountId, characterId);
     await agent.answer(dossier[0], 'success');
     expect((await page.reload()).status()).toBe(200);
-    await expect(page.locator('main > p')).toContainText(dossier[0].request_id);
+    await expect(page.locator('main > h1 + p')).toContainText(dossier[0].request_id);
     await expect(page.locator('main')).toContainText(`${characterId} · ${characterName}`);
     await expect(page.locator('main')).toContainText('42, 27, 7');
     await expectReadAudit(dossier[0], gm.accountId, {character_id: characterId});
@@ -266,7 +266,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
 
     expect((await secondPage.goto(url(lang, {character: characterId}))).status()).toBe(200);
     await expect(secondPage.locator('main')).not.toContainText(characterName);
-    await expect(secondPage.locator('main > p')).not.toContainText(dossier[0].request_id);
+    await expect(secondPage.locator('main > h1 + p')).not.toContainText(dossier[0].request_id);
     const secondDossier = await agent.poll(3);
     expect(secondDossier).toHaveLength(1);
     expectRequest(secondDossier[0], 'player.character.get', second.accountId, characterId);
@@ -388,7 +388,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expectRequest(afterReconnect[0], 'player.character.get', gm.accountId, wrongSanctionCharacterId);
     await agent.answer(afterReconnect[0], 'success');
     expect((await page.reload()).status()).toBe(200);
-    await expect(page.locator('main > p')).toContainText(afterReconnect[0].request_id);
+    await expect(page.locator('main > h1 + p')).toContainText(afterReconnect[0].request_id);
 
     const {inventory: newInventory, sanctions: refusedSanction} = await pollDossierChildren(agent);
     await agent.answer(newInventory, 'success');
