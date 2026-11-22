@@ -24,6 +24,11 @@ struct Fixture {
     authority: MutationAuthorization,
 }
 
+const OVERSIZED_REASON: &str = match std::str::from_utf8(&[b'x'; 501]) {
+    Ok(reason) => reason,
+    Err(_) => panic!("ASCII reason fixture is valid UTF-8"),
+};
+
 #[derive(Deserialize)]
 struct TestForm {
     #[serde(default)]
@@ -50,7 +55,7 @@ async fn apply(
         Action {
             permission: Permission::GrantRoles,
             reason: &form.reason,
-            reason_codes: &["role_assignment"],
+            reason_codes: &["role_assignment", "short", OVERSIZED_REASON],
             step_up: StepUp::RecentPassword,
         },
         || Ok((vec![actor], (form.conflict, form.expire_step_up))),
@@ -223,7 +228,13 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .execute(&pool)
         .await?;
 
-    for form in ["", "reason=arbitrary+credential-shaped+text"] {
+    let oversized_reason = format!("reason={OVERSIZED_REASON}");
+    for form in [
+        "",
+        "reason=arbitrary+credential-shaped+text",
+        "reason=short",
+        &oversized_reason,
+    ] {
         assert_eq!(
             post(&token, form).await?.status(),
             StatusCode::UNPROCESSABLE_ENTITY
