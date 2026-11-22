@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::post,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::{
@@ -65,13 +65,16 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     let mut routes = Router::new();
     for prefix in ["", "/pl", "/en"] {
         routes = routes
-            .route(&format!("{prefix}/mfa/login"), get(show_login).post(login))
+            .route(
+                &format!("{prefix}/mfa/login"),
+                oteryn_web::html::get(show_login).post(login),
+            )
             .route(
                 &format!("{prefix}/mfa/challenge"),
-                get(show_challenge).post(challenge),
+                oteryn_web::html::get(show_challenge).post(challenge),
             )
             .route(&format!("{prefix}/mfa/email"), post(email))
-            .route(&format!("{prefix}/mfa"), get(settings))
+            .route(&format!("{prefix}/mfa"), oteryn_web::html::get(settings))
             .route(&format!("{prefix}/mfa/enroll"), post(enroll))
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
             .route(&format!("{prefix}/mfa/devices"), post(remove_device));

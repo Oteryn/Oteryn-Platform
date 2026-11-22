@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::post,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::sessions::{Actor, Outcome, Revocation, Sessions};
@@ -38,7 +38,7 @@ fn router(pool: PgPool, layer: SessionLayer) -> Router {
         routes = routes
             .route(
                 &format!("{prefix}/account/sessions"),
-                get(show).delete(revoke_others),
+                oteryn_web::html::get(show).delete(revoke_others),
             )
             .route(
                 &format!("{prefix}/account/sessions/others"),

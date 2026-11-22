@@ -162,6 +162,21 @@ async fn browser_reset_success_and_bad_input() -> TestResult {
         ))
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
+    let get_confirmation = |accept: &'static str| {
+        axum::http::Request::get("/en/forgot-password")
+            .header("cookie", &cookie)
+            .header("accept", accept)
+            .body(axum::body::Body::empty())
+    };
+    let refused = app
+        .clone()
+        .oneshot(get_confirmation("application/x-unknown")?)
+        .await?;
+    assert_eq!(refused.status(), StatusCode::NOT_ACCEPTABLE);
+    let confirmed = app.clone().oneshot(get_confirmation("text/html")?).await?;
+    assert_eq!(confirmed.status(), StatusCode::OK);
+    let confirmed = axum::body::to_bytes(confirmed.into_body(), 100000).await?;
+    assert!(std::str::from_utf8(&confirmed)?.contains(&text(Language::En, "reset-notice")));
     let payload: serde_json::Value =
         sqlx::query_scalar("SELECT payload FROM outbox WHERE kind='email.password-reset'")
             .fetch_one(&db.pool)

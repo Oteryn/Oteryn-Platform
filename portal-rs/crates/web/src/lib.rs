@@ -712,6 +712,11 @@ mod tests {
 mod public_http;
 pub use public_http::secure_public;
 
+/// Route constructors for HTML handlers with one-time browser session state.
+pub mod html {
+    pub use super::public_http::html_get as get;
+}
+
 mod surface;
 
 pub use surface::{

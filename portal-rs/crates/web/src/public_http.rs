@@ -4,9 +4,11 @@ use axum::{
     Router,
     body::Body,
     extract::Request,
+    handler::Handler,
     http::{HeaderMap, HeaderValue, Method, StatusCode, header, uri::Authority},
     middleware::{self, Next},
     response::Response,
+    routing::{MethodRouter, get},
 };
 
 use crate::surface::{self, HSTS, PERMISSIONS, REFERRER};
@@ -19,6 +21,33 @@ const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-
 /// redirects and routes supplied by other crates all receive the common policy.
 pub fn secure_public(router: Router) -> Router {
     router.layer(middleware::from_fn(policy))
+}
+
+/// Register an HTML GET that must negotiate before reading one-time session state.
+pub fn html_get<H, T, S>(handler: H) -> MethodRouter<S>
+where
+    H: Handler<T, S>,
+    T: 'static,
+    S: Clone + Send + Sync + 'static,
+{
+    get(handler).layer(middleware::from_fn(require_html))
+}
+
+async fn require_html(request: Request, next: Next) -> Response {
+    if accepts_html(request.headers()) {
+        next.run(request).await
+    } else {
+        let mut response = refusal(
+            StatusCode::NOT_ACCEPTABLE,
+            request.uri().path(),
+            language(&request),
+        );
+        response.headers_mut().insert(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("no-referrer"),
+        );
+        response
+    }
 }
 
 async fn policy(request: Request, next: Next) -> Response {
@@ -44,7 +73,7 @@ async fn policy(request: Request, next: Next) -> Response {
         next.run(request).await
     } else {
         // The public listener also serves JSON, downloads and other protocols.
-        // Only enforce HTML negotiation when the matched route actually serves HTML.
+        // Stateful HTML GETs also negotiate at registration via html_get.
         let path = request.uri().path().to_owned();
         let lang = language(&request);
         let response = next.run(request).await;

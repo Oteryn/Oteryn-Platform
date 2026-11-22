@@ -37,7 +37,7 @@ pub fn router(pool: PgPool, service: Service) -> Router {
     let path = format!("{CHECKOUT_PATH}{{order_id}}");
     let page = match service {
         Some(service) => Router::new()
-            .route(&path, get(page).post(act))
+            .route(&path, oteryn_web::html::get(page).post(act))
             .route_layer(middleware::from_fn_with_state(
                 SessionLayer::new(pool),
                 oteryn_web::session::middleware,
