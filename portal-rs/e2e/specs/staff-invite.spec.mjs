@@ -210,7 +210,7 @@ test('staff invitations reach verified registered and existing accounts through 
       expect(await memberships(existing.email)).toEqual(['support']);
       const stale=await copied.request.get('/admin',{maxRedirects:0});
       expect(stale.status()).toBe(303);
-      expect(stale.headers().location).toBe('/login');
+      expect(stale.headers().location).toBe('/login?return_to=/admin');
       const beforePromotion=await copied.newPage();
       await login(beforePromotion,lang,existing);
       await expect(beforePromotion).toHaveURL(mfaChallenge);
