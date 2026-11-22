@@ -48,6 +48,9 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("game-route") {
         return game_route_cli::main().await;
     }
+    if std::env::args().nth(1).as_deref() == Some("admin-cli") {
+        return puzzles_cli::main().await;
+    }
     if std::env::args().nth(1).as_deref() == Some("catalog") {
         return catalog_cli::main().await;
     }
@@ -613,6 +616,7 @@ mod account_closure;
 mod catalog_cli;
 mod code_routes;
 mod game_route_cli;
+mod puzzles_cli;
 mod refund_reconcile_cli;
 
 #[cfg(test)]

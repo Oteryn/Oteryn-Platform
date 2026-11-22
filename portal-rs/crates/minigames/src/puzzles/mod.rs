@@ -3,10 +3,12 @@
 //! all three puzzles are answered correctly. Each puzzle permits one attempt.
 mod assets;
 mod http;
+mod publication;
 mod store;
 
 pub use assets::Media;
 pub use http::{configured_router, router};
+pub use publication::Publication;
 pub use store::Puzzles;
 
 use serde::{Deserialize, Serialize};

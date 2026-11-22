@@ -13,7 +13,7 @@ impl Puzzles {
     pub fn new(pool: PgPool, world: WorldStore, flags: Flags) -> Self {
         Self { pool, world, flags }
     }
-    fn enabled(&self) -> Result<(), Error> {
+    pub(super) fn enabled(&self) -> Result<(), Error> {
         if self.flags.daily_puzzles {
             Ok(())
         } else {
@@ -79,40 +79,51 @@ impl Puzzles {
     ) -> Result<Uuid, Error> {
         self.enabled()?;
         self.visible(&definition).await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        let id = self
+            .insert_daily(&mut tx, day, &definition, media, None)
+            .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    pub(super) async fn insert_daily(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        day: Date,
+        definition: &Definition,
+        media: Option<Media>,
+        publication_id: Option<Uuid>,
+    ) -> Result<Uuid, Error> {
+        self.visible_locked(tx, definition).await?;
         match (&media, definition.kind) {
             (None, Kind::Quiz) => {}
             (Some(media), Kind::Monster | Kind::Atlas) if media.kind == definition.kind => {
-                let report = self
-                    .world
-                    .import_report(definition.world_version)
-                    .await
-                    .map_err(|_| Error::Unavailable)?
-                    .ok_or(Error::Unavailable)?;
-                let expected = if definition.kind == Kind::Monster {
-                    report.source_commit
-                } else {
-                    definition.world_version.to_string()
+                let expected = match definition.kind {
+                    Kind::Monster => {
+                        self.world
+                            .import_report_on(&mut **tx, definition.world_version)
+                            .await
+                            .map_err(|_| Error::Unavailable)?
+                            .ok_or(Error::Unavailable)?
+                            .source_commit
+                    }
+                    _ => definition.world_version.to_string(),
                 };
-                if media.version != expected
-                    || media.bytes.is_empty()
-                    || media.bytes.len() > 1_048_576
-                {
+                if media.version != expected || !(1..=1_048_576).contains(&media.bytes.len()) {
                     return Err(Error::Unavailable);
                 }
             }
             _ => return Err(Error::Invalid),
         }
-        let mut tx = crate::browser::begin(&self.pool).await?;
-        self.visible_locked(&mut tx, &definition).await?;
         let id = Uuid::now_v7();
-        let result = sqlx::query("INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image) SELECT $1,$2,$3,$4,$5,$6 WHERE $2 >= (clock_timestamp() AT TIME ZONE 'UTC')::date ON CONFLICT (day,kind) DO NOTHING")
+        let result = sqlx::query("INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image,publication_id) SELECT $1,$2,$3,$4,$5,$6,$7 WHERE $2 >= (clock_timestamp() AT TIME ZONE 'UTC')::date ON CONFLICT (day,kind) DO NOTHING")
             .bind(id).bind(day).bind(definition.kind.key()).bind(definition.world_version)
-            .bind(sqlx::types::Json(&definition)).bind(media.map(|media| media.bytes))
-            .execute(&mut *tx).await?;
+            .bind(sqlx::types::Json(definition)).bind(media.map(|media| media.bytes)).bind(publication_id)
+            .execute(&mut **tx).await?;
         if result.rows_affected() == 0 {
             return Err(Error::Conflict);
         }
-        tx.commit().await?;
         Ok(id)
     }
     pub async fn today(&self, account: Uuid) -> Result<Vec<Daily>, Error> {

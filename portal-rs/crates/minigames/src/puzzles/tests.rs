@@ -1004,3 +1004,87 @@ async fn postgres_answer_retains_visibility_fence_through_commit() -> TestResult
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_publication_is_atomic_and_replays_by_id() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let bytes = webp();
+    std::fs::write(dir.path().join("tile.webp"), &bytes)?;
+    std::fs::write(
+        dir.path().join("tiles.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "format_version": 1, "world_version": db.version, "floor": 7, "tile_size": 256,
+            "bounds": {"min_x": 0, "min_y": 0, "max_x": 256, "max_y": 256},
+            "levels": [],
+            "tiles": [{"path": "tile.webp", "sha256": format!("{:x}", Sha256::digest(&bytes))}]
+        }))?,
+    )?;
+    let id = Uuid::now_v7();
+    let mut document = serde_json::json!({
+        "publication_id": id,
+        "day": db.today.to_string(),
+        "puzzles": [
+            {"definition": definition(db.version, Kind::Atlas),
+             "media": {"kind": "atlas", "manifest": "tiles.json", "tile": "tile.webp"}},
+            {"definition": definition(db.version, Kind::Quiz)}
+        ]
+    });
+    document["puzzles"][1]["definition"]["choices"][0]["source"]["key"] = "hidden".into();
+
+    let mut tx = db.pool.begin().await?;
+    let publication = serde_json::from_value(document.clone())?;
+    assert!(matches!(
+        db.service
+            .activate_publication(&mut tx, &publication, dir.path())
+            .await,
+        Err(Error::Unavailable)
+    ));
+    tx.rollback().await?;
+    assert!(db.service.today(db.account).await?.is_empty());
+
+    document["puzzles"][1]["definition"] =
+        serde_json::to_value(definition(db.version, Kind::Quiz))?;
+    let publication = serde_json::from_value(document.clone())?;
+    let mut tx = db.pool.begin().await?;
+    let ids = db
+        .service
+        .activate_publication(&mut tx, &publication, dir.path())
+        .await?
+        .unwrap();
+    tx.commit().await?;
+    assert_eq!(ids.len(), 2);
+    let stored_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM puzzles_daily WHERE publication_id=$1 ORDER BY kind")
+            .bind(id)
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(stored_ids, ids);
+    assert_eq!(db.service.image(db.account, ids[0]).await?, bytes);
+
+    // A retry after the editorial assets have been retired keeps the original rows.
+    dir.close()?;
+    let root = std::path::Path::new("unused");
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service
+            .activate_publication(&mut tx, &publication, root)
+            .await?,
+        None
+    );
+    tx.commit().await?;
+
+    document["puzzles"][1]["definition"]["correct_choice"] = 0.into();
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service
+            .activate_publication(&mut tx, &serde_json::from_value(document)?, root)
+            .await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await?;
+    assert_eq!(db.service.today(db.account).await?.len(), 2);
+    db.close().await
+}

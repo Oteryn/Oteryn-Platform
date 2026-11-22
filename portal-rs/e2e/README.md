@@ -303,3 +303,21 @@ skipped/interrupted, any test failed, or any retry occurred. REPORT.md records
 Rust acceptance and the concrete source fixes. The qualification source digest
 excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
 evidence-only commit can refer to the immutable tested source candidate.
+
+## Daily puzzle publication
+
+Use the disposable browser launcher, which supplies the TLS SMTP sink required
+by the login worker. The spec seeds synthetic catalogue inputs in the isolated
+database, invokes the real `admin-cli`, and visits the browser route in both
+languages and at both viewport sizes.
+
+```sh
+# From portal-rs/e2e with PORTAL_E2E_ADMIN_DATABASE_URL already set to local PostgreSQL.
+node local.mjs
+```
+
+Run the spec from a second shell in `portal-rs/e2e` with the generated environment.
+
+```sh
+node run.mjs /absolute/scratch/env.json test specs/puzzles.spec.mjs
+```
