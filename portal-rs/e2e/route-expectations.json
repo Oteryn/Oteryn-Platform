@@ -113,6 +113,16 @@
   },
   {
     "crate": "admin",
+    "route": "/console",
+    "actor": "gm",
+    "method": "GET",
+    "status": 200,
+    "redirect": {"status": 303, "location": "/console/dashboard?lang={lang}"},
+    "disabled": {"flag": "OTERYN_ADMIN_CONSOLE", "status": 404},
+    "reason": "GM landing redirects to the first authorized section when enabled"
+  },
+  {
+    "crate": "admin",
     "route": "/console/dashboard",
     "actor": "gm",
     "method": "GET",
