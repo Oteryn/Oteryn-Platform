@@ -62,6 +62,25 @@ checks CSRF and anonymous refusal, localized input errors, the persisted opt-in
 and opt-out, and replay of the same opt-in. The unavailable report page prevents
 a browser-form success for either journal row.
 
+The standard harness produces an inactive Game catalogue with no accepted
+world version. Its atlas returns 503 without annotation forms. The matrix
+exercises the actual annotation endpoints with the browser session, including
+marker creation, private reads, cross-account deletion refusal and replay,
+and creation of a pending map report. The places participation API also saves
+and exposes its account-local choice while the `UnresolvedSource` adapter
+leaves the parent page and its form unavailable.
+
+The fake Bazaar runtime mounts the item catalogue as GET-only and exposes
+its own sell form. The legacy catalogue POST returns 405 and each of its eight
+item actions returns 404 because the configured live Bazaar router replaces
+those legacy routes. The tests check that no legacy listing is persisted.
+
+Recruitment creation requires an accepted character profile snapshot and a
+fresh `character_profile` watermark in addition to LCFA ownership. The Game
+publisher fixture supplies LCFA but does not publish the profile family. The
+matrix checks the valid-session 403 from creation and the 404 from reporting
+or removing an absent post, with no persisted post.
+
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 
 For the owner and staff ticket status PUT aliases, Playwright forwards the real form request using PUT and the server handles the request. The report scenario observes the real per-account submission budget before submitting further invalid inputs.

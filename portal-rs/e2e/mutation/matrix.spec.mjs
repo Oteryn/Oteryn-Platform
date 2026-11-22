@@ -973,3 +973,178 @@ test('notification preferences and signed browser unsubscribe keep one owner pre
     await anonymous.close();
   }
 });
+
+test('unpublished Game content leaves legacy item trade, atlas and recruitment closed', async ({ page }, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const owner = await seededPlayer(page, lang);
+  await page.goto(`/${lang}/account/privacy`);
+  const { url, fields } = await prepare(page, formSelector);
+  const snapshot = async () => ({
+    markers: await query('SELECT id FROM atlas_private_markers WHERE account_id=$1', [owner.id]),
+    reports: await query('SELECT id FROM atlas_map_reports WHERE account_id=$1', [owner.id]),
+    posts: await query('SELECT id FROM pd_party_posts WHERE account_id=$1', [owner.id]),
+  });
+  const baseline = { markers: [], reports: [], posts: [] };
+  expect(await snapshot()).toEqual(baseline);
+  const atlas = await page.goto(`/${lang}/atlas`);
+  expect(atlas.status()).toBe(503);
+  expect(atlas.headers()['cache-control']).toContain('no-store');
+  await expect(page.locator('main form[method=post]')).toHaveCount(0);
+  expect(await snapshot()).toEqual(baseline);
+  const catalog = `/${lang}/bazaar/items`;
+  const asset = uuid7();
+  const itemActions = ['accept', 'reject', 'publish', 'renew', 'cancel', 'bid', 'offer', 'buy-now'];
+  expect((await page.goto(`${catalog}/new`)).status()).toBe(200);
+  await expect(page.locator('main form[action$="/account/bazaar/sell"]')).toHaveCount(1);
+  const listing = await sendForm(page, new URL(catalog, url).href, { _csrf: fields._csrf });
+  expect(listing.status()).toBe(405);
+  for (const action of itemActions) {
+    const path = `${catalog}/${asset}/${action}`;
+    const response = await sendForm(page, new URL(path, url).href, { _csrf: fields._csrf });
+    expect(response.status(), path).toBe(404);
+  }
+  expect(await query('SELECT id FROM bazaar_listings WHERE owner=$1', [owner.id])).toEqual([]);
+
+  const board = `/${lang}/party`;
+  expect((await page.goto(board)).status()).toBe(200);
+  const partyForm = `main form[method=post][action="${board}"]`;
+  const now = Math.floor(Date.now() / 1000);
+  const values = {
+    character: uuid7(), purpose: 'hunt', min_level: '1', max_level: '100',
+    profession: 'any', starts_at: String(now + 60), expires_at: String(now + 3600), note: 'Local hunt',
+  };
+  const formation = await prepare(page, partyForm, values);
+  await rejected({ page, ...formation, snapshot, baseline });
+  expect((await sendForm(page, formation.url, formation.fields)).status()).toBe(403);
+  expect(await snapshot()).toEqual(baseline);
+  for (const action of ['remove', 'report']) {
+    const response = await sendForm(page, new URL(`${board}/${asset}/${action}`, url).href, {
+      _csrf: formation.fields._csrf, ...(action === 'report' ? { reason: 'Local recruitment report' } : {}),
+    });
+    expect(response.status()).toBe(404);
+    expect(await snapshot()).toEqual(baseline);
+  }
+});
+
+
+test('atlas participation API persists owner choice while the source-dependent form is unavailable', async ({ page, browser }, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const context = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  try {
+    const owner = await seededPlayer(page, lang);
+    const anonymous = await context.newPage();
+    const path = `/${lang}/atlas/places`;
+    const unavailable = await page.goto(path);
+    expect(unavailable.status()).toBe(503);
+    expect(unavailable.headers()['cache-control']).toContain('no-store');
+    await expect(page.locator(formSelector)).toHaveCount(0);
+    await page.goto(`/${lang}/account/privacy`);
+    const privacy = await prepare(page, formSelector);
+    const url = new URL(`${path}/participation`, privacy.url).href;
+    const fields = { _csrf: privacy.fields._csrf, participating: 'true' };
+    const snapshot = () => query('SELECT participating FROM pd_places_preferences WHERE account_id=$1', [owner.id]);
+    const baseline = await snapshot();
+    expect(baseline).toEqual([]);
+    expect(await (await page.request.get(url)).json()).toEqual({ participating: false });
+    await rejected({ page, url, fields, snapshot, baseline });
+    await wrongActor({ page: anonymous, lang, url, fields, status: 403, snapshot, baseline });
+    for (const participating of ['', 'true'.repeat(512), '1', 'true ']) {
+      expect((await sendForm(page, url, { ...fields, participating })).status()).toBe(400);
+      expect(await snapshot()).toEqual(baseline);
+    }
+    expect((await sendForm(page, url, { ...fields, account_id: uuid7() })).status()).toBe(422);
+    expect(await snapshot()).toEqual(baseline);
+    for (const participating of [true, false]) {
+      const changed = await sendForm(page, url, { ...fields, participating: String(participating) });
+      expect(changed.status()).toBe(303);
+      expect(changed.headers().location).toBe(path);
+      expect(await (await page.request.get(url)).json()).toEqual({ participating });
+      expect(await snapshot()).toEqual([{ participating }]);
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test('atlas annotation API writes owner data while the unavailable atlas hides its forms', async ({ page, browser }, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const context = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
+  });
+  try {
+    const owner = await seededPlayer(page, lang);
+    const other = await context.newPage();
+    await seededPlayer(other, lang);
+    const markerPath = '/atlas/private-markers';
+    const reportPath = '/atlas/map-reports';
+    const browserPath = `/${lang}/atlas`;
+    expect((await page.goto(browserPath)).status()).toBe(503);
+    await expect(page.locator('main form')).toHaveCount(0);
+    const ownResponse = await page.request.get(markerPath);
+    expect(ownResponse.status()).toBe(200);
+    const ownMarkers = await ownResponse.json();
+    expect(ownMarkers.markers).toEqual([]);
+    const otherMarkers = await (await other.request.get(markerPath)).json();
+    expect(otherMarkers.markers).toEqual([]);
+    const origin = new URL(page.url()).origin;
+    const request = (actor, url, method, data, token) => actor.request.fetch(url, {
+      method, data,
+      headers: { origin, ...(token === undefined ? {} : { 'x-csrf-token': token }) },
+    });
+    const snapshot = async () => ({
+      markers: await query('SELECT id,x,y,floor,label FROM atlas_private_markers WHERE account_id=$1', [owner.id]),
+      reports: await query(
+        'SELECT x,y,floor,description,status FROM atlas_map_reports WHERE account_id=$1',
+        [owner.id],
+      ),
+    });
+    const baseline = { markers: [], reports: [] };
+    expect(await snapshot()).toEqual(baseline);
+    const text = 'Local atlas annotation';
+    const values = { x: 42, y: 86, floor: 7, text };
+    for (const [path, max] of [[markerPath, 80], [reportPath, 2000]]) {
+      for (const token of [undefined, 'invalid']) {
+        expect((await request(page, path, 'POST', values, token)).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      for (const invalid of [
+        { text: '' }, { text: 'x'.repeat(max + 1) }, { x: '42' }, { floor: 256 },
+      ]) {
+        expect((await request(page, path, 'POST', { ...values, ...invalid }, ownMarkers.csrf_token)).status()).toBe(422);
+        expect(await snapshot()).toEqual(baseline);
+      }
+    }
+    const created = await request(page, markerPath, 'POST', values, ownMarkers.csrf_token);
+    expect(created.status()).toBe(201);
+    const marker = { id: (await created.json()).id, x: 42, y: 86, floor: 7, label: text };
+    expect(await snapshot()).toEqual({ ...baseline, markers: [marker] });
+    expect((await (await page.request.get(markerPath)).json()).markers).toEqual([marker]);
+    expect((await (await other.request.get(markerPath)).json()).markers).toEqual([]);
+    const target = `${markerPath}/${marker.id}`;
+    for (const token of [undefined, 'invalid']) {
+      expect((await request(page, target, 'DELETE', undefined, token)).status()).toBe(403);
+      expect(await snapshot()).toEqual({ ...baseline, markers: [marker] });
+    }
+    expect((await request(other, target, 'DELETE', undefined, otherMarkers.csrf_token)).status()).toBe(404);
+    expect(await snapshot()).toEqual({ ...baseline, markers: [marker] });
+    expect((await request(page, target, 'DELETE', undefined, ownMarkers.csrf_token)).status()).toBe(204);
+    expect((await (await page.request.get(markerPath)).json()).markers).toEqual([]);
+    expect((await request(page, target, 'DELETE', undefined, ownMarkers.csrf_token)).status()).toBe(404);
+    expect(await snapshot()).toEqual(baseline);
+
+    expect((await request(page, reportPath, 'POST', { ...values, text: 'x'.repeat(9) }, ownMarkers.csrf_token)).status()).toBe(422);
+    expect(await snapshot()).toEqual(baseline);
+    expect((await request(page, reportPath, 'POST', values, ownMarkers.csrf_token)).status()).toBe(201);
+    expect(await snapshot()).toEqual({
+      ...baseline, reports: [{ x: 42, y: 86, floor: 7, description: text, status: 'pending' }],
+    });
+  } finally {
+    await context.close();
+  }
+});
