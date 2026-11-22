@@ -48,10 +48,11 @@ const argv = process.argv.slice(2);
 const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
+const gameData = argv.includes('--game-data');
 const outbox = argv.includes('--outbox');
 const fixtureOwned = argv.includes('--fixture-owned');
 const crawl = argv.includes('--browser-crawl');
-if (crawl && (outbox || fixtureOwned || argv.includes('--puzzle-browser') || seedPlanFile || process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
+if (crawl && (outbox || gameData || fixtureOwned || argv.includes('--puzzle-browser') || seedPlanFile || process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
   throw new Error('The crawl requires its own disposable fixture');
 }
 
@@ -59,6 +60,7 @@ const roles = argv.includes('--serve-only') ? ['serve'] : ['serve', 'worker', 'g
 
 const gmEnforcement = argv.includes('--gm-enforce') || process.env.PORTAL_E2E_GM_ENFORCE === '1';
 if (gmEnforcement && !outbox) throw new Error('Use --outbox --gm-enforce for the GM browser and Game exchange');
+if (gameData && outbox) throw new Error('Choose one of --game-data or --outbox');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -204,6 +206,7 @@ const children = new Set();
 // A browser fixture starts the entire harness in its own process group.
 const useProcessGroups = process.platform !== 'win32' && !fixtureOwned;
 const shutdownGraceMs = 2_000;
+const dropStatementTimeoutMs = 30_000;
 
 function launch(program, args, options) {
   if (closing) throw new Error('Harness is shutting down');
@@ -244,6 +247,7 @@ async function stopChild({ child, closed }) {
 let closing = false;
 let browserNetwork;
 let staffConsoleStartup;
+let gameDataBrowser;
 let createRequested = false;
 let createConfirmed = false;
 let creation;
@@ -258,6 +262,7 @@ async function close(code = 0) {
     withDeadline(Promise.all([
       ...[...children].map(stopChild),
       browserNetwork?.then(closeBrowser => closeBrowser?.(), () => {}),
+      gameDataBrowser?.then(browser => browser.close(), () => {}),
       staffConsoleStartup?.then(staffConsole => staffConsole.close(), () => {}),
     ]), 6_000, 'service shutdown timed out'),
   ]);
@@ -269,11 +274,11 @@ async function close(code = 0) {
     try {
       await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName), {
         dropDatabase: createRequested,
-        retryTimeout: servicesReady ? 30_000 : 15_000,
+        retryTimeout: servicesReady || gameData ? dropStatementTimeoutMs : 15_000,
         afterDrop: crawlDatabase?.dropRole,
       });
-    } catch {
-      log('failed to reconcile disposable database', dbName);
+    } catch (error) {
+      log('failed to reconcile disposable database', dbName, error.code ?? error.name);
       code = 1;
     }
   }
@@ -290,8 +295,14 @@ async function close(code = 0) {
   if (code !== 0) log('harness failed for database', dbName);
   process.exit(code);
 }
-process.on('SIGINT', () => close(0));
-process.on('SIGTERM', () => close(0));
+function stopOnSignal() {
+  if (!closing) log('shutdown requested');
+  void close();
+}
+process.on('SIGINT', stopOnSignal);
+process.on('SIGTERM', stopOnSignal);
+// Playwright can exit on its global timeout before calling setup's teardown.
+process.on('disconnect', stopOnSignal);
 
 async function createDatabase() {
   await withAdminConnection(adminURL, async admin => {
@@ -321,6 +332,7 @@ async function createDatabase() {
     await crawlDatabase?.restrictAccess(admin);
   });
 }
+if (process.send && !process.connected) process.exit(0);
 log('database', dbName);
 creation = createDatabase();
 
@@ -342,10 +354,20 @@ async function start() {
     staffConsoleStartup = prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports });
   }
   const staffConsole = await staffConsoleStartup;
+
+  if (gameData) {
+    const { startGameDataBrowser } = await import('./game-publishers.mjs');
+    if (closing) return;
+    gameDataBrowser = startGameDataBrowser({
+      server, caFile, publicPort: ports.http, authority: testEnv.PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY,
+    });
+  }
+  const browser = await gameDataBrowser;
   if (closing) return;
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
     ...identityEnv,
+    ...browser?.env,
     OTERYN_DATABASE_URL: databaseURL,
     OTERYN_BIND: `127.0.0.1:${ports.http}`,
     OTERYN_STATIC_DIR: path.join(root, 'static'),
@@ -533,6 +555,7 @@ async function start() {
       gateway: `http://127.0.0.1:${ports.gateway}`,
     },
     outputDirectory: out,
+    ...(gameData ? { binary } : {}),
     certificateDirectory: dirs.clients,
     caFile,
     internalServerName: 'localhost',
@@ -551,7 +574,7 @@ try {
   await start();
 } catch (error) {
   if (!closing) {
-    log('startup failed', error.code ?? error.name);
+    log(`startup failed; diagnostics are in ${dirs.logs}`, error.code ?? error.name);
     await close(1);
   }
 }

@@ -158,6 +158,34 @@ For game-login history, both read flags are enabled, but the fixture lacks
 accepted Game login ownership and baseline authority. This reason applies to
 the full-suite fixture too.
 
+## Game-data browser qualification
+
+With the same disposable PostgreSQL administrator environment used by the local
+stack, build `oteryn-portal` before starting the dedicated config. Run from
+`portal-rs/e2e`.
+
+```sh
+(cd .. && cargo build --locked -p oteryn-portal)
+export PORTAL_E2E_BINARY=target/debug/oteryn-portal
+npx playwright test --config game-data.playwright.config.mjs
+```
+
+The setup requires an executable `PORTAL_E2E_BINARY` and accepts an absolute
+path or one relative to `portal-rs`. It starts `harness.mjs --game-data`, waits
+for readiness, and stops the harness after the run. A runner disconnect also
+stops the harness and drops its database. Set `PORTAL_E2E_GAME_DATA_REPORT` to
+reuse a harness that is already running.
+The existing GitHub Actions browser command uses the same setup and includes
+Game-data in its normal project and shard counts. Ordinary local runs of the
+default config use the local stack and leave Game-data to the dedicated config.
+The default config also discovers the legacy Bazaar, authentication, and mutation matrix specs.
+
+With `PORTAL_E2E_BINARY` pointing to the built binary, run
+`node --test harness.test.mjs` to verify disposable database cleanup and
+retained diagnostics when a migration stalls or fails, startup is interrupted,
+or PostgreSQL refuses database cleanup. The tests also verify that the harness
+and Game-data publishers reject PostgreSQL URL destination overrides.
+
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 
 One command starts portal-rs for an external E2E harness. It needs Node 22+,
@@ -217,7 +245,9 @@ default one `Entry` scope). Ports come from `PORTAL_E2E_HTTP_PORT`,
 path such as `target/debug/oteryn-portal` is resolved from `portal-rs/`.
 The launcher exports the resulting absolute path for Playwright fixture seeding.
 `--exit-after-ready` stops after the report. Ctrl-C or SIGTERM stops the
-services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
+active build, migration, or services before dropping the database
+(`PORTAL_E2E_KEEP_DATABASE=1` keeps it). Supply a loopback PostgreSQL URL with an
+explicit database path. The launcher rejects query parameters and fragments.
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
