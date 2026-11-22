@@ -24,6 +24,8 @@ unavailable = Bazar jest niedostępny. Prośba pozostaje w toku.
 denied = Prośba została odrzucona. Sprawdź konto i dane obiektu.
 
 currency = Waluta
+coins = Coiny
+gold = Złoto
 
 resume = Wznów z aktualnym uprawnieniem
 cancel = Poproś o bezpieczny zwrot
