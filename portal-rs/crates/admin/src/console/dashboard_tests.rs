@@ -512,36 +512,39 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
 }
 
 #[tokio::test]
-async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
+async fn postgres_binding_alerts_require_the_dedicated_permission() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let started = std::time::Instant::now();
     let db = Db::new().await.expect("PORTAL_TEST_DATABASE_URL required");
     let actor = db.staff().await;
-    let alarm:Uuid=sqlx::query_scalar("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','binding-fingerprint','null',$1,$2) RETURNING id")
-        .bind(serde_json::json!({"authority":"oteryn:journal:primary","family":"BANK","record_id":"019a0000-0000-7000-8000-000000000008"})).bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
-    let page = body(
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,locale,status,email_verified_at) VALUES($1,'alerts@example.invalid','fixture','en','active',now())")
+        .bind(actor).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) SELECT id,'game.ops.read' FROM roles WHERE key='console_fixture'")
+        .execute(&db.pool).await.unwrap();
+    let alarm: Uuid = sqlx::query_scalar("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','binding-fingerprint','null',$1,$2) RETURNING id")
+        .bind(serde_json::json!({"authority":"oteryn:journal:primary","family":"BANK","record_id":"019a0000-0000-7000-8000-000000000008"}))
+        .bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','malformed-alarm','null','{}',$1)")
+        .bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    let read = |overview| {
         get(
-            app(db.pool.clone(), actor, fixture(3), true, true),
+            app(db.pool.clone(), actor, fixture(3), overview, true),
             "/console/dashboard?lang=en",
         )
-        .await,
-    )
-    .await;
+    };
+    let response = read(true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let denied = body(response).await;
+    assert!(!denied.contains("IMMUTABLE_BINDING"));
+    assert!(!denied.contains(&alarm.to_string()));
+    assert!(!denied.contains("binding-fingerprint"));
+
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_admin' AND built_in")
+        .bind(actor).execute(&db.pool).await.unwrap();
+    let page = body(read(true).await).await;
     assert!(page.contains("IMMUTABLE_BINDING"));
     assert!(page.contains(&alarm.to_string()));
     assert!(page.contains("binding-fingerprint"));
-    let denied = body(
-        get(
-            app(db.pool.clone(), actor, fixture(3), false, true),
-            "/console/dashboard?lang=en",
-        )
-        .await,
-    )
-    .await;
-    assert!(!denied.contains(&alarm.to_string()));
+    assert!(!page.contains("malformed-alarm"));
+    assert!(!body(read(false).await).await.contains(&alarm.to_string()));
     db.close().await;
-    eprintln!(
-        "postgres_operator_alarms_visible_offline_only_with_ops_permission duration: {:?}",
-        started.elapsed()
-    );
 }

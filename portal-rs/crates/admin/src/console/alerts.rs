@@ -21,7 +21,18 @@ pub(super) async fn section(pool: &PgPool, lang: &str) -> Section {
     section
 }
 async fn records(pool: &PgPool) -> Result<Vec<DisplayRecord>, sqlx::Error> {
-    let rows: Vec<(String,String,String,String,String,String)> = sqlx::query_as("SELECT id::text,created_at::text,after->>'authority',after->>'family',after->>'record_id',target FROM audit_log WHERE actor IS NULL AND action='ops.playerdata_binding_conflict' AND created_at>clock_timestamp()-interval '7 days' ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(pool).await?;
+    let rows: Vec<(String, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT id::text,created_at::text,after->>'authority',after->>'family',after->>'record_id',target
+         FROM audit_log
+         WHERE actor IS NULL AND action='ops.playerdata_binding_conflict'
+           AND created_at>clock_timestamp()-interval '7 days'
+           AND jsonb_typeof(after->'authority')='string'
+           AND jsonb_typeof(after->'family')='string'
+           AND jsonb_typeof(after->'record_id')='string'
+         ORDER BY created_at DESC,id DESC LIMIT 100",
+    )
+    .fetch_all(pool)
+    .await?;
     Ok(rows
         .into_iter()
         .map(
