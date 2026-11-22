@@ -25,7 +25,8 @@ pub fn configured_router(pool: PgPool) -> Router {
         .ok()
         .into_iter()
         .collect();
-    if let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
+    if std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
+        && let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
         && let Some(authority) = staff_host::canonical_authority(&host)
     {
         sessions

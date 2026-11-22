@@ -109,8 +109,11 @@ fn panel_config_accepts_only_host_and_optional_port() {
         let error = configured(invalid, true).unwrap_err();
         assert_eq!(error.to_string(), "invalid admin host");
     }
-    assert!(!configured("", false).unwrap().admin_panel);
-    assert!(configured("fixture-user@staff.example", false).is_err());
+    for host in ["", "https://staff.example", "fixture-user@staff.example"] {
+        let panel = configured(host, false).unwrap();
+        assert!(!panel.admin_panel);
+        assert!(panel.host.is_empty());
+    }
 }
 
 #[tokio::test]

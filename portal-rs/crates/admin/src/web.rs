@@ -152,11 +152,11 @@ pub(crate) fn config_from(
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
-    let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
-    let host = if enabled || !host.is_empty() {
+    let host = if enabled {
+        let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
         oteryn_web::staff_host::canonical_authority(&host).ok_or("invalid admin host")?
     } else {
-        host
+        String::new()
     };
     Ok(PanelConfig {
         admin_panel: enabled,
