@@ -40,6 +40,9 @@ impl LandingSlots {
 }
 
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(3);
+// PostgreSQL cleanup has a 250 ms budget. Allow its future to finish even
+// when the HTTP deadline expired, and cancel any remaining stalled middleware.
+const CLEANUP_GRACE: Duration = Duration::from_millis(500);
 
 pub(crate) fn landing_deadline() -> Instant {
     Instant::now() + OPERATION_TIMEOUT
@@ -103,7 +106,9 @@ pub(crate) async fn operation_deadline(
             if oteryn_db::check_deadline(deadline).is_err() {
                 return unavailable();
             }
-            next.run(req).await
+            tokio::time::timeout_at(deadline + CLEANUP_GRACE, next.run(req))
+                .await
+                .unwrap_or_else(|_| unavailable())
         });
         return match tokio::time::timeout_at(deadline, work).await {
             Ok(Ok(response)) => response,
@@ -137,22 +142,38 @@ mod tests {
         let app = Router::new()
             .route("/{lang}/puzzles", get(|| async { StatusCode::OK }))
             .layer(axum::middleware::from_fn(
-                |_: axum::extract::Request, _: axum::middleware::Next| async {
+                |request: axum::extract::Request, next: axum::middleware::Next| async {
                     // A stalled shared session/presentation dependency, outside the
                     // module router's own deadline, must still return a refusal.
-                    std::future::pending::<axum::response::Response>().await
+                    if request.uri().path().starts_with("/invalid/") {
+                        std::future::pending::<axum::response::Response>().await
+                    } else {
+                        next.run(request).await
+                    }
                 },
             ));
         let app = crate::with_browser_deadlines(app);
         let started = std::time::Instant::now();
-        let response = tokio::time::timeout(
-            std::time::Duration::from_secs(4),
-            app.oneshot(Request::get("/invalid/puzzles").body(Body::empty())?),
-        )
+        let blocked = || -> Result<_, axum::http::Error> {
+            Ok(app
+                .clone()
+                .oneshot(Request::get("/invalid/puzzles").body(Body::empty())?))
+        };
+        let first = blocked()?;
+        let second = blocked()?;
+        let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+            tokio::try_join!(first, second)
+        })
         .await??;
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(response.headers()["cache-control"], "no-store");
+        for response in [first, second] {
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.headers()["cache-control"], "no-store");
+        }
         assert!(started.elapsed() < std::time::Duration::from_secs(4));
+        let healthy = app
+            .oneshot(Request::get("/en/puzzles").body(Body::empty())?)
+            .await?;
+        assert_eq!(healthy.status(), StatusCode::OK);
         Ok(())
     }
 }
