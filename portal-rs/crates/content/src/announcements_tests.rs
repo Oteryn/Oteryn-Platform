@@ -588,6 +588,30 @@ async fn postgres_staff_announcement_dispatch() {
     )
     .unwrap();
     assert!(html.contains("value=\"5\""));
+    for (lang, heading) in [("en", "Announcements"), ("pl", "Ogłoszenia")] {
+        for path in ["/admin/announcements", "/admin/announcements/create"] {
+            let response = app(true, "staff.test", true)
+                .oneshot(
+                    Request::get(path)
+                        .header("host", "staff.test")
+                        .header("accept-language", lang)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = String::from_utf8(
+                to_bytes(response.into_body(), 100000)
+                    .await
+                    .unwrap()
+                    .to_vec(),
+            )
+            .unwrap();
+            assert!(html.contains(&format!("<html lang=\"{lang}\">")));
+            assert!(html.contains(&format!("<h1>{heading}</h1>")));
+        }
+    }
     assert_eq!(
         app(true, "staff.test", true)
             .oneshot(get("/admin/announcements"))
