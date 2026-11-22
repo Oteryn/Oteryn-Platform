@@ -238,6 +238,11 @@ pub async fn banner(
         "pl"
     };
     let mut response = next.run(request).await;
+    let lang = match response.headers().get(header::CONTENT_LANGUAGE).and_then(|v| v.to_str().ok()) {
+        Some("en") => "en",
+        Some("pl") => "pl",
+        _ => lang,
+    };
     if !eligible
         || response.headers().contains_key(header::CONTENT_ENCODING)
         || !response.status().is_success()

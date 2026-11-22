@@ -171,8 +171,10 @@ async fn index(
     State(pool): State<PgPool>,
     Query(q): Query<Options>,
     headers: axum::http::HeaderMap,
-) -> Result<Html<String>, StatusCode> {
-    listing(&pool, q.lang(&headers), &q).await
+) -> Result<impl IntoResponse, StatusCode> {
+    let lang = q.lang(&headers);
+    let html = listing(&pool, lang, &q).await?;
+    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())], html))
 }
 async fn local_index(
     State(pool): State<PgPool>,
@@ -253,8 +255,10 @@ async fn show(
     Path(slug): Path<String>,
     Query(q): Query<Options>,
     headers: axum::http::HeaderMap,
-) -> Result<Html<String>, StatusCode> {
-    article(&pool, q.lang(&headers), &slug).await
+) -> Result<impl IntoResponse, StatusCode> {
+    let lang = q.lang(&headers);
+    let html = article(&pool, lang, &slug).await?;
+    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())], html))
 }
 async fn local_show(
     State(pool): State<PgPool>,

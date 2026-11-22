@@ -90,11 +90,20 @@ test('announcements draft, severity, expired window, approval and public action'
  await submitForm(mainForm(page), { body_pl: 'Zmienione ogłoszenie.', translation_published_at: stamp(-18) });
  await visit(anonymous.page, ticker('pl'));
  await expect(anonymous.page.locator('body')).toContainText('Zmienione ogłoszenie.');
+ for (const locale of locales) {
+  const response = await anonymous.page.request.get('/news', { headers: { 'Accept-Language': locale } });
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-language']).toBe(locale);
+  const html = await response.text();
+  expect(html).toContain(`<html lang="${locale}"`);
+  expect(html).toContain(t(locale, values.action_label_pl, values.action_label));
+ }
  await submitForm(mainForm(page), { publication_state: 'draft' });
  for (const locale of locales) {
   await visit(anonymous.page, ticker(locale));
   await expect(anonymous.page.locator('body')).not.toContainText(slug);
  }
+
 });
 
 test('downloads CLI restricts publication and anonymous origin serves signed bytes', async ({content}) => {
