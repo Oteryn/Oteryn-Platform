@@ -65,6 +65,10 @@ impl Price {
     }
     /// Integer division with zero-padded fractional digits; no floating point.
     pub fn display(&self) -> String {
+        self.display_for_locale("en")
+    }
+
+    pub fn display_for_locale(&self, locale: &str) -> String {
         let scale = 10_i64.pow(u32::from(self.exponent));
         let whole = self.minor_units / scale;
         if self.exponent == 0 {
@@ -72,7 +76,8 @@ impl Price {
         }
         let fraction = self.minor_units % scale;
         let width = usize::from(self.exponent);
-        format!("{whole}.{fraction:0width$} {}", self.currency)
+        let separator = if locale == "pl" { ',' } else { '.' };
+        format!("{whole}{separator}{fraction:0width$} {}", self.currency)
     }
 }
 

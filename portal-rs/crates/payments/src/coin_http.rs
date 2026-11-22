@@ -12,6 +12,8 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{any, get, post},
 };
+use fluent_bundle::{FluentBundle, FluentResource};
+use oteryn_ui::Chrome;
 use oteryn_web::session::{BrowserSession, SessionKey, SessionLayer};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -195,12 +197,100 @@ async fn status(
 #[derive(Template)]
 #[template(path = "coin/checkout.html")]
 struct CheckoutPage {
+    lang: String,
+    labels: FluentBundle<FluentResource>,
     csrf: String,
     order_id: Uuid,
     coins: i64,
     price: String,
-    state: &'static str,
-    awaiting: bool,
+    state: OrderState,
+}
+
+impl CheckoutPage {
+    fn labels(lang: &str) -> FluentBundle<FluentResource> {
+        let source = if lang == "en" {
+            include_str!("../templates/coin/en.ftl")
+        } else {
+            include_str!("../templates/coin/pl.ftl")
+        };
+        let mut bundle = FluentBundle::new(vec![lang.parse().unwrap_or_default()]);
+        if let Ok(resource) = FluentResource::try_new(source.to_owned()) {
+            let _ = bundle.add_resource(resource);
+        }
+        bundle
+    }
+
+    fn text(&self, key: &str) -> String {
+        self.labels
+            .get_message(&format!("coin-checkout-{key}"))
+            .and_then(|message| message.value())
+            .map(|value| {
+                self.labels
+                    .format_pattern(value, None, &mut Vec::new())
+                    .into_owned()
+            })
+            .unwrap_or_default()
+    }
+
+    fn awaiting(&self) -> bool {
+        self.state == OrderState::AwaitingPayment
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn checkout_uses_the_requested_locale_for_copy_and_order_state() -> Result<(), askama::Error> {
+    for (lang, title, status, pay, price) in [
+        (
+            "pl",
+            "Zakup monet w trybie testowym",
+            "Oczekuje na płatność",
+            "Zakończ płatność testową",
+            "10,00 PLN",
+        ),
+        (
+            "en",
+            "Sandbox coin checkout",
+            "Awaiting payment",
+            "Complete test payment",
+            "10.00 PLN",
+        ),
+    ] {
+        let page = CheckoutPage {
+            lang: lang.into(),
+            labels: CheckoutPage::labels(lang),
+            csrf: String::new(),
+            order_id: Uuid::nil(),
+            coins: 12,
+            price: crate::coin::Price {
+                minor_units: 1000,
+                currency: "PLN".into(),
+                exponent: 2,
+            }
+            .display_for_locale(lang),
+            state: OrderState::AwaitingPayment,
+        };
+        let html = page.render()?;
+        assert!(html.contains(&format!("<html lang=\"{lang}\">")));
+        assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
+        assert!(html.contains(&format!("<dd>{status}</dd>")));
+        assert!(html.contains(&format!("<dd>{price}</dd>")));
+        assert!(html.contains(pay));
+        for state in [
+            OrderState::AwaitingPayment,
+            OrderState::Processing,
+            OrderState::Paid,
+            OrderState::Failed,
+            OrderState::Refunded,
+            OrderState::Chargeback,
+        ] {
+            assert!(
+                !page.text(state.as_str()).is_empty(),
+                "{lang}: missing {state:?}"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -212,7 +302,9 @@ async fn page(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    chrome: Option<Extension<Chrome>>,
 ) -> Response {
+    let chrome = chrome.map(|Extension(chrome)| chrome).unwrap_or_default();
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -232,13 +324,15 @@ async fn page(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let price = order.price.display_for_locale(&chrome.lang);
     oteryn_web::render(&CheckoutPage {
+        labels: CheckoutPage::labels(&chrome.lang),
+        lang: chrome.lang,
         csrf,
         order_id: order.order_id,
         coins: order.coins,
-        price: order.price.display(),
-        state: order.state.as_str(),
-        awaiting: order.state == OrderState::AwaitingPayment,
+        price,
+        state: order.state,
     })
 }
 
@@ -247,8 +341,10 @@ async fn act(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    chrome: Option<Extension<Chrome>>,
     Form(decision): Form<Decision>,
 ) -> Response {
+    let chrome = chrome.map(|Extension(chrome)| chrome).unwrap_or_default();
     let Some(account) = session.account_id().await else {
         return Redirect::to("/pl/login").into_response();
     };
@@ -258,7 +354,7 @@ async fn act(
     let paid = match decision.action.as_str() {
         "pay" => true,
         "fail" => false,
-        _ => return StatusCode::BAD_REQUEST.into_response(),
+        _ => return oteryn_ui::error(&chrome, StatusCode::BAD_REQUEST),
     };
     match service.sandbox_complete(account, order, paid).await {
         Ok(_) => Redirect::to(&format!("{CHECKOUT_PATH}{order}")).into_response(),

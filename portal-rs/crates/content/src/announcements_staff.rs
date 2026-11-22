@@ -7,7 +7,9 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
+use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_admin::web::{PanelConfig, PortalIdentity, StaffSession};
+use oteryn_ui::Chrome;
 use oteryn_web::session::BrowserSession;
 use sqlx::Row;
 
@@ -51,20 +53,53 @@ fn routes<A: AccountStateReader + Clone + 'static>(pool: PgPool, accounts: A) ->
 #[derive(askama::Template)]
 #[template(path = "content/announcements.html", config = "src/pages/askama.toml")]
 struct Page {
+    lang: String,
+    labels: FluentBundle<FluentResource>,
     next: u64,
     more: bool,
     csrf: String,
     action: String,
     version: i64,
-    fields: Vec<(String, String, String)>,
+    fields: Vec<(String, String)>,
     rows: Vec<(Uuid, String, String)>,
 }
+impl Page {
+    fn labels(lang: &str) -> FluentBundle<FluentResource> {
+        let source = if lang == "en" {
+            include_str!("announcements_staff.en.ftl")
+        } else {
+            include_str!("announcements_staff.pl.ftl")
+        };
+        let mut bundle = FluentBundle::new(vec![lang.parse().unwrap_or_default()]);
+        if let Ok(resource) = FluentResource::try_new(source.to_owned()) {
+            let _ = bundle.add_resource(resource);
+        }
+        bundle
+    }
+
+    fn text(&self, key: &str) -> String {
+        self.labels
+            .get_message(&format!("announcements-{key}"))
+            .and_then(|message| message.value())
+            .map(|value| {
+                self.labels
+                    .format_pattern(value, None, &mut Vec::new())
+                    .into_owned()
+            })
+            .unwrap_or_default()
+    }
+}
+
 async fn index(
     State(pool): State<PgPool>,
+    chrome: Option<Extension<Chrome>>,
     axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
 ) -> Result<Response, StatusCode> {
     let rows = sqlx::query_as("SELECT id,title,publication_state FROM announcements ORDER BY updated_at DESC,id DESC LIMIT 500 OFFSET $1").bind(q.offset(500)).fetch_all(&pool).await.map_err(unavailable)?;
+    let lang = chrome.map_or_else(|| "pl".to_owned(), |Extension(chrome)| chrome.lang);
     Ok(oteryn_web::render(&Page {
+        labels: Page::labels(&lang),
+        lang,
         next: q.next(),
         more: rows.len() == 500,
         csrf: String::new(),
@@ -88,33 +123,18 @@ const FIELDS: [&str; 12] = [
     "action_label_pl",
     "translation_published_at",
 ];
-fn field_label(name: &str) -> &str {
-    match name {
-        "publication_state" => "Publication / Publikacja",
-        "severity" => "Severity / Ważność",
-        "starts_at" => "Starts at (UTC) / Początek",
-        "ends_at" => "Ends at (UTC, optional) / Koniec (opcjonalny)",
-        "title" => "Title (English)",
-        "body" => "Body (English)",
-        "action_label" => "Action label (English)",
-        "action_url" => "Action path / Ścieżka akcji",
-        "title_pl" => "Tytuł (polski)",
-        "body_pl" => "Treść (polski)",
-        "action_label_pl" => "Etykieta akcji (polski)",
-        "translation_published_at" => "Translation approved at (UTC) / Zatwierdzenie tłumaczenia",
-        _ => name,
-    }
-}
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
 }
-async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, StatusCode> {
+async fn new(
+    chrome: Option<Extension<Chrome>>,
+    Extension(session): Extension<BrowserSession>,
+) -> Result<Response, StatusCode> {
     let fields = FIELDS
         .iter()
         .map(|name| {
             (
-                (*name).into(),
-                field_label(name).into(),
+                (*name).to_owned(),
                 match *name {
                     "publication_state" => "draft".into(),
                     "severity" => "info".into(),
@@ -126,10 +146,14 @@ async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, 
             )
         })
         .collect();
+    let lang = chrome.map_or_else(|| "pl".to_owned(), |Extension(chrome)| chrome.lang);
+    let csrf = session.csrf_token().await.map_err(unavailable)?;
     Ok(oteryn_web::render(&Page {
+        labels: Page::labels(&lang),
+        lang,
         next: 0,
         more: false,
-        csrf: session.csrf_token().await.map_err(unavailable)?,
+        csrf,
         action: "/admin/announcements".into(),
         version: 0,
         fields,
@@ -139,6 +163,7 @@ async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, 
 async fn edit(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
+    chrome: Option<Extension<Chrome>>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
     let row =
@@ -153,16 +178,19 @@ async fn edit(
         .iter()
         .map(|name| {
             (
-                (*name).into(),
-                field_label(name).into(),
+                (*name).to_owned(),
                 data[*name].as_str().unwrap_or_default().to_owned(),
             )
         })
         .collect();
+    let lang = chrome.map_or_else(|| "pl".to_owned(), |Extension(chrome)| chrome.lang);
+    let csrf = session.csrf_token().await.map_err(unavailable)?;
     Ok(oteryn_web::render(&Page {
+        labels: Page::labels(&lang),
+        lang,
         next: 0,
         more: false,
-        csrf: session.csrf_token().await.map_err(unavailable)?,
+        csrf,
         action: format!("/admin/announcements/{id}/edit"),
         version: row.get("lock_version"),
         fields,
@@ -210,19 +238,37 @@ async fn create<A: AccountStateReader + Clone + 'static>(
     State(pool): State<PgPool>,
     Extension(accounts): Extension<A>,
     Extension(context): Extension<CheckContext>,
+    chrome: Option<Extension<Chrome>>,
     Form(form): Form<Submission>,
 ) -> Result<Response, StatusCode> {
-    persist(pool, accounts, context, None, form).await
+    submission_response(persist(pool, accounts, context, None, form).await, chrome)
 }
 async fn update<A: AccountStateReader + Clone + 'static>(
     State(pool): State<PgPool>,
     Extension(accounts): Extension<A>,
     Extension(context): Extension<CheckContext>,
+    chrome: Option<Extension<Chrome>>,
     Path(id): Path<Uuid>,
     Form(form): Form<Submission>,
 ) -> Result<Response, StatusCode> {
-    persist(pool, accounts, context, Some(id), form).await
+    submission_response(
+        persist(pool, accounts, context, Some(id), form).await,
+        chrome,
+    )
 }
+fn submission_response(
+    result: Result<Response, StatusCode>,
+    chrome: Option<Extension<Chrome>>,
+) -> Result<Response, StatusCode> {
+    match result {
+        Err(StatusCode::UNPROCESSABLE_ENTITY) => {
+            let chrome = chrome.map(|Extension(chrome)| chrome).unwrap_or_default();
+            Ok(oteryn_ui::error(&chrome, StatusCode::UNPROCESSABLE_ENTITY))
+        }
+        other => other,
+    }
+}
+
 async fn persist<A: AccountStateReader>(
     pool: PgPool,
     accounts: A,
@@ -242,4 +288,58 @@ async fn persist<A: AccountStateReader>(
             _ => StatusCode::SERVICE_UNAVAILABLE,
         })?;
     Ok(Redirect::to(&format!("/admin/announcements/{id}/edit")).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use askama::Template;
+
+    #[test]
+    fn editor_uses_the_requested_locale_for_labels_and_options() {
+        for (lang, heading, other, save, severity) in [
+            (
+                "pl",
+                "Ogłoszenia",
+                "Announcements",
+                "Zapisz ogłoszenie",
+                "Prace techniczne",
+            ),
+            (
+                "en",
+                "Announcements",
+                "Ogłoszenia",
+                "Save announcement",
+                "Maintenance",
+            ),
+        ] {
+            let page = Page {
+                lang: lang.to_owned(),
+                labels: Page::labels(lang),
+                next: 0,
+                more: true,
+                csrf: String::new(),
+                action: "/admin/announcements".into(),
+                version: 0,
+                fields: FIELDS
+                    .iter()
+                    .map(|name| ((*name).to_owned(), String::new()))
+                    .collect(),
+                rows: vec![],
+            };
+            let html = page.render().unwrap();
+            assert!(html.contains(&format!("<html lang=\"{lang}\">")));
+            assert!(html.contains(&format!("<title>{heading}</title>")));
+            assert!(!html.contains(other));
+            assert!(html.contains(save));
+            assert!(html.contains(&format!(
+                "<option value=\"maintenance\">{severity}</option>"
+            )));
+            for name in FIELDS {
+                assert!(!page.text(name).is_empty(), "{lang}: missing {name}");
+            }
+        }
+    }
 }

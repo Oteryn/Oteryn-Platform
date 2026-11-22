@@ -107,24 +107,9 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
-    let (account, account_id) = if browser && request.extensions().get::<StaffDashboard>().is_some()
-    {
-        match crate::session::chrome_identity(&shell.sessions, &mut request).await {
-            Some(identity) => (
-                oteryn_ui::Account::SignedIn {
-                    csrf: identity.csrf,
-                },
-                Some(identity.account_id),
-            ),
-            None => (oteryn_ui::Account::Anonymous, None),
-        }
-    } else {
-        (
-            crate::session::chrome_account(&shell.sessions, &mut request).await,
-            None,
-        )
-    };
-    let path = request.uri().path();
+    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let uri = request.uri().clone();
+    let path = uri.path();
     let local = path
         .strip_prefix("/pl/")
         .or_else(|| path.strip_prefix("/en/"))
@@ -251,7 +236,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             response = replacement;
         }
     }
-    let mut response = wrap_document(response, &chrome).await;
+    let mut response = wrap_document(response, &shell.registry, path, &chrome).await;
     if response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -300,7 +285,12 @@ const WRAP_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Give a module page that renders its own HTML document the shared header, footer and theme.
 /// Pages already built on the shared layout, non-HTML, encoded and oversized bodies pass through.
-async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Response {
+async fn wrap_document(
+    response: Response,
+    registry: &oteryn_ui::Registry,
+    path: &str,
+    chrome: &oteryn_ui::Chrome,
+) -> Response {
     let html = response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -315,7 +305,10 @@ async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Respon
         Err(body) => return Response::from_parts(parts, body),
     };
     let wrapped = std::str::from_utf8(&bytes).ok().and_then(|page| {
-        let (top, bottom) = oteryn_ui::shell_parts(chrome)?;
+        let localized = document_language(page)
+            .filter(|lang| *lang != chrome.lang)
+            .map(|lang| registry.chrome(lang, path, chrome.account.clone()));
+        let (top, bottom) = oteryn_ui::shell_parts(localized.as_ref().unwrap_or(chrome))?;
         inject(page, &top, &bottom)
     });
     match wrapped {
@@ -393,9 +386,30 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
     ))
 }
 
-// Inspect only actual attributes of the opening body element.
+fn document_language(page: &str) -> Option<&'static str> {
+    let html = page
+        .as_bytes()
+        .windows(5)
+        .position(|part| part.eq_ignore_ascii_case(b"<html"))?
+        + 5;
+    let end = html + page[html..].find('>')?;
+    match attribute(&page[html..end], "lang")? {
+        lang if lang.eq_ignore_ascii_case("pl") => Some("pl"),
+        lang if lang.eq_ignore_ascii_case("en") => Some("en"),
+        _ => None,
+    }
+}
+
 fn has_shell_classes(tag: &str) -> bool {
-    let mut rest = &tag[5..];
+    attribute(&tag[5..], "class").is_some_and(|value| {
+        ["op-theme", "op-shell"]
+            .iter()
+            .all(|class| value.split_ascii_whitespace().any(|token| token == *class))
+    })
+}
+
+// Inspect opening-tag attributes without matching names embedded in another value.
+fn attribute<'a>(mut rest: &'a str, wanted: &str) -> Option<&'a str> {
     while !rest.trim_start().is_empty() {
         rest = rest.trim_start();
         let end = rest
@@ -416,14 +430,12 @@ fn has_shell_classes(tag: &str) -> bool {
             let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
             (&rest[..end], &rest[end..])
         };
-        if name.eq_ignore_ascii_case("class") {
-            return ["op-theme", "op-shell"]
-                .iter()
-                .all(|class| value.split_ascii_whitespace().any(|token| token == *class));
+        if name.eq_ignore_ascii_case(wanted) {
+            return Some(value);
         }
         rest = tail;
     }
-    false
+    None
 }
 
 // Older standalone documents have a main landmark but no skip-link target.
@@ -481,7 +493,7 @@ fn without_attribute(tag: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_landmark, inject, shell_asset_policy};
+    use super::{WRAP_LIMIT, content_landmark, inject, shell_asset_policy, wrap_document};
 
     #[test]
     fn article_shell_phrase_does_not_suppress_composition() -> Result<(), &'static str> {
@@ -551,6 +563,28 @@ mod tests {
         ));
         assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">tresc</main></div><footer>F</footer></body></html>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shell_uses_the_document_language_for_a_fixed_locale_alias()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use axum::response::IntoResponse;
+
+        let registry = oteryn_ui::Registry::default();
+        for (document, request) in [("pl", "en"), ("en", "pl")] {
+            let path = "/legacy";
+            let chrome = registry.chrome(request, path, oteryn_ui::Account::Anonymous);
+            let response = axum::response::Html(format!(
+                "<!doctype html><html data-language='ignored' LANG = '{document}'><head><title>Legacy</title></head><body><main>Text</main></body></html>"
+            )).into_response();
+            let html = wrap_document(response, &registry, path, &chrome).await;
+            let bytes = axum::body::to_bytes(html.into_body(), WRAP_LIMIT).await?;
+            let body = std::str::from_utf8(&bytes)?;
+            assert!(body.contains(&format!("LANG = '{document}'")));
+            assert!(body.contains(&oteryn_ui::text(document, "skip")));
+            assert!(!body.contains(&oteryn_ui::text(request, "skip")));
+        }
         Ok(())
     }
 
