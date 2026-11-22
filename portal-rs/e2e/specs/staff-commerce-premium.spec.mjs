@@ -1,7 +1,7 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool,csrfRejected} from '../helpers.mjs';
 import path from 'node:path';
-import * as OTPAuth from 'otpauth';
+import {enrollMfa,loginWithRecoveryCode} from '../staff-rbac-helpers.mjs';
 
 test('staff premium grant persists entitlement and audit; player cannot grant',async({page,browser},info)=>{
  test.setTimeout(300_000);
@@ -35,15 +35,9 @@ test('staff premium grant persists entitlement and audit; player cannot grant',a
   const approver=await register(second,lang);
   await db.query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",[approver.email]);
   await login(second,lang,approver);
-  await second.goto(`/${lang}/mfa`);
-  await submit(second,'main form[action$="/mfa/enroll"]',{password:approver.password});
-  const totp=new OTPAuth.TOTP({secret:await second.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
-  await submit(second,'main form[action$="/mfa/confirm"]',{password:approver.password,code:totp.generate()});
-  const codes=await second.locator('textarea[readonly]').allTextContents();
+  const codes=await enrollMfa(second,lang,approver);
   // MFA confirmation revokes existing sessions; authenticate again with a recovery code.
-  await login(second,lang,approver);
-  await expect(second).toHaveURL(/mfa\/challenge/);
-  await submit(second,'main form[action$="/mfa/challenge"]',{code:codes[0]});
+  await loginWithRecoveryCode(second,lang,approver,codes[0]);
   await admin.goto('/admin/commerce');
   await expect(admin.locator(`form[action="/admin/commerce/approvals/${request}"] button`),'the proposer cannot approve their own grant').toHaveCount(0);
   expect((await second.goto('/admin/commerce')).status(),'second staff commerce page').toBe(200);
