@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 import { mailLink, password, seedPasswordRange } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { cookie, expectSession, seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
-import { atlas, checkHeaders, checkIssued, deviceCookie, matchesPortalCsp, matchesPrivateCache, sameOrigin, sessionCookie, shellPolicy, stylesForm, surface } from './policy.mjs';
+import { atlas, checkCookieField, checkHeaders, checkIssued, deviceCookie, matchesPortalCsp, matchesPrivateCache, sameOrigin, sessionCookie, shellPolicy, stylesForm, surface } from './policy.mjs';
 import { withAtlasFixture } from './atlas-fixture.mjs';
 import { challengeForm, getFromPortal, loginForm, logoutForm, signIn, submitForm } from './session-actions.mjs';
 
@@ -56,6 +56,9 @@ test('anonymous language redirect issues a host-only cookie and home stays no-st
   expect(home.status()).toBe(200);
   expect(home.headers()['content-type']).toMatch(/^text\/html\b/);
   await checkHeaders(home, 'anonymous home', webPolicy);
+  const sent = (await home.request().allHeaders()).cookie ?? '';
+  expect(sent.split(';').some(pair => pair.trimStart().startsWith('portal_language=')),
+    'browser sent the language cookie on home').toBe(true);
 
   const asset = await getFromPortal(page.request, '/static/css/tokens.css', { maxRedirects: 0 });
   expect(asset.status()).toBe(200);
@@ -145,6 +148,7 @@ for (const { label, status, headers } of [
   { label: 'oversized cookie', status: 431, headers: { cookie: 'e2e=' + 'a'.repeat(8192) } },
   { label: 'malformed Host', status: 400, headers: { host: 'localhost:invalid' } },
   { label: 'unacceptable media type', status: 406, headers: { accept: 'application/x-portal-e2e-unknown' } },
+  { label: 'explicit UTF-8 HTML refusal', status: 406, headers: { accept: 'text/html; charset=utf-8; q=0, text/html; q=1' } },
 ]) {
   test(label + ' returns a localized refusal with security headers', async ({ request }, info) => {
     const locale = info.project.metadata.locale;
@@ -218,13 +222,20 @@ test('cache validator requires a complete configured directive set', () => {
   expect(matchesPrivateCache(['no-store, no-store'])).toBe(false);
 });
 
+test('cookie validator requires the complete root Path value and host-only scope', () => {
+  const field = 'portal_language=en; Secure; HttpOnly; SameSite=Lax; Path=';
+  expect(() => checkCookieField(field + '/', 'language cookie')).not.toThrow();
+  expect(() => checkCookieField(field + '/=wrong', 'language cookie')).toThrow(/language cookie portal_language Path/);
+  expect(() => checkCookieField(field + '/; Domain =example.test', 'language cookie')).toThrow(/language cookie portal_language host-only/);
+});
+
 test('anonymous form refusals do not create session rows or issue cookies', async ({ request }, info) => {
   await seedPasswordRange(password());
   const locale = info.project.metadata.locale;
   const base = '/' + locale;
   const passkeys = base + '/account/passkeys';
   const agent = 'security-headers-media-' + randomUUID();
-  const headers = { 'user-agent': agent };
+  const headers = { 'user-agent': agent, 'accept-language': locale };
   const rows = async () => (await query(
     'SELECT count(*)::integer AS count FROM web_sessions WHERE user_agent_summary=$1',
     [agent],
@@ -233,6 +244,8 @@ test('anonymous form refusals do not create session rows or issue cookies', asyn
   for (const [path, policy] of [
     [passkeys, { ...mfaPage, referrer: 'strict-origin' }],
     [base + '/register', { ...webPolicy, referrer: 'no-referrer' }],
+    ['/register/check-inbox', { ...webPolicy, referrer: 'no-referrer' }],
+    [base + '/register/check-inbox', { ...webPolicy, referrer: 'no-referrer' }],
     [base + '/recovery-key', { ...webPolicy, referrer: 'no-referrer' }],
   ]) {
     for (const accept of ['application/json', 'application/json; profile="one,text/html,two"']) {

@@ -103,25 +103,27 @@ export async function checkHeaders(response, label, {
     check(matchesPrivateCache(values('cache-control')), label + ' exact non-cacheable directives').toBe(true);
   }
 
-  const cookies = values('set-cookie').map(parseCookie);
-  for (const cookie of cookies.filter(cookie => [sessionCookie, deviceCookie, 'portal_language'].includes(cookie.name))) {
-    assertCookie(cookie, label, check);
-  }
-  return cookies;
+  return values('set-cookie').map(field => checkCookieField(field, label, check));
 }
 
-function parseCookie(field) {
+export function checkCookieField(field, label, check = expect) {
   const [pair, ...parts] = field.split(';');
   const separator = pair.indexOf('=');
   const attributes = new Map();
   for (const part of parts) {
-    const [name, value = ''] = part.trim().split('=', 2);
-    const key = name.toLowerCase();
+    const attribute = part.trim();
+    const equals = attribute.indexOf('=');
+    const name = equals === -1 ? attribute : attribute.slice(0, equals);
+    const value = equals === -1 ? '' : attribute.slice(equals + 1);
+    const key = name.trim().toLowerCase();
     // Duplicate path/domain/flag directives can be interpreted differently by clients.
     expect(attributes.has(key), 'unique Set-Cookie attribute').toBe(false);
     attributes.set(key, value);
   }
-  return { name: pair.slice(0, separator), isEmpty: pair.length === separator + 1, attributes };
+  const name = pair.slice(0, separator);
+  const cookie = { name, isEmpty: pair.length === separator + 1, attributes };
+  if ([sessionCookie, deviceCookie, 'portal_language'].includes(name)) assertCookie(cookie, label, check);
+  return cookie;
 }
 
 function assertCookie({ name, attributes }, label, check) {
