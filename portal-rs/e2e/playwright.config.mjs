@@ -4,6 +4,8 @@ import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 import os from 'node:os';
 import path from 'node:path';
+import { installRecorder } from './ledger/record.mjs';
+if (process.env.TEST_WORKER_INDEX !== undefined) installRecorder();
 process.env.PORTAL_E2E_AUTH_DIRECTORY ||= fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-auth-'));
 export default defineConfig({
   testDir: './specs', timeout: 120_000, expect: { timeout: 10_000 },
