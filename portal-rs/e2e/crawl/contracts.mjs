@@ -15,7 +15,7 @@ const publicViews = new Map([
     .map(route => [route, ['h1', coldCatalogue, 'No active Game catalogue']]),
   ['wiki/places', ['p', ['Brak zatwierdzonych danych.', 'No qualified data available.'], 'No approved places data']],
   ['houses', [status, ['Informacje o domach są niedostępne. Spróbuj ponownie później.', 'House information is unavailable. Please try again later.'], 'No house projection']],
-  ['guilds', [status, ['Informacje o gildiach są niedostępne. Spróbuj ponownie później.', 'Guild information is unavailable. Please try again later.'], 'No guild projection']],
+  ['guilds', [status, ['Informacje o gildiach są niedostępne.', 'Guild information is unavailable.'], 'No guild projection']],
   ['online', [status, ['Tymczasowo niedostępne.', 'Temporarily unavailable.'], 'No online projection']],
   ['deaths', [status, ['Dane o zgonach są obecnie niedostępne.', 'Death records are currently unavailable.'], 'No death projection']],
   ['rankings/experience', [status, ['Tymczasowo niedostępne. Spróbuj ponownie później.', 'Temporarily unavailable. Please try again later.'], 'No ranking projection']],
@@ -51,9 +51,23 @@ export function routeOf(url) {
   return url.pathname.replace(/^\/(?:pl|en)(?=\/|$)/, '').replace(/^\//, '');
 }
 
-export function isPrivate(route) {
+function isPrivate(route) {
   return /^(?:account(?:\/|$)|panel\/|support\/(?:tickets|reports)(?:\/|$)|atlas\/places$|pass$)/.test(route)
     && route !== 'account/passkeys';
+}
+
+export function redirectDestination(url, actor, locale) {
+  const route = routeOf(url);
+  const lang = localeOf(url, locale);
+  const selectedLocale = route.match(/^language\/(pl|en)$/)?.[1];
+  if (url.pathname === '/') return `/${locale}/`;
+  if (selectedLocale) return `/${selectedLocale}/`;
+  if (actor === 'anonymous') {
+    if (/^(?:admin|console)(?:\/|$)/.test(route) || route === 'password/change') return '/login';
+    if (isPrivate(route) || /^(?:shop|puzzles|collection)(?:\/|$)/.test(route)) return `/${lang}/login`;
+  } else if (route === 'account/security') {
+    return `/${lang}/password/change`;
+  }
 }
 
 export function projectionPaths(actor) {

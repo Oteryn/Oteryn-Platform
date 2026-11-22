@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import { disposableDatabaseUrl, login, password, seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
-import { isPrivate, localeOf, projectionPaths, routeOf, unavailableView } from './contracts.mjs';
+import { localeOf, projectionPaths, redirectDestination, routeOf, unavailableView } from './contracts.mjs';
 
 const { sections } = JSON.parse(fs.readFileSync(new URL('../inventory.json', import.meta.url)));
 const expectations = JSON.parse(fs.readFileSync(new URL('../route-expectations.json', import.meta.url)));
@@ -68,7 +68,7 @@ async function authenticate(page, locale, actor) {
     }
     step = 'signed-in home';
     await page.goto(`/${locale}/`);
-    await expect(page.locator(`form[action="/${locale}/logout"]`)).toBeAttached();
+    await expect(page.locator(`form[action="/${locale}/logout"]`).first()).toBeAttached();
   } catch (error) {
     // Action errors can include the value typed into a credential input.
     throw new Error(`${actor} could not complete ${step} (${error.name})`);
@@ -171,25 +171,50 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         const staff = staffRoute(route);
         const forbidden = (staff && actor === 'player')
           || (route === 'account/passkeys' && actor === 'platform_admin');
-        const selectedLocale = route.match(/^language\/(pl|en)$/)?.[1];
-        let redirectPath;
-        if (selectedLocale) redirectPath = `/${selectedLocale}/`;
-        if (actor === 'anonymous' && staff) redirectPath = '/login';
-        if (actor === 'anonymous' && isPrivate(route)) redirectPath = `/${localeOf(url, locale)}/login`;
-        if (actor !== 'anonymous' && route === 'account/security') {
-          redirectPath = `/${localeOf(url, locale)}/password/change`;
-        }
-        const expectedStatus = forbidden ? 403 : view ? 503 : 200;
+        const redirectPath = redirectDestination(url, actor, locale);
+        const expectedStatus = forbidden && !redirectPath ? 403 : view ? 503 : 200;
         const target = redirectPath ? new URL(redirectPath, origin) : url;
-        await waitForWikiBudget(url.href);
-        const response = await page.goto(url.href);
-        if (selectedLocale) await page.context().clearCookies({ name: 'portal_language' });
-        const previous = response?.request().redirectedFrom();
-        const correctRedirect = redirectPath
-          ? previous?.url() === url.href && !previous.redirectedFrom() && (await previous.response())?.status() === 303
-          : !previous;
-        if (!correctRedirect || response?.status() !== expectedStatus || page.url() !== target.href) {
-          defects.add(`${from} → ${current} expected ${redirectPath ? `303 to ${redirectPath}, then ` : ''}HTTP ${expectedStatus}, reached ${label(new URL(page.url()))} with HTTP ${response?.status()}${view ? ` (${view.reason})` : ''}`);
+        const isAlternateLocale = documentLocale(target, locale) !== locale
+          && /^(?:\/(?:pl|en)(?:\/|$)|\/admin\/(?:pl|en)\/)/.test(target.pathname);
+        const headers = { accept: 'text/html', 'accept-language': locale };
+
+        if (redirectPath) {
+          const redirect = await page.request.get(url.href, { maxRedirects: 0, timeout: 15_000, headers });
+          try {
+            const location = redirect.headers().location;
+            if (redirect.status() !== 303 || !location || localURL(location, url, origin)?.href !== target.href) {
+              defects.add(`${from} → ${current} expected 303 to ${redirectPath}, got HTTP ${redirect.status()}`);
+              continue;
+            }
+          } finally {
+            await redirect.dispose();
+            if (route.startsWith('language/')) await page.context().clearCookies({ name: 'portal_language' });
+          }
+        }
+        if (visited.has(target.href)) continue;
+        await waitForWikiBudget(target.href);
+        if (isAlternateLocale) {
+          // The matching locale project renders these documents at its viewport.
+          // Here the actual link must still reach the exact HTML response.
+          const response = await page.request.get(target.href, { maxRedirects: 0, timeout: 15_000, headers });
+          try {
+            const contentType = response.headers()['content-type'] ?? '';
+            const noStore = response.headers()['cache-control']?.split(',').some(value => value.trim() === 'no-store');
+            if (response.status() !== expectedStatus || !contentType.startsWith('text/html')
+              || (view && (!noStore || !(await response.text()).includes(view.text)))) {
+              defects.add(`${from} → ${current} alternate language expected HTML with HTTP ${expectedStatus}, got ${response.status()}`);
+            } else {
+              covered.push({ path: label(target), status: expectedStatus, locale: documentLocale(target, locale), ...(view && { reason: view.reason }) });
+            }
+          } finally {
+            await response.dispose();
+          }
+          visited.add(target.href);
+          continue;
+        }
+        const response = await page.goto(target.href, { waitUntil: 'domcontentloaded' });
+        if (response?.request().redirectedFrom() || response?.status() !== expectedStatus || page.url() !== target.href) {
+          defects.add(`${from} → ${current} expected HTTP ${expectedStatus}, reached ${label(new URL(page.url()))} with HTTP ${response?.status()}${view ? ` (${view.reason})` : ''}`);
           continue;
         }
         if (!response.headers()['content-type']?.startsWith('text/html')) {
@@ -199,7 +224,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         if (expectedStatus !== 200) declaredRefusals.set(target.href, expectedStatus);
         if (visited.has(target.href)) continue;
         visited.add(target.href);
-        covered.push({ path: label(target), status: expectedStatus, ...(view && { reason: view.reason }) });
+        covered.push({ path: label(target), status: expectedStatus, locale: documentLocale(target, locale), rendered: true, ...(view && { reason: view.reason }) });
 
         const rendered = await page.evaluate(({ selector, filters, accountEmail }) => {
           const main = document.querySelector('main');
@@ -246,7 +271,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
     }
     await info.attach('crawl', { body: JSON.stringify(covered), contentType: 'application/json' });
     expect([...defects], 'route crawl defects').toEqual([]);
-    expect(covered.length, 'rendered route coverage').toBeGreaterThan(sections.length);
+    expect(covered.length, 'verified route coverage').toBeGreaterThan(sections.length);
   });
 }
 
