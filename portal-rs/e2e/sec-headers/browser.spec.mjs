@@ -194,6 +194,10 @@ test('CSP validator requires the full policy with unique directives', () => {
   expect(matchesPortalCsp(strict.replace("object-src 'none'", "object-src *"))).toBe(false);
   expect(matchesPortalCsp(strict.replace("; base-uri 'none'", ""))).toBe(false);
   expect(matchesPortalCsp(strict.replace("default-src 'self'", "default-src *"))).toBe(false);
+  const atlas = "default-src 'none'; script-src 'nonce-" + 'a'.repeat(64)
+    + "'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+  expect(matchesPortalCsp(atlas)).toBe(true);
+  expect(matchesPortalCsp(atlas.replace(/'nonce-[a-f0-9]+'/, "'<nonce>'"))).toBe(false);
 });
 
 test('unacceptable reset GET preserves the one-time confirmation', async ({ page }, info) => {
@@ -262,4 +266,8 @@ test('unacceptable OAuth GET preserves the pending login destination', async ({ 
   expect(signedIn.status()).toBe(302);
   expect(signedIn.headers().location === accepted, 'login retained the first OAuth request').toBe(true);
   await checkHeaders(signedIn, 'OAuth login redirect');
+  const consent = await page.goto(accepted);
+  expect(consent.status()).toBe(200);
+  await checkHeaders(consent, 'OAuth consent', { consentOrigin: new URL(baseURL).origin });
+  await expect(page.locator('main form[action="/oauth/authorize"]')).toBeVisible();
 });

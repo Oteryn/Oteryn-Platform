@@ -51,13 +51,19 @@ const expectedPolicies = new Set([
   ...modulePolicies.flatMap(policy => [parseCsp(policy), shellPolicy(policy)]),
 ].map(signature));
 
-export function matchesPortalCsp(value) {
+export function matchesPortalCsp(value, consentOrigin) {
+  if (value.includes("'<nonce>'")) return false;
   const directives = parseCsp(value);
-  return new Set(directives.map(([name]) => name)).size === directives.length
-    && expectedPolicies.has(signature(directives));
+  if (new Set(directives.map(([name]) => name)).size !== directives.length) return false;
+  const actual = signature(directives);
+  if (consentOrigin) {
+    const consent = stylesOnly + "; form-action 'self' " + consentOrigin;
+    return actual === signature(shellPolicy(consent));
+  }
+  return expectedPolicies.has(actual);
 }
 
-export async function checkHeaders(response, label, { cache, check = expect } = {}) {
+export async function checkHeaders(response, label, { cache, check = expect, consentOrigin } = {}) {
   const fields = await response.headersArray();
   const values = name => fields.filter(field => field.name.toLowerCase() === name).map(field => field.value);
   check(values('x-content-type-options'), label + ' nosniff').toEqual(['nosniff']);
@@ -71,7 +77,7 @@ export async function checkHeaders(response, label, { cache, check = expect } = 
   const policies = values('content-security-policy');
   check(policies.length, label + ' one enforced CSP').toBe(1);
   for (const policy of policies) {
-    check(matchesPortalCsp(policy), label + ' configured CSP directives and sources').toBe(true);
+    check(matchesPortalCsp(policy, consentOrigin), label + ' configured CSP directives and sources').toBe(true);
   }
 
   if (cache) {
