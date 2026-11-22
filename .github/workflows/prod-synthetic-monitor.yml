@@ -456,11 +456,11 @@ jobs:
                   }
                   const reply = /^< ([2345][0-9]{2})(?: |$)/.exec(line)?.[1];
                   if (!reply) return;
-                  if (reply[0] === '4' || reply[0] === '5') {
-                    if (envelopeReply || phase === 'data' || phase === 'body') {
-                      phase = 'rejected';
-                      rejection = reply[0];
-                    }
+                  // Temporary failures can arrive before the envelope, including at greeting.
+                  const messageReply = envelopeReply || phase === 'data' || phase === 'body';
+                  if (reply[0] === '4' || (reply[0] === '5' && messageReply)) {
+                    phase = 'rejected';
+                    rejection = reply[0];
                   } else if (phase === 'data' && reply === '354') {
                     phase = 'body';
                   } else if (phase === 'body' && reply === '250') {
