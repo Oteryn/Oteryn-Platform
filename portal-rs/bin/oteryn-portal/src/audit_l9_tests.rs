@@ -218,10 +218,13 @@ async fn fixture(name: &str, mode: &str) -> Result {
     }
     Ok(())
 }
-async fn database() -> Result<crate::reset_http::tests::db::Database> {
-    let db = crate::reset_http::tests::db::Database::open()
+async fn empty_database() -> Result<crate::reset_http::tests::db::Database> {
+    crate::reset_http::tests::db::Database::open()
         .await?
-        .ok_or("PORTAL_TEST_DATABASE_URL required; no skipped audit tests")?;
+        .ok_or_else(|| "PORTAL_TEST_DATABASE_URL required; no skipped audit tests".into())
+}
+async fn database() -> Result<crate::reset_http::tests::db::Database> {
+    let db = empty_database().await?;
     oteryn_db::test_support::seed_final_signup_editions(
         &db.pool,
         oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
@@ -426,28 +429,32 @@ async fn production_registration_account_exists() -> Result {
     }
     assert_eq!(std::env::var("OTERYN_ENV")?, "production");
     let start = Instant::now();
-    let db = database().await?;
-    account(&db.pool, "existing@example.test").await?;
-    let browser = browser(&db.pool, None).await?;
-    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
-        .execute(&db.pool)
-        .await?;
-    let app = app(db.pool.clone());
-    // A final-looking version with retained fictional details must be refused by
-    // the configured production router before the real account-exists flow.
-    sqlx::query(
-        "UPDATE editorial_pages SET body='KRS 0000000000'
-         WHERE page_id=(SELECT id FROM pages WHERE slug='terms-of-service')",
+    use oteryn_identity::consents::{ConsentConfig, DEFAULT_LEGAL_VERSION};
+    let fictional = empty_database().await?;
+    oteryn_db::test_support::seed_final_signup_editions_with_bodies(
+        &fictional.pool,
+        DEFAULT_LEGAL_VERSION,
+        "Tax ID (NIP) **000**&#8209;000‑00‑00",
+        "NIP 000‑000‑00‑00",
     )
-    .execute(&db.pool)
     .await?;
+    let allow_placeholders = ConsentConfig::published(
+        DEFAULT_LEGAL_VERSION.into(),
+        DEFAULT_LEGAL_VERSION.into(),
+        true,
+    );
+    let fictional_browser = browser(&fictional.pool, None).await?;
+    let fictional_app = app(fictional.pool.clone());
     for locale in ["en", "pl"] {
-        let response = app
+        allow_placeholders
+            .check_publication(&fictional.pool, locale)
+            .await?;
+        let response = fictional_app
             .clone()
             .oneshot(request(
                 "GET",
                 &format!("/{locale}/register"),
-                &browser,
+                &fictional_browser,
                 "10.0.0.1:1234",
                 "192.0.2.1",
                 "",
@@ -455,13 +462,15 @@ async fn production_registration_account_exists() -> Result {
             .await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
-    sqlx::query(
-        "UPDATE editorial_pages e SET body=v.content->>'body'
-         FROM page_legal_versions v WHERE v.page_id=e.page_id
-         AND v.locale=e.locale AND v.version=e.legal_version",
-    )
-    .execute(&db.pool)
-    .await?;
+    fictional.close().await?;
+
+    let db = database().await?;
+    account(&db.pool, "existing@example.test").await?;
+    let browser = browser(&db.pool, None).await?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&db.pool)
+        .await?;
+    let app = app(db.pool.clone());
     let body = registration_body(
         &app,
         &db.pool,

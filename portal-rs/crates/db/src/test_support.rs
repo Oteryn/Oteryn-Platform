@@ -66,6 +66,22 @@ pub async fn seed_final_signup_editions(
     pool: &sqlx::PgPool,
     version: &str,
 ) -> Result<(), sqlx::Error> {
+    seed_final_signup_editions_with_bodies(
+        pool,
+        version,
+        "Accepted English fixture edition.",
+        "Zatwierdzony dokument testowy.",
+    )
+    .await
+}
+
+/// Seed matching published rows and approved snapshots for custom fixture text.
+pub async fn seed_final_signup_editions_with_bodies(
+    pool: &sqlx::PgPool,
+    version: &str,
+    english: &str,
+    polish: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "WITH documents AS (
              INSERT INTO pages(id,slug)
@@ -74,12 +90,12 @@ pub async fn seed_final_signup_editions(
          ), sources AS (
              INSERT INTO editorial_pages
                  (page_id,locale,title,body,published_at,legal_version,legal_effective_date)
-             SELECT id,'en',slug,'Accepted English fixture edition.',now(),$1,'2026-11-22'
+             SELECT id,'en',slug,$2,now(),$1,'2026-11-22'
              FROM documents RETURNING *
          ), translations AS (
              INSERT INTO editorial_pages
                  (page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision)
-             SELECT page_id,'pl',title,'Zatwierdzony dokument testowy.',now(),legal_version,
+             SELECT page_id,'pl',title,$3,now(),legal_version,
                     legal_effective_date,revision
              FROM sources RETURNING *
          )
@@ -89,6 +105,8 @@ pub async fn seed_final_signup_editions(
          FROM (SELECT * FROM sources UNION ALL SELECT * FROM translations) editions",
     )
     .bind(version)
+    .bind(english)
+    .bind(polish)
     .execute(pool)
     .await?;
     Ok(())

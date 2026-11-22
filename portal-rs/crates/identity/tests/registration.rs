@@ -962,7 +962,7 @@ async fn signup_consent_keeps_the_accepted_edition_after_changing_language() -> 
         assert_eq!(
             records,
             [("privacy", "privacy-policy"), ("terms", "terms-of-service")].map(|(kind, slug)| (
-                kind.into(),
+                kind.to_owned(),
                 changed.into(),
                 accepted.into(),
                 slug.into(),
