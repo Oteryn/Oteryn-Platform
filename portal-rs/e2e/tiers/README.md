@@ -18,7 +18,10 @@ CHROMIUM_PATH=/usr/bin/chromium node tiers/run.mjs smoke
 The tier runner starts and stops `local.mjs` and invokes `run.mjs` once the HTTPS
 probe succeeds. Set `PORTAL_E2E_BINARY` to use a binary built from the same
 checkout. Each smoke project gets a separate 11-minute job after the shared
-binary build. Pass a project name after `smoke` to run that project locally.
+binary build. The `tiers/ci.sh` entry point installs Chromium from the
+lockfile-pinned Playwright package by default. Set `CHROMIUM_PATH` explicitly
+to use an installed Chromium for a local run. Pass a project name after
+`smoke` to run that project locally.
 
 The nightly matrix discovers the configured Playwright projects and runs three
 file shards per project. The tier config preserves the browser suite's test

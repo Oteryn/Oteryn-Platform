@@ -2,12 +2,19 @@
 set -euo pipefail
 
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund
-if [[ ! -x "${CHROMIUM_PATH:-/usr/bin/chromium}" ]]; then
-  node node_modules/@playwright/test/cli.js install --with-deps chromium
+if [[ -z "${CHROMIUM_PATH:-}" ]]; then
+  install_args=(chromium)
+  if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+    install_args+=(--with-deps)
+  fi
+  node node_modules/@playwright/test/cli.js install "${install_args[@]}"
   CHROMIUM_PATH="$(node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log(chromium.executablePath())')"
 fi
-export CHROMIUM_PATH="${CHROMIUM_PATH:-/usr/bin/chromium}"
-test -x "$CHROMIUM_PATH"
+if [[ ! -x "$CHROMIUM_PATH" ]]; then
+  echo 'CHROMIUM_PATH must point to an executable Chromium binary.' >&2
+  exit 1
+fi
+export CHROMIUM_PATH
 if (( $(cat /proc/sys/net/ipv4/ip_unprivileged_port_start) > 465 )); then
   sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
 fi
