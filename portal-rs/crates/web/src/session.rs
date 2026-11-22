@@ -386,12 +386,14 @@ impl BrowserMutationDeadline {
         self,
         read: impl std::future::Future<Output = Result<T, sqlx::Error>>,
     ) -> Result<T, sqlx::Error> {
+        self.within(read).await.ok_or(sqlx::Error::PoolTimedOut)?
+    }
+
+    async fn within<T>(self, work: impl std::future::Future<Output = T>) -> Option<T> {
         if tokio::time::Instant::now() >= self.0 {
-            return Err(sqlx::Error::PoolTimedOut);
+            return None;
         }
-        tokio::time::timeout_at(self.0, read)
-            .await
-            .map_err(|_| sqlx::Error::PoolTimedOut)?
+        tokio::time::timeout_at(self.0, work).await.ok()
     }
 
     async fn calibrate(
@@ -422,6 +424,17 @@ pub struct SessionMutationDeadline {
 }
 
 impl SessionMutationDeadline {
+    /// Bound request body reads without dropping a future that can commit a mutation.
+    pub async fn read_request<T>(
+        &self,
+        read: impl std::future::Future<Output = T>,
+    ) -> Result<T, StatusCode> {
+        self.request
+            .within(read)
+            .await
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+    }
+
     /// Bound admission work that cannot write, including its pool wait.
     pub async fn read<T>(
         &self,
@@ -520,7 +533,19 @@ pub async fn middleware(
     match run(&layer, &mut request).await {
         Ok(session) => {
             request.extensions_mut().insert(session.clone());
-            if let Err(status) = crate::csrf::verify(&layer.csrf, &session, &mut request).await {
+            let deadline = request
+                .extensions()
+                .get::<SessionMutationDeadline>()
+                .cloned();
+            let verification = crate::csrf::verify(&layer.csrf, &session, &mut request);
+            let verified = match deadline {
+                Some(deadline) => deadline
+                    .read_request(verification)
+                    .await
+                    .and_then(std::convert::identity),
+                None => verification.await,
+            };
+            if let Err(status) = verified {
                 return status.into_response();
             }
             let mut response = next.run(request).await;

@@ -1,10 +1,39 @@
 import { test, expect } from '../fixtures.mjs';
 import { submit } from '../helpers.mjs';
 import { action, audit, isolatedAdmin, player, query, unique } from '../staff-rbac-helpers.mjs';
+import https from 'node:https';
 
 function atTextareaLimit(prefix) {
   const firstLine = `${prefix}\n`;
   return firstLine + 'Details provided. '.repeat(250).slice(0, 3999 - firstLine.length) + 'x';
+}
+
+async function unfinishedAppeal(page, csrfHeader) {
+  const target = new URL(page.url());
+  const cookies = await page.context().cookies(target.href);
+  const headers = {
+    cookie: cookies.map(({ name, value }) => `${name}=${value}`).join('; '),
+    origin: target.origin,
+    'content-type': 'application/x-www-form-urlencoded',
+    'transfer-encoding': 'chunked',
+  };
+  if (csrfHeader) headers['x-csrf-token'] = csrfHeader;
+  return new Promise((resolve, reject) => {
+    const request = https.request(target, { method: 'POST', headers, rejectUnauthorized: false }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('error', reject);
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => {
+        resolve({ status: response.statusCode, cacheControl: response.headers['cache-control'], body });
+        request.destroy();
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(4500, () => request.destroy(new Error('Appeal deadline did not close the unfinished upload')));
+    // Keep the transport open after sending a partial form body.
+    request.write('version=1&message=Incomplete');
+  });
 }
 
 test('players appeal their own sanctions and staff uphold or overturn them', async ({ page, browser }, info) => {
@@ -70,6 +99,12 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       await expect(page.locator('main')).not.toContainText(privateNote);
       if (decision === 'accepted') {
         const fields = await page.locator('main form').evaluate(form => Object.fromEntries(new FormData(form)));
+        for (const csrfHeader of [undefined, fields._csrf]) {
+          const unfinished = await unfinishedAppeal(page, csrfHeader);
+          expect(unfinished.status).toBe(503);
+          expect(unfinished.cacheControl).toContain('no-store');
+          expect(unfinished.body).toContain(lang === 'pl' ? 'Usługa chwilowo niedostępna' : 'Temporarily unavailable');
+        }
         const staleCsrf = await page.request.post(playerPath, {
           form: { ...fields, _csrf: '0'.repeat(64), message },
           headers: { origin: new URL(page.url()).origin },

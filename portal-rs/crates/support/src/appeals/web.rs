@@ -2,7 +2,7 @@ use super::{Entry, Error, browser_session_expiry, player_entries, submit_player}
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{MatchedPath, Path, Query, Request, State, rejection::FormRejection},
+    extract::{FromRequest, MatchedPath, Path, Query, Request, State},
     http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
@@ -258,7 +258,7 @@ async fn submit(
     Extension(session): Extension<BrowserSession>,
     peer: Option<ClientSource>,
     deadline: Option<Extension<SessionMutationDeadline>>,
-    form: Result<Form<Input>, FormRejection>,
+    request: Request,
 ) -> Result<Redirect, Response> {
     let language = match lang.as_str() {
         "pl" => Language::Pl,
@@ -267,16 +267,13 @@ async fn submit(
     };
     let path = format!("/{lang}/support/appeals/{id}");
     let error = |status| refusal(&lang, &path, status, None);
-    let Form(input) = form.map_err(|rejection| error(rejection.status()))?;
-    let (actor, session_hash) = actor(
-        &pool,
-        &session,
-        &lang,
-        &path,
-        deadline.as_ref().map(|deadline| &deadline.0),
-    )
-    .await?;
     let Extension(deadline) = deadline.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
+    let Form(input) = deadline
+        .read_request(Form::<Input>::from_request(request, &pool))
+        .await
+        .map_err(error)?
+        .map_err(|rejection| error(rejection.status()))?;
+    let (actor, session_hash) = actor(&pool, &session, &lang, &path, Some(&deadline)).await?;
     let peer = peer.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let mut keys = Keys::source(peer.0);
     keys.account = Some(actor.to_string());
