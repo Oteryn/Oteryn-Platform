@@ -19,7 +19,7 @@ export function prepareGameApi(scratch, binary, env) {
   writeFileSync(digestFile, createHash('sha256').update(token).digest('hex'), { mode: 0o600 });
   Object.assign(env, {
     PORTAL_GAMEAPI_REAL_BINARY: binary,
-    PORTAL_OAUTH_CONFIG: JSON.stringify({
+    PORTAL_OAUTH_CONFIG: process.env.PORTAL_OAUTH_CONFIG || JSON.stringify({
       enabled: true,
       clients: [clientId, 'e2e-local'].map(client_id => ({ client_id, redirect_uris: [callback] })),
     }),
