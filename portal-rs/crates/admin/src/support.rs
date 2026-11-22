@@ -12,6 +12,8 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::future::Future;
 use uuid::Uuid;
 
+const MAX_APPEAL_OUTCOME_LENGTH: usize = 4000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
     Tickets,
@@ -125,7 +127,11 @@ impl Command {
                 matches!(
                     appeal_status.as_str(),
                     "reviewing" | "accepted" | "rejected"
-                ) && text(appeal_outcome, 4000, appeal_status != "reviewing")
+                ) && text(
+                    appeal_outcome,
+                    MAX_APPEAL_OUTCOME_LENGTH,
+                    appeal_status != "reviewing",
+                )
             }
         };
         if valid { Ok(()) } else { Err(Error::Invalid) }

@@ -84,9 +84,12 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       await expect(staff.page.locator('main')).toContainText(message);
       const form = staff.page.locator('form:has(input[value=appeal])');
       const selector = form.locator('[name=appeal_status]');
+      const outcomeField = form.locator('[name=appeal_outcome]');
+      await expect(outcomeField).toHaveJSProperty('required', true);
+      await expect(outcomeField).toHaveJSProperty('maxLength', 4000);
       await expect(selector).toHaveValue('');
       await expect(selector.locator('option:checked')).toHaveJSProperty('disabled', true);
-      await form.locator('[name=appeal_outcome]').fill(outcome);
+      await outcomeField.fill(outcome);
       await form.locator('button[type=submit]').click();
       expect(await selector.evaluate(field => field.validity.valueMissing)).toBe(true);
       expect(await query(

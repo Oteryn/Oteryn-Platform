@@ -399,7 +399,12 @@ async fn render_record(
                 _ => &[],
             };
             if choices.is_empty() {
-                body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"8000\"></textarea></label></p>",text(lang,field)));
+                let (max_length, required) = if *field == "appeal_outcome" {
+                    (MAX_APPEAL_OUTCOME_LENGTH, " required")
+                } else {
+                    (8000, "")
+                };
+                body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"{max_length}\"{required}></textarea></label></p>",text(lang,field)));
             } else {
                 let required = if *field == "appeal_status" {
                     " required"
