@@ -241,7 +241,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(credentials);
             let export =
                 oteryn_identity::export::configured_router(db.clone(), password_confirmation);
-            let export_enabled = export.has_routes();
+            let export_enabled = export.has_routes() && password_confirmation;
             let app = app.merge(export);
             let app = app.merge(profile_http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::today::router(db.clone()));

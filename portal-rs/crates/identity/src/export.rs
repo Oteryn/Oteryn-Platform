@@ -22,6 +22,7 @@ pub struct ExportConfig {
 struct ExportState {
     pool: PgPool,
     config: ExportConfig,
+    password_confirmation: bool,
 }
 
 /// No account identifier is accepted from the caller. Ownership comes from the session.
@@ -197,7 +198,7 @@ async fn handler(
             value,
         )
             .into_response(),
-        Err(StatusCode::FORBIDDEN) => {
+        Err(StatusCode::FORBIDDEN) if state.password_confirmation => {
             let needs_sudo: Result<bool, _> = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id
                  WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
@@ -236,10 +237,18 @@ async fn handler(
 }
 
 pub fn router(pool: PgPool, config: ExportConfig) -> Router {
+    browser_router(pool, config, true)
+}
+
+fn browser_router(pool: PgPool, config: ExportConfig, password_confirmation: bool) -> Router {
     Router::new()
         .route("/pl/account/privacy/export", get(handler))
         .route("/en/account/privacy/export", get(handler))
-        .with_state(ExportState { pool, config })
+        .with_state(ExportState {
+            pool,
+            config,
+            password_confirmation,
+        })
 }
 
 pub fn configured_router(pool: PgPool, password_confirmation: bool) -> Router {
@@ -251,8 +260,8 @@ pub fn configured_router(pool: PgPool, password_confirmation: bool) -> Router {
 }
 
 fn configured_browser_router(pool: PgPool, enabled: bool, password_confirmation: bool) -> Router {
-    if enabled && password_confirmation {
-        router(pool, ExportConfig { enabled: true })
+    if enabled {
+        browser_router(pool, ExportConfig { enabled }, password_confirmation)
     } else {
         Router::new()
     }
