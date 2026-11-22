@@ -378,6 +378,27 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
     )
     .await
     .unwrap();
+    let mut tx = db.pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM bazaar_moderation_holds WHERE listing_id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE bazaar_listings SET state='cancelled' WHERE id=$1")
+        .bind(listing)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    api.execute(
+        context,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Approval replay after reconciliation".into(),
+        },
+    )
+    .await
+    .unwrap();
     let audits: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_log WHERE action='bazaar.invalidation.approve' AND target=$1",
     )

@@ -513,19 +513,20 @@ pub async fn execute_staff(
         }
         StaffCommand::ApproveInvalidation { id, reason } => {
             reason_valid(reason)?;
-            // Discover listing first; lock listing before request, as the requester does.
-            let listing: Uuid = sqlx::query_scalar(
-                "SELECT listing_id FROM bazaar_invalidation_requests WHERE id=$1",
-            )
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(Error::NotFound)?;
-            cancellable(tx, listing).await?;
-            let (requester,revision,state,reviewer):(Uuid,i64,String,Option<Uuid>)=sqlx::query_as("SELECT requested_by,hold_revision,state,approved_by FROM bazaar_invalidation_requests WHERE id=$1 FOR UPDATE").bind(id).fetch_one(&mut *tx).await?;
+            // lock_staff_target already locked the listing, then the request.
+            let (listing, requester, revision, state, reviewer): (Uuid, Uuid, i64, String, Option<Uuid>) =
+                sqlx::query_as("SELECT listing_id,requested_by,hold_revision,state,approved_by FROM bazaar_invalidation_requests WHERE id=$1")
+                    .bind(id).fetch_one(&mut *tx).await?;
             if requester == actor {
                 return Err(Error::Denied);
             }
+            if state == "approved" && reviewer == Some(actor) {
+                return Ok(StaffOutcome::Replay);
+            }
+            if state != "pending" {
+                return Err(Error::Denied);
+            }
+            cancellable(tx, listing).await?;
             let current: Option<i64> = sqlx::query_scalar(
                 "SELECT revision FROM bazaar_moderation_holds WHERE listing_id=$1",
             )
@@ -533,16 +534,6 @@ pub async fn execute_staff(
             .fetch_optional(&mut *tx)
             .await?;
             if current != Some(revision) {
-                return Err(Error::Denied);
-            }
-            if state == "approved" {
-                return if reviewer == Some(actor) {
-                    Ok(StaffOutcome::Replay)
-                } else {
-                    Err(Error::Denied)
-                };
-            }
-            if state != "pending" {
                 return Err(Error::Denied);
             }
             sqlx::query("UPDATE bazaar_invalidation_requests SET approved_by=$2,state='approved',updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(actor).execute(&mut *tx).await?;

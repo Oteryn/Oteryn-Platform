@@ -96,6 +96,7 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
 
     expect((await secondPage.goto(route)).status()).toBe(200);
     expect((await post(secondPage, {...await fields(secondPage, 'approve'), id: requestId, reason: ' '})).status()).toBe(422);
+    const originalApproval = {...await fields(secondPage, 'approve'), id: requestId, reason: approvalReason};
     await submit(secondPage, form('approve'), {id: requestId, reason: approvalReason});
     await expect(entry(secondPage)).toHaveAttribute('data-request-state', 'approved');
     await expect(entry(secondPage)).toContainText(lang === 'pl' ? 'Zatwierdzono przez zespół' : 'Staff approved');
@@ -104,6 +105,10 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
       return entry(secondPage).getAttribute('data-listing-state');
     }, {timeout: 45_000}).toBe('cancelled');
     await expect(entry(secondPage)).toContainText(lang === 'pl' ? 'Anulowana' : 'Cancelled');
+    const outbox = () => query('SELECT * FROM bazaar_moderation_outbox WHERE id=$1', [requestId]);
+    const recordedOutbox = await outbox();
+    expect((await post(secondPage, originalApproval)).status()).toBe(303);
+    expect(await outbox()).toEqual(recordedOutbox);
 
     const audit = await query(
       "SELECT actor, action, before, after FROM audit_log WHERE target=ANY($1) AND action IN ('bazaar.suspend','bazaar.invalidation.request','bazaar.invalidation.approve') ORDER BY created_at,id",
