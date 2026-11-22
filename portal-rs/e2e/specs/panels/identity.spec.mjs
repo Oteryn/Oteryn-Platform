@@ -128,8 +128,9 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   const account = await seedAccount(lang);
   await login(page, lang, account);
   await page.goto(`/${lang}/account/privacy`);
-  await expect(page.locator(`a[href="${path}"]`).first()).toBeVisible();
-  await page.locator(`a[href="${path}"]`).first().click();
+  const profile = page.locator(`[data-panel="player"] a[href="${path}"]`);
+  await expect(profile).toBeVisible();
+  await profile.click();
   const token = await csrf(page, path);
   const invalid = await post(page, path, token, { display_name: 'x'.repeat(65) });
   expect(invalid.status()).toBe(400);
@@ -187,7 +188,7 @@ async function enrollForManagement(page, lang) {
   expect(anonymous.headers().location).toBe(`/${lang}/login`);
   await login(page, lang, account);
   await page.goto(`/${lang}/account/privacy`);
-  await page.locator(`a[href="${mfa}"]`).first().click();
+  await page.locator(`[data-panel="player"] a[href="${mfa}"]`).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize().width);
   await submit(page, 'main form', { password: account.password });
   const factor = await totp(page);

@@ -426,8 +426,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     },
                 );
             }
-            oteryn_identity::navigation::register(&mut navigation, export_enabled);
             oteryn_identity::navigation::register_identity_panel(&mut navigation.panels);
+            oteryn_identity::navigation::register(&mut navigation, export_enabled);
             navigation.staff_host = oteryn_admin::web::configured_dashboard_host()?;
             oteryn_characters::navigation::register(&mut navigation);
             oteryn_characters::overview::register_navigation(&mut navigation);
