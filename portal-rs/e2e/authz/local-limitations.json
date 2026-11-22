@@ -1,5 +1,12 @@
 [
   {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/account/journal/{character}/deaths",
+    "source": "crates/playerdata/src/deaths/http.rs:121",
+    "reason": "Only the embedding service can attach the trusted ReadContext required by this owner router. The portal binary does not compose this browser router."
+  },
+  {
     "listener": "embedded",
     "method": "POST",
     "path": "/",
@@ -355,5 +362,47 @@
     "path": "/{lang}/account/bazaar/{listing}/bids",
     "source": "bin/oteryn-portal/src/main.rs:225",
     "reason": "The generic Character Market router is outside both executable portal branches. The game runtime and authority-unavailable routers register their own locale paths."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/account/bazaar/sell",
+    "source": "crates/bazaar/src/game/runtime/browser.rs:564",
+    "reason": "The browser runtime requires current signed custody and an accepted Game character cut to create the listing. The browser middleware persists a budget charge before invoking the authority check, so a refused request without that local prerequisite changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/account/bazaar/{listing}/bids",
+    "source": "crates/bazaar/src/game/runtime/browser.rs:564",
+    "reason": "The browser runtime requires an active listing with Game escrow evidence and an admissible buyer-character cut. The browser middleware persists a budget charge before invoking the authority check, so a refused request without that local prerequisite changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/account/bazaar/{listing}/control",
+    "source": "crates/bazaar/src/game/runtime/browser.rs:564",
+    "reason": "The isolated matrix does not have a Game-backed listing in an actionable lifecycle state. The browser middleware persists a budget charge before invoking the authority check, so a refused request without that local prerequisite changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/admin/control/approvals/{id}",
+    "source": "crates/admin/src/control/controls_http.rs:319",
+    "reason": "The configured SessionAuthority has no target-specific catalog authorization. A legitimate R4 preview comes from verified Game dry-run evidence, which is unavailable in this profile."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/admin/control/approvals/{id}",
+    "source": "crates/admin/src/control/controls_http.rs:319",
+    "reason": "A legitimate approval requires a verified Game dry-run result, catalog authorization and a second actor with request-bound step-up. The configured SessionAuthority always refuses catalog authorization."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/characters/new",
+    "source": "crates/characters/src/create_web/http.rs:254",
+    "reason": "The disposable portal has no available creation authority. After a signed-in request is refused, the handler writes a form flash outside the approved web_sessions bookkeeping columns."
   }
 ]

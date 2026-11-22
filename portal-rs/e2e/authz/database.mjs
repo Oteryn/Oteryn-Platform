@@ -3,8 +3,7 @@ import { pool } from '../helpers.mjs';
 
 const identifier = value => '"' + value.replaceAll('"', '""') + '"';
 
-export function database() {
-  const db = pool();
+export function database(db = pool()) {
 
   async function snapshot(sessionHash) {
     const client = await db.connect();
@@ -27,7 +26,8 @@ export function database() {
                encode(sha256(convert_to((to_jsonb(t) - ARRAY['last_activity', 'updated_at'])::text, 'UTF8')), 'hex') AS stable
         FROM public.referral_activity t WHERE account_id = $1
       `, [session.account_id]) : { rows: [] };
-      const nonAuditTables = tables.filter(({ schema, name }) => schema !== 'public' || name !== 'audit_log');
+      const nonAuditTables = tables.filter(({ schema, name }) =>
+        schema !== 'public' || !['audit_log', 'oauth_security_events'].includes(name));
       const values = [];
       const parameter = value => '$' + values.push(value);
       const statements = nonAuditTables.map(({ schema, name }) => {
@@ -51,8 +51,13 @@ export function database() {
       const { rows: fingerprints } = await client.query(statements.join(' UNION ALL '), values);
       const state = new Map(fingerprints.map(({ relation, digest }) => [relation, digest]));
       const { rows: auditRows } = await client.query(`
-        SELECT id::text, action, encode(sha256(convert_to(to_jsonb(t)::text, 'UTF8')), 'hex') AS digest
+        SELECT 'portal:' || id::text AS id, action,
+               encode(sha256(convert_to(to_jsonb(t)::text, 'UTF8')), 'hex') AS digest
         FROM public.audit_log t
+        UNION ALL
+        SELECT 'oauth:' || id::text AS id, event AS action,
+               encode(sha256(convert_to(to_jsonb(t)::text, 'UTF8')), 'hex') AS digest
+        FROM public.oauth_security_events t
       `);
       const audit = new Map(auditRows.map(({ id, action, digest }) => [id, { action, digest }]));
       await client.query('COMMIT');

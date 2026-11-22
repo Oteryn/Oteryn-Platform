@@ -27,6 +27,12 @@ function seed(entity, input) {
   }
 }
 
+export function seedBrowserAccount(locale) {
+  const account = { email: `matrix-${randomUUID()}@example.invalid`, password: password() };
+  const { accountId } = seed('account', { ...account, locale });
+  return { account, accountId };
+}
+
 export async function csrfPage(request, path) {
   const response = await request.get(path, { maxRedirects: 0 });
   try {
@@ -82,8 +88,9 @@ export async function openActor(locale, definition, sanctionIssuer) {
   try {
     if (definition.key === 'anonymous') return { request };
 
-    const account = { email: `matrix-${randomUUID()}@example.invalid`, password: password() };
-    const { accountId } = seed('account', { ...account, locale });
+    const { account, accountId } = seedBrowserAccount(locale);
+    let totpSecret;
+    let nextRecoveryCode;
     if (definition.role) {
       if (definition.custom) {
         const [{ id }] = await query('INSERT INTO roles(key) VALUES ($1) RETURNING id', [definition.role]);
@@ -98,7 +105,10 @@ export async function openActor(locale, definition, sanctionIssuer) {
       const roles = await query('SELECT permission FROM role_permissions WHERE role_id=$1', [roleId]);
       expect(roles.map(row => row.permission).sort(), `${definition.key} catalog permissions`)
         .toEqual([...definition.permissions].sort());
-      const { recoveryCodes } = seed('account-mfa', { accountId, password: account.password });
+      const enrolled = seed('account-mfa', { accountId, password: account.password });
+      const { recoveryCodes } = enrolled;
+      totpSecret = enrolled.totpSecret;
+      nextRecoveryCode = recoveryCodes[1];
       await signIn(request, locale, account, recoveryCodes[0]);
     } else {
       await signIn(request, locale, account);
@@ -110,7 +120,10 @@ export async function openActor(locale, definition, sanctionIssuer) {
         VALUES ($1,'restriction','active','Local authorization matrix',now(),now()+interval '1 hour',$2)
       `, [accountId, sanctionIssuer]);
     }
-    return { request, accountId, account };
+    return {
+      request, accountId, account, totpSecret,
+      signInAgain: () => signIn(request, locale, account, nextRecoveryCode),
+    };
   } catch (error) {
     await request.dispose();
     throw error;

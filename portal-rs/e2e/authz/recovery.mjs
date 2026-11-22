@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -5,6 +6,7 @@ export const recoveryMethods = [
   ['POST', '', 200], ['POST', '/confirm', 200],
   ['POST', '/revoke', 302], ['DELETE', '', 302],
 ];
+export const emailChangeRoutes = ['', '/pl', '/en'].map(prefix => ['POST', `${prefix}/account/security/email`]);
 
 export async function exerciseRecovery(request, prefix, token, account, accountId, snapshot, verifyRefusal) {
   const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
@@ -46,5 +48,31 @@ export async function exerciseRecovery(request, prefix, token, account, accountI
   for (const [method, suffix, status] of recoveryMethods) {
     if (account && method === 'DELETE') await recover('POST', '', 200);
     await recover(method, suffix, status);
+    if (suffix === '/confirm') {
+      const change = `${prefix}/account/security/email`;
+      const email = `matrix-change-${randomUUID()}@example.invalid`;
+      await test.step(`POST ${change}`, async () => {
+        const before = account ? null : await snapshot();
+        const response = await request.post(change, {
+          form: { ...form, email, email_confirmation: email, proof: key, recovery: 'true' },
+          headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
+        });
+        try {
+          expect(response.status(), 'crates/identity/src/email_change_http.rs:233').toBe(302);
+          const destination = account ? /\/account\/security\/email$/ : /\/login$/;
+          expect(response.headers().location).toMatch(destination);
+          if (before) await verifyRefusal(before);
+          else {
+            const [row] = await query(`
+              SELECT immediate FROM account_email_changes WHERE account_id=$1 AND new_email=$2
+            `, [accountId, email]);
+            expect(row?.immediate, 'current recovery proof created the pending change').toBe(true);
+          }
+        } finally {
+          await response.dispose();
+        }
+      });
+      if (account) await recover('POST', '', 200);
+    }
   }
 }

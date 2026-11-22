@@ -419,6 +419,10 @@
           "source": "crates/gateway/src/lib.rs:107",
           "guard": {
             "kind": "client-credentials"
+          },
+          "refusal": {
+            "status": 400,
+            "source": "crates/gateway/src/wire.rs:153"
           }
         }
       ]
@@ -432,6 +436,10 @@
           "source": "crates/gateway/src/lib.rs:108",
           "guard": {
             "kind": "client-credentials"
+          },
+          "refusal": {
+            "status": 400,
+            "source": "crates/gateway/src/lib.rs:311"
           }
         }
       ]
@@ -445,6 +453,10 @@
           "source": "crates/gateway/src/lib.rs:109",
           "guard": {
             "kind": "client-credentials"
+          },
+          "refusal": {
+            "status": 400,
+            "source": "crates/gateway/src/lib.rs:311"
           }
         }
       ]
@@ -2939,7 +2951,14 @@
               "products.premium.manage",
               "marketplace.manage",
               "payments.reconcile"
-            ]
+            ],
+            "actions": {
+              "grant": "products.premium.manage",
+              "revoke": "products.premium.manage",
+              "adjust": "marketplace.manage",
+              "reconcile": "payments.reconcile",
+              "refund": "payments.reconcile"
+            }
           }
         }
       ]
@@ -2960,7 +2979,14 @@
               "products.premium.manage",
               "marketplace.manage",
               "payments.reconcile"
-            ]
+            ],
+            "actions": {
+              "grant": "products.premium.manage",
+              "revoke": "products.premium.manage",
+              "adjust": "marketplace.manage",
+              "reconcile": "payments.reconcile",
+              "refund": "payments.reconcile"
+            }
           }
         }
       ]
@@ -2981,7 +3007,14 @@
               "products.premium.manage",
               "marketplace.manage",
               "payments.reconcile"
-            ]
+            ],
+            "actions": {
+              "grant": "products.premium.manage",
+              "revoke": "products.premium.manage",
+              "adjust": "marketplace.manage",
+              "reconcile": "payments.reconcile",
+              "refund": "payments.reconcile"
+            }
           }
         }
       ]
@@ -3070,7 +3103,8 @@
           "guard": {
             "kind": "staff",
             "all": [
-              "admin.access"
+              "admin.access",
+              "game.player.read"
             ]
           }
         }
@@ -3712,6 +3746,10 @@
             "kind": "staff",
             "all": [
               "admin.access"
+            ],
+            "any": [
+              "support.tickets.manage",
+              "account.security.kick"
             ]
           }
         }
@@ -3728,7 +3766,16 @@
             "kind": "staff",
             "all": [
               "admin.access"
-            ]
+            ],
+            "actions": {
+              "note": "support.tickets.manage",
+              "logout": "support.tickets.manage",
+              "kick": "account.security.kick",
+              "release-coin-hold": "payments.coin_hold.release",
+              "verify-identity": "support.tickets.manage",
+              "request-reset": "support.tickets.manage",
+              "approve-reset": "admin.roles.manage"
+            }
           }
         }
       ]
@@ -4030,7 +4077,12 @@
               "admin.access",
               "game_catalog.access",
               "game_catalog.snapshots.view"
-            ]
+            ],
+            "actions": {
+              "publish": "game_catalog.snapshots.activate",
+              "visibility": "game_catalog.profiles.manage",
+              "names": "game_catalog.translations.manage"
+            }
           }
         }
       ]
@@ -9386,7 +9438,7 @@
         {
           "source": "crates/store/src/web.rs:146",
           "guard": {
-            "kind": "logged-in"
+            "kind": "anonymous"
           }
         }
       ]

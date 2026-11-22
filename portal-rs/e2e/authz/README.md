@@ -7,8 +7,9 @@ method. The actor definitions use permission defaults from the Rust RBAC catalog
 
 ## Database assertions
 
-Refusal assertions preserve all existing audit rows and require the expected
-list of newly appended refusal actions. The non-audit check fingerprints every
+Refusal assertions preserve all existing rows in `public.audit_log` and
+`public.oauth_security_events` and require the expected list of newly
+appended refusals. The non-audit check fingerprints every
 regular application table in a repeatable-read transaction. It has two narrowly
 scoped bookkeeping exclusions.
 
@@ -46,6 +47,10 @@ an ephemeral signing key and starts the direct native TLS listener on 18444
 by default. Pass a third argument to use a different native port and set
 `PORTAL_E2E_BROWSER_NATIVE_ORIGIN` in the test environment.
 
+Suspend the private harness's `worker` child with SIGSTOP after the harness
+reports ready. The gateway checks compare its database across requests.
+Resume the child with SIGCONT before stopping the private harness.
+
 ## Run
 
 From `portal-rs/e2e`, use the browser harness's private environment file and
@@ -61,14 +66,23 @@ node run.mjs /absolute/path/to/browser/env.json test --config authz/all.config.m
 The command exercises all four projects. The narrower configs run public and
 private listener checks (`playwright.config.mjs`), protected reads and editorial
 workflows (`protected.config.mjs`), account sessions, support and content
-(`sessions.config.mjs`), or wiki editorial workflows (`wiki.config.mjs`). Use
+(`sessions.config.mjs`), wiki editorial workflows (`wiki.config.mjs`), browser
+credentials (`credentials.config.mjs`), and termination
+(`termination.config.mjs`). Use
 separate disposable databases for concurrent project runs because refusal
 comparisons include every application table in the database.
+
+To exercise alternative registrations for the disabled coin checkout and
+marketplace integrations, start another disposable browser profile with
+`PORTAL_E2E_AUTHZ_UNAVAILABLE=1` when invoking `serve-isolated.mjs`. Run
+`authz/checkout-unavailable.config.mjs` against that profile in all four
+projects.
 
 ## Executable coverage
 
 The inventory records 672 listener/path/method entries. The executable matrix
-covers 518 of these entries for each of the 19 actors, for 9,842 cells. The
+covers 614 of these entries for each of the 19 actors, for 11,666 cells per
+project. The fixtures expect 7,556 allowed and 4,110 refused cells. The
 browser cases cover public reads, staff reads and mutations, player support,
 sessions and recovery keys, and the missing signatures on both payment
 webhooks. The isolated private listener covers Bazaar, account closure, and
@@ -77,9 +91,7 @@ port. The mTLS scope assignment probe also presents a CA-valid certificate
 assigned to a different route identity and expects HTTP refusal. The native
 admission listener checks its service token independently.
 
-Resource-bound browser reads and mutations still need route-specific
-fixtures, including owned resources and minimally valid payloads. The
-inventory also includes registration variants and other listeners that require
-their own deployment profiles and fixtures. [Local limitations](local-limitations.json)
-records 51 entries with source references. The other 103 entries still need
-an executable fixture or a confirmed local limitation.
+[Local limitations](local-limitations.json) records the other 58 entries.
+Each entry identifies its source and the condition preventing a local matrix
+case, including pre-authorization writes that conflict with the strict
+refusal invariant.

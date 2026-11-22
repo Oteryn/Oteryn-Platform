@@ -2,14 +2,27 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
+import { accountBadgeRoutes, exerciseBadges } from './account-writes.mjs';
 import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
 import { calendarRoutes, exerciseCalendar, exercisePublishedContent } from './calendar.mjs';
 import { characterFamilies, exerciseCharacterFamilies } from './character-families.mjs';
+import { collectionRoutes, exerciseCollection } from './collection.mjs';
+import { commerceRoutes, exerciseCommerce } from './commerce.mjs';
 import { consoleRoutes, exerciseConsole } from './console.mjs';
 import { assertRefusalState, database } from './database.mjs';
+import { downloadRoutes, exerciseDownloads } from './downloads.mjs';
+import { exerciseFeatureGates, featureGateRoutes } from './feature-gates.mjs';
+import { exerciseGateway } from './gateway.mjs';
+import { exerciseJournal, journalRoutes } from './journal.mjs';
+import { exerciseNativeCheckout, nativeCheckoutRoutes } from './native-checkout.mjs';
+import { exerciseOAuth, oauthRoutes } from './oauth.mjs';
+import { exerciseParty, partyRoutes } from './party.mjs';
 import { exerciseProtocol, exerciseUnavailableAuthorities, protocolRoutes } from './protocol.mjs';
-import { exerciseRecovery, recoveryMethods } from './recovery.mjs';
+import { emailChangeRoutes, exerciseRecovery, recoveryMethods } from './recovery.mjs';
+import { exerciseReferrals, referralRoutes } from './referrals.mjs';
 import { exerciseResourceReads, resourceReads } from './resource-reads.mjs';
+import { exerciseShop, shopRoutes } from './shop.mjs';
+import { exercisePublication, exerciseStaffActions, publicationRoutes, staffActionRoutes } from './staff-actions.mjs';
 import { exerciseSupport, supportRoutes } from './support.mjs';
 
 const { routes, roles } = JSON.parse(readFileSync(new URL('./routes.json', import.meta.url), 'utf8'));
@@ -45,6 +58,9 @@ for (const prefix of aliases) {
 
 for (const [method, path] of [
   ...supportRoutes, ...calendarRoutes, ...protocolRoutes, ...consoleRoutes, ...characterFamilies, ...resourceReads,
+  ...accountBadgeRoutes, ...collectionRoutes, ...journalRoutes, ...downloadRoutes, ...staffActionRoutes, ...publicationRoutes,
+  ...emailChangeRoutes, ...referralRoutes, ...shopRoutes, ...partyRoutes, ...nativeCheckoutRoutes, ...featureGateRoutes,
+  ...commerceRoutes, ...oauthRoutes,
 ]) {
   if (!routes.some(route => route.listener === 'public' && route.method === method && route.path === path)) {
     throw new Error(`No workflow registration for ${method} ${path}`);
@@ -67,6 +83,7 @@ async function secondSession(sessionHash) {
 test.describe('session, support and content authorization', () => {
   for (const definition of actorDefinitions(roles)) {
     test(definition.key, async ({}, info) => {
+      test.setTimeout(420_000);
       const { locale } = info.project.metadata;
       const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
       const anonymous = definition.key === 'anonymous';
@@ -76,7 +93,7 @@ test.describe('session, support and content authorization', () => {
       const db = database();
       try {
         for (const prefix of aliases) {
-          const { request, account, accountId } = await openActor(info.project.metadata.locale, definition, issuer);
+          const { request, account, accountId, totpSecret } = await openActor(info.project.metadata.locale, definition, issuer);
           try {
             const token = await csrfPage(request, anonymous ? `/${locale}/login` : `/${locale}/`);
             const sessionHash = await hashSession(request);
@@ -85,13 +102,27 @@ test.describe('session, support and content authorization', () => {
             if (!prefix) {
               await exerciseSupport(request, locale, token, definition, routes, snapshot, verify);
               await exerciseCalendar(request, token, definition, routes, snapshot, verify);
-              await exerciseConsole(request, locale, token, definition, routes, snapshot, verify);
+              await exerciseConsole(request, locale, token, definition, accountId, totpSecret, routes, snapshot, verify);
               await exerciseProtocol(request, token, routes, snapshot, verify);
+              await exerciseGateway(request, token, routes);
               await exerciseUnavailableAuthorities(request, locale, anonymous, token, routes);
               await exercisePublishedContent(request, locale, routes);
               await exerciseCharacterFamilies(request, accountId, routes);
               await exerciseResourceReads(request, accountId, locale, token, routes);
+              await exerciseCollection(request, locale, token, accountId, routes, snapshot, verify);
+              await exerciseJournal(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseDownloads(request, routes);
+              await exerciseStaffActions(request, token, definition, routes, snapshot, verify);
+              await exercisePublication(request, locale, token, definition, routes, snapshot, verify);
+              await exerciseCommerce(request, locale, token, definition, routes, snapshot, verify);
+              await exerciseReferrals(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseShop(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseParty(request, locale, token, accountId, definition, routes, snapshot, verify);
+              await exerciseNativeCheckout(request, token, accountId, routes, snapshot, verify);
+              await exerciseOAuth(request, token, accountId, routes, snapshot, verify);
+              await exerciseFeatureGates(request, locale, token, accountId, routes, snapshot, verify);
             }
+            await exerciseBadges(request, prefix, accountId, token, snapshot, verify);
             await exerciseRecovery(request, prefix, token, account, accountId, snapshot, verify);
             for (const { method, suffix, selection } of variants) {
               const pattern = `${prefix}/account/sessions${suffix}`;

@@ -317,6 +317,14 @@ def guard_for(files, file, url, method, permission, permissions):
         if group == "admin/src/commerce/http.rs":
             policy = section(files[file], r"async fn authorize_panel.*?for permission in \[(.*?)\]")
             result["any"] = [permissions[p] for p in re.findall(r"Permission::(\w+)", policy)]
+            if method == "post":
+                commands = files["crates/admin/src/commerce/mod.rs"]
+                clauses = section(commands, r'pub fn permission\(&self\).*?match self \{(.*?)\n        \}')
+                result["actions"] = {
+                    variant.lower(): permissions[required]
+                    for matches, required in re.findall(r"([^=]+)=> rbac::Permission::(\w+),", clauses)
+                    for variant in re.findall(r"Self::(\w+)", matches)
+                }
         if group == "admin/src/console/access.rs" and method == "get":
             area = path.rsplit("/", 1)[1]
             if area in ("audit", "players"):
@@ -326,6 +334,9 @@ def guard_for(files, file, url, method, permission, permissions):
                 else:
                     expression = section(handler, r"let can_search = (.*?)let lang =")
                 result["any"] = re.findall(r'\.check\(actor, "([^"]+)"\)', expression)
+        if group == "admin/src/console/access.rs" and path.endswith("/players") and method == "post":
+            handler = files["crates/admin/src/console/players.rs"]
+            result["all"].append(section(handler, r'async fn search.*?\.check\(actor, "([^"]+)"\)'))
         if group == "wiki/src/web.rs":
             repo = files["crates/wiki/src/repository.rs"]
             article = "/admin/wiki/articles"
@@ -354,9 +365,31 @@ def guard_for(files, file, url, method, permission, permissions):
         if group == "admin/src/players/http.rs" and path == "/admin/players":
             required = section(files[file], r'async fn search.*?s.check\(context, Permission::(\w+)')
             result["all"].append(permissions[required])
+        if group == "admin/src/players/http.rs" and path == "/admin/players/{id}":
+            players = files["crates/admin/src/players/mod.rs"]
+            for_read = ("account", "kick_view")
+            def player_permission(handler):
+                visibility = "" if handler.endswith("_impl") else "pub "
+                kind = section(players, rf"{visibility}async fn {handler}\(.*?self.check\(context, Permission::(\w+)")
+                return permissions[kind]
+            if method == "get":
+                result["any"] = [player_permission(handler) for handler in for_read]
+            else:
+                actions = {
+                    "note": "note", "logout": "logout_all", "kick": "kick",
+                    "release-coin-hold": "release_coin_hold", "verify-identity": "attest_reset_evidence_impl",
+                    "request-reset": "request_reset", "approve-reset": "approve_reset",
+                }
+                result["actions"] = {action: player_permission(handler) for action, handler in actions.items()}
         if group == "world/src/admin.rs":
             required = section(files[file], r'if let Err\(status\) = authorize\(&s, context, Permission::(\w+)')
             result["all"].append(permissions[required])
+            if method == "post":
+                actions = section(files[file], r'let permission = match form.action.as_str\(\) \{(.*?)_ =>')
+                result["actions"] = {
+                    action: permissions[name]
+                    for action, name in re.findall(r'"([^"]+)" => Permission::(\w+)', actions)
+                }
         if group == "admin/src/console/mod.rs":
             feature = path.rsplit("/", 1)[1]
             module = str(Path(file).with_name(f"{feature}.rs"))
@@ -372,6 +405,9 @@ def guard_for(files, file, url, method, permission, permissions):
     if group == "bazaar/src/game/runtime/browser.rs" and path == "/bazaar/items/new":
         return "public", {"kind": "logged-in"}
     if group == "playerdata/src/hunts_web.rs" and path.endswith("/share"):
+        return public
+    if group == "store/src/web.rs" and path == "/shop" and method == "post":
+        # The configured browser shop keeps purchases off until it has owner authority.
         return public
     if path.startswith(("/account/", "/panel/", "/support/tickets", "/support/reports",
                         "/password/change", "/atlas/private-markers", "/atlas/map-reports",
@@ -399,6 +435,16 @@ def guard_for(files, file, url, method, permission, permissions):
 
 def refusal_for(files, listener, file, url):
     """Protocol refusals that have exact outcomes independently of browser RBAC."""
+    if listener == "gateway" and url.startswith("/v1/"):
+        source = "crates/gateway/src/wire.rs" if url.endswith("/login") else file
+        marker = "if !visible(&r.game_login_ticket" if url.endswith("/login") else "if !s.protocol3 {"
+        lines = files[source]
+        if source == file:
+            start = lines.index("async fn recovery_front")
+        else:
+            start = 0
+        position = lines.index(marker, start)
+        return dict(status=400, source=f"{source}:{lines.count(chr(10), 0, position) + 1}")
     if listener == "internal":
         tls = (PORTAL / "bin/oteryn-portal/src/internal_tls.rs").read_text()
         marker = ".with_client_cert_verifier(verifier)"

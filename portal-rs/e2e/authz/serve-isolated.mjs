@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const [file, port = '18447', nativePort = '18444'] = process.argv.slice(2);
 const binary = process.env.PORTAL_E2E_BINARY;
+const unavailableAuthorities = process.env.PORTAL_E2E_AUTHZ_UNAVAILABLE === '1';
 const validPort = value => /^\d+$/.test(value) && Number(value) >= 1024 && Number(value) <= 65535;
 if (!file || !binary || !validPort(port) || !validPort(nativePort) || port === nativePort) {
   throw new Error('Provide the browser harness environment, portal binary, and distinct unused loopback ports');
@@ -27,9 +28,14 @@ const child = spawn(binary, ['serve'], {
     OTERYN_NATIVE_TLS_CERT_FILE: env.OTERYN_INTERNAL_TLS_CERT_FILE,
     OTERYN_NATIVE_TLS_KEY_FILE: env.OTERYN_INTERNAL_TLS_KEY_FILE,
     OTERYN_ATLAS_BESTIARY_ENABLED: 'true',
+    OTERYN_DOWNLOADS_ENABLED: 'true',
     PORTAL_GROWTH_RANKINGS_ENABLED: 'true',
     PORTAL_PAYMENTS_PROVIDER_WEBHOOK_ENABLED: 'true',
     PORTAL_PAYMENTS_PROVIDER_WEBHOOK_SECRET: randomBytes(32).toString('hex'),
+    ...(unavailableAuthorities && {
+      PORTAL_COIN_PURCHASES_ENABLED: 'false',
+      OTERYN_BAZAAR_ENABLED: 'false',
+    }),
   },
   stdio: ['ignore', 'inherit', 'inherit'],
 });
