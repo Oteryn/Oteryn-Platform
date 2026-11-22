@@ -18,6 +18,7 @@ export default async function setup() {
     env: {
       ...process.env,
       PORTAL_E2E_OUT: output,
+      PORTAL_E2E_KEEP_DATABASE: '0',
       // The browser CI stack already owns the default public and internal ports.
       PORTAL_E2E_HTTP_PORT: '28080',
       PORTAL_E2E_INTERNAL_PORT: '28543',
@@ -26,10 +27,10 @@ export default async function setup() {
     },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
-  const stopped = new Promise(resolve => child.once('close', resolve));
-  const stop = async () => {
+  const stopped = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+  const stop = () => {
     child.kill('SIGTERM');
-    await stopped;
+    return stopped;
   };
 
   const lines = createInterface({ input: child.stdout });
@@ -61,7 +62,11 @@ export default async function setup() {
 
   return async () => {
     delete process.env.PORTAL_E2E_GAME_DATA_REPORT;
-    await stop();
+    const { code, signal } = await stop();
+    if (code !== 0 || signal !== null) {
+      const status = signal ? `signal ${signal}` : `exit code ${code}`;
+      throw new Error(`Game-data harness shutdown failed (${status}). Harness logs are in ${path.join(output, 'logs')}`);
+    }
     await rm(scratch, { recursive: true, force: true });
   };
 }

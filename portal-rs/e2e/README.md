@@ -85,11 +85,11 @@ be reused by setting `PORTAL_E2E_GAME_DATA_REPORT` to its report path.
 The existing GitHub Actions browser command uses the same setup and includes
 Game-data in its normal project and shard counts. Ordinary local runs of the
 default config use the local stack and leave Game-data to the dedicated config.
-The default config also discovers the legacy Bazaar and mutation matrix specs.
+The default config also discovers the legacy Bazaar, authentication, and mutation matrix specs.
 
 With `PORTAL_E2E_BINARY` pointing to the built binary, run
 `node --test harness.test.mjs` to verify disposable database cleanup and
-retained diagnostics after an intentionally invalid migration configuration.
+retained diagnostics when migration fails or PostgreSQL refuses database cleanup.
 
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import pg from 'pg';
+import setupGameData from './game-data.setup.mjs';
 
 const execute = promisify(execFile);
 
@@ -48,4 +49,50 @@ test('failed Game-data migration drops the disposable database and keeps logs', 
     await admin.end();
   }
   await rm(scratch, { recursive: true, force: true });
+});
+
+
+test('Game-data teardown rejects a failed database drop and retains diagnostics', async () => {
+  assert.equal(process.env.PORTAL_E2E_GAME_DATA_REPORT, undefined, 'the test needs its own Game-data harness');
+  const teardown = await setupGameData();
+  const reportPath = process.env.PORTAL_E2E_GAME_DATA_REPORT;
+  const report = JSON.parse(await readFile(reportPath, 'utf8'));
+  assert.match(report.database, /^portal_e2e_[a-f0-9]{12}$/);
+  const { OTERYN_DATABASE_URL: databaseUrl } = JSON.parse(
+    await readFile(path.join(report.outputDirectory, 'secrets', 'env.json'), 'utf8'),
+  );
+  const db = new pg.Pool({ connectionString: databaseUrl });
+  const admin = new pg.Pool({ connectionString: process.env.PORTAL_E2E_ADMIN_DATABASE_URL });
+  let subscribed = false;
+  try {
+    // PostgreSQL refuses DROP DATABASE WITH (FORCE) while any subscription
+    // exists. This disconnected subscription has no publisher or remote slot.
+    await db.query(`CREATE SUBSCRIPTION harness_shutdown_probe
+      CONNECTION 'host=127.0.0.1 port=1 dbname=postgres' PUBLICATION shutdown_probe
+      WITH (connect = false, slot_name = NONE)`);
+
+    subscribed = true;
+    const migrationLog = await readFile(report.logs.migrate);
+    await assert.rejects(teardown(), {
+      message: `Game-data harness shutdown failed (exit code 1). Harness logs are in ${path.join(report.outputDirectory, 'logs')}`,
+    });
+    assert.deepEqual(await readFile(report.logs.migrate), migrationLog);
+    assert.equal((await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [report.database])).rowCount, 1);
+  } finally {
+    try {
+      if (subscribed) await db.query('DROP SUBSCRIPTION harness_shutdown_probe');
+    } finally {
+      await db.end();
+      try {
+        if (subscribed) {
+          await admin.query(`DROP DATABASE IF EXISTS "${report.database}" WITH (FORCE)`);
+        } else {
+          await teardown();
+        }
+      } finally {
+        await admin.end();
+      }
+    }
+  }
+  await rm(path.dirname(report.outputDirectory), { recursive: true, force: true });
 });

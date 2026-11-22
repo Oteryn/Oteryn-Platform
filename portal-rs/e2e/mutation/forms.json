@@ -3042,7 +3042,7 @@
       "route": "/{lang}/collection/battles/{id}",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:91",
+          "source": "crates/minigames/src/collection/http.rs:111",
           "handler": "turn"
         }
       ]
@@ -3052,7 +3052,7 @@
       "route": "/{lang}/collection/battles/{id}/forfeit",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:95",
+          "source": "crates/minigames/src/collection/http.rs:115",
           "handler": "forfeit"
         }
       ]
@@ -3062,7 +3062,7 @@
       "route": "/{lang}/collection/decks/{id}/battle",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:90",
+          "source": "crates/minigames/src/collection/http.rs:110",
           "handler": "start"
         }
       ]
@@ -3072,7 +3072,7 @@
       "route": "/{lang}/collection/decks/{id}/delete",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:96",
+          "source": "crates/minigames/src/collection/http.rs:116",
           "handler": "delete_deck"
         }
       ]
@@ -3082,7 +3082,7 @@
       "route": "/{lang}/collection/{character}/decks",
       "sources": [
         {
-          "source": "crates/minigames/src/collection/http.rs:85",
+          "source": "crates/minigames/src/collection/http.rs:105",
           "handler": "save"
         }
       ]

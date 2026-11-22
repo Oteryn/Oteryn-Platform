@@ -245,6 +245,7 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
     const character = uuid7();
     const deck = uuid7();
     const battle = uuid7();
+    const missingBattle = uuid7();
     const card = uuid7();
     const season = uuid7();
     const buy = uuid7();
@@ -273,8 +274,8 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
       `SELECT (SELECT jsonb_agg(to_jsonb(d) ORDER BY id) FROM collection_decks d
                 WHERE account_id=ANY($1::uuid[]) OR id=$2) AS decks,
               (SELECT jsonb_agg(to_jsonb(b) ORDER BY id) FROM collection_battles b
-                WHERE account_id=ANY($1::uuid[]) OR id=$3) AS battles`,
-      [accounts, deck, battle],
+                WHERE account_id=ANY($1::uuid[]) OR id IN ($3,$4)) AS battles`,
+      [accounts, deck, battle, missingBattle],
     );
     const passState = () => query(
       `SELECT (SELECT jsonb_agg(to_jsonb(p) ORDER BY account_id,season_id) FROM pass_progress p
@@ -360,6 +361,13 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
         });
       }
     }
+
+    await test.step('owner forfeit refuses an unknown battle', async () => {
+      const baseline = await collectionState();
+      const url = new URL(`/${lang}/collection/battles/${missingBattle}/forfeit`, page.url()).href;
+      expect((await post(page, url, { _csrf: ownerCsrf })).status()).toBe(403);
+      expect(await collectionState()).toEqual(baseline);
+    });
 
     // Forfeit first so deletion can detach the preserved battle from its deck.
     const cleanup = [
