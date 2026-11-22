@@ -38,8 +38,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T16:00:56Z
-head: 2395e2438ca4a22de9da8ba09fdda65f5bbc4a96
+updated_at: 2026-11-22T16:46:10Z
+head: 5ee95300ed53971cdbe294b0257ab0cf6e340480
 branch: codex/feat-season-pass
 pr: none
 status: waiting
@@ -50,6 +50,8 @@ owned_paths:
 proven:
   - The claim operation key serializes requests across accounts and seasons. An exact replay returns the recorded receipt and a changed binding conflicts before enqueue.
   - Signed-in pass overview reads return zero progress for a new player without creating a row.
+  - The purchase key serializes receipt lookup with in-flight purchases. An unknown-season replay of a successful purchase conflicts and the Wallet records one debit.
+  - Claim replay returns the independently persisted delivery UUID during simultaneous replay and after season expiry.
   - The Store purchase delivery and wire contracts are proposed.
   - G-9 revision 3 and G-11 revision 4 accept the journal wires. They do not establish season-pass reward evidence.
 derived:
@@ -71,7 +73,10 @@ validation:
     evidence: All 12 pre-review focused tests passed against PostgreSQL 18.6.
   - command: RUST_TEST_THREADS=1 cargo test --locked -p oteryn-minigames --lib
     result: PASS
-    evidence: All 83 library tests passed against PostgreSQL 18.6 after the review fixes.
+    evidence: All 84 library tests passed against PostgreSQL 18.6 after the second review fixes.
+  - command: Portal flag inventory and flag-off boundary gates
+    result: PASS
+    evidence: The Rust flag inventory includes the testing-only Wallet flag and the database-backed gate accepted its route inventory.
   - command: Playwright season-pass.spec.mjs
     result: PASS
     evidence: pl-1440, pl-390, en-1440 and en-390 passed against the native local browser launcher.
