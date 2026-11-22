@@ -7,7 +7,7 @@ import {query, unique} from '../../staff-rbac-helpers.mjs';
 const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
 const digest = value => createHash('sha256').update(value).digest();
 
-async function actor(context, lang, staff = false) {
+async function actor(context, lang, staffRole) {
   const session = randomBytes(32).toString('hex');
   const csrf = randomBytes(32).toString('hex');
   const grant = randomBytes(32).toString('hex');
@@ -16,8 +16,8 @@ async function actor(context, lang, staff = false) {
      VALUES ($1,'commerce-test-only','active',now(),$2) RETURNING id,password_hash`,
     [`${unique()}@example.test`, lang],
   );
-  if (staff) {
-    await query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'", [id]);
+  if (staffRole) {
+    await query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2", [id, staffRole]);
     const [{generation}] = await query(
       'INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true) RETURNING generation',
       [id, randomBytes(32)],
@@ -32,7 +32,7 @@ async function actor(context, lang, staff = false) {
     `INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation)
      SELECT $1,id,now()+interval '15 minutes',now()+interval '1 hour','commerce test',$3,$4,native_security_generation
      FROM accounts WHERE id=$2`,
-    [digest(session), id, csrf, JSON.stringify(staff ? {mfa_grant: grant} : {})],
+    [digest(session), id, csrf, JSON.stringify(staffRole ? {mfa_grant: grant} : {})],
   );
   await context.addCookies([{name: '__Host-oteryn_session', value: session, url: origin, secure: true, httpOnly: true}]);
   return {id, csrf};
@@ -107,9 +107,9 @@ test('staff stage an immutable price diff and explicitly activate it', async ({p
   const activation = `/admin/store-activation?lang=${lang}`;
   const [{catalog_revision: previous}] = await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1');
   try {
-    const {id} = await actor(staffContext, lang, true);
+    const {id} = await actor(staffContext, lang, 'platform_admin');
     const admin = await staffContext.newPage();
-    await actor(page.context(), lang);
+    const {csrf: refusedCsrf} = await actor(page.context(), lang, 'security_admin');
     const offer = `commerce.${unique()}`;
     const document = Buffer.from(JSON.stringify({contract_version: 1, offers: [{
       offer_key: offer, currency: 'COINS', unit_price: '21', max_quantity: 1, purchasable: true,
@@ -133,7 +133,7 @@ test('staff stage an immutable price diff and explicitly activate it', async ({p
     await csrfRejected(admin, offers, fields);
     await post(admin, offers, {...fields, price: '-1'}, 422);
     await post(admin, offers, {...fields, reason: 'short'}, 422);
-    await post(page, offers, fields, 403);
+    await post(page, offers, {...fields, _csrf: refusedCsrf}, 403);
     await post(admin, offers, fields, 303);
     await post(admin, offers, fields, 303);
     const [{catalog_revision: proposed}] = await query('SELECT catalog_revision FROM store_offers WHERE offer_key=$1 AND unit_price=31', [offer]);
@@ -146,7 +146,7 @@ test('staff stage an immutable price diff and explicitly activate it', async ({p
     const activate = {_csrf: await proposal.locator('[name=_csrf]').inputValue(), current, revision: proposed, reason: 'Approve verified test prices'};
     await csrfRejected(admin, activation, activate);
     await post(admin, activation, {...activate, revision: 'bad'}, 422);
-    await post(page, activation, activate, 403);
+    await post(page, activation, {...activate, _csrf: refusedCsrf}, 403);
     await post(admin, activation, activate, 303);
     await post(admin, activation, activate, 409);
     expect((await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1'))[0].catalog_revision).toBe(proposed);
@@ -162,13 +162,13 @@ test('staff stage an immutable price diff and explicitly activate it', async ({p
 
 test('payment review supports scoped search, reconciliation, and four-eyes refund', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;
-  const {id: account, csrf: playerCsrf} = await actor(page.context(), lang);
+  const {id: account, csrf: refusedCsrf} = await actor(page.context(), lang, 'security_admin');
   const opts = {baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport};
   const staff = await browser.newContext(opts);
   const reviewer = await browser.newContext(opts);
   try {
-    const {csrf} = await actor(staff, lang, true);
-    const {csrf: reviewerCsrf} = await actor(reviewer, lang, true);
+    const {csrf} = await actor(staff, lang, 'platform_admin');
+    const {csrf: reviewerCsrf} = await actor(reviewer, lang, 'platform_admin');
     const admin = await staff.newPage();
     const second = await reviewer.newPage();
     const intent = uuid7();
@@ -213,7 +213,7 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     const common = {target: intent, reason: 'Verify payment and provider records'};
     const reconcile = '/admin/commerce/reconcile';
     await csrfRejected(admin, reconcile, {...common, request_id: uuid7()});
-    await post(page, reconcile, {...common, _csrf: playerCsrf, request_id: uuid7()}, 403);
+    await post(page, reconcile, {...common, _csrf: refusedCsrf, request_id: uuid7()}, 403);
     await post(admin, reconcile, {...common, target: 'bad', _csrf: csrf, request_id: uuid7()}, 422);
     await post(admin, reconcile, {...common, _csrf: csrf, request_id: uuid7()}, 303);
     await open(admin, `${base}&id=${intent}`);
