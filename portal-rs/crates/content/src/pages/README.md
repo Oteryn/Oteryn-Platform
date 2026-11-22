@@ -51,9 +51,9 @@ locale/version snapshot is immutable, including at the database layer. Legal
 pages can be unpublished but cannot be deleted through the editor.
 
 Staff routes use T10B `configured_guard` and `guarded`, with exact admin-host checks, default-off panel flag, MFA,
-`admin.access`, and `cms.pages.manage`. The configured adapter is T10B `PendingAuthentication` and
-therefore denies access until authoritative authentication is integrated.
-Tests inject an explicit staff adapter; no request field can grant staff access.
+`admin.access`, and `cms.pages.manage`. The configured guard authenticates
+staff through the server-side `PortalIdentity` adapter. Tests inject an
+explicit staff adapter.
 Writes and their before/after audit records commit in one transaction.
 
 Behavior references: `legacy/app/Cms/PublicPageQuery.php`,
