@@ -1098,7 +1098,11 @@ async fn postgres_competing_checkout_decisions_conflict_and_winner_replays() -> 
             assert_eq!(checkout.status, "checkout-failed");
             ("reject", "pay", "checkout-failed")
         }
-        other => panic!("expected one checkout decision and one conflict, got {other:?}"),
+        other => {
+            return Err(
+                format!("expected one checkout decision and one conflict, got {other:?}").into(),
+            );
+        }
     };
     let replay = topups
         .checkout(account, intent, Some(winning_action.into()))
