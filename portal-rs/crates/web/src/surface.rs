@@ -266,7 +266,12 @@ async fn policy(mut request: Request, next: Next) -> Response {
                 )
         };
         // Preserve protocol metadata, but discard internal content and entity headers.
-        for name in [header::ALLOW, header::RETRY_AFTER] {
+        for name in [
+            header::ALLOW,
+            header::RETRY_AFTER,
+            header::CONTENT_SECURITY_POLICY,
+            header::REFERRER_POLICY,
+        ] {
             if let Some(value) = response.headers().get(&name) {
                 replacement.headers_mut().insert(name, value.clone());
             }
@@ -283,7 +288,9 @@ async fn policy(mut request: Request, next: Next) -> Response {
         "default-src 'none'; script-src 'self' 'nonce-{nonce}'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     );
     if let Ok(value) = HeaderValue::from_str(&csp) {
-        headers.insert(header::CONTENT_SECURITY_POLICY, value);
+        headers
+            .entry(header::CONTENT_SECURITY_POLICY)
+            .or_insert(value);
     }
     headers.insert(
         header::STRICT_TRANSPORT_SECURITY,
@@ -293,7 +300,9 @@ async fn policy(mut request: Request, next: Next) -> Response {
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static(REFERRER));
+    headers
+        .entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static(REFERRER));
     headers.insert("permissions-policy", HeaderValue::from_static(PERMISSIONS));
     headers.insert(
         "cross-origin-opener-policy",
@@ -396,6 +405,36 @@ mod tests {
         assert!(csp.contains("frame-ancestors 'none'"));
         assert!(csp.contains("'nonce-"));
         assert!(!csp.contains("unsafe-inline"));
+    }
+
+    #[tokio::test]
+    async fn explicit_response_policy_survives_surface_rendering() -> TestResult {
+        const EXPLICIT_CSP: &str = "default-src 'none'; frame-ancestors 'none'";
+        let app = finish(Router::new().route(
+            "/en/{status}",
+            get(|Path(status): Path<u16>| async move {
+                (
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+                    [
+                        (header::CONTENT_SECURITY_POLICY, EXPLICIT_CSP),
+                        (header::REFERRER_POLICY, "no-referrer"),
+                    ],
+                )
+            }),
+        ));
+        for status in [StatusCode::OK, StatusCode::NOT_FOUND] {
+            let response = app
+                .clone()
+                .oneshot(HttpRequest::get(format!("/en/{}", status.as_u16())).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers()[header::CONTENT_SECURITY_POLICY],
+                EXPLICIT_CSP
+            );
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+        }
+        Ok(())
     }
 
     #[tokio::test]
