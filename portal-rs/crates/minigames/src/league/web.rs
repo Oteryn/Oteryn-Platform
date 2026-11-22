@@ -207,10 +207,10 @@ async fn page<A: Authority>(
         }
     }
 
-    let Ok(now) = u64::try_from((state.clock)()) else {
-        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
-    };
-    let snapshots = state.league.read(now).await;
+    let snapshots = state
+        .league
+        .read_with_clock(|| u64::try_from((state.clock)()).map_err(|_| Error::Unavailable))
+        .await;
     drop(slot);
     match snapshots {
         Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),

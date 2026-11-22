@@ -195,11 +195,18 @@ impl<A: Authority> League<A> {
         Ok(())
     }
     pub async fn read(&self, now: u64) -> Result<Vec<Snapshot>> {
-        tokio::time::timeout(std::time::Duration::from_secs(3), self.read_inner(now))
+        self.read_with_clock(|| Ok(now)).await
+    }
+
+    pub(super) async fn read_with_clock(
+        &self,
+        clock: impl FnOnce() -> Result<u64>,
+    ) -> Result<Vec<Snapshot>> {
+        tokio::time::timeout(std::time::Duration::from_secs(3), self.read_inner(clock))
             .await
             .map_err(|_| Error::Unavailable)?
     }
-    async fn read_inner(&self, now: u64) -> Result<Vec<Snapshot>> {
+    async fn read_inner(&self, clock: impl FnOnce() -> Result<u64>) -> Result<Vec<Snapshot>> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
@@ -215,6 +222,8 @@ impl<A: Authority> League<A> {
         )
         .execute(&mut *tx)
         .await?;
+        // Compare a fresh application clock with PostgreSQL after admission.
+        let now = clock()?;
         let fence = self.authority.fence(&mut tx, now).await?;
         if !fence.valid(now) {
             return Err(Error::Unavailable);

@@ -495,6 +495,61 @@ async fn concurrent_league_requests_wait_for_read_slots() -> TestResult {
 }
 
 #[tokio::test]
+async fn league_samples_clock_after_pool_admission_and_still_rejects_skew() -> TestResult {
+    use std::{cell::Cell, future::Future, task::Poll};
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required")?;
+    let dir = tempfile::tempdir()?;
+    let config = real_config(dir.path());
+    write_recovery(&config, "1")?;
+    enqueue_publication(
+        &db,
+        &config,
+        &publication(&config, admission::EVENT, wire("settlement")?)?,
+    )
+    .await?;
+    advance_watermarks(&db, &config, "3").await?;
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(config),
+    );
+
+    let mut held = Vec::new();
+    for _ in 0..db.pool.options().get_max_connections() {
+        held.push(db.pool.acquire().await?);
+    }
+    let sampled = Cell::new(false);
+    let mut read = std::pin::pin!(league.read_with_clock(|| {
+        sampled.set(true);
+        runtime::now()
+    }));
+    std::future::poll_fn(|cx| {
+        assert!(matches!(read.as_mut().poll(cx), Poll::Pending));
+        Poll::Ready(())
+    })
+    .await;
+    assert!(
+        !sampled.get(),
+        "the clock must not run while the pool is occupied"
+    );
+
+    drop(held);
+    assert_eq!(read.await?.len(), 1);
+    assert!(sampled.get());
+    assert!(matches!(
+        league
+            .read_with_clock(|| Ok(runtime::now()?.saturating_sub(5)))
+            .await,
+        Err(Error::Invalid)
+    ));
+    db.close().await
+}
+
+#[tokio::test]
 async fn league_quota_isolated_by_trusted_client_source() -> TestResult {
     use axum::{
         Extension,
