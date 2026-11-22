@@ -397,18 +397,76 @@ async fn postgres_claim_eligibility_replay_and_atomic_wire_failure() -> TestResu
     service
         .buy(db.account, db.season.id, Uuid::now_v7())
         .await?;
-    service
-        .claim(
-            db.account,
-            db.season.id,
-            db.season.rewards[1].id,
-            Uuid::now_v7(),
-        )
-        .await?;
+    let paid_reward = db.season.rewards[1].id;
+    assert!(matches!(
+        service
+            .claim(db.account, db.season.id, reward, Uuid::now_v7())
+            .await,
+        Err(Error::Conflict)
+    ));
+    assert!(matches!(
+        service
+            .claim(db.account, db.season.id, paid_reward, claimed.operation)
+            .await,
+        Err(Error::Conflict)
+    ));
+    assert!(matches!(
+        service
+            .claim(db.account, Uuid::now_v7(), reward, claimed.operation)
+            .await,
+        Err(Error::Conflict)
+    ));
+    let op = Uuid::now_v7();
+    let (a, b) = tokio::join!(
+        service.claim(db.account, db.season.id, paid_reward, op),
+        service.claim(db.account, db.season.id, paid_reward, op)
+    );
+    assert_eq!(a?, b?);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM synthetic_deliveries")
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 2);
+    db.close().await
+}
+#[tokio::test]
+async fn postgres_claim_operation_serializes_across_accounts() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let other = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'other-claim@example.invalid','unused','active',now(),'en')")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    let service = db.service();
+    service.record(&db.event(0)).await?;
+    service
+        .record(&Event {
+            account: other,
+            ..db.event(0)
+        })
+        .await?;
+    let reward = db.season.rewards[0].id;
+    let op = Uuid::now_v7();
+    let (first, second) = tokio::join!(
+        service.claim(db.account, db.season.id, reward, op),
+        service.claim(other, db.season.id, reward, op)
+    );
+    let (winner, receipt) = match (first, second) {
+        (Ok(receipt), Err(Error::Conflict)) => (db.account, receipt),
+        (Err(Error::Conflict), Ok(receipt)) => (other, receipt),
+        result => {
+            return Err(format!("expected one claim and one conflict, got {result:?}").into());
+        }
+    };
+    assert_eq!(
+        service.claim(winner, db.season.id, reward, op).await?,
+        receipt
+    );
+    let deliveries: Vec<Uuid> = sqlx::query_scalar("SELECT account_id FROM synthetic_deliveries")
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(deliveries, [winner]);
     db.close().await
 }
 #[tokio::test]
@@ -636,6 +694,8 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
         .oneshot(
             Request::get("/en/pass")
                 .header(header::COOKIE, &cookie)
+                .header("sec-fetch-site", "cross-site")
+                .header("sec-fetch-mode", "navigate")
                 .body(Body::empty())?,
         )
         .await?;
@@ -648,6 +708,14 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
     assert!(html.contains("Game journal challenge"));
     assert!(html.contains("Portal challenge"));
     assert!(html.contains("Buy paid track"));
+    assert_eq!(
+        db.service().progress(db.account, db.season.id).await?,
+        Progress { xp: 0, paid: false }
+    );
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM pass_progress")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(rows, 0);
     let operation = Uuid::now_v7();
     let uri = format!("/en/pass/{}/buy", db.season.id);
     let response = router
@@ -702,21 +770,30 @@ async fn postgres_browser_session_csrf_purchase_and_claim() -> TestResult {
         .await?;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     db.service().record(&db.event(0)).await?;
-    let response = router
-        .clone()
-        .oneshot(
-            Request::post(format!("/en/pass/{}/claim", db.season.id))
-                .header(header::COOKIE, &cookie)
-                .header(header::ORIGIN, "https://portal.example.invalid")
-                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!(
-                    "_csrf={csrf}&operation={}&reward={}",
-                    Uuid::now_v7(),
-                    db.season.rewards[0].id
-                )))?,
-        )
+    db.service().record(&db.event(1)).await?;
+    let claim_operation = Uuid::now_v7();
+    for (reward, status) in [
+        (db.season.rewards[0].id, StatusCode::SEE_OTHER),
+        (db.season.rewards[1].id, StatusCode::CONFLICT),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::post(format!("/en/pass/{}/claim", db.season.id))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::ORIGIN, "https://portal.example.invalid")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "_csrf={csrf}&operation={claim_operation}&reward={reward}"
+                    )))?,
+            )
+            .await?;
+        assert_eq!(response.status(), status);
+    }
+    let deliveries: i64 = sqlx::query_scalar("SELECT count(*) FROM synthetic_deliveries")
+        .fetch_one(&db.pool)
         .await?;
-    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(deliveries, 1);
     let response = router
         .oneshot(
             Request::post(&uri)

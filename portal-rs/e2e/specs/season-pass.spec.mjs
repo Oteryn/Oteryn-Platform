@@ -42,6 +42,8 @@ test('season pass spends sandbox coins once and keeps Game claims closed', async
     expect(overview.headers()['cache-control']).toBe('private, no-store');
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(page.locator('main')).toContainText('synthetic.reward');
+    expect(await query('SELECT season_id FROM pass_progress WHERE account_id=$1 AND season_id=$2',
+      [seeded.accountId, season])).toEqual([]);
     const form = page.locator(`form[action="${buy}"]`);
     const operation = await form.locator('[name=operation]').inputValue();
     const csrf = await form.locator('[name=_csrf]').inputValue();
