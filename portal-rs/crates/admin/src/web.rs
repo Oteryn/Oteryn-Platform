@@ -687,16 +687,15 @@ fn mfa_refusal(lang: &str) -> Response {
 pub fn configured_dashboard_link(
     pool: PgPool,
 ) -> Result<Option<oteryn_web::chrome::StaffDashboard>, Box<dyn std::error::Error>> {
-    let config = config_from_env()?;
-    if !config.admin_panel {
+    let Some(url) = config_from_env()?.landing_url() else {
         return Ok(None);
-    }
+    };
     let auth = Arc::new(Authorizer::new(
         pool.clone(),
         PortalIdentity::configured(pool),
     ));
     Ok(Some(oteryn_web::chrome::StaffDashboard {
-        url: format!("{}/admin", config.csrf_origin()),
+        url,
         allows: Arc::new(move |account| {
             let auth = auth.clone();
             Box::pin(async move {
