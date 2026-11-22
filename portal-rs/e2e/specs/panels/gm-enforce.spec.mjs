@@ -196,6 +196,8 @@ function enforcementGame() {
 }
 
 test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', async ({ page, browser }, info) => {
+  // This scenario provisions three MFA sessions and exercises two bounded lock waits.
+  test.setTimeout(360_000);
   const lang = info.project.metadata.locale;
   const text = messages[lang];
   const target = await seededAccount(lang);
