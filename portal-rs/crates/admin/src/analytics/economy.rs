@@ -15,8 +15,6 @@ struct EconomyCell {
 
 #[derive(serde::Serialize)]
 struct Group {
-    #[serde(skip)]
-    label_key: &'static str,
     family: String,
     source: &'static str,
     columns: &'static str,
@@ -93,27 +91,20 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         .checked_add(400 * 86400)
         .is_none_or(|expiry| expiry <= now);
     let mut groups = Vec::new();
-    for (family, label_key, columns) in [
+    for (family, columns) in [
         (
             "economy_circulation_daily",
-            "circulation",
             "gold (end-of-day stock by location)",
         ),
-        ("economy_flows_daily", "flows", "gold_in / gold_out"),
-        ("economy_trades_daily", "trades", "trades / traded_gold"),
+        ("economy_flows_daily", "gold_in / gold_out"),
+        ("economy_trades_daily", "trades / traded_gold"),
         (
             "economy_market_daily",
-            "market",
             "traded_units / traded_gold / offers_created / median_unit_price",
         ),
-        (
-            "economy_store_daily",
-            "store",
-            "count / amount (currency units)",
-        ),
+        ("economy_store_daily", "count / amount (currency units)"),
     ] {
         let mut group = Group {
-            label_key,
             family: family.into(),
             source: "Game",
             columns,
@@ -172,7 +163,6 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     {
         let released = end.checked_add(86400).is_some_and(|release| release <= now);
         let mut purchased = Group {
-            label_key: "purchased",
             family: "purchased — Platform wallet ledger (all worlds)".into(),
             source: "Platform",
             columns: "credited top-ups / coins; paid amounts in minor units by payment currency",
