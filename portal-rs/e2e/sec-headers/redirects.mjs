@@ -24,7 +24,7 @@ export function registeredRedirect(target, locale) {
     case '/forgot-password':
       return [301, '/pl/forgot-password']; // reset_http.rs registers the legacy handler for GET
     case '/events':
-      return [303, '/pl/events']; // content/events/web.rs
+      return [303, '/' + pathLocale + '/events']; // content/events/web.rs
     default:
       if (path === '/language/' + locale) return [303, '/' + locale + '/'];
   }
