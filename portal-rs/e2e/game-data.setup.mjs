@@ -1,14 +1,20 @@
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, constants, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 export default async function setup() {
   if (process.env.PORTAL_E2E_GAME_DATA_REPORT) {
     await access(process.env.PORTAL_E2E_GAME_DATA_REPORT);
     return;
   }
+
+  const binaryPath = process.env.PORTAL_E2E_BINARY;
+  if (!binaryPath) throw new Error('Set PORTAL_E2E_BINARY to a prebuilt oteryn-portal for Game-data tests');
+  const binary = path.resolve(fileURLToPath(new URL('../', import.meta.url)), binaryPath);
+  await access(binary, constants.X_OK);
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'portal-e2e-game-data-'));
   const output = path.join(scratch, 'harness');
@@ -17,6 +23,7 @@ export default async function setup() {
     cwd: new URL('.', import.meta.url),
     env: {
       ...process.env,
+      PORTAL_E2E_BINARY: binary,
       PORTAL_E2E_OUT: output,
       PORTAL_E2E_KEEP_DATABASE: '0',
       // The browser CI stack already owns the default public and internal ports.
@@ -25,7 +32,7 @@ export default async function setup() {
       PORTAL_E2E_ADMISSION_PORT: '28091',
       PORTAL_E2E_GATEWAY_PORT: '28090',
     },
-    stdio: ['ignore', 'pipe', 'inherit'],
+    stdio: ['ignore', 'pipe', 'inherit', 'ipc'],
   });
   const stopped = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
   const stop = async () => {

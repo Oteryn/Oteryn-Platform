@@ -92,15 +92,20 @@ the exact destination assertions, production proof difficulty and zero retries.
 ## Game-data browser qualification
 
 With the same disposable PostgreSQL administrator environment used by the local
-stack, run the dedicated config from `portal-rs/e2e`.
+stack, build `oteryn-portal` before starting the dedicated config. Run from
+`portal-rs/e2e`.
 
 ```sh
+(cd .. && cargo build --locked -p oteryn-portal)
+export PORTAL_E2E_BINARY=target/debug/oteryn-portal
 npx playwright test --config game-data.playwright.config.mjs
 ```
 
-Its Playwright setup starts `harness.mjs --game-data`, waits for the readiness
-report, and stops the harness after the run. An existing Game-data harness can
-be reused by setting `PORTAL_E2E_GAME_DATA_REPORT` to its report path.
+The setup requires an executable `PORTAL_E2E_BINARY` and accepts an absolute
+path or one relative to `portal-rs`. It starts `harness.mjs --game-data`, waits
+for readiness, and stops the harness after the run. A runner disconnect also
+stops the harness and drops its database. Set `PORTAL_E2E_GAME_DATA_REPORT` to
+reuse a harness that is already running.
 The existing GitHub Actions browser command uses the same setup and includes
 Game-data in its normal project and shard counts. Ordinary local runs of the
 default config use the local stack and leave Game-data to the dedicated config.

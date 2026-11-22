@@ -160,6 +160,74 @@ test('SIGTERM stops a stalled Game-data migration before dropping its database',
   await rm(scratch, { recursive: true, force: true });
 });
 
+test('Playwright timing out during startup stops the harness and drops its database', { timeout: 45_000 }, async t => {
+  const connectionString = adminUrl();
+  assert.ok(process.env.PORTAL_E2E_BINARY, 'the built portal binary is required');
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'portal-e2e-runner-timeout-'));
+  const admin = new pg.Client({ connectionString });
+  await admin.connect();
+  const runner = spawn(process.execPath, [
+    'node_modules/@playwright/test/cli.js', 'test', '--config', 'game-data.playwright.config.mjs',
+    '--project', 'en-390', '--global-timeout', '15000', '--reporter', 'line',
+    '--output', path.join(scratch, 'test-results'),
+  ], {
+    cwd: new URL('.', import.meta.url),
+    env: {
+      ...process.env, PORTAL_E2E_ADMIN_DATABASE_URL: connectionString,
+      PORTAL_E2E_GAME_DATA_REPORT: '', TMPDIR: scratch,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  // The harness inherits stderr, so a leaked harness could keep close pending.
+  const runnerExited = once(runner, 'exit', { signal: t.signal });
+  let result = '';
+  runner.stdout.setEncoding('utf8').on('data', chunk => { result += chunk; });
+  const lines = createInterface({ input: runner.stderr, signal: t.signal });
+  let database, harnessPid, migrationPid;
+  const processState = async pid => {
+    try {
+      return (await execute('ps', ['-o', 'stat=', '-p', String(pid)])).stdout.trim();
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      return '';
+    }
+  };
+  try {
+    for await (const line of lines) {
+      database ??= line.match(/^\[harness\] database (portal_e2e_[a-f0-9]{12})$/)?.[1];
+      const pid = line.match(/^\[harness\] .* migrate started \(pid (\d+)\)$/)?.[1];
+      if (pid) {
+        // Pause the real migration until Playwright's global deadline expires.
+        process.kill(Number(pid), 'SIGSTOP');
+        migrationPid = Number(pid);
+        harnessPid = Number((await execute('ps', ['-o', 'ppid=', '-p', pid])).stdout.trim());
+        break;
+      }
+    }
+    assert.ok(database && migrationPid && harnessPid > 1, 'the harness is migrating the disposable database');
+    const databaseCount = async () => (await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [database])).rowCount;
+    assert.equal(await databaseCount(), 1);
+    assert.deepEqual(await runnerExited, [1, null]);
+    assert.match(result, /Timed out waiting 15s for the global setup to run/);
+    await expect.poll(databaseCount, { timeout: 10_000 }).toBe(0);
+    assert.throws(() => process.kill(migrationPid, 0), { code: 'ESRCH' });
+    // The orphan may remain a zombie until the OS reaps it.
+    await expect.poll(() => processState(harnessPid)).toMatch(/^(?:Z|$)/);
+  } finally {
+    try {
+      if (runner.exitCode === null && runner.signalCode === null) runner.kill('SIGTERM');
+      if (harnessPid > 1 && !/^(?:Z|$)/.test(await processState(harnessPid))) {
+        try { process.kill(harnessPid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+        await expect.poll(() => processState(harnessPid), { timeout: 15_000 }).toMatch(/^(?:Z|$)/);
+      }
+    } finally {
+      lines.close();
+      await admin.end();
+    }
+  }
+  await rm(scratch, { recursive: true, force: true });
+});
+
 test('failed Game-data migration drops the disposable database and keeps logs', async () => {
   const connectionString = adminUrl();
   assert.ok(process.env.PORTAL_E2E_BINARY, 'the built portal binary is required');

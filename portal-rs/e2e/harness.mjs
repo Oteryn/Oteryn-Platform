@@ -275,6 +275,8 @@ function stopOnSignal() {
 }
 process.on('SIGINT', stopOnSignal);
 process.on('SIGTERM', stopOnSignal);
+// Playwright can exit on its global timeout before calling setup's teardown.
+process.on('disconnect', stopOnSignal);
 
 async function createDatabase() {
   await withAdminConnection(async admin => {
@@ -294,6 +296,7 @@ async function createDatabase() {
     }
   });
 }
+if (process.send && !process.connected) process.exit(0);
 creation = createDatabase();
 
 async function start() {
