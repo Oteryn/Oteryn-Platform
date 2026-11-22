@@ -86,16 +86,16 @@ projects.
 Run `authz/bazaar.config.mjs` on a **separate** disposable `local.mjs` profile
 with its real Game producers and worker active. The test seeds a signed
 destination and custody through the producer, then waits for the real listing
-to become active. During a refused request it suspends only the launcher and
-its matching worker, uses the direct native HTTPS listener, and resumes both
-processes in teardown. This keeps producer watermarks and worker effects
-outside the strict comparison.
+to become active. The League producer pauses through its local control during
+the spec. During a refused request the spec suspends the launcher and its
+matching worker, waits for open producer transactions to finish, uses the direct
+native HTTPS listener, and resumes both processes in teardown.
 
 Start the browser launcher with a known scratch path and a direct native TLS
 listener on an unused port. Point `OTERYN_NATIVE_TLS_CERT_FILE` and
 `OTERYN_NATIVE_TLS_KEY_FILE` at the `cert.pem` and `key.pem` that the launcher
 creates in that directory. For the test invocation, set
-`PORTAL_E2E_AUTHZ_BAZAAR_LAUNCHER_PID` to that launcher PID and
+`PORTAL_E2E_AUTHZ_BAZAAR_LAUNCHER_PID` to that launcher PID as the same OS user and
 `PORTAL_E2E_BROWSER_NATIVE_ORIGIN` to its loopback HTTPS origin. The browser
 origin and direct listener use the same hostname and different ports.
 
@@ -111,9 +111,9 @@ The transport handshake is checked once on each private listener per project.
 The HTTP probes present CA-valid peers and check exact route outcomes.
 [Private HTTP expectations](private-http.json) identifies routes that reject
 the wrong peer and routes whose authority configuration is unavailable in the
-standard private profile. The browser-backed private listener checks Bazaar,
-account closure and League separately. The native admission listener checks
-its service token in the actor runs.
+standard private profile. The browser-backed private listener exercises the
+Bazaar, account closure, admin-control and League identities. The native
+admission listener checks its service token in the actor runs.
 
 [Local limitations](local-limitations.json) records source-backed exceptions.
 Implicit HEAD inherits a local limitation only when its GET handler is

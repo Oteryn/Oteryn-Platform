@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import https from 'node:https';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
@@ -112,6 +114,7 @@ test.describe('browser authorization', () => {
             });
             const status = refusal?.status ?? (allowed ? (mutation ? 303 : 200) : (anonymous ? 303 : 403));
             expect(response.status(), refusal?.source ?? `${method} ${path}`).toBe(status);
+            if (method === 'HEAD') expect((await response.body()).length).toBe(0);
             if (status === 303) expect(response.headers().location).toBe(allowed ? path : '/login');
             if (before) {
               const denialActions = guard.kind === 'staff' && definition.role ? ['admin.access.denied'] : [];
@@ -134,6 +137,7 @@ test.describe('browser authorization', () => {
             expect(target.hostname === '127.0.0.1' && target.protocol === 'http:').toBe(true);
             const response = await request.fetch(target.href, { method: route.method, maxRedirects: 0 });
             expect(response.status(), route.registrations[0].source).toBe(200);
+            if (route.method === 'HEAD') expect((await response.body()).length).toBe(0);
             await response.dispose();
           });
         }
@@ -204,6 +208,36 @@ async function assertServiceTokenRefused(request, harness, route) {
 }
 
 const privateCases = JSON.parse(readFileSync(new URL('./private-http.json', import.meta.url), 'utf8'));
+
+async function assertAdminControlPeers(harness, wrongPeer, db) {
+  const directory = mkdtempSync(join(tmpdir(), 'portal-e2e-authz-agent-'));
+  try {
+    const key = join(directory, 'agent.key');
+    const cert = join(directory, 'agent.pem');
+    const request = join(directory, 'agent.csr');
+    // Match the disposable agent binding in the browser launcher.
+    execFileSync('openssl', ['req', '-new', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+      '-nodes', '-keyout', key, '-out', request, '-subj', '/CN=oteryn-admin-agent\\/e2e-local',
+      '-addext', 'subjectAltName=DNS:spiffe://local.test/admin/e2e',
+      '-addext', 'extendedKeyUsage=clientAuth'], { stdio: 'ignore' });
+    execFileSync('openssl', ['x509', '-req', '-in', request, '-CA', harness.caFile,
+      '-CAkey', join(dirname(harness.caFile), 'ca-key.pem'), '-days', '1',
+      '-set_serial', `0x${randomUUID().replaceAll('-', '')}`,
+      '-copy_extensions', 'copy', '-out', cert], { stdio: 'ignore' });
+    for (const row of privateCases.filter(({ path }) => path.startsWith('/internal/v1/admin-control/'))) {
+      await test.step(`${row.method} ${row.path} with a CA-valid agent peer`, async () => {
+        const before = await db.snapshot();
+        expect(await internalRequest(harness, row, wrongPeer), row.limitSource).toBe(403);
+        assertRefusalState(before, await db.snapshot());
+        const expected = row.path.endsWith('/{endpoint}') ? 404 : 400;
+        expect(await internalRequest(harness, row, { key, cert }), row.source).toBe(expected);
+      });
+    }
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+}
+
 test('private ingress reaches the route over a CA-valid connection', async () => {
   const harness = readHarness();
   const configured = routes.filter(route => route.listener === 'internal');
@@ -249,6 +283,7 @@ test('private ingress reaches the route over a CA-valid connection', async () =>
     await expect(internalRequest(browser, isolatedIngressRoutes[0])).rejects.toMatchObject({
       code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
     });
+    await assertAdminControlPeers(browser, league, browserDb);
     const browserBazaar = configured.filter(row => row.path.startsWith('/internal/v1/bazaar/'))
       .map(row => ({ ...row, listener: 'bazaar' }));
     for (const row of [...isolatedIngressRoutes, ...browserBazaar]) {

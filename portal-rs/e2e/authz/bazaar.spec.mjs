@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 import { actorDefinitions, csrfPage, openActor, sessionHash } from './actors.mjs';
@@ -15,41 +15,71 @@ function localProcesses() {
   if (process.env.OTERYN_ENV !== 'testing') throw new Error('Bazaar authorization requires the local harness');
   const pid = Number(process.env.PORTAL_E2E_AUTHZ_BAZAAR_LAUNCHER_PID);
   if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('Provide the disposable local.mjs launcher PID');
+  if (statSync(`/proc/${pid}`).uid !== process.getuid()) throw new Error('Run the launcher as the test user');
   const command = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
   if (!command.some(arg => /(?:^|\/)local\.mjs$/.test(arg))) throw new Error('Expected the local.mjs launcher');
   const children = execFileSync('ps', ['--ppid', String(pid), '-o', 'pid=,args='], { encoding: 'utf8' });
   const worker = /^\s*(\d+)\s+\S*\boteryn-portal worker\s*$/m.exec(children);
   if (!worker) throw new Error('Expected the disposable launcher worker');
-  const workerPid = Number(worker[1]);
-  const environment = readFileSync(`/proc/${workerPid}/environ`, 'utf8').split('\0');
-  if (!process.env.OTERYN_DATABASE_URL
-      || !environment.includes(`OTERYN_DATABASE_URL=${process.env.OTERYN_DATABASE_URL}`)) {
-    throw new Error('The launcher worker must belong to this disposable test database');
-  }
-  return [pid, workerPid];
+  return [pid, Number(worker[1])];
 }
 
 async function paused(producers, run) {
   const stopped = [];
-  try {
-    for (const pid of producers) {
-      process.kill(pid, 'SIGSTOP');
-      stopped.push(pid);
-      await expect.poll(() => readFileSync(`/proc/${pid}/status`, 'utf8')).toMatch(/^State:\s+T\b/m);
-    }
-    return await run();
-  } finally {
+  function resume() {
     const errors = [];
-    for (const pid of stopped.reverse()) {
+    while (stopped.length) {
       try {
-        process.kill(pid, 'SIGCONT');
+        process.kill(stopped.pop(), 'SIGCONT');
       } catch (error) {
         if (error.code !== 'ESRCH') errors.push(error);
       }
     }
     if (errors.length) throw new AggregateError(errors, 'Could not resume the disposable fixture processes');
   }
+  try {
+    await expect.poll(async () => {
+      for (const pid of producers) {
+        process.kill(pid, 'SIGSTOP');
+        stopped.push(pid);
+        await expect.poll(() => readFileSync(`/proc/${pid}/status`, 'utf8')).toMatch(/^State:\s+T\b/m);
+      }
+      const [{ active }] = await query(`
+        SELECT count(*)::int AS active FROM pg_stat_activity
+        WHERE datname=current_database() AND backend_type='client backend'
+          AND pid<>pg_backend_pid() AND xact_start IS NOT NULL
+      `);
+      // A suspended worker with an open transaction could hold a lock the
+      // refused request needs before it reaches the policy. Let it finish first.
+      if (active) resume();
+      return active;
+    }, { message: 'disposable database has no producer transactions in flight' }).toBe(0);
+    return await run();
+  } finally {
+    resume();
+  }
 }
+
+async function leagueControl(operation) {
+  const origin = new URL(process.env.PORTAL_E2E_LEAGUE_CONTROL);
+  if (origin.protocol !== 'http:' || origin.hostname !== '127.0.0.1') {
+    throw new Error('Use the disposable local League producer control');
+  }
+  const response = await fetch(new URL(operation, origin), {
+    method: 'POST',
+    signal: AbortSignal.timeout(5_000),
+  });
+  expect(response.status).toBe(200);
+  return response.json();
+}
+
+test.beforeAll(async () => {
+  await expect.poll(() => leagueControl('/pause')).toMatchObject({ mode: 'paused', published: true });
+});
+
+test.afterAll(async () => {
+  expect(await leagueControl('/resume')).toMatchObject({ mode: 'good' });
+});
 
 async function stagedAuction(request, seller, buyer) {
   const [{ id: world }] = await query('SELECT id FROM world_status ORDER BY id LIMIT 1');

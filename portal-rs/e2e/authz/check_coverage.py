@@ -24,6 +24,11 @@ def array(name, group):
         add('public', method, path, group)
 
 
+def valid_source(reference):
+    file, line = reference.rsplit(':', 1)
+    return 0 < int(line) <= len((root.parents[1] / file).read_text().splitlines())
+
+
 for f in ['public-reads', 'protected-reads']:
     for r in json.loads((root/(f+'.json')).read_text()):
         method, path = r.get('method', 'GET'), r['path']
@@ -84,13 +89,19 @@ for p in re.findall(r"\['(/updates/[^']*)',",(root/'downloads.mjs').read_text())
     add('public','GET',p,'downloads')
 for p in ['/v1/login','/v1/recover','/v1/recover/revoke']:
     add('gateway','POST',p,'gateway')
-for m in ['CONNECT','DELETE','HEAD','OPTIONS','PATCH','PUT','TRACE']:
-    add('public',m,'/native-account/coin-checkout/{order_id}','checkout-unavailable')
+checkout = '/native-account/coin-checkout/{order_id}'
+for method in ('CONNECT', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT', 'TRACE'):
+    registrations = routes['public', method, checkout]['registrations']
+    expected = {'unavailable': 'anonymous'}
+    if method in {'GET', 'HEAD', 'POST'}:
+        expected['configured'] = 'logged-in'
+    if {row.get('profile'): row['guard']['kind'] for row in registrations} != expected:
+        raise ValueError(f'Unexpected checkout profiles for {method} {checkout}')
+    add('public', method, checkout, 'checkout-unavailable')
 for prefix in ['', '/pl','/en']:
     for p in ['/login','/mfa/login','/account/security/email','/register/abuse/challenge','/verify-email/resend']:
         add('public','POST',prefix+p,'account-workflows')
     for m in ['POST','PUT']: add('public',m,prefix+'/password/change','passwords')
-for m in ['GET','POST']: add('public',m,'/native-account/coin-checkout/{order_id}','native-checkout')
 for p in ['/admin/console/players','/admin/control/step-up']:
     add('public','POST',p,'console')
 for s in ['', '/cancel']:
@@ -104,9 +115,7 @@ for method in ('GET', 'HEAD'):
 for path in ('/{locale}/account/bazaar/sell', '/{locale}/account/bazaar/{listing}/bids'):
     add('public', 'POST', path, 'bazaar')
 for r in limits:
-    file, line = r['source'].rsplit(':', 1)
-    source = root.parents[1] / file
-    if not r['reason'].strip() or not (0 < int(line) <= len(source.read_text().splitlines())):
+    if not r['reason'].strip() or not valid_source(r['source']):
         raise ValueError(f"Invalid local limitation: {r['method']} {r['path']}")
     key = (r['listener'], r['method'], r['path'])
     if key in covered:
@@ -134,7 +143,7 @@ if registered_private != probed_private or len(probed_private) != len(private_ht
 for r in private_http:
     if r['status'] == 401 and not (r.get('authorizedPeer') and r.get('authorizedInvalidBodyStatus') == 400):
         raise ValueError(f"Missing admitted peer fixture for {r['method']} {r['path']}")
-    if r['status'] != 401 and not r.get('localLimit'):
+    if r['status'] != 401 and not (r.get('localLimit') and r.get('limitSource') and valid_source(r['limitSource'])):
         raise ValueError(f"Missing authority limitation for {r['method']} {r['path']}")
 missing = sorted(routes.keys() - covered.keys())
 for key in missing:

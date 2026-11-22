@@ -394,12 +394,18 @@ def guard_for(files, file, url, method, permission, permissions):
             if method == "get":
                 result["any"] = [player_permission(handler) for handler in for_read]
             else:
-                actions = {
-                    "note": "note", "logout": "logout_all", "kick": "kick",
-                    "release-coin-hold": "release_coin_hold", "verify-identity": "attest_reset_evidence_impl",
-                    "request-reset": "request_reset", "approve-reset": "approve_reset",
-                }
-                result["actions"] = {action: player_permission(handler) for action, handler in actions.items()}
+                commands = section(files[file], r"match form\.action\.as_str\(\) \{(.*?)\n\s*_ =>")
+                arms = re.split(r'"([a-z-]+)"\s*=>', commands)
+                actions = {}
+                for action, arm in zip(arms[1::2], arms[2::2]):
+                    handlers_in_arm = re.findall(r'\bs\s*\.\s*(\w+)\s*\(', arm)
+                    if len(handlers_in_arm) != 1:
+                        raise ValueError(f"unresolved player command {action}")
+                    handler, = handlers_in_arm
+                    if handler == "attest_reset_evidence_for":
+                        handler = section(players, r'pub async fn attest_reset_evidence_for\(.*?self\.(\w+)\(')
+                    actions[action] = player_permission(handler)
+                result["actions"] = actions
                 approval = section(players, r'pub async fn approve_reset\(.*?&self.auth,\s*context,\s*&\[(.*?)\]')
                 result["actionAll"] = {"approve-reset": [
                     permissions[p] for p in re.findall(r"Permission::(\w+)", approval)

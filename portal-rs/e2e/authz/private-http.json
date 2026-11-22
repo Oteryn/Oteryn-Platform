@@ -5,7 +5,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/admin/src/analytics/mod.rs:82",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves admin analytics ingestion disabled.",
+    "limitSource": "crates/admin/src/analytics/mod.rs:93"
   },
   {
     "method": "POST",
@@ -13,7 +14,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/admin/src/analytics/mod.rs:82",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves admin analytics ingestion disabled.",
+    "limitSource": "crates/admin/src/analytics/mod.rs:93"
   },
   {
     "method": "POST",
@@ -21,7 +23,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/admin/src/analytics/mod.rs:82",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves admin analytics ingestion disabled.",
+    "limitSource": "crates/admin/src/analytics/mod.rs:93"
   },
   {
     "method": "POST",
@@ -29,7 +32,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/admin/src/control/http.rs:183",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
   },
   {
     "method": "POST",
@@ -37,7 +41,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/admin/src/control/http.rs:186",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
   },
   {
     "method": "POST",
@@ -45,7 +50,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/admin/src/control/http.rs:182",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
   },
   {
     "method": "POST",
@@ -53,7 +59,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/admin/src/control/http.rs:184",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
   },
   {
     "method": "POST",
@@ -61,7 +68,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/admin/src/control/http.rs:185",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
   },
   {
     "method": "POST",
@@ -69,7 +77,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/admin/src/control/http.rs:187",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
   },
   {
     "method": "POST",
@@ -77,7 +86,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/admin/src/control/http.rs:215",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
   },
   {
     "method": "POST",
@@ -85,7 +95,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/bazaar/src/game/authority_http.rs:53",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
   },
   {
     "method": "POST",
@@ -93,7 +104,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/bazaar/src/game/authority_http.rs:53",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
   },
   {
     "method": "POST",
@@ -101,7 +113,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/bazaar/src/game/authority_http.rs:53",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
   },
   {
     "method": "POST",
@@ -109,7 +122,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/bazaar/src/game/authority_http.rs:53",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
   },
   {
     "method": "POST",
@@ -117,7 +131,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/bazaar/src/game/authority_http.rs:53",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
   },
   {
     "method": "POST",
@@ -125,7 +140,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/bazaar/src/game/authority_http.rs:53",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
   },
   {
     "method": "GET",
@@ -133,7 +149,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "HEAD",
@@ -141,7 +158,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "GET",
@@ -149,7 +167,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "HEAD",
@@ -157,7 +176,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "POST",
@@ -165,7 +185,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "POST",
@@ -173,7 +194,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "POST",
@@ -181,7 +203,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "GET",
@@ -189,7 +212,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "HEAD",
@@ -197,7 +221,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "POST",
@@ -205,7 +230,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/wallet/src/wire.rs:76",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
   },
   {
     "method": "POST",
@@ -285,7 +311,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/gameauth/src/locator.rs:354",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness does not bind a recovery-locator authority and node scope.",
+    "limitSource": "crates/gameauth/src/locator.rs:365"
   },
   {
     "method": "POST",
@@ -347,7 +374,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/minigames/src/league/config.rs:213",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness does not configure the League publisher. The browser-backed private listener exercises its SPKI policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:85"
   },
   {
     "method": "POST",
@@ -373,7 +401,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/minigames/src/league/config.rs:213",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness does not configure the League publisher. The browser-backed private listener exercises its SPKI policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:85"
   },
   {
     "method": "POST",
@@ -390,7 +419,8 @@
     "peer": "bootstrap-intents",
     "status": 404,
     "source": "crates/minigames/src/league/config.rs:213",
-    "localLimit": "This private profile does not mount the authority router; its transport fallback returns HTTP 404."
+    "localLimit": "The standard private harness does not configure the League publisher. The browser-backed private listener exercises its SPKI policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:85"
   },
   {
     "method": "POST",
@@ -416,7 +446,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:359",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness does not enable journal command replay with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:355"
   },
   {
     "method": "POST",
@@ -424,7 +455,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:359",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness does not enable journal command replay with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:355"
   },
   {
     "method": "POST",
@@ -432,7 +464,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:359",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness does not enable journal command replay with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:355"
   },
   {
     "method": "POST",
@@ -440,7 +473,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/playerdata/src/store/http.rs:356",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness does not enable journal ingestion with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:361"
   },
   {
     "method": "POST",
@@ -448,7 +482,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/playerdata/src/sessions.rs:168",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness does not enable journal session ingestion with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:354"
   },
   {
     "method": "POST",
@@ -456,7 +491,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/playerdata/src/deaths/http.rs:58",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves progress ingestion disabled.",
+    "limitSource": "crates/playerdata/src/deaths/http.rs:97"
   },
   {
     "method": "POST",
@@ -464,7 +500,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/playerdata/src/deaths/http.rs:59",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private harness leaves progress ingestion disabled.",
+    "limitSource": "crates/playerdata/src/deaths/http.rs:97"
   },
   {
     "method": "POST",
@@ -472,7 +509,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/store/src/loyalty_http.rs:117",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile cannot qualify the loyalty snapshot settings for admission.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:318"
   },
   {
     "method": "POST",
@@ -489,7 +527,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/store/src/premium_http.rs:112",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile cannot qualify the premium snapshot settings for admission.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:290"
   },
   {
     "method": "POST",
@@ -497,7 +536,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/store/src/premium_profile_b_http.rs:211",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not configure Profile B and the binary has no generic Profile B entitlement ledger.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:302"
   },
   {
     "method": "POST",
@@ -505,7 +545,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/store/src/premium_profile_b_http.rs:225",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not configure Profile B and the binary has no generic Profile B entitlement ledger.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:302"
   },
   {
     "method": "POST",
@@ -513,7 +554,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/store/src/purchase_http.rs:84",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile includes Store delivery but leaves the Store purchase authority disabled.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:326"
   },
   {
     "method": "POST",
@@ -521,7 +563,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/store/src/purchase_http.rs:84",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile includes Store delivery but leaves the Store purchase authority disabled.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:326"
   },
   {
     "method": "POST",
@@ -565,7 +608,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/store/src/purchase_http.rs:84",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile includes Store delivery but leaves the Store purchase authority disabled.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:326"
   },
   {
     "method": "POST",
@@ -573,7 +617,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/support/src/sanctions/enforcement.rs:832",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
   },
   {
     "method": "POST",
@@ -581,7 +626,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/support/src/sanctions/enforcement.rs:833",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
   },
   {
     "method": "POST",
@@ -589,7 +635,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/support/src/sanctions/enforcement.rs:838",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
   },
   {
     "method": "POST",
@@ -597,7 +644,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/support/src/sanctions/enforcement.rs:831",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
   },
   {
     "method": "POST",
@@ -641,7 +689,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/characters/src/services/transport.rs:83",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile cannot qualify the signed Character Services projection settings for admission.",
+    "limitSource": "crates/characters/src/services/transport.rs:66"
   },
   {
     "method": "POST",
@@ -649,7 +698,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/characters/src/services/transport.rs:83",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile cannot qualify the signed Character Services projection settings for admission.",
+    "limitSource": "crates/characters/src/services/transport.rs:66"
   },
   {
     "method": "POST",
@@ -657,7 +707,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:382",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
   },
   {
     "method": "POST",
@@ -665,7 +716,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/community/src/deaths.rs:70",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile leaves the character death projection disabled.",
+    "limitSource": "crates/community/src/deaths.rs:79"
   },
   {
     "method": "POST",
@@ -673,7 +725,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:382",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
   },
   {
     "method": "POST",
@@ -681,7 +734,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:408",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not qualify the online projection settings.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:388"
   },
   {
     "method": "POST",
@@ -689,7 +743,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:382",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
   },
   {
     "method": "POST",
@@ -697,7 +752,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:382",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
   },
   {
     "method": "POST",
@@ -705,7 +761,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/community/src/guilds.rs:49",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile leaves guild projection ingestion disabled.",
+    "limitSource": "crates/community/src/guilds.rs:58"
   },
   {
     "method": "POST",
@@ -713,7 +770,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/community/src/houses.rs:91",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile leaves house projection ingestion disabled.",
+    "limitSource": "crates/community/src/houses.rs:100"
   },
   {
     "method": "POST",
@@ -721,7 +779,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/community/src/deaths.rs:70",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile leaves the character death projection used for this watermark disabled.",
+    "limitSource": "crates/community/src/deaths.rs:79"
   },
   {
     "method": "POST",
@@ -729,7 +788,8 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "crates/community/src/today/http.rs:47",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile leaves Today projection ingestion disabled.",
+    "limitSource": "crates/community/src/today/http.rs:59"
   },
   {
     "method": "POST",
@@ -737,6 +797,7 @@
     "peer": "bootstrap-intents",
     "status": 503,
     "source": "bin/oteryn-portal/src/game_routes.rs:409",
-    "localLimit": "The authority configuration is unavailable in the standard private harness. The mounted route fails closed before its per-identity authorization can be exercised."
+    "localLimit": "The standard private profile does not qualify the kill totals projection settings.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:388"
   }
 ]

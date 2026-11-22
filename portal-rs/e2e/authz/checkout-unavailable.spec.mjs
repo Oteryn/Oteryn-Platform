@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import https from 'node:https';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
-import { actorDefinitions, csrfPage, openActor } from './actors.mjs';
+import { actorDefinitions, csrfPage, openActor, sessionHash } from './actors.mjs';
+import { assertRefusalState, database } from './database.mjs';
 
 const { routes, roles } = JSON.parse(readFileSync(new URL('./routes.json', import.meta.url), 'utf8'));
 const methods = routes.filter(row => row.path === '/native-account/coin-checkout/{order_id}')
@@ -54,11 +55,14 @@ test.describe('unconfigured checkout and marketplace authority registrations', (
         : undefined;
       const { request, accountId } = await openActor(locale, definition, issuer);
       const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
+      const db = database();
       try {
         const token = await csrfPage(request, accountId ? `/${locale}/` : `/${locale}/login`);
+        const hash = await sessionHash(request);
         for (const { method, guard, source } of methods) {
           expect(guard.kind).toBe('anonymous');
           await test.step(`${method} /native-account/coin-checkout/{order_id}`, async () => {
+            const before = await db.snapshot(hash);
             if (method === 'CONNECT') {
               expect(await connectStatus(request, token, origin), source).toBe(503);
             } else {
@@ -68,10 +72,12 @@ test.describe('unconfigured checkout and marketplace authority registrations', (
               });
               try {
                 expect(response.status(), source).toBe(503);
+                if (method === 'HEAD') expect((await response.body()).length).toBe(0);
               } finally {
                 await response.dispose();
               }
             }
+            assertRefusalState(before, await db.snapshot(hash));
           });
         }
         for (const [method, pattern] of bazaarCases) {
@@ -94,6 +100,7 @@ test.describe('unconfigured checkout and marketplace authority registrations', (
           });
         }
       } finally {
+        await db.close();
         await request.dispose();
       }
     });

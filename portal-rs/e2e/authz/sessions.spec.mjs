@@ -119,6 +119,26 @@ async function assertRevocationRefusals(request, method, pattern, selection, own
 
 test.describe('session, support and content authorization', () => {
   for (const definition of actorDefinitions(roles)) {
+    test(`staff commands ${definition.key}`, async ({}, { project }) => {
+      const { locale } = project.metadata;
+      const anonymous = definition.key === 'anonymous';
+      const issuer = definition.restricted
+        ? (await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'"))[0].id
+        : undefined;
+      const { request } = await openActor(locale, definition, issuer);
+      const db = database();
+      try {
+        const token = await csrfPage(request, anonymous ? `/${locale}/login` : `/${locale}/`);
+        const hash = await hashSession(request);
+        const snapshot = () => db.snapshot(hash);
+        await exerciseStaffActions(request, token, definition, routes, snapshot,
+          async (before, actions) => assertRefusalState(before, await snapshot(), actions));
+      } finally {
+        await db.close();
+        await request.dispose();
+      }
+    });
+
     test(definition.key, async ({}, info) => {
       test.setTimeout(420_000);
       const { locale } = info.project.metadata;
@@ -165,7 +185,6 @@ test.describe('session, support and content authorization', () => {
               await exerciseCollection(request, locale, token, accountId, routes, snapshot, verify);
               await exerciseJournal(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
               await exerciseDownloads(request, routes);
-              await exerciseStaffActions(request, token, definition, routes, snapshot, verify);
               await exercisePublication(request, locale, token, definition, routes, snapshot, verify);
               await exerciseCommerce(request, locale, token, definition, routes, snapshot, verify);
               await exerciseReferrals(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
