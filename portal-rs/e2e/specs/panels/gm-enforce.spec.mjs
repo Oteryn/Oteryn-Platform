@@ -202,28 +202,30 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
   await browserSubmit(page, stepForm, { code }, `${path}/step-up`);
   await expect(page).toHaveURL(url);
 
-  const viewer = await browser.newContext({
-    baseURL: new URL(page.url()).origin, viewport: info.project.use.viewport,
-    locale: lang, ignoreHTTPSErrors: true,
-  });
-  try {
-    const readOnly = await viewer.newPage();
-    const warningWriter = await staffActor(readOnly, lang, 'game_support');
-    await refreshProjection();
-    expect((await readOnly.goto(url)).status()).toBe(200);
-    await expect(readOnly.locator('[data-action], form[action*="/step-up?"]')).toHaveCount(0);
-    // Use the warning writer’s own CSRF token and valid TOTP.
-    await readOnly.goto(`/${lang}/account`);
-    const warningWriterCsrf = await readOnly.locator('input[name=_csrf]').first().inputValue();
-    await refused(await post(readOnly, step.target, {
-      ...step.fields, _csrf: warningWriterCsrf, code: warningWriter.totp.generate(),
-    }), 403, text.denied);
-    const apply = await formPayload(page.locator('[data-profile=MUTE] [data-action=apply]'));
-    await refused(await postFresh(readOnly, apply.target, {
-      ...apply.fields, _csrf: warningWriterCsrf, minutes: '15', reason: 'rule_violation',
-    }), 403, text.denied);
-  } finally {
-    await viewer.close();
+  for (const role of ['game_viewer', 'game_support']) {
+    const observer = await browser.newContext({
+      baseURL: new URL(page.url()).origin, viewport: info.project.use.viewport,
+      locale: lang, ignoreHTTPSErrors: true,
+    });
+    try {
+      const readOnly = await observer.newPage();
+      const observerActor = await staffActor(readOnly, lang, role);
+      await refreshProjection();
+      expect((await readOnly.goto(url)).status()).toBe(200);
+      await expect(readOnly.locator('[data-action], form[action*="/step-up?"]')).toHaveCount(0);
+      // Use the observer's own CSRF token and valid TOTP.
+      await readOnly.goto(`/${lang}/account`);
+      const observerCsrf = await readOnly.locator('input[name=_csrf]').first().inputValue();
+      await refused(await post(readOnly, step.target, {
+        ...step.fields, _csrf: observerCsrf, code: observerActor.totp.generate(),
+      }), 403, text.denied);
+      const apply = await formPayload(page.locator('[data-profile=MUTE] [data-action=apply]'));
+      await refused(await postFresh(readOnly, apply.target, {
+        ...apply.fields, _csrf: observerCsrf, minutes: '15', reason: 'rule_violation',
+      }), 403, text.denied);
+    } finally {
+      await observer.close();
+    }
   }
 
   for (const profile of ['MUTE', 'JAIL']) {
