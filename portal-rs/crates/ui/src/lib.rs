@@ -193,6 +193,7 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
+        staff_access: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -244,10 +245,19 @@ impl Chrome {
     pub fn signed_in(&self) -> bool {
         matches!(self.account, Account::SignedIn { .. })
     }
+    pub fn staff_access(&self) -> bool {
+        matches!(
+            self.account,
+            Account::SignedIn {
+                staff_access: true,
+                ..
+            }
+        )
+    }
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf } => csrf,
+            Account::SignedIn { csrf, .. } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -512,6 +522,7 @@ mod tests {
                 lang,
                 "/",
                 Account::SignedIn {
+                    staff_access: false,
                     csrf: "escaped<&token".into(),
                 },
             );
