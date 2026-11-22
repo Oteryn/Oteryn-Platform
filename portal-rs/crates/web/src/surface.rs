@@ -90,7 +90,8 @@ impl Language {
     }
 }
 
-pub(crate) fn negotiate(headers: &HeaderMap) -> Language {
+/// Resolve the preferred browser language from its locale cookie and headers.
+pub fn negotiate(headers: &HeaderMap) -> Language {
     if oteryn_ui::preferred_language(headers) == "en" {
         Language::En
     } else {

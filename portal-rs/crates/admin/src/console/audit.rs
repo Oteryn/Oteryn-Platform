@@ -1,5 +1,5 @@
 //! Combined Platform audit and verified Game ledger, joined visually by request id.
-use super::access::{Backend, Console, Error, Page, language, tr};
+use super::access::{Backend, Console, Error, Page, language, request_language, tr};
 use crate::rbac::CheckContext;
 use axum::{
     Extension,
@@ -73,7 +73,7 @@ pub(crate) async fn page<B: Backend>(
 ) -> Result<Response, Error> {
     state.check(actor, "audit.view").await?;
     filter.validate()?;
-    let lang = language(filter.lang.as_deref())?;
+    let lang = request_language(filter.lang.as_deref(), &headers)?;
     let rows: Vec<(Uuid,Option<Uuid>,String,String,String)> = sqlx::query_as("SELECT request_id, actor, COALESCE(operation,action), COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target), created_at::text FROM audit_log WHERE ($1::uuid IS NULL OR request_id=$1) AND ($2::uuid IS NULL OR actor=$2) AND ($3::text IS NULL OR COALESCE(operation,action)=$3) AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target)=$4) ORDER BY created_at DESC, id DESC LIMIT 100")
         .bind(filter.request_id).bind(filter.admin).bind(&filter.operation).bind(&filter.target).fetch_all(&state.pool).await?;
     let mut page = Page::new(lang, "audit");
