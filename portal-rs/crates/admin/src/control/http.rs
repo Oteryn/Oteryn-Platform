@@ -1,5 +1,5 @@
 //! Agent-initiated control-plane transport. Only verified TLS extensions authenticate peers.
-use crate::control::{canonical, catalog, signer, store};
+use crate::control::{canonical, catalog, result_schema, signer, store};
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -157,7 +157,7 @@ pub fn router(
             })
             .collect(),
     )?);
-    if enabled && pool.options().get_max_connections() < 2 {
+    if enabled && (pool.options().get_max_connections() < 2 || !result_schema::initialize()) {
         return Err(guard::ConfigError);
     }
     let gate = Arc::new(tokio::sync::Mutex::new(()));
@@ -461,13 +461,16 @@ async fn results(
     lock_request(&mut tx, e.request_id).await?;
     let epoch = delivery_epoch(&mut tx, &e.agent_id, e.request_id).await?;
     owns_request(&mut tx, &e.agent_id, epoch, e.request_id).await?;
-    let operation: Uuid = sqlx::query_scalar(
-        "SELECT admin_operation_id FROM admin_control_requests WHERE request_id=$1",
+    let (operation_id, operation, version): (Uuid, String, i32) = sqlx::query_as(
+        "SELECT admin_operation_id,operation,operation_version FROM admin_control_requests WHERE request_id=$1",
     )
     .bind(e.request_id)
     .fetch_one(&mut *tx)
     .await?;
-    if operation != e.admin_operation_id {
+    if operation_id != e.admin_operation_id
+        || (status == store::Status::Succeeded
+            && !result_schema::valid_success(&operation, version, &e.result.0))
+    {
         return Err(HttpError::invalid());
     }
     let duplicate:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_results WHERE request_id=$1 AND agent_id=$2 AND payload=$3)").bind(e.request_id).bind(&e.agent_id).bind(&payload).fetch_one(&mut *tx).await?;

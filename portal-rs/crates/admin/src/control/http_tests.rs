@@ -315,7 +315,7 @@ async fn postgres_hello_channel_results_and_snapshots() {
             .status(),
         StatusCode::CONFLICT
     );
-    let r = request();
+    let r = request_for("admin.policy.get", Kind::Query);
     db.store().enqueue(&r).await.unwrap();
     let response = post(app.clone(), "channel", game_poll(2, 0), true).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -328,7 +328,7 @@ async fn postgres_hello_channel_results_and_snapshots() {
     );
     assert_eq!(value[0]["signature"], URL_SAFE_NO_PAD.encode(&r.signature));
     for status in ["accepted", "in_progress", "succeeded"] {
-        let result = signed_result(&r, status, json!({}), Value::Null);
+        let result = signed_result(&r, status, json!({"operations":[]}), Value::Null);
         for _ in 0..2 {
             assert_eq!(
                 post(app.clone(), "results", result.clone(), true)
@@ -1108,7 +1108,7 @@ async fn postgres_result_is_bound_to_its_delivery_epoch() {
 }
 
 #[tokio::test]
-async fn postgres_adm_results_accept_signed_fractional_telemetry() {
+async fn postgres_adm_results_validate_signed_payload_against_stored_operation() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = Database::open().await.expect("PostgreSQL required");
     let app = app(db.pool.clone(), true);
@@ -1116,7 +1116,13 @@ async fn postgres_adm_results_accept_signed_fractional_telemetry() {
         post(
             app.clone(),
             "hello",
-            game_hello(1, json!([{"operation":"node.list","version":1}])),
+            game_hello(
+                1,
+                json!([
+                    {"operation":"node.list","version":1},
+                    {"operation":"ops.overview.get","version":1}
+                ])
+            ),
             true,
         )
         .await
@@ -1137,10 +1143,56 @@ async fn postgres_adm_results_accept_signed_fractional_telemetry() {
     }]});
     let result = signed_result(&request, "succeeded", payload.clone(), Value::Null);
     assert_eq!(
-        post(app, "results", result, true).await.status(),
+        post(app.clone(), "results", result, true).await.status(),
         StatusCode::OK
     );
     let stored = db.store().results(request.request_id, 1).await.unwrap();
     assert_eq!(stored[0].payload["result"], payload);
+
+    let overview = request_for("ops.overview.get", Kind::Query);
+    db.store().enqueue(&overview).await.unwrap();
+    let claimed = post(app.clone(), "channel", game_poll(1, 0), true).await;
+    assert_eq!(claimed.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(claimed).await[0]["request_id"],
+        overview.request_id.to_string()
+    );
+    let mut counts = json!({
+        "agents":[], "worlds":[], "nodes":[], "players_online":18.5,
+        "db_available":true, "alerts":[]
+    });
+    for invalid in [counts.clone(), payload, Value::Null] {
+        let result = signed_result(&overview, "succeeded", invalid, Value::Null);
+        let refused = post(app.clone(), "results", result, true).await;
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json_body(refused).await["error"]["code"],
+            "ADM_INVALID_PARAMS"
+        );
+        assert!(
+            db.store()
+                .results(overview.request_id, 1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            db.store()
+                .get(overview.request_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            Status::Delivered
+        );
+    }
+    counts["players_online"] = json!(18);
+    let result = signed_result(&overview, "succeeded", counts.clone(), Value::Null);
+    assert_eq!(
+        post(app, "results", result, true).await.status(),
+        StatusCode::OK
+    );
+    let stored = db.store().results(overview.request_id, 1).await.unwrap();
+    assert_eq!(stored[0].payload["result"], counts);
     db.close().await;
 }
