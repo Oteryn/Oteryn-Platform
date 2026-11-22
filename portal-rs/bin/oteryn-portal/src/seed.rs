@@ -1025,17 +1025,7 @@ async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, Seed
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
     let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| SeedError::Unavailable("clock"))?
-        .as_secs();
-    // Confirm with the previous step so the current step's code still logs in.
-    let recovery_codes = mfa
-        .confirm(id, password, &totp.generate(now.saturating_sub(30)))
-        .await?
-        .ok_or(SeedError::Unavailable(
-            "MFA confirmation was refused; retry",
-        ))?;
+    let recovery_codes = confirm_seed_mfa(mfa, id, password, &totp, unix_seconds()?).await?;
     Ok(json!({
         "entity": "account-mfa",
         "accountId": id.to_string(),
@@ -1045,6 +1035,37 @@ async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, Seed
         "period": 30,
         "recoveryCodes": recovery_codes,
     }))
+}
+
+fn unix_seconds() -> Result<u64, SeedError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .map_err(|_| SeedError::Unavailable("clock"))
+}
+
+async fn confirm_seed_mfa(
+    mfa: &Mfa,
+    id: Uuid,
+    password: &str,
+    totp: &totp_rs::TOTP,
+    started: u64,
+) -> Result<Vec<String>, SeedError> {
+    // Confirm with the previous step so the current step's code still logs in.
+    let previous_code = |now: u64| totp.generate(now.saturating_sub(totp.step));
+    if let Some(codes) = mfa.confirm(id, password, &previous_code(started)).await? {
+        return Ok(codes);
+    }
+    // The account lock can delay validation until the previous code expires.
+    let retry = unix_seconds()?;
+    if retry / totp.step > started / totp.step
+        && let Some(codes) = mfa.confirm(id, password, &previous_code(retry)).await?
+    {
+        return Ok(codes);
+    }
+    Err(SeedError::Unavailable(
+        "MFA confirmation was refused; retry",
+    ))
 }
 
 /// Seed argument names of the four interpretation revisions, in wire order.

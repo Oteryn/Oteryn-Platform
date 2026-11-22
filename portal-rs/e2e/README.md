@@ -217,8 +217,10 @@ portal-rs/e2e/start.sh --seed-plan portal-rs/e2e/seed-plan.example.json
    listener), waits until each answers, runs the seed plan if given, and
    prints **one JSON object** on stdout (also saved as `report.json`).
 
-Output (default `portal-rs/e2e/.harness/run`, ignored by git, replaced on
-each run; override with `PORTAL_E2E_OUT`):
+The harness locks its output directory with `flock` for the lifetime of each
+run. It replaces the generated files and preserves other entries in that
+directory. The default is `portal-rs/e2e/.harness/run`, which git ignores. Set
+`PORTAL_E2E_OUT` to use a different directory.
 
 ```json
 {"status":"ready","database":"portal_e2e_<hex>",
@@ -303,6 +305,27 @@ an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","arg
 `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`, so run it with the harness
 environment (`<out>/secrets/env.json`). A bootstrap intent expires
 `ttlSeconds` after issue, as the read contract bounds it.
+
+### Staff Console harness
+
+Run `harness.mjs --staff-console` for a disposable Staff Console fixture. It
+requires both `OTERYN_ENV` and `APP_ENV` to be `testing` and uses an exclusive
+`flock` on its output directory through teardown. Attach Playwright with
+`PORTAL_E2E_ADMIN_AGENT_DIRECTORY` or let the worker start its own harness.
+The latter keeps the ports reserved through migration and retries a startup
+bind conflict only after cleanup. Closing the worker's lifetime pipe stops the
+harness. It verifies process-group shutdown with `ps` and preserves diagnostics
+if cleanup fails.
+
+The staff fixture uses canonical `portal_e2e_` database names. Its connections
+pin `localhost` to `127.0.0.1` for TCP and retain `localhost` for TLS verification.
+Use `[::1]` for an IPv6-only server. Browser seed commands and each staff
+seed-plan step have a 30-second deadline. The full staff seed-plan results are in
+`<out>/secrets/seed-results.json` (mode 0600). The ready report shows only a
+private-result marker for MFA, signing custody, and steps that reference them.
+Run the fast guards with `node --test harness.test.mjs`.
+Run `node --test cli/staff-harness.test.mjs` against the local administrator
+URL to exercise a real port collision and a blocked seed command.
 
 ### Signing custody for admission grants
 

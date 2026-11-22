@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { SMTPServer } from 'smtp-server';

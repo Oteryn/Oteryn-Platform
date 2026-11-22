@@ -11,6 +11,7 @@
 // then prints ONE JSON object on stdout. Progress goes to stderr; service logs
 // to <out>/logs. SIGINT/SIGTERM stops the services and drops the database.
 import fs from 'node:fs';
+import { prepareHarnessOutput } from './harness-output.mjs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
@@ -23,6 +24,12 @@ import { withDeadline } from './support/harness-deadline.mjs';
 import { fixtureDatabaseClaim, lockDatabaseName, removeDatabase, withAdminConnection } from './support/harness-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+if (process.argv.slice(2).includes('--staff-console')) {
+  if (['--outbox', '--game-data', '--browser-crawl'].some(mode => process.argv.slice(2).includes(mode))) throw new Error('Choose one harness mode');
+  const { finished } = await import('./staff-console-harness.mjs');
+  process.exit(await finished);
+}
+
 const root = path.resolve(here, '..');
 const log = (...line) => console.error('[harness]', ...line);
 
@@ -134,13 +141,9 @@ if (argv.includes('--puzzle-browser')) {
 
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
-if (fs.existsSync(out)) {
-  if (!fs.existsSync(path.join(out, '.portal-e2e-harness'))) throw new Error(`${out} exists and is not a harness directory`);
-  fs.rmSync(out, { recursive: true, force: true });
-}
-const dirs = { certs: path.join(out, 'certs'), clients: path.join(out, 'certs', 'clients'), witness: path.join(out, 'witness'), logs: path.join(out, 'logs'), secrets: path.join(out, 'secrets'), bin: path.join(out, 'bin') };
-for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-fs.writeFileSync(path.join(out, '.portal-e2e-harness'), '');
+// Keep the directory descriptor locked until the process exits.
+const { dirs } = prepareHarnessOutput(out);
+for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { mode: 0o700 });
 
 // ---- certificates (openssl, as local.mjs) ----------------------------------
 function openssl(args) {
@@ -246,7 +249,6 @@ async function stopChild({ child, closed }) {
 }
 let closing = false;
 let browserNetwork;
-let staffConsoleStartup;
 let gameDataBrowser;
 let createRequested = false;
 let createConfirmed = false;
@@ -263,7 +265,6 @@ async function close(code = 0) {
       ...[...children].map(stopChild),
       browserNetwork?.then(closeBrowser => closeBrowser?.(), () => {}),
       gameDataBrowser?.then(browser => browser.close(), () => {}),
-      staffConsoleStartup?.then(staffConsole => staffConsole.close(), () => {}),
     ]), 6_000, 'service shutdown timed out'),
   ]);
   if (services.status === 'rejected') {
@@ -348,12 +349,6 @@ async function start() {
   fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
   fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).digest('hex')}\n`, { mode: 0o600 });
 
-  if (argv.includes('--staff-console')) {
-    const { prepareAdminAgent } = await import('./admin-agent.mjs');
-    if (closing) return;
-    staffConsoleStartup = prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports });
-  }
-  const staffConsole = await staffConsoleStartup;
 
   if (gameData) {
     const { startGameDataBrowser } = await import('./game-publishers.mjs');
@@ -383,7 +378,6 @@ async function start() {
     GATEWAY_LISTEN_ADDR: `127.0.0.1:${ports.gateway}`,
     GATEWAY_NATIVE_LOGIN_ENABLED: 'true',
     OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
-    ...staffConsole?.env,
   };
   for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
 
@@ -459,7 +453,6 @@ async function start() {
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
   log('migrate');
-  if (staffConsole) fs.writeFileSync(path.join(dirs.secrets, 'seed-binary'), binary, { mode: 0o600 });
   const migrationLog = fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a');
   try {
     await run(binary, ['migrate'], { stdio: ['ignore', migrationLog, migrationLog], reportPid: true });
@@ -549,7 +542,6 @@ async function start() {
     database: dbName,
     baseUrls: {
       public: `http://127.0.0.1:${ports.http}`,
-      ...(staffConsole && { staff: staffConsole.origin }),
       internal: `https://127.0.0.1:${ports.internal}`,
       nativeAdmission: `http://127.0.0.1:${ports.admission}`,
       gateway: `http://127.0.0.1:${ports.gateway}`,

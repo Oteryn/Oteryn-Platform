@@ -535,6 +535,36 @@ async fn account_mfa_enrols_once_and_the_secret_logs_in() -> TestResult {
 }
 
 #[tokio::test]
+async fn account_mfa_confirms_when_the_first_code_aged_out() -> TestResult {
+    use totp_rs::{Algorithm, Secret, TOTP};
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id = Uuid::parse_str(&account(&db, "mfa-rollover@example.invalid").await?)?;
+    let mfa = db.settings().mfa.unwrap();
+    let enrollment = mfa.enroll(id, PASSWORD).await?.unwrap();
+    let secret = Secret::Encoded(enrollment.secret).to_bytes()?;
+    let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)?;
+    let current = unix_seconds()? / totp.step;
+    let live_codes = [current - 1, current, current + 1, current + 2]
+        .map(|step| totp.generate(step * totp.step));
+    let stale_step = (current - 8..current)
+        .rev()
+        .find(|step| !live_codes.contains(&totp.generate((step - 1) * totp.step)))
+        .expect("an older step has a distinct confirmation code");
+
+    let codes = confirm_seed_mfa(&mfa, id, PASSWORD, &totp, stale_step * totp.step).await?;
+    assert_eq!(codes.len(), 8);
+    assert!(mfa.enrolled(id).await?);
+    assert_eq!(
+        db.count("SELECT count(*) FROM audit_log WHERE action='mfa.refused'")
+            .await?,
+        1
+    );
+    db.close().await
+}
+
+#[tokio::test]
 async fn every_seed_action_refuses_outside_testing() -> TestResult {
     let args = [
         "account-mfa".to_owned(),

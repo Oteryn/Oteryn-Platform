@@ -1,7 +1,7 @@
 // Run harness.mjs --staff-console, then from e2e/ run
-// PORTAL_E2E_ADMIN_AGENT_DIRECTORY=.harness/run npm test -- gm-player-console.spec.mjs
+// PORTAL_E2E_ADMIN_AGENT_DIRECTORY=.harness/run npm test -- staff-console.spec.mjs
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
@@ -12,16 +12,29 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { SMTPServer } from 'smtp-server';
-import { localPostgresUrl } from './postgres-url.mjs';
+import { staffDatabaseURL } from './local-database.mjs';
 
-const agentId = 'staff-console-e2e';
-const worldId = '019b0760-0000-7000-8000-000000000001';
+export const agentId = 'staff-console-e2e';
+export const worldId = '019b0760-0000-7000-8000-000000000001';
 export const nodeId = 'e2e-console-node';
 export const characterId = '019b0760-0000-7000-8000-000000000010';
 export const characterName = 'E2E Console Knight';
 const build = 'staff-console-e2e-build';
+const world = {
+  world_id: worldId, name: 'E2E Console World', state: 'online', channels: [],
+  ruleset_revision: 'rules-e2e', content_revision: 'content-e2e',
+  map_revision: 'map-e2e', policy_revision: 'policy-e2e',
+};
+const node = {
+  node_id: nodeId, host: 'node.e2e.test', build, uptime_seconds: 42, worlds: [worldId],
+  ready: true, cpu_percent: 17, memory_bytes: '4096',
+};
 const player = { character_id: characterId, name: characterName, world_id: worldId, level: 42, online: true };
+export const resultRevision = 'staff-console-e2e-revision';
+export const ledgerId = 'staff-console-e2e-ledger';
+
 export const itemId = 'gm-e2e-inventory-item';
 export const sanctionId = 'gm-e2e-sanction';
 export const wrongCharacterId = 'gm-e2e-wrong-character';
@@ -30,6 +43,17 @@ export const accountSanctionId = 'gm-e2e-account-sanction';
 export const wrongAccountSanctionCharacterId = '019b0760-0000-7000-8000-000000000011';
 
 const results = {
+  'ops.overview.get': () => ({ agents: [], worlds: [world], nodes: [node], players_online: 41, db_available: true, alerts: [] }),
+  'world.list': () => ({ worlds: [world] }),
+  'world.get': () => world,
+  'node.list': () => ({ nodes: [node] }),
+  'node.get': () => node,
+  'db.status': () => ({
+    tables: [], connections: [{ role: 'e2e-admin', connections: 3 }], locks_waiting: 0, cache_hit_ratio: 1,
+  }),
+  'db.migrations.list': () => ({
+    migrations: [{ version: 'e2e-migration-42', description: 'Fixture migration', applied: true, checksum_drift: false }],
+  }),
   'player.search': ({ params }) => ({
     players: characterName.startsWith(params.query) ? [player] : [],
   }),
@@ -53,6 +77,13 @@ const results = {
       kind: 'notation', active: false, starts_at: '2026-11-15T00:00:00Z', expires_at: null,
     }] : [])],
   }),
+  'admin.ledger.query': ({ params }, ledger) => ({
+    entries: ledger.filter(entry =>
+      (!params.request_id || params.request_id === entry.request_id)
+      && (!params.admin_id || params.admin_id === entry.admin_id)
+      && (!params.operation || params.operation === entry.operation)
+      && (!params.target || Object.values(entry.target).includes(params.target))),
+  }),
 };
 const operations = Object.keys(results).map(operation => ({ operation, version: 1 }));
 const catalogDigest = createHash('sha256').update(JSON.stringify(operations)).digest('base64url');
@@ -69,54 +100,147 @@ function signingBytes({ signature, ...envelope }) {
   return Buffer.from(canonical(envelope));
 }
 
+export function staffSeedEnvironment(saved) {
+  assert(saved.OTERYN_ENV === 'testing' && saved.APP_ENV === 'testing',
+    'Staff console seeding requires OTERYN_ENV=testing and APP_ENV=testing');
+  const database = staffDatabaseURL(saved.OTERYN_DATABASE_URL);
+  return {
+    OTERYN_ENV: 'testing',
+    APP_ENV: 'testing',
+    OTERYN_DATABASE_URL: database.href,
+    OTERYN_MFA_KEY: saved.OTERYN_MFA_KEY,
+  };
+}
+
+export function readStaffFixture(directory) {
+  const secret = name => fs.readFileSync(path.join(directory, 'secrets', name), 'utf8');
+  const json = name => {
+    const contents = secret(name);
+    try {
+      return JSON.parse(contents);
+    } catch {
+      throw new Error(`Invalid staff fixture JSON in ${name}`);
+    }
+  };
+  return {
+    settings: json('admin-agent.json'),
+    env: staffSeedEnvironment(json('env.json')),
+    seedBinary: secret('seed-binary'),
+  };
+}
+
+const execSeed = promisify(execFile);
+export const staffSeedTimeoutMs = 30_000;
+
+export async function runStaffSeed(binary, env, entity, input, timeout = staffSeedTimeoutMs) {
+  let stdout;
+  try {
+    ({ stdout } = await execSeed(binary, ['seed', entity, JSON.stringify(input)], {
+      env, timeout, killSignal: 'SIGKILL', maxBuffer: 1 << 20,
+    }));
+  } catch (error) {
+    // The subprocess error holds the command arguments and can include credentials.
+    if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error(`Portal seed ${entity} exceeded its output limit`);
+    if (error.killed) throw new Error(`Portal seed ${entity} exceeded its ${timeout} ms deadline`);
+    throw new Error(`Portal seed ${entity} failed (${error.signal ?? error.code ?? 'unknown status'})`);
+  }
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(`Portal seed ${entity} returned invalid JSON`);
+  }
+}
+
+export const startupBindConflict = 75;
+
+export async function reserveStaffPorts(signal) {
+  const listeners = [];
+  const ports = {};
+  const release = async () => {
+    await Promise.all(listeners.splice(0).map(listener => new Promise(resolve => listener.close(resolve))));
+  };
+  try {
+    for (const name of ['http', 'internal', 'admission', 'gateway']) {
+      const listener = net.createServer(socket => socket.destroy()).listen({ port: 0, host: '127.0.0.1', signal });
+      listeners.push(listener);
+      await once(listener, 'listening', { signal });
+      ports[name] = listener.address().port;
+    }
+  } catch (error) {
+    await release();
+    throw error;
+  }
+  return { ports, release };
+}
+
+export async function staffPortsOccupied(ports) {
+  for (const port of ports) {
+    const probe = net.createServer(socket => socket.destroy());
+    try {
+      await once(probe.listen(port, '127.0.0.1'), 'listening');
+    } catch (error) {
+      if (error.code === 'EADDRINUSE') return true;
+      throw error;
+    } finally {
+      if (probe.listening) await new Promise(resolve => probe.close(resolve));
+    }
+  }
+  return false;
+}
+
 // The browser qualification launcher already supplies a disposable database.
 // Start a separate harness so attaching an agent cannot change another spec.
 export async function startStaffConsoleHarness(databaseURL) {
   assert(databaseURL, 'Set PORTAL_E2E_ADMIN_AGENT_DIRECTORY or run browser qualification with a disposable database');
-  const adminURL = localPostgresUrl(databaseURL);
-  assert(adminURL.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
+  const adminURL = staffDatabaseURL(databaseURL);
   adminURL.pathname = '/postgres';
-  const listeners = [];
-  const portEnv = {};
-  try {
-    for (const name of ['HTTP', 'INTERNAL', 'ADMISSION', 'GATEWAY']) {
-      const listener = net.createServer().listen(0, '127.0.0.1');
-      listeners.push(listener);
-      await once(listener, 'listening');
-      portEnv[`PORTAL_E2E_${name}_PORT`] = String(listener.address().port);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await startStaffConsoleAttempt(adminURL);
+    } catch (error) {
+      if (error.exitCode !== startupBindConflict || attempt === 3) throw error;
     }
-  } finally {
-    for (const listener of listeners) listener.close();
   }
+}
+
+async function startStaffConsoleAttempt(adminURL) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'staff-console-e2e-'));
   const out = path.join(directory, 'run');
-  const log = fs.openSync(path.join(directory, 'harness.log'), 'a', 0o600);
-  const env = { ...process.env, ...portEnv, PORTAL_E2E_OUT: out, PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href };
+  const logPath = path.join(directory, 'harness.log');
+  const log = fs.openSync(logPath, 'a', 0o600);
+  const env = { ...process.env, PORTAL_E2E_OUT: out, PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href };
   delete env.PORTAL_E2E_SEED_PLAN;
   delete env.PORTAL_E2E_KEEP_DATABASE;
-  const child = spawn(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)), '--staff-console'],
-    { env, stdio: ['ignore', 'pipe', log] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)),
+    '--staff-console', '--parent-lifetime-stdin'], { env, stdio: ['pipe', 'pipe', log] });
   fs.closeSync(log);
+  // The child's exit reports a startup failure even if stdin closes first.
+  child.stdin.on('error', () => {});
   const closed = once(child, 'close');
   const lines = createInterface({ input: child.stdout });
   async function stop() {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    child.stdin.end();
     return closed;
   }
   try {
     const ready = await Promise.race([
       once(lines, 'line').then(([line]) => JSON.parse(line).status),
-      closed.then(([code]) => { throw new Error(`Staff console harness exited (${code}). See ${directory}/harness.log`); }),
+      closed.then(([code, signal]) => {
+        throw Object.assign(new Error(`Staff console harness exited (${signal || code}). See ${logPath}`), { exitCode: code });
+      }),
     ]);
     assert.equal(ready, 'ready');
     return {
       out,
       async close() {
         const [code, signal] = await stop();
-        if (code !== 0) {
-          throw new Error(`Staff console harness cleanup failed (${signal ?? code}). See ${directory}/harness.log`);
+        if (code !== 0) throw new Error(`Staff console harness teardown failed (${signal || code}). See ${logPath}`);
+        fs.rmSync(logPath, { force: true });
+        try {
+          fs.rmdirSync(directory);
+        } catch (error) {
+          if (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT') throw error;
         }
-        fs.rmSync(directory, { recursive: true, force: true });
       },
     };
   } catch (error) {
@@ -127,7 +251,8 @@ export async function startStaffConsoleHarness(databaseURL) {
   }
 }
 
-export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports }) {
+export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, signal }) {
+  signal.throwIfAborted();
   const cn = `oteryn-admin-agent/${agentId}`;
   const san = `${agentId}.e2e.test`;
   const client = { cert: path.join(dirs.secrets, 'admin-agent.pem'), key: path.join(dirs.secrets, 'admin-agent.key') };
@@ -157,13 +282,25 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
       host: '127.0.0.1', port: ports.http, path: request.url,
       method: request.method, headers: request.headers,
     }, incoming => {
+      incoming.on('error', () => response.destroy());
       response.writeHead(incoming.statusCode, incoming.headers);
       incoming.pipe(response);
     });
-    upstream.on('error', () => { response.writeHead(502).end(); });
+    upstream.on('error', () => {
+      if (response.headersSent) response.destroy();
+      else if (!response.destroyed) response.writeHead(502).end();
+    });
+    response.once('close', () => {
+      if (!response.writableFinished) upstream.destroy();
+    });
     request.pipe(upstream);
   });
-  await once(proxy.listen(0, '127.0.0.1'), 'listening');
+  signal.addEventListener('abort', () => {
+    proxy.close();
+    proxy.closeAllConnections();
+  }, { once: true });
+  await once(proxy.listen(0, '127.0.0.1'), 'listening', { signal });
+  signal.throwIfAborted();
   const host = `localhost:${proxy.address().port}`;
   const origin = `https://${host}`;
   // Login configures the real security-notification consumer. Its disposable
@@ -184,7 +321,15 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
       stream.resume();
     },
   });
-  await once(smtp.listen(0, '127.0.0.1'), 'listening');
+  await new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => {
+      smtp.close();
+      reject(signal.reason);
+    }, { once: true });
+    smtp.once('error', reject);
+    smtp.listen(0, '127.0.0.1', resolve);
+  });
+  signal.throwIfAborted();
   const file = path.join(out, 'secrets', 'admin-agent.json');
   fs.writeFileSync(file, JSON.stringify({
     origin, internalPort: ports.internal, caFile, client,
@@ -212,10 +357,6 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
         cn, identity: { san }, allowed_worlds: [worldId], allowed_nodes: [nodeId],
         result_key: { public_key: rawPublicKey(resultKey.publicKey), not_before: notBefore, not_after: notAfter },
       }]),
-    },
-    close() {
-      smtp.close();
-      proxy.close();
     },
   };
 }
@@ -264,6 +405,7 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
     servername: 'localhost', minVersion: 'TLSv1.3',
   });
   const platformKey = createPublicKey({ key: signerKey, format: 'jwk' });
+  const ledger = [];
   // Workers restart between projects. A newer epoch supersedes the last hello.
   const session = { agent_id: agentId, owner_epoch: Date.now() };
   function post(route, value) {
@@ -310,21 +452,33 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
       return requests;
     },
     async answer(request, outcome, accountRef, sanctionCharacter) {
-      assert(['success', 'refusal'].includes(outcome));
+      assert(['success', 'refusal', 'timeout'].includes(outcome));
+      if (outcome === 'timeout') return; // A delivered request expires without an agent result.
       const success = outcome === 'success';
       const clock = new Date().toISOString();
       const completed = Date.parse(clock) > Date.parse(request.issued_at) ? clock : request.issued_at;
+      const entry = {
+        request_id: request.request_id, admin_operation_id: request.admin_operation_id,
+        ledger_id: ledgerId + '-' + request.request_id, status: success ? 'succeeded' : 'rejected',
+        operation: request.operation, admin_id: request.actor.admin_id, risk_class: request.risk_class,
+        target: request.target, started_at: request.issued_at, finished_at: completed,
+      };
       const envelope = {
         request_id: request.request_id, admin_operation_id: request.admin_operation_id,
-        status: success ? 'succeeded' : 'rejected',
+        status: entry.status,
         error: success ? null : { code: 'ADM_FORBIDDEN', message: 'AdmForbidden', retryable: false },
-        result: success ? results[request.operation](request, accountRef, sanctionCharacter) : null,
-        dry_run_preview: null, game_ledger_id: 'gm-e2e-ledger-' + request.request_id, audit_event_ids: [],
-        effective_revision: success ? 'gm-e2e-revision' : null, progress: null,
+        result: success ? (
+          request.operation === 'admin.ledger.query'
+            ? results[request.operation](request, ledger)
+            : results[request.operation](request, accountRef, sanctionCharacter)
+        ) : null,
+        dry_run_preview: null, game_ledger_id: entry.ledger_id, audit_event_ids: [],
+        effective_revision: success ? resultRevision : null, progress: null,
         completed_at: completed, agent_id: agentId, agent_build: build,
       };
       const signature = sign(null, signingBytes(envelope), { key: resultKey, format: 'jwk' }).toString('base64url');
       assert.deepEqual(await post('results', { ...envelope, signature }), { status: 'recorded' });
+      ledger.push(entry);
       return completed;
     },
     close: () => tls.destroy(),
