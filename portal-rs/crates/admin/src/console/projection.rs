@@ -238,10 +238,15 @@ pub(super) fn snapshot(
                 array(v, "sanctions")?
                     .iter()
                     .map(|s| {
+                        match s.get("character_id") {
+                            None | Some(Value::Null) => {}
+                            Some(Value::String(id)) if target_character == Some(id.as_str()) => {}
+                            _ => return Err(bad()),
+                        }
                         Ok(players::Sanction {
                             sanction_id: text(s, "sanction_id")?,
                             kind: text(s, "kind")?,
-                            status: boolean(s, "active")?.to_string(),
+                            active: boolean(s, "active")?,
                         })
                     })
                     .collect::<Result<_, Error>>()?,
@@ -308,6 +313,27 @@ pub(super) fn preview(v: &Value) -> Result<Vec<String>, Error> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sanction_rows_must_match_the_target_when_an_id_is_present() {
+        let project = |id| {
+            snapshot(
+                "sanction.list",
+                Uuid::now_v7(),
+                String::new(),
+                Some("character-a"),
+                &json!({"sanctions":[{"sanction_id":"s1", "kind":"warning",
+                    "active":true, "character_id":id}]}),
+            )
+        };
+        assert!(project(json!("character-a")).is_ok());
+        assert!(project(Value::Null).is_ok());
+        assert!(matches!(
+            project(json!("character-b")),
+            Err(Error::Unavailable)
+        ));
+        assert!(matches!(project(json!(42)), Err(Error::Unavailable)));
+    }
 
     #[test]
     fn character_dossier_requires_an_exact_character_target() {

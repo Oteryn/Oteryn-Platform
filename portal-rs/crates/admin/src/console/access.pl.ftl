@@ -38,3 +38,13 @@ house = Dom
 bank = Saldo banku
 logins = Czasy ostatnich logowań
 empty = Brak pasujących wpisów.
+
+sanction-warning = Ostrzeżenie
+sanction-notation = Adnotacja
+sanction-namelock = Blokada nazwy
+sanction-ban = Ban
+sanction-mute = Wyciszenie
+sanction-jail = Więzienie
+sanction-unknown = Nieznana kara
+sanction-active = Aktywna
+sanction-inactive = Nieaktywna

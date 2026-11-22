@@ -82,7 +82,7 @@ pub struct Item {
 pub struct Sanction {
     pub sanction_id: String,
     pub kind: String,
-    pub status: String,
+    pub active: bool,
 }
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -276,7 +276,30 @@ pub(crate) async fn view<B: Backend>(
             "sanctions",
             sanctions.map(|rows| {
                 rows.into_iter()
-                    .map(|s| format!("{} · {} · {}", s.sanction_id, s.kind, s.status))
+                    .map(|s| {
+                        let kind = match s.kind.as_str() {
+                            "warning" => "sanction-warning",
+                            "notation" => "sanction-notation",
+                            "namelock" => "sanction-namelock",
+                            "ban" => "sanction-ban",
+                            "mute" => "sanction-mute",
+                            "jail" => "sanction-jail",
+                            _ => "sanction-unknown",
+                        };
+                        format!(
+                            "{} · {} · {}",
+                            s.sanction_id,
+                            tr(lang, kind),
+                            tr(
+                                lang,
+                                if s.active {
+                                    "sanction-active"
+                                } else {
+                                    "sanction-inactive"
+                                }
+                            )
+                        )
+                    })
                     .collect()
             }),
         );

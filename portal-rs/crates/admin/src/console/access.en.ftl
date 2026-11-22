@@ -38,3 +38,13 @@ house = House
 bank = Bank balance
 logins = Last login times
 empty = No matching records.
+
+sanction-warning = Warning
+sanction-notation = Notation
+sanction-namelock = Name lock
+sanction-ban = Ban
+sanction-mute = Mute
+sanction-jail = Jail
+sanction-unknown = Unknown sanction
+sanction-active = Active
+sanction-inactive = Inactive
