@@ -97,6 +97,17 @@ fn jpeg_with_incomplete_scan_passes_header_checks_but_is_rejected() {
 }
 
 #[test]
+fn png_rejects_bytes_after_first_iend_even_with_terminal_iend() {
+    let mut png = fixture(ImageFormat::Png, 32, 24);
+    assert!(process("single.png", &png).is_ok());
+    png.extend_from_within(png.len() - 12..);
+    assert_eq!(
+        process("repeat-end.png", &png).err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+}
+
+#[test]
 fn png_with_missing_scanline_reaches_pixel_decoder() {
     let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-pixels.png");
     assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Png);

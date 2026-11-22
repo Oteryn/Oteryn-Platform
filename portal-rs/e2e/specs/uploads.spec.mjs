@@ -222,6 +222,10 @@ const rejectedImages = [
     ...png,
     buffer: Buffer.concat([png.buffer, Buffer.from('end of fixture')]),
   }), 422],
+  ['PNG with a second IEND chunk', () => ({
+    ...png,
+    buffer: Buffer.concat([png.buffer, png.buffer.subarray(-12)]),
+  }), 422],
   ['PNG with truncated pixel data', () => file('png', 'image/png', 'truncated-pixels'), 422],
   ['JPEG with a truncated scan', () => file('jpeg', 'image/jpeg', 'truncated-scan'), 422],
   ['two JPEG images in one file', () => {

@@ -67,7 +67,7 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
     }
     let boundary = match format {
         ImageFormat::Jpeg => verify_jpeg_structure(bytes).is_some(),
-        ImageFormat::Png => bytes.ends_with(b"\0\0\0\0IEND\xaeB`\x82"),
+        ImageFormat::Png => verify_png_end(bytes).is_some(),
         ImageFormat::WebP => bytes
             .get(4..8)
             .and_then(|b| <[u8; 4]>::try_from(b).ok())
@@ -131,6 +131,20 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         height,
     })
 }
+/// Check the first parsed IEND at its chunk boundary. The decoder validates
+/// the image contents and this check disallows bytes after the first image.
+fn verify_png_end(bytes: &[u8]) -> Option<()> {
+    let mut rest = bytes.strip_prefix(b"\x89PNG\r\n\x1a\n")?;
+    loop {
+        let length = usize::try_from(u32::from_be_bytes(rest.get(..4)?.try_into().ok()?)).ok()?;
+        let kind = rest.get(4..8)?;
+        if kind == b"IEND" {
+            return (rest == b"\0\0\0\0IEND\xaeB`\x82").then_some(());
+        }
+        rest = rest.get(length.checked_add(12)?..)?;
+    }
+}
+
 /// Require the first parsed EOI to terminate the upload and every frame
 /// component to have initial scan data before that marker.
 fn verify_jpeg_structure(bytes: &[u8]) -> Option<()> {
