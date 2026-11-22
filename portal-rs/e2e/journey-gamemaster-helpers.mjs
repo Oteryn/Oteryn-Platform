@@ -65,7 +65,11 @@ export async function grantPlatformAuditRole(admin, accountId, lang) {
   while (!(await option.count())) {
     const next = admin.locator('main a[href^="/admin/roles?after="]');
     await expect(next).toBeVisible();
-    await next.click();
+    const destination = new URL(await next.getAttribute('href'), admin.url()).href;
+    await Promise.all([
+      admin.waitForURL(destination, {waitUntil:'domcontentloaded'}),
+      next.click(),
+    ]);
   }
   const role = await option.getAttribute('value');
   const actual = await query('SELECT permission FROM role_permissions WHERE role_id=$1 ORDER BY permission', [role]);

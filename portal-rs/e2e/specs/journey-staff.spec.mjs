@@ -201,7 +201,11 @@ test('staff publish content and handle a player’s support, safety and account 
       const next = moderator.locator('main a[href^="/admin/moderation/reports?page="]');
       while (!(await reportLink.count())) {
         await expect(next).toBeVisible();
-        await next.click();
+        const destination = new URL(await next.getAttribute('href'), moderator.url()).href;
+        await Promise.all([
+          moderator.waitForURL(destination, { waitUntil: 'domcontentloaded' }),
+          next.click(),
+        ]);
       }
       await reportLink.click();
       const reportForm = 'main form:has(input[value=moderate])';
