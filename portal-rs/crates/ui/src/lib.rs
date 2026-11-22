@@ -113,6 +113,16 @@ impl Registry {
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
+            .filter(|entry| {
+                entry.section != "account-passkeys"
+                    || !matches!(
+                        account,
+                        Account::SignedIn {
+                            passkey_eligible: false,
+                            ..
+                        }
+                    )
+            })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
                     e.path.to_owned()
@@ -194,6 +204,7 @@ pub enum Account {
     SignedIn {
         csrf: String,
         staff_access: bool,
+        passkey_eligible: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -523,6 +534,7 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     staff_access: false,
+                    passkey_eligible: true,
                     csrf: "escaped<&token".into(),
                 },
             );

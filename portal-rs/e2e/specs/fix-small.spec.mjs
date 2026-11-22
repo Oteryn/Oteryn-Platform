@@ -14,6 +14,13 @@ function accountMenu(page) {
   return page.locator('dialog').filter({has: page.locator('a.account-overview')});
 }
 
+async function signInWithMfa(page, lang, account) {
+  await enrollMfa(page, lang, account);
+  const recoveryCode = page.locator('main textarea[readonly]').first();
+  await expect(recoveryCode).toBeVisible();
+  await loginWithRecoveryCode(page, lang, account, await recoveryCode.inputValue());
+}
+
 test('account menu shows a localized staff link only with admin.access', async ({page}, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
@@ -35,4 +42,22 @@ test('cold atlas sends no-store for document and direct GET requests', async ({r
     expect(atlas.status()).toBe(503);
     expect(atlas.headers()['cache-control']).toBe('no-store');
   }
+});
+
+test('passkey management link follows mandatory login MFA eligibility', async ({page}, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  const account = await register(page, lang);
+  await grantRole(account, 'moderator');
+  await login(page, lang, account);
+  const path = `/${lang}/account/passkeys`;
+  const link = accountMenu(page).locator(`a[href="${path}"]`);
+  await expect(link).toHaveCount(1);
+  expect((await page.request.get(path)).status()).toBe(200);
+
+  await signInWithMfa(page, lang, account);
+  expect((await page.goto(`/${lang}/`)).status()).toBe(200);
+  await expect(accountMenu(page)).toBeAttached();
+  expect((await page.request.get(path)).status()).toBe(403);
+  await expect(link).toHaveCount(0);
 });
