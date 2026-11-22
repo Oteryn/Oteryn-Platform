@@ -40,12 +40,11 @@ fn agent_request(
     );
     Ok(request)
 }
-async fn answer(
-    internal: &Router,
+fn signed_result(
     key: &SigningKey,
-    request: signer::RequestEnvelope,
+    request: &signer::RequestEnvelope,
     value: Value,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<signer::ResultEnvelope, Box<dyn std::error::Error>> {
     let mut result = signer::ResultEnvelope {
         request_id: request.request_id,
         admin_operation_id: request.admin_operation_id,
@@ -64,6 +63,15 @@ async fn answer(
     };
     result.signature =
         URL_SAFE_NO_PAD.encode(key.sign(&signer::adm_x1_signing_bytes(&result)?).to_bytes());
+    Ok(result)
+}
+async fn answer(
+    internal: &Router,
+    key: &SigningKey,
+    request: signer::RequestEnvelope,
+    value: Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let result = signed_result(key, &request, value)?;
     let schema: Value = serde_json::from_str(include_str!(
         "../control/fixtures/admin-control-v1/result.schema.json"
     ))?;
@@ -390,6 +398,7 @@ async fn stored_console_browser_query_verified_result_and_ownership(
     };
     let advertised: Vec<_> = [
         "world.list",
+        "world.get",
         "ops.overview.get",
         "node.list",
         "db.status",
@@ -551,6 +560,66 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         check_correlation,
     )
     .await?;
+    if check_correlation {
+        let detail = app
+            .clone()
+            .oneshot(
+                Request::post("/console/worlds")
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "_csrf={csrf}&agent=agent-a&operation=world.get&target=world-a&lang=en"
+                    )))?,
+            )
+            .await?;
+        assert_eq!(detail.status(), StatusCode::SEE_OTHER);
+        let path = detail.headers()["location"].to_str()?.to_owned();
+        let response = internal
+            .clone()
+            .oneshot(agent_request(
+                "channel",
+                json!({
+                    "agent_id":"agent-a","owner_epoch":1,"wait_seconds":0,"limit":32
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let detail = serde_json::from_slice::<Vec<signer::RequestEnvelope>>(
+            &to_bytes(response.into_body(), 100_000).await?,
+        )?
+        .into_iter()
+        .find(|request| request.operation == "world.get")
+        .ok_or_else(missing)?;
+        let result = signed_result(
+            &agent_key,
+            &detail,
+            json!({
+                "world_id":"world-b","name":"Wrong world", "state":"ready","channels":[],
+                "ruleset_revision":"1", "content_revision":"1","map_revision":"1","policy_revision":"1"
+            }),
+        )?;
+        // Simulate a correctly signed receipt persisted before target matching.
+        channel
+            .store
+            .record_result(
+                &control::NewResult {
+                    request_id: detail.request_id,
+                    agent_id: result.agent_id.clone(),
+                    status: control::Status::Succeeded,
+                    game_ledger_id: None,
+                    error_code: None,
+                    payload: serde_json::to_value(result)?,
+                },
+                1,
+            )
+            .await?;
+        let html = browser_get(&app, &cookie, &path).await?;
+        assert!(!html.contains("Wrong world"));
+        assert!(html.contains("Unavailable"));
+        assert!(html.contains("Request fresh data"));
+    }
     if check_lifecycle {
         for (operation, page) in [
             (Operation::Overview, "dashboard"),

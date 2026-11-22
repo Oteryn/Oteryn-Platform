@@ -141,6 +141,13 @@ test('ratified Game agent results render in every ops read view', async ({page},
     });
     if (requestId) expect(request.request_id).toBe(requestId);
     expect(agent.authentic(request), 'Platform signed the claimed request').toBe(true);
+    const detailField = {'world.get': 'world_id', 'node.get': 'node_id'}[operation];
+    if (detailField) {
+      await expect(agent.complete(request, {[detailField]: 'different-scope'}))
+        .rejects.toThrow('Admin control results returned HTTP 400');
+      expect(await query('SELECT request_id FROM admin_control_results WHERE request_id=$1', [requestId]))
+        .toEqual([]);
+    }
     await agent.complete(request);
   };
 

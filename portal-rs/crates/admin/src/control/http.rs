@@ -461,8 +461,8 @@ async fn results(
     lock_request(&mut tx, e.request_id).await?;
     let epoch = delivery_epoch(&mut tx, &e.agent_id, e.request_id).await?;
     owns_request(&mut tx, &e.agent_id, epoch, e.request_id).await?;
-    let (operation_id, operation, version): (Uuid, String, i32) = sqlx::query_as(
-        "SELECT admin_operation_id,operation,operation_version FROM admin_control_requests WHERE request_id=$1",
+    let (operation_id, operation, version, target): (Uuid, String, i32, sqlx::types::Json<store::Target>) = sqlx::query_as(
+        "SELECT admin_operation_id,operation,operation_version,target FROM admin_control_requests WHERE request_id=$1",
     )
     .bind(e.request_id)
     .fetch_one(&mut *tx)
@@ -474,7 +474,8 @@ async fn results(
     if !duplicate {
         if status == store::Status::Succeeded
             && catalog::READ_OPERATIONS.contains(&operation.as_str())
-            && !result_schema::valid_success(&operation, version, &e.result.0)
+            && (!result_schema::valid_success(&operation, version, &e.result.0)
+                || !result_schema::matches_detail_target(&operation, &target.0, &e.result.0))
         {
             return Err(HttpError::invalid());
         }

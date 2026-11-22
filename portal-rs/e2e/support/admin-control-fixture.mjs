@@ -132,11 +132,12 @@ export function adminControlAgent() {
       const {signature, ...envelope} = request;
       return crypto.verify(null, Buffer.from(canonical(envelope)), verifier, Buffer.from(signature, 'base64url'));
     },
-    complete(request) {
+    complete(request, resultOverrides) {
       if (!Object.hasOwn(fixtures, request.operation)) throw new Error('Fixture operation has no result');
       const envelope = {
         request_id: request.request_id, admin_operation_id: request.admin_operation_id, status: 'succeeded',
-        error: null, result: fixtures[request.operation], dry_run_preview: null, game_ledger_id: null,
+        error: null, result: {...fixtures[request.operation], ...resultOverrides},
+        dry_run_preview: null, game_ledger_id: null,
         audit_event_ids: [], effective_revision: 'verified-fixture-revision', progress: null,
         completed_at: clock(), agent_id: agentId, agent_build: build,
       };

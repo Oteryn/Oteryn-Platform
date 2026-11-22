@@ -71,3 +71,16 @@ pub(crate) fn valid_success(operation: &str, version: i32, payload: &Value) -> b
             .and_then(|schemas| schemas.get(operation))
             .is_some_and(|validator| validator.is_valid(payload))
 }
+
+pub(crate) fn matches_detail_target(
+    operation: &str,
+    target: &super::Target,
+    payload: &Value,
+) -> bool {
+    let (field, expected) = match operation {
+        "world.get" => ("world_id", target.world_id.as_deref()),
+        "node.get" => ("node_id", target.node_id.as_deref()),
+        _ => return true,
+    };
+    expected.is_some_and(|id| payload.get(field).and_then(Value::as_str) == Some(id))
+}

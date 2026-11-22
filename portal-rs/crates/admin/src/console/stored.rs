@@ -123,6 +123,28 @@ impl StoredChannel {
             account_ref: None,
         })
     }
+    fn ops_target(
+        owner: &control::Agent,
+        operation: Operation,
+        target: Option<&str>,
+    ) -> Result<control::Target, Error> {
+        let (world_id, node_id) = match (operation, target) {
+            (Operation::World, Some(id)) if owner.served_worlds.iter().any(|world| world == id) => {
+                (Some(id.to_owned()), None)
+            }
+            (Operation::Node, Some(id)) if owner.served_nodes.iter().any(|node| node == id) => {
+                (None, Some(id.to_owned()))
+            }
+            (Operation::World | Operation::Node, _) => return Err(Error::Unavailable),
+            _ => return Self::target(owner, target, None),
+        };
+        Ok(control::Target {
+            world_id,
+            node_id,
+            character_id: None,
+            account_ref: None,
+        })
+    }
     async fn submit_query(
         &self,
         actor: CheckContext,
@@ -506,7 +528,7 @@ impl Channel for StoredChannel {
         request: Option<Uuid>,
     ) -> Result<AgentView, Error> {
         let owner = self.owner(Some(agent), operation.name(), target).await?;
-        let scope = Self::target(&owner, target, None)?;
+        let scope = Self::ops_target(&owner, operation, target)?;
         let selected = self
             .authorized_request(actor, &owner, operation.name(), &scope, &json!({}), request)
             .await?;
@@ -537,14 +559,18 @@ impl Channel for StoredChannel {
             result: None,
             status,
         };
-        if let Some((request, result)) = verified {
-            if !control::result_schema::valid_success(
+        if let Some((request, result)) = verified
+            && control::result_schema::valid_success(
                 &request.operation,
                 request.operation_version,
                 &result.result.0,
-            ) {
-                return Err(Error::Unavailable);
-            }
+            )
+            && control::result_schema::matches_detail_target(
+                &request.operation,
+                &request.target.0,
+                &result.result.0,
+            )
+        {
             let records = super::projection::records(operation, &result.result.0)
                 .map_err(|_| Error::Unavailable)?;
             view.status = QueryStatus::Succeeded;
@@ -572,7 +598,7 @@ impl Channel for StoredChannel {
         target: Option<&str>,
     ) -> Result<Uuid, Error> {
         let owner = self.owner(Some(agent), operation.name(), target).await?;
-        let scope = Self::target(&owner, target, None)?;
+        let scope = Self::ops_target(&owner, operation, target)?;
         self.submit_query(
             context,
             session,
