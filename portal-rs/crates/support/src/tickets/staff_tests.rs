@@ -198,6 +198,34 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
                 .execute(&pool)
                 .await?;
         }
+        // A duplicate create must wait on the existing resource before it
+        // acquires the global role-writer fence.
+        let mut resource = concurrent_pool.begin().await?;
+        sqlx::query("SELECT id FROM sanctions WHERE id=$1 FOR UPDATE")
+            .bind(sanction)
+            .execute(&mut *resource)
+            .await?;
+        let a = concurrent_app.clone();
+        let h = host.clone();
+        let c = cookie.clone();
+        let token = csrf.clone();
+        let duplicate = tokio::spawn(async move {
+            let form = format!(
+                "lock_version=1&action=apply_sanction&target={owner}&category=warning&public_reason=Duplicate&moderator_notes=&duration_hours=1"
+            );
+            staff_post(a, &h, &c, &token, "moderation/enforcement", sanction, &form).await
+        });
+        wait_staff_locks(&concurrent_pool, &schema, 1).await?;
+        assert!(
+            sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock(71010)")
+                .fetch_one(&mut *resource)
+                .await?
+        );
+        resource.commit().await?;
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), duplicate).await???,
+            StatusCode::CONFLICT
+        );
         concurrent_pool.close().await;
     }
     if scenario == Some("messages") {

@@ -162,9 +162,6 @@ impl Backend for StaffSupport {
             Command::Moderate { .. } | Command::LinkSanction { .. } => {
                 "SELECT id FROM player_reports WHERE id=$1 FOR UPDATE"
             }
-            Command::Sanction { create: true, .. } | Command::ApplySanction { .. } => {
-                "SELECT id FROM sanctions WHERE false AND id=$1 FOR UPDATE"
-            }
             _ => "SELECT id FROM sanctions WHERE id=$1 FOR UPDATE",
         };
         let enforcement = matches!(command.area(), Area::Enforcement);
