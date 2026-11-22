@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures.mjs';
 import { submit } from '../helpers.mjs';
 import { messages, redirect, seedEditor, visit } from '../public-depth-helpers.mjs';
+import { query } from '../staff-rbac-helpers.mjs';
 
 test('events list links to published localized content and excludes archived events', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
@@ -75,15 +76,24 @@ test('events list links to published localized content and excludes archived eve
 });
 
 async function withEditorialPages(editor, slug, use) {
+  const existing = await query(
+    'SELECT e.locale FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1 AND e.locale IN ($2,$3) ORDER BY e.locale',
+    [slug, 'en', 'pl'],
+  );
+  if (existing.length) throw new Error(`Editorial fixture ${slug} requires empty English and Polish revisions`);
+
   const attempted = [];
+  const marker = crypto.randomUUID();
   const save = async (locale, values) => {
     const path = `/admin/pages/${slug}/${locale}`;
     await visit(editor, path, 200, { noStore: false });
-    attempted.push(path);
+    await expect(editor.locator('input[name=expected_revision]'), path).toHaveValue('');
+    const body = `${values.body}\n\n<!-- ${marker} -->`;
+    attempted.push({ path, locale });
     const [response] = await Promise.all([
       editor.waitForResponse(reply => reply.request().isNavigationRequest()
         && reply.request().method() === 'POST' && new URL(reply.url()).pathname === path),
-      submit(editor, 'main form', values),
+      submit(editor, 'main form', { ...values, body }),
     ]);
     return response.status();
   };
@@ -95,11 +105,25 @@ async function withEditorialPages(editor, slug, use) {
       const cleanup = await editor.context().newPage();
       const errors = [];
       try {
-        for (const path of attempted.reverse()) {
+        for (const { path, locale } of attempted.reverse()) {
           try {
+            // The audit insert and page save share a transaction. Match its
+            // original creation against the current row before using the UI's revision guard.
+            const [created] = await query(
+              `SELECT e.updated_at::text AS revision
+                 FROM editorial_pages e JOIN pages p ON p.id=e.page_id
+                WHERE p.slug=$1 AND e.locale=$2 AND strpos(e.body,$3)>0
+                  AND EXISTS (
+                    SELECT 1 FROM audit_log a
+                     WHERE a.xmin=e.xmin AND a.action='cms.page.saved' AND a.target=p.slug
+                       AND a.before='null'::jsonb AND a.after->>'locale'=e.locale
+                       AND a.after->>'body'=e.body
+                  )`,
+              [slug, locale, `<!-- ${marker} -->`],
+            );
+            if (!created) continue;
             await visit(cleanup, path, 200, { noStore: false });
-            // A rejected save can leave no translation to delete.
-            if (!(await cleanup.locator('input[name=expected_revision]').inputValue())) continue;
+            await expect(cleanup.locator('input[name=expected_revision]'), path).toHaveValue(created.revision);
             const [response] = await Promise.all([
               cleanup.waitForResponse(reply => reply.request().isNavigationRequest()
                 && reply.request().method() === 'POST' && new URL(reply.url()).pathname === path),
@@ -185,6 +209,39 @@ test('editorial cleanup removes English publication after a rejected Polish save
       await visit(editor.page, `/admin/pages/${slug}/${locale}`, 200, { noStore: false });
       await expect(editor.page.locator('input[name=expected_revision]')).toHaveValue('');
     }
+  } finally {
+    await editor.context.close();
+  }
+});
+
+test('editorial fixtures refuse to overwrite or delete unpublished revisions', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const editor = await seedEditor(browser, info);
+  const slug = 'rules';
+  const drafts = () => query(
+    'SELECT e.locale,e.title,e.body,e.updated_at::text AS revision FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1 ORDER BY e.locale',
+    [slug],
+  );
+  try {
+    await withEditorialPages(editor.page, slug, async save => {
+      expect(await save('en', { title: 'English draft', body: 'Keep the English draft.' })).toBe(303);
+      expect(await save('pl', { title: 'Polski szkic', body: 'Zachowaj polski szkic.' })).toBe(303);
+      const before = await drafts();
+      expect(before.map(row => row.locale)).toEqual(['en', 'pl']);
+      for (const locale of ['en', 'pl']) {
+        await visit(page, `/${locale}/${slug}`, 200, {
+          lang: locale, message: messages('templates/pages', locale)['not-published'],
+        });
+      }
+      let fixtureStarted = false;
+      await expect(withEditorialPages(editor.page, slug, async save => {
+        fixtureStarted = true;
+        await save('en', { title: 'Replacement', body: 'Attempted replacement.' });
+      })).rejects.toThrow('requires empty English and Polish revisions');
+      expect(fixtureStarted).toBe(false);
+      expect(await drafts()).toEqual(before);
+    });
+    expect(await drafts()).toEqual([]);
   } finally {
     await editor.context.close();
   }
