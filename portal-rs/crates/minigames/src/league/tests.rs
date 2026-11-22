@@ -426,10 +426,15 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
 }
 fn current_settlement() -> std::result::Result<Vec<u8>, Box<dyn std::error::Error>> {
     let now = runtime::now()?;
-    let end = now.checked_sub(5).ok_or("settlement requires a valid clock")?;
+    let end = now
+        .checked_sub(5)
+        .ok_or("settlement requires a valid clock")?;
     let mut snapshot: schema::EventSnapshot = serde_json::from_slice(&wire("settlement")?)?;
     snapshot.source_observed_at = end.to_string();
-    let event = snapshot.event.first_mut().ok_or("settlement event missing")?;
+    let event = snapshot
+        .event
+        .first_mut()
+        .ok_or("settlement event missing")?;
     event.scheduled_start = (end - 100).to_string();
     event.scheduled_end = end.to_string();
     event.lock_at = (end - 110).to_string();
