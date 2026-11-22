@@ -528,11 +528,23 @@ pub(crate) async fn chrome_account(
     if identifiers.next().is_some() {
         return oteryn_ui::Account::Anonymous;
     }
-    let row: Result<Option<(String, Option<Uuid>)>, _> = sqlx::query_as(
-        "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(id)).fetch_optional(&layer.pool).await;
+    let row: Result<Option<(String, Option<String>, bool, bool)>, _> = sqlx::query_as(
+        "SELECT s.csrf_token, a.status, a.email_verified_at IS NOT NULL,
+                COALESCE(a.login_mfa_required, true)
+         FROM web_sessions s LEFT JOIN accounts a ON a.id=s.account_id
+         WHERE s.id_hash=$1 AND s.account_id IS NOT NULL
+           AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp()",
+    )
+    .bind(hash(id))
+    .fetch_optional(&layer.pool)
+    .await;
     match row {
-        Ok(Some((csrf, Some(_)))) => oteryn_ui::Account::SignedIn { csrf },
+        Ok(Some((csrf, status, verified, mfa_required))) => oteryn_ui::Account::SignedIn {
+            csrf,
+            passkeys_eligible: status.as_deref().is_some_and(|status| {
+                oteryn_identity::passkeys::account_eligible(status, verified, mfa_required)
+            }),
+        },
         _ => oteryn_ui::Account::Anonymous,
     }
 }
