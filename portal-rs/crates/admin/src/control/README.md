@@ -61,9 +61,11 @@ framing ratified by the owner on 2026-11-19
   evidence. A configured result key verifies the signature before storage. The
   result is bound to the epoch its request was delivered under; if that agent no
   longer owns the request at that epoch (a newer epoch, its own included, or no
-  recorded delivery) it is refused with 409 `ADM_AGENT_SUPERSEDED`. Exact
-  duplicate envelopes succeed without another result/audit row, including after
-  a terminal result. Conflicting transitions are refused.
+  recorded delivery) it is refused with 409 `ADM_AGENT_SUPERSEDED`. Successful
+  results must match the pinned read schema for the stored operation and version.
+  Missing schemas and invalid payloads return 400 `ADM_INVALID_PARAMS`. Valid
+  exact retries succeed without another result or audit row. Conflicting
+  transitions are refused.
 - `stream`: `agent_id`, `owner_epoch`, `request_id`, nonempty `chunks` array of
   `index` (0–63) and `data` (unpadded base64url). Decoded chunks are at most 1 MiB;
   the primary key and index bound limit the complete request to 64 chunks across
@@ -75,9 +77,8 @@ framing ratified by the owner on 2026-11-19
   `health`. After the epoch check it refreshes last_seen; it stores the latest
   health snapshot only when `health` is supplied. Stale owners are refused.
 
-Payload objects are opaque operation/health/analytics data, not executable
-commands. Future consumers must validate the advertised operation's versioned
-result schema before displaying its contents. No UI is added by this packet.
+Health and analytics rollup objects carry source data. The transport stores
+them for consumption through their respective projections.
 
 Tests use `PORTAL_TEST_DATABASE_URL`; when unset each database test prints a
 skip notice. PostgreSQL tests create isolated schemas and run migrations there.
