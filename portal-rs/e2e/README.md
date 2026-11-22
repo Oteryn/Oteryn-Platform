@@ -75,6 +75,31 @@ actions allow 30 seconds for password hashing and navigation. These waits retain
 the exact destination assertions, production proof difficulty and zero retries.
 
 
+## Empty-Game browser crawl
+
+With the prerequisites above and `PORTAL_E2E_ADMIN_DATABASE_URL` set to a
+disposable loopback PostgreSQL administrator URL, run from the repository root:
+
+```sh
+node portal-rs/e2e/crawl/run.mjs
+```
+
+Append `--project=pl-1440 --project=en-390` for the desktop and mobile checks
+used during development. The launcher uses its own Playwright configuration
+and a fresh harness database, and stops the services and drops that database
+on exit. Local route reports are under the printed `.harness/crawl-*` path.
+
+The crawl starts from the home page, registered destinations, explicitly
+declared Game-dependent routes, and the staff panel. It follows same-origin
+links in real browser sessions for anonymous visitors, players, and a built-in
+Platform administrator signed in with MFA. The fixture seeds Platform accounts
+and a world registry entry through the seed CLI. No Game snapshots are
+published. Each declared unavailable page must return exactly 503 with
+`no-store`, the expected localized message, and no data or mutation form.
+For game-login history, both read flags are enabled, but the fixture lacks
+accepted Game login ownership and baseline authority. This reason applies to
+the full-suite fixture too.
+
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 
 One command starts portal-rs for an external E2E harness. It needs Node 22+,

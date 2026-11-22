@@ -29,6 +29,8 @@ const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const outbox = argv.includes('--outbox');
+const browserCrawl = argv.includes('--browser-crawl');
+if (browserCrawl && (outbox || seedPlanFile)) throw new Error('The browser crawl owns its fixture');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -148,6 +150,7 @@ const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
 const admin = new pg.Client({ connectionString: adminURL });
 const children = [];
 let closeOutboxBrowser;
+let closeCrawlBrowser;
 let createdDatabase = false;
 let closing = false;
 async function close(code = 0) {
@@ -160,6 +163,7 @@ async function close(code = 0) {
     await stopped;
   }));
   closeOutboxBrowser?.();
+  closeCrawlBrowser?.();
   if (createdDatabase && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
       await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
@@ -237,6 +241,10 @@ async function start() {
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
     closeOutboxBrowser = await startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+  }
+  if (browserCrawl) {
+    const { startCrawlBrowser } = await import('./crawl/profile.mjs');
+    closeCrawlBrowser = await startCrawlBrowser({ upstreamPort: ports.http, certificate: server, caFile, env, out });
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
