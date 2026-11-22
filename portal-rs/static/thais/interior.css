@@ -433,7 +433,7 @@ body.op-shell .om-fallback-menu .om-tools a.om-register { color: #fffdf4; backgr
 }
 
 .op-shell__page form:has(input[autocomplete="current-password"]) {
-  width: min(100%, 30rem);
+  width: min(100%, 28rem);
   justify-self: start;
 }
 .op-shell :is(.op-shell__page, main.op-main) .op-input:focus-visible {
