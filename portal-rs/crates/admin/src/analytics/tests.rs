@@ -131,6 +131,9 @@ async fn wrong_purpose_transport_and_bounds() {
     }
 }
 async fn database() -> Option<(PgPool, PgPool, String)> {
+    database_through(i64::MAX).await
+}
+async fn database_through(version: i64) -> Option<(PgPool, PgPool, String)> {
     let url = std::env::var("PORTAL_TEST_DATABASE_URL").ok()?;
     let root = PgPool::connect(&url).await.unwrap();
     let name = format!("analytics_test_{}", Uuid::now_v7().simple());
@@ -144,7 +147,10 @@ async fn database() -> Option<(PgPool, PgPool, String)> {
         .connect_with(options.database(&name))
         .await
         .unwrap();
-    for migration in oteryn_db::MIGRATOR.iter() {
+    for migration in oteryn_db::MIGRATOR
+        .iter()
+        .take_while(|m| m.version <= version)
+    {
         if migration.migration_type.is_down_migration() {
             continue;
         }
@@ -854,16 +860,10 @@ async fn postgres_refused_messages_preserve_epoch_and_active_generation() {
 #[tokio::test]
 async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let Some((pool, root, name)) = database().await else {
+    let Some((pool, root, name)) = database_through(20261107140001).await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
     };
-    // The historical down migration predates later permissions; remove their
-    // grants first so the head schema returns to the analytics-era catalog.
-    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate')")
-        .execute(&pool)
-        .await
-        .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261107140001_admin_analytics.down.sql"
     ))
