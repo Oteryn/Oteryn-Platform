@@ -744,17 +744,17 @@ pub(super) fn test_render(language: &str) -> std::result::Result<String, askama:
 
 #[cfg(test)]
 #[tokio::test]
-async fn limiter_response_preserves_retry_after_and_locale() {
+async fn limiter_response_preserves_retry_after_and_locale() -> std::result::Result<(), axum::Error>
+{
     for (lang, title) in [("en", "Too many requests"), ("pl", "Zbyt wiele żądań")] {
         let response = limiter_response(Denial::Limited { retry_after: 23 }, lang);
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "23");
         assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
-        let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .expect("localized limiter response body");
+        let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await?;
         assert!(String::from_utf8_lossy(&body).contains(title));
     }
+    Ok(())
 }
 
 #[cfg(test)]
