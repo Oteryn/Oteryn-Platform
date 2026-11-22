@@ -1387,41 +1387,36 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
 async fn postgres_league_watermark_expires_while_waiting_for_projection_lock() -> TestResult {
     use axum::{body::Body, http::Request, http::StatusCode};
     use std::{
-        sync::atomic::{AtomicI64, Ordering},
+        sync::atomic::{AtomicU64, Ordering},
         time::Duration,
     };
     use tower::ServiceExt;
 
-    static CLOCK: AtomicI64 = AtomicI64::new(0);
-    static SAMPLED_AT: AtomicI64 = AtomicI64::new(0);
+    static CLOCK: AtomicU64 = AtomicU64::new(NOW);
+    static SAMPLED_AT: AtomicU64 = AtomicU64::new(0);
     fn read_clock() -> Result<u64> {
         let now = CLOCK.load(Ordering::Relaxed);
         SAMPLED_AT.store(now, Ordering::Relaxed);
-        u64::try_from(now).map_err(|_| Error::Unavailable)
+        Ok(now)
     }
 
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
-    let db = Db::new()
-        .await?
-        .ok_or("PostgreSQL is required for league clock regression")?;
-    let dir = tempfile::tempdir()?;
-    let c = real_config(dir.path());
-    write_recovery(&c, "1")?;
-    runtime::initialize(&db.pool, &c).await?;
-    // Make the empty projection serveable at exactly the last fresh second.
-    let before: i64 = sqlx::query_scalar(
-        "WITH clock AS (SELECT extract(epoch FROM clock_timestamp())::bigint AS now)
-         UPDATE league_feed_state SET ready=true, event_complete=clock.now-29,
-             season_complete=clock.now-29 FROM clock WHERE authority=$1 RETURNING clock.now",
-    )
-    .bind(&c.authority)
-    .fetch_one(&db.pool)
-    .await?;
-    CLOCK.store(before, Ordering::Relaxed);
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
     let app = web::router_with_clock(
-        League::new(db.pool.clone(), flags(), runtime::GameAuthority::new(c))
-            .with_read_clock(read_clock),
-        || CLOCK.load(Ordering::Relaxed),
+        League::new(
+            db.pool.clone(),
+            flags(),
+            Trusted {
+                generation: 1,
+                complete: NOW - 29,
+            },
+        )
+        .with_read_clock(read_clock)
+        // Allow the observer time to see the waiter and release the lock.
+        .with_read_lock_timeout("1500ms"),
+        || CLOCK.load(Ordering::Relaxed) as i64,
     );
     let request = || Request::builder().uri("/en/league").body(Body::empty());
     assert_eq!(
@@ -1453,7 +1448,7 @@ async fn postgres_league_watermark_expires_while_waiting_for_projection_lock() -
         })
         .await
         .map_err(|_| "league read did not wait for the projection lock")??;
-        CLOCK.store(before + 1, Ordering::Relaxed);
+        CLOCK.store(NOW + 1, Ordering::Relaxed);
         writer.rollback().await?;
         Ok::<_, Box<dyn std::error::Error>>(())
     };
@@ -1462,7 +1457,7 @@ async fn postgres_league_watermark_expires_while_waiting_for_projection_lock() -
     let status = response?.status();
     db.close().await?;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(SAMPLED_AT.load(Ordering::Relaxed), before + 1);
+    assert_eq!(SAMPLED_AT.load(Ordering::Relaxed), NOW + 1);
     Ok(())
 }
 

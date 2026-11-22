@@ -35,6 +35,8 @@ pub struct League<A> {
     pub(super) flags: Flags,
     pub(super) authority: A,
     read_clock: fn() -> Result<u64>,
+    #[cfg(test)]
+    read_lock_timeout: Option<&'static str>,
 }
 impl<A: Authority> League<A> {
     pub fn new(pool: PgPool, flags: Flags, authority: A) -> Self {
@@ -43,11 +45,18 @@ impl<A: Authority> League<A> {
             flags,
             authority,
             read_clock: super::runtime::now,
+            #[cfg(test)]
+            read_lock_timeout: None,
         }
     }
     #[cfg(test)]
     pub(super) fn with_read_clock(mut self, clock: fn() -> Result<u64>) -> Self {
         self.read_clock = clock;
+        self
+    }
+    #[cfg(test)]
+    pub(super) fn with_read_lock_timeout(mut self, timeout: &'static str) -> Self {
+        self.read_lock_timeout = Some(timeout);
         self
     }
     pub async fn ingest(&self, d: Delivery<'_>, now: u64) -> Result<()> {
@@ -216,6 +225,13 @@ impl<A: Authority> League<A> {
             return Err(Error::Unavailable);
         }
         let mut tx = begin(&self.pool).await?;
+        #[cfg(test)]
+        if let Some(timeout) = self.read_lock_timeout {
+            sqlx::query("SELECT set_config('lock_timeout', $1, true)")
+                .bind(timeout)
+                .execute(&mut *tx)
+                .await?;
+        }
         sqlx::query(
             "SELECT pg_advisory_xact_lock_shared('league_subjects'::regclass::oid::int, 94000003)",
         )
