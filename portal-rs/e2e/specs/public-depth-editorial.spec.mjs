@@ -74,6 +74,51 @@ test('events list links to published localized content and excludes archived eve
   await expect(page.locator(`main a[href="${detail}"]`)).toHaveCount(0);
 });
 
+async function withEditorialPages(editor, slug, use) {
+  const attempted = [];
+  const save = async (locale, values) => {
+    const path = `/admin/pages/${slug}/${locale}`;
+    await visit(editor, path, 200, { noStore: false });
+    attempted.push(path);
+    const [response] = await Promise.all([
+      editor.waitForResponse(reply => reply.request().isNavigationRequest()
+        && reply.request().method() === 'POST' && new URL(reply.url()).pathname === path),
+      submit(editor, 'main form', values),
+    ]);
+    return response.status();
+  };
+  try {
+    await use(save);
+  } finally {
+    if (attempted.length) {
+      // A rejected form submission can still be navigating on the editor page.
+      const cleanup = await editor.context().newPage();
+      const errors = [];
+      try {
+        for (const path of attempted.reverse()) {
+          try {
+            await visit(cleanup, path, 200, { noStore: false });
+            // A rejected save can leave no translation to delete.
+            if (!(await cleanup.locator('input[name=expected_revision]').inputValue())) continue;
+            const [response] = await Promise.all([
+              cleanup.waitForResponse(reply => reply.request().isNavigationRequest()
+                && reply.request().method() === 'POST' && new URL(reply.url()).pathname === path),
+              cleanup.locator('main button[value=delete]').click(),
+            ]);
+            expect(response.status(), path).toBe(303);
+            await expect(cleanup).toHaveURL(/\/admin\/pages$/);
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+      } finally {
+        await cleanup.close();
+      }
+      if (errors.length) throw new AggregateError(errors, `Could not clean up editorial fixture ${slug}`);
+    }
+  }
+}
+
 test('server information, help aliases and rules track localized editorial publication', async ({ page, browser }, info) => {
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
@@ -97,15 +142,14 @@ test('server information, help aliases and rules track localized editorial publi
         await expect(page.locator('main article')).toBeEmpty();
       }
       const link = { en: 'View events', pl: 'Zobacz wydarzenia' };
-      for (const locale of ['en', 'pl']) {
-        await visit(editor.page, `/admin/pages/${slug}/${locale}`, 200, { noStore: false });
-        await submit(editor.page, 'main form', {
-          title: title[locale], published_at: published,
-          body: `## ${title[locale]}\n\n[${link[locale]}](/${locale}/events)`,
-        });
-        await expect(editor.page).toHaveURL(/\/admin\/pages$/);
-      }
-      try {
+      await withEditorialPages(editor.page, slug, async save => {
+        for (const locale of ['en', 'pl']) {
+          expect(await save(locale, {
+            title: title[locale], published_at: published,
+            body: `## ${title[locale]}\n\n[${link[locale]}](/${locale}/events)`,
+          })).toBe(303);
+          await expect(editor.page).toHaveURL(/\/admin\/pages$/);
+        }
         for (const route of aliases) {
           await visit(page, `/${lang}/${route}`, 200, { lang });
           await expect(page.locator('main h1')).toHaveText(title[lang]);
@@ -113,16 +157,34 @@ test('server information, help aliases and rules track localized editorial publi
           await expect(page).toHaveURL(new RegExp(`/${lang}/events$`));
         }
         await visit(page, `/${lang}/pages/${slug}`, 404);
-      } finally {
-        for (const locale of ['pl', 'en']) {
-          await visit(editor.page, `/admin/pages/${slug}/${locale}`, 200, { noStore: false });
-          await editor.page.locator('main button[value=delete]').click();
-          await expect(editor.page).toHaveURL(/\/admin\/pages$/);
-        }
-      }
+      });
     }
     await visit(page, `/${lang}/pages/Bad--Slug`, 404);
     await visit(page, `/${lang}/pages/missing-depth-editorial`, 404, { lang, message: t.unavailable });
+  } finally {
+    await editor.context.close();
+  }
+});
+
+test('editorial cleanup removes English publication after a rejected Polish save', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const editor = await seedEditor(browser, info);
+  const slug = `depth-partial-${crypto.randomUUID()}`;
+  const path = `/en/pages/${slug}`;
+  const values = { title: 'Partial editorial fixture', body: 'Temporary publication.' };
+  const refused = new Error('Polish publication was refused');
+  try {
+    await expect(withEditorialPages(editor.page, slug, async save => {
+      expect(await save('en', { ...values, published_at: new Date(Date.now() - 60_000).toISOString() })).toBe(303);
+      await visit(page, path, 200, { lang: 'en', message: values.body });
+      expect(await save('pl', { ...values, published_at: 'invalid' })).toBe(400);
+      throw refused;
+    })).rejects.toBe(refused);
+    await visit(page, path, 404);
+    for (const locale of ['en', 'pl']) {
+      await visit(editor.page, `/admin/pages/${slug}/${locale}`, 200, { noStore: false });
+      await expect(editor.page.locator('input[name=expected_revision]')).toHaveValue('');
+    }
   } finally {
     await editor.context.close();
   }

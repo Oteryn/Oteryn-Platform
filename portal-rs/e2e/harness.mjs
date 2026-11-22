@@ -161,7 +161,7 @@ if (!binary) {
   fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
   fs.chmodSync(binary, 0o755);
 }
-binary = path.resolve(binary);
+binary = path.resolve(root, binary);
 env.PORTAL_E2E_BINARY = binary;
 fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 log('migrate');

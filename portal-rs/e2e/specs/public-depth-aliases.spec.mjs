@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
-import { disposableDatabaseUrl } from '../helpers.mjs';
+import { disposableDatabaseUrl, pool } from '../helpers.mjs';
 import { messages, visit } from '../public-depth-helpers.mjs';
 
 test('unprefixed wiki routes negotiate locale and stats aliases default to Polish', async ({ page }, info) => {
@@ -62,5 +62,19 @@ test('fixture database URLs pin one disposable loopback destination', () => {
   for (const target of ['postgresql://elsewhere.invalid/portal_e2e_depth',
     'postgresql://127.0.0.1/postgres', `${url}/other`, `${url}%2Fother`, 'not a URL']) {
     expect(() => disposableDatabaseUrl({ PORTAL_E2E_DATABASE_URL: target })).toThrow();
+  }
+});
+
+test('explicit fixture pool URLs take precedence and receive the same validation', async () => {
+  const explicit = 'postgresql://fixture@127.0.0.1:6543/portal_e2e_explicit';
+  const db = pool(explicit);
+  try {
+    expect(db.options.connectionString).toBe(explicit);
+  } finally {
+    await db.end();
+  }
+  for (const url of ['postgresql://elsewhere.invalid/portal_e2e_explicit',
+    'postgresql://127.0.0.1/postgres', explicit + '?hostaddr=127.0.0.2']) {
+    expect(() => pool(url)).toThrow();
   }
 });
