@@ -18,10 +18,10 @@ const cases = [
   { method: 'POST', path: '/{lang}/account/bazaar/{listing}/report', anonymous: 403, signed: 403,
     source: 'crates/bazaar/src/moderation_web.rs:60',
     form: { id: fixture, category: 'other', detail: 'Local authorization fixture' } },
-  { method: 'GET', path: '/{lang}/puzzles/{id}/image', anonymous: 303, signed: 503,
-    source: 'crates/minigames/src/puzzles/store.rs:39' },
-  { method: 'POST', path: '/{lang}/puzzles/{id}/answer', anonymous: 303, signed: 503,
-    source: 'crates/minigames/src/puzzles/store.rs:166', form: { choice: '0' } },
+  { method: 'GET', path: '/{lang}/puzzles/{id}/image', anonymous: 303, signed: 200,
+    source: 'crates/minigames/src/puzzles/store.rs:152', puzzleImage: true },
+  { method: 'POST', path: '/{lang}/puzzles/{id}/answer', anonymous: 303, signed: 303,
+    source: 'crates/minigames/src/puzzles/store.rs:161', puzzleAnswer: true, form: { choice: '0' } },
   { method: 'POST', path: '/{lang}/account/characters/new', anonymous: 403, signed: 302,
     source: 'crates/characters/src/create_web/http.rs:124', characterCreation: true },
   { method: 'GET', path: '/{lang}/account/characters/requests/{operation}', anonymous: 303, signed: 200,
@@ -29,22 +29,39 @@ const cases = [
 ];
 export const featureGateRoutes = cases.map(({ method, path }) => [method, path]);
 
-async function unpublishedPuzzle() {
+const puzzleImage = Buffer.from('UklGRiIAAABXRUJQVlA4TAYAAAAvAAAAAAfQ//73v/+BiOh/AAA=', 'base64');
+
+async function publishedPuzzle() {
   const today = "(clock_timestamp() AT TIME ZONE 'UTC')::date";
   const [existing] = await query(`SELECT id FROM puzzles_daily WHERE day=${today} AND kind='monster'`);
   if (existing) return existing.id;
-  const [world] = await query("INSERT INTO world_versions(id,source_commit,status) VALUES(uuidv7(),repeat('b',40),'ready') RETURNING id");
+  const [world] = await query(`
+    WITH version AS (
+      INSERT INTO world_versions(id,source_commit,status) VALUES(uuidv7(),repeat('b',40),'ready') RETURNING id
+    )
+    UPDATE world_active_version SET version_id=version.id,previous_version_id=world_active_version.version_id
+    FROM version WHERE singleton RETURNING version.id
+  `);
+  const keys = ['authz-puzzle-first', 'authz-puzzle-second'];
+  await query(`
+    INSERT INTO world_entities(version_id,kind,key,data,publishable)
+    SELECT $1,'Creature',key,'{}'::jsonb,true FROM unnest($2::text[]) fixture(key)
+  `, [world.id, keys]);
+  await query(`
+    INSERT INTO world_visibility(kind,key,allowed)
+    SELECT 'Creature',key,true FROM unnest($1::text[]) fixture(key)
+    ON CONFLICT(kind,key) DO UPDATE SET allowed=true
+  `, [keys]);
   const label = text => ({ pl: text, en: text });
   const definition = {
     kind: 'monster', world_version: world.id, question: label('Choose a monster'), clue: label('Local puzzle clue'),
-    choices: ['first', 'second'].map(key => ({ label: label(key), source: { kind: 'monster', key } })),
+    choices: keys.map(key => ({ label: label(key), source: { kind: 'Creature', key } })),
     correct_choice: 0,
   };
-  const image = Buffer.from('UklGRiIAAABXRUJQVlA4TAYAAAAvAAAAAAfQ//73v/+BiOh/AAA=', 'base64');
   const [row] = await query(`
     INSERT INTO puzzles_daily(day,kind,world_version,definition,image)
     VALUES(${today},'monster',$1,$2,$3) RETURNING id
-  `, [world.id, definition, image]);
+  `, [world.id, definition, puzzleImage]);
   return row.id;
 }
 
@@ -55,7 +72,7 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
     INSERT INTO bazaar_fee_revisions(id,actor,coin_bps,gold_bps,listing_fee,promotion_price,reason)
     VALUES(uuidv7(),$1,1000,250,0,1,'Local authorization fixture') RETURNING id
   `, [seller]);
-  const puzzle = await unpublishedPuzzle();
+  const puzzle = await publishedPuzzle();
   const [{ submission, world }] = await query(`
     SELECT uuidv7() AS submission, id AS world FROM world_status ORDER BY id LIMIT 1
   `);
@@ -72,14 +89,24 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
       .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle).replace('{operation}', operation);
     expect(guard.kind, path).toBe(path.includes('/sellers/') ? 'anonymous' : 'logged-in');
     await test.step(`${method} ${path}`, async () => {
-      const before = method === 'POST' && status !== 503 && status !== 302 ? await snapshot() : null;
+      const refused = !accountId || (status >= 400 && status !== 503);
+      const before = method === 'POST' && refused ? await snapshot() : null;
       const response = await request.fetch(target, {
         method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
         ...(form && { form: { ...form, _csrf: token } }),
       });
       try {
         expect(response.status(), row.source).toBe(status);
-        if (status === 303) expect(response.headers().location).toBe(`/${locale}/login`);
+        if (status === 303) expect(response.headers().location).toBe(`/${locale}/${accountId ? 'puzzles' : 'login'}`);
+        if (row.puzzleImage && accountId) {
+          expect(response.headers()['content-type']).toBe('image/webp');
+          expect((await response.body()).equals(puzzleImage), 'published puzzle image rendered').toBe(true);
+        }
+        if (row.puzzleAnswer && accountId) {
+          const [answer] = await query("SELECT correct FROM puzzles_answers WHERE account_id=$1 AND puzzle_id=$2",
+            [accountId, puzzle]);
+          expect(answer?.correct, 'correct answer recorded for the actor').toBe(true);
+        }
         if (row.characterCreation && accountId) {
           const [created] = await query(
             "SELECT id FROM character_commands WHERE account_id=$1 AND request_key=$2 AND command='CreateCharacter'",

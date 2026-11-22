@@ -95,14 +95,21 @@ test.describe('session, support and content authorization', () => {
         for (const prefix of aliases) {
           const { request, account, accountId, totpSecret } = await openActor(info.project.metadata.locale, definition, issuer);
           try {
-            const token = await csrfPage(request, anonymous ? `/${locale}/login` : `/${locale}/`);
-            const sessionHash = await hashSession(request);
+            const landing = anonymous ? `/${locale}/login` : `/${locale}/`;
+            let token = await csrfPage(request, landing);
+            let sessionHash = await hashSession(request);
             const snapshot = () => db.snapshot(sessionHash);
             const verify = async (before, actions) => assertRefusalState(before, await snapshot(), actions);
             if (!prefix) {
               await exerciseSupport(request, locale, token, definition, routes, snapshot, verify);
               await exerciseCalendar(request, token, definition, routes, snapshot, verify);
               await exerciseConsole(request, locale, token, definition, accountId, totpSecret, routes, snapshot, verify);
+              const steppedUpSession = await hashSession(request);
+              if (!steppedUpSession.equals(sessionHash)) {
+                // Successful control step-up reissues the session and its CSRF token.
+                token = await csrfPage(request, landing);
+                sessionHash = await hashSession(request);
+              }
               await exerciseProtocol(request, token, routes, snapshot, verify);
               await exerciseGateway(request, token, routes);
               await exerciseUnavailableAuthorities(request, locale, anonymous, token, routes);
