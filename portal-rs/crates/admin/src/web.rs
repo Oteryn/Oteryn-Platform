@@ -566,6 +566,7 @@ struct RoleForm {
 async fn change<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
+    headers: axum::http::HeaderMap,
     Form(form): Form<RoleForm>,
 ) -> Response {
     let result = match form.action.as_str() {
@@ -617,6 +618,11 @@ async fn change<I: StaffSession, A: AccountStateReader>(
             Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         },
         Err(Error::InvalidInput | Error::RoleNotFound) => StatusCode::BAD_REQUEST.into_response(),
+        Err(Error::RoleKeyTaken) => (
+            StatusCode::CONFLICT,
+            text(language(&headers), "role-key-taken"),
+        )
+            .into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }

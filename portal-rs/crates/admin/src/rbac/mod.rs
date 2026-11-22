@@ -257,6 +257,8 @@ pub enum Error {
     InvalidInput,
     #[error("role not found")]
     RoleNotFound,
+    #[error("role key already exists")]
+    RoleKeyTaken,
     #[error("authorization storage unavailable")]
     Storage(#[from] sqlx::Error),
 }

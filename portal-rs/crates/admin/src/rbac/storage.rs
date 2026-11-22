@@ -125,11 +125,13 @@ impl<A: AccountStateReader> Authorizer<A> {
                 validate_key(key)?;
                 validate_permissions(permissions)?;
                 restrict_analytics(key, false, permissions)?;
-                let role: Uuid =
-                    sqlx::query_scalar("INSERT INTO roles (key) VALUES ($1) RETURNING id")
-                        .bind(key)
-                        .fetch_one(&mut *tx)
-                        .await?;
+                let role: Uuid = sqlx::query_scalar(
+                    "INSERT INTO roles (key) VALUES ($1) ON CONFLICT (key) DO NOTHING RETURNING id",
+                )
+                .bind(key)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::RoleKeyTaken)?;
                 write_permissions(&mut tx, role, permissions).await?;
                 (
                     "rbac.role.created",

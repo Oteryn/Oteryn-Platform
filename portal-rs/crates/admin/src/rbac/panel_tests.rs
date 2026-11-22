@@ -262,6 +262,34 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
     let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='panel_editor'")
         .fetch_one(&db.pool)
         .await?;
+    for (lang, message) in [
+        ("en", "A role with this key already exists."),
+        ("pl", "Rola o tym kluczu już istnieje."),
+    ] {
+        let duplicate = app(&db)
+            .oneshot(
+                Request::post("/admin/roles")
+                    .header("host", "staff.test")
+                    .header("cookie", &cookie)
+                    .header("x-csrf-token", &csrf)
+                    .header("origin", "https://staff.test")
+                    .header("accept-language", lang)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(
+                        "action=create&key=panel_editor&permissions=admin.access",
+                    ))?,
+            )
+            .await?;
+        assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+        assert_eq!(to_bytes(duplicate.into_body(), 100_000).await?, message);
+    }
+    let creation_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE target=$1 AND action='rbac.role.created'",
+    )
+    .bind(role.to_string())
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(creation_audits, 1);
     let target = Uuid::now_v7();
     insert_account(&db, target, "active").await?;
     assert_eq!(
