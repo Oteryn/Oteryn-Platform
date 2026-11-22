@@ -23,8 +23,8 @@ Allow staff role managers to send and revoke email invitations. Accept only from
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T13:10:57Z
-head: 4a608fc30a65d36e6af3397d2cfc1f1a0c46db24
+updated_at: 2026-11-22T14:43:17Z
+head: 8a4769a1c84312ca75b09508e85a337a69a67965
 branch: codex/feat-staff-invite
 pr: none
 status: ready
@@ -33,6 +33,7 @@ owned_paths:
   - portal-rs/crates/admin/src/staff_invites/
   - portal-rs/templates/admin/staff-invite*.html
   - portal-rs/migrations/20261122150000_staff_invites.sql
+  - portal-rs/migrations/20261122150100_staff_invite_safeguards.sql
   - portal-rs/e2e/specs/staff-invite.spec.mjs
 proven:
   - The existing roles page requires admin.roles.manage and admin.access.
@@ -50,6 +51,7 @@ changed_paths:
   - portal-rs/crates/web/src/ratelimit.rs
   - portal-rs/e2e/
   - portal-rs/migrations/20261122150000_staff_invites.sql
+  - portal-rs/migrations/20261122150100_staff_invite_safeguards.sql
   - portal-rs/templates/admin/
 validation:
   - command: cargo check --locked -p oteryn-portal
@@ -67,6 +69,12 @@ validation:
   - command: cargo clippy --locked -p oteryn-admin -p oteryn-portal --all-targets -- -D warnings
     result: FAIL
     evidence: Existing result_large_err findings in oteryn-store. Strict focused lint also reports chunks_exact_to_as_chunks in admin commerce.
+  - command: Focused PostgreSQL invite, transaction guard, rate policy and composed route boundary tests
+    result: PASS
+    evidence: All ten tests passed after the review fixes.
+  - command: Playwright staff-invite.spec.mjs in pl-1440 and en-390
+    result: PASS
+    evidence: Both projects passed with the real mail catcher. The spec also checks sign-out for MFA reauthentication and rejects a copy of the pre-acceptance cookie.
 blockers: []
 next_action: Deliver the verified feature branch for owner review.
 ```

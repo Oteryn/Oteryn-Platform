@@ -566,6 +566,16 @@ fn named_policies_match_the_existing_portal_limits() -> TestResult {
     assert_eq!(codes.name(), "store-code-redeem");
     assert_eq!(codes.limit(), 5);
     assert_eq!(codes.window_seconds(), 60);
+    for (policy, name, limit) in [
+        (NamedPolicy::StaffInviteManage, "staff-invite-manage", 12),
+        (NamedPolicy::StaffInviteLink, "staff-invite-link", 60),
+        (NamedPolicy::StaffInviteAccept, "staff-invite-accept", 12),
+    ] {
+        assert_eq!(policy.name(), name);
+        assert_eq!(policy.limit(), limit);
+        assert_eq!(policy.window_seconds(), 60);
+        found += 1;
+    }
     assert_eq!(found + 1, NamedPolicy::ALL.len());
     Ok(())
 }

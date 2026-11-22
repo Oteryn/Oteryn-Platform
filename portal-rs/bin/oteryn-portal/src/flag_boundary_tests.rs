@@ -1876,6 +1876,8 @@ mod flag_boundary {
                 "/admin/commerce",
                 "/admin/world",
                 "/admin/players",
+                "/admin/staff-invites",
+                "/{lang}/staff-invite",
                 "/console",
                 "/admin/console",
                 "/admin/control",

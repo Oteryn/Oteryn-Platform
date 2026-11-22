@@ -11,9 +11,21 @@
 <main class="op-panel op-stack">
   <h1>{{ self.tr("invite-title") }}</h1>
   <nav class="op-tabs" aria-label="{{ self.tr("title") }}"><a href="/admin/roles">{{ self.tr("roles") }}</a></nav>
-  {% if mail_configured %}
+  {% if let Some(invite) = approval %}
+  <section class="op-stack">
+    <h2>{{ self.tr("invite-approve") }}</h2>
+    <p>{{ invite.email }}</p>
+    <ul>{% for key in invite.roles %}<li>{{ key }}</li>{% endfor %}</ul>
+    <form method="post" action="/admin/staff-invites">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="approve" value="{{ invite.id }}">
+      <button class="op-button">{{ self.tr("invite-approve") }}</button>
+    </form>
+  </section>
+  {% elif mail_configured %}
   <form class="op-stack" method="post" action="/admin/staff-invites">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="request_key" value="{{ request_key }}">
     <label for="invite-email">{{ self.tr("invite-email") }}</label>
     <input class="op-input" id="invite-email" name="email" type="email" maxlength="254" required>
     <fieldset>
@@ -30,11 +42,15 @@
   {% endif %}
   <section class="op-stack">
     <h2>{{ self.tr("invite-pending") }}</h2>
-    {% for (id, email, roles) in pending %}
+    {% for invite in pending %}
     <article class="op-stack">
-      <strong>{{ email }}</strong>
-      <ul>{% for key in roles %}<li>{{ key }}</li>{% endfor %}</ul>
-      <form method="post" action="/admin/staff-invites/{{ id }}/revoke">
+      <strong>{{ invite.email }}</strong>
+      <ul>{% for key in invite.roles %}<li>{{ key }}</li>{% endfor %}</ul>
+      {% if invite.awaiting_approval %}
+      <p>{{ self.tr("invite-approval-required") }}</p>
+      <p><a href="/admin/staff-invites?approval={{ invite.id }}">{{ self.tr("invite-approval-link") }}</a></p>
+      {% endif %}
+      <form method="post" action="/admin/staff-invites/{{ invite.id }}/revoke">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <button class="op-button op-button--secondary">{{ self.tr("invite-revoke") }}</button>
       </form>

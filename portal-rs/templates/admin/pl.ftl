@@ -31,3 +31,7 @@ invite-enroll = Skonfiguruj uwierzytelnianie wieloskładnikowe
 invite-accept = Przyjmij zaproszenie
 invite-mail-subject = Zaproszenie do zespołu Oteryn
 invite-mail-body = Zaproszenie wygasa po 48 godzinach. Otwórz link i zaloguj się lub zarejestruj za pomocą tego adresu e-mail. Potwierdź adres i użyj uwierzytelniania wieloskładnikowego, aby przyjąć role zespołu.
+invite-approve = Zatwierdź zaproszenie
+invite-approval-required = Zaproszenie zostanie wysłane po zatwierdzeniu przez drugą osobę zarządzającą rolami, która ma te role.
+invite-approval-link = Link dla uprawnionej osoby zatwierdzającej
+invite-reauthenticate = Wyloguj się, aby zalogować się z MFA

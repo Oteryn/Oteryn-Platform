@@ -18,6 +18,12 @@
   </div>
   {% elif message == "invite-mfa" %}
   <div><a class="op-button" href="/{{ lang }}/mfa">{{ self.tr("invite-enroll") }}</a></div>
+  {% if !csrf.is_empty() %}
+  <form method="post" action="/{{ lang }}/logout">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="op-button op-button--secondary">{{ self.tr("invite-reauthenticate") }}</button>
+  </form>
+  {% endif %}
   {% elif !token.is_empty() %}
   <form method="post" action="/{{ lang }}/staff-invite">
     <input type="hidden" name="_csrf" value="{{ csrf }}">

@@ -261,20 +261,39 @@ pub async fn rotate_in_transaction(
     let inner = session.inner.lock().await;
     let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
     let account = record.account_id.ok_or(sqlx::Error::RowNotFound)?;
+    reissue_in_transaction(tx, account, &hash(&record.id), Some(until)).await
+}
+
+/// Reissue a locked authenticated session and retain its validated session data.
+/// A missing sudo deadline clears prior step-up authority.
+pub async fn reissue_in_transaction(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account: Uuid,
+    previous_hash: &[u8],
+    sudo_until: Option<OffsetDateTime>,
+) -> Result<CommittedRotation, sqlx::Error> {
     let id = random_token()?;
     let csrf = random_token()?;
-    let changed = sqlx::query("UPDATE web_sessions SET id_hash=$2,csrf_token=$3,sudo_until=$4,updated_at=clock_timestamp() WHERE id_hash=$1 AND account_id=$5 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(until).bind(account).execute(&mut **tx).await?;
-    if changed.rows_affected() != 1 {
-        return Err(sqlx::Error::RowNotFound);
-    }
+    let session_id = sqlx::query_scalar(
+        "UPDATE web_sessions SET id_hash=$2,csrf_token=$3,sudo_until=$4,updated_at=clock_timestamp()
+         WHERE id_hash=$1 AND account_id=$5 AND idle_expires_at>clock_timestamp()
+         AND absolute_expires_at>clock_timestamp() RETURNING session_id",
+    )
+    .bind(previous_hash)
+    .bind(hash(&id))
+    .bind(&csrf)
+    .bind(sudo_until)
+    .bind(account)
+    .fetch_one(&mut **tx)
+    .await?;
     Ok(CommittedRotation {
-        session_id: record.session_id,
+        session_id,
         id,
         csrf,
         account: Some(account),
     })
 }
+
 pub async fn apply_rotation(session: &BrowserSession, rotation: CommittedRotation) {
     let mut inner = session.inner.lock().await;
     inner.cookie = Some(cookie(&rotation.id));

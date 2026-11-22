@@ -69,6 +69,7 @@ impl Fixture {
                 " Recipient@Example.Invalid ",
                 vec![self.role],
                 "en",
+                Uuid::now_v7(),
             )
             .await?;
         let payload: String = sqlx::query_scalar(
@@ -147,6 +148,12 @@ async fn success_requires_mfa_and_consumes_once() -> TestResult {
         Err(Error::Denied)
     ));
 
+    let proof = f.recipient.session_proof.ok_or("missing proof")?;
+    let old_csrf: String =
+        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
+            .bind(proof.session_hash.as_slice())
+            .fetch_one(&f.invites.pool)
+            .await?;
     // Both requests race the real database mutation. Exactly one can succeed.
     let (first, second) = tokio::join!(
         f.invites.accept(f.recipient, &token),
@@ -154,8 +161,26 @@ async fn success_requires_mfa_and_consumes_once() -> TestResult {
     );
     assert!(matches!(
         (first, second),
-        (Ok(()), Err(Error::Denied)) | (Err(Error::Denied), Ok(()))
+        (Ok(_), Err(Error::Denied)) | (Err(Error::Denied), Ok(_))
     ));
+    let (new_id, new_csrf, same_grant): (Vec<u8>, String, bool) = sqlx::query_as(
+        "SELECT id_hash,csrf_token,sha256(convert_to(data->>'mfa_grant','UTF8'))=$2
+         FROM web_sessions WHERE account_id=$1",
+    )
+    .bind(f.recipient.account)
+    .bind(proof.grant_hash.as_slice())
+    .fetch_one(&f.invites.pool)
+    .await?;
+    assert!(new_id != proof.session_hash && new_csrf != old_csrf && same_grant);
+    assert!(
+        !rbac::durable_session_in(
+            &mut *f.invites.pool.acquire().await?,
+            f.recipient.account,
+            proof
+        )
+        .await
+        .map_err(|_| "durable session lookup failed")?
+    );
     assert_eq!(f.memberships().await?, 1);
     assert!(matches!(
         f.invites.accept(f.recipient, &token).await,
@@ -185,7 +210,8 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
                 &f.key,
                 "recipient@example.invalid",
                 vec![other],
-                "en"
+                "en",
+                Uuid::now_v7(),
             )
             .await,
         Err(Error::Denied)
@@ -215,7 +241,8 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
                 &f.key,
                 "recipient@example.invalid",
                 vec![admin],
-                "en"
+                "en",
+                Uuid::now_v7(),
             )
             .await,
         Err(Error::Denied)
@@ -266,5 +293,156 @@ async fn expired_revoked_and_wrong_account_are_refused() -> TestResult {
     );
     assert_eq!(f.memberships().await?, 0);
     f.invites.accept(f.recipient, &wrong_token).await?;
+    f.close().await
+}
+
+#[tokio::test]
+async fn privileged_invite_requires_independent_current_authority() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let f = Fixture::open().await?;
+    let pool = &f.invites.pool;
+    let platform: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(pool)
+        .await?;
+    let id = f
+        .invites
+        .create(
+            f.inviter,
+            &f.key,
+            "recipient@example.invalid",
+            vec![platform],
+            "en",
+            Uuid::now_v7(),
+        )
+        .await?;
+    let payload: String =
+        sqlx::query_scalar("SELECT payload::text FROM outbox WHERE kind=$1 AND idempotency_key=$2")
+            .bind(MAIL_KIND)
+            .bind(id.to_string())
+            .fetch_one(pool)
+            .await?;
+    assert!(delivery(pool, &f.key, &payload).await?.is_none());
+    let job: Delivery = serde_json::from_str(&payload)?;
+    let token = f.key.open(&job.ciphertext).ok_or("missing token")?;
+    assert!(matches!(
+        f.invites.accept(f.recipient, &token).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        f.invites.approve(f.inviter, id).await,
+        Err(Error::Denied)
+    ));
+    assert_eq!(f.memberships().await?, 0);
+
+    let second = account(pool, "approver@example.invalid").await?;
+    assert!(matches!(
+        f.invites.approve(second, id).await,
+        Err(Error::Denied)
+    ));
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2),($3,$2)")
+        .bind(second.account)
+        .bind(platform)
+        .bind(f.recipient.account)
+        .execute(pool)
+        .await?;
+    assert!(matches!(
+        f.invites.approve(f.recipient, id).await,
+        Err(Error::Denied)
+    ));
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(f.recipient.account)
+        .execute(pool)
+        .await?;
+    f.invites.approve(second, id).await?;
+    assert!(delivery(pool, &f.key, &payload).await?.is_some());
+
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(second.account)
+        .execute(pool)
+        .await?;
+    assert!(matches!(
+        f.invites.accept(f.recipient, &token).await,
+        Err(Error::Denied)
+    ));
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(second.account)
+        .bind(platform)
+        .execute(pool)
+        .await?;
+    f.invites.accept(f.recipient, &token).await?;
+    assert_eq!(f.memberships().await?, 1);
+    assert_eq!(
+        f.actions(id).await?,
+        [
+            ("staff.invite.created".into(), f.inviter.account),
+            ("staff.invite.approved".into(), second.account),
+            ("staff.invite.accepted".into(), f.recipient.account),
+        ]
+    );
+    f.close().await
+}
+
+#[tokio::test]
+async fn issuance_retry_and_visibility_are_scoped_to_the_issuer() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let f = Fixture::open().await?;
+    let pool = &f.invites.pool;
+    let other = account(pool, "other-manager@example.invalid").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(other.account).execute(pool).await?;
+    let request = Uuid::now_v7();
+    let issue = || {
+        f.invites.create(
+            f.inviter,
+            &f.key,
+            "recipient@example.invalid",
+            vec![f.role],
+            "en",
+            request,
+        )
+    };
+    let (first, retry) = tokio::join!(issue(), issue());
+    let id = first?;
+    assert_eq!(retry?, id);
+    let pending = pending_for(pool, f.inviter.account, None).await?;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].id, id);
+    assert!(pending_for(pool, other.account, None).await?.is_empty());
+    assert!(matches!(
+        f.invites.revoke(other, id).await,
+        Err(Error::Denied)
+    ));
+    let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM outbox WHERE kind=$1")
+        .bind(MAIL_KIND)
+        .fetch_one(pool)
+        .await?;
+    assert_eq!(jobs, 1);
+    f.invites.revoke(f.inviter, id).await?;
+    assert_eq!(issue().await?, id);
+    assert!(pending_for(pool, f.inviter.account, None).await?.is_empty());
+    f.close().await
+}
+
+#[tokio::test]
+async fn redemption_bounds_the_first_invitation_read() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let f = Fixture::open().await?;
+    let (_, token) = f.create().await?;
+    let mut ddl = f.invites.pool.begin().await?;
+    sqlx::query("LOCK TABLE staff_invites IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *ddl)
+        .await?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        f.invites.accept(f.recipient, &token),
+    )
+    .await?;
+    assert!(
+        matches!(result, Err(Error::Storage(sqlx::Error::Database(error)))
+        if matches!(error.code().as_deref(), Some("55P03" | "57014")))
+    );
+    ddl.rollback().await?;
+    assert_eq!(f.memberships().await?, 0);
+    f.invites.accept(f.recipient, &token).await?;
     f.close().await
 }

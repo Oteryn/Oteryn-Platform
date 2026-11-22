@@ -10,6 +10,7 @@ mod storage;
 
 pub use catalog::{BuiltInRole, Permission};
 pub use storage::Change;
+pub(crate) use storage::requires_grant_approval;
 
 use sqlx::{PgConnection, PgPool};
 use std::future::Future;

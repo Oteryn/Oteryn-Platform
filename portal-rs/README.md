@@ -90,4 +90,6 @@ console. The inviter must currently hold each selected role. The public link
 uses `OTERYN_PUBLIC_ORIGIN`. Sending uses the existing registration SMTP settings
 and `OTERYN_RESET_DELIVERY_KEY` to encrypt the queued token. The recipient uses
 the matching verified email account and reopens the link after signing in and
-completing MFA. Pending invitations can be revoked from the staff panel.
+completing MFA. Each issuer sees and revokes their own pending invitations. Privileged invitations
+wait for a second role manager who currently holds the selected roles. To request
+approval, share the approval link from the pending invitations page.

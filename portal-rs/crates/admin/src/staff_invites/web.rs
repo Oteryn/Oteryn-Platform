@@ -1,4 +1,4 @@
-use super::{DELEGABLE_ROLES, Invites, valid_token};
+use super::{DELEGABLE_ROLES, Invites, Listing, PENDING, Pending, pending_for, valid_token};
 use crate::{
     rbac::{Authorizer, CheckContext, Error, Permission},
     web::{PortalIdentity, StaffSession, configured_guard, language, staff_context, text},
@@ -36,6 +36,7 @@ pub fn router(
     pool: PgPool,
     key: Option<DeliveryKey>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
+    let enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
     let identity = PortalIdentity::configured(pool.clone());
     let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
@@ -53,7 +54,7 @@ pub fn router(
         limits: RateLimiter::new(pool.clone()),
     });
     let management = Router::new()
-        .route(MANAGE_PATH, get(manage).post(create))
+        .route("/admin/staff-invites", get(manage).post(create))
         .route("/admin/staff-invites/{id}/revoke", post(revoke))
         .with_state(state.clone());
     let public = Router::new()
@@ -61,6 +62,15 @@ pub fn router(
         .route_layer(middleware::from_fn_with_state(
             sessions,
             session::middleware,
+        ))
+        .route_layer(middleware::from_fn(
+            move |request: axum::extract::Request, next: middleware::Next| async move {
+                if enabled {
+                    next.run(request).await
+                } else {
+                    StatusCode::NOT_FOUND.into_response()
+                }
+            },
         ))
         .route_layer(middleware::map_response(private_link))
         .with_state(state);
@@ -89,7 +99,9 @@ struct Management {
     csrf: String,
     mail_configured: bool,
     roles: Vec<(Uuid, String)>,
-    pending: Vec<(Uuid, String, Vec<String>)>,
+    pending: Vec<Listing>,
+    request_key: Uuid,
+    approval: Option<Listing>,
     next: Option<Uuid>,
 }
 
@@ -102,6 +114,7 @@ impl Management {
 #[derive(Deserialize)]
 struct PageQuery {
     before: Option<Uuid>,
+    approval: Option<Uuid>,
 }
 
 async fn manage(
@@ -118,23 +131,49 @@ async fn manage(
             .bind(actor.account)
             .fetch_all(&app.invites.pool)
             .await?;
-        let mut pending: Vec<(Uuid, String, Vec<String>)> = sqlx::query_as(
-            "SELECT i.id,i.email,ARRAY(SELECT r.key FROM roles r WHERE r.id=ANY(i.role_ids) ORDER BY r.key)
-             FROM staff_invites i WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL
-             AND i.expires_at>clock_timestamp() AND ($1::uuid IS NULL OR i.id<$1)
-             ORDER BY i.id DESC LIMIT 51",
-        )
-        .bind(query.before)
-        .fetch_all(&app.invites.pool)
-        .await?;
-        let next = if pending.len() > 50 {
-            pending.pop();
-            pending.last().map(|row| row.0)
+        let mut pending = pending_for(&app.invites.pool, actor.account, query.before).await?;
+        let approval = if let Some(id) = query.approval {
+            let mut conn = app.invites.pool.acquire().await?;
+            let invite: Pending =
+                sqlx::query_as(sqlx::AssertSqlSafe(format!("{PENDING} AND id=$1")))
+                    .bind(id)
+                    .fetch_optional(&mut *conn)
+                    .await?
+                    .ok_or(Error::Denied)?;
+            app.invites
+                .check_approver(&mut conn, actor.account, &invite)
+                .await?;
+            let roles = sqlx::query_scalar("SELECT key FROM roles WHERE id=ANY($1) ORDER BY key")
+                .bind(invite.role_ids)
+                .fetch_all(&mut *conn)
+                .await?;
+            Some(Listing {
+                id,
+                email: invite.email,
+                roles,
+                awaiting_approval: true,
+            })
         } else {
             None
         };
-        Ok(Management { lang, csrf, mail_configured: app.key.is_some(), roles, pending, next })
-    }.await;
+        let next = if pending.len() > 50 {
+            pending.pop();
+            pending.last().map(|row| row.id)
+        } else {
+            None
+        };
+        Ok(Management {
+            lang,
+            csrf,
+            mail_configured: app.key.is_some(),
+            roles,
+            pending,
+            next,
+            approval,
+            request_key: Uuid::now_v7(),
+        })
+    }
+    .await;
     match result {
         Ok(page) => oteryn_web::render(&page),
         Err(error) => failure(lang, error),
@@ -184,6 +223,18 @@ async fn create(
     {
         return *response;
     }
+    let Ok(fields) = serde_urlencoded::from_bytes::<Vec<(String, String)>>(&form) else {
+        return failure(lang, Error::InvalidInput);
+    };
+    if let Some((_, id)) = fields.iter().find(|(name, _)| name == "approve") {
+        let Ok(id) = id.parse() else {
+            return failure(lang, Error::InvalidInput);
+        };
+        return match app.invites.approve(actor, id).await {
+            Ok(()) => Redirect::to(MANAGE_PATH).into_response(),
+            Err(error) => failure(lang, error),
+        };
+    }
     let Some(key) = &app.key else {
         return invite_page(
             lang,
@@ -191,14 +242,16 @@ async fn create(
             "invite-mail-unavailable",
         );
     };
-    let Ok(fields) = serde_urlencoded::from_bytes::<Vec<(String, String)>>(&form) else {
-        return failure(lang, Error::InvalidInput);
-    };
     let mut email = "";
     let mut roles = Vec::new();
+    let mut request_key = Uuid::nil();
     for (name, value) in &fields {
         match name.as_str() {
             "email" => email = value,
+            "request_key" => match value.parse() {
+                Ok(id) => request_key = id,
+                Err(_) => return failure(lang, Error::InvalidInput),
+            },
             "role" => match value.parse() {
                 Ok(id) => roles.push(id),
                 Err(_) => return failure(lang, Error::InvalidInput),
@@ -206,7 +259,11 @@ async fn create(
             _ => {}
         }
     }
-    match app.invites.create(actor, key, email, roles, lang).await {
+    match app
+        .invites
+        .create(actor, key, email, roles, lang, request_key)
+        .await
+    {
         Ok(_) => Redirect::to(MANAGE_PATH).into_response(),
         Err(error) => failure(lang, error),
     }
@@ -324,7 +381,16 @@ async fn open(
         return invite_page(&lang, StatusCode::FORBIDDEN, "invite-wrong-account");
     }
     if !identity.mfa_satisfied {
-        return invite_page(&lang, StatusCode::OK, "invite-mfa");
+        let csrf = match session.csrf_token().await {
+            Ok(value) => value,
+            Err(error) => return failure(&lang, error.into()),
+        };
+        return oteryn_web::render(&Invitation {
+            lang: &lang,
+            message: "invite-mfa",
+            token: "",
+            csrf: &csrf,
+        });
     }
     let csrf = match session.csrf_token().await {
         Ok(value) => value,
@@ -370,7 +436,10 @@ async fn accept(
     }
     let actor = staff_context(&session, identity).await;
     match app.invites.accept(actor, &link.token).await {
-        Ok(()) => invite_page(&lang, StatusCode::OK, "invite-accepted"),
+        Ok(rotation) => {
+            session::apply_rotation(&session, rotation).await;
+            invite_page(&lang, StatusCode::OK, "invite-accepted")
+        }
         Err(error) => failure(&lang, error),
     }
 }

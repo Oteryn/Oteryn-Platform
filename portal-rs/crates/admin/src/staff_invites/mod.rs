@@ -11,6 +11,7 @@ use oteryn_identity::{
     reset::{DeliveryKey, valid_email},
     verify::{new_token, token_hash},
 };
+use oteryn_web::session::{CommittedRotation, reissue_in_transaction};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{PgConnection, PgPool};
@@ -37,7 +38,8 @@ pub async fn delivery(
         .ok_or("invalid staff invite ciphertext")?;
     let address: Option<(String, String)> = sqlx::query_as(
         "SELECT email,locale FROM staff_invites WHERE id=$1 AND token_hash=$2
-         AND expires_at>clock_timestamp() AND accepted_at IS NULL AND revoked_at IS NULL",
+         AND expires_at>clock_timestamp() AND accepted_at IS NULL AND revoked_at IS NULL
+         AND (NOT requires_approval OR approved_by IS NOT NULL)",
     )
     .bind(job.invite)
     .bind(token_hash(&token))
@@ -78,6 +80,42 @@ async fn check_roles(tx: &mut PgConnection, actor: Uuid, roles: &[Uuid]) -> Resu
     }
 }
 
+#[derive(sqlx::FromRow)]
+struct Pending {
+    id: Uuid,
+    email: String,
+    invited_by: Uuid,
+    role_ids: Vec<Uuid>,
+    requires_approval: bool,
+    approved_by: Option<Uuid>,
+}
+
+const PENDING: &str = "SELECT id,email,invited_by,role_ids,requires_approval,approved_by
+    FROM staff_invites WHERE accepted_at IS NULL AND revoked_at IS NULL
+    AND expires_at>clock_timestamp()";
+
+#[derive(sqlx::FromRow)]
+struct Listing {
+    id: Uuid,
+    email: String,
+    roles: Vec<String>,
+    awaiting_approval: bool,
+}
+
+async fn pending_for(
+    pool: &PgPool,
+    issuer: Uuid,
+    before: Option<Uuid>,
+) -> Result<Vec<Listing>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT i.id,i.email,ARRAY(SELECT r.key FROM roles r WHERE r.id=ANY(i.role_ids) ORDER BY r.key) AS roles,
+         i.requires_approval AND i.approved_by IS NULL AS awaiting_approval
+         FROM staff_invites i WHERE i.invited_by=$1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL
+         AND i.expires_at>clock_timestamp() AND ($2::uuid IS NULL OR i.id<$2)
+         ORDER BY i.id DESC LIMIT 51",
+    ).bind(issuer).bind(before).fetch_all(pool).await
+}
+
 struct Invites<A> {
     pool: PgPool,
     auth: Authorizer<A>,
@@ -91,37 +129,52 @@ impl<A: AccountStateReader> Invites<A> {
         email: &str,
         mut roles: Vec<Uuid>,
         locale: &str,
+        request_key: Uuid,
     ) -> Result<Uuid, Error> {
         let email = normalize_email(email);
         roles.sort_unstable();
         roles.dedup();
-        if !valid_email(&email) || !(1..=32).contains(&roles.len()) {
+        if request_key.is_nil() || !valid_email(&email) || !(1..=32).contains(&roles.len()) {
             return Err(Error::InvalidInput);
         }
+        let mut tx = self.pool.begin().await?;
+        rbac::mutation_budget(&mut tx).await?;
+        rbac::authorize_mutation(&mut tx, &[], &self.auth, actor, &MANAGE).await?;
+        if let Some((id, original_email, original_roles)) = sqlx::query_as::<
+            _,
+            (Uuid, String, Vec<Uuid>),
+        >(
+            "SELECT id,email,role_ids FROM staff_invites WHERE invited_by=$1 AND request_key=$2",
+        )
+        .bind(actor.account)
+        .bind(request_key)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if original_email != email || original_roles != roles {
+                return Err(Error::InvalidInput);
+            }
+            tx.commit().await?;
+            return Ok(id);
+        }
+        check_roles(&mut tx, actor.account, &roles).await?;
+        let requires_approval = rbac::requires_grant_approval(&mut tx, &roles).await?;
         let token = new_token()?;
         let ciphertext = key.seal(&token)?;
         let id = Uuid::now_v7();
-        let mut tx = self.pool.begin().await?;
-        rbac::authorize_mutation(&mut tx, &[], &self.auth, actor, &MANAGE).await?;
-        check_roles(&mut tx, actor.account, &roles).await?;
-        sqlx::query(
-            "INSERT INTO staff_invites(id,email,role_ids,invited_by,token_hash,locale,created_at,expires_at)
-             VALUES ($1,$2,$3,$4,$5,$6,statement_timestamp(),statement_timestamp()+interval '48 hours')",
+        let (created, expires): (time::OffsetDateTime, time::OffsetDateTime) = sqlx::query_as(
+            "INSERT INTO staff_invites(id,email,role_ids,invited_by,token_hash,locale,created_at,expires_at,request_key,requires_approval)
+             VALUES ($1,$2,$3,$4,$5,$6,statement_timestamp(),statement_timestamp()+interval '48 hours',$7,$8)
+             RETURNING created_at,expires_at",
         )
-        .bind(id)
-        .bind(email)
-        .bind(&roles)
-        .bind(actor.account)
-        .bind(token_hash(&token))
-        .bind(locale)
-        .execute(&mut *tx)
-        .await?;
+        .bind(id).bind(email).bind(&roles).bind(actor.account).bind(token_hash(&token))
+        .bind(locale).bind(request_key).bind(requires_approval).fetch_one(&mut *tx).await?;
         oteryn_db::outbox::enqueue(
             &mut tx,
             MAIL_KIND,
             &json!({"invite":id,"ciphertext":ciphertext}).to_string(),
             &id.to_string(),
-            time::OffsetDateTime::now_utc(),
+            if requires_approval { expires } else { created },
             5,
         )
         .await?;
@@ -130,7 +183,7 @@ impl<A: AccountStateReader> Invites<A> {
             actor.account,
             id,
             "staff.invite.created",
-            json!({"roles":roles}),
+            json!({"roles":roles,"requires_approval":requires_approval}),
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
@@ -138,14 +191,93 @@ impl<A: AccountStateReader> Invites<A> {
         Ok(id)
     }
 
+    async fn approve(&self, actor: CheckContext, id: Uuid) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        rbac::mutation_budget(&mut tx).await?;
+        let invite: Pending = sqlx::query_as(sqlx::AssertSqlSafe(format!("{PENDING} AND id=$1")))
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(Error::Denied)?;
+        rbac::authorize_mutation(&mut tx, &[invite.invited_by], &self.auth, actor, &MANAGE).await?;
+        self.check_approver(&mut tx, actor.account, &invite).await?;
+        self.check_manager(&mut tx, invite.invited_by, &invite.role_ids)
+            .await?;
+        let updated = sqlx::query(
+            "UPDATE staff_invites SET requires_approval=true,approved_by=$2 WHERE id=$1
+             AND approved_by IS NULL AND revoked_at IS NULL AND accepted_at IS NULL
+             AND expires_at>clock_timestamp()",
+        )
+        .bind(id)
+        .bind(actor.account)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(Error::Denied);
+        }
+        sqlx::query("UPDATE outbox SET run_after=clock_timestamp() WHERE kind=$1 AND idempotency_key=$2 AND state='pending'")
+            .bind(MAIL_KIND).bind(id.to_string()).execute(&mut *tx).await?;
+        record(
+            &mut tx,
+            actor.account,
+            id,
+            "staff.invite.approved",
+            json!({"roles":invite.role_ids}),
+        )
+        .await?;
+        self.auth.session_in(&mut tx, actor).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn check_approver(
+        &self,
+        conn: &mut PgConnection,
+        actor: Uuid,
+        invite: &Pending,
+    ) -> Result<(), Error> {
+        if actor == invite.invited_by
+            || invite.approved_by.is_some()
+            || (!invite.requires_approval
+                && !rbac::requires_grant_approval(conn, &invite.role_ids).await?)
+        {
+            return Err(Error::Denied);
+        }
+        let recipient: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND lower(email)=$2)",
+        )
+        .bind(actor)
+        .bind(&invite.email)
+        .fetch_one(&mut *conn)
+        .await?;
+        if recipient {
+            return Err(Error::Denied);
+        }
+        self.check_manager(conn, actor, &invite.role_ids).await
+    }
+
+    async fn check_manager(
+        &self,
+        conn: &mut PgConnection,
+        actor: Uuid,
+        roles: &[Uuid],
+    ) -> Result<(), Error> {
+        for permission in MANAGE {
+            self.auth.check_subject_in(conn, actor, permission).await?;
+        }
+        check_roles(conn, actor, roles).await
+    }
+
     async fn revoke(&self, actor: CheckContext, id: Uuid) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
+        rbac::mutation_budget(&mut tx).await?;
         rbac::authorize_mutation(&mut tx, &[], &self.auth, actor, &MANAGE).await?;
         let result = sqlx::query(
-            "UPDATE staff_invites SET revoked_at=clock_timestamp() WHERE id=$1
+            "UPDATE staff_invites SET revoked_at=clock_timestamp() WHERE id=$1 AND invited_by=$2
              AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>clock_timestamp()",
         )
         .bind(id)
+        .bind(actor.account)
         .execute(&mut *tx)
         .await?;
         if result.rows_affected() != 1 {
@@ -164,32 +296,40 @@ impl<A: AccountStateReader> Invites<A> {
         Ok(())
     }
 
-    async fn accept(&self, actor: CheckContext, token: &str) -> Result<(), Error> {
+    async fn accept(&self, actor: CheckContext, token: &str) -> Result<CommittedRotation, Error> {
         if !valid_token(token) {
             return Err(Error::Denied);
         }
         let mut tx = self.pool.begin().await?;
-        let Some((id, inviter, roles)) = sqlx::query_as::<_, (Uuid, Uuid, Vec<Uuid>)>(
-            "SELECT id,invited_by,role_ids FROM staff_invites WHERE token_hash=$1
-             AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at>clock_timestamp()",
-        )
-        .bind(token_hash(token))
-        .fetch_optional(&mut *tx)
-        .await?
-        else {
-            return Err(Error::Denied);
-        };
-        if inviter == actor.account {
+        rbac::mutation_budget(&mut tx).await?;
+        let digest = token_hash(token);
+        let invite: Pending =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!("{PENDING} AND token_hash=$1")))
+                .bind(&digest)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::Denied)?;
+        if invite.invited_by == actor.account {
             return Err(Error::Denied);
         }
-        rbac::lock_accounts_and_mutation(&mut tx, &[inviter, actor.account]).await?;
+        let mut accounts = vec![invite.invited_by, actor.account];
+        accounts.extend(invite.approved_by);
+        rbac::lock_accounts_and_mutation(&mut tx, &accounts).await?;
         self.auth.session_in(&mut tx, actor).await?;
-        for permission in MANAGE {
-            self.auth
-                .check_subject_in(&mut tx, inviter, permission)
+        self.check_manager(&mut tx, invite.invited_by, &invite.role_ids)
+            .await?;
+        if invite.requires_approval
+            || rbac::requires_grant_approval(&mut tx, &invite.role_ids).await?
+        {
+            let approver = invite
+                .approved_by
+                .filter(|id| *id != actor.account)
+                .ok_or(Error::Denied)?;
+            self.check_manager(&mut tx, approver, &invite.role_ids)
                 .await?;
         }
-        check_roles(&mut tx, inviter, &roles).await?;
+        let id = invite.id;
+        let roles = invite.role_ids;
         let result = sqlx::query(
             "UPDATE staff_invites i SET accepted_at=clock_timestamp(),accepted_by=a.id FROM accounts a
              WHERE i.id=$1 AND a.id=$2 AND lower(a.email)=i.email AND a.email_verified_at IS NOT NULL
@@ -231,8 +371,10 @@ impl<A: AccountStateReader> Invites<A> {
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
+        let rotation =
+            reissue_in_transaction(&mut tx, actor.account, &proof.session_hash, None).await?;
         tx.commit().await?;
-        Ok(())
+        Ok(rotation)
     }
 }
 

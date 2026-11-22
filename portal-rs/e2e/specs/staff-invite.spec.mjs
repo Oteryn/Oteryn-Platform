@@ -105,6 +105,12 @@ test('staff invitations reach verified registered and existing accounts through 
     });
     expect(refused.status()).toBe(403);
     expect(await memberships(fresh)).toEqual([]);
+    await visit(page,freshLink,200);
+    await submit(page,`main form[action="/${lang}/logout"]`);
+    await expect(page).toHaveURL(new URL(`/${lang}/`,origin()).href);
+    await visit(page,freshLink,200);
+    await expect(page.locator(`main a[href="/${lang}/login"]`)).toBeVisible();
+    await login(page,lang,registered);
     const freshCodes=await enrollMfa(page,lang,registered);
     await loginWithRecoveryCode(page,lang,registered,freshCodes[0]);
     await visit(page,freshLink,200);
@@ -121,9 +127,21 @@ test('staff invitations reach verified registered and existing accounts through 
     const existingCodes=await enrollMfa(page,lang,existing);
     await loginWithRecoveryCode(page,lang,existing,existingCodes[0]);
     await visit(page,existingLink,200);
-    await submit(page,`main form[action="/${lang}/staff-invite"]`);
-    await expect(page.getByText(lang==='pl' ? /Zaproszenie zostało przyjęte/ : /Invitation accepted/)).toBeVisible();
-    expect(await memberships(existing.email)).toEqual(['support']);
+    const copied=await browser.newContext({
+      baseURL:origin(),ignoreHTTPSErrors:true,storageState:await page.context().storageState(),
+    });
+    try {
+      const previous=await copied.request.get('/admin',{maxRedirects:0});
+      expect(previous.status()).toBe(403);
+      await submit(page,`main form[action="/${lang}/staff-invite"]`);
+      await expect(page.getByText(lang==='pl' ? /Zaproszenie zostało przyjęte/ : /Invitation accepted/)).toBeVisible();
+      expect(await memberships(existing.email)).toEqual(['support']);
+      const stale=await copied.request.get('/admin',{maxRedirects:0});
+      expect(stale.status()).toBe(303);
+      expect(stale.headers().location).toBe('/login');
+    } finally {
+      await copied.close();
+    }
     expect((await page.goto('/admin')).status()).toBe(200);
     expect((await page.goto('/admin/roles')).status()).toBe(403);
 
