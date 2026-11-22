@@ -17,6 +17,8 @@ Governing issue [#2002](https://github.com/Oteryn/Oteryn-Platform/issues/2002). 
 - Keep pending Bazaar invalidations paginated independently of approved history, suppress audit replays, and record event translation changes with per-locale content fingerprints.
 - Validate successful ADM-01 results against the pinned schema for the stored operation. Show superseded Bazaar requests in their own history, and acknowledge the recorded approver's retry after reconciliation without a second audit or outbox row.
 - Preserve command receipts and acknowledge exact stored ADM retries after ownership checks. Bind world and node details to their requested targets, enforce pinned integer widths, and render readiness and migration outcomes in both locales.
+- Validate cached signed policy and ledger results before rendering and allow fresh queries when the schema fails. Replay a Bazaar suspension only for the same actor and request payload. Preserve the previous and persisted event publisher in the audit, and localize each world revision label.
+- Integrate current main while preserving event pagination, the two translation additions, and both local harness integrations.
 - Check browser flows in Polish and English at both configured widths.
 
 ADM-01 ratifies transport framing. The pinned read result union includes `analytics.catalog`. This packet covers the existing console projections and the Platform Bazaar moderation records. Jira synchronization is unknown.
@@ -25,8 +27,8 @@ ADM-01 ratifies transport framing. The pinned read result union includes `analyt
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T19:20:33Z
-head: 03cbe4a65a557fe5ddebd4eef9b2971fe9e4685d
+updated_at: 2026-11-22T20:52:39Z
+head: ae8786651dbc41156aacd9f5c99486b5e3dad067
 branch: codex/feat-gm-world
 pr: none
 status: ready
@@ -56,9 +58,11 @@ owned_paths:
   - portal-rs/e2e/specs/gm-world.spec.mjs
   - portal-rs/e2e/specs/gm-bazaar.spec.mjs
   - portal-rs/e2e/specs/content.spec.mjs
+  - portal-rs/e2e/specs/public-depth-editorial.spec.mjs
   - portal-rs/e2e/support/admin-control-fixture.mjs
   - portal-rs/e2e/support/admin-control-results.json
   - portal-rs/e2e/staff-rbac-helpers.mjs
+  - portal-rs/migrations/20261122200000_bazaar_suspension_requests.sql
 proven:
   - Live governing issue 2002 is open and owner correction defines the feature scope.
   - ADM-01 transport framing is ratified and existing ops reads use the control store.
@@ -69,6 +73,9 @@ proven:
   - World and node details are bound to the requested target at ingestion and presentation. The legacy signed mismatch test shows an unavailable result and retains the option to request fresh data.
   - Superseded approvals preserve their original audit. The worker checks the exact selected request against the current hold, and the final effective approval remains visible after cancellation.
   - The Bazaar browser cases preserved the public intake refusal. An eligible account's seeded pending report reached a separate moderator through the staff form and produced the expected audit.
+  - Invalid legacy signed ledger and policy results produce unavailable views and trigger replacement requests. The stored-console tests observe both replacement request IDs and the valid rendering after reconciliation.
+  - An exact suspension retry keeps the hold revision, independent approval, and single suspension audit. Reusing the UUID from a second actor is refused.
+  - The main merge retained the public event pagination case, both event translation keys, and both local launcher integrations. The separate outbox harness answered its health check.
 derived: []
 unknown:
   - Jira synchronization for issue 2002.
@@ -85,13 +92,14 @@ changed_paths:
   - portal-rs/templates/events/
   - portal-rs/templates/admin/events/
   - portal-rs/e2e/
+  - portal-rs/migrations/20261122200000_bazaar_suspension_requests.sql
 validation:
-  - command: cargo test --locked -p oteryn-admin -p oteryn-bazaar -p oteryn-content --lib --no-fail-fast -- control::control_http::tests control::canonical::body_tests console::stored::tests console::tests gm_browser_result_fixtures_match_pinned_operation_schemas bazaar::tests events::tests moderation::tests
+  - command: cargo test --locked -p oteryn-admin -p oteryn-bazaar -p oteryn-content --lib --no-fail-fast -- control::control_http::tests control::canonical::body_tests console::stored::tests console::tests gm_browser_result_fixtures_match_pinned_operation_schemas bazaar::tests events::tests moderation::tests invalidation_tests lifecycle_active_invalidate
     result: PASS
-    evidence: 40 admin, 15 Bazaar and 7 CMS cases passed on PostgreSQL 18.6. The existing concurrent-mutation case hit a database I/O timeout in the overlapping run and passed in isolation in a fresh database.
-  - command: cargo test --locked -p oteryn-admin -p oteryn-bazaar -p oteryn-content --lib -- invalidation_tests lifecycle_active_invalidate
+    evidence: All 40 admin, 36 Bazaar and eight CMS cases passed on PostgreSQL 18.6.
+  - command: cargo test --locked -p oteryn-content --test transaction_authorization
     result: PASS
-    evidence: 20 Bazaar invalidation and lifecycle cases passed serially in a separate database.
+    evidence: All seven content authorization and transaction cases passed.
   - command: cargo test --locked -p oteryn-internal-api --lib
     result: PASS
     evidence: All 5 internal API library cases passed.
@@ -100,7 +108,13 @@ validation:
     evidence: Native admission, public HTTP and the internal mTLS listener became ready. The seed CLI created the disposable world fixture.
   - command: Playwright gm-world, gm-bazaar and content specs in pl-1440 and en-390
     result: PASS
-    evidence: 14 passed with the existing local launcher. Coverage includes both signed detail mismatches, localized readiness and migration outcomes, post-cancellation approval replay and all four editorial cases per project. The Polish editorial news case passed in isolation after an initial logout connection reset.
+    evidence: All 14 cases passed at the default settings. The cases cover signed detail mismatches, all four localized world revision labels, suspension and approval retries, publisher changes, and both Wiki cases.
+  - command: Playwright public-depth-editorial event pagination in pl-1440 and en-390
+    result: PASS
+    evidence: Both cases preserved localized links, page bounds and archival removal on the integrated revision.
+  - command: cargo test --locked -p oteryn-db --test migrations
+    result: PASS
+    evidence: All four checks passed, including unique embedded migration versions.
   - command: cargo fmt --all --check
     result: PASS
     evidence: workspace formatting check passed.
@@ -112,6 +126,8 @@ next_action: Retain the qualified fast-forward follow-up branch for coordinator 
 
 ```yaml
 source_branch_disposition: retain
-source_branch_reason: Coordinator review of the five findings and the Bazaar worker handoff correction.
-source_branch_evidence: The follow-up began at remote SHA 97fee35f366b7175ab974a2ce3a26d8eabe6483b. Tested product and test sources at 03cbe4a65a557fe5ddebd4eef9b2971fe9e4685d retain original base 33145d6ec7662cd01f91e304ba09fa904edeaf37.
+source_branch_reason: Coordinator review of the five findings and the integrated revision under issue 2002.
+source_branch_evidence: The follow-up began at remote SHA 9038dc292163277df5998ac8c8d79cd6c53de975. Merge cc017130685509e60f5d5d9a93cea36066a05f74 integrated main at 6c2ba2ed76b4bef8e6877ed71ef18a6ee094a12a. The validated portal sources are at ae8786651dbc41156aacd9f5c99486b5e3dad067.
 ```
+
+The previous qualification covered the Bazaar worker handoff at `03cbe4a65a557fe5ddebd4eef9b2971fe9e4685d` on original base `33145d6ec7662cd01f91e304ba09fa904edeaf37`. The concurrent mutation and Polish news cases passed on isolated reruns in that qualification.
