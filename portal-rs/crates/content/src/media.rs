@@ -209,6 +209,7 @@ fn verify_jpeg_structure(bytes: &[u8]) -> Option<()> {
     let mut in_scan = false;
     let mut frame: Option<(&[u8], bool)> = None;
     let mut initial_components = 0u8;
+    let mut approximation = [[None; 64]; JPEG_MAX_COMPONENTS as usize];
     loop {
         if in_scan {
             rest = &rest[memchr::memchr(0xff, rest)?..];
@@ -249,14 +250,28 @@ fn verify_jpeg_structure(bytes: &[u8]) -> Option<()> {
                         }
                         let selectors_end = 1 + usize::from(count) * 2;
                         let selectors = payload.get(1..selectors_end)?;
-                        let spectral = payload.get(selectors_end..selectors_end + 3)?;
-                        let initial_dc =
-                            spectral[0] == 0 && spectral[1] == 0 && spectral[2] >> 4 == 0;
-                        if !progressive || initial_dc {
-                            for selector in selectors.chunks_exact(2) {
-                                let index = components
-                                    .chunks_exact(3)
-                                    .position(|component| component[0] == selector[0])?;
+                        let spectral = payload
+                            .get(selectors_end..selectors_end + 3)?
+                            .try_into()
+                            .ok()?;
+                        let mut seen = 0u8;
+                        for selector in selectors.chunks_exact(2) {
+                            let index = components
+                                .chunks_exact(3)
+                                .position(|component| component[0] == selector[0])?;
+                            let mask = 1 << index;
+                            if seen & mask != 0 {
+                                return None;
+                            }
+                            seen |= mask;
+                            if progressive {
+                                verify_progressive_scan(
+                                    &mut approximation[index],
+                                    spectral,
+                                    count,
+                                )?;
+                            }
+                            if !progressive || approximation[index][0].is_some() {
                                 initial_components |= 1 << index;
                             }
                         }
@@ -268,6 +283,28 @@ fn verify_jpeg_structure(bytes: &[u8]) -> Option<()> {
             }
         }
     }
+}
+
+fn verify_progressive_scan(
+    coefficients: &mut [Option<u8>; 64],
+    [start, end, approximation]: [u8; 3],
+    components: u8,
+) -> Option<()> {
+    let high = approximation >> 4;
+    let low = approximation & 15;
+    if start > end || high > 13 || low > 13 || (high != 0 && high != low + 1) {
+        return None;
+    }
+    if (start == 0 && end != 0) || (start != 0 && (components != 1 || coefficients[0].is_none())) {
+        return None;
+    }
+    let band = coefficients.get_mut(usize::from(start)..=usize::from(end))?;
+    let previous = (high != 0).then_some(high);
+    if band.iter().any(|&value| value != previous) {
+        return None;
+    }
+    band.fill(Some(low));
+    Some(())
 }
 
 fn decode_jpeg(

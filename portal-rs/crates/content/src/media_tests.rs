@@ -79,6 +79,48 @@ fn progressive_jpeg_requires_initial_dc_for_every_component() {
 }
 
 #[test]
+fn progressive_jpeg_requires_ordered_scans_and_refinement() {
+    use oxiarc_jpeg::{
+        EncodeOptions, EncodeProcess, InputColor, ScanSpec, encode_to_vec_with_options,
+    };
+    let options = EncodeOptions {
+        process: EncodeProcess::Progressive,
+        progressive_script: Some(vec![
+            ScanSpec::dc(vec![0], 0, 0),
+            ScanSpec::ac(0, 1, 63, 0, 1),
+            ScanSpec::ac(0, 1, 63, 1, 0),
+        ]),
+        ..EncodeOptions::default()
+    };
+    let jpeg =
+        encode_to_vec_with_options(&[96; 16 * 16], 16, 16, InputColor::Luma, &options).unwrap();
+    assert!(process("ordered.jpeg", &jpeg).is_ok());
+    let spectral_offsets: Vec<_> = jpeg
+        .windows(2)
+        .enumerate()
+        .filter_map(|(index, pair)| (pair == [0xff, 0xda]).then_some(index + 7))
+        .collect();
+    let &[dc, ac, refinement] = spectral_offsets.as_slice() else {
+        panic!("expected three scans")
+    };
+
+    let mut reordered = jpeg.clone();
+    reordered[dc..dc + 3].copy_from_slice(&jpeg[ac..ac + 3]);
+    reordered[ac..ac + 3].copy_from_slice(&jpeg[dc..dc + 3]);
+    assert!(verify_jpeg_structure(&reordered).is_none());
+    assert_eq!(
+        process("ac-first.jpeg", &reordered).err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+
+    for invalid_approximation in [0x01, 0x21, 0x20] {
+        let mut malformed = jpeg.clone();
+        malformed[refinement + 2] = invalid_approximation;
+        assert!(verify_jpeg_structure(&malformed).is_none());
+    }
+}
+
+#[test]
 fn jpeg_with_incomplete_scan_passes_header_checks_but_is_rejected() {
     let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-scan.jpeg");
     assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Jpeg);
