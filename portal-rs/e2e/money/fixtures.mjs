@@ -45,8 +45,9 @@ export async function formAt(page, url) {
 export async function postForm(page, url, form) {
   const response = await page.request.post(url, {
     form,
-    headers: { origin: new URL(page.url()).origin },
+    headers: { origin: new URL(page.url()).origin, connection: 'close' },
     maxRedirects: 0,
+    maxRetries: 0,
   });
   const result = { status: response.status(), location: response.headers().location };
   await response.dispose();
@@ -107,7 +108,12 @@ export async function webhook(page, event) {
     .update(data).digest('base64');
   const response = await page.request.post('/__test/payments/webhook', {
     data,
-    headers: { 'content-type': 'application/json', 'x-test-payment-signature': signature },
+    maxRetries: 0,
+    headers: {
+      'content-type': 'application/json',
+      'x-test-payment-signature': signature,
+      connection: 'close',
+    },
   });
   const status = response.status();
   await response.dispose();
