@@ -148,17 +148,18 @@ impl Worker {
         let Some((id, recipient, subject, text, owner_proposal)) = row else {
             return Ok(false);
         };
+        let link_origin: fn(&str) -> Option<&str> = if owner_proposal {
+            owner_notice_origin
+        } else {
+            link_origin
+        };
         if Instant::now() >= last_send {
             return Ok(false);
         }
-        let Some((message, url, origin)) = text.rsplit_once("\n\n").and_then(|(message, url)| {
-            let origin = if owner_proposal {
-                owner_notice_origin(url)
-            } else {
-                link_origin(url)
-            }?;
-            Some((message, url, origin))
-        }) else {
+        let Some((message, url, origin)) = text
+            .rsplit_once("\n\n")
+            .and_then(|(message, url)| Some((message, url, link_origin(url)?)))
+        else {
             // An invalid stored payload cannot heal on retry. Keep the row
             // distinguishable from a successful send and remove its token.
             sqlx::query(
