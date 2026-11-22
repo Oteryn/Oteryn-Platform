@@ -4,26 +4,30 @@ import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
 import {isolatedStaff} from '../staff-rbac-helpers.mjs';
+import {seedAccount} from '../security/auth-fixtures.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
-let cookies,account,gameMasterCookies;
+let cookies,account,gameMasterCookies,platformAdminCookies;
+async function staffCookies(browser,info,role){
+ const account=await seedAccount(info.project.metadata.locale);
+ const staff=await isolatedStaff(browser,info,role,account);
+ try{return await staff.context.cookies();}finally{await staff.context.close();}
+}
 test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
 for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context,browser},info)=>{
  const lang=info.project.metadata.locale;
- const target=sample(row.route,lang);
- if(row.actor==='game_master_senior') {
-   const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
-   await context.addCookies(staff.cookies);
+ const gmRoute=row.actor==='game_master_senior';
+ const target=sample(row.route,lang)+(gmRoute?`?lang=${lang}`:'');
+ if(gmRoute) {
+   platformAdminCookies??=await staffCookies(browser,info,'platform_admin');
+   await context.addCookies(platformAdminCookies);
    const refused=await page.request.get(target,{maxRedirects:0,headers:{'accept-language':lang}});
    expect(refused.status(),'platform administrator needs a Game read grant').toBe(row.staffRefusal);
    await context.clearCookies();
-   if(!gameMasterCookies){
-     const gm=await isolatedStaff(browser,info,row.actor);
-     try{gameMasterCookies=await gm.context.cookies();}finally{await gm.context.close();}
-   }
+   gameMasterCookies??=await staffCookies(browser,info,row.actor);
    await context.addCookies(gameMasterCookies);
  }else if(row.actor==='staff') {
    const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
