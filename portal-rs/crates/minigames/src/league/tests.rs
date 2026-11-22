@@ -425,6 +425,48 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
     db.close().await
 }
 #[tokio::test]
+async fn concurrent_league_requests_wait_for_read_slots() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required")?;
+    let dir = tempfile::tempdir()?;
+    let config = real_config(dir.path());
+    write_recovery(&config, "1")?;
+    enqueue_publication(
+        &db,
+        &config,
+        &publication(&config, admission::EVENT, wire("settlement")?)?,
+    )
+    .await?;
+    advance_watermarks(&db, &config, "3").await?;
+    let app = web::router(League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(config),
+    ));
+    // Schedule more simultaneous reads than the four admitted PostgreSQL reads.
+    let mut requests = tokio::task::JoinSet::new();
+    for lang in ["pl", "en"].into_iter().cycle().take(12) {
+        let request = Request::get(format!("/{lang}/league")).body(Body::empty())?;
+        requests.spawn(app.clone().oneshot(request));
+    }
+    let mut statuses = Vec::new();
+    while let Some(response) = requests.join_next().await {
+        statuses.push(response??.status());
+    }
+    db.close().await?;
+    assert_eq!(statuses, vec![StatusCode::OK; 12]);
+    Ok(())
+}
+
+#[tokio::test]
 async fn league_quota_isolated_by_trusted_client_source() -> TestResult {
     use axum::{
         Extension,
