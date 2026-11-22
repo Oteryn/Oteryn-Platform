@@ -526,13 +526,14 @@ async fn index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    language: Option<Extension<oteryn_web::Language>>,
     Query(options): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     use askama::Template;
-    let lang = if options.lang.as_deref() == Some("en") {
-        "en"
-    } else {
-        "pl"
+    let lang = match language {
+        Some(Extension(language)) => language.code(),
+        None if options.lang.as_deref() == Some("en") => "en",
+        None => "pl",
     };
     let rows = sqlx::query(
         "SELECT id,alt_text FROM media ORDER BY created_at DESC,id DESC LIMIT 100 OFFSET $1",

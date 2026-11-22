@@ -694,6 +694,7 @@ async fn browser_lifecycle(pool: &PgPool) {
         .oneshot(
             Request::get("/admin/media?lang=en")
                 .header("host", "staff.test")
+                .header(header::ACCEPT_LANGUAGE, "pl")
                 .header(header::COOKIE, &cookie)
                 .body(Body::empty())
                 .unwrap(),
@@ -701,6 +702,11 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap();
     assert_eq!(form_page.status(), StatusCode::OK);
+    let html = to_bytes(form_page.into_body(), 100_000).await.unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(html.contains("Alternative text"));
+    assert!(html.contains(r#"aria-label="Main navigation""#));
+    assert!(html.contains(r#"aria-label="Footer navigation""#));
     // A real lock prevents the preflight from reading the session row. The
     // short budget must include that lookup, and origin checks precede it.
     let mut lock = pool.begin().await.unwrap();

@@ -184,6 +184,14 @@ test('media pagination uses the selected language', async ({ page }, { project }
   }
 });
 
+test('media controls and shared navigation use the selected language over the browser preference', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  await page.setExtraHTTPHeaders({ 'Accept-Language': lang === 'en' ? 'pl' : 'en' });
+  await openMedia(page, lang);
+  await expect(page.locator('#portal-navigation')).toHaveAttribute('aria-label', lang === 'en' ? 'Main navigation' : 'Nawigacja główna');
+  await expect(page.locator('footer nav.foot-links')).toHaveAttribute('aria-label', lang === 'en' ? 'Footer navigation' : 'Nawigacja w stopce');
+});
+
 function pngOfSize(fileBytes) {
   // A valid text chunk before IEND lets us control upload size without changing the pixels.
   const dataLength = fileBytes - png.buffer.length - 12;
