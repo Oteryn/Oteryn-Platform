@@ -123,6 +123,14 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
         expect(blocked.status()).toBe(503);
         expect(blocked.headers()['cache-control']).toContain('no-store');
         expect(await blocked.text()).toContain(lang === 'pl' ? 'Usługa chwilowo niedostępna' : 'Temporarily unavailable');
+        const malformed = await page.request.post(`${index}/not-a-uuid`, {
+          form: { ...fields, message },
+          headers: { origin: new URL(page.url()).origin },
+          maxRedirects: 0,
+        });
+        expect(malformed.status()).toBe(400);
+        expect(malformed.headers()['content-type']).toContain('text/html');
+        expect(await malformed.text()).toContain(lang === 'pl' ? 'Nieprawidłowe żądanie' : 'Invalid request');
         for (const csrfHeader of [undefined, fields._csrf]) {
           const unfinished = await unfinishedAppeal(page, csrfHeader);
           expect(unfinished.status).toBe(503);

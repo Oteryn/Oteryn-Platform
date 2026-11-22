@@ -2,7 +2,7 @@ use super::{Entry, Error, browser_session_expiry, player_entries, submit_player}
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{FromRequest, MatchedPath, Path, Query, Request, State},
+    extract::{FromRequest, MatchedPath, Path, Query, Request, State, rejection::PathRejection},
     http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
@@ -256,12 +256,19 @@ struct Input {
 
 async fn submit(
     State(pool): State<PgPool>,
-    Path((lang, id)): Path<(String, Uuid)>,
+    target: Result<Path<(String, Uuid)>, PathRejection>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<ClientSource>,
     deadline: Option<Extension<SessionMutationDeadline>>,
     request: Request,
 ) -> Result<Redirect, Response> {
+    let Path((lang, id)) = target.map_err(|rejection| {
+        let path = request.uri().path();
+        match path.split('/').nth(1) {
+            Some(lang @ ("pl" | "en")) => refusal(lang, path, rejection.status(), None),
+            _ => StatusCode::NOT_FOUND.into_response(),
+        }
+    })?;
     let language = match lang.as_str() {
         "pl" => Language::Pl,
         "en" => Language::En,
