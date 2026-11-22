@@ -48,9 +48,9 @@ def parse(component, command):
         if not match:
             raise ValueError('only status or deploy-image <full protected-main SHA> <run> <attempt> <artifact> is allowed')
         return 'deploy', match[1], int(match[2]), int(match[3]), int(match[4])
-    match = re.fullmatch(r'deploy (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
+    match = re.fullmatch(r'(?:deploy|deploy-signup-legal-v1) (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
     if not match:
-        raise ValueError('only status or deploy <full protected-main SHA> is allowed')
+        raise ValueError('Platform requires status or deploy-signup-legal-v1 <full protected-main SHA> <run> <attempt>')
     return 'deploy', match[1], int(match[2]), int(match[3]), None
 
 

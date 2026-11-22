@@ -115,12 +115,18 @@ class AuthorityBoundary(unittest.TestCase):
     def test_platform_deploy_accepts_the_current_workflow_command(self):
         sha = 'a' * 40
         workflow = Path(__file__).resolve().parents[2] / '.github/workflows/oracle-operations.yml'
-        self.assertIn('command="deploy $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT"', workflow.read_text())
-        self.assertEqual(deploy.parse('platform', f'deploy {sha} 100 1'),
-                         ('deploy', sha, 100, 1, None))
+        self.assertIn('command="deploy-signup-legal-v1 $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT"', workflow.read_text())
+        for verb in ('deploy-signup-legal-v1', 'deploy'):
+            command = f'{verb} {sha} 100 1'
+            self.assertEqual(deploy.parse('platform', command), ('deploy', sha, 100, 1, None))
+            with self.assertRaises(ValueError):
+                deploy.parse('game', command)
         self.assertEqual(deploy.parse('platform', 'status'), ('status', None, None, None, None))
-        with self.assertRaises(ValueError):
-            deploy.parse('game', f'deploy {sha} 100 1')
+        for command in (f'deploy-signup-legal-v2 {sha} 100 1',
+                        f'deploy-signup-legal-v1 {sha} 0 1',
+                        f'deploy-signup-legal-v1 {sha} 100 1 extra'):
+            with self.assertRaises(ValueError):
+                deploy.parse('platform', command)
 
     def test_exact_current_main_and_aggregate_success_are_independent(self):
         sha = 'a' * 40
@@ -731,7 +737,7 @@ class GameBranchUnchanged(unittest.TestCase):
     # serves the Game forced command, so a Platform change must not move these.
     # Updated deliberately for the Game image artifact path (deploy-image).
     REVIEWED = {
-        'parse': '5c4f83672f01a4e1a3fe88fb0357de1187ca23db13168a7399aa53768dd26f70',
+        'parse': 'bd8fee9ea9ad05d5b40aba43492e6f60c501af325a1495575e5944598fb9837d',
         'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
         'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
         'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',

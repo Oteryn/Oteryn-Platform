@@ -335,11 +335,13 @@ The `platform` branch of `actions-deploy.py` deploys the live portal layout on
 oteryn-vps. It does not create or migrate that layout; it only replaces the app
 image of an installed one.
 
-The Platform forced command remains
-`deploy <40-character SHA> <run ID> <run attempt>`. Install the reviewed
-root-owned helper for the pre-backup check and bilingual signup probes.
-The candidate Oracle image also checks the published editions in its
-`migrate` command, before any schema changes, for hosts with an older helper.
+The Platform workflow sends
+`deploy-signup-legal-v1 <40-character SHA> <run ID> <run attempt>`. Install
+the reviewed root-owned helper before enabling releases through this workflow.
+The updated helper also accepts the existing `deploy` command with the same
+pre-backup check and bilingual signup probes. The candidate Oracle image
+checks the published editions before applying migrations when an older helper
+handles a legacy request.
 
 ### Game image artifact (deploy-image)
 
