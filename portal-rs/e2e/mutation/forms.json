@@ -1407,7 +1407,10 @@
       "source": "crates/bazaar/src/moderation_web.rs:116",
       "ordinal": 1,
       "action": "",
-      "actionVariants": [],
+      "actionVariants": [
+        "/{lang}/account/bazaar/{listing}/report",
+        "/{lang}/account/bazaar/{listing}/promote"
+      ],
       "fields": [
         "_csrf",
         "id",
@@ -1569,7 +1572,7 @@
       ]
     },
     {
-      "source": "crates/content/src/media.rs:207",
+      "source": "crates/content/src/media.rs:240",
       "ordinal": 1,
       "action": "/admin/media",
       "actionVariants": [],
@@ -1583,7 +1586,7 @@
       ]
     },
     {
-      "source": "crates/content/src/media.rs:207",
+      "source": "crates/content/src/media.rs:240",
       "ordinal": 2,
       "action": "/admin/media/{{ item.0 }}/delete",
       "actionVariants": [],
@@ -1700,8 +1703,9 @@
       "ordinal": 1,
       "action": "/{{ context.language }}/{% if mode != \"recover\" %}account/{% endif %}recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}",
       "actionVariants": [
-        "/{{ context.language }}/account/recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}",
-        "/{{ context.language }}/recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}"
+        "/{{ context.language }}/account/recovery-key",
+        "/{{ context.language }}/account/recovery-key/confirm",
+        "/{{ context.language }}/recovery-key"
       ],
       "fields": [
         "_csrf",
@@ -2157,7 +2161,7 @@
       "route": "/admin/media/{id}",
       "sources": [
         {
-          "source": "crates/content/src/media.rs:126",
+          "source": "crates/content/src/media.rs:131",
           "handler": "delete"
         }
       ]
@@ -2447,7 +2451,7 @@
       "route": "/admin/media/{id}/delete",
       "sources": [
         {
-          "source": "crates/content/src/media.rs:127",
+          "source": "crates/content/src/media.rs:135",
           "handler": "delete"
         }
       ]

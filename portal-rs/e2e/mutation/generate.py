@@ -95,6 +95,20 @@ def support_choices(source):
 
 def bindings(path, source, all_sources):
     """Read the finite discriminants supplied to shared form templates."""
+    if path == "crates/identity/src/recovery_key_http.rs":
+        modes = [("account/", ""), ("account/", "/confirm"), ("", "")]
+        form = next(tag for tag in TAG.finditer(source) if tag[1] == "form")
+        target = attributes(form[2])["action"]
+        account = re.search(r'{% if mode != "recover" %}.*?{% endif %}', target)[0]
+        confirmation = re.search(r'{% if mode == "confirm" %}.*?{% endif %}', target)[0]
+        paths = [
+            target.replace(account, prefix).replace(confirmation, suffix)
+            for prefix, suffix in modes
+        ]
+        return {target: paths}
+    if path == "crates/bazaar/src/moderation_web.rs":
+        paths = re.findall(r'\.route\(\s*"(/\{lang\}/account/bazaar/[^"]+)"', source)
+        return {"": paths}
     if path == "templates/account/lifecycle.html":
         router = all_sources["crates/identity/src/account_lifecycle_http.rs"]
         targets = re.findall(r'\.route\(\s*"(/\{lang\}/[^"]+)"', router)
@@ -206,7 +220,9 @@ def forms(path, source, all_sources):
             if loop:
                 action_variants = [target.replace("{{ action }}", action) for action in json.loads(loop[1])]
         for placeholder, choices in dynamic.items():
-            if placeholder in target:
+            if not placeholder and not target:
+                action_variants.extend(choices)
+            elif placeholder and placeholder in target:
                 action_variants = [target.replace(placeholder, choice) for choice in choices]
         location_key = location(path, source, form.start())
         same_line[location_key] = same_line.get(location_key, 0) + 1
