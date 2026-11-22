@@ -47,12 +47,14 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   const anonymous = await page.request.get(mfa, { maxRedirects: 0 });
   expect(anonymous.headers().location).toBe(`/${lang}/login`);
   await login(page, lang, account);
-  await page.goto(mfa);
+  await page.goto(`/${lang}/account/privacy`);
+  await page.locator(`a[href="${mfa}"]`).first().click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
   await submit(page, 'main form', { password });
   const original = await totp(page);
   await submit(page, `form[action="${mfa}/confirm"]`, { password, code: codeAt(original, -1) });
   const originalCodes = await codes(page);
-  expect(originalCodes).toHaveLength(8);
+  expect(originalCodes.length).toBe(8);
 
   async function signInWithRecovery(code) {
     await login(page, lang, account);
@@ -76,14 +78,14 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   expect((await post(page, replacement, replacementToken, { password: 'wrong', code: codeAt(next, -1) })).status()).toBe(403);
   await submit(page, `form[action="${replacement}"]`, { password, code: codeAt(next, -1) });
   const replacementCodes = await codes(page);
-  expect(replacementCodes).toHaveLength(8);
+  expect(replacementCodes.length).toBe(8);
 
   await signInWithRecovery(replacementCodes[0]);
   await page.locator('[name=action]').selectOption('rotate_codes');
   await submit(page, `form[action="${manage}"]`, { password, code: codeAt(next, 0) });
   const rotatedCodes = await codes(page);
-  expect(rotatedCodes).toHaveLength(8);
-  expect(rotatedCodes).not.toEqual(replacementCodes);
+  expect(rotatedCodes.length).toBe(8);
+  expect(rotatedCodes.some(code => replacementCodes.includes(code))).toBe(false);
   await login(page, lang, account);
   await submit(page, 'form[action$="/challenge"]', { code: replacementCodes[1] });
   await expect(page).toHaveURL(/mfa\/challenge/);
@@ -105,9 +107,9 @@ test('native device revocation requires recent authentication and family ownersh
   const foreign = randomUUID();
   const db = pool();
   try {
-    const accounts = await db.query("SELECT id,email,password_hash FROM accounts WHERE email=$1", [account.email]);
+    const accounts = await db.query("SELECT id FROM accounts WHERE email=$1", [account.email]);
     const owner = accounts.rows[0];
-    const other = await db.query("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active',$3,now()) RETURNING id", [`${foreign}@local.test`, owner.password_hash, lang]);
+    const other = await db.query("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) SELECT $1,password_hash,'active',$3,now() FROM accounts WHERE id=$2 RETURNING id", [`${foreign}@local.test`, owner.id, lang]);
     for (const [family, id] of [[owned, owner.id], [foreign, other.rows[0].id]]) {
       await db.query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES($1,$2,$3,$4,0,1,extract(epoch FROM now())::bigint+3600,extract(epoch FROM now())::bigint+1800)", [family, id, randomUUID(), family]);
     }
