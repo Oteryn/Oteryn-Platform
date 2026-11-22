@@ -140,10 +140,18 @@ impl Db {
             }
             Err(e) => return Err(e.into()),
         };
-        let admin = PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&url)
-            .await?;
+        Self::connect(&url).await.map(Some)
+    }
+    async fn required() -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        let url = std::env::var("PORTAL_TEST_DATABASE_URL").map_err(|e| {
+            format!(
+                "PORTAL_TEST_DATABASE_URL is required for this PostgreSQL season pass test: {e}"
+            )
+        })?;
+        Self::connect(&url).await
+    }
+    async fn connect(url: &str) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        let admin = PgPoolOptions::new().max_connections(1).connect(url).await?;
         let schema = format!("pass_test_{}", Uuid::now_v7().simple());
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
             .execute(&admin)
@@ -161,7 +169,7 @@ impl Db {
                     Ok(())
                 })
             })
-            .connect(&url)
+            .connect(url)
             .await?;
         oteryn_db::migrate(&pool).await?;
         sqlx::raw_sql("CREATE TABLE synthetic_wallet(account_id uuid PRIMARY KEY,balance bigint NOT NULL CHECK(balance>=0)); CREATE TABLE synthetic_debits(id uuid PRIMARY KEY); CREATE TABLE synthetic_deliveries(id uuid PRIMARY KEY,operation_id uuid NOT NULL UNIQUE,account_id uuid,grant_key text);").execute(&pool).await?;
@@ -184,7 +192,7 @@ impl Db {
         };
         db.service().publish(db.account, &db.season).await?;
         sqlx::query("UPDATE pass_seasons SET starts_at=starts_at-interval '2 hours',ends_at=ends_at-interval '2 hours'").execute(&db.pool).await?;
-        Ok(Some(db))
+        Ok(db)
     }
     fn service(&self) -> Passes<Trusted, Coins, Wire> {
         Passes::new(
@@ -936,7 +944,7 @@ async fn postgres_store_wallet_receipt_cannot_buy_a_pass() -> TestResult {
 #[tokio::test]
 async fn postgres_expired_season_reconciles_receipts() -> TestResult {
     let started = std::time::Instant::now();
-    let db = Db::new().await?.ok_or("PostgreSQL required")?;
+    let db = Db::required().await?;
     let s = db.service();
     let event = db.event(0);
     s.record(&event).await?;
@@ -1127,7 +1135,7 @@ async fn wait_for_blocked(
 #[tokio::test]
 async fn postgres_purchase_key_waits_for_in_flight_receipt_before_refusing_unknown_season()
 -> TestResult {
-    let db = Db::new().await?.ok_or("PostgreSQL required")?;
+    let db = Db::required().await?;
     let ledger = oteryn_wallet::Ledger::new(
         db.pool.clone(),
         oteryn_wallet::WalletFlags { enabled: true },
@@ -1188,7 +1196,7 @@ async fn postgres_purchase_key_waits_for_in_flight_receipt_before_refusing_unkno
 
 #[tokio::test]
 async fn postgres_overview_uses_one_snapshot_during_first_progress() -> TestResult {
-    let db = Db::new().await?.ok_or("PostgreSQL required")?;
+    let db = Db::required().await?;
     let service = db.service();
     let mut writer = db.pool.begin().await?;
     sqlx::query("LOCK TABLE pass_challenge_progress IN ACCESS EXCLUSIVE MODE")

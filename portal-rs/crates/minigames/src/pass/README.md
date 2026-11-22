@@ -33,15 +33,18 @@ tracks and cosmetic grant keys. CSRF-protected POST routes at
 `/{pl|en}/pass/{season}/buy` and `/claim` accept only operation/reward IDs; prices,
 content, account and points are always server-owned. The generic router accepts
 trusted adapters for integration. The configured router mounts only with
-`OTERYN_SEASON_PASS_ENABLED=true`. With `OTERYN_ENV=testing`, it uses the shared
-account eligibility lock, and `OTERYN_SEASON_PASS_WALLET_ENABLED=true` enables
+`OTERYN_SEASON_PASS_ENABLED=true`. With `OTERYN_ENV=testing`, the overview checks
+account eligibility in a read-only snapshot and mutations lock the account.
+`OTERYN_SEASON_PASS_WALLET_ENABLED=true` enables
 the existing Wallet's audited pass debit. Test coins can come from the existing
 sandbox checkout. Season definitions for browser qualification are disposable
 fixtures. Outside testing, the mounted routes retain their unavailable adapters.
 All responses are private/no-store.
 
 PostgreSQL tests use isolated schemas, the full migration chain and synthetic
-facts. They read `PORTAL_TEST_DATABASE_URL` and print a skip notice when unset.
+facts. Set `PORTAL_TEST_DATABASE_URL` to run them. The expired-season receipt,
+purchase-key race and overview snapshot tests fail with a diagnostic when the
+variable is unset. The other database tests report a skip in that case.
 They cover verified sources, bad input, time boundaries, unknown authority,
 account refusal, purchase and claim replay/concurrency, insufficient funds,
 failed wire rollback, paid eligibility, feature flags and the real wallet API.
