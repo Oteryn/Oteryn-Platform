@@ -9,6 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+use oteryn_playerdata::authority::CollectionEvidence;
 use oteryn_playerdata::progress::{Authority, Payload, ProgressStore, Subject};
 use oteryn_web::{
     csrf::CsrfConfig,
@@ -64,6 +65,14 @@ impl Authority for Unavailable {
 struct HttpState {
     service: Collection,
     authority: Ownership,
+    evidence: Option<EvidenceSources>,
+    pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
+struct EvidenceSources {
+    inventory: String,
+    progress: String,
 }
 /// Does not register routes when disabled. All browser mutations retain the
 /// shared synchronizer-token CSRF and current authenticated session middleware.
@@ -74,10 +83,21 @@ pub fn router(
     authority: Ownership,
     csrf: CsrfConfig,
 ) -> Router {
+    router_with_evidence(pool, service, flags, authority, csrf, None)
+}
+
+fn router_with_evidence(
+    pool: PgPool,
+    service: Collection,
+    flags: Flags,
+    authority: Ownership,
+    csrf: CsrfConfig,
+    evidence: Option<EvidenceSources>,
+) -> Router {
     if !flags.collection {
         return Router::new();
     }
-    let mut sessions = SessionLayer::new(pool);
+    let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf = csrf;
     Router::new()
         .route("/{lang}/collection", get(index))
@@ -103,7 +123,12 @@ pub fn router(
         .layer(tower_http::limit::RequestBodyLimitLayer::new(4096))
         .layer(middleware::from_fn(response_policy))
         .layer(axum::middleware::from_fn(crate::browser::deadline))
-        .with_state(HttpState { service, authority })
+        .with_state(HttpState {
+            service,
+            authority,
+            evidence,
+            pool,
+        })
 }
 pub fn configured_router(pool: PgPool) -> Router {
     let flags = Flags {
@@ -115,11 +140,17 @@ pub fn configured_router(pool: PgPool) -> Router {
             enabled: std::env::var("OTERYN_WORLD_ENABLED").as_deref() == Ok("true"),
         },
     );
-    // No production T72 authority exists yet. Even with the UI enabled, private
-    // source reads remain disabled instead of trusting stale/public ownership.
+    // Card unlocks and battle mutations still need accepted catalogue mappings.
+    // The journal evidence view reads timestamps only.
     let progress = ProgressStore::new(pool.clone(), Default::default(), Vec::new());
     let service = Collection::new(pool.clone(), world, progress, flags);
-    router(
+    let evidence = (std::env::var("OTERYN_COLLECTION_JOURNAL_READ_ENABLED").as_deref()
+        == Ok("true"))
+    .then(|| EvidenceSources {
+        inventory: std::env::var(oteryn_playerdata::journal::ITEMS_SOURCE).unwrap_or_default(),
+        progress: std::env::var(oteryn_playerdata::journal::PROGRESS_SOURCE).unwrap_or_default(),
+    });
+    router_with_evidence(
         pool,
         service,
         flags,
@@ -131,6 +162,7 @@ pub fn configured_router(pool: PgPool) -> Router {
                 .collect(),
             ..CsrfConfig::default()
         },
+        evidence,
     )
 }
 async fn protect(
@@ -214,15 +246,71 @@ fn status(error: Error) -> StatusCode {
 async fn account(session: &BrowserSession) -> std::result::Result<Uuid, StatusCode> {
     session.account_id().await.ok_or(StatusCode::FORBIDDEN)
 }
-async fn index(Path(lang): Path<String>) -> Html<String> {
-    // Character IDs are entered or linked from the private journal, never inferred
-    // from public character listings while T72's authenticated selector is absent.
-    Html(format!(
-        "<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><body><main><h1>{}</h1><p>{}</p></main></body></html>",
-        text(&lang, "title"),
-        text(&lang, "title"),
-        text(&lang, "unavailable")
-    ))
+#[derive(Template)]
+#[template(
+    path = "collection/evidence.html",
+    config = "src/collection/askama.toml"
+)]
+struct EvidencePage<'a> {
+    lang: &'a str,
+    characters: Vec<(Uuid, String)>,
+    evidence: Option<CollectionEvidence>,
+}
+
+impl EvidencePage<'_> {
+    fn label(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+
+    fn updated(&self, millis: &Option<i64>) -> String {
+        millis
+            .and_then(|ms| {
+                time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()
+            })
+            .and_then(|time| {
+                time.format(&time::format_description::well_known::Rfc3339)
+                    .ok()
+            })
+            .unwrap_or_else(|| self.label("unknown-update"))
+    }
+
+    fn html(&self) -> std::result::Result<Html<String>, StatusCode> {
+        self.render()
+            .map(Html)
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+    }
+}
+
+fn evidence_status(error: oteryn_playerdata::store::Error) -> StatusCode {
+    use oteryn_playerdata::store::Error;
+    match error {
+        Error::Invalid => StatusCode::BAD_REQUEST,
+        Error::Denied => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+async fn index(
+    State(s): State<HttpState>,
+    Path(lang): Path<String>,
+    Extension(session): Extension<BrowserSession>,
+) -> std::result::Result<Html<String>, StatusCode> {
+    let characters = if s.evidence.is_some() {
+        let account = account(&session).await?;
+        match CollectionEvidence::characters(&s.pool, account).await {
+            Ok(characters) => characters,
+            Err(oteryn_playerdata::store::Error::Unavailable) => Vec::new(),
+            Err(error) => return Err(evidence_status(error)),
+        }
+    } else {
+        Vec::new()
+    };
+    EvidencePage {
+        lang: &lang,
+        characters,
+        evidence: None,
+    }
+    .html()
 }
 struct CardView {
     id: Uuid,
@@ -263,6 +351,23 @@ async fn page(
     Extension(session): Extension<BrowserSession>,
 ) -> std::result::Result<Html<String>, StatusCode> {
     let account = account(&session).await?;
+    if let Some(sources) = &s.evidence {
+        let evidence = CollectionEvidence::read(
+            &s.pool,
+            account,
+            character,
+            &sources.inventory,
+            &sources.progress,
+        )
+        .await
+        .map_err(evidence_status)?;
+        return EvidencePage {
+            lang: &lang,
+            characters: Vec::new(),
+            evidence: Some(evidence),
+        }
+        .html();
+    }
     let cards = s
         .service
         .cards(account, character, &s.authority, now().map_err(status)?)

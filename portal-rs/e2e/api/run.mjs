@@ -84,6 +84,13 @@ const harness = spawn(process.execPath, ['harness.mjs', '--seed-plan', seed], {
   cwd: e2e,
   env: { ...process.env, PORTAL_E2E_BINARY: launch, PORTAL_E2E_OUT: output,
     OTERYN_PUBLIC_ORIGIN: publicOrigin,
+    OTERYN_COLLECTION_ENABLED: 'true',
+    OTERYN_COLLECTION_JOURNAL_READ_ENABLED: 'true',
+    PORTAL_PLAYERDATA_G10_INGEST_ENABLED: 'true',
+    PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED: 'true',
+    PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY: 'OTERYN_GAME_JOURNAL',
+    PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY: 'oteryn-game-e2e',
+    PORTAL_PLAYERDATA_JOURNAL_FAMILIES: 'ITEMS,bestiary',
     PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY: 'oteryn-game/store-consumer' },
   stdio: ['ignore', 'pipe', 'inherit'],
 });

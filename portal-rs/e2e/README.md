@@ -303,3 +303,19 @@ skipped/interrupted, any test failed, or any retry occurred. REPORT.md records
 Rust acceptance and the concrete source fixes. The qualification source digest
 excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
 evidence-only commit can refer to the immutable tested source candidate.
+
+## Collection journal evidence
+
+Run the collection spec through the API contract runner with a locally built
+portal binary and the same disposable PostgreSQL administrator URL as the
+cross-repository harness.
+
+```sh
+PORTAL_E2E_BINARY=/absolute/path/to/oteryn-portal node api/run.mjs collection.spec.mjs
+```
+
+The runner uses the seed CLI for the two browser accounts. The spec publishes
+the current character portfolio, a complete inventory snapshot and an incomplete
+bestiary watermark over the private mTLS listener. It checks the owner-only
+timestamps and verifies that a bestiary record requiring the candidate catalogue
+mapping is refused. The four browser projects use the same real ingest path.

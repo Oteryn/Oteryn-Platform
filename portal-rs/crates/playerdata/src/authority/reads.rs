@@ -399,3 +399,152 @@ impl Evidence for JournalEvidence {
             .map_err(item_error)
     }
 }
+
+/// Metadata for the collection sources at the current ownership cut. The
+/// candidate catalogue mapping does not authorize interpreting either payload.
+/// Callers must supply the authenticated account as the actor.
+#[derive(Debug)]
+pub struct CollectionEvidence {
+    pub inventory_updated_ms: Option<i64>,
+    pub bestiary_feed_updated_ms: Option<i64>,
+}
+
+impl CollectionEvidence {
+    pub async fn characters(
+        pool: &sqlx::PgPool,
+        actor: Uuid,
+    ) -> Result<Vec<(Uuid, String)>, Error> {
+        let mut tx = pool.begin().await?;
+        store::lock_account(&mut tx, &actor.to_string()).await?;
+        collection_account(&mut tx, actor).await?;
+        shared_fences(&mut tx).await?;
+        restore_generation(&mut tx).await?;
+        let feed = live_feed(&mut tx).await?;
+        account_epoch_with_feed(&mut tx, actor, &feed).await?;
+        let characters: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT character_id,name FROM account_characters WHERE account_id=$1 ORDER BY character_id",
+        )
+        .bind(actor)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut owned = Vec::new();
+        for (id, name) in characters {
+            match collection_cut(&mut tx, actor, id, &feed).await {
+                Ok(_) => owned.push((id, name)),
+                Err(Error::Denied | Error::Unavailable) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        tx.commit().await?;
+        Ok(owned)
+    }
+
+    pub async fn read(
+        pool: &sqlx::PgPool,
+        actor: Uuid,
+        character: Uuid,
+        inventory_source: &str,
+        progress_source: &str,
+    ) -> Result<Self, Error> {
+        if character.get_version_num() != 7 || character.get_variant() != uuid::Variant::RFC4122 {
+            return Err(Error::Invalid);
+        }
+        let mut tx = pool.begin().await?;
+        store::lock_account(&mut tx, &actor.to_string()).await?;
+        collection_account(&mut tx, actor).await?;
+        shared_fences(&mut tx).await?;
+        let restored = restore_generation(&mut tx).await?;
+        let feed = live_feed(&mut tx).await?;
+        let epoch = account_epoch_with_feed(&mut tx, actor, &feed).await?;
+        // Check membership in the caller's partition while the feed is locked.
+        // Unknown and foreign IDs have the same response.
+        let listed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2)",
+        )
+        .bind(actor)
+        .bind(character)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !listed {
+            return Err(Error::Denied);
+        }
+        let cut = collection_cut(&mut tx, actor, character, &feed).await?;
+        let mut scope = Scope {
+            authority: inventory_source.to_owned(),
+            account: actor.to_string(),
+            world: Some(cut.world.to_string()),
+            character: Some(character.to_string()),
+            character_revision: Some(cut.character_revision.to_string()),
+            projection_revision: Some(cut.to_projection_revision.to_string()),
+            from_projection_revision: Some(cut.from_projection_revision.to_string()),
+            epoch: Some(cut.epoch.to_string()),
+            recovery: cut.recovery.to_string(),
+            family: "ITEMS".to_owned(),
+        };
+        let inventory_updated_ms = if cut.recovery >= restored {
+            sqlx::query_scalar(
+                "SELECT h.occurred_ms FROM pd_item_heads h JOIN pd_streams s USING(stream_key)
+                 WHERE stream_key=$1 AND NOT s.erased",
+            )
+            .bind(store::stream_key(&scope))
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            None
+        };
+        scope.authority = progress_source.to_owned();
+        scope.epoch = Some(epoch.to_string());
+        scope.family = "bestiary".to_owned();
+        // G-11 watermarks are account-wide, so this is a feed timestamp.
+        let bestiary_feed_updated_ms = sqlx::query_scalar(
+            "SELECT observed_ms FROM pd_streams WHERE stream_key=$1 AND NOT erased
+             AND observed_ms > 0 AND watermark_recovery >= $2::numeric
+             AND watermark_recovery >= COALESCE(recovery_high_water, watermark_recovery)",
+        )
+        .bind(store::stream_key(&scope))
+        .bind(restored.max(cut.recovery).to_string())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(Self {
+            inventory_updated_ms,
+            bestiary_feed_updated_ms,
+        })
+    }
+}
+
+async fn collection_account(db: &mut PgConnection, actor: Uuid) -> Result<(), Error> {
+    let eligible: Option<bool> = sqlx::query_scalar(
+        "SELECT status='active' AND email_verified_at IS NOT NULL
+         FROM accounts WHERE id=$1 FOR SHARE",
+    )
+    .bind(actor)
+    .fetch_optional(&mut *db)
+    .await?;
+    if eligible != Some(true) {
+        return Err(Error::Denied);
+    }
+    Ok(())
+}
+
+async fn collection_cut(
+    db: &mut PgConnection,
+    actor: Uuid,
+    character: Uuid,
+    feed: &LiveFeed,
+) -> Result<OwnershipCut, Error> {
+    let Ownership::Owner(cut) = ownership_with_feed(db, actor, character, feed).await? else {
+        return Err(Error::Denied);
+    };
+    if store::character_deleted(
+        db,
+        &actor.to_string(),
+        &character.to_string(),
+        Some(cut.character_revision),
+    )
+    .await?
+    {
+        return Err(Error::Denied);
+    }
+    Ok(cut)
+}
