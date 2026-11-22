@@ -1,30 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Announcements</title>
+{% if lang == "pl" %}<title>Ogłoszenia</title>{% else %}<title>Announcements</title>{% endif %}
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/components.css">
 </head>
 <body class="op-theme">
 <main class="op-panel op-stack">
-<h1>Announcements / Ogłoszenia</h1>
-<a href="/admin/announcements">List / Lista</a>
-<a href="/admin/announcements/create">Create / Utwórz</a>
+<h1>{% if lang == "pl" %}Ogłoszenia{% else %}Announcements{% endif %}</h1>
+<a href="/admin/announcements">{% if lang == "pl" %}Lista{% else %}List{% endif %}</a>
+<a href="/admin/announcements/create">{% if lang == "pl" %}Utwórz{% else %}Create{% endif %}</a>
 {% for row in rows %}<p>
-<a href="/admin/announcements/{{ row.0 }}/edit">{{ row.1 }}</a> {{ row.2 }}</p>{% endfor %}
+<a href="/admin/announcements/{{ row.0 }}/edit">{{ row.1 }}</a> {% if row.2 == "published" %}{% if lang == "pl" %}Opublikowane{% else %}Published{% endif %}{% else %}{% if lang == "pl" %}Nieopublikowane{% else %}Draft{% endif %}{% endif %}</p>{% endfor %}
 
 {% if !action.is_empty() %}<form method="post" action="{{ action }}" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="lock_version" value="{{ version }}">
-<p>Publication: draft = unpublished, published = public. Dates use RFC3339 (UTC). English source and Polish translation are edited together. A new translation publication timestamp approves the current translation.</p>
+<p>{% if lang == "pl" %}Szkic jest niepubliczny, a opublikowane ogłoszenie jest publiczne. Daty podaj w formacie RFC3339 (UTC). Angielski oryginał i polskie tłumaczenie edytuje się razem. Nowa data publikacji zatwierdza aktualne tłumaczenie.{% else %}Publication: draft = unpublished, published = public. Dates use RFC3339 (UTC). English source and Polish translation are edited together. A new translation publication timestamp approves the current translation.{% endif %}</p>
 {% for field in fields %}<label for="{{ field.0 }}">{{ field.1 }}</label>{% if field.0 == "publication_state" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">
-<option value="draft"{% if field.2 == "draft" %} selected{% endif %}>Draft / Nieopublikowane</option>
-<option value="published"{% if field.2 == "published" %} selected{% endif %}>Published / Opublikowane</option>
-</select>{% else if field.0 == "severity" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{% for severity in ["info", "maintenance", "warning"] %}<option{% if field.2.as_str() == *severity %} selected{% endif %}>{{ severity }}</option>{% endfor %}
+<option value="draft"{% if field.2 == "draft" %} selected{% endif %}>{% if lang == "pl" %}Nieopublikowane{% else %}Draft{% endif %}</option>
+<option value="published"{% if field.2 == "published" %} selected{% endif %}>{% if lang == "pl" %}Opublikowane{% else %}Published{% endif %}</option>
+</select>{% else if field.0 == "severity" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{% for severity in ["info", "maintenance", "warning"] %}<option value="{{ severity }}"{% if field.2.as_str() == *severity %} selected{% endif %}>{% if lang == "pl" %}{% if *severity == "info" %}Informacja{% else if *severity == "maintenance" %}Prace techniczne{% else %}Ostrzeżenie{% endif %}{% else %}{{ severity }}{% endif %}</option>{% endfor %}
 </select>{% else %}<textarea class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{{ field.2 }}</textarea>{% endif %}{% endfor %}
-<button class="op-button">Save / Zapisz</button>
-</form>{% endif %}{% if more %}<a href="?page={{ next }}">Next / Następna</a>{% endif %}</main>
+<button class="op-button">{% if lang == "pl" %}Zapisz{% else %}Save{% endif %}</button>
+</form>{% endif %}{% if more %}<a href="?page={{ next }}">{% if lang == "pl" %}Następna{% else %}Next{% endif %}</a>{% endif %}</main>
 </body>
 </html>

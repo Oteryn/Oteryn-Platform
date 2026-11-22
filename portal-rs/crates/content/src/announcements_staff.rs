@@ -3,7 +3,7 @@ use super::*;
 use axum::{
     Extension, Form, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -51,6 +51,7 @@ fn routes<A: AccountStateReader + Clone + 'static>(pool: PgPool, accounts: A) ->
 #[derive(askama::Template)]
 #[template(path = "content/announcements.html", config = "src/pages/askama.toml")]
 struct Page {
+    lang: &'static str,
     next: u64,
     more: bool,
     csrf: String,
@@ -62,9 +63,11 @@ struct Page {
 async fn index(
     State(pool): State<PgPool>,
     axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     let rows = sqlx::query_as("SELECT id,title,publication_state FROM announcements ORDER BY updated_at DESC,id DESC LIMIT 500 OFFSET $1").bind(q.offset(500)).fetch_all(&pool).await.map_err(unavailable)?;
     Ok(oteryn_web::render(&Page {
+        lang: oteryn_ui::preferred_language(&headers),
         next: q.next(),
         more: rows.len() == 500,
         csrf: String::new(),
@@ -88,33 +91,41 @@ const FIELDS: [&str; 12] = [
     "action_label_pl",
     "translation_published_at",
 ];
-fn field_label(name: &str) -> &str {
-    match name {
-        "publication_state" => "Publication / Publikacja",
-        "severity" => "Severity / Ważność",
-        "starts_at" => "Starts at (UTC) / Początek",
-        "ends_at" => "Ends at (UTC, optional) / Koniec (opcjonalny)",
-        "title" => "Title (English)",
-        "body" => "Body (English)",
-        "action_label" => "Action label (English)",
-        "action_url" => "Action path / Ścieżka akcji",
-        "title_pl" => "Tytuł (polski)",
-        "body_pl" => "Treść (polski)",
-        "action_label_pl" => "Etykieta akcji (polski)",
-        "translation_published_at" => "Translation approved at (UTC) / Zatwierdzenie tłumaczenia",
-        _ => name,
-    }
+fn field_label(name: &str, lang: &str) -> &'static str {
+    let (en, pl) = match name {
+        "publication_state" => ("Publication", "Publikacja"),
+        "severity" => ("Severity", "Ważność"),
+        "starts_at" => ("Starts at (UTC)", "Początek (UTC)"),
+        "ends_at" => ("Ends at (UTC, optional)", "Koniec (UTC, opcjonalny)"),
+        "title" => ("Title (English)", "Tytuł (angielski)"),
+        "body" => ("Body (English)", "Treść (angielska)"),
+        "action_label" => ("Action label (English)", "Etykieta akcji (angielska)"),
+        "action_url" => ("Action path", "Ścieżka akcji"),
+        "title_pl" => ("Title (Polish)", "Tytuł (polski)"),
+        "body_pl" => ("Body (Polish)", "Treść (polska)"),
+        "action_label_pl" => ("Action label (Polish)", "Etykieta akcji (polska)"),
+        "translation_published_at" => (
+            "Translation approved at (UTC)",
+            "Zatwierdzenie tłumaczenia (UTC)",
+        ),
+        _ => ("", ""),
+    };
+    if lang == "pl" { pl } else { en }
 }
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
 }
-async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, StatusCode> {
+async fn new(
+    Extension(session): Extension<BrowserSession>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    let lang = oteryn_ui::preferred_language(&headers);
     let fields = FIELDS
         .iter()
         .map(|name| {
             (
                 (*name).into(),
-                field_label(name).into(),
+                field_label(name, lang).into(),
                 match *name {
                     "publication_state" => "draft".into(),
                     "severity" => "info".into(),
@@ -127,6 +138,7 @@ async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, 
         })
         .collect();
     Ok(oteryn_web::render(&Page {
+        lang,
         next: 0,
         more: false,
         csrf: session.csrf_token().await.map_err(unavailable)?,
@@ -140,7 +152,9 @@ async fn edit(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
     Extension(session): Extension<BrowserSession>,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    let lang = oteryn_ui::preferred_language(&headers);
     let row =
         sqlx::query("SELECT to_jsonb(a) AS data,lock_version FROM announcements a WHERE id=$1")
             .bind(id)
@@ -154,12 +168,13 @@ async fn edit(
         .map(|name| {
             (
                 (*name).into(),
-                field_label(name).into(),
+                field_label(name, lang).into(),
                 data[*name].as_str().unwrap_or_default().to_owned(),
             )
         })
         .collect();
     Ok(oteryn_web::render(&Page {
+        lang,
         next: 0,
         more: false,
         csrf: session.csrf_token().await.map_err(unavailable)?,

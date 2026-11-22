@@ -35,7 +35,12 @@ test('staff creates a page through the finder, publishes it and deletes it', asy
 test('staff creates and edits a bilingual announcement', async ({browser}, info) => {
   const {context, page} = await isolatedAdmin(browser, info);
   try {
+    const locale = info.project.metadata.locale;
+    await page.setExtraHTTPHeaders({'accept-language': locale});
+    expect((await page.goto('/admin/announcements')).status()).toBe(200);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
     expect((await page.goto('/admin/announcements/create')).status()).toBe(200);
+    await expect(page.getByRole('button', {name: locale === 'pl' ? 'Zapisz' : 'Save', exact: true})).toBeVisible();
     const title = `Ledger announcement ${randomUUID()}`;
     await submit(page, 'main form', {
       title,
@@ -44,6 +49,7 @@ test('staff creates and edits a bilingual announcement', async ({browser}, info)
       body_pl: 'Lokalny komunikat redakcyjny.',
     });
     await expect(page).toHaveURL(/\/admin\/announcements\/[a-f0-9-]+\/edit$/);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
     await expect(page.locator('textarea[name=title]')).toHaveValue(title);
     await submit(page, 'main form', {body: 'Updated local editorial announcement.'});
     expect((await page.reload()).status()).toBe(200);
