@@ -138,6 +138,15 @@ fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicIm
 
     // Zune can synthesize entropy bits after a premature EOI even in strict
     // mode. Require a complete scan decode through EOI before using its pixels.
+    // OxiArc stores full-resolution i32 coefficients even at 1/8 output
+    // scale. Each of the four supported components can occupy a full frame
+    // with up to 31 padding samples per axis (8 samples × a factor of 4).
+    const MAX_COMPONENTS: u8 = 4;
+    const MAX_MCU_PADDING: u64 = 8 * 4 - 1;
+    let max_coefficient_bytes = (u64::from(width) + MAX_MCU_PADDING)
+        * (u64::from(height) + MAX_MCU_PADDING)
+        * u64::from(MAX_COMPONENTS)
+        * size_of::<i32>() as u64;
     let verification = oxiarc_jpeg::DecodeOptions {
         limits: oxiarc_jpeg::DecodeLimits {
             max_width: width,
@@ -145,7 +154,8 @@ fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicIm
             max_pixels: u64::from(width) * u64::from(height),
             max_input_bytes: MAX_BYTES as u64,
             max_output_bytes: MAX_DECODE_BYTES as u64,
-            max_coefficient_bytes: MAX_DECODE_BYTES as u64,
+            max_components: MAX_COMPONENTS,
+            max_coefficient_bytes,
             ..oxiarc_jpeg::DecodeLimits::strict()
         },
         // At 1/8 scale the validator still entropy-decodes every MCU.

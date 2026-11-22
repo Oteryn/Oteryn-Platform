@@ -7,6 +7,32 @@ fn fixture(format: ImageFormat, width: u32, height: u32) -> Vec<u8> {
     out.into_inner()
 }
 #[test]
+fn normalizes_large_progressive_jpeg_with_full_chroma() {
+    let bytes = include_bytes!("../../../e2e/fixtures/uploads/progressive-444.jpeg");
+    assert!(bytes.len() <= MAX_BYTES);
+    let info = oxiarc_jpeg::Decoder::new(bytes.as_slice())
+        .read_info()
+        .unwrap();
+    assert_eq!(info.process, oxiarc_jpeg::CodingProcess::Progressive);
+    assert_eq!(info.num_components, 3);
+    assert!(
+        info.components()
+            .iter()
+            .all(|component| (component.h, component.v) == (1, 1))
+    );
+
+    let image = process("progressive-444.jpeg", bytes).unwrap();
+    assert_eq!(
+        (image.width, image.height, image.mime),
+        (4608, 3456, "image/jpeg")
+    );
+    let normalized = image::load_from_memory(&image.content).unwrap();
+    assert_eq!(normalized.dimensions(), (4608, 3456));
+    let thumbnail = image::load_from_memory(&image.thumbnail.unwrap()).unwrap();
+    assert_eq!(thumbnail.dimensions(), (320, 240));
+}
+
+#[test]
 fn jpeg_with_incomplete_scan_passes_header_checks_but_is_rejected() {
     let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-scan.jpeg");
     assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Jpeg);

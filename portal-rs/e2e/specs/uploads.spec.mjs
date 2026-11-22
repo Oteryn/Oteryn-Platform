@@ -91,10 +91,11 @@ async function expectNoMedia(alt) {
   expect(await query('SELECT id FROM media WHERE alt_text=$1', [alt])).toEqual([]);
 }
 
-for (const image of [
-  { ...png, name: 'Zażółć-gęślą-東京.png' },
-  file('jpeg', 'image/jpeg'),
-  file('webp', 'image/webp'),
+for (const { image, width, height, thumbnailHeight } of [
+  { image: { ...png, name: 'Zażółć-gęślą-東京.png' }, width: 640, height: 160, thumbnailHeight: 80 },
+  { image: file('jpeg', 'image/jpeg'), width: 640, height: 160, thumbnailHeight: 80 },
+  { image: file('webp', 'image/webp'), width: 640, height: 160, thumbnailHeight: 80 },
+  { image: file('jpeg', 'image/jpeg', 'progressive-444'), width: 4608, height: 3456, thumbnailHeight: 240 },
 ]) {
   test(`editor uploads, renders and retrieves ${image.mimeType} (${image.name})`, async ({ page }, { project }) => {
     const lang = project.metadata.locale;
@@ -111,10 +112,10 @@ for (const image of [
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     const thumbnail = page.getByRole('img', { name: alt, exact: true });
     await expect(thumbnail).toBeVisible();
-    await expect.poll(() => thumbnail.evaluate(img => [img.naturalWidth, img.naturalHeight])).toEqual([320, 80]);
+    await expect.poll(() => thumbnail.evaluate(img => [img.naturalWidth, img.naturalHeight])).toEqual([320, thumbnailHeight]);
 
     const rows = await query('SELECT id, mime_type, width, height FROM media WHERE alt_text=$1', [alt]);
-    expect(rows).toEqual([{ id: expect.any(String), mime_type: image.mimeType, width: 640, height: 160 }]);
+    expect(rows).toEqual([{ id: expect.any(String), mime_type: image.mimeType, width, height }]);
     const media = `${route}/${rows[0].id}`;
     await expect(thumbnail).toHaveAttribute('src', `${media}/thumbnail`);
     for (const variant of ['content', 'thumbnail']) {
