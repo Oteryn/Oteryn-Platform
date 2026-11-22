@@ -80,7 +80,7 @@ pub(crate) struct Change {
 }
 
 // Match the stored action, even when the list uses a separate operation label.
-fn fields(action: &str) -> &'static [&'static str] {
+fn fields(action: &str, target: &str) -> &'static [&'static str] {
     match action {
         "rbac.role.created" => &["key", "permissions"],
         "rbac.role.permissions_changed" => &["permissions"],
@@ -107,13 +107,22 @@ fn fields(action: &str) -> &'static [&'static str] {
             "published_at",
             "translation_published_at",
         ],
-        "cms.page.saved" | "cms.page.deleted" => &[
-            "locale",
-            "title",
-            "published_at",
-            "legal_version",
-            "legal_effective_date",
-        ],
+        // Keep the legal targets aligned with content::pages::legal.
+        "cms.page.saved" | "cms.page.deleted"
+            if matches!(
+                target,
+                "terms-of-service" | "privacy-policy" | "cookie-policy"
+            ) =>
+        {
+            &[
+                "locale",
+                "title",
+                "published_at",
+                "legal_version",
+                "legal_effective_date",
+            ]
+        }
+        "cms.page.saved" | "cms.page.deleted" => &["locale", "title", "published_at"],
         "events.event_created" | "events.event_updated" => &["status"],
         "events.status_changed" => &["status", "version"],
         "portal.announcement_saved" => &["state"],
@@ -121,8 +130,20 @@ fn fields(action: &str) -> &'static [&'static str] {
     }
 }
 
-fn publication_time(value: &Value) -> Option<OffsetDateTime> {
-    let text = value.as_str()?;
+#[derive(PartialEq, Eq)]
+enum PublicationTime {
+    Absent,
+    Known(OffsetDateTime),
+    Unknown,
+}
+
+fn publication_time(value: &Value) -> PublicationTime {
+    if value.is_null() || value.as_str().is_some_and(|text| text.trim().is_empty()) {
+        return PublicationTime::Absent;
+    }
+    let Some(text) = value.as_str() else {
+        return PublicationTime::Unknown;
+    };
     // The old news editor round-tripped PostgreSQL text such as "2020-01-01 00:00:00+00".
     let mut timestamp = text.replacen(' ', "T", 1);
     if timestamp
@@ -134,7 +155,53 @@ fn publication_time(value: &Value) -> Option<OffsetDateTime> {
     {
         timestamp.push_str(":00");
     }
-    OffsetDateTime::parse(&timestamp, &Rfc3339).ok()
+    OffsetDateTime::parse(&timestamp, &Rfc3339)
+        .map_or(PublicationTime::Unknown, PublicationTime::Known)
+}
+
+impl PublicationTime {
+    fn display(self, lang: &str) -> Option<String> {
+        match self {
+            Self::Absent => None,
+            Self::Known(time) => time.to_offset(UtcOffset::UTC).format(&Rfc3339).ok(),
+            Self::Unknown => Some(tr(lang, "audit-diff-unknown")),
+        }
+    }
+}
+
+fn hidden_field(field: &str) -> bool {
+    matches!(
+        field,
+        "title" | "title_pl" | "legal_version" | "slug" | "key"
+    )
+}
+
+fn workflow_label(lang: &str, field: &str, text: &str) -> String {
+    let known = match field {
+        "category" => matches!(text, "warning" | "restriction" | "suspension"),
+        "appeal_status" => matches!(
+            text,
+            "none" | "requested" | "reviewing" | "accepted" | "rejected"
+        ),
+        "state" => matches!(text, "draft" | "published"),
+        "status" => matches!(
+            text,
+            "draft"
+                | "scheduled"
+                | "published"
+                | "archived"
+                | "pending"
+                | "active"
+                | "expired"
+                | "revoked"
+        ),
+        _ => false,
+    };
+    if known {
+        tr(lang, &format!("audit-value-{text}"))
+    } else {
+        tr(lang, "audit-diff-unknown")
+    }
 }
 
 fn display(lang: &str, field: &str, value: &Value) -> Option<String> {
@@ -172,25 +239,22 @@ fn display(lang: &str, field: &str, value: &Value) -> Option<String> {
             | "version",
             Value::Number(value),
         ) => Some(value.to_string()),
-        ("title" | "title_pl" | "legal_version", Value::String(text)) if !text.is_empty() => {
+        (field, Value::String(text)) if hidden_field(field) && !text.is_empty() => {
             Some(tr(lang, "audit-diff-hidden"))
         }
-        (
-            "key"
-            | "category"
-            | "status"
-            | "appeal_status"
-            | "state"
-            | "slug"
-            | "locale"
-            | "legal_effective_date",
-            Value::String(text),
-        ) if !text.is_empty() => Some(text.clone()),
+        ("category" | "status" | "appeal_status" | "state", Value::String(text))
+            if !text.is_empty() =>
+        {
+            Some(workflow_label(lang, field, text))
+        }
+        ("locale" | "legal_effective_date", Value::String(text)) if !text.is_empty() => {
+            Some(text.clone())
+        }
         _ => None,
     }
 }
 
-fn changes(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Change> {
+fn changes(lang: &str, action: &str, target: &str, before: &Value, after: &Value) -> Vec<Change> {
     // Older page deletions stored the submitted form in the after snapshot.
     let after = if action == "cms.page.deleted" {
         &Value::Null
@@ -198,7 +262,7 @@ fn changes(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Chang
         after
     };
     // Only the explicitly named top-level email field may be displayed masked.
-    fields(action)
+    fields(action, target)
         .iter()
         .copied()
         .chain(["email"])
@@ -212,20 +276,17 @@ fn changes(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Chang
                 if matches!(field, "published_at" | "translation_published_at") {
                     let previous = publication_time(previous);
                     let current = publication_time(current);
-                    if previous == current {
+                    if previous == current && previous != PublicationTime::Unknown {
                         return None;
                     }
-                    let format =
-                        |time: OffsetDateTime| time.to_offset(UtcOffset::UTC).format(&Rfc3339).ok();
-                    (previous.and_then(format), current.and_then(format))
+                    (previous.display(lang), current.display(lang))
                 } else {
                     (
                         display(lang, field, previous),
                         display(lang, field, current),
                     )
                 };
-            if matches!(field, "title" | "title_pl" | "legal_version") && current_display.is_some()
-            {
+            if hidden_field(field) && current_display.is_some() {
                 current_display = Some(tr(lang, "audit-diff-hidden-change"));
             }
             if field == "appeal_status"
@@ -241,7 +302,8 @@ fn changes(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Chang
                 previous_display = Some(tr(lang, "audit-diff-unknown"));
             }
             if (previous_display.is_none() && current_display.is_none())
-                || (field != "email" && previous_display == current_display)
+                || (!matches!(field, "email" | "published_at" | "translation_published_at")
+                    && previous_display == current_display)
             {
                 return None;
             }
@@ -336,7 +398,7 @@ pub(crate) async fn page<B: Backend>(
                             row.recorded_at,
                             row.role_context(lang),
                         ),
-                        changes: changes(lang, &row.action, &row.before, &row.after),
+                        changes: changes(lang, &row.action, &row.target, &row.before, &row.after),
                     })
                     .collect(),
             ),
@@ -411,6 +473,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn diff(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Change> {
+        changes(lang, action, "terms-of-service", before, after)
+    }
+
     #[test]
     fn diff_masks_email_and_omits_credentials_unknown_fields_and_unchanged_values() {
         let before = json!({"email":"alice@example.invalid", "title":"Private draft alice@example.invalid", "slug":"same"});
@@ -425,7 +491,7 @@ mod tests {
             "body":"free text"
         });
         assert_eq!(
-            changes("en", "cms.news_updated", &before, &after),
+            diff("en", "cms.news_updated", &before, &after),
             [
                 Change {
                     field: "Title".into(),
@@ -443,9 +509,9 @@ mod tests {
 
     #[test]
     fn diff_refuses_wrong_action_and_nested_or_malformed_values() {
-        assert!(changes("en", "unknown", &Value::Null, &json!({"title":"private"})).is_empty());
+        assert!(diff("en", "unknown", &Value::Null, &json!({"title":"private"})).is_empty());
         assert!(
-            changes(
+            diff(
                 "en",
                 "rbac.role.created",
                 &Value::Null,
@@ -462,7 +528,7 @@ mod tests {
     #[test]
     fn diff_treats_legacy_page_deletion_forms_as_an_absent_after_value() {
         assert_eq!(
-            changes(
+            diff(
                 "en",
                 "cms.page.deleted",
                 &json!({"title":"Original"}),
@@ -480,10 +546,10 @@ mod tests {
     fn equivalent_legacy_publication_timestamps_do_not_create_a_change() {
         let before = json!({"published_at":"2020-01-01T00:00:00+00:00", "translation_published_at":"2020-01-01 00:00:00+00"});
         let after = json!({"published_at":"2020-01-01T00:00:00Z", "translation_published_at":"2020-01-01T01:00:00+01:00"});
-        assert!(changes("en", "cms.news_updated", &before, &after).is_empty());
-        assert!(changes("en", "cms.page.saved", &before, &after).is_empty());
+        assert!(diff("en", "cms.news_updated", &before, &after).is_empty());
+        assert!(diff("en", "cms.page.saved", &before, &after).is_empty());
         assert_eq!(
-            changes(
+            diff(
                 "en",
                 "cms.page.saved",
                 &before,
@@ -500,7 +566,7 @@ mod tests {
     #[test]
     fn diff_hides_embedded_pii_in_legal_versions() {
         assert_eq!(
-            changes(
+            diff(
                 "en",
                 "cms.page.saved",
                 &json!({"legal_version":"v1 reviewer@example.invalid"}),
@@ -515,15 +581,125 @@ mod tests {
     }
 
     #[test]
+    fn diff_hides_editorial_slugs_and_custom_role_keys() {
+        for (action, field, label) in [
+            ("cms.news_updated", "slug", "URL slug"),
+            ("rbac.role.created", "key", "Role key"),
+        ] {
+            assert_eq!(
+                diff(
+                    "en",
+                    action,
+                    &Value::Null,
+                    &json!({(field):"private-case-42"})
+                ),
+                [Change {
+                    field: label.into(),
+                    before: "—".into(),
+                    after: "Changed (value hidden)".into(),
+                }]
+            );
+        }
+    }
+
+    #[test]
+    fn diff_distinguishes_unparseable_historical_timestamps_from_absence() {
+        for (before, after, previous, current) in [
+            (Value::Null, json!("today"), "—", "Unknown"),
+            (json!("today"), json!("tomorrow"), "Unknown", "Unknown"),
+            (
+                json!("today"),
+                json!("2020-01-01T00:00:00Z"),
+                "Unknown",
+                "2020-01-01T00:00:00Z",
+            ),
+        ] {
+            assert_eq!(
+                diff(
+                    "en",
+                    "cms.news_updated",
+                    &json!({"published_at":before}),
+                    &json!({"published_at":after})
+                ),
+                [Change {
+                    field: "Publication time".into(),
+                    before: previous.into(),
+                    after: current.into()
+                }]
+            );
+        }
+    }
+
+    #[test]
+    fn diff_ignores_legacy_legal_inputs_on_non_legal_pages() {
+        let before = json!({"locale":"en","title":"Previous"});
+        let after = json!({"locale":"en","title":"Updated","legal_version":"discarded","legal_effective_date":"2020-01-01"});
+        let changes = changes("en", "cms.page.saved", "support", &before, &after);
+        assert_eq!(
+            changes,
+            [Change {
+                field: "Title".into(),
+                before: "Value hidden".into(),
+                after: "Changed (value hidden)".into()
+            }]
+        );
+        let legal_changes = diff("en", "cms.page.saved", &before, &after);
+        assert_eq!(legal_changes.len(), 3);
+        assert_eq!(legal_changes[2].after, "2020-01-01");
+    }
+
+    #[test]
+    fn diff_localizes_known_workflow_values_in_both_languages() {
+        for (lang, values) in [
+            (
+                "en",
+                [
+                    "Draft",
+                    "Published",
+                    "Under review",
+                    "Accepted",
+                    "Warning",
+                    "Restriction",
+                ],
+            ),
+            (
+                "pl",
+                [
+                    "Szkic",
+                    "Opublikowany",
+                    "W trakcie rozpatrywania",
+                    "Uwzględnione",
+                    "Ostrzeżenie",
+                    "Ograniczenie",
+                ],
+            ),
+        ] {
+            for ((field, value), label) in [
+                ("state", "draft"),
+                ("status", "published"),
+                ("appeal_status", "reviewing"),
+                ("appeal_status", "accepted"),
+                ("category", "warning"),
+                ("category", "restriction"),
+            ]
+            .into_iter()
+            .zip(values)
+            {
+                assert_eq!(display(lang, field, &json!(value)).as_deref(), Some(label));
+            }
+        }
+    }
+
+    #[test]
     fn a_legacy_sanction_edit_does_not_infer_an_appeal_status_change() {
         let before = json!({"status":"active"});
         let after = json!({"status":"revoked","appeal_status":"reviewing"});
         assert_eq!(
-            changes("en", "support.enforcement_updated", &before, &after),
+            diff("en", "support.enforcement_updated", &before, &after),
             [Change {
                 field: "Status".into(),
-                before: "active".into(),
-                after: "revoked".into()
+                before: "Active".into(),
+                after: "Revoked".into()
             }]
         );
     }
@@ -531,7 +707,7 @@ mod tests {
     #[test]
     fn a_legacy_appeal_snapshot_marks_missing_prior_status_unknown() {
         assert_eq!(
-            changes(
+            diff(
                 "en",
                 "support.enforcement_appeal_updated",
                 &json!({"status":"active"}),
@@ -540,7 +716,7 @@ mod tests {
             [Change {
                 field: "Appeal status".into(),
                 before: "Unknown".into(),
-                after: "reviewing".into()
+                after: "Under review".into()
             }]
         );
     }
@@ -548,7 +724,7 @@ mod tests {
     #[test]
     fn diff_distinguishes_a_missing_value_from_an_empty_permission_set() {
         assert_eq!(
-            changes(
+            diff(
                 "pl",
                 "rbac.role.created",
                 &Value::Null,

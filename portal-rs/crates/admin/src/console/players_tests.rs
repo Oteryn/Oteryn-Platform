@@ -4,6 +4,38 @@ use super::*;
 use askama::Template;
 use sqlx::postgres::PgPoolOptions;
 
+#[test]
+fn audit_template_escapes_before_and_after_cells() -> Result<(), askama::Error> {
+    use super::super::{
+        access::SectionLine,
+        audit::{Change, DiffLabels},
+    };
+
+    let mut page = Page::new("en", "audit");
+    page.audit_diff = Some(DiffLabels {
+        field: "Field".into(),
+        before: "Before".into(),
+        after: "After".into(),
+    });
+    page.section_with_lines(
+        "platform-source",
+        Some(vec![SectionLine {
+            text: "Fixture".into(),
+            changes: vec![Change {
+                field: "Example".into(),
+                before: "<b>before</b>".into(),
+                after: "<i>after & more</i>".into(),
+            }],
+        }]),
+    );
+    let html = page.render()?;
+    assert!(html.contains("<td>&#60;b&#62;before&#60;/b&#62;</td>"));
+    assert!(html.contains("<td>&#60;i&#62;after &#38; more&#60;/i&#62;</td>"));
+    assert!(!html.contains("<td><b>"));
+    assert!(!html.contains("<td><i>"));
+    Ok(())
+}
+
 #[derive(Clone)]
 struct Fake {
     allowed: bool,
