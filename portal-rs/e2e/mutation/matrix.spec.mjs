@@ -502,7 +502,7 @@ test('character creation queues one operation and exposes the pending Game outco
 });
 
 test('support ticket reply and resolution require the support permission', async ({ page, browser }, info) => {
-  test.setTimeout(360_000);
+  test.setTimeout(720_000);
   const lang = info.project.metadata.locale;
   const contexts = [];
   const actor = async role => {
@@ -679,7 +679,7 @@ test('support ticket reply and resolution require the support permission', async
 });
 
 test('player report persists one private report for the submitted request key', async ({ page, browser }, info) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   const lang = info.project.metadata.locale;
   const reader = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,

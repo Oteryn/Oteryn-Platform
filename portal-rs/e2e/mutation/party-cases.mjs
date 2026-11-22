@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { login, password, submit } from '../helpers.mjs';
+import { csrfRejected, password, submit, waitForLoginBudget } from '../helpers.mjs';
 import { enrollMfa, query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 import { prepare, sendForm, rejected, signInWithRecoveryCode } from './matrix-helpers.mjs';
@@ -20,7 +20,21 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
         [accountId, role],
       )).toHaveLength(1);
     }
-    await login(screen, lang, account);
+    const path = `/${lang}/login`;
+    expect((await screen.goto(path)).status()).toBe(200);
+    await waitForLoginBudget();
+    const form = screen.locator('main form[method=post]');
+    const { email, password: credential } = account;
+    await csrfRejected(screen, path, { email, password: credential });
+    await form.locator('[name=email]').fill(email);
+    await form.locator('[name=password]').fill(credential);
+    const [response] = await Promise.all([
+      screen.waitForResponse(candidate => candidate.url() === `${game.origin}${path}`
+        && candidate.request().method() === 'POST', { timeout: 120_000 }),
+      form.locator('button[type=submit], button:not([type])').click({ timeout: 120_000 }),
+    ]);
+    expect(response.status()).toBe(302);
+    expect(response.headers().location).toBe(`/${lang}/`);
     await expect(screen).toHaveURL(`${game.origin}/${lang}/`);
     return { accountId, ...account };
   };
