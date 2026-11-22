@@ -5,26 +5,63 @@ use std::net::IpAddr;
 /// Version of the repository's bilingual placeholder package.
 pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
 
-/// Detect the bundled operator placeholders even if staff change the version or remove a notice.
-pub fn is_placeholder_edition(version: &str, body: &str) -> bool {
-    let body = body.to_lowercase();
-    let compact: String = body
-        .chars()
-        .filter(|c| !c.is_whitespace() && !matches!(c, '-' | '–' | '—' | '*' | '_' | '`'))
-        .collect();
-    version
+/// Detect the bundled placeholders in the same Markdown text the public page renders.
+pub fn is_placeholder_edition(version: &str, title: &str, body: &str) -> bool {
+    use html5ever::tokenizer::{BufferQueue, Token, TokenSink, TokenSinkResult, Tokenizer};
+    use std::cell::RefCell;
+    use unicode_general_category::{GeneralCategory, get_general_category};
+    use unicode_normalization::UnicodeNormalization;
+
+    if version
         .trim_start()
         .to_ascii_lowercase()
         .starts_with("placeholder")
-        || [
-            "draft — operator details are placeholders.",
-            "wersja robocza — dane operatora są tymczasowe.",
-            "[dane tymczasowe",
-            "placeholder details",
-        ]
-        .iter()
-        .any(|marker| body.contains(marker))
-        || [
+    {
+        return true;
+    }
+
+    struct Text(RefCell<String>);
+    impl TokenSink for Text {
+        type Handle = ();
+
+        fn process_token(&self, token: Token, _: u64) -> TokenSinkResult<()> {
+            if let Token::CharacterTokens(text) = token {
+                self.0.borrow_mut().push_str(&text);
+            }
+            TokenSinkResult::Continue
+        }
+    }
+
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(body));
+    let input = BufferQueue::default();
+    input.push_back(ammonia::clean(&html).into());
+    let tokenizer = Tokenizer::new(Text(RefCell::new(String::new())), Default::default());
+    let _ = tokenizer.feed(&input);
+    tokenizer.end();
+    let body = tokenizer.sink.0.into_inner();
+
+    [title, body.as_str()].into_iter().any(|text| {
+        let compact: String = text
+            .nfkc()
+            .flat_map(char::to_lowercase)
+            .filter(|&c| {
+                !c.is_whitespace()
+                    && !matches!(
+                        get_general_category(c),
+                        GeneralCategory::ConnectorPunctuation
+                            | GeneralCategory::DashPunctuation
+                            | GeneralCategory::OtherPunctuation
+                            | GeneralCategory::Format
+                    )
+                    && c != '−'
+            })
+            .collect();
+        [
+            "draftoperatordetailsareplaceholders",
+            "wersjaroboczadaneoperatorasątymczasowe",
+            "danetymczasowe",
+            "placeholderdetails",
             "przykładowafirma",
             "przykładowa1",
             "00000warszawa",
@@ -32,6 +69,7 @@ pub fn is_placeholder_edition(version: &str, body: &str) -> bool {
         ]
         .iter()
         .any(|marker| compact.contains(marker))
+    })
 }
 
 /// Existing production defaults, also used when no web configuration is installed.
@@ -82,8 +120,8 @@ impl ConsentConfig {
         db: impl PgExecutor<'e>,
         locale: &str,
     ) -> Result<(), sqlx::Error> {
-        let documents: Vec<(String, String, String, bool)> = sqlx::query_as(
-            "SELECT p.slug,e.legal_version,concat_ws(chr(10),e.title,e.body),
+        let documents: Vec<(String, String, String, String, bool)> = sqlx::query_as(
+            "SELECT p.slug,e.legal_version,e.title,e.body,
                     COALESCE(v.content @> jsonb_build_object(
                         'final_approved',true,'title',e.title,'body',e.body,
                         'effective',e.legal_effective_date::text
@@ -112,26 +150,26 @@ impl ConsentConfig {
             ("terms-of-service", &self.terms_version),
             ("privacy-policy", &self.privacy_version),
         ] {
-            let document = documents.iter().find(|(name, _, _, _)| name == slug);
+            let document = documents.iter().find(|(name, _, _, _, _)| name == slug);
             let reason = match document {
                 None => "published legal document missing for signup locale",
-                Some((_, version, body, _))
+                Some((_, version, title, body, _))
                     if matches!(self.publication, PublicationPolicy::FinalOnly)
-                        && is_placeholder_edition(version, body) =>
+                        && is_placeholder_edition(version, title, body) =>
                 {
                     "placeholder legal document must be replaced before live signup"
                 }
-                Some((_, _, _, false))
+                Some((_, _, _, _, false))
                     if matches!(self.publication, PublicationPolicy::FinalOnly) =>
                 {
                     "published legal edition requires explicit final approval"
                 }
-                Some((_, version, _, _)) if version != expected => {
+                Some((_, version, _, _, _)) if version != expected => {
                     "configured consent version does not match published legal document"
                 }
                 Some(_) => continue,
             };
-            tracing::error!(locale, slug, expected, published = ?document.map(|(_, version, _, _)| version), reason, "sign-up blocked by legal document configuration");
+            tracing::error!(locale, slug, expected, published = ?document.map(|(_, version, _, _, _)| version), reason, "sign-up blocked by legal document configuration");
             return Err(sqlx::Error::Protocol(reason.into()));
         }
         Ok(())

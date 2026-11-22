@@ -10,6 +10,11 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+ammonia = "4"
+html5ever = "0.40"
+pulldown-cmark = "0.13"
+unicode-general-category = "1.1"
+unicode-normalization = "0.1"
 futures-util = "0.3"
 tracing = "0.1.44"
 oteryn-ui.workspace = true

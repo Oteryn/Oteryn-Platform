@@ -98,9 +98,9 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
                 && !form.published_at.is_empty()
                 && !oteryn_identity::consents::is_placeholder_edition(
                     &form.legal_version,
+                    &form.title,
                     &form.body,
-                )
-                && !oteryn_identity::consents::is_placeholder_edition("", &form.title)))
+                )))
         && (!legal(slug)
             || form.published_at.is_empty()
             || (!form.legal_version.trim().is_empty() && !form.legal_effective_date.is_empty()))

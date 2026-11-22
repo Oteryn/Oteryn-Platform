@@ -2965,6 +2965,7 @@ name = "oteryn-identity"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "ammonia",
  "argon2",
  "askama",
  "axum",
@@ -2975,6 +2976,7 @@ dependencies = [
  "fluent-bundle",
  "futures-util",
  "getrandom 0.4.3",
+ "html5ever",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -2985,6 +2987,7 @@ dependencies = [
  "oteryn-wallet",
  "oteryn-web",
  "prost",
+ "pulldown-cmark",
  "rustls",
  "serde",
  "serde_json",
@@ -2999,6 +3002,8 @@ dependencies = [
  "tower",
  "tracing",
  "unic-langid",
+ "unicode-general-category",
+ "unicode-normalization",
  "url",
  "uuid",
  "webauthn-authenticator-rs",

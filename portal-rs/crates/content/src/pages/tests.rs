@@ -70,24 +70,42 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
         0
     );
     assert_eq!(legal::install(&pool, Some("testing")).await?, 3);
-    sqlx::query("UPDATE editorial_pages SET legal_version='relabeled-v1', body='KRS 0000000000'")
+    let app = router(pool.clone());
+    for (english, polish, visible) in [
+        ("KRS 0000000000", "KRS 0000000000", "KRS 0000000000"),
+        (
+            "Tax ID (NIP) <strong>000</strong>&#8209;000&#x2011;00‑00",
+            "NIP 000‑000‑00‑00",
+            "‑00",
+        ),
+    ] {
+        sqlx::query(
+            "UPDATE editorial_pages SET legal_version='relabeled-v1',
+             body=CASE WHEN locale='pl' THEN $1 ELSE $2 END",
+        )
+        .bind(polish)
+        .bind(english)
         .execute(&pool)
         .await?;
-    let app = router(pool.clone());
-    for (locale, notice) in [
-        ("en", "Draft — operator data will be replaced."),
-        ("pl", "Wersja robocza — dane operatora zostaną zastąpione."),
-    ] {
-        for path in ["terms", "privacy", "cookies"] {
-            let response = app
-                .clone()
-                .oneshot(Request::get(format!("/{locale}/legal/{path}")).body(Body::empty())?)
-                .await?;
-            assert_eq!(response.status(), StatusCode::OK);
-            let html = String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
-            assert!(html.contains("role=\"note\""));
-            assert!(html.contains(notice));
-            assert!(html.contains("KRS 0000000000"));
+        for (locale, notice) in [
+            ("en", "Draft — operator data will be replaced."),
+            ("pl", "Wersja robocza — dane operatora zostaną zastąpione."),
+        ] {
+            for path in ["terms", "privacy", "cookies"] {
+                let response = app
+                    .clone()
+                    .oneshot(Request::get(format!("/{locale}/legal/{path}")).body(Body::empty())?)
+                    .await?;
+                assert_eq!(response.status(), StatusCode::OK);
+                let html =
+                    String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
+                assert!(html.contains("role=\"note\""));
+                assert!(html.contains(notice));
+                assert!(
+                    html.contains(visible),
+                    "placeholder identifier stays visible"
+                );
+            }
         }
     }
     drop_pages_schema(root, pool, &schema).await?;
@@ -435,11 +453,17 @@ Updated English source",
     );
     form.legal_version = "test-v2".into();
     form.final_approved = "yes".into();
-    form.body = "KRS 0000000000".into();
-    assert!(matches!(
-        persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await,
-        Err(oteryn_admin::rbac::Error::InvalidInput)
-    ));
+    for (locale, body) in [
+        ("en", "Tax ID (NIP) **000**&#8209;000&#x2011;00‑00"),
+        ("pl", "NIP 000‑000‑00‑00"),
+        ("en", "KRS 0000000000"),
+    ] {
+        form.body = body.into();
+        assert!(matches!(
+            persist_current(&pool, &auth, ctx, "terms-of-service", locale, &form).await,
+            Err(oteryn_admin::rbac::Error::InvalidInput)
+        ));
+    }
     form.body = "Changed legal text".into();
     persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
     assert!(

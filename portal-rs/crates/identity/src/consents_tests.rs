@@ -441,3 +441,27 @@ async fn audit02_consent_dispatch_budget_stops_durable_writes() -> TestResult {
     assert_eq!(f.count().await?, 10);
     f.close().await
 }
+
+#[test]
+fn recognizes_placeholders_in_rendered_legal_text() {
+    for body in [
+        "NIP 000‑000‑00‑00",
+        "Tax ID (NIP) **000**&#8209;000&#x2011;00‑00",
+        "Tax ID (NIP) <strong>000</strong>&#8209;000‑00‑00",
+        "KRS 0000000000",
+        "NIP: ０００–０００·００ ００",
+        "ul. Przykładowa **1**",
+    ] {
+        assert!(is_placeholder_edition("final-v1", "Terms", body), "{body}");
+    }
+    assert!(!is_placeholder_edition(
+        "final-v1",
+        "Terms",
+        "NIP 123‑456‑78‑90"
+    ));
+    assert!(!is_placeholder_edition(
+        "final-v1",
+        "Terms",
+        "<!-- NIP 000‑000‑00‑00 -->"
+    ));
+}
