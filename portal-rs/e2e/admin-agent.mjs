@@ -110,8 +110,9 @@ export function readStaffFixture(directory) {
 }
 
 const execSeed = promisify(execFile);
+export const staffSeedTimeoutMs = 30_000;
 
-export async function runStaffSeed(binary, env, entity, input, timeout = 30_000) {
+export async function runStaffSeed(binary, env, entity, input, timeout = staffSeedTimeoutMs) {
   let stdout;
   try {
     ({ stdout } = await execSeed(binary, ['seed', entity, JSON.stringify(input)], {

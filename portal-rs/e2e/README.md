@@ -212,8 +212,11 @@ if cleanup fails.
 
 The staff fixture uses canonical `portal_e2e_` database names. Its connections
 pin `localhost` to `127.0.0.1` for TCP and retain `localhost` for TLS verification.
-Use `[::1]` for an IPv6-only server. Account and MFA seed commands have a
-30-second deadline. Run the fast guards with `node --test harness.test.mjs`.
+Use `[::1]` for an IPv6-only server. Browser seed commands and each staff
+seed-plan step have a 30-second deadline. The full staff seed-plan results are in
+`<out>/secrets/seed-results.json` (mode 0600). The ready report shows only a
+private-result marker for MFA, signing custody, and steps that reference them.
+Run the fast guards with `node --test harness.test.mjs`.
 Run `node --test cli/staff-harness.test.mjs` against the local administrator
 URL to exercise a real port collision and a blocked seed command.
 
@@ -367,23 +370,3 @@ skipped/interrupted, any test failed, or any retry occurred. REPORT.md records
 Rust acceptance and the concrete source fixes. The qualification source digest
 excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
 evidence-only commit can refer to the immutable tested source candidate.
-
-## Collection journal evidence
-
-Run both collection profiles with a locally built portal binary and the same
-disposable PostgreSQL administrator URL as the cross-repository harness.
-
-```sh
-export PORTAL_E2E_BINARY=/absolute/path/to/oteryn-portal
-node collection/run.mjs
-node collection/run.mjs --read-disabled
-```
-
-Each invocation creates its own disposable database and uses the seed CLI for
-the browser accounts. Only the collection runner enables journal ingest. Both
-profiles publish the character portfolio, inventory snapshot and bestiary
-watermark over the private mTLS listener, and check refusal for a bestiary record
-that requires the candidate catalogue mapping. The first profile checks four
-localized browser projects for unknown and then known owner-only timestamps.
-The second leaves the read flag unset and checks all four projects with evidence
-already published.

@@ -72,19 +72,17 @@ async function dropDatabase(dbName, reconcile) {
   let failure;
   for (let attempt = 0; ; attempt++) {
     const remaining = Math.floor(deadline - performance.now());
-    if (remaining <= 0) throw failure;
-    const budget = Math.min(5_000 * 2 ** attempt, 30_000, remaining);
-    const attemptDeadline = performance.now() + budget;
+    if (remaining <= 0) throw failure ?? new Error('PostgreSQL cleanup deadline exceeded');
     const url = new URL(adminConnectionString);
-    url.searchParams.set('statement_timeout', String(budget));
-    const { client, socket } = localDatabaseClient(url, budget);
+    url.searchParams.set('statement_timeout', String(remaining));
+    const { client, socket } = localDatabaseClient(url, Math.min(remaining, 5_000));
     // An unexpected disconnect can also emit an idle-client error between
     // connect and query. The awaited operations determine whether to retry.
     client.on('error', () => {});
     const query = (text, values) => {
-      const remaining = Math.floor(attemptDeadline - performance.now());
-      if (remaining <= 0) throw new Error('PostgreSQL cleanup attempt timed out');
-      return client.query({ text, values, query_timeout: remaining });
+      const budget = Math.floor(deadline - performance.now());
+      if (budget <= 0) throw new Error('PostgreSQL cleanup deadline exceeded');
+      return client.query({ text, values, query_timeout: budget });
     };
     try {
       await client.connect();
@@ -245,7 +243,12 @@ async function start() {
   onCleanup(async () => {
     if ((creation === 'created' || creation === 'pending')
         && (!ready || process.env.PORTAL_E2E_KEEP_DATABASE !== '1')) {
-      await dropDatabase(dbName, creation === 'pending');
+      try {
+        await dropDatabase(dbName, creation === 'pending');
+      } catch (error) {
+        log('failed to drop disposable database', dbName);
+        throw error;
+      }
     }
   });
   onCleanup(() => {
@@ -303,7 +306,7 @@ async function start() {
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
   // ---- build, migrate ----------------------------------------------------------
-  async function run(program, args, options = {}) {
+  async function run(program, args, { timeout, label, ...options } = {}) {
     const { child, done } = launch(program, args, { env, ...options });
     let stdout = '';
     child.stdout?.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
@@ -312,11 +315,13 @@ async function start() {
       cancel = () => reject(abort.signal.reason);
       abort.signal.addEventListener('abort', cancel, { once: true });
     });
+    const timer = timeout && setTimeout(() => stop(1, `${label} exceeded its ${timeout} ms deadline`), timeout);
     try {
       const result = await Promise.race([done, interrupted]);
       abort.signal.throwIfAborted();
       return { ...result, stdout };
     } finally {
+      clearTimeout(timer);
       abort.signal.removeEventListener('abort', cancel);
     }
   }
@@ -413,24 +418,36 @@ async function start() {
   // ---- seed plan ---------------------------------------------------------------
   // {"steps":[{"name":"player","entity":"account","args":{...}}, ...]}; a string
   // "${player.accountId}" in later args is replaced by that step's output field.
-  const seed = {};
+  const seed = new Map();
   const pending = [];
   if (seedPlanFile) {
     const plan = readJSON(fs.readFileSync(seedPlanFile, 'utf8'), 'Seed plan');
+    const results = new Map();
+    const privateSteps = new Set();
     for (const [index, step] of (plan.steps ?? plan).entries()) {
+      const name = step.name ?? step.entity;
       const label = 'seed step ' + (typeof step.name === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(step.name)
         ? step.name : '#' + (index + 1));
+      let privateResult = step.entity === 'account-mfa' || step.entity === 'signing-custody';
       const args = JSON.parse(JSON.stringify(step.args ?? {}), (key, value) => typeof value !== 'string' ? value : value.replace(/\$\{([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\}/g, (_, name, field) => {
-        if (seed[name]?.[field] === undefined) throw new Error(`${label}: unknown seed reference`);
-        return String(seed[name][field]);
+        const output = results.get(name);
+        if (!output || !Object.hasOwn(output, field)) throw new Error(`${label}: unknown seed reference`);
+        if (privateSteps.has(name)) privateResult = true;
+        return String(output[field]);
       }));
-      const result = await run(binary, ['seed', step.entity, JSON.stringify(args)], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const result = await run(binary, ['seed', step.entity, JSON.stringify(args)], {
+        stdio: ['ignore', 'pipe', 'ignore'], timeout: staffTools.staffSeedTimeoutMs, label,
+      });
       let output;
       try { output = JSON.parse(result.stdout); } catch { output = { error: 'unavailable', reason: 'no JSON output' }; }
-      if (result.status === 3) { pending.push({ step: step.name, entity: step.entity, ...output }); seed[step.name] = output; continue; }
-      if (result.status !== 0) throw new Error(`${label} failed (${result.error?.code ?? result.signal ?? result.status})`);
-      seed[step.name ?? step.entity] = output;
+      if (result.status !== 0 && result.status !== 3) throw new Error(`${label} failed (${result.error?.code ?? result.signal ?? result.status})`);
+      results.set(name, output);
+      if (privateResult) privateSteps.add(name);
+      const visibleOutput = privateSteps.has(name) ? { status: 'private' } : output;
+      seed.set(name, visibleOutput);
+      if (result.status === 3) pending.push({ step: name, entity: step.entity, error: 'not_applicable', ...visibleOutput });
     }
+    fs.writeFileSync(path.join(dirs.secrets, 'seed-results.json'), JSON.stringify(Object.fromEntries(results)), { flag: 'wx', mode: 0o600 });
   }
 
   // ---- report ----------------------------------------------------------------
@@ -451,7 +468,7 @@ async function start() {
     clients: Object.fromEntries(Object.entries(clients).map(([name, c]) => [name, { san: c.san, env: c.env, cert: c.cert, key: c.key }])),
     witnessDirectory: dirs.witness,
     logs: Object.fromEntries(['migrate', 'serve', 'worker', 'gateway'].map(role => [role, path.join(dirs.logs, `${role}.log`)])),
-    seed,
+    seed: Object.fromEntries(seed),
     pending,
     pid: process.pid,
   };
