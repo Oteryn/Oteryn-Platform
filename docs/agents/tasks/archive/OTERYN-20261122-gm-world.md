@@ -31,7 +31,7 @@ updated_at: 2026-11-22T20:52:39Z
 head: ae8786651dbc41156aacd9f5c99486b5e3dad067
 branch: codex/feat-gm-world
 pr: 2036
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/content/src/events/
@@ -119,7 +119,7 @@ validation:
     result: PASS
     evidence: workspace formatting check passed.
 blockers: []
-next_action: Retain the qualified fast-forward follow-up branch for coordinator review under issue 2002.
+next_action: none; delivered by PR #2036 and archived
 ```
 
 ## Source branch closeout
