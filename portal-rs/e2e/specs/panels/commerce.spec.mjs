@@ -311,6 +311,7 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
       reason: 'Exercise repayment from wallet credit',
     }, 303);
     const adjustmentApproval = `/admin/commerce/approvals/${adjustment}`;
+    await open(second, '/admin/commerce');
     await csrfRejected(second, adjustmentApproval, {reason: 'value_verified'});
     await post(second, adjustmentApproval, {_csrf: reviewerCsrf}, 422);
     await post(second, adjustmentApproval, {_csrf: reviewerCsrf, reason: 'value_withdrawn'}, 422);
