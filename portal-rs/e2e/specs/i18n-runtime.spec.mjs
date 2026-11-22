@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../fixtures.mjs';
 import * as OTPAuth from 'otpauth';
-import { login, pool, submit, waitForWikiBudget } from '../helpers.mjs';
+import { login, password, pool, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 import { seedPlayer, signInPlayer, withFreshCommercePortal } from '../commerce-helpers.mjs';
 import { uuid7 } from '../support/bazaar-game.mjs';
@@ -241,6 +241,8 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
 
 test('locale parity across the GET route inventory', async ({ browser, page: anonymous }, info) => {
   test.setTimeout(1_200_000);
+  // Exercise the real registration form with its required local abuse policy and corpus.
+  await seedPasswordRange(password());
   const locale = info.project.metadata.locale;
   const player = await playerContext.newPage();
   const staff = await provisionStaff(browser, info);
