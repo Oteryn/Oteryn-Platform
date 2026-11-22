@@ -234,7 +234,7 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
       const request = await received(agent, 'player.search', node, { query: data.q });
       await agent.answer(request, 'success');
       expect((await page.reload()).status()).toBe(200);
-      await expect(page.locator('main > p')).toContainText(copy.source);
+      await expect(page.locator('main > h1 + p')).toContainText(copy.source);
       await expect(page.locator('main')).toContainText(characterName);
       return data;
     });
@@ -257,7 +257,7 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
         await agent.answer(request, 'success');
       }
       expect((await page.reload()).status()).toBe(200);
-      await expect(page.locator('main > p')).toContainText(copy.source);
+      await expect(page.locator('main > h1 + p')).toContainText(copy.source);
       await expect(page.locator('main')).toContainText(`${characterId} · ${characterName}`);
       await expect(page.locator('main')).toContainText('42, 27, 7');
       expect((await deniedPage.goto(url(players, { lang, character: characterId }))).status()).toBe(403);
