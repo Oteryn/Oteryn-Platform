@@ -3,7 +3,7 @@ use super::*;
 use axum::{
     Extension, Form, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -175,6 +175,8 @@ struct Submission {
     #[serde(flatten)]
     fields: std::collections::HashMap<String, String>,
 }
+type FormInput = Result<Form<Submission>, axum::extract::rejection::FormRejection>;
+
 impl Submission {
     fn input(&self) -> Result<Input, StatusCode> {
         let field = |name: &str| self.fields.get(name).cloned().unwrap_or_default();
@@ -210,18 +212,54 @@ async fn create<A: AccountStateReader + Clone + 'static>(
     State(pool): State<PgPool>,
     Extension(accounts): Extension<A>,
     Extension(context): Extension<CheckContext>,
-    Form(form): Form<Submission>,
-) -> Result<Response, StatusCode> {
-    persist(pool, accounts, context, None, form).await
+    headers: HeaderMap,
+    form: FormInput,
+) -> Response {
+    mutate(pool, accounts, context, None, &headers, form).await
 }
 async fn update<A: AccountStateReader + Clone + 'static>(
     State(pool): State<PgPool>,
     Extension(accounts): Extension<A>,
     Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
-    Form(form): Form<Submission>,
-) -> Result<Response, StatusCode> {
-    persist(pool, accounts, context, Some(id), form).await
+    headers: HeaderMap,
+    form: FormInput,
+) -> Response {
+    mutate(pool, accounts, context, Some(id), &headers, form).await
+}
+
+async fn mutate<A: AccountStateReader>(
+    pool: PgPool,
+    accounts: A,
+    context: CheckContext,
+    id: Option<Uuid>,
+    headers: &HeaderMap,
+    form: FormInput,
+) -> Response {
+    let result = match form {
+        Ok(Form(form)) => persist(pool, accounts, context, id, form).await,
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            Err(StatusCode::UNPROCESSABLE_ENTITY)
+        }
+        Err(rejection) => return rejection.into_response(),
+    };
+    if matches!(result, Err(StatusCode::UNPROCESSABLE_ENTITY)) {
+        let language = if headers
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("en"))
+        {
+            oteryn_web::Language::En
+        } else {
+            oteryn_web::Language::Pl
+        };
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            language.text("error-422-description"),
+        )
+            .into_response();
+    }
+    result.into_response()
 }
 async fn persist<A: AccountStateReader>(
     pool: PgPool,
