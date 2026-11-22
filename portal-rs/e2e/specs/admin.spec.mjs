@@ -52,7 +52,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
            if(status===expected) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
-             await assertShell(screen,{status:expected});
+             await assertShell(screen);
            } else {
              failures.push(`${path}: HTTP ${status}`);
              const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
