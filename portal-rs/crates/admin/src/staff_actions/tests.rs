@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used)]
-
 use super::*;
 use crate::{rbac::Authorizer, web::PortalIdentity};
 use axum::{
@@ -24,10 +22,14 @@ struct Fixture {
     authority: MutationAuthorization,
 }
 
-const OVERSIZED_REASON: &str = match std::str::from_utf8(&[b'x'; 501]) {
-    Ok(reason) => reason,
-    Err(_) => panic!("ASCII reason fixture is valid UTF-8"),
-};
+const OVERSIZED_REASON: &str = concat!(
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "x",
+);
 
 #[derive(Deserialize)]
 struct TestForm {
@@ -170,7 +172,10 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .route(
             "/action",
             get(|Extension(session): Extension<BrowserSession>| async move {
-                session.csrf_token().await.unwrap()
+                session
+                    .csrf_token()
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
             })
             .post(apply),
         )
@@ -190,15 +195,14 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .await?;
     let token = String::from_utf8(to_bytes(response.into_body(), 256).await?.to_vec())?;
     let post_as = |cookie: &str, token: &str, form: &str| {
-        app.clone().oneshot(
-            Request::post("/action")
-                .header(header::COOKIE, cookie)
-                .header(header::ACCEPT_LANGUAGE, "en")
-                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header("x-csrf-token", token)
-                .body(Body::from(form.to_owned()))
-                .unwrap(),
-        )
+        let request = Request::post("/action")
+            .header(header::COOKIE, cookie)
+            .header(header::ACCEPT_LANGUAGE, "en")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("x-csrf-token", token)
+            .body(Body::from(form.to_owned()));
+        let app = app.clone();
+        async move { Ok::<_, Box<dyn std::error::Error>>(app.oneshot(request?).await?) }
     };
     let post = |token: &str, form: &str| post_as(&cookie, token, form);
     let good = "reason=role_assignment";
@@ -206,15 +210,14 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         let locale: String = sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
             .bind(account)
             .fetch_one(&pool)
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(locale, "pl");
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='staff.action.test'")
                 .fetch_one(&pool)
-                .await
-                .unwrap();
+                .await?;
         assert_eq!(count, 0);
+        Ok::<_, sqlx::Error>(())
     };
 
     let bad_csrf = post("bad-token", good).await?;
@@ -222,7 +225,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
     let page = to_bytes(bad_csrf.into_body(), 100_000).await?;
     assert!(std::str::from_utf8(&page)?.contains("Access denied"));
     assert_eq!(post(&token, good).await?.status(), StatusCode::FORBIDDEN);
-    unchanged().await;
+    unchanged().await?;
     sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.roles.grant')")
         .bind(role)
         .execute(&pool)
@@ -271,14 +274,14 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
     let mismatched = post_as(&other_cookie, &other_token, good).await?;
     assert_eq!(mismatched.headers()["x-test-staff-handler"], "verified");
     assert_eq!(mismatched.status(), StatusCode::FORBIDDEN);
-    unchanged().await;
+    unchanged().await?;
     let conflict = post(&token, "reason=role_assignment&conflict=true").await?;
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
     assert!(
         String::from_utf8(to_bytes(conflict.into_body(), 100_000).await?.to_vec())?
             .contains("Change conflict")
     );
-    unchanged().await;
+    unchanged().await?;
 
     // The sequence is deliberately nontransactional. It attests that the
     // audit INSERT ran even though the final freshness check rolls it back.
@@ -299,7 +302,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
             .fetch_one(&pool)
             .await?
     );
-    unchanged().await;
+    unchanged().await?;
 
     for _ in 0..2 {
         assert_eq!(post(&token, good).await?.status(), StatusCode::NO_CONTENT);

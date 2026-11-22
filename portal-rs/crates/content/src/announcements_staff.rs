@@ -292,13 +292,12 @@ async fn persist<A: AccountStateReader>(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
 
     use super::*;
     use askama::Template;
 
     #[test]
-    fn editor_uses_the_requested_locale_for_labels_and_options() {
+    fn editor_uses_the_requested_locale_for_labels_and_options() -> Result<(), askama::Error> {
         for (lang, heading, other, save, severity) in [
             (
                 "pl",
@@ -329,7 +328,7 @@ mod tests {
                     .collect(),
                 rows: vec![],
             };
-            let html = page.render().unwrap();
+            let html = page.render()?;
             assert!(html.contains(&format!("<html lang=\"{lang}\">")));
             assert!(html.contains(&format!("<title>{heading}</title>")));
             assert!(!html.contains(other));
@@ -341,5 +340,6 @@ mod tests {
                 assert!(!page.text(name).is_empty(), "{lang}: missing {name}");
             }
         }
+        Ok(())
     }
 }

@@ -522,7 +522,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(test)]
             record_route_registrations("public", &public_app)?;
             let export_status = axum::Extension(oteryn_admin::operations::AccountExportReachable(
-                export_available,
+                export_enabled && player_confirmation,
             ));
             let internal_listener = internal_tls::start(
                 app.layer(export_status).layer(axum::Extension(
