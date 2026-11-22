@@ -895,3 +895,79 @@ fn r8_currency_minor_unit_scale() {
     assert_eq!(Locale("en").currency(500, "KWD"), "KWD 0.500");
     assert_eq!(Locale("pl").currency(500, "CLF"), "0,0500 CLF");
 }
+
+#[tokio::test]
+async fn order_history_handlers_scope_reads_and_reject_malformed_references() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required")?;
+    let account = Uuid::now_v7();
+    let (cookie, _) = session(&db.pool, account).await?;
+    let catalog = crate::catalog::Catalog::parse(br#"{"contract_version":1,"offers":[{"offer_key":"test.offer","currency":"COINS","unit_price":"10","max_quantity":1,"purchasable":true,"units":[{"product_id":"premium.test","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"test","grant_revision":"1","quantity":1}]}]}"#)?;
+    let order = Uuid::now_v7();
+    let request = Uuid::now_v7();
+    let operation = Uuid::now_v7();
+    let mut tx = db.pool.begin().await?;
+    crate::catalog::insert_revision(&mut tx, &catalog, account).await?;
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(account)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'store_purchase',$2,10)")
+        .bind(operation).bind(account).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO store_purchase_requests(purchase_request_id,account_id,request_bytes,request_digest,result,answer_bytes) VALUES($1,$2,'{}',$3,'ACCEPTED','{}')")
+        .bind(request).bind(account).bind(catalog.revision()).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO store_orders(order_id,purchase_request_id,account_id,character_id,world_id,wallet_operation_id,wallet_idempotency_key,currency,total_price) VALUES($1,$2,$3,$4,$5,$6,$7,'COINS',10)")
+        .bind(order).bind(request).bind(account).bind(Uuid::now_v7()).bind(Uuid::now_v7())
+        .bind(operation).bind(order.to_string()).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO store_order_lines(line_id,order_id,catalog_revision,offer_key,quantity,unit_price) VALUES($1,$2,$3,'test.offer',1,10)")
+        .bind(Uuid::now_v7()).bind(order).bind(catalog.revision()).execute(&mut *tx).await?;
+    tx.commit().await?;
+    let (other_cookie, _) = session(&db.pool, Uuid::now_v7()).await?;
+    let app = super::orders::routes(db.pool.clone()).layer(Extension(oteryn_ui::Chrome::default()));
+    for (path, session, status) in [
+        (
+            "/pl/account/store-orders".to_owned(),
+            cookie.as_str(),
+            StatusCode::OK,
+        ),
+        (
+            "/pl/account/store-orders".to_owned(),
+            "",
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            "/pl/account/store-orders?before=bad".to_owned(),
+            cookie.as_str(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/pl/account/store-orders/bad".to_owned(),
+            cookie.as_str(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            format!("/pl/account/store-orders/{order}"),
+            cookie.as_str(),
+            StatusCode::OK,
+        ),
+        (
+            format!("/pl/account/store-orders/{order}"),
+            other_cookie.as_str(),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::get(&path)
+                    .header(header::COOKIE, session)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), status, "{path}");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+    db.close().await
+}

@@ -2573,3 +2573,174 @@ async fn reconcile_loads_charged_back_intent() {
     assert_eq!(state, "chargeback");
     h.close().await;
 }
+
+#[tokio::test]
+async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() {
+    use crate::web::{PanelConfig, guarded};
+    use axum::Extension;
+    use oteryn_ui::Chrome;
+    use panels::{catalog, payments};
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL is required");
+    let app = |staff| {
+        [
+            (
+                catalog::staging(h.pool.clone()),
+                rbac::Permission::ImportStoreCatalog,
+            ),
+            (
+                catalog::activation(h.pool.clone()),
+                rbac::Permission::ActivateStoreCatalog,
+            ),
+            (
+                payments::routes(h.pool.clone()),
+                rbac::Permission::ReconcilePayments,
+            ),
+        ]
+        .into_iter()
+        .fold(axum::Router::new(), |app, (routes, permission)| {
+            app.merge(guarded(
+                routes,
+                h.pool.clone(),
+                PanelConfig {
+                    admin_panel: true,
+                    host: "staff.test".into(),
+                },
+                Session(staff, h.pool.clone()),
+                Authority(h.pool.clone()),
+                permission,
+            ))
+        })
+        .layer(Extension(Chrome::default()))
+    };
+    let staff = app(h.actor);
+    let response = staff
+        .clone()
+        .oneshot(
+            HttpRequest::get("/admin/store-catalog?lang=en")
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let csrf: String =
+        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE account_id=$1 AND user_agent_summary IS DISTINCT FROM 'staff-fixture'")
+            .bind(h.actor)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+
+    let offer = oteryn_store::catalog::Catalog::parse(br#"{"contract_version":1,"offers":[{"offer_key":"test.offer","currency":"COINS","unit_price":"10","max_quantity":1,"purchasable":true,"units":[{"product_id":"premium.test","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"test","grant_revision":"1","quantity":1}]}]}"#).unwrap();
+    let mut tx = h.pool.begin().await.unwrap();
+    oteryn_store::catalog::insert_revision(&mut tx, &offer, h.actor)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1 WHERE id=1")
+        .bind(offer.revision())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let expected = offer.with_price("test.offer", 20).unwrap();
+    for (path, form, status) in [
+        (
+            "/admin/store-catalog",
+            format!("current={}&offer=test.offer&price=-1", offer.revision()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/admin/store-catalog",
+            format!("current={}&offer=test.offer&price=20", offer.revision()),
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            "/admin/store-activation",
+            format!("current={}&revision=invalid", offer.revision()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/admin/store-activation",
+            format!(
+                "current={}&revision={}",
+                offer.revision(),
+                expected.revision()
+            ),
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let request = |token: &str| {
+            HttpRequest::post(path)
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "{form}&reason=Review+test+catalog+price&_csrf={token}"
+                )))
+                .unwrap()
+        };
+        assert_eq!(
+            staff
+                .clone()
+                .oneshot(request("bad"))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            staff
+                .clone()
+                .oneshot(request(&csrf))
+                .await
+                .unwrap()
+                .status(),
+            status
+        );
+    }
+    for (route, status) in [
+        ("/admin/store-catalog?lang=en", StatusCode::OK),
+        ("/admin/store-activation?lang=en", StatusCode::OK),
+        ("/admin/payment-review?lang=en&queue=true", StatusCode::OK),
+        (
+            "/admin/payment-review?id=invalid",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let request = || {
+            HttpRequest::get(route)
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap()
+        };
+        assert_eq!(
+            staff.clone().oneshot(request()).await.unwrap().status(),
+            status
+        );
+        assert_eq!(
+            app(h.target).oneshot(request()).await.unwrap().status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    let activated: String =
+        sqlx::query_scalar("SELECT catalog_revision FROM store_active_catalog WHERE id=1")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(activated, expected.revision());
+    h.close().await;
+}

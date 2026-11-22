@@ -158,6 +158,31 @@ impl Catalog {
             offers,
         })
     }
+    /// Create a Platform price revision while preserving every imported grant binding.
+    pub fn with_price(&self, offer_key: &str, unit_price: i64) -> Result<Self, Error> {
+        if unit_price <= 0 {
+            return Err(Error::InvalidDocument);
+        }
+        let mut offers = self.offers.clone();
+        let offer = offers
+            .iter_mut()
+            .find(|offer| offer.offer_key == offer_key)
+            .ok_or(Error::InvalidDocument)?;
+        if unit_price
+            .checked_mul(i64::from(offer.max_quantity))
+            .is_none()
+        {
+            return Err(Error::InvalidDocument);
+        }
+        offer.unit_price = unit_price.to_string();
+        let bytes = serde_json::to_vec(&Document {
+            contract_version: 1,
+            offers,
+        })
+        .map_err(|_| Error::InvalidDocument)?;
+        Self::parse_s5(&bytes)
+    }
+
     pub fn revision(&self) -> &str {
         &self.revision
     }
@@ -278,28 +303,7 @@ impl CatalogStore {
         oteryn_db::mutation_budget(&mut tx).await?;
         self.authorize(actor, Action::Import, access, &mut tx)
             .await?;
-        let inserted = sqlx::query("INSERT INTO store_price_list_imports (catalog_revision, canonical_bytes, imported_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING").bind(catalog.revision()).bind(catalog.canonical_bytes()).bind(actor).execute(&mut *tx).await?.rows_affected();
-        if inserted == 0 {
-            let existing: Vec<u8> = sqlx::query_scalar(
-                "SELECT canonical_bytes FROM store_price_list_imports WHERE catalog_revision=$1",
-            )
-            .bind(catalog.revision())
-            .fetch_one(&mut *tx)
-            .await?;
-            if existing != catalog.canonical_bytes {
-                return Err(Error::Conflict);
-            }
-        } else {
-            for offer in catalog.offers() {
-                let value: Value = canonical::decode(
-                    &serde_json::to_vec(offer).map_err(|_| Error::InvalidDocument)?,
-                    MAX_BYTES,
-                    8,
-                )
-                .map_err(|_| Error::InvalidDocument)?;
-                let bytes = canonical::encode(&value).map_err(|_| Error::InvalidDocument)?;
-                sqlx::query("INSERT INTO store_offers (catalog_revision,offer_key,currency,unit_price,max_quantity,purchasable,canonical_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7)").bind(catalog.revision()).bind(&offer.offer_key).bind(&offer.currency).bind(offer.unit_price.parse::<i64>().map_err(|_| Error::InvalidDocument)?).bind(i32::from(offer.max_quantity)).bind(offer.purchasable).bind(bytes).execute(&mut *tx).await?;
-            }
+        if insert_revision(&mut tx, &catalog, actor).await? {
             if self.audit_log {
                 write_audit(&mut tx, actor, "store.catalog.imported", catalog.revision(),
                     serde_json::json!({"catalog_revision": catalog.revision(), "offers": catalog.offers().len()}),
@@ -370,6 +374,38 @@ impl CatalogStore {
         row.map(|r| Catalog::parse(&r.try_get::<Vec<u8>, _>("canonical_bytes")?))
             .transpose()
     }
+}
+
+/// Store validated immutable catalog data in the caller's audited transaction.
+pub async fn insert_revision(
+    conn: &mut PgConnection,
+    catalog: &Catalog,
+    actor: Uuid,
+) -> Result<bool, Error> {
+    let inserted = sqlx::query("INSERT INTO store_price_list_imports (catalog_revision, canonical_bytes, imported_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING").bind(catalog.revision()).bind(catalog.canonical_bytes()).bind(actor).execute(&mut *conn).await?.rows_affected();
+    if inserted == 0 {
+        let existing: Vec<u8> = sqlx::query_scalar(
+            "SELECT canonical_bytes FROM store_price_list_imports WHERE catalog_revision=$1",
+        )
+        .bind(catalog.revision())
+        .fetch_one(&mut *conn)
+        .await?;
+        if existing != catalog.canonical_bytes {
+            return Err(Error::Conflict);
+        }
+    } else {
+        for offer in catalog.offers() {
+            let value: Value = canonical::decode(
+                &serde_json::to_vec(offer).map_err(|_| Error::InvalidDocument)?,
+                MAX_BYTES,
+                8,
+            )
+            .map_err(|_| Error::InvalidDocument)?;
+            let bytes = canonical::encode(&value).map_err(|_| Error::InvalidDocument)?;
+            sqlx::query("INSERT INTO store_offers (catalog_revision,offer_key,currency,unit_price,max_quantity,purchasable,canonical_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7)").bind(catalog.revision()).bind(&offer.offer_key).bind(&offer.currency).bind(offer.unit_price.parse::<i64>().map_err(|_| Error::InvalidDocument)?).bind(i32::from(offer.max_quantity)).bind(offer.purchasable).bind(bytes).execute(&mut *conn).await?;
+        }
+    }
+    Ok(inserted != 0)
 }
 
 async fn write_audit(

@@ -207,7 +207,7 @@ struct QueueFilter {
     #[serde(rename = "lang")]
     _lang: Option<String>,
 }
-fn format_refund_amount(minor_units: i64, currency: &str) -> String {
+pub(super) fn format_refund_amount(minor_units: i64, currency: &str) -> String {
     // ISO 4217 currencies whose minor units differ from the usual hundredths.
     let exponent = match currency {
         "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"

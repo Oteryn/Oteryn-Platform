@@ -1,0 +1,42 @@
+<!doctype html><html lang="{{ chrome.lang }}"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ chrome.text("commerce-payment-review") }}</title></head><body><main class="op-container op-stack">
+<a href="/admin">{{ chrome.text("panel-admin") }}</a>
+<h1>{{ chrome.text("commerce-payment-review") }}</h1>
+<form method="get" class="op-stack">
+<input type="hidden" name="lang" value="{{ chrome.lang }}">
+<label class="op-field">{{ chrome.text("commerce-payment-id") }} <input class="op-input" name="id" maxlength="36"></label>
+<label class="op-field">{{ chrome.text("commerce-account-id") }} <input class="op-input" name="account" value="{{ account }}" maxlength="36"></label>
+<label><input type="checkbox" name="queue" value="true" {% if queue %}checked{% endif %}> {{ chrome.text("commerce-queue") }}</label>
+<button class="op-button">{{ chrome.text("commerce-search") }}</button>
+</form>
+{% if actions %}<a href="/admin/commerce">{{ chrome.text("commerce-payment-actions") }}</a>{% endif %}
+{% for p in rows %}
+<article class="op-card op-stack">
+<h2>{% if detail %}{{ p.id }}{% else %}<a href="?lang={{ chrome.lang }}&amp;id={{ p.id }}">{{ p.id }}</a>{% endif %}</h2>
+<p>{{ p.price() }} · {{ chrome.text(p.status_key()) }}</p>
+<p>{{ chrome.text("commerce-updated") }} {{ p.updated_at }} UTC</p>
+{% if detail %}
+<dl>
+<dt>{{ chrome.text("commerce-account-id") }}</dt><dd>{{ p.account_id }}</dd>
+<dt>{{ chrome.text("commerce-provider") }}</dt><dd>{{ p.provider }}</dd>
+<dt>{{ chrome.text("commerce-refund") }}</dt>
+<dd>{% if !refunds && p.refund_key() == "commerce-refund-eligible" %}{{ chrome.text("commerce-refund-disabled") }}{% else %}{{ chrome.text(p.refund_key()) }}{% endif %}</dd>
+{% if let Some(attempts) = p.refund_attempts %}<dt>{{ chrome.text("commerce-attempts") }}</dt><dd>{{ attempts }}</dd>{% endif %}
+{% if p.state == "chargeback" || p.chargeback.is_some() %}
+<dt>{{ chrome.text("commerce-payment-chargeback") }}</dt><dd>{{ chrome.text(p.reversal_key()) }}</dd>
+<dt>{{ chrome.text("commerce-hold") }}</dt><dd>{% if p.chargeback_hold %}{{ chrome.text("commerce-hold-active") }}{% else %}{{ chrome.text("commerce-hold-none") }}{% endif %}</dd>
+<dt>{{ chrome.text("commerce-debt") }}</dt><dd>{{ p.outstanding_debt }} COINS</dd>
+{% endif %}
+<dt>{{ chrome.text("commerce-reconciliation") }}</dt>
+<dd>{% if p.requires_review %}{{ chrome.text("commerce-review-flag") }}{% endif %}
+{% if let Some(reviewed) = p.reviewed_at %}{{ chrome.text("commerce-review-recorded") }} {{ reviewed }} UTC
+{% else %}{{ chrome.text("commerce-review-unrecorded") }}{% endif %}</dd>
+</dl>
+{% endif %}
+</article>
+{% else %}<p>{{ chrome.text("commerce-no-payments") }}</p>{% endfor %}
+{% if let Some(next) = next %}
+<a href="?lang={{ chrome.lang }}&amp;queue={{ queue }}{% if !account.is_empty() %}&amp;account={{ account }}{% endif %}&amp;before={{ next }}">{{ chrome.text("commerce-older") }}</a>
+{% endif %}
+</main></body></html>
