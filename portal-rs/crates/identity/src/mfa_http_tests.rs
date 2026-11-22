@@ -712,10 +712,12 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
         )?)
     };
     let original = factor(original.secret)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
-    mfa.confirm(account, password, &original.generate(now - 30))
+    let timestamp = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| time.as_secs())
+    };
+    mfa.confirm(account, password, &original.generate(timestamp()?))
         .await?
         .ok_or("confirmation")?;
     let app = compose(
@@ -725,9 +727,10 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
         SessionLayer::new(db.pool.clone()),
         false,
     );
-    let create_session = |cookie: String, csrf: String| async {
+    let pool = &db.pool;
+    let create_session = |account: uuid::Uuid, cookie: String, csrf: String| async move {
         sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES(sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
-            .bind(cookie.into_bytes()).bind(account).bind(csrf).execute(&db.pool).await
+            .bind(cookie.into_bytes()).bind(account).bind(csrf).execute(pool).await
     };
     let send =
         |path: &'static str, cookie: String, csrf: String, fields: Vec<(&'static str, String)>| {
@@ -748,7 +751,7 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
     let confirm = "/en/mfa/replace/confirm";
     let cookie = "a".repeat(64);
     let csrf = "b".repeat(64);
-    create_session(cookie.clone(), csrf.clone()).await?;
+    create_session(account, cookie.clone(), csrf.clone()).await?;
     let proof = |pass: &str, code: String| vec![("password", pass.to_owned()), ("code", code)];
     let action = |name: &str, pass: &str, code: String| {
         let mut fields = proof(pass, code);
@@ -760,7 +763,7 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
             manage,
             cookie.clone(),
             "x".repeat(64),
-            action("replace", password, original.generate(now))
+            action("replace", password, original.generate(timestamp()? + 30))
         )
         .await?
         .status(),
@@ -781,7 +784,7 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
         manage,
         cookie.clone(),
         csrf.clone(),
-        action("replace", "wrong", original.generate(now)),
+        action("replace", "wrong", original.generate(timestamp()? + 30)),
     )
     .await?;
     assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
@@ -793,7 +796,7 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
         manage,
         cookie.clone(),
         csrf.clone(),
-        action("replace", password, original.generate(now)),
+        action("replace", password, original.generate(timestamp()? + 30)),
     )
     .await?;
     assert_eq!(response.status(), StatusCode::OK);
@@ -826,7 +829,7 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
             confirm,
             cookie.clone(),
             csrf.clone(),
-            proof("wrong", replacement.generate(now - 30))
+            proof("wrong", replacement.generate(timestamp()?))
         )
         .await?
         .status(),
@@ -837,7 +840,7 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
             confirm,
             cookie.clone(),
             csrf.clone(),
-            proof(password, replacement.generate(now - 30))
+            proof(password, replacement.generate(timestamp()?))
         )
         .await?
         .status(),
@@ -848,7 +851,11 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
             manage,
             cookie,
             csrf,
-            action("rotate_codes", password, replacement.generate(now))
+            action(
+                "rotate_codes",
+                password,
+                replacement.generate(timestamp()? + 30)
+            )
         )
         .await?
         .status(),
@@ -871,12 +878,16 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
     .await?;
     let cookie = "c".repeat(64);
     let csrf = "d".repeat(64);
-    create_session(cookie.clone(), csrf.clone()).await?;
+    create_session(account, cookie.clone(), csrf.clone()).await?;
     let response = send(
         manage,
         cookie,
         csrf,
-        action("rotate_codes", password, replacement.generate(now)),
+        action(
+            "rotate_codes",
+            password,
+            replacement.generate(timestamp()? + 30),
+        ),
     )
     .await?;
     assert_eq!(response.status(), StatusCode::OK);
@@ -895,22 +906,42 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
     sqlx::query("DROP TRIGGER forbid_second_session_delete ON web_sessions")
         .execute(&db.pool)
         .await?;
+    // Removal needs a new post-confirmation step of its own. Use a separate
+    // enrolled owner so rotation and removal never compete for one clock window.
+    let removal_account: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('panel-mfa-remove@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(oteryn_identity::password::hash(password)?).fetch_one(&db.pool).await?;
+    let enrollment = mfa
+        .enroll(removal_account, password)
+        .await?
+        .ok_or("removal enrollment")?;
+    let removal_factor = factor(enrollment.secret)?;
+    mfa.confirm(
+        removal_account,
+        password,
+        &removal_factor.generate(timestamp()?),
+    )
+    .await?
+    .ok_or("removal confirmation")?;
     let cookie = "e".repeat(64);
     let csrf = "f".repeat(64);
-    create_session(cookie.clone(), csrf.clone()).await?;
+    create_session(removal_account, cookie.clone(), csrf.clone()).await?;
     assert_eq!(
         send(
             manage,
             cookie,
             csrf,
-            action("remove", password, replacement.generate(now + 30))
+            action(
+                "remove",
+                password,
+                removal_factor.generate(timestamp()? + 30)
+            )
         )
         .await?
         .status(),
         StatusCode::FOUND
     );
-    assert!(!mfa.enrolled(account).await?);
-    assert_eq!(mfa.remaining_codes(account).await?, 0);
+    assert!(!mfa.enrolled(removal_account).await?);
+    assert_eq!(mfa.remaining_codes(removal_account).await?, 0);
     db.close().await?;
     Ok(())
 }
