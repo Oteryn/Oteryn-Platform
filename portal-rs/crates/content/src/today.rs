@@ -3,7 +3,7 @@ use crate::announcements::{Announcement, Announcements, safe_action};
 use axum::{
     Router,
     extract::{Path, Query, State},
-    http::{HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -233,9 +233,11 @@ pub fn router(pool: PgPool) -> Router {
 }
 async fn index(
     State(pool): State<PgPool>,
+    headers: HeaderMap,
     Query(q): Query<Options>,
 ) -> Result<Response, StatusCode> {
-    digest(&pool, language(q.lang.as_deref().unwrap_or("pl"))?).await
+    let default = oteryn_web::Language::for_headers(&headers).code();
+    digest(&pool, language(q.lang.as_deref().unwrap_or(default))?).await
 }
 async fn local(
     State(pool): State<PgPool>,

@@ -69,6 +69,11 @@ pub enum Language {
     En,
 }
 impl Language {
+    /// Resolve the portal language preference for routes without a locale prefix.
+    pub fn for_headers(headers: &HeaderMap) -> Self {
+        negotiate(headers)
+    }
+
     /// BCP 47 language code for templates and response headers.
     pub fn code(self) -> &'static str {
         match self {

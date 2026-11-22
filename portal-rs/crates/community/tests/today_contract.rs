@@ -314,8 +314,31 @@ async fn today_postgres_success_replay_history_and_public_render() -> Result {
     assert!(html.contains("Historia wzmocnień"));
     assert!(html.contains("Część źródeł jest niedostępna."));
     assert!(!html.contains("Wszystkie źródła są teraz niedostępne."));
-    assert!(html.contains("<header>"));
+    assert!(html.contains("<body><aside"));
+    assert!(!html.contains("<header>"));
     assert!(!html.contains("reset_epoch"));
+    let page = today::mount(
+        oteryn_content::today::router(d.db.clone()),
+        d.db.clone(),
+        config(),
+    );
+    for (path, locale, widget) in [
+        ("/today", "en", "Today in the world"),
+        ("/today?lang=pl", "pl", "Dziś na świecie"),
+    ] {
+        let localized = page
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header("accept-language", "en")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(localized.status(), StatusCode::OK);
+        let localized = String::from_utf8(to_bytes(localized.into_body(), 65536).await?.to_vec())?;
+        assert!(localized.contains(&format!("<html lang=\"{locale}\"")));
+        assert!(localized.contains(&format!("aria-label=\"{widget}\"")));
+    }
     if let Ok(path) = std::env::var("PORTAL_TODAY_RENDER_PATH") {
         std::fs::write(path, &html)?;
     }

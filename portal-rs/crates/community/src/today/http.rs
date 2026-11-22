@@ -203,15 +203,23 @@ fn options(raw: Option<&str>, config: &Config) -> Result<(Uuid, Option<String>),
     }
     Ok((world, q.lang))
 }
-fn language(path: &str, selected: Option<&str>) -> Result<&'static str, Error> {
+fn language(
+    path: &str,
+    selected: Option<&str>,
+    default: &'static str,
+) -> Result<&'static str, Error> {
     match path.split('/').nth(1) {
         Some("en") => Ok("en"),
         Some("pl") => Ok("pl"),
-        Some("today") => Ok(if selected == Some("en") { "en" } else { "pl" }),
+        Some("today") => Ok(match selected {
+            Some("en") => "en",
+            Some(_) => "pl",
+            None => default,
+        }),
         _ => Err(Error::BadInput),
     }
 }
-fn request_language(path: &str, raw: Option<&str>) -> &'static str {
+fn request_language(path: &str, raw: Option<&str>, default: &'static str) -> &'static str {
     let selected = serde_urlencoded::from_str::<Vec<(String, String)>>(raw.unwrap_or_default())
         .ok()
         .and_then(|pairs| {
@@ -222,18 +230,19 @@ fn request_language(path: &str, raw: Option<&str>) -> &'static str {
             let first = values.next()?.clone();
             values.next().is_none().then_some(first)
         });
-    language(path, selected.as_deref()).unwrap_or("pl")
+    language(path, selected.as_deref(), default).unwrap_or(default)
 }
 async fn load(
     state: &Surface,
     path: &str,
     raw: Option<&str>,
+    default: &'static str,
 ) -> Result<(super::DailyView, &'static str), Error> {
     if !state.config.public_enabled {
         return Err(Error::Unavailable);
     }
     let (world, selected) = options(raw, &state.config)?;
-    let lang = language(path, selected.as_deref())?;
+    let lang = language(path, selected.as_deref(), default)?;
     Ok((
         read_current(&state.db, &state.config, world, lang).await?,
         lang,
@@ -244,7 +253,7 @@ async fn data(
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
 ) -> Response {
-    let mut r = match load(&state, uri.path(), raw.as_deref()).await {
+    let mut r = match load(&state, uri.path(), raw.as_deref(), "pl").await {
         Ok((v, _)) => axum::Json(v).into_response(),
         Err(e) => (
             status(e),
@@ -260,8 +269,8 @@ async fn widget(
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
 ) -> Response {
-    let lang = request_language(uri.path(), raw.as_deref());
-    let result = load(&state, uri.path(), raw.as_deref()).await;
+    let lang = request_language(uri.path(), raw.as_deref(), "pl");
+    let result = load(&state, uri.path(), raw.as_deref(), "pl").await;
     let code = result
         .as_ref()
         .map_or_else(|e| status(*e), |_| StatusCode::OK);
@@ -291,6 +300,7 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     }
     let uri = request.uri().clone();
     let today = matches!(uri.path(), "/today" | "/pl/today" | "/en/today");
+    let default = oteryn_web::Language::for_headers(request.headers()).code();
     let response = next.run(request).await;
     if response.headers().contains_key(header::CONTENT_ENCODING)
         || !response
@@ -300,8 +310,9 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     {
         return response;
     }
-    let result = load(&state, uri.path(), if today { uri.query() } else { None }).await;
-    let lang = request_language(uri.path(), uri.query());
+    let query = if today { uri.query() } else { None };
+    let result = load(&state, uri.path(), query, default).await;
+    let lang = request_language(uri.path(), uri.query(), default);
     let lang = result.as_ref().map_or(lang, |(_, l)| *l);
     let (mut parts, body) = response.into_parts();
     let bytes = match oteryn_web::decoration::buffer(
@@ -316,7 +327,7 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     };
     // Body streaming can wait after the first source read. Resolve a new cut
     // once buffering is complete, so invalidations during that wait take effect.
-    let final_result = load(&state, uri.path(), if today { uri.query() } else { None }).await;
+    let final_result = load(&state, uri.path(), query, default).await;
     let view = final_result
         .as_ref()
         .ok()
@@ -343,7 +354,7 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     if let Some(i) = html.find("</header>") {
         html.insert_str(i, &widget);
     } else if today && let Some(i) = html.find("<body>") {
-        html.insert_str(i + 6, &format!("<header>{widget}</header>"));
+        html.insert_str(i + 6, &widget);
     }
     if today && let Some(i) = html.find("</main>") {
         html.insert_str(i, &render_section(view, lang));
