@@ -134,6 +134,16 @@ impl Registry {
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
+            .filter(|entry| {
+                entry.section != "account-passkeys"
+                    || !matches!(
+                        account,
+                        Account::SignedIn {
+                            passkeys_eligible: false,
+                            ..
+                        }
+                    )
+            })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
                     e.path.to_owned()
@@ -214,6 +224,7 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
+        passkeys_eligible: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -268,7 +279,7 @@ impl Chrome {
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf } => csrf,
+            Account::SignedIn { csrf, .. } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -568,6 +579,7 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     csrf: "escaped<&token".into(),
+                    passkeys_eligible: false,
                 },
             );
             let html = Home::new(&chrome, &HomeData::default()).render()?;
@@ -576,6 +588,49 @@ mod tests {
             assert!(html.contains("href=\"/account\""));
             assert!(!html.contains("/login\""));
             assert!(!html.contains("/register\""));
+        }
+        Ok(())
+    }
+    #[test]
+    fn home_character_creation_requires_a_session_or_a_login_route() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for (login, signed_in, visible) in [
+                (false, false, false),
+                (true, false, true),
+                (false, true, true),
+            ] {
+                let mut registry = Registry {
+                    login,
+                    ..Registry::default()
+                };
+                registry.section(
+                    true,
+                    "create-character",
+                    "shell-create-character",
+                    "account/characters/new",
+                    Group::Account,
+                    false,
+                );
+                let account = if signed_in {
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible: false,
+                    }
+                } else {
+                    Account::Anonymous
+                };
+                let chrome = registry.chrome(lang, &format!("/{lang}/"), account);
+                let html = Home::new(&chrome, &HomeData::default()).render()?;
+                assert_eq!(
+                    html.contains(&format!("href=\"/{lang}/account/characters/new\"")),
+                    visible,
+                    "{lang}, login mounted: {login}, signed in: {signed_in}"
+                );
+                assert_eq!(
+                    html.contains(&chrome.text("thais-home-character-unavailable")),
+                    !visible
+                );
+            }
         }
         Ok(())
     }

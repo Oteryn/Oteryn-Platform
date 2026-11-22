@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Request, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -469,20 +469,8 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
     let session = BrowserSession::new(layer.pool.clone(), layer.config, ip, agent);
-    let mut identifiers = request
-        .headers()
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .filter_map(|v| v.trim().split_once('='))
-        .filter(|(name, _)| *name == COOKIE_NAME)
-        .map(|(_, value)| value);
-    if let Some(id) = identifiers.next() {
-        if !valid_id(id) || identifiers.next().is_some() {
-            return Err(sqlx::Error::Protocol("invalid session cookie".into()));
-        }
-        let query = sqlx::query_as::<_, (Uuid, String, Option<Uuid>)>(
+    if let Some(id) = cookie_id(request.headers())? {
+        let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
             "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
                 idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
              WHERE id_hash=$1 AND idle_expires_at>clock_timestamp()
@@ -490,15 +478,15 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
              RETURNING session_id,csrf_token,account_id",
         )
         .bind(hash(id))
-        .bind(f64::from(layer.config.idle_seconds));
-        let row = if let Some(deadline) = request.extensions().get::<crate::BoundedBrowserRead>() {
-            crate::bounded_browser_query(&layer.pool, *deadline, async |connection| {
-                query.fetch_optional(connection).await
-            })
-            .await?
-        } else {
-            query.fetch_optional(&layer.pool).await?
-        };
+        .bind(f64::from(layer.config.idle_seconds))
+        .fetch_for_browser(
+            layer,
+            request
+                .extensions()
+                .get::<crate::BoundedBrowserRead>()
+                .copied(),
+        )
+        .await?;
         if let Some((session_id, csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
                 session_id,
@@ -511,21 +499,8 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
     Ok(session)
 }
 
-/// Read presentation state without refreshing expiry, creating a session or setting cookies.
-pub(crate) async fn chrome_account(
-    layer: &SessionLayer,
-    request: &mut Request,
-) -> Result<oteryn_ui::Account, sqlx::Error> {
-    let config = request
-        .extensions()
-        .get::<SessionConfig>()
-        .copied()
-        .unwrap_or(layer.config);
-    if config.validate().is_err() {
-        return Ok(oteryn_ui::Account::Anonymous);
-    }
-    let mut identifiers = request
-        .headers()
+fn cookie_id(headers: &HeaderMap) -> Result<Option<&str>, sqlx::Error> {
+    let mut identifiers = headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
@@ -533,27 +508,93 @@ pub(crate) async fn chrome_account(
         .filter_map(|v| v.trim().split_once('='))
         .filter(|(name, _)| *name == COOKIE_NAME)
         .map(|(_, value)| value);
-    let Some(id) = identifiers.next().filter(|id| valid_id(id)) else {
-        return Ok(oteryn_ui::Account::Anonymous);
-    };
-    if identifiers.next().is_some() {
-        return Ok(oteryn_ui::Account::Anonymous);
+    let id = identifiers.next();
+    if id.is_some_and(|id| !valid_id(id)) || identifiers.next().is_some() {
+        return Err(sqlx::Error::Protocol("invalid session cookie".into()));
     }
-    let query = sqlx::query_as::<_, (String, Option<Uuid>)>(
-        "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(id));
-    let row = if let Some(deadline) = request.extensions().get::<crate::BoundedBrowserRead>() {
-        crate::bounded_browser_query(&layer.pool, *deadline, async |connection| {
-            query.fetch_optional(connection).await
-        })
-        .await?
-    } else {
-        query.fetch_optional(&layer.pool).await?
+    Ok(id)
+}
+
+/// Existing authenticated session data for a read-only page.
+#[derive(Clone)]
+pub struct SignedInSession {
+    pub account_id: Uuid,
+    pub csrf: String,
+}
+impl std::fmt::Debug for SignedInSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignedInSession").finish_non_exhaustive()
+    }
+}
+
+async fn read_signed_in(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> Result<Option<SignedInSession>, sqlx::Error> {
+    request
+        .extensions()
+        .get::<SessionConfig>()
+        .copied()
+        .unwrap_or(layer.config)
+        .validate()?;
+    let Some(id) = cookie_id(request.headers())? else {
+        return Ok(None);
     };
-    Ok(match row {
-        Some((csrf, Some(_))) => oteryn_ui::Account::SignedIn { csrf },
-        _ => oteryn_ui::Account::Anonymous,
-    })
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT account_id,csrf_token FROM web_sessions WHERE id_hash=$1
+         AND account_id IS NOT NULL AND idle_expires_at>clock_timestamp()
+         AND absolute_expires_at>clock_timestamp()",
+    )
+    .bind(hash(id))
+    .fetch_optional(&layer.pool)
+    .await?;
+    Ok(row.map(|(account_id, csrf)| SignedInSession { account_id, csrf }))
+}
+
+/// Attach existing session data to a read-only route without refreshing or creating a session.
+pub async fn read_only_middleware(
+    State(layer): State<SessionLayer>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    match read_signed_in(&layer, &mut request).await {
+        Ok(session) => {
+            if let Some(session) = session {
+                request.extensions_mut().insert(session);
+            }
+            next.run(request).await
+        }
+        Err(sqlx::Error::Protocol(message)) if message == "invalid session cookie" => {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Read presentation state without refreshing expiry, creating a session or setting cookies.
+pub(crate) async fn chrome_account(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> oteryn_ui::Account {
+    let Ok(Some(session)) = read_signed_in(layer, request).await else {
+        return oteryn_ui::Account::Anonymous;
+    };
+    let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
+        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
+         FROM accounts WHERE id=$1",
+    )
+    .bind(session.account_id)
+    .fetch_optional(&layer.pool)
+    .await;
+    let passkeys_eligible = matches!(
+        policy,
+        Ok(Some((status, verified, mfa_required)))
+            if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
+    );
+    oteryn_ui::Account::SignedIn {
+        csrf: session.csrf,
+        passkeys_eligible,
+    }
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.
@@ -585,5 +626,75 @@ impl oteryn_db::outbox::Cleanup for SessionCleanup {
 impl std::fmt::Debug for CommittedRotation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CommittedRotation([redacted])")
+    }
+}
+
+/// Load presentation state for an admitted landing request in one bounded query.
+pub(crate) async fn bounded_chrome_account(
+    layer: &SessionLayer,
+    request: &mut Request,
+    deadline: crate::BoundedBrowserRead,
+) -> Result<oteryn_ui::Account, sqlx::Error> {
+    let config = request
+        .extensions()
+        .get::<SessionConfig>()
+        .copied()
+        .unwrap_or(layer.config);
+    let Ok(Some(id)) = cookie_id(request.headers()) else {
+        return Ok(oteryn_ui::Account::Anonymous);
+    };
+    if config.validate().is_err() {
+        return Ok(oteryn_ui::Account::Anonymous);
+    }
+    let row = crate::bounded_browser_query(&layer.pool, deadline, async |connection| {
+        sqlx::query_as::<_, (String, Option<String>, bool, bool)>(
+            "SELECT s.csrf_token, a.status, a.email_verified_at IS NOT NULL,
+                    COALESCE(a.login_mfa_required, true)
+             FROM web_sessions s LEFT JOIN accounts a ON a.id=s.account_id
+             WHERE s.id_hash=$1 AND s.account_id IS NOT NULL
+               AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp()",
+        )
+        .bind(hash(id))
+        .fetch_optional(connection)
+        .await
+    })
+    .await?;
+    Ok(match row {
+        Some((csrf, status, verified, mfa_required)) => oteryn_ui::Account::SignedIn {
+            csrf,
+            passkeys_eligible: status.is_some_and(|status| {
+                oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
+            }),
+        },
+        None => oteryn_ui::Account::Anonymous,
+    })
+}
+
+type SessionRow = (Uuid, String, Option<Uuid>);
+
+trait FetchSession {
+    async fn fetch_for_browser(
+        self,
+        layer: &SessionLayer,
+        deadline: Option<crate::BoundedBrowserRead>,
+    ) -> Result<Option<SessionRow>, sqlx::Error>;
+}
+
+impl FetchSession
+    for sqlx::query::QueryAs<'_, sqlx::Postgres, SessionRow, sqlx::postgres::PgArguments>
+{
+    async fn fetch_for_browser(
+        self,
+        layer: &SessionLayer,
+        deadline: Option<crate::BoundedBrowserRead>,
+    ) -> Result<Option<SessionRow>, sqlx::Error> {
+        if let Some(deadline) = deadline {
+            crate::bounded_browser_query(&layer.pool, deadline, async |connection| {
+                self.fetch_optional(connection).await
+            })
+            .await
+        } else {
+            self.fetch_optional(&layer.pool).await
+        }
     }
 }

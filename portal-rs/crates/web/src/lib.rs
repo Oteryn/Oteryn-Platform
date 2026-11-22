@@ -540,7 +540,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             session_layer,
             session::middleware,
         ))
-        // Static files need transport headers but no browser session.
+        // Static page dependencies must not refresh a browser session.
         .nest_service("/static", ServeDir::new(static_dir))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
         .fallback(redirects::redirect)

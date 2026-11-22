@@ -65,7 +65,10 @@ pub(crate) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>, sq
         .await?;
     Ok(tx)
 }
-pub(crate) async fn deadline(req: Request, next: Next) -> Response {
+pub(crate) async fn deadline(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
     // The shared landing layer owns the deadline and waits for SQL cleanup.
     if req
         .extensions()
@@ -74,9 +77,22 @@ pub(crate) async fn deadline(req: Request, next: Next) -> Response {
     {
         return next.run(req).await;
     }
-    tokio::time::timeout(OPERATION_TIMEOUT, next.run(req))
-        .await
-        .unwrap_or_else(|_| unavailable())
+    use axum::response::IntoResponse;
+    let purchase = crate::pass::web::purchase_language(&req);
+    match tokio::time::timeout(std::time::Duration::from_secs(3), next.run(req)).await {
+        Ok(response) => response,
+        Err(_) => match purchase {
+            Some(lang) => crate::pass::web::uncertain_purchase(
+                lang,
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            None => (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                [("cache-control", "no-store")],
+            )
+                .into_response(),
+        },
+    }
 }
 
 pub(crate) async fn operation_deadline(
@@ -174,6 +190,33 @@ mod tests {
             .oneshot(Request::get("/en/puzzles").body(Body::empty())?)
             .await?;
         assert_eq!(healthy.status(), StatusCode::OK);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pass_purchase_deadline_preserves_uncertain_response()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use axum::body::to_bytes;
+        use axum::routing::post;
+
+        let app = crate::with_browser_deadlines(Router::new().route(
+            "/{lang}/pass/{id}/buy",
+            post(std::future::pending::<axum::response::Response>),
+        ));
+        let (pl, en) = tokio::try_join!(
+            app.clone()
+                .oneshot(Request::post("/pl/pass/campaign/buy").body(Body::empty())?),
+            app.oneshot(Request::post("/en/pass/campaign/buy").body(Body::empty())?)
+        )?;
+        for (response, message) in [
+            (pl, "Nie udało się potwierdzić wyniku zakupu."),
+            (en, "We could not confirm the purchase outcome."),
+        ] {
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(response.headers()["cache-control"], "private, no-store");
+            let body = to_bytes(response.into_body(), 64 * 1024).await?;
+            assert!(std::str::from_utf8(&body)?.contains(message));
+        }
         Ok(())
     }
 }

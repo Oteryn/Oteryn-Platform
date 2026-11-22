@@ -23,18 +23,21 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         return next.run(request).await;
     }
     let lang = crate::surface::Language::for_request(&request).code();
-    let account = match crate::session::chrome_account(&shell.sessions, &mut request).await {
-        Ok(account) => account,
-        Err(_)
-            if request
-                .extensions()
-                .get::<crate::BoundedBrowserRead>()
-                .is_some() =>
+    let account = if let Some(deadline) = request
+        .extensions()
+        .get::<crate::BoundedBrowserRead>()
+        .copied()
+    {
+        match crate::session::bounded_chrome_account(&shell.sessions, &mut request, deadline).await
         {
-            use axum::response::IntoResponse;
-            return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+            Ok(account) => account,
+            Err(_) => {
+                use axum::response::IntoResponse;
+                return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
         }
-        Err(_) => oteryn_ui::Account::Anonymous,
+    } else {
+        crate::session::chrome_account(&shell.sessions, &mut request).await
     };
     let path = request.uri().path();
     let local = path

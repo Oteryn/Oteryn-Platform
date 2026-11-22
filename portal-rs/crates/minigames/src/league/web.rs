@@ -149,15 +149,8 @@ impl Page {
 struct Surface<A> {
     league: League<A>,
     read_slots: Semaphore,
-    clock: fn() -> i64,
 }
 pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
-    router_with_clock(league, || time::OffsetDateTime::now_utc().unix_timestamp())
-}
-pub(super) fn router_with_clock<A: Authority + 'static>(
-    league: League<A>,
-    clock: fn() -> i64,
-) -> Router {
     if !league.flags.enabled || !league.flags.public {
         return Router::new();
     }
@@ -168,9 +161,17 @@ pub(super) fn router_with_clock<A: Authority + 'static>(
         .with_state(Arc::new(Surface {
             league,
             read_slots: Semaphore::new(crate::browser::LEAGUE_READ_SLOTS),
-            clock,
         }))
 }
+#[cfg(test)]
+pub(super) fn router_with_clock<A: Authority + 'static>(
+    league: League<A>,
+    _request_clock: fn() -> i64,
+) -> Router {
+    // Compatibility for the projection-lock test: the store owns the read clock.
+    router(league)
+}
+
 pub fn configured_router(pool: PgPool) -> Router {
     let flags = super::config::owner_flags(super::config::enabled());
     let authority = super::runtime::GameAuthority::configured();
@@ -211,12 +212,7 @@ async fn page<A: Authority>(
         }
     }
 
-    let snapshots = state
-        .league
-        .read_with_clock(deadline, || {
-            u64::try_from((state.clock)()).map_err(|_| Error::Unavailable)
-        })
-        .await;
+    let snapshots = state.league.read_before(deadline).await;
     drop(slot);
     match snapshots {
         Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),
