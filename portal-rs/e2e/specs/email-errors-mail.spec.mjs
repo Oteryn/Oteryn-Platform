@@ -252,6 +252,51 @@ function unsubscribeLink(page, message) {
   return target;
 }
 
+async function assertSupportUnsubscribe(page, support, messages) {
+  const { account, staff, staffPage, lang, other } = support;
+  const [staffAccount] = await query('SELECT id FROM accounts WHERE email=$1', [staff.email]);
+  await staffPage.goto(`/${other}/account/notifications`);
+  await submit(staffPage, 'main form', { support_email: true, support_portal: true });
+  const preferences = async () => {
+    const [row] = await query(
+      `SELECT
+        (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS support,
+        (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='news') AS news,
+        (SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS portal,
+        (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$2 AND category='support') AS other_support`,
+      [account.id, staffAccount.id],
+    );
+    return row;
+  };
+  for (const message of messages) {
+    // One-click and email change consume the same ten-per-minute source budget.
+    await expect.poll(async () => {
+      const [usage] = await query(
+        "SELECT COALESCE(max(count),0)::int AS used FROM web_rate_limits WHERE limiter_name='identity-anonymous-source' AND window_start=date_trunc('minute',clock_timestamp())",
+      );
+      return usage.used;
+    }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(6);
+    const target = unsubscribeLink(page, message);
+    await enableSupport(page, lang);
+    const enabled = { support: true, news: true, portal: true, other_support: true };
+    await expect.poll(preferences).toEqual(enabled);
+    const anonymous = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
+    try {
+      expect((await anonymous.storageState()).cookies).toEqual([]);
+      const response = await anonymous.post(target.href, {
+        form: { 'List-Unsubscribe': 'One-Click' }, maxRedirects: 0,
+      });
+      expect(response.status()).toBe(200);
+      expect(await preferences()).toEqual({ ...enabled, support: false });
+    } finally {
+      await anonymous.dispose();
+    }
+  }
+  await page.goto(`/${lang}/account/notifications`);
+  await expect(page.locator('[name=support_email]')).not.toBeChecked();
+  await expect(page.locator('[name=support_portal]')).toBeChecked();
+}
+
 const supportTest = test.extend({
   support: async ({ page, browser }, use, info) => {
     const lang = info.project.metadata.locale;
@@ -436,6 +481,7 @@ supportTest.describe('support email and ticket errors', () => {
   });
 
   supportTest('moderation decisions send report, sanction and appeal mail', async ({ page, support }) => {
+    supportTest.setTimeout(300_000);
     const { account, staffPage, lang, subject, heading, description, openForm, stateCopy } = support;
     await page.goto(`/${lang}/support/reports/create`);
     const evidence = unique();
@@ -474,7 +520,7 @@ supportTest.describe('support email and ticket errors', () => {
     const reportCopy = `actioned: ${outcome}`;
     const reportNotice = await mail(page, account.email, subject, reportCopy, outcome);
     expect(reportNotice.text === `${subject}\n\n${reportCopy}`, 'only the public report outcome is mailed').toBe(true);
-    unsubscribeLink(page, reportNotice);
+    const messages = [reportNotice];
 
     const reason = unique();
     await staffPage.goto('/admin/moderation/enforcement/create');
@@ -490,7 +536,7 @@ supportTest.describe('support email and ticket errors', () => {
     for (const marker of [reason, lift]) {
       const message = await mail(page, account.email, subject, marker, marker);
       expect(message.text === `${subject}\n\n${marker}`, 'sanction mail contains only the public reason').toBe(true);
-      unsubscribeLink(page, message);
+      messages.push(message);
     }
 
     await staffPage.goto('/admin/moderation/enforcement/create');
@@ -508,17 +554,19 @@ supportTest.describe('support email and ticket errors', () => {
     const reviewCopy = 'reviewing:';
     const review = await mail(page, account.email, subject, reviewCopy, reviewCopy);
     expect(review.text === `${subject}\n\n${reviewCopy}`, 'only the appeal status is mailed').toBe(true);
-    unsubscribeLink(page, review);
+    messages.push(review);
     const decision = unique();
     await action(staffPage, 'form:has(input[value=appeal])', { appeal_status: 'accepted', appeal_outcome: decision });
     const appealCopy = `accepted: ${decision}`;
     const appeal = await mail(page, account.email, subject, appealCopy, decision);
     expect(appeal.text === `${subject}\n\n${appealCopy}`, 'only the public appeal outcome is mailed').toBe(true);
-    unsubscribeLink(page, appeal);
+    messages.push(appeal);
+
+    await assertSupportUnsubscribe(page, support, messages);
   });
 
   supportTest('signed support unsubscribe works without a session and isolates account preferences', async ({ page, support }) => {
-    const { account, staff, staffPage, lang, other, subject, replyCopy, statusCopy } = support;
+    const { account, staffPage, lang, subject, replyCopy, statusCopy } = support;
     const { id } = await createSupportTicket(page, lang);
     expect((await staffPage.goto(`/admin/support/tickets/${id}`)).status()).toBe(200);
     const reply = unique();
@@ -526,52 +574,12 @@ supportTest.describe('support email and ticket errors', () => {
     await expect(staffPage.locator('main')).toContainText(reply);
     await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'resolved' });
 
-    const [staffAccount] = await query('SELECT id FROM accounts WHERE email=$1', [staff.email]);
-    await staffPage.goto(`/${other}/account/notifications`);
-    await submit(staffPage, 'main form', { support_email: true, support_portal: true });
     const messages = [];
     for (const copy of [replyCopy, statusCopy]) {
       messages.push(await mail(page, account.email, subject, copy, copy));
     }
 
-    const preferences = async () => {
-      const [row] = await query(
-        `SELECT
-          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS support,
-          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='news') AS news,
-          (SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS portal,
-          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$2 AND category='support') AS other_support`,
-        [account.id, staffAccount.id],
-      );
-      return row;
-    };
-    for (const message of messages) {
-      // One-click and email change consume the same ten-per-minute source budget.
-      await expect.poll(async () => {
-        const [usage] = await query(
-          "SELECT COALESCE(max(count),0)::int AS used FROM web_rate_limits WHERE limiter_name='identity-anonymous-source' AND window_start=date_trunc('minute',clock_timestamp())",
-        );
-        return usage.used;
-      }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(6);
-      const target = unsubscribeLink(page, message);
-      await enableSupport(page, lang);
-      const enabled = { support: true, news: true, portal: true, other_support: true };
-      await expect.poll(preferences).toEqual(enabled);
-      const anonymous = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
-      try {
-        expect((await anonymous.storageState()).cookies).toEqual([]);
-        const response = await anonymous.post(target.href, {
-          form: { 'List-Unsubscribe': 'One-Click' }, maxRedirects: 0,
-        });
-        expect(response.status()).toBe(200);
-        expect(await preferences()).toEqual({ ...enabled, support: false });
-      } finally {
-        await anonymous.dispose();
-      }
-    }
-    await page.goto(`/${lang}/account/notifications`);
-    await expect(page.locator('[name=support_email]')).not.toBeChecked();
-    await expect(page.locator('[name=support_portal]')).toBeChecked();
+    await assertSupportUnsubscribe(page, support, messages);
   });
 });
 
