@@ -16,18 +16,13 @@ export async function audit(page,operation,target){const rows=await query('SELEC
 
 export async function rolePage(page,id){await page.goto('/admin/roles');for(let n=0;n<10000;n++){if(await page.locator(`select[name=role] option[value="${id}"]`).count())return;const next=page.locator('a[href^="/admin/roles?after="]');expect(await next.count(),'role remains discoverable through keyset pagination').toBe(1);await next.click();}throw new Error('role pagination exceeded bound');}
 
-export async function recoveryCodes(page){
- const codes=page.locator('main textarea[readonly]');
- await expect(codes.first()).toBeVisible();
- return codes.allTextContents();
-}
-
 export async function enrollMfa(page,lang,account){
  await page.goto(`/${lang}/mfa`);
  await submit(page,'form[action$="/mfa/enroll"]',{password:account.password});
  const totp=new OTPAuth.TOTP({secret:await page.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
  await submit(page,'form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
- return recoveryCodes(page);
+ await expect(page.locator('textarea[readonly]').first()).toBeVisible();
+ return page.locator('textarea[readonly]').allTextContents();
 }
 
 export async function loginWithRecoveryCode(page,lang,account,code){

@@ -33,17 +33,10 @@ for(const file of [...walk(path.join(root,'crates')),...walk(path.join(root,'bin
 // Restore notice and Store delivery are mutually exclusive at startup (game_routes::validate_store_restore); keep delivery on.
 env.PORTAL_GAME_RESTORE_NOTICE_ENABLED='false';
 for(const key of ['OTERYN_ACCOUNT_LOGIN','OTERYN_ACCOUNT_MFA','OTERYN_ACCOUNT_PASSKEYS','OTERYN_ACCOUNT_PASSWORD_RESET','OTERYN_ACCOUNT_SESSIONS','OTERYN_ACCOUNT_CREDENTIALS','OTERYN_ACCOUNT_EMAIL_CHANGE','OTERYN_ACCOUNT_RECOVERY_KEYS','OTERYN_ADMIN_PANEL','OTERYN_ADMIN_CONSOLE','OTERYN_ADMIN_PLAYERS','OTERYN_ADMIN_PLAYER_CHARACTERS','OTERYN_ADMIN_COMMERCE','OTERYN_ADMIN_CONTROL','OTERYN_WORLD_ADMIN','OTERYN_BAZAAR_MODERATION','OTERYN_BAZAAR_PROFILES','OTERYN_BAZAAR_PROMOTIONS','OTERYN_SUPPORT_TICKETS','OTERYN_PLAYERDATA_HUNTS_READ','OTERYN_PLAYERDATA_PLACES_AGGREGATE']) env[key]='true';
-const nativeDeviceClient = '019b0760-0000-7000-8000-000000000002';
 Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
  OTERYN_ADMIN_ANALYTICS_INGEST:'true',OTERYN_ADMIN_ANALYTICS_PRESENT:'true',OTERYN_ADMIN_ANALYTICS_AUTHORITY:'e2e-local',OTERYN_ADMIN_ANALYTICS_PRIVACY:'e2e-local',
- PORTAL_OAUTH_CONFIG:JSON.stringify({enabled:true,clients:[
-   {client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']},
-   {client_id:nativeDeviceClient,redirect_uris:['http://127.0.0.1/callback']},
- ]}),
- PORTAL_E2E_NATIVE_DEVICE_CLIENT:nativeDeviceClient,
- PORTAL_E2E_NATIVE_DEVICE_ORIGIN:'https://localhost:18447',
- PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN:'https://localhost:18448',
+ PORTAL_OAUTH_CONFIG:process.env.PORTAL_OAUTH_CONFIG||JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
  OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:'localhost:18443',
  OTERYN_STATIC_DIR:path.join(root,'static'),OTERYN_DATABASE_URL:databaseURL(dbName),PORTAL_E2E_DATABASE_URL:databaseURL(dbName),PORTAL_TEST_DATABASE_URL:databaseURL(testName),
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
@@ -53,6 +46,17 @@ Object.assign(env,{
  PORTAL_PUBLIC_PROJECTIONS_AUTHORITY:'e2e-local',PORTAL_PUBLIC_PROJECTIONS_SAN:'e2e-local',PORTAL_WORLD_DAILY_WORLDS:'019b0760-0000-7000-8000-000000000001',PORTAL_ATLAS_DELIVERY_ENABLED:'1',PORTAL_WORLD_ENABLED:'1',
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',allowed_worlds:['019b0760-0000-7000-8000-000000000001'],allowed_nodes:[],identity:{san:'spiffe://local.test/admin/e2e'}}]),
+});
+const nativeDeviceClient = '019b0760-0000-7000-8000-000000000002';
+if(!process.env.PORTAL_OAUTH_CONFIG){
+ const oauth = JSON.parse(env.PORTAL_OAUTH_CONFIG);
+ oauth.clients.push({client_id:nativeDeviceClient,redirect_uris:['http://127.0.0.1/callback']});
+ env.PORTAL_OAUTH_CONFIG=JSON.stringify(oauth);
+}
+Object.assign(env,{
+ PORTAL_E2E_NATIVE_DEVICE_CLIENT:nativeDeviceClient,
+ PORTAL_E2E_NATIVE_DEVICE_ORIGIN:'https://localhost:18447',
+ PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN:'https://localhost:18448',
 });
 // The pinned lane producer still emits an unsupported negative compatibility candidate.
 // Never read raw Game content or fabricate a Today producer/catalogue.
