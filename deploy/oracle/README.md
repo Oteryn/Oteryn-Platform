@@ -271,7 +271,7 @@ secret. A local SSH key has a root-owned forced command restricted to its single
 component, no shell/PTY/forwarding, with independently pinned SSH host identity.
 
 Install `actions-deploy.py` root-owned under `/opt/oteryn-oracle`, not in a runner
-writable mount. `status` only reads readiness. `deploy <40-character SHA>` requires
+writable mount. `status` only reads readiness. A Platform release requires
 exact current protected main and its latest GitHub Actions aggregate success,
 rechecks after build, builds native ARM64, backs up, preserves root-owned private
 configuration and migrates through the existing owner connection. Platform keeps
@@ -335,6 +335,14 @@ The `platform` branch of `actions-deploy.py` deploys the live portal layout on
 oteryn-vps. It does not create or migrate that layout; it only replaces the app
 image of an installed one.
 
+The Platform workflow sends
+`deploy-signup-legal-v1 <40-character SHA> <run ID> <run attempt>`. Install
+the reviewed root-owned helper before enabling releases through this workflow.
+The updated helper also accepts the existing `deploy` command with the same
+pre-backup check and bilingual signup probes. The candidate Oracle image
+checks the published editions before applying migrations when an older helper
+handles a legacy request.
+
 ### Game image artifact (deploy-image)
 
 The `game` forced command accepts only `status` and
@@ -363,10 +371,23 @@ journal, stop, migrate, image swap and supervisor start.
   `docker build -f deploy/oracle/portal.Dockerfile portal-rs` (timeout 2 h),
   tagged `oteryn-portal:<sha8>-arm64` and labelled with the full revision. The
   recipe keeps the live runtime: Ubuntu 26.04, uid 10001, `/app/oteryn-portal`,
-  `/app/static`, `/app/migrations`. It must be arm64 and pass `check-image`.
+  `/app/static`, `/app/migrations`. It must be arm64 and pass
+  `check-image` with networking disabled.
 - Preflight: the running release must already pass the container and
   `/readyz` checks below, so a host the probe cannot reach is refused before
   any effect instead of rolling back a good release after migration.
+- Signup staging for the first release that enforces explicit approval:
+  use the reviewed candidate's staff CMS through restricted staff ingress
+  against the retained CMS database. Run only the candidate web role for this
+  step with the usual staff authentication and page-management permissions.
+  Publish the real approved terms and privacy editions in English and then in
+  Polish under new versions. The predecessor's snapshots remain immutable.
+  Set `OTERYN_TERMS_VERSION` and `OTERYN_PRIVACY_VERSION` in the candidate
+  portal environment to the exact published versions. Pause predecessor signup
+  during the publication window if it still submits the old versions.
+  The host helper runs `portal check-signup-legal` from the candidate image
+  against that same configuration before backup, migration or service
+  replacement, and again after migration before service replacement.
 - Release: recheck authority, `pg_dump -Fc` inside `oteryn-portal-portal-pg-1`
   to a staged file checked with `pg_restore --list` and published as
   `state/actions/<sha>-platform.dump` (0600), recheck, journal `prepared` with the
@@ -379,6 +400,8 @@ journal, stop, migrate, image swap and supervisor start.
   is the recorded release; `GET /readyz` on port 8080 at the portal's
   `oteryn-oracle_private` address, sent from the host (the image has no HTTP
   client and the port is not published; `/readyz` includes the database check).
+  Both localized signup routes, `/en/register` and `/pl/register`, must also
+  respond directly with HTTP 200.
   This assumes the portal listens on `0.0.0.0:8080` inside its container, as
   the edge already requires (`OTERYN_BIND` defaults to loopback).
   A release is ready after two consecutive passing samples with unchanged
@@ -414,7 +437,10 @@ schema-owner URL. Mount certificate/key files, `gateway-token` and its hexadecim
 `gateway-token.sha256` in the
 read-only `platform-secrets` directory, readable by image UID 65532. These files
 remain host-private; `prepare-platform.sh <reviewed-checkout>` validates their
-presence and runs the Rust migration role. Existing game/money flags remain off
+presence and runs the Rust migration role. Before stopping services, it checks
+the candidate image against the application database and signup configuration.
+An existing schema requires approved editions in both locales as described
+above. An empty schema can proceed with first-time provisioning. Existing game/money flags remain off
 unless the operator explicitly enables them.
 
 Both Platform deployment paths provision

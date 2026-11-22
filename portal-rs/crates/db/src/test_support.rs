@@ -60,3 +60,70 @@ pub async fn coin_chargeback_hold(
         .bind(account).bind(order).execute(&mut *tx).await?;
     tx.commit().await
 }
+
+/// English and Polish bodies plus explicit approval for a fixture document.
+pub const APPROVED_SIGNUP_EDITION: (&str, &str, bool) = (
+    "Accepted English fixture edition.",
+    "Zatwierdzony dokument testowy.",
+    true,
+);
+
+/// Seed published bilingual, approved legal editions in an isolated registration fixture.
+pub async fn seed_final_signup_editions(
+    pool: &sqlx::PgPool,
+    version: &str,
+) -> Result<(), sqlx::Error> {
+    seed_signup_editions(
+        pool,
+        version,
+        APPROVED_SIGNUP_EDITION,
+        APPROVED_SIGNUP_EDITION,
+    )
+    .await
+}
+
+/// Seed matching published rows and immutable snapshots. Each document can be
+/// backed by a legacy snapshot that lacks explicit approval.
+pub async fn seed_signup_editions(
+    pool: &sqlx::PgPool,
+    version: &str,
+    terms: (&str, &str, bool),
+    privacy: (&str, &str, bool),
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "WITH texts(slug,english,polish,approved) AS (
+             VALUES ('terms-of-service',$2::text,$3::text,$4::boolean),
+                    ('privacy-policy',$5::text,$6::text,$7::boolean)
+         ), documents AS (
+             INSERT INTO pages(id,slug)
+             SELECT uuidv7(),slug FROM texts RETURNING id,slug
+         ), sources AS (
+             INSERT INTO editorial_pages
+                 (page_id,locale,title,body,published_at,legal_version,legal_effective_date)
+             SELECT id,'en',slug,english,now(),$1,'2026-11-22'
+             FROM documents JOIN texts USING (slug) RETURNING *
+         ), translations AS (
+             INSERT INTO editorial_pages
+                 (page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision)
+             SELECT page_id,'pl',title,polish,now(),legal_version,
+                    legal_effective_date,revision
+             FROM sources JOIN texts ON texts.slug=sources.title RETURNING *
+         )
+         INSERT INTO page_legal_versions(page_id,locale,version,content)
+         SELECT page_id,locale,legal_version,jsonb_build_object(
+             'title',title,'body',body,'effective',legal_effective_date::text)
+             || CASE WHEN approved THEN '{\"final_approved\":true}'::jsonb ELSE '{}'::jsonb END
+         FROM (SELECT * FROM sources UNION ALL SELECT * FROM translations) editions
+         JOIN texts ON texts.slug=editions.title",
+    )
+    .bind(version)
+    .bind(terms.0)
+    .bind(terms.1)
+    .bind(terms.2)
+    .bind(privacy.0)
+    .bind(privacy.1)
+    .bind(privacy.2)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

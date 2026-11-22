@@ -51,7 +51,7 @@ jobs:
           fi
           case "$OPERATION" in
             status) test -z "$SOURCE_SHA"; command=status ;;
-            deploy) [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; command="deploy $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT" ;;
+            deploy) [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; command="deploy-signup-legal-v1 $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT" ;;
             *) exit 1 ;;
           esac
           # The key is constrained on the host to one component and two actions.

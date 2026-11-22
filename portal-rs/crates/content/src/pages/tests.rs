@@ -18,13 +18,10 @@ fn input_boundaries() {
     assert!(!text("pl", "unavailable").is_empty());
     assert!(!text("en", "unavailable").is_empty());
 }
-#[tokio::test]
-async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
-    let started = std::time::Instant::now();
+async fn pages_database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("skipping PostgreSQL pages test: PORTAL_TEST_DATABASE_URL unset");
-        return Ok(());
+        return Ok(None);
     };
     let root = PgPool::connect(&url).await?;
     let schema = format!("pages_{}", Uuid::now_v7().simple());
@@ -43,6 +40,183 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
+    Ok(Some((root, pool, schema)))
+}
+async fn drop_pages_schema(root: PgPool, pool: PgPool, schema: &str) -> Result<(), sqlx::Error> {
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn relabeled_placeholder_pages_show_localized_draft_notice()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the legal renderer test")?;
+    for profile in [None, Some("production"), Some("preprod")] {
+        assert!(matches!(
+            legal::install(&pool, profile).await,
+            Err(oteryn_admin::rbac::Error::InvalidInput)
+        ));
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pages")
+            .fetch_one(&pool)
+            .await?,
+        0
+    );
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 3);
+    let app = router(pool.clone());
+    for (english, polish, visible) in [
+        ("KRS 0000000000", "KRS 0000000000", "KRS 0000000000"),
+        (
+            "Tax ID (NIP) (000) 000-00-00",
+            "NIP (000) 000-00-00",
+            "(000) 000-00-00",
+        ),
+        (
+            "Tax ID (NIP) <strong>000</strong>&#8209;000&#x2011;00‑00",
+            "NIP 000‑000‑00‑00",
+            "‑00",
+        ),
+        (
+            "Service terms.\n\n![Tax ID (NIP) 000-000-00-00](/missing-image.png)",
+            "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP 000-000-00-00'>",
+            "000-000-00-00",
+        ),
+        (
+            "Tax ID (NIP) PL 123-456-78-03",
+            "NIP 123-456-78-03",
+            "123-456-78-03",
+        ),
+        (
+            "Operator: {{operator}}",
+            "Dane operatora: {{operator}}",
+            "{{operator}}",
+        ),
+    ] {
+        sqlx::query(
+            "UPDATE editorial_pages SET legal_version='relabeled-v1',
+             body=CASE WHEN locale='pl' THEN $1 ELSE $2 END",
+        )
+        .bind(polish)
+        .bind(english)
+        .execute(&pool)
+        .await?;
+        for (locale, notice) in [
+            ("en", "Draft — operator data will be replaced."),
+            ("pl", "Wersja robocza — dane operatora zostaną zastąpione."),
+        ] {
+            for path in ["terms", "privacy", "cookies"] {
+                let response = app
+                    .clone()
+                    .oneshot(Request::get(format!("/{locale}/legal/{path}")).body(Body::empty())?)
+                    .await?;
+                assert_eq!(response.status(), StatusCode::OK);
+                let html =
+                    String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
+                assert!(html.contains("role=\"note\""));
+                assert!(html.contains(notice));
+                assert!(
+                    html.contains(visible),
+                    "operator identifier stays in the rendered page"
+                );
+            }
+        }
+    }
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_installer_preserves_preexisting_draft_and_history_and_audits_once()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the legal installer test")?;
+    let draft: Uuid = sqlx::query_scalar(
+        "INSERT INTO pages(id,slug) VALUES (uuidv7(),'terms-of-service') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO editorial_pages(page_id,locale,title,body)
+         VALUES ($1,'en','Staff draft','Staff draft body')",
+    )
+    .bind(draft)
+    .execute(&pool)
+    .await?;
+    let history: Uuid = sqlx::query_scalar(
+        "INSERT INTO pages(id,slug) VALUES (uuidv7(),'privacy-policy') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await?;
+    let snapshot = serde_json::json!({"title":"Archived privacy notice","body":"Prior staff content","effective":"2026-11-05"});
+    sqlx::query(
+        "INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES ($1,'pl','staff-v1',$2)",
+    )
+    .bind(history)
+    .bind(&snapshot)
+    .execute(&pool)
+    .await?;
+
+    for installed in [1, 0, 0] {
+        assert_eq!(legal::install(&pool, Some("testing")).await?, installed);
+        let editions: Vec<(String, String, String, bool)> = sqlx::query_as(
+            "SELECT locale,title,body,published_at IS NULL FROM editorial_pages
+             WHERE page_id IN ($1,$2)",
+        )
+        .bind(draft)
+        .bind(history)
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            editions,
+            [(
+                "en".to_owned(),
+                "Staff draft".to_owned(),
+                "Staff draft body".to_owned(),
+                true
+            )]
+        );
+        let versions: Vec<(Uuid, String, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT page_id,locale,version,content FROM page_legal_versions WHERE page_id IN ($1,$2)",
+        )
+        .bind(draft)
+        .bind(history)
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            versions,
+            [(
+                history,
+                "pl".to_owned(),
+                "staff-v1".to_owned(),
+                snapshot.clone()
+            )]
+        );
+        let audited: Vec<String> = sqlx::query_scalar(
+            "SELECT target FROM audit_log WHERE action='cms.legal.defaults_installed'",
+        )
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(audited, ["cookie-policy"]);
+    }
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+#[tokio::test]
+async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let Some((root, pool, schema)) = pages_database().await? else {
+        return Ok(());
+    };
     let slug = format!("page-{}", Uuid::now_v7());
     let mut ctx = oteryn_admin::rbac::CheckContext {
         account: Uuid::now_v7(),
@@ -128,6 +302,53 @@ Updated English source",
             }
             assert!(html.contains(&format!("lang=\"{lang}\"")));
             assert!(!html.contains("Changed legal text"));
+        }
+    }
+
+    // A bare slug is represented by a page with no locale content.
+    sqlx::query("INSERT INTO pages(id,slug) VALUES($1,'cookie-policy')")
+        .bind(Uuid::now_v7())
+        .execute(&pool)
+        .await?;
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 3);
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 0);
+    let audited: Vec<String> = sqlx::query_scalar(
+        "SELECT target FROM audit_log WHERE action='cms.legal.defaults_installed' ORDER BY target",
+    )
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(
+        audited,
+        ["cookie-policy", "privacy-policy", "terms-of-service"]
+    );
+    for (lang, note, titles) in [
+        (
+            "en",
+            "Draft — operator details are placeholders.",
+            ["Terms of Service", "Privacy Policy", "Cookie Policy"],
+        ),
+        (
+            "pl",
+            "Wersja robocza — dane operatora są tymczasowe.",
+            [
+                "Regulamin Oteryn",
+                "Polityka prywatności",
+                "Polityka plików cookie",
+            ],
+        ),
+    ] {
+        for (path, title) in ["terms", "privacy", "cookies"].into_iter().zip(titles) {
+            let response = app
+                .clone()
+                .oneshot(Request::get(format!("/{lang}/legal/{path}")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+            assert!(html.contains(&format!("<h1>{title}</h1>")));
+            assert!(html.contains(&format!("<strong>{note}</strong>")));
+            assert!(html.contains("2026-11-22"));
+            assert!(html.contains("0000000000"));
+            assert!(!html.contains("{{operator}}"));
         }
     }
 
@@ -256,11 +477,76 @@ Updated English source",
             .is_err()
     );
     form.legal_version = "test-v2".into();
+    form.final_approved = "yes".into();
+    for (locale, body) in [
+        ("en", "Tax ID (NIP) **000**&#8209;000&#x2011;00‑00"),
+        ("pl", "NIP 000‑000‑00‑00"),
+        ("en", "KRS 0000000000"),
+        ("en", "Tax ID (NIP) (000) 000-00-00"),
+        ("pl", "NIP (000) 000-00-00"),
+        (
+            "en",
+            "Service terms.\n\n![Tax ID (NIP) 000-000-00-00](/missing-image.png)",
+        ),
+        (
+            "pl",
+            "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP 000-000-00-00'>",
+        ),
+        ("en", "Tax ID (NIP) PL 123-456-78-03"),
+        ("pl", "NIP 123-456-78-03"),
+        ("en", "Operator: {{operator}}"),
+        ("pl", "Dane operatora: {{operator}}"),
+        ("en", "<!-- Terms draft -->"),
+        ("pl", "<!-- Projekt regulaminu -->"),
+        ("en", "&#xfe0f;"),
+        ("pl", "&#x034f;"),
+    ] {
+        form.body = body.into();
+        assert!(matches!(
+            persist_current(&pool, &auth, ctx, "terms-of-service", locale, &form).await,
+            Err(oteryn_admin::rbac::Error::InvalidInput)
+        ));
+    }
+    form.body = "Changed legal text. Tax ID (NIP) 123-456-78-02".into();
     persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
+    form.final_approved.clear();
+    persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT content @> '{\"final_approved\":true}'::jsonb
+         FROM page_legal_versions WHERE locale='en' AND version='test-v2'",
+        )
+        .fetch_one(&pool)
+        .await?
+    );
     let versions: i64 = sqlx::query_scalar("SELECT count(*) FROM page_legal_versions")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(versions, 2);
+    assert_eq!(versions, 8);
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 0);
+    let edited: String = sqlx::query_scalar(
+        "SELECT e.body FROM editorial_pages e JOIN pages p ON p.id=e.page_id
+         WHERE p.slug='terms-of-service' AND e.locale='en'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(edited, form.body);
+    form.body.push_str(" Another change.");
+    assert!(matches!(
+        persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await,
+        Err(oteryn_admin::rbac::Error::InvalidInput)
+    ));
+    form.body = edited;
+    form.legal_version = "test-v3".into();
+    persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT content @> '{\"final_approved\":true}'::jsonb
+             FROM page_legal_versions WHERE locale='en' AND version='test-v3'",
+        )
+        .fetch_one(&pool)
+        .await?
+    );
     use oteryn_admin::web::PanelConfig;
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(ctx.account)
@@ -401,10 +687,7 @@ Updated English source",
             .status(),
         StatusCode::NOT_FOUND
     );
-    pool.close().await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&root)
-        .await?;
+    drop_pages_schema(root, pool, &schema).await?;
     eprintln!(
         "postgres_pages_publication_and_legal_history duration: {:?}",
         started.elapsed()

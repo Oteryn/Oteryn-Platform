@@ -117,6 +117,8 @@ async fn r7_registration_leaves_both_sessions_anonymous() -> Result<(), Box<dyn 
         .layer(Extension(axum::extract::ConnectInfo(
             "192.0.2.82:1234".parse::<std::net::SocketAddr>()?,
         )));
+    let version = oteryn_identity::consents::DEFAULT_LEGAL_VERSION;
+    oteryn_db::test_support::seed_final_signup_editions(&db.pool, version).await?;
     for raw in ["a".repeat(64), "c".repeat(64)] {
         let csrf = "b".repeat(64);
         sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES($1,NULL,'registration-test',$2,now()+interval '1 hour',now()+interval '1 day')").bind(Sha256::digest(raw.as_bytes()).to_vec()).bind(&csrf).execute(&db.pool).await?;
@@ -125,7 +127,7 @@ async fn r7_registration_leaves_both_sessions_anonymous() -> Result<(), Box<dyn 
             .header("cookie", format!("{}={raw}", crate::session::COOKIE_NAME))
             .header("x-csrf-token", &csrf)
             .header("content-type","application/x-www-form-urlencoded")
-            .body(Body::from("email=new%40example.test&password=long-test-password99&password_confirmation=long-test-password99&terms=2026-11-05&privacy=2026-11-05"))?).await?;
+            .body(Body::from(format!("email=new%40example.test&password=long-test-password99&password_confirmation=long-test-password99&terms={version}&privacy={version}")))?).await?;
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         let signed_in: i64 =
             sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id IS NOT NULL")
