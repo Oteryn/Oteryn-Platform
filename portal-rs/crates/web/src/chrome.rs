@@ -43,8 +43,10 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     }
     let chrome = shell.registry.chrome(lang, request.uri().path(), account);
     request.extensions_mut().insert(chrome.clone());
-    let browser = request.method() == axum::http::Method::GET
-        && !request.uri().path().starts_with("/api/")
+    let browser = matches!(
+        request.method(),
+        &axum::http::Method::GET | &axum::http::Method::POST
+    ) && !request.uri().path().starts_with("/api/")
         && !request.uri().path().starts_with("/internal/")
         && request
             .headers()
@@ -63,6 +65,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             for name in [
                 header::ALLOW,
                 header::RETRY_AFTER,
+                header::WWW_AUTHENTICATE,
                 header::CONTENT_SECURITY_POLICY,
                 header::STRICT_TRANSPORT_SECURITY,
                 header::X_CONTENT_TYPE_OPTIONS,
@@ -71,8 +74,10 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 header::VARY,
                 axum::http::HeaderName::from_static("permissions-policy"),
             ] {
-                if let Some(value) = response.headers().get(&name) {
-                    replacement.headers_mut().insert(name, value.clone());
+                for value in response.headers().get_all(&name) {
+                    replacement
+                        .headers_mut()
+                        .append(name.clone(), value.clone());
                 }
             }
             for value in response.headers().get_all(header::SET_COOKIE) {
@@ -105,6 +110,10 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 header::CACHE_CONTROL,
                 axum::http::HeaderValue::from_static("no-store"),
             );
+            replacement
+                .headers_mut()
+                .entry(header::CONTENT_LANGUAGE)
+                .or_insert(header::HeaderValue::from_static(lang));
             response = replacement;
         }
     }
@@ -493,6 +502,17 @@ mod response_tests {
                     )
                 }),
             )
+            .route(
+                "/{lang}/refused",
+                get(|| async {
+                    (
+                        StatusCode::UNAUTHORIZED,
+                        [(header::WWW_AUTHENTICATE, "Bearer")],
+                        "private unauthorized detail",
+                    )
+                })
+                .post(|| async { (StatusCode::INTERNAL_SERVER_ERROR, "private database detail") }),
+            )
             .route("/api/refused", get(|| async { StatusCode::FORBIDDEN }))
             .route(
                 "/{lang}/account/privacy",
@@ -550,6 +570,49 @@ mod response_tests {
             assert!(html.contains("id=\"portal-header\""));
             assert!(html.contains("class=\"foot foot-interior\""));
             assert!(html.contains("/static/thais/interior.css"));
+            for (method, status, title) in [
+                (
+                    axum::http::Method::GET,
+                    StatusCode::UNAUTHORIZED,
+                    if lang == "pl" {
+                        "Wymagane logowanie"
+                    } else {
+                        "Sign-in required"
+                    },
+                ),
+                (
+                    axum::http::Method::POST,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    if lang == "pl" {
+                        "Wystąpił błąd"
+                    } else {
+                        "Something went wrong"
+                    },
+                ),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(format!("/{lang}/refused"))
+                            .header(header::ACCEPT, "text/html")
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), status);
+                assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+                assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+                if status == StatusCode::UNAUTHORIZED {
+                    assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+                }
+                let body = axum::body::to_bytes(response.into_body(), 100000).await?;
+                let body = std::str::from_utf8(&body)?;
+                assert!(body.contains("id=\"portal-header\""));
+                assert!(body.contains(&format!("<h1>{title}</h1>")));
+                assert!(!body.contains("private unauthorized detail"));
+                assert!(!body.contains("private database detail"));
+            }
             let response = app
                 .clone()
                 .oneshot(Request::get(format!("/{lang}/account/privacy")).body(Body::empty())?)
