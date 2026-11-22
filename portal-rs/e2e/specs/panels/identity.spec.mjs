@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import * as OTPAuth from 'otpauth';
 import { test, expect } from '../../fixtures.mjs';
-import { csrfRejected, login, pool, register, submit } from '../../helpers.mjs';
+import { csrfRejected, login, pool, submit } from '../../helpers.mjs';
+import { seedAccount } from '../../security/auth-fixtures.mjs';
+
+test.use({ trace: 'off', screenshot: 'off' });
 
 async function post(page, path, token, fields) {
   return page.request.post(path, {
@@ -12,8 +15,12 @@ async function post(page, path, token, fields) {
 }
 
 const csrf = (page, path) => page.locator(`form[action="${path}"] [name=_csrf]`).first().inputValue();
-const codes = page => page.locator('textarea[readonly]').allTextContents();
-const totp = async page => new OTPAuth.TOTP({ secret: await page.locator('.op-prose').innerText() });
+async function codes(page) {
+  const fields = page.locator('main textarea[readonly]');
+  await expect(fields).toHaveCount(8);
+  return fields.allTextContents();
+}
+const totp = async page => new OTPAuth.TOTP({ secret: await page.locator('main .op-prose').innerText() });
 const codeAt = (factor, offset) => factor.generate({ timestamp: Date.now() + offset * 30_000 });
 
 test('owner edits their profile and the server refuses foreign and invalid edits', async ({ page }, info) => {
@@ -21,7 +28,7 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   const path = `/${lang}/account/profile`;
   const anonymous = await page.request.get(path, { maxRedirects: 0 });
   expect(anonymous.headers().location).toBe(`/${lang}/login`);
-  const account = await register(page, lang);
+  const account = await seedAccount(lang);
   await login(page, lang, account);
   await page.goto(`/${lang}/account/privacy`);
   await expect(page.locator(`a[href="${path}"]`).first()).toBeVisible();
@@ -42,7 +49,7 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   const mfa = `/${lang}/mfa`;
   const manage = `${mfa}/manage`;
   const replacement = `${mfa}/replace/confirm`;
-  const account = await register(page, lang);
+  const account = await seedAccount(lang);
   const password = account.password;
   const anonymous = await page.request.get(mfa, { maxRedirects: 0 });
   expect(anonymous.headers().location).toBe(`/${lang}/login`);
@@ -60,6 +67,7 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
     await login(page, lang, account);
     await expect(page).toHaveURL(/mfa\/challenge/);
     await submit(page, 'form[action$="/challenge"]', { code });
+    await expect(page).not.toHaveURL(/mfa\/challenge/);
     await page.goto(mfa);
   }
 
@@ -90,6 +98,7 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   await submit(page, 'form[action$="/challenge"]', { code: replacementCodes[1] });
   await expect(page).toHaveURL(/mfa\/challenge/);
   await submit(page, 'form[action$="/challenge"]', { code: rotatedCodes[0] });
+  await expect(page).not.toHaveURL(/mfa\/challenge/);
   await page.goto(mfa);
   await expect(page.locator('[data-recovery-count]')).toHaveText('7');
   await page.locator('[name=action]').selectOption('remove');
@@ -102,15 +111,13 @@ test('native device revocation requires recent authentication and family ownersh
   const lang = info.project.metadata.locale;
   const mfa = `/${lang}/mfa`;
   const action = `${mfa}/native-devices`;
-  const account = await register(page, lang);
+  const account = await seedAccount(lang);
   const owned = randomUUID();
   const foreign = randomUUID();
   const db = pool();
   try {
-    const accounts = await db.query("SELECT id FROM accounts WHERE email=$1", [account.email]);
-    const owner = accounts.rows[0];
-    const other = await db.query("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) SELECT $1,password_hash,'active',$3,now() FROM accounts WHERE id=$2 RETURNING id", [`${foreign}@local.test`, owner.id, lang]);
-    for (const [family, id] of [[owned, owner.id], [foreign, other.rows[0].id]]) {
+    const other = await seedAccount(lang);
+    for (const [family, id] of [[owned, account.id], [foreign, other.id]]) {
       await db.query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES($1,$2,$3,$4,0,1,extract(epoch FROM now())::bigint+3600,extract(epoch FROM now())::bigint+1800)", [family, id, randomUUID(), family]);
     }
     await login(page, lang, account);
