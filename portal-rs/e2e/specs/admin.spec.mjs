@@ -74,6 +74,9 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
+ // Opening navigation must not grant Game read permission to the bootstrap role.
+ expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
+ expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
  await test.step('/console/dashboard',async()=>{
    const denied=await page.context().newPage();
    try {
@@ -82,9 +85,6 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
      await assertShell(denied);
    } finally {await denied.close();}
  });
- // Opening navigation must not grant Game read permission to the bootstrap role.
- expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
- expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
@@ -92,7 +92,6 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    try {
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-     await page.goto('/admin/roles');
      await confirmStaffPassword(page,lang,staff.password);
      const token=await page.locator('input[name=_csrf]').first().inputValue();
      const fields={account:target,role,action:'grant',reason:'role_assignment'};
