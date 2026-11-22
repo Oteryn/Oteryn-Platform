@@ -98,7 +98,8 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `OTERYN_REPORTS_PENDING_LIMIT` | `crates/support/src/navigation.rs:16`, `crates/support/src/reports/web.rs:42` |
 | `OTERYN_REPORTS_UNJUSTIFIED_LIMIT` | `crates/support/src/navigation.rs:18`, `crates/support/src/reports/web.rs:44` |
 | `OTERYN_RESET_DELIVERY_KEY` | `crates/identity/src/reset_http.rs:24`, `crates/identity/src/reset_delivery.rs:33` |
-| `OTERYN_SEASON_PASS_ENABLED` | `crates/minigames/src/pass/web.rs:137` |
+| `OTERYN_SEASON_PASS_ENABLED` | `crates/minigames/src/pass/web.rs:136` |
+| `OTERYN_SEASON_PASS_WALLET_ENABLED` | `crates/minigames/src/pass/web.rs:142` (testing only) |
 | `OTERYN_SECURITY_WIZARD_ENABLED` | `crates/identity/src/security_wizard.rs:116` |
 | `OTERYN_SHOP_ENABLED` | `crates/store/src/navigation.rs:6`, `crates/store/src/web.rs:162` |
 | `OTERYN_SHOP_TEST_PAYMENTS_ENABLED` | `crates/store/src/web_payments.rs:109` |
@@ -260,6 +261,7 @@ OTERYN_PREMIUM_ENABLED
 OTERYN_REFUNDS_ENABLED
 OTERYN_REPORTS_ENABLED
 OTERYN_SEASON_PASS_ENABLED
+OTERYN_SEASON_PASS_WALLET_ENABLED
 OTERYN_SECURITY_WIZARD_ENABLED
 OTERYN_SHOP_ENABLED
 OTERYN_SHOP_TEST_PAYMENTS_ENABLED
@@ -480,6 +482,7 @@ The full-shell harness enables every literal `*_ENABLED` switch discovered in cr
 | `OTERYN_REFUNDS_ENABLED` | `true` |
 | `OTERYN_REPORTS_ENABLED` | `true` |
 | `OTERYN_SEASON_PASS_ENABLED` | `true` |
+| `OTERYN_SEASON_PASS_WALLET_ENABLED` | `true` |
 | `OTERYN_SECURITY_WIZARD_ENABLED` | `true` |
 | `OTERYN_SHOP_ENABLED` | `true` |
 | `OTERYN_SHOP_TEST_PAYMENTS_ENABLED` | `true` |

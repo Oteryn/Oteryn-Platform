@@ -131,14 +131,17 @@ pub fn router<A: Authority + 'static, P: Payment + 'static, R: Rewards + 'static
         .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(Arc::new(passes))
 }
-/// No environment setting can enable missing source or cosmetic authority.
-/// Adapters remain unavailable until their owning contracts/APIs are supplied.
+/// Only the Platform account and Wallet adapters are activated in testing.
 pub fn configured_router(pool: PgPool) -> Router {
+    let enabled = std::env::var("OTERYN_SEASON_PASS_ENABLED").as_deref() == Ok("true");
+    let testing = std::env::var("OTERYN_ENV").as_deref() == Ok("testing");
     let flags = Flags {
-        enabled: std::env::var("OTERYN_SEASON_PASS_ENABLED").as_deref() == Ok("true"),
-        ..Flags::default()
+        enabled,
+        paid: enabled
+            && testing
+            && std::env::var("OTERYN_SEASON_PASS_WALLET_ENABLED").as_deref() == Ok("true"),
+        rewards: false,
     };
-    let passes = Passes::new(pool.clone(), flags, Unavailable, Unavailable, Unavailable);
     let csrf = CsrfConfig {
         trusted_origins: std::env::var("OTERYN_PUBLIC_ORIGIN")
             .ok()
@@ -146,7 +149,20 @@ pub fn configured_router(pool: PgPool) -> Router {
             .collect(),
         ..CsrfConfig::default()
     };
-    router(pool, passes, flags, csrf)
+    if testing {
+        let payment = platform::payment(pool.clone(), flags.paid);
+        let passes = Passes::new(
+            pool.clone(),
+            flags,
+            platform::AccountAuthority,
+            payment,
+            Unavailable,
+        );
+        router(pool, passes, flags, csrf)
+    } else {
+        let passes = Passes::new(pool.clone(), flags, Unavailable, Unavailable, Unavailable);
+        router(pool, passes, flags, csrf)
+    }
 }
 async fn response_policy(
     request: axum::extract::Request,

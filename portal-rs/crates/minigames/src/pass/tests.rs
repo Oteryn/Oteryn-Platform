@@ -361,17 +361,27 @@ async fn postgres_claim_eligibility_replay_and_atomic_wire_failure() -> TestResu
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(count, 0);
+    let competing_op = Uuid::now_v7();
     let (a, b) = tokio::join!(
         service.claim(db.account, db.season.id, reward, op),
-        service.claim(db.account, db.season.id, reward, op)
+        service.claim(db.account, db.season.id, reward, competing_op)
     );
-    assert_eq!(a?, b?);
-    assert!(matches!(
+    let claimed = match (a, b) {
+        (Ok(claim), Err(Error::Conflict)) | (Err(Error::Conflict), Ok(claim)) => claim,
+        result => {
+            return Err(format!("expected one claim and one conflict, got {result:?}").into());
+        }
+    };
+    assert_eq!(
         service
-            .claim(db.account, db.season.id, reward, Uuid::now_v7())
-            .await,
-        Err(Error::Conflict)
-    ));
+            .claim(db.account, db.season.id, reward, claimed.operation)
+            .await?,
+        claimed
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM synthetic_deliveries")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
     service.record(&db.event(1)).await?;
     assert!(matches!(
         service
@@ -841,4 +851,87 @@ async fn postgres_expired_season_reconciles_receipts() -> TestResult {
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn postgres_platform_purchase_reconciles_and_refuses_changed_account() -> TestResult {
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let service = Passes::new(
+        db.pool.clone(),
+        Flags {
+            enabled: true,
+            paid: true,
+            rewards: false,
+        },
+        platform::AccountAuthority,
+        platform::payment(db.pool.clone(), true),
+        Unavailable,
+    );
+    assert!(matches!(
+        service.record(&db.event(0)).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(service.overview(db.account).await?.progress.xp, 0);
+    let operation = Uuid::now_v7();
+    assert!(matches!(
+        service.buy(db.account, db.season.id, Uuid::nil()).await,
+        Err(Error::Invalid)
+    ));
+    assert!(matches!(
+        service.buy(db.account, db.season.id, operation).await,
+        Err(Error::Denied)
+    ));
+    let ledger = oteryn_wallet::Ledger::new(
+        db.pool.clone(),
+        oteryn_wallet::WalletFlags { enabled: true },
+        WalletAuthority,
+        WalletAuthority,
+        WalletAuthority,
+    );
+    ledger
+        .adjust(Uuid::now_v7(), db.account, 100, db.account, "Test funding")
+        .await?;
+    let (first, retry) = tokio::join!(
+        service.buy(db.account, db.season.id, operation),
+        service.buy(db.account, db.season.id, operation)
+    );
+    assert!(first?.paid);
+    assert!(retry?.paid);
+
+    let other = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'other-pass@example.invalid','unused','active',now(),'en')")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        service.buy(other, db.season.id, operation).await,
+        Err(Error::Conflict)
+    ));
+    assert!(!service.progress(other, db.season.id).await?.paid);
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(other)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(service.overview(other).await, Err(Error::Denied)));
+    let deltas: Vec<i64> = sqlx::query_scalar(
+        "SELECT available_delta FROM wallet_entries WHERE account_id=$1 ORDER BY available_delta",
+    )
+    .bind(db.account)
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(deltas, [-100, 100]);
+    assert_eq!(
+        ledger.balance(db.account).await?.available,
+        deltas.iter().sum::<i64>()
+    );
+    let audited: (i64, i64) = sqlx::query_as(
+        "SELECT (before->>'available')::bigint,(after->>'available')::bigint FROM audit_log WHERE action='pass.purchase.debited' AND request_id=$1",
+    )
+    .bind(operation)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(audited, (100, 0));
+    db.close().await
 }

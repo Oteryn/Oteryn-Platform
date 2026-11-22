@@ -1,5 +1,6 @@
 //! Season passes use verified journal/portal facts and cosmetic entitlements only.
 //! Definitions are immutable; browser requests cannot submit progress or prices.
+mod platform;
 mod repository;
 pub mod web;
 pub use repository::Passes;
