@@ -208,6 +208,22 @@
         "status"
       ],
       "submits": [
+        {
+          "name": "status",
+          "value": "draft"
+        },
+        {
+          "name": "status",
+          "value": "scheduled"
+        },
+        {
+          "name": "status",
+          "value": "published"
+        },
+        {
+          "name": "status",
+          "value": "archived"
+        },
         {}
       ]
     },
@@ -1178,6 +1194,14 @@
         "publish_snapshot"
       ],
       "submits": [
+        {
+          "name": "kind",
+          "value": "character"
+        },
+        {
+          "name": "kind",
+          "value": "item"
+        },
         {}
       ]
     },
@@ -1572,6 +1596,38 @@
         "{{ field.0 }}"
       ],
       "submits": [
+        {
+          "name": "op",
+          "value": "challenge"
+        },
+        {
+          "name": "op",
+          "value": "accept"
+        },
+        {
+          "name": "op",
+          "value": "decline"
+        },
+        {
+          "name": "op",
+          "value": "play"
+        },
+        {
+          "name": "op",
+          "value": "create"
+        },
+        {
+          "name": "op",
+          "value": "join"
+        },
+        {
+          "name": "op",
+          "value": "start"
+        },
+        {
+          "name": "op",
+          "value": "buy"
+        },
         {}
       ]
     },
@@ -1818,6 +1874,26 @@
         "status"
       ],
       "submits": [
+        {
+          "name": "status",
+          "value": "open"
+        },
+        {
+          "name": "status",
+          "value": "waiting_user"
+        },
+        {
+          "name": "status",
+          "value": "waiting_staff"
+        },
+        {
+          "name": "status",
+          "value": "resolved"
+        },
+        {
+          "name": "status",
+          "value": "closed"
+        },
         {}
       ]
     },
@@ -1864,6 +1940,14 @@
         "note"
       ],
       "submits": [
+        {
+          "name": "kind",
+          "value": "coins"
+        },
+        {
+          "name": "kind",
+          "value": "premium_days"
+        },
         {}
       ]
     }

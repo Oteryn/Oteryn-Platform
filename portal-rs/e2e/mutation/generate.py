@@ -9,12 +9,13 @@ OUTPUT = Path(__file__).with_name("forms.json")
 WRITE = re.compile(r"(?:(?<![\w:])|(?<=routing::))(post|put|patch|delete)\s*\(\s*([\w:]+|\|)")
 ROUTE = re.compile(r"\.route\(\s*")
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[(),]')
-TAG = re.compile(r"<(form|input|button|select|textarea)\b((?:\{\{.*?\}\}|\{%.*?%\}|\"[^\"]*\"|'[^']*'|[^>])*?)>", re.I | re.S)
+TAG = re.compile(r"<(form|input|button|select|option|textarea)\b((?:\{\{.*?\}\}|\{%.*?%\}|\"[^\"]*\"|'[^']*'|[^>])*?)>", re.I | re.S)
 ATTRIBUTE = re.compile(
     r"""([\w:-]+)\s*=\s*(?:"((?:\{%.*?%\}|\{\{.*?\}\}|[^"])*)"|'([^']*)'|([^\s>]+))""",
     re.S,
 )
 FORM = re.compile(r"<form\b.*?</form\s*>", re.I | re.S)
+ACTION_FIELDS = {"action", "decision", "kind", "op", "operation", "status"}
 INLINE_METHOD = re.compile(r"MethodFilter::(POST|PUT|PATCH|DELETE)\b")
 CONSTANT = re.compile(r'\bconst (\w+)\s*:\s*&str\s*=\s*"([^"]+)"')
 
@@ -77,6 +78,13 @@ def bindings(path, source, all_sources):
     if path == "crates/admin/src/bazaar.rs":
         panel = source.split("let forms = vec![", 1)[1].split("\n    ];", 1)[0]
         return {"{{ form.action }}": re.findall(r'\bform\(\s*"([^"]+)"', panel)}
+    if path == "crates/support/src/tickets/page.html":
+        domain = all_sources["crates/support/src/tickets/mod.rs"]
+        statuses = domain.split("pub const STATUSES:", 1)[1].split("];", 1)[0]
+        return {"{{ option.value }}": re.findall(r'"([^"]+)"', statuses)}
+    if path == "crates/minigames/src/collection_pvp/http.rs":
+        operations = source.split("let options = [", 1)[1].split("]", 1)[0]
+        return {"{{ option.0 }}": re.findall(r'"([^"]+)"', operations)}
     if path == "crates/admin/src/support_web.rs":
         panel = source.split("let actions:", 1)[1].split("for (action, fields)", 1)[0]
         return {"{action}": re.findall(r'\(\s*"([^"]+)",\s*&\[', panel)}
@@ -107,9 +115,17 @@ def forms(path, source, all_sources):
                 if field.get("type") in {"button", "reset"}:
                     continue
                 submits.append({key: field[key] for key in ("name", "value", "formaction") if key in field})
-            elif name in {"action", "operation", "decision", "kind"} and field.get("type") == "hidden":
+            elif name in ACTION_FIELDS and field.get("type") in {"hidden", "radio"}:
                 value = field.get("value", "")
                 submits.extend({"name": name, "value": choice} for choice in dynamic.get(value, [value]))
+            elif name in ACTION_FIELDS and tag[1].lower() == "select":
+                options = form[0][tag.end():].split("</select", 1)[0]
+                for option in TAG.finditer(options):
+                    if option[1].lower() != "option":
+                        continue
+                    value = attributes(option[2]).get("value")
+                    if value is not None:
+                        submits.extend({"name": name, "value": choice} for choice in dynamic.get(value, [value]))
         action_variants = []
         if "{% if" in target:
             conditional = re.search(r"{% if .*? %}(.*?)(?:{% else %}(.*?))?{% endif %}", target)
