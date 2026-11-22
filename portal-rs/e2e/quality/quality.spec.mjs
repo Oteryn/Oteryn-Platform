@@ -87,10 +87,11 @@ async function actorState(browser, info, actor) {
   }
 }
 
-function addLinks(inventory, links, origin) {
+function addLinks(inventory, links, source) {
   for (const link of links) {
     const url = new URL(link);
-    if (url.origin !== origin || url.hash || url.pathname.startsWith('/language/')) continue;
+    if (url.origin !== source.origin || url.pathname.startsWith('/language/')) continue;
+    if (url.pathname === source.pathname && url.search === source.search) continue;
     // Prefer the literal registration over a parameterized registration.
     const exact = inventory.find(row => row.pattern === url.pathname);
     const row = exact ?? inventory.find(row => matches(row.pattern, url.pathname));
@@ -99,7 +100,9 @@ function addLinks(inventory, links, origin) {
       if (!row.paths.includes(target) && row.paths.length < maxSamples) row.paths.push(target);
     } else {
       // Constant-based routes and composed routers can be absent from the source scan.
-      inventory.push({ pattern: url.pathname, paths: [url.pathname + url.search], documentedStatuses: [] });
+      const pattern = url.pathname.replace(/^\/(?:pl|en)(?=\/|$)/, '/{lang}')
+        .replace(/(?<=\/)[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}(?=\/|$)/gi, '{id}');
+      inventory.push({ pattern, paths: [url.pathname + url.search], documentedStatuses: [] });
     }
   }
 }
@@ -202,7 +205,7 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
       ...[...document.querySelectorAll('a[href]:not([hreflang],[download])')].map(anchor => anchor.href),
       ...[...document.forms].filter(form => form.method === 'get').map(form => form.action),
     ]);
-    addLinks(inventory, links, origin);
+    addLinks(inventory, links, url);
     await assertKeyboard(page, label);
     const resources = await transfers();
     const totals = assertBudgets(measurement, resources, label);
