@@ -1168,7 +1168,11 @@
       "source": "crates/admin/src/support_web.rs:348",
       "ordinal": 1,
       "action": "{}/{}",
-      "actionVariants": [],
+      "actionVariants": [
+        "/admin/support/tickets/{id}",
+        "/admin/moderation/reports/{id}",
+        "/admin/moderation/enforcement/{id}"
+      ],
       "fields": [
         "_csrf",
         "lock_version",

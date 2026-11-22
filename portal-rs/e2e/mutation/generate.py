@@ -94,7 +94,11 @@ def bindings(path, source, all_sources):
         return {"{{ option.0 }}": re.findall(r'"([^"]+)"', operations)}
     if path == "crates/admin/src/support_web.rs":
         panel = source.split("let actions:", 1)[1].split("for (action, fields)", 1)[0]
-        return {"{action}": re.findall(r'\(\s*"([^"]+)",\s*&\[', panel)}
+        areas = source.split("fn base(area: Area)", 1)[1].split("fn area_routes", 1)[0]
+        return {
+            "{action}": re.findall(r'\(\s*"([^"]+)",\s*&\[', panel),
+            "{}/{}": [f"{base}/{{id}}" for base in re.findall(r'Area::\w+ => "([^"]+)"', areas)],
+        }
     if path == "crates/content/src/news.rs":
         action = source.split("let action = id.map_or_else(", 1)[1].split(");", 1)[0]
         return {"{action}": re.findall(r'"(/admin/news[^"]*)"', action)}
