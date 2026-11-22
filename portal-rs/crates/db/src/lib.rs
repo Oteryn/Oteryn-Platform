@@ -15,6 +15,38 @@ pub fn lazy_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
         .connect_lazy(database_url)
 }
 
+/// Run database work within one acquisition and execution deadline, then
+/// finish returning or closing the connection before releasing the caller's
+/// admission permit. A timed-out connection is discarded rather than reused.
+pub async fn with_connection_deadline<T, E>(
+    pool: &PgPool,
+    budget: std::time::Duration,
+    work: impl AsyncFnOnce(&mut sqlx::PgConnection) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<sqlx::Error>,
+{
+    use tokio::time::{Instant, timeout, timeout_at};
+    let deadline = Instant::now() + budget;
+    let mut connection = timeout_at(deadline, pool.acquire())
+        .await
+        .map_err(|_| sqlx::Error::PoolTimedOut)??;
+    let outcome = timeout_at(deadline, work(&mut connection)).await;
+    let cleanup = std::time::Duration::from_millis(250);
+    match outcome {
+        Ok(result) => {
+            // SQLx checks the connection and flushes any queued rollback.
+            // Dropping this future on a network stall discards the socket.
+            let _ = timeout(cleanup, connection.return_to_pool()).await;
+            result
+        }
+        Err(_) => {
+            let _ = timeout(cleanup, connection.close()).await;
+            Err(sqlx::Error::PoolTimedOut.into())
+        }
+    }
+}
+
 /// Applies pending migrations.
 pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     MIGRATOR.run(pool).await

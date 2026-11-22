@@ -195,15 +195,8 @@ async fn page<A: Authority>(
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
     if let Some(ClientSource(ip)) = source {
         let keys = [Keys::source(ip)];
-        match tokio::time::timeout(
-            Duration::from_secs(1),
-            limiter.check(NamedPolicy::PublicGameData, &keys),
-        )
-        .await
-        {
-            Ok(Ok(())) => {}
-            Ok(Err(denial)) => return Page::new(&lang, None).response(denial.status()),
-            Err(_) => return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
+        if let Err(denial) = limiter.check(NamedPolicy::PublicGameData, &keys).await {
+            return Page::new(&lang, None).response(denial.status());
         }
     }
 

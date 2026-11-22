@@ -286,7 +286,7 @@ pub async fn check(
     for hash in hashes {
         // One atomic upsert using the database clock across all processes.
         // Saturate refusals to prevent overflow under sustained abuse.
-        let (count, delay) = sqlx::query_as::<_, (i64, i64)>(
+        let query = sqlx::query_as::<_, (i64, i64)>(
             "WITH clock AS MATERIALIZED (SELECT statement_timestamp() AS now), \
              bucket AS (SELECT to_timestamp((floor(extract(epoch FROM now) / $3::bigint) * $3::bigint)::double precision) AS start, \
              greatest(1, ceil($3::bigint - mod(extract(epoch FROM now), $3::bigint)))::bigint AS retry FROM clock), \
@@ -295,7 +295,16 @@ pub async fn check(
              ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE \
              SET count = least(web_rate_limits.count + 1, $4 + 1) RETURNING count) \
              SELECT count, retry FROM charged CROSS JOIN bucket"
-        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit()).fetch_one(&limiter.pool).await.map_err(|_| limiter.unavailable(policy))?;
+        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit());
+        let (count, delay) = if policy == NamedPolicy::PublicGameData {
+            crate::bounded_browser_query(&limiter.pool, async |connection| {
+                query.fetch_one(connection).await
+            })
+            .await
+        } else {
+            query.fetch_one(&limiter.pool).await
+        }
+        .map_err(|_| limiter.unavailable(policy))?;
         if count > policy.limit() {
             retry = retry.max(delay);
         }

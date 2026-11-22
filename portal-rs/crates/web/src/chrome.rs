@@ -19,7 +19,19 @@ pub struct Shell {
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::Language::for_request(&request).code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let account = match crate::session::chrome_account(&shell.sessions, &mut request).await {
+        Ok(account) => account,
+        Err(_)
+            if request
+                .extensions()
+                .get::<crate::BoundedBrowserRead>()
+                .is_some() =>
+        {
+            use axum::response::IntoResponse;
+            return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+        Err(_) => oteryn_ui::Account::Anonymous,
+    };
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")

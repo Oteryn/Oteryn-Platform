@@ -18,6 +18,33 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+/// Opts a public browser read into the bounded presentation session lookup.
+#[derive(Clone, Copy, Debug)]
+pub struct BoundedBrowserRead;
+
+async fn bounded_browser_query<T>(
+    pool: &PgPool,
+    query: impl AsyncFnOnce(&mut sqlx::PgConnection) -> Result<T, sqlx::Error>,
+) -> Result<T, sqlx::Error> {
+    use sqlx::Connection;
+    oteryn_db::with_connection_deadline(
+        pool,
+        std::time::Duration::from_secs(1),
+        async |connection| {
+            let mut tx = connection.begin().await?;
+            sqlx::raw_sql(
+                "SET LOCAL lock_timeout = '400ms'; SET LOCAL statement_timeout = '750ms'",
+            )
+            .execute(&mut *tx)
+            .await?;
+            let result = query(&mut tx).await?;
+            tx.commit().await?;
+            Ok(result)
+        },
+    )
+    .await
+}
+
 /// Largest request body accepted by the public surface.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 

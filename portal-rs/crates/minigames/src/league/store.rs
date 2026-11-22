@@ -202,18 +202,24 @@ impl<A: Authority> League<A> {
         &self,
         clock: impl FnOnce() -> Result<u64>,
     ) -> Result<Vec<Snapshot>> {
-        tokio::time::timeout(std::time::Duration::from_secs(3), self.read_inner(clock))
-            .await
-            .map_err(|_| Error::Unavailable)?
-    }
-    async fn read_inner(&self, clock: impl FnOnce() -> Result<u64>) -> Result<Vec<Snapshot>> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
-        // The read deadline bounds pool admission. Give readers time for a
-        // short publication while shedding a stuck fence before all pooled
-        // readers consume their request budget.
-        let mut tx = self.pool.begin().await?;
+        oteryn_db::with_connection_deadline(
+            &self.pool,
+            std::time::Duration::from_secs(3),
+            async |connection| self.read_inner(connection, clock).await,
+        )
+        .await
+    }
+    async fn read_inner(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        clock: impl FnOnce() -> Result<u64>,
+    ) -> Result<Vec<Snapshot>> {
+        use sqlx::Connection;
+        // A short publication can finish without exhausting the read budget.
+        let mut tx = connection.begin().await?;
         sqlx::raw_sql("SET LOCAL lock_timeout = '400ms'; SET LOCAL statement_timeout = '2s'")
             .execute(&mut *tx)
             .await?;

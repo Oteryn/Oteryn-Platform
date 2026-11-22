@@ -504,14 +504,14 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
-) -> oteryn_ui::Account {
+) -> Result<oteryn_ui::Account, sqlx::Error> {
     let config = request
         .extensions()
         .get::<SessionConfig>()
         .copied()
         .unwrap_or(layer.config);
     if config.validate().is_err() {
-        return oteryn_ui::Account::Anonymous;
+        return Ok(oteryn_ui::Account::Anonymous);
     }
     let mut identifiers = request
         .headers()
@@ -523,18 +523,30 @@ pub(crate) async fn chrome_account(
         .filter(|(name, _)| *name == COOKIE_NAME)
         .map(|(_, value)| value);
     let Some(id) = identifiers.next().filter(|id| valid_id(id)) else {
-        return oteryn_ui::Account::Anonymous;
+        return Ok(oteryn_ui::Account::Anonymous);
     };
     if identifiers.next().is_some() {
-        return oteryn_ui::Account::Anonymous;
+        return Ok(oteryn_ui::Account::Anonymous);
     }
-    let row: Result<Option<(String, Option<Uuid>)>, _> = sqlx::query_as(
+    let query = sqlx::query_as::<_, (String, Option<Uuid>)>(
         "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(id)).fetch_optional(&layer.pool).await;
-    match row {
-        Ok(Some((csrf, Some(_)))) => oteryn_ui::Account::SignedIn { csrf },
+        .bind(hash(id));
+    let row = if request
+        .extensions()
+        .get::<crate::BoundedBrowserRead>()
+        .is_some()
+    {
+        crate::bounded_browser_query(&layer.pool, async |connection| {
+            query.fetch_optional(connection).await
+        })
+        .await?
+    } else {
+        query.fetch_optional(&layer.pool).await?
+    };
+    Ok(match row {
+        Some((csrf, Some(_))) => oteryn_ui::Account::SignedIn { csrf },
         _ => oteryn_ui::Account::Anonymous,
-    }
+    })
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.

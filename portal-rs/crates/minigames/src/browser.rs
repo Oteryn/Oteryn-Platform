@@ -17,7 +17,7 @@ pub(crate) const LEAGUE_READ_SLOTS: usize = 4;
 pub(crate) struct LandingSlots {
     collection: Semaphore,
     puzzles: Semaphore,
-    league: Semaphore,
+    league: Arc<Semaphore>,
 }
 
 impl LandingSlots {
@@ -25,7 +25,7 @@ impl LandingSlots {
         Self {
             collection: Semaphore::new(2),
             puzzles: Semaphore::new(2),
-            league: Semaphore::new(LEAGUE_READ_SLOTS),
+            league: Arc::new(Semaphore::new(LEAGUE_READ_SLOTS)),
         }
     }
 
@@ -66,7 +66,7 @@ pub(crate) async fn deadline(req: Request, next: Next) -> Response {
 
 pub(crate) async fn operation_deadline(
     State(read_slots): State<Arc<LandingSlots>>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     let mut segments = req.uri().path().split('/').skip(1);
@@ -77,6 +77,25 @@ pub(crate) async fn operation_deadline(
         && segments.next().is_none()
         && let Some(slots) = read_slots.for_module(module)
     {
+        if module == Some("league") {
+            let deadline = tokio::time::Instant::now() + OPERATION_TIMEOUT;
+            let Ok(Ok(slot)) =
+                tokio::time::timeout_at(deadline, read_slots.league.clone().acquire_owned()).await
+            else {
+                return unavailable();
+            };
+            req.extensions_mut().insert(oteryn_web::BoundedBrowserRead);
+            // The response deadline and client disconnects must not release
+            // admission while the bounded queries are returning connections.
+            let work = tokio::spawn(async move {
+                let _slot = slot;
+                next.run(req).await
+            });
+            return match tokio::time::timeout_at(deadline, work).await {
+                Ok(Ok(response)) => response,
+                _ => unavailable(),
+            };
+        }
         // Queue landing pages before session refresh and rate-limit writes can
         // occupy pooled connections. Charge the wait to the existing deadline.
         return tokio::time::timeout(OPERATION_TIMEOUT, async {
