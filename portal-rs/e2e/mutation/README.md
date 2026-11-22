@@ -51,6 +51,14 @@ role as non-owners, requires localized validation for invalid inputs, and
 reads the stored profile after each form submission. Profile saves advance
 the privacy revision, so the replay criterion is inapplicable.
 
+The journal report page returns 503 because its production `DenySource`
+adapter supplies no accepted Game journal authority. The matrix checks the
+absent weekly form and the valid-session note submission's 404 with no row.
+The email preference route still exposes its account-local write. The matrix
+checks CSRF and anonymous refusal, localized input errors, the persisted opt-in
+and opt-out, and replay of the same opt-in. The unavailable report page prevents
+a browser-form success for either journal row.
+
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 
 For the owner and staff ticket status PUT aliases, Playwright forwards the real form request using PUT and the server handles the request. The report scenario observes the real per-account submission budget before submitting further invalid inputs.

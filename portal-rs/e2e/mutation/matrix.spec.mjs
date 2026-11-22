@@ -775,3 +775,62 @@ test('unwired hunt sharing, shop purchasing and bearer-only watches expose their
     expect(await query('SELECT account_id FROM stats_watches WHERE account_id=$1', [player.id])).toEqual([]);
   }
 });
+
+test('journal write boundary refuses notes without source authority and isolates email preferences', async ({ page, browser }, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const anonymous = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  try {
+    const actor = await seededPlayer(page, lang);
+    const report = `/${lang}/account/journal/reports`;
+    const unavailable = await page.goto(report);
+    expect(unavailable.status()).toBe(503);
+    expect(unavailable.headers()['cache-control']).toContain('no-store');
+    await expect(page.locator(formSelector)).toHaveCount(0);
+    await page.goto(`/${lang}/account/privacy`);
+    const ready = await prepare(page, formSelector);
+    const fields = { _csrf: ready.fields._csrf };
+    const note = new URL(`${report}/notes?kind=character&id=${uuid7()}`, ready.url).href;
+    const notes = () => query('SELECT target_id FROM pd_report_notes WHERE account_id=$1', [actor.id]);
+    const baseline = await notes();
+    expect(baseline).toEqual([]);
+    const payload = { ...fields, body: 'Matrix note on an unavailable journal source' };
+    await rejected({ page, url: note, fields: payload, snapshot: notes, baseline });
+    const denied = await sendForm(page, note, payload);
+    expect(denied.status()).toBe(404);
+    expect(denied.headers()['cache-control']).toContain('no-store');
+    expect(await notes()).toEqual(baseline);
+
+    const email = new URL(`${report}/email`, ready.url).href;
+    const snapshot = () => query('SELECT email_enabled FROM pd_report_preferences WHERE account_id=$1', [actor.id]);
+    const preferences = await snapshot();
+    expect(preferences).toEqual([]);
+    const optIn = { ...fields, enabled: 'true' };
+    await rejected({ page, url: email, fields: optIn, snapshot, baseline: preferences });
+    await wrongActor({
+      page: await anonymous.newPage(), lang, url: email, fields: optIn, status: 403, snapshot, baseline: preferences,
+    });
+    await invalid({
+      page, url: email, fields: optIn, snapshot, baseline: preferences,
+      message: lang === 'pl'
+        ? 'Sprawdź ustawienie wiadomości e-mail i spróbuj ponownie.'
+        : 'Check your email preference and try again.',
+      samples: [
+        { name: 'empty checkbox', patch: { enabled: '' } },
+        { name: 'overlong checkbox', patch: { enabled: 'true'.repeat(512) } },
+        { name: 'wrong checkbox type', patch: { enabled: 'abc' } },
+        { name: 'numeric flag outside the checkbox contract', patch: { enabled: '2' } },
+      ],
+    });
+    expect((await sendForm(page, email, optIn)).status()).toBe(204);
+    expect(await snapshot()).toEqual([{ email_enabled: true }]);
+    expect((await sendForm(page, email, optIn)).status()).toBe(204);
+    expect(await snapshot()).toEqual([{ email_enabled: true }]);
+    expect((await sendForm(page, email, fields)).status()).toBe(204);
+    expect(await snapshot()).toEqual([{ email_enabled: false }]);
+  } finally {
+    await anonymous.close();
+  }
+});
