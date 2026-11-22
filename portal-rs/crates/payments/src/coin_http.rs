@@ -253,6 +253,7 @@ async fn act(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    headers: HeaderMap,
     Form(decision): Form<Decision>,
 ) -> Response {
     let Some(account) = session.account_id().await else {
@@ -264,12 +265,30 @@ async fn act(
     let paid = match decision.action.as_str() {
         "pay" => true,
         "fail" => false,
-        _ => return StatusCode::BAD_REQUEST.into_response(),
+        _ => return invalid_checkout_action(&headers),
     };
     match service.sandbox_complete(account, order, paid).await {
         Ok(_) => Redirect::to(&format!("{CHECKOUT_PATH}{order}")).into_response(),
         Err(error) => refusal(error),
     }
+}
+
+fn invalid_checkout_action(headers: &HeaderMap) -> Response {
+    let language = if headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("pl"))
+    {
+        oteryn_web::Language::Pl
+    } else {
+        oteryn_web::Language::En
+    };
+    (
+        StatusCode::BAD_REQUEST,
+        [(header::CONTENT_LANGUAGE, language.code())],
+        language.text("error-400-description"),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -289,5 +308,22 @@ mod tests {
         .response();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
+    }
+
+    #[tokio::test]
+    async fn invalid_checkout_action_has_localized_feedback() -> Result<(), axum::Error> {
+        for (lang, message) in [
+            ("en", "Check the request and try again."),
+            ("pl", "Sprawdź żądanie i spróbuj ponownie."),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static(lang));
+            let response = invalid_checkout_action(&headers);
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = to_bytes(response.into_body(), 256).await?;
+            assert_eq!(&body[..], message.as_bytes());
+        }
+        Ok(())
     }
 }
