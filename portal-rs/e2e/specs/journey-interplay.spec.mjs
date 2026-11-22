@@ -53,7 +53,7 @@ test('two players trade, report harassment, appeal through support and face staf
       expect((await buyer.page.request.get('/admin/console/audit')).status()).toBe(403);
       expect((await support.page.request.get('/admin/moderation/enforcement')).status()).toBe(403);
       const anonymousReport = await request.get(local('support/reports'), { maxRedirects: 0 });
-      expect(anonymousReport.status()).toBe(302);
+      expect(anonymousReport.status()).toBe(303);
       expect(anonymousReport.headers().location).toBe(local('login'));
       const anonymousWallet = await request.get(local('shop/history'), { maxRedirects: 0 });
       expect(anonymousWallet.status()).toBe(303);
