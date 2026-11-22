@@ -111,6 +111,7 @@ test('expired sessions are retried with database backoff and drained under SIGTE
     expect(Boolean(session)).toBe(true);
     const expiredRows = () => query("SELECT 1 FROM web_sessions WHERE id_hash=decode($1,'hex')", [session.digest]);
 
+    await jobs.parkRecurring('cleanup.sessions', 3600);
     const id = await enqueue('cleanup.sessions');
     const locker = await jobs.db.connect();
     try {
@@ -120,15 +121,14 @@ test('expired sessions are retried with database backoff and drained under SIGTE
       await worker.ready;
       await waitForJob(id, 'running', 1);
       const blocked = await blockedBy(locker, [worker], 'DELETE FROM web_sessions');
-      for (const { pid } of blocked) {
-        expect(await query('SELECT pg_terminate_backend($1, 1000) AS killed', [pid])).toEqual([{ killed: true }]);
-      }
+      expect(blocked).toHaveLength(1);
+      expect(await query('SELECT pg_terminate_backend($1, 1000) AS killed', [blocked[0].pid])).toEqual([{ killed: true }]);
       const { backoff } = await waitForJob(id, 'pending', 1);
       expect(backoff).toBeGreaterThanOrEqual(1);
       expect(backoff).toBeLessThanOrEqual(2);
 
       await waitForJob(id, 'running', 2);
-      await blockedBy(locker, [worker], 'DELETE FROM web_sessions');
+      expect(await blockedBy(locker, [worker], 'DELETE FROM web_sessions')).toHaveLength(1);
       // SIGTERM is sent only after this attempt is observed inside PostgreSQL.
       expect(worker.child.kill('SIGTERM')).toBe(true);
       await locker.query('COMMIT');

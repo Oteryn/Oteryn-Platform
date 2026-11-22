@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { SMTPServer } from 'smtp-server';
 import { submit, login } from '../helpers.mjs';
 import { seededPlayer } from '../outbox-helpers.mjs';
-import { enqueue, expect, query, test, waitForJob } from './worker.mjs';
+import { enqueue, expect, query, status, test, waitForJob } from './worker.mjs';
 
 function catcher(env, accept) {
   return new SMTPServer({
@@ -88,6 +88,7 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
   const port = await listen(down, 0);
   await close(down);
   const smtp = { OTERYN_SMTP_PORT: String(port) };
+  await jobs.parkRecurring('identity.email-change', 60);
   const id = await enqueue('identity.email-change');
   const failed = jobs.start(smtp);
   await failed.ready;
@@ -104,7 +105,8 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
   )).toEqual(Array.from({ length: 2 }, () => ({ delivery_attempts: 1, unsent: true, backed_off: true })));
 
   const accepted = [];
-  let releaseConfirm;
+  let heldMail;
+  let releaseMail;
   const up = catcher(jobs.env, (message, callback) => {
     const body = message.raw.replace(/=\r?\n/g, '');
     // Recovery-key enrollment also enqueues a security notification.
@@ -116,8 +118,12 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
       accepted.push(message);
       callback();
     };
-    if (message.to.includes(nextEmail) && !releaseConfirm) releaseConfirm = accept;
-    else accept();
+    if (heldMail) {
+      accept();
+    } else {
+      heldMail = message;
+      releaseMail = accept;
+    }
   });
   await listen(up, port);
   try {
@@ -128,23 +134,46 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
       [change.id],
     ))[0].due, { timeout: 40_000 }).toBe(2);
     const retry = await enqueue('identity.email-change');
+    const first = jobs.start(smtp);
+    await first.ready;
+    await expect.poll(() => Boolean(releaseMail)).toBe(true);
+    expect(heldMail.to).toHaveLength(1);
+    const [heldRecipient] = heldMail.to;
+    const recipients = [account.email, nextEmail].sort();
+    expect(recipients).toContain(heldRecipient);
+    expect(accepted).toHaveLength(0);
+    expect(await status(retry)).toMatchObject({ state: 'running', attempts: 1, released: false });
+
+    // The first batch is already in SMTP DATA. Only the second process can
+    // complete a new sweep while that batch still holds the first message.
     const overlap = await enqueue('identity.email-change');
-    const workers = [jobs.start(smtp), jobs.start(smtp)];
-    await Promise.all(workers.map(worker => worker.ready));
-    await expect.poll(() => Boolean(releaseConfirm)).toBe(true);
+    const second = jobs.start(smtp);
+    await second.ready;
+    await waitForJob(overlap, 'done', 1);
+    expect(accepted.flatMap(message => message.to)).toEqual(recipients.filter(recipient => recipient !== heldRecipient));
+    expect(await query(
+      `SELECT recipient, delivered_at IS NOT NULL AS delivered, delivery_attempts
+       FROM account_email_change_mail WHERE change_id=$1 AND id<>$2 ORDER BY recipient`,
+      [change.id, poison.id],
+    )).toEqual(recipients.map(recipient => ({
+      recipient, delivered: recipient !== heldRecipient, delivery_attempts: 1,
+    })));
+    expect(await status(retry)).toMatchObject({ state: 'running', attempts: 1, released: false });
+
+    const workers = [first, second];
     for (const worker of workers) expect(worker.child.kill('SIGTERM')).toBe(true);
-    releaseConfirm();
-    releaseConfirm = undefined;
+    releaseMail();
+    releaseMail = undefined;
     for (const worker of workers) expect(await worker.exited).toEqual([0, null]);
     await waitForJob(retry, 'done', 1);
     await waitForJob(overlap, 'done', 1);
-    expect(accepted.flatMap(message => message.to).sort()).toEqual([account.email, nextEmail].sort());
+    expect(accepted.flatMap(message => message.to).sort()).toEqual(recipients);
     expect(await query(
       `SELECT recipient, delivered_at IS NOT NULL AS delivered, body='' AS erased, delivery_attempts,
               delivered_at BETWEEN next_attempt_at AND updated_at AS delivered_after_backoff
        FROM account_email_change_mail WHERE change_id=$1 AND id<>$2 ORDER BY recipient`,
       [change.id, poison.id],
-    )).toEqual([account.email, nextEmail].sort().map(recipient => ({
+    )).toEqual(recipients.map(recipient => ({
       recipient, delivered: true, erased: true, delivery_attempts: 1, delivered_after_backoff: true,
     })));
     expect(await poisonState()).toEqual([quarantine]);
@@ -170,7 +199,7 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
     expect((await page.goto(`/${lang}/account/sessions`)).status()).toBe(200);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(lang === 'pl' ? 'Sesje web' : 'Web sessions');
   } finally {
-    releaseConfirm?.();
+    releaseMail?.();
     await close(up);
   }
 });
