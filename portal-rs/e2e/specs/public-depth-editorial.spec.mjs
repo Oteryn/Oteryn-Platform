@@ -22,6 +22,7 @@ test('events list links to published localized content and excludes archived eve
       starts_at: new Date(now - 3600_000).toISOString().slice(0, 16),
       ends_at: new Date(now + 86_400_000).toISOString().slice(0, 16),
       featured: true,
+      reason: 'Create public event pagination fixture',
       en_slug: event, pl_slug: event, en_title: title.en, pl_title: title.pl,
       en_summary: 'Festival programme.', pl_summary: 'Program festiwalu.',
       en_body: body.en, pl_body: body.pl,
@@ -30,7 +31,7 @@ test('events list links to published localized content and excludes archived eve
     await visit(page, detail, 404);
     await editor.page.locator(`${status} select[name=status]`).selectOption('published');
     publishedEdit = new URL(editor.page.url()).pathname;
-    await submit(editor.page, status);
+    await submit(editor.page, status, { reason: 'Publish public event pagination fixture' });
     await visit(page, prefix, 200, { lang });
     await expect(page.locator('main h1')).toHaveText(t.events);
     const link = page.locator(`main a[href="${detail}"]`);
@@ -62,7 +63,7 @@ test('events list links to published localized content and excludes archived eve
           editor.page.waitForResponse(response => response.request().isNavigationRequest()
             && response.request().method() === 'POST'
             && new URL(response.url()).pathname.endsWith('/status')),
-          submit(editor.page, status),
+          submit(editor.page, status, { reason: 'Archive public event pagination fixture' }),
         ]);
         expect(archived.status()).toBe(303);
       }
