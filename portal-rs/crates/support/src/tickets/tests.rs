@@ -191,12 +191,12 @@ async fn postgres_staff_metadata_migration_preserves_verified_history() -> TestR
             .await?;
     assert_eq!(row, (Some(assignee), 4));
     for (report, expected) in reports {
-        let row: (Option<Uuid>, i64) =
-            sqlx::query_as("SELECT sanction_id,lock_version FROM player_reports WHERE id=$1")
+        let row: (Option<Uuid>, i64, Option<Uuid>) =
+            sqlx::query_as("SELECT sanction_id,lock_version,verified_target_account_id FROM player_reports WHERE id=$1")
                 .bind(report)
                 .fetch_one(&db.pool)
                 .await?;
-        assert_eq!(row, (expected, 2));
+        assert_eq!(row, (expected, 2, expected.map(|_| owner)));
     }
     let historical_events: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_log

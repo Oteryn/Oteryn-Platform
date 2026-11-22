@@ -43,6 +43,9 @@ pub enum Command {
         #[serde(default, deserialize_with = "form_optional_uuid")]
         assignee: Option<Uuid>,
     },
+    VerifyReportTarget {
+        target: Uuid,
+    },
     LinkSanction {
         sanction: Uuid,
         public_outcome: String,
@@ -108,7 +111,9 @@ impl Command {
             Self::Reply { .. } | Self::TicketStatus { .. } | Self::AssignTicket { .. } => {
                 Area::Tickets
             }
-            Self::Moderate { .. } | Self::LinkSanction { .. } => Area::Reports,
+            Self::Moderate { .. } | Self::VerifyReportTarget { .. } | Self::LinkSanction { .. } => {
+                Area::Reports
+            }
             Self::Sanction { .. }
             | Self::Appeal { .. }
             | Self::ApplySanction { .. }
@@ -138,6 +143,7 @@ impl Command {
     pub fn validate(&self) -> Result<(), Error> {
         let valid = match self {
             Self::AssignTicket { assignee } => assignee.is_none_or(|id| !id.is_nil()),
+            Self::VerifyReportTarget { target } => !target.is_nil(),
             Self::LinkSanction {
                 sanction,
                 public_outcome,
@@ -219,7 +225,9 @@ impl Command {
                 "actioned" | "rejected" => status == "closed",
                 _ => false,
             },
-            Self::LinkSanction { .. } => matches!(current, "submitted" | "reviewing"),
+            Self::VerifyReportTarget { .. } | Self::LinkSanction { .. } => {
+                matches!(current, "submitted" | "reviewing")
+            }
             Self::ApplySanction { .. } | Self::Sanction { create: true, .. } => current == "absent",
             Self::RevokeSanction { .. } => current == "active",
             Self::Sanction { status, .. } if status == "revoked" => current == "active",
@@ -231,6 +239,7 @@ impl Command {
     fn audit_action(&self) -> &'static str {
         match self {
             Self::AssignTicket { .. } => "support.ticket_assigned",
+            Self::VerifyReportTarget { .. } => "support.report_target_verified",
             Self::LinkSanction { .. } => "support.report_sanction_linked",
             Self::ApplySanction { .. } => "support.enforcement_created",
             Self::RevokeSanction { .. } => "support.enforcement_updated",
@@ -280,6 +289,8 @@ impl TicketFilter {
 pub struct Details {
     pub assigned_to: Option<Uuid>,
     pub linked_sanction: Option<Uuid>,
+    pub player_report: bool,
+    pub verified_target: Option<Uuid>,
 }
 
 /// Public display fields only. Private messages are provided solely to this guarded

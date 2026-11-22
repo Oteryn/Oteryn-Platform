@@ -376,6 +376,7 @@ async fn show<A: AccountStateReader, B: Backend>(
         Err(error) => return status(error, lang),
     };
     let can_link = area == Area::Reports
+        && details.verified_target.is_some()
         && matches!(record.status.as_str(), "submitted" | "reviewing")
         && s.auth
             .check(context, Permission::ManageSupportEnforcement)
@@ -458,6 +459,12 @@ async fn render_record(
             text(lang, "linked-sanction")
         ));
     }
+    if let Some(id) = details.verified_target {
+        body.push_str(&format!(
+            "<p>{} <span>{id}</span></p>",
+            text(lang, "verified-target")
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",
@@ -492,6 +499,7 @@ async fn render_record(
         ],
         Area::Reports => &[
             ("moderate", &["status", "public_outcome", "moderator_notes"]),
+            ("verify_report_target", &["target", "reason"]),
             ("link_sanction", &["sanction", "public_outcome", "reason"]),
         ],
         Area::Enforcement if create => &[(
@@ -519,6 +527,9 @@ async fn render_record(
                 && !matches!(form, RecordForm::Detail { can_link: true }))
             || (*action == "revoke_sanction" && record.status != "active")
             || (*action == "moderate" && record.status == "closed")
+            || (*action == "verify_report_target"
+                && (!details.player_report
+                    || !matches!(record.status.as_str(), "submitted" | "reviewing")))
         {
             continue;
         }
@@ -589,6 +600,7 @@ fn form_field(lang: &str, action: &str, field: &str) -> String {
     let label = match (action, field) {
         ("moderate", "moderator_notes") => "private-reason",
         ("revoke_sanction", "public_reason") => "revocation-reason",
+        ("verify_report_target", "target") => "report-target-account",
         (_, "sanction") => "sanction-id",
         _ => field,
     };

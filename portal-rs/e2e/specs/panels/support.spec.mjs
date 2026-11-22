@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { expect, test } from '../../fixtures.mjs';
 import { login, submit } from '../../helpers.mjs';
 import {
@@ -72,6 +72,17 @@ async function refused(page, name, fields, status, path) {
   expect(response.headers()['cache-control']).toContain('no-store');
 }
 
+async function refusedLink(page, path, fields, version, status) {
+  const token = await page.locator(`${form('verify_report_target')} [name=_csrf]`).inputValue();
+  const response = await page.request.post(path, {
+    form: { ...fields, action: 'link_sanction', lock_version: version, _csrf: token },
+    headers: { origin: new URL(page.url()).origin },
+    maxRedirects: 0,
+  });
+  expect(response.status()).toBe(status);
+  expect(response.headers()['cache-control']).toContain('no-store');
+}
+
 async function audit(id, action, actor, reason, before, after) {
   const rows = await query(
     'SELECT actor,before,after FROM audit_log WHERE target=$1 AND action=$2 ORDER BY id',
@@ -84,13 +95,14 @@ async function audit(id, action, actor, reason, before, after) {
 }
 
 function reportAuditState(status, lockVersion, {
-  assignee = null, sanction = null, outcome = null, notes = null,
+  assignee = null, sanction = null, verifiedTarget = null, outcome = null, notes = null,
 } = {}) {
   return {
     status,
     lock_version: lockVersion,
     assigned_to: assignee,
     sanction_id: sanction,
+    verified_target_account_id: verifiedTarget,
     public_outcome_sha256: outcome === null ? null : digest(outcome),
     moderator_notes_sha256: notes === null ? null : digest(notes),
   };
@@ -319,20 +331,33 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
       after: { status: 'active', lock_version: 1, reason_sha256: digest(applied.public_reason) } });
     expect(JSON.stringify(createdAudit)).not.toContain(applied.moderator_notes);
 
-    const linkedReport = await submitReport(page, lang, target.id, unique());
+    const linkedReport = await submitReport(page, lang, 'Reported Player', unique());
     const linkedPath = `${reports}/${linkedReport.id}`;
     await visit(ticketTeam.page, linkedPath, lang);
     const linking = { sanction, public_outcome: unique(), reason: unique() };
+    const verification = { target: target.id, reason: unique() };
+    await expect(ticketTeam.page.locator(form('verify_report_target')).getByRole('button'))
+      .toHaveText(pl ? 'Zweryfikuj zgłoszone konto' : 'Verify reported account');
+    await refused(ticketTeam.page, 'verify_report_target', { ...verification, target: 'bad-id' }, 422);
+    await refused(ticketTeam.page, 'verify_report_target', { ...verification, target: randomUUID() }, 404);
+    await refused(ticketTeam.page, 'verify_report_target', { ...verification, reason: ' ' }, 422);
+    await refused(ticketTeam.page, 'verify_report_target', { ...verification, _csrf: 'invalid' }, 403);
+    await refused(ticketTeam.page, 'verify_report_target', { ...verification, lock_version: '2' }, 409);
+    await mutate(ticketTeam.page, 'verify_report_target', verification);
+    await expect(ticketTeam.page.locator('main')).toContainText(target.id);
+    await audit(linkedReport.id, 'support.report_target_verified', ticketTeam.id, verification.reason,
+      reportAuditState('submitted', 1), reportAuditState('submitted', 2, { verifiedTarget: target.id }));
     await expect(ticketTeam.page.locator(form('link_sanction'))).toHaveCount(0);
-    const token = await ticketTeam.page.locator(`${form('moderate')} [name=_csrf]`).inputValue();
-    const unprivilegedLink = await ticketTeam.page.request.post(linkedPath, {
-      form: { ...linking, action: 'link_sanction', lock_version: '1', _csrf: token },
-      headers: { origin: new URL(ticketTeam.page.url()).origin },
+    const token = await moderator.page.locator(`${form('revoke_sanction')} [name=_csrf]`).inputValue();
+    const unprivilegedVerify = await moderator.page.request.post(linkedPath, {
+      form: { ...verification, action: 'verify_report_target', lock_version: '2', _csrf: token },
+      headers: { origin: new URL(moderator.page.url()).origin },
       maxRedirects: 0,
     });
-    expect(unprivilegedLink.status()).toBe(403);
+    expect(unprivilegedVerify.status()).toBe(403);
+    await refusedLink(ticketTeam.page, linkedPath, linking, '2', 403);
     expect(await query('SELECT status,lock_version::int FROM player_reports WHERE id=$1', [linkedReport.id]))
-      .toEqual([{ status: 'submitted', lock_version: 1 }]);
+      .toEqual([{ status: 'submitted', lock_version: 2 }]);
     await visit(dualRole.page, reportPath, lang);
     const closure = { status: 'closed', public_outcome: unique(), moderator_notes: unique() };
     await mutate(dualRole.page, 'moderate', closure);
@@ -352,21 +377,28 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     }
     const unrelated = await submitReport(page, lang, reporter.id, unique());
     await visit(dualRole.page, `${reports}/${unrelated.id}`, lang);
+    await refused(dualRole.page, 'verify_report_target', verification, 422);
+    await mutate(dualRole.page, 'verify_report_target', { ...verification, target: reporter.id });
     await refused(dualRole.page, 'link_sanction', linking, 422);
     await visit(dualRole.page, linkedPath, lang);
     await refused(dualRole.page, 'link_sanction', { ...linking, sanction: 'bad-id' }, 422);
     await refused(dualRole.page, 'link_sanction', { ...linking, reason: ' ' }, 422);
-    await refused(dualRole.page, 'link_sanction', { ...linking, lock_version: '2' }, 409);
+    await refused(dualRole.page, 'link_sanction', { ...linking, lock_version: '1' }, 409);
     await mutate(dualRole.page, 'link_sanction', linking);
     await expect(dualRole.page.locator('main')).toContainText(sanction);
-    expect(await query('SELECT sanction_id FROM player_reports WHERE id=$1', [linkedReport.id]))
-      .toEqual([{ sanction_id: sanction }]);
+    expect(await query(
+      'SELECT sanction_id,verified_target_account_id FROM player_reports WHERE id=$1', [linkedReport.id],
+    )).toEqual([{ sanction_id: sanction, verified_target_account_id: target.id }]);
     await audit(linkedReport.id, 'support.report_sanction_linked', dualRole.id, linking.reason,
-      reportAuditState('submitted', 1),
-      reportAuditState('actioned', 2, { assignee: dualRole.id, sanction, outcome: linking.public_outcome }));
+      reportAuditState('submitted', 2, { verifiedTarget: target.id }),
+      reportAuditState('actioned', 3, {
+        assignee: dualRole.id, sanction, verifiedTarget: target.id, outcome: linking.public_outcome,
+      }));
     await visit(page, linkedReport.path, lang, linking.public_outcome);
     await expect(page.locator('main')).not.toContainText(sanction);
     await expect(page.locator('main')).not.toContainText(linking.reason);
+    await expect(page.locator('main')).not.toContainText(target.id);
+    await expect(page.locator('main')).not.toContainText(verification.reason);
 
     await visit(moderator.page, sanctionPath, lang, applied.public_reason);
     const lifted = unique();
@@ -389,7 +421,8 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     expect((await page.goto(sanctionPath)).status()).toBe(403);
     const namedReport = await submitReport(page, lang, 'Unresolved Player', unique());
     await visit(dualRole.page, `${reports}/${namedReport.id}`, lang);
-    await refused(dualRole.page, 'link_sanction', linking, 422);
+    await expect(dualRole.page.locator(form('link_sanction'))).toHaveCount(0);
+    await refusedLink(dualRole.page, `${reports}/${namedReport.id}`, linking, '1', 422);
     expect(await query(
       'SELECT status,lock_version::int,public_outcome FROM player_reports WHERE id=$1', [namedReport.id],
     )).toEqual([{ status: 'submitted', lock_version: 1, public_outcome: null }]);

@@ -130,7 +130,9 @@ impl Backend for StaffSupport {
                     .map_err(|_| StaffError::Unavailable)?
                     .ok_or(StaffError::NotFound)?
             }
-            Command::Moderate { .. } | Command::LinkSanction { .. } => {
+            Command::Moderate { .. }
+            | Command::VerifyReportTarget { .. }
+            | Command::LinkSanction { .. } => {
                 sqlx::query_scalar("SELECT reporter_account_id FROM player_reports WHERE id=$1")
                     .bind(id)
                     .fetch_optional(&mut **tx)
@@ -159,7 +161,9 @@ impl Backend for StaffSupport {
             Command::Reply { .. } | Command::TicketStatus { .. } | Command::AssignTicket { .. } => {
                 "SELECT id FROM tickets WHERE id=$1 FOR UPDATE"
             }
-            Command::Moderate { .. } | Command::LinkSanction { .. } => {
+            Command::Moderate { .. }
+            | Command::VerifyReportTarget { .. }
+            | Command::LinkSanction { .. } => {
                 "SELECT id FROM player_reports WHERE id=$1 FOR UPDATE"
             }
             _ => "SELECT id FROM sanctions WHERE id=$1 FOR UPDATE",
@@ -171,6 +175,9 @@ impl Backend for StaffSupport {
         } = command
         {
             accounts.push(*assignee);
+        }
+        if let Command::VerifyReportTarget { target } = command {
+            accounts.push(*target);
         }
         let linked_sanction = if let Command::LinkSanction { sanction, .. } = command {
             let target = sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
@@ -293,19 +300,23 @@ impl Backend for StaffSupport {
     ) -> std::result::Result<Details, StaffError> {
         self.available(area)?;
         let query = match area {
-            Area::Tickets => "SELECT assigned_to FROM tickets WHERE id=$1 AND lock_version=$2",
+            Area::Tickets => {
+                "SELECT assigned_to,NULL::uuid,false FROM tickets WHERE id=$1 AND lock_version=$2"
+            }
             Area::Reports => {
-                "SELECT sanction_id FROM player_reports WHERE id=$1 AND lock_version=$2"
+                "SELECT sanction_id,verified_target_account_id,report_type='player'
+                 FROM player_reports WHERE id=$1 AND lock_version=$2"
             }
             Area::Enforcement => return Ok(Details::default()),
         };
-        let reference: Option<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
-            .bind(record.id)
-            .bind(record.version)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| StaffError::Unavailable)?
-            .ok_or(StaffError::Conflict)?;
+        let (reference, verified_target, player_report): (Option<Uuid>, Option<Uuid>, bool) =
+            sqlx::query_as(sqlx::AssertSqlSafe(query))
+                .bind(record.id)
+                .bind(record.version)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::Conflict)?;
         Ok(match area {
             Area::Tickets => Details {
                 assigned_to: reference,
@@ -313,6 +324,8 @@ impl Backend for StaffSupport {
             },
             _ => Details {
                 linked_sanction: reference,
+                verified_target,
+                player_report,
                 ..Details::default()
             },
         })
@@ -455,7 +468,9 @@ impl Backend for StaffSupport {
                     ticket.audit_change(message_id),
                 ))
             }
-            Command::Moderate { .. } | Command::LinkSanction { .. } => {
+            Command::Moderate { .. }
+            | Command::VerifyReportTarget { .. }
+            | Command::LinkSanction { .. } => {
                 self.reports
                     .staff_apply(tx, actor, (id, version), command, notifications)
                     .await

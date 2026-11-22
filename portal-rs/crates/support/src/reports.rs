@@ -258,6 +258,7 @@ struct ModerationRecord {
     target_reference: String,
     assigned_to: Option<Uuid>,
     sanction_id: Option<Uuid>,
+    verified_target_account_id: Option<Uuid>,
     public_outcome: Option<String>,
     moderator_notes: Option<String>,
 }
@@ -272,6 +273,7 @@ impl ModerationRecord {
             "lock_version": self.lock_version,
             "assigned_to": self.assigned_to,
             "sanction_id": self.sanction_id,
+            "verified_target_account_id": self.verified_target_account_id,
             "public_outcome_sha256": digest(self.public_outcome.as_deref()),
             "moderator_notes_sha256": digest(self.moderator_notes.as_deref()),
         })
@@ -290,23 +292,6 @@ impl Reports {
     ) -> Result<(serde_json::Value, serde_json::Value), oteryn_admin::support::Error> {
         use oteryn_admin::support::{Command, Error as StaffError};
         self.available().map_err(|_| StaffError::NotFound)?;
-        let (status, public_outcome, moderator_notes, linked) = match command {
-            Command::Moderate {
-                status,
-                public_outcome,
-                moderator_notes,
-            } => (
-                status.as_str(),
-                public_outcome.as_str(),
-                Some(moderator_notes.as_str()),
-                None,
-            ),
-            Command::LinkSanction {
-                sanction,
-                public_outcome,
-            } => ("actioned", public_outcome.as_str(), None, Some(*sanction)),
-            _ => return Err(StaffError::Invalid),
-        };
         command.validate()?;
         let (id, version) = binding;
         let owner: Uuid =
@@ -331,8 +316,9 @@ impl Reports {
         ) {
             return Err(StaffError::Denied);
         }
-        let before: ModerationRecord = sqlx::query_as(
-            "SELECT status,lock_version,report_type,target_reference,assigned_to,sanction_id,public_outcome,moderator_notes
+        let mut before: ModerationRecord = sqlx::query_as(
+            "SELECT status,lock_version,report_type,target_reference,assigned_to,sanction_id,
+                    verified_target_account_id,public_outcome,moderator_notes
              FROM player_reports WHERE id=$1 FOR UPDATE",
         )
         .bind(id)
@@ -343,6 +329,59 @@ impl Reports {
             return Err(StaffError::Conflict);
         }
         command.transition(&before.status)?;
+        let (status, public_outcome, moderator_notes, linked) = match command {
+            Command::VerifyReportTarget { target } => {
+                if before.report_type != "player"
+                    || before
+                        .target_reference
+                        .parse::<Uuid>()
+                        .is_ok_and(|id| id != *target)
+                {
+                    return Err(StaffError::Invalid);
+                }
+                if before.verified_target_account_id == Some(*target) {
+                    return Err(StaffError::Conflict);
+                }
+                // The adapter locked the selected account before locking this report.
+                let known: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT FROM accounts WHERE id=$1)")
+                        .bind(target)
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(|_| StaffError::Unavailable)?;
+                if !known {
+                    return Err(StaffError::NotFound);
+                }
+                let previous = before.audit();
+                before.lock_version = sqlx::query_scalar(
+                    "UPDATE player_reports SET verified_target_account_id=$2,
+                         lock_version=lock_version+1,updated_at=clock_timestamp()
+                     WHERE id=$1 RETURNING lock_version",
+                )
+                .bind(id)
+                .bind(target)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+                before.verified_target_account_id = Some(*target);
+                return Ok((previous, before.audit()));
+            }
+            Command::Moderate {
+                status,
+                public_outcome,
+                moderator_notes,
+            } => (
+                status.as_str(),
+                public_outcome.as_str(),
+                Some(moderator_notes.as_str()),
+                None,
+            ),
+            Command::LinkSanction {
+                sanction,
+                public_outcome,
+            } => ("actioned", public_outcome.as_str(), None, Some(*sanction)),
+            _ => return Err(StaffError::Invalid),
+        };
         if let Some(sanction) = linked {
             if before.report_type != "player" {
                 return Err(StaffError::Invalid);
@@ -355,9 +394,7 @@ impl Reports {
             .await
             .map_err(|_| StaffError::Unavailable)?
             .ok_or(StaffError::NotFound)?;
-            // A display name does not establish ownership. The report must
-            // identify the same Platform account as the stored sanction.
-            if before.target_reference.parse::<Uuid>() != Ok(account) {
+            if before.verified_target_account_id != Some(account) {
                 return Err(StaffError::Invalid);
             }
         }
@@ -369,7 +406,8 @@ impl Reports {
                  processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,
                  updated_at=clock_timestamp()
              WHERE id=$1
-             RETURNING status,lock_version,report_type,target_reference,assigned_to,sanction_id,public_outcome,moderator_notes",
+             RETURNING status,lock_version,report_type,target_reference,assigned_to,sanction_id,
+                       verified_target_account_id,public_outcome,moderator_notes",
         )
         .bind(id)
         .bind(status)
