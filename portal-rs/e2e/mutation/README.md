@@ -97,9 +97,9 @@ item actions returns 404 because the configured live Bazaar router replaces
 those legacy routes. The tests check that no legacy listing is persisted.
 
 Recruitment creation requires an accepted character profile snapshot and a
-fresh `character_profile` watermark in addition to LCFA ownership. The Game
-publisher fixture supplies LCFA but does not publish the profile family. The
-matrix checks the valid-session 403 from creation and the 404 from reporting
+fresh `character_profile` watermark in addition to LCFA ownership. The standard
+harness leaves the profile family empty. The optional publisher can send that
+family with `publicCharacter`. The standard matrix checks the valid-session 403 from creation and the 404 from reporting
 or removing an absent post, with no persisted post.
 
 The R0 console dashboard, world, node, and database actions require a
@@ -137,3 +137,28 @@ PORTAL_E2E_GAME_DATA_REPORT=/absolute/path/report.json \
   node node_modules/@playwright/test/cli.js test \
   --config mutation/publisher.config.mjs --workers=1 --retries=0
 ```
+
+The character-services publisher case also requires the browser service flags
+and the accepted V2 projection and command exchange. Add these values to
+`test.env` in the isolated publisher copy before starting the harness.
+
+```dotenv
+OTERYN_ACCOUNT_CREDENTIALS=true
+OTERYN_CHARACTER_SERVICES_ENABLED=true
+OTERYN_CHARACTER_SERVICES_SCHEDULE_ENABLED=true
+OTERYN_CHARACTER_SERVICES_CANCEL_ENABLED=true
+OTERYN_CHARACTER_SERVICES_PROJECTION_ENABLED=true
+OTERYN_CHARACTER_SERVICES_EXCHANGE_ENABLED=true
+OTERYN_CHARACTER_SERVICES_PROJECTION_AUTHORITY=oteryn-game-e2e
+OTERYN_CHARACTER_SERVICES_COMMAND_AUTHORITY=oteryn-game-e2e
+OTERYN_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS=2
+PORTAL_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS=2
+PORTAL_CHARACTER_SERVICES_FRESHNESS_SECONDS=30
+```
+
+This case publishes fresh LCFA and character-service watermarks, checks that
+foreign players and staff with a different role cannot mutate the character,
+and submits the real schedule and cancellation forms. Replaying each
+submission preserves its single command. The service history renders both
+accepted Game receipts and removes the cancellation form after the active
+state is published again.
