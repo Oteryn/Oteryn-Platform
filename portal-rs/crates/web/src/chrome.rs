@@ -65,7 +65,31 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .or_else(|| console_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let browser = request.method() == axum::http::Method::GET
+        && !request.uri().path().starts_with("/api/")
+        && !request.uri().path().starts_with("/internal/")
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+    let (account, account_id) = if browser && request.extensions().get::<StaffDashboard>().is_some()
+    {
+        match crate::session::chrome_identity(&shell.sessions, &mut request).await {
+            Some(identity) => (
+                oteryn_ui::Account::SignedIn {
+                    csrf: identity.csrf,
+                },
+                Some(identity.account_id),
+            ),
+            None => (oteryn_ui::Account::Anonymous, None),
+        }
+    } else {
+        (
+            crate::session::chrome_account(&shell.sessions, &mut request).await,
+            None,
+        )
+    };
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -85,14 +109,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let browser = request.method() == axum::http::Method::GET
-        && !request.uri().path().starts_with("/api/")
-        && !request.uri().path().starts_with("/internal/")
-        && request
-            .headers()
-            .get(header::ACCEPT)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.contains("text/html"));
     let mut chrome = shell.registry.chrome(lang, path, account);
     if browser
         && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
