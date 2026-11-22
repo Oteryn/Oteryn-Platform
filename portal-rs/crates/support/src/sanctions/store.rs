@@ -625,6 +625,7 @@ impl Service {
             }
         }
         let before = current.as_ref().map_or(Value::Null,|r|json!({"status":r.0,"lock_version":version,"sanction_version":r.1,"appeal_version":workflow.as_ref().map(|w|w.1),"category":r.3,"effective_at_ms":r.4,"expires_at_ms":r.5}));
+        let mut game_revoke_requested = false;
         let next = match command {
             Command::Sanction {
                 create,
@@ -772,6 +773,7 @@ impl Service {
                         self.game_enforcement,
                     )
                     .await?;
+                    game_revoke_requested = true;
                 }
                 next.to_owned()
             }
@@ -786,6 +788,13 @@ impl Service {
             _ => return Err(StaffError::Invalid),
         };
         crate::tickets::staff::notify(tx, notifications, target, body).await?;
+        if game_revoke_requested
+            && !oteryn_admin::console::enforcement::appeal_step_up_current(tx, context)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+        {
+            return Err(StaffError::Denied);
+        }
         let (category, effective_at_ms, expires_at_ms) = if let Some(row) = &current {
             (row.3.as_str(), row.4, row.5)
         } else if let Command::Sanction {

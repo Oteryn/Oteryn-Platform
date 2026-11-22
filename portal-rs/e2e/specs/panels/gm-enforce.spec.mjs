@@ -78,6 +78,56 @@ function post(screen, target, fields) {
   });
 }
 
+async function postAfterStepUpExpires(screen, account, target, fields, lock, queryPrefix) {
+  const db = pool();
+  const locker = await db.connect();
+  const stepUpPath = '{admin_control_step_up,step_up_at}';
+  let original;
+  let request;
+  let response;
+  try {
+    [original] = (await db.query(
+      `SELECT (data#>>$2::text[])::bigint AS verified_at FROM web_sessions
+       WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL`,
+      [account, stepUpPath],
+    )).rows;
+    expect(original.verified_at).toBeTruthy();
+    await locker.query('BEGIN');
+    await locker.query(lock);
+    const [{ pid }] = (await locker.query('SELECT pg_backend_pid() AS pid')).rows;
+    const [{ deadline }] = (await db.query(
+      `UPDATE web_sessions SET data=jsonb_set(data,$2::text[],
+         to_jsonb(floor(extract(epoch FROM clock_timestamp()))::bigint-298))
+       WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL
+       RETURNING (data#>>$2::text[])::bigint+300 AS deadline`,
+      [account, stepUpPath],
+    )).rows;
+    request = post(screen, target, fields);
+    await expect.poll(async () => (await db.query(
+      `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+         WHERE starts_with(query,$2) AND $1 = ANY (pg_blocking_pids(pid))) AS waiting`,
+      [pid, queryPrefix],
+    )).rows[0].waiting, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
+    await expect.poll(async () => (await db.query(
+      'SELECT extract(epoch FROM clock_timestamp()) >= $1::bigint AS expired', [deadline],
+    )).rows[0].expired, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
+  } finally {
+    await locker.query('ROLLBACK');
+    locker.release();
+    try {
+      if (request) response = await request;
+    } finally {
+      if (original) await db.query(
+        `UPDATE web_sessions SET data=jsonb_set(data,$2::text[],to_jsonb($3::bigint))
+         WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL`,
+        [account, stepUpPath, original.verified_at],
+      );
+      await db.end();
+    }
+  }
+  return response;
+}
+
 async function refused(response, status, message) {
   expect(response.status()).toBe(status);
   expect(await response.text()).toContain(message);
@@ -260,51 +310,11 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
       }
 
       await refreshProjection();
-      const stepUpDb = pool();
-      const publisher = await stepUpDb.connect();
-      const stepUpPath = '{admin_control_step_up,step_up_at}';
-      const [original] = (await stepUpDb.query(
-        `SELECT (data#>>$2::text[])::bigint AS verified_at FROM web_sessions
-         WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL`,
-        [gm.account.id, stepUpPath],
-      )).rows;
-      expect(original.verified_at).toBeTruthy();
-      let waiting;
-      try {
-        await publisher.query('BEGIN');
-        await publisher.query('SELECT singleton FROM support_enforcement_counter FOR UPDATE');
-        const [{ pid }] = (await publisher.query('SELECT pg_backend_pid() AS pid')).rows;
-        const [{ deadline }] = (await stepUpDb.query(
-          `UPDATE web_sessions SET data=jsonb_set(data,$2::text[],
-             to_jsonb(floor(extract(epoch FROM clock_timestamp()))::bigint-298))
-           WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL
-           RETURNING (data#>>$2::text[])::bigint+300 AS deadline`,
-          [gm.account.id, stepUpPath],
-        )).rows;
-        waiting = post(page, early.target, { ...early.fields, ...valid });
-        await expect.poll(async () => (await stepUpDb.query(
-          `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
-             WHERE query='SELECT 1 FROM support_enforcement_counter WHERE singleton FOR UPDATE'
-               AND $1 = ANY (pg_blocking_pids(pid))) AS waiting`,
-          [pid],
-        )).rows[0].waiting, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
-        await expect.poll(async () => (await stepUpDb.query(
-          'SELECT extract(epoch FROM clock_timestamp()) >= $1::bigint AS expired', [deadline],
-        )).rows[0].expired, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
-      } finally {
-        await publisher.query('ROLLBACK');
-        publisher.release();
-        try {
-          if (waiting) await refused(await waiting, 403, text.stepUp);
-        } finally {
-          await stepUpDb.query(
-            `UPDATE web_sessions SET data=jsonb_set(data,$2::text[],to_jsonb($3::bigint))
-             WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL`,
-            [gm.account.id, stepUpPath, original.verified_at],
-          );
-          await stepUpDb.end();
-        }
-      }
+      await refused(await postAfterStepUpExpires(
+        page, gm.account.id, early.target, { ...early.fields, ...valid },
+        'SELECT singleton FROM support_enforcement_counter FOR UPDATE',
+        'SELECT 1 FROM support_enforcement_counter WHERE singleton FOR UPDATE',
+      ), 403, text.stepUp);
       expect(await query(
         'SELECT 1 FROM audit_log WHERE request_id=$1', [early.fields.operation],
       )).toEqual([]);
@@ -473,4 +483,77 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     [target.id, gm.account.id],
   );
   await expectAccountEligible(false);
+});
+
+test('An accepted appeal needs fresh step-up through the Game revoke audit write', async ({ page }, info) => {
+  const lang = info.project.metadata.locale;
+  const gm = await staffActor(page, lang, 'game_master_senior');
+  expect(await query(
+    "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' RETURNING role_id",
+    [gm.account.id],
+  )).toHaveLength(1);
+  const account = await seededAccount(lang);
+  const character = uuid7();
+  const lcfa = gamePeer('lcfa');
+  const head = {
+    contract_version: 1, source_authority: process.env.OTERYN_LCFA_SOURCE_AUTHORITY,
+    projection_epoch: '1',
+  };
+  await gameJson(lcfa, portfolio, {
+    ...head, operation: 'PublishAccountCharactersV1', account_id: account.id,
+    projection_revision: '1', source_observed_at: sourceTime(),
+    characters: [{ character_id: character, world_id: uuid7(), name: 'Appeal fixture', availability: 'AVAILABLE' }],
+  });
+  const at = sourceTime();
+  await gameJson(lcfa, `${portfolio}/watermark`, {
+    ...head, operation: 'PublishProjectionWatermarkV1', complete_through: at, observed_at: at,
+  });
+  expect((await page.goto(`${path}?lang=${lang}&character=${character}`)).status()).toBe(200);
+  await browserSubmit(page, page.locator('form[action*="/step-up?"]'),
+    { code: gm.totp.generate() }, `${path}/step-up`);
+  const apply = page.locator('[data-profile=MUTE] [data-action=apply]');
+  const { fields } = await formPayload(apply);
+  await browserSubmit(page, apply, { minutes: '15', reason: 'rule_violation' }, path);
+  const readGame = enforcementGame();
+  const applied = await readGame(fields.operation, {
+    account_id: account.id, character_id: character, profile: 'MUTE', intent: 'APPLY', decision_revision: 1,
+  });
+  await applied.publish({ state: 'APPLIED' });
+  const stream = applied.command.sanction_stream_id;
+  // Stage the player's requested appeal. The staff form below makes the actual decision.
+  expect(await query(
+    `UPDATE support_appeal_workflows SET status='requested',message='Please review',version=version+1
+     WHERE sanction_id=$1 AND owner_id=$2 RETURNING status`,
+    [stream, account.id],
+  )).toEqual([{ status: 'requested' }]);
+  const appeal = `/admin/moderation/enforcement/${stream}`;
+  expect((await page.goto(appeal)).status()).toBe(200);
+  const form = page.locator('form').filter({ has: page.locator('[name=appeal_status]') });
+  const attempt = await formPayload(form);
+  const decision = { ...attempt.fields, appeal_status: 'accepted', appeal_outcome: 'Appeal granted' };
+  const expired = await postAfterStepUpExpires(
+    page, gm.account.id, attempt.target, decision,
+    'LOCK TABLE audit_log IN SHARE MODE', 'INSERT INTO audit_log',
+  );
+  expect(expired.status()).toBe(403);
+  expect(await query('SELECT status FROM support_appeal_workflows WHERE sanction_id=$1', [stream]))
+    .toEqual([{ status: 'requested' }]);
+  expect(await query('SELECT id FROM audit_log WHERE target=$1 AND action=$2',
+    [stream, 'game.enforcement.appeal_revoke_requested'])).toEqual([]);
+  expect(await query('SELECT decision_revision FROM support_sanction_export_revisions WHERE sanction_stream_id=$1',
+    [stream])).toEqual([{ decision_revision: '1' }]);
+  expect(await query('SELECT operation_id FROM support_enforcement_commands WHERE sanction_stream_id=$1',
+    [stream])).toEqual([{ operation_id: fields.operation }]);
+
+  expect((await post(page, attempt.target, decision)).status()).toBe(303);
+  const [{ operation_id: operation }] = await query(
+    "SELECT operation_id FROM support_enforcement_commands WHERE sanction_stream_id=$1 AND intent='REVOKE'",
+    [stream],
+  );
+  const revoking = await readGame(operation, {
+    sanction_stream_id: stream, intent: 'REVOKE', decision_revision: 2, prior_decision_revision: 1,
+  });
+  await revoking.publish({ state: 'REVOKED', stream_state: 'REVOKED' });
+  expect(await query('SELECT status FROM support_appeal_workflows WHERE sanction_id=$1', [stream]))
+    .toEqual([{ status: 'accepted' }]);
 });
