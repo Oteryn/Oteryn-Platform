@@ -13,7 +13,7 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --cache /tmp/portal-b
 node local.mjs
 ```
 
-`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates uniquely named disposable databases for the portal, Rust tests and query catalog. It generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, TLS SMTP sink and HTTPS proxies on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. The query catalog listener uses ports 18084 and 18450. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops their databases. The scratch directory is retained for local investigation and should be removed after inspecting the report.
+`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates uniquely named disposable databases for the portal, Rust tests and query catalog. It generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, Game API gateway, native TLS listener, TLS SMTP sink and HTTPS proxies on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. The query catalog listener uses ports 18084 and 18450. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops their databases. The scratch directory is retained for local investigation and should be removed after inspecting the report.
 
 The player identity spec uses a direct TLS listener on loopback port 18447 to
 issue a ticket with a remembered-device credential. A second portal process
@@ -62,7 +62,7 @@ For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and
 local listener and disposable database seeded with the query catalog. The
 Bazaar legacy spec also needs the matching
 `OTERYN_DATABASE_URL`, the built `PORTAL_E2E_BINARY`, and the local administrator
-URL for the fallback harness. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
+URL for the fallback harness. OAuth cases require the local proxy callback receiver. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The local proxy receives OAuth client redirects at `/__oauth/callback` and serves the captured mail at `/__mail`. These are harness endpoints.
 
 For the split-origin staff regression in `fix-small.spec.mjs`, launch `local.mjs`
 with `PORTAL_E2E_SPLIT_STAFF_ORIGIN=1`. This adds a loopback HTTPS listener on

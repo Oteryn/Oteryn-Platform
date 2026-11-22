@@ -93,45 +93,28 @@ impl Language {
     }
 }
 
-/// Resolve the portal language from the preference cookie and browser headers.
+/// Resolve the preferred browser language from its locale cookie and headers.
 pub fn negotiate(headers: &HeaderMap) -> Language {
-    for cookie in headers.get_all(header::COOKIE) {
-        if let Ok(cookie) = cookie.to_str() {
-            for part in cookie.split(';') {
-                if let Some(("portal_language", value)) = part.trim().split_once('=')
-                    && let Some(lang) = Language::parse(value)
-                {
-                    return lang;
-                }
-            }
-        }
+    if oteryn_ui::preferred_language(headers) == "en" {
+        Language::En
+    } else {
+        Language::Pl
     }
-    let mut candidates = Vec::new();
-    if let Some(value) = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
+}
+
+/// Resolve the public document language before constructing portal chrome.
+pub fn document_language(uri: &axum::http::Uri, headers: &HeaderMap) -> Language {
+    if let Some(lang) = path_language(uri.path()) {
+        return lang;
+    }
+    if (matches!(uri.path(), "/news" | "/today") || uri.path().starts_with("/news/"))
+        && let Some(query) = uri.query()
+        && let Ok(options) = serde_urlencoded::from_str::<Vec<(String, String)>>(query)
+        && let Some((_, lang)) = options.iter().find(|(key, _)| key == "lang")
     {
-        for (index, item) in value.split(',').enumerate() {
-            let mut parts = item.trim().split(';');
-            let tag = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
-            let quality = match parts.next() {
-                None => 1.0,
-                Some(q) => q
-                    .trim()
-                    .strip_prefix("q=")
-                    .and_then(|q| q.parse::<f32>().ok())
-                    .unwrap_or(0.0),
-            };
-            if quality > 0.0
-                && quality <= 1.0
-                && let Some(lang) = Language::parse(tag.split('-').next().unwrap_or_default())
-            {
-                candidates.push((quality, index, lang));
-            }
-        }
+        return Language::parse(lang).unwrap_or(Language::Pl);
     }
-    candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-    candidates.first().map_or(Language::Pl, |item| item.2)
+    negotiate(headers)
 }
 
 fn message(lang: Language, id: &str) -> String {
@@ -184,7 +167,7 @@ pub(crate) async fn resolve(data: Option<HomeFuture>) -> oteryn_ui::HomeData {
     }
 }
 async fn localized_home(request: Request) -> Response {
-    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let lang = document_language(request.uri(), request.headers());
     let chrome = request_chrome(&request, lang);
     let data = home_data(&request, lang);
     drop(request);
@@ -220,7 +203,7 @@ fn wants_json(headers: &HeaderMap) -> bool {
 }
 
 async fn policy(mut request: Request, next: Next) -> Response {
-    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let lang = document_language(request.uri(), request.headers());
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();
@@ -258,6 +241,12 @@ async fn policy(mut request: Request, next: Next) -> Response {
         && !form_refusal
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
+        && !(status == StatusCode::SERVICE_UNAVAILABLE
+            && !json
+            && response
+                .extensions()
+                .get::<crate::search::SourceUnavailable>()
+                .is_some())
     {
         let mut replacement = if json {
             let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});

@@ -19,7 +19,7 @@
 <ul class="op-stack">
 {% for character in characters %}
 <li class="op-panel op-stack">
-<a class="op-button op-button--secondary" href="/characters/{{ character.segment }}">{{ character.name }}</a>
+<a class="op-button op-button--secondary" href="/{{ lang }}/characters/{{ character.segment }}">{{ character.name }}</a>
 {% if character.main %}<span data-main-character>{{ main_label }}</span>{% endif %}
 <a href="/{{ lang }}/account/characters/{{ character.segment }}/profile">{{ preferences_label }}</a>
 {% if outfit %}<a href="/{{ lang }}/account/characters/{{ character.segment }}/outfit">{{ self.label("panel-characters-outfit") }}</a>{% endif %}

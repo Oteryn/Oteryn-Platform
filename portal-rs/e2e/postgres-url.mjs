@@ -17,3 +17,13 @@ export function localPostgresUrl(raw) {
     throw new Error('Expected a local PostgreSQL URL with an explicit database path and no query parameters or fragment');
   }
 }
+
+export function withoutPostgresDefaults(env) {
+  const clean = { ...env };
+  // SQLx loads these defaults before parsing the URL. In particular,
+  // PGHOSTADDR takes precedence over the URL's hostname when connecting.
+  for (const key of ['PGHOST', 'PGHOSTADDR', 'PGPORT', 'PGDATABASE', 'PGOPTIONS']) {
+    delete clean[key];
+  }
+  return clean;
+}

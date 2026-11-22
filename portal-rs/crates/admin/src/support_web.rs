@@ -15,6 +15,7 @@ struct Panel<A, B> {
     pool: PgPool,
     auth: Authorizer<A>,
     backend: B,
+    tickets_mounted: bool,
 }
 const MAX_PAGE: u32 = 10000;
 pub(crate) const REPORTS_FLAG: &str = "OTERYN_REPORTS_ENABLED";
@@ -87,6 +88,7 @@ pub fn configured_router_from<B: Backend>(
                 web::PortalIdentity::configured_from(pool.clone(), lookup),
             ),
             backend: backend.clone(),
+            tickets_mounted: lookup("OTERYN_SUPPORT_TICKETS").as_deref() == Some("true"),
         });
         routes = routes.merge(web::configured_guard_any_from(
             area_routes(area, state),
@@ -111,6 +113,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + Clone + 'static, B: Backe
             pool: pool.clone(),
             auth: Authorizer::new(pool.clone(), accounts.clone()),
             backend: backend.clone(),
+            tickets_mounted: true,
         });
         routes = routes.merge(web::guarded_any(
             area_routes(area, state),
@@ -390,6 +393,12 @@ async fn show<A: AccountStateReader, B: Backend>(
             .check(context, Permission::ManageSupportEnforcement)
             .await
             .is_ok();
+    let can_open_tickets = area == Area::Reports
+        && s.tickets_mounted
+        && s.auth
+            .check(context, Permission::ManageSupportTickets)
+            .await
+            .is_ok();
     render_record(
         area,
         record,
@@ -399,6 +408,7 @@ async fn show<A: AccountStateReader, B: Backend>(
         RecordForm::Detail {
             can_verify,
             can_link,
+            can_open_tickets,
         },
     )
     .await
@@ -429,7 +439,11 @@ async fn create_page(
 
 enum RecordForm {
     CreateSanction,
-    Detail { can_verify: bool, can_link: bool },
+    Detail {
+        can_verify: bool,
+        can_link: bool,
+        can_open_tickets: bool,
+    },
 }
 
 async fn render_record(
@@ -474,6 +488,19 @@ async fn render_record(
         body.push_str(&format!(
             "<p>{} <span>{id}</span></p>",
             text(lang, "verified-target")
+        ));
+    }
+    if matches!(
+        form,
+        RecordForm::Detail {
+            can_open_tickets: true,
+            ..
+        }
+    ) {
+        body.push_str(&format!(
+            "<p><a class=\"op-link\" href=\"{}\">{}</a></p>",
+            base(Area::Tickets),
+            text(lang, "tickets")
         ));
     }
     for message in record.messages {

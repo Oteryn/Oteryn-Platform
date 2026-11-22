@@ -58,16 +58,16 @@ pub fn configured_router(pool: PgPool) -> Router {
 }
 
 #[derive(Clone, Copy)]
-struct Locale(&'static str);
+pub(super) struct Locale(&'static str);
 impl Locale {
-    fn parse(lang: &str) -> Result<Self, StatusCode> {
+    pub(super) fn parse(lang: &str) -> Result<Self, StatusCode> {
         match lang {
             "pl" => Ok(Self("pl")),
             "en" => Ok(Self("en")),
             _ => Err(StatusCode::NOT_FOUND),
         }
     }
-    fn text(self, key: &str) -> String {
+    pub(super) fn text(self, key: &str) -> String {
         let source = if self.0 == "pl" {
             include_str!("../templates/account/pl.ftl")
         } else {

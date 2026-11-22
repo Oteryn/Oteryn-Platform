@@ -607,7 +607,7 @@ fn label(lang: &str, key: &str) -> String {
     let source = if lang == "en" {
         concat!(
             "title = Media\nimage = Image (JPEG, PNG, WebP; max 8 MiB)\nalt = Alternative text\n",
-            "upload = Upload\ndelete = Delete\nnext = Next\n",
+            "upload = Upload\ndelete = Delete\nnext = Next page\n",
             "timeout-title = Upload timed out\ntimeout-message = The file did not upload before the deadline.\n",
             "conflict-title = This form was already used\nconflict-message = Open a new form to upload this file with the changed details.\n",
             "back = Back to the media form",
@@ -615,7 +615,7 @@ fn label(lang: &str, key: &str) -> String {
     } else {
         concat!(
             "title = Media\nimage = Obraz (JPEG, PNG, WebP; maks. 8 MiB)\nalt = Tekst alternatywny\n",
-            "upload = Prześlij\ndelete = Usuń\nnext = Następna\n",
+            "upload = Prześlij\ndelete = Usuń\nnext = Następna strona\n",
             "timeout-title = Przesyłanie trwało zbyt długo\ntimeout-message = Plik nie został przesłany w wyznaczonym czasie.\n",
             "conflict-title = Formularz został już użyty\nconflict-message = Otwórz nowy formularz, aby przesłać plik ze zmienionymi danymi.\n",
             "back = Wróć do formularza multimediów",

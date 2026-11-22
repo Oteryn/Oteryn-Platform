@@ -392,3 +392,9 @@ panel-characters-delete = Usunięcie postaci
 panel-characters-restore = Przywrócenie postaci
 panel-characters-outfit-edit = Zmiana stroju
 panel-characters-no-vocation = Bez profesji
+
+shell-mfa = Uwierzytelnianie dwuskładnikowe
+shell-sudo = Potwierdź hasło
+shell-email = Zmień adres e-mail
+shell-export = Pobierz dane konta
+shell-termination = Zamknij konto

@@ -1,4 +1,4 @@
-title = Support i moderacja
+title = Pomoc i moderacja
 next = Następna strona
 internal = Wewnętrzna notatka zespołu
 public = Wiadomość publiczna
@@ -71,3 +71,5 @@ error-unavailable = Pomoc jest chwilowo niedostępna.
 report-evidence = Dowody w zgłoszeniu
 escalate-report = Przekaż do weryfikacji
 dismiss-report = Odrzuć zgłoszenie
+
+tickets = Zgłoszenia pomocy

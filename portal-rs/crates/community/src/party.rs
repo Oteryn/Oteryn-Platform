@@ -429,11 +429,19 @@ async fn create(
     State(board): State<Board>,
     Path(lang): Path<String>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Form(draft): Form<Draft>,
 ) -> Result<Response, Error> {
     language(&lang)?;
-    let owner = account(&board, &session).await?;
-    board.create(owner, draft).await?;
+    let result = async {
+        let owner = account(&board, &session).await?;
+        board.create(owner, draft).await
+    }
+    .await;
+    if let (Err(Error::Denied), Some(Extension(chrome))) = (&result, chrome) {
+        return Ok(oteryn_ui::error(&chrome, StatusCode::FORBIDDEN));
+    }
+    result?;
     Ok(Redirect::to(&format!("/{lang}/party")).into_response())
 }
 #[derive(Deserialize)]

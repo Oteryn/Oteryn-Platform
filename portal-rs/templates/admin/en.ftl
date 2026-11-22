@@ -38,3 +38,16 @@ invite-approve = Approve invitation
 invite-approval-required = A second role manager who holds these roles must approve before the invitation is sent.
 invite-approval-link = Link to share with an authorized approver
 invite-reauthenticate = Sign out to sign in with MFA
+
+economy-circulation-title = Gold circulation
+economy-circulation-columns = gold (end-of-day stock by location)
+economy-flows-title = Gold flows
+economy-flows-columns = gold_in / gold_out
+economy-trades-title = Player trades
+economy-trades-columns = trades / traded_gold
+economy-market-title = Market activity
+economy-market-columns = traded_units / traded_gold / offers_created / median_unit_price
+economy-store-title = In-game store activity
+economy-store-columns = count / amount (currency units)
+economy-purchased-title = Purchased — Platform wallet ledger (all worlds)
+economy-purchased-columns = credited top-ups / coins; paid amounts in minor units by payment currency

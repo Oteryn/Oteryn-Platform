@@ -2,6 +2,47 @@
 use oteryn_ui::{Group, Registry};
 /// Register enabled account sections; no route or authentication behavior changes.
 pub fn register(registry: &mut Registry) {
+    let on = |flag| std::env::var(flag).as_deref() == Ok("true");
+    registry.section(
+        on("OTERYN_ACCOUNT_MFA") && on("OTERYN_ACCOUNT_LOGIN"),
+        "account-mfa",
+        "shell-mfa",
+        "mfa",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        on("OTERYN_ACCOUNT_CREDENTIALS"),
+        "account-sudo",
+        "shell-sudo",
+        "account/sudo",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        on("OTERYN_ACCOUNT_EMAIL_CHANGE"),
+        "account-email",
+        "shell-email",
+        "account/security/email",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        on("OTERYN_ACCOUNT_EXPORT_ENABLED"),
+        "account-export",
+        "shell-export",
+        "account/privacy/export",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        on("PORTAL_ACCOUNT_TERMINATION_ENABLED"),
+        "account-termination",
+        "shell-termination",
+        "account/privacy/delete",
+        Group::Account,
+        false,
+    );
     registry.section(
         std::env::var("OTERYN_ACCOUNT_OVERVIEW_ENABLED").as_deref() == Ok("true"),
         "account-overview",

@@ -387,3 +387,29 @@ async fn audit_w2_c06_targeted_ranking_ignores_unrelated_subject_count() -> Test
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn cold_rankings_are_marked_but_database_failures_are_not() -> TestResult {
+    let Some((pool, db, schema)) = seeded().await? else {
+        return Ok(());
+    };
+    sqlx::query("DELETE FROM public_snapshots WHERE family='highscores'")
+        .execute(&db)
+        .await?;
+    let app = rankings::router(db.clone(), true, Arc::new(Visible));
+    let request = || Request::get("/en/rankings/experience").body(Body::empty());
+    let cold = app.clone().oneshot(request()?).await?;
+    assert_eq!(cold.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(cold.headers()["x-oteryn-game-data"], "unavailable");
+    sqlx::query("ALTER TABLE public_snapshots RENAME TO broken_public_snapshots")
+        .execute(&db)
+        .await?;
+    let failed = app.oneshot(request()?).await?;
+    assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!failed.headers().contains_key("x-oteryn-game-data"));
+    assert_eq!(
+        to_bytes(cold.into_body(), 64 * 1024).await?,
+        to_bytes(failed.into_body(), 64 * 1024).await?,
+    );
+    cleanup(pool, db, schema).await
+}

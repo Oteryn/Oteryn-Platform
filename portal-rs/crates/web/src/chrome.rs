@@ -65,19 +65,17 @@ pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = if request.uri().path() == "/admin/media" {
-        let language = if Query::<LocaleQuery>::try_from_uri(request.uri())
-            .is_ok_and(|query| query.lang.as_deref() == Some("en"))
-        {
-            Language::En
-        } else {
-            Language::Pl
+        let query = Query::<LocaleQuery>::try_from_uri(request.uri()).ok();
+        let language = match query.as_ref().and_then(|query| query.lang.as_deref()) {
+            Some("en") => Language::En,
+            Some(_) => Language::Pl,
+            None => crate::surface::negotiate(request.headers()),
         };
         request.extensions_mut().insert(language);
         language
     } else {
-        crate::surface::path_language(request.uri().path())
-            .or_else(|| console_locale(request.uri()))
-            .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
+        console_locale(request.uri())
+            .unwrap_or_else(|| crate::surface::document_language(request.uri(), request.headers()))
     }
     .code();
     let (account, account_id) =
@@ -119,8 +117,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let staff_dashboard = if browser
         && matches!(account, oteryn_ui::Account::SignedIn { .. })
         && let Some(staff) = dashboard
-        && let Some(id) =
-            crate::session::chrome_session_account(&shell.sessions, &mut request).await
+        && let Some(id) = account_id
         && (staff.allows)(id).await
     {
         Some(staff.url)

@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Path, Request, State},
-    http::{StatusCode, header},
+    http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -27,21 +27,35 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
 
 pub fn public_router(pool: PgPool) -> Router {
     Router::new()
-        .route("/events", get(|| async { Redirect::to("/pl/events") }))
         .route(
-            "/events/{slug}",
-            get(|Path(slug): Path<String>| async move {
-                if valid_slug(&slug) {
-                    Redirect::to(&format!("/pl/events/{slug}")).into_response()
-                } else {
-                    StatusCode::NOT_FOUND.into_response()
-                }
+            "/events",
+            get(|headers: axum::http::HeaderMap| async move {
+                let locale = oteryn_ui::preferred_language(&headers);
+                Redirect::to(&format!("/{locale}/events"))
             }),
         )
+        .route("/events/{slug}", get(redirect_event))
         .route("/{locale}/events", get(index))
         .route("/{locale}/events/{slug}", get(show))
         .with_state(Events::new(pool))
         .layer(middleware::from_fn(headers))
+}
+async fn redirect_event(
+    State(events): State<Events>,
+    Path(slug): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    if !valid_slug(&slug) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let preferred = oteryn_ui::preferred_language(&headers);
+    match events.public_destination(&slug, preferred).await {
+        Ok(Some((locale, slug))) => {
+            Redirect::to(&format!("/{locale}/events/{slug}")).into_response()
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => response(error),
+    }
 }
 async fn headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
@@ -117,6 +131,7 @@ struct PublicPage<'a> {
     detail: bool,
     next: u64,
     next_label: String,
+    more: bool,
 }
 async fn index(
     State(events): State<Events>,
@@ -137,18 +152,15 @@ async fn index(
         .await
     {
         Ok(mut rows) => {
-            let next_label = if rows.len() > PAGE_SIZE {
-                rows.truncate(PAGE_SIZE);
-                text(&lang, "next")
-            } else {
-                String::new()
-            };
+            let more = rows.len() > PAGE_SIZE;
+            rows.truncate(PAGE_SIZE);
             oteryn_web::render(&PublicPage {
                 lang: &lang,
                 title: text(&lang, "events"),
                 empty: text(&lang, "empty"),
+                more,
                 next: q.next(),
-                next_label,
+                next_label: text(&lang, "next"),
                 events: rows,
                 detail: false,
             })
@@ -170,8 +182,9 @@ async fn show(
             empty: String::new(),
             events: rows,
             detail: true,
-            next_label: String::new(),
+            more: false,
             next: 0,
+            next_label: String::new(),
         }),
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => response(e),
@@ -217,20 +230,11 @@ fn staff_routes<A: AccountStateReader + 'static>(pool: PgPool, accounts: A) -> R
         .with_state(state)
         .layer(middleware::from_fn(headers))
 }
-fn lang(h: &axum::http::HeaderMap) -> &'static str {
-    if h.get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
-    }
-}
 #[derive(Template)]
 #[template(path = "admin/events/index.html", config = "src/events/askama.toml")]
 struct AdminList {
     next: u64,
+    next_label: String,
     more: bool,
     lang: &'static str,
     title: String,
@@ -242,10 +246,11 @@ async fn admin_index<A: AccountStateReader>(
     h: axum::http::HeaderMap,
     axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
 ) -> Response {
-    let lang = lang(&h);
+    let lang = crate::staff_language(&h);
     match s.events.list_page(q.offset(200)).await {
         Ok(rows) => oteryn_web::render(&AdminList {
             next: q.next(),
+            next_label: text(lang, "next"),
             more: rows.len() == 200,
             lang,
             title: text(lang, "events"),
@@ -350,7 +355,7 @@ async fn form<A: AccountStateReader>(
     h: axum::http::HeaderMap,
     id: Option<Uuid>,
 ) -> Response {
-    let lang = lang(&h);
+    let lang = crate::staff_language(&h);
     let (form, status) = if let Some(id) = id {
         let (e, en, pl) = match s.events.load(id).await {
             Ok(v) => v,

@@ -392,3 +392,9 @@ panel-characters-delete = Delete character
 panel-characters-restore = Restore character
 panel-characters-outfit-edit = Change outfit
 panel-characters-no-vocation = No vocation
+
+shell-mfa = Two-factor authentication
+shell-sudo = Confirm your password
+shell-email = Change email address
+shell-export = Download account data
+shell-termination = Close account

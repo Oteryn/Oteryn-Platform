@@ -12,6 +12,30 @@ locale = Język
 create = Utwórz lub edytuj
 
 not-published = Ta strona nie została jeszcze opublikowana.
+
+next = Następna strona
+announcements = Ogłoszenia
+announcement-list = Lista
+announcement-create = Utwórz
+announcement-instructions = Szkice są prywatne, a opublikowane ogłoszenia są publiczne. Wpisz daty w formacie RFC 3339 (UTC). Edytuj razem angielski tekst źródłowy i polskie tłumaczenie. Ustaw nową datę zatwierdzenia, aby zatwierdzić bieżące tłumaczenie.
+announcement-draft = Szkic
+announcement-published = Opublikowane
+announcement-info = Informacja
+announcement-maintenance = Przerwa techniczna
+announcement-warning = Ostrzeżenie
+announcement-publication-state = Publikacja
+announcement-severity = Ważność
+announcement-starts-at = Początek (UTC)
+announcement-ends-at = Koniec (UTC, opcjonalny)
+announcement-title = Tytuł (angielski)
+announcement-body = Treść (angielska)
+announcement-action-label = Etykieta akcji (angielska)
+announcement-action-url = Ścieżka akcji
+announcement-title-pl = Tytuł (polski)
+announcement-body-pl = Treść (polska)
+announcement-action-label-pl = Etykieta akcji (polska)
+announcement-translation-published-at = Data zatwierdzenia tłumaczenia (UTC)
+
 support = Pomoc dla graczy
 report-a-bug = Zgłoś błąd
 help-tickets = Wyślij zgłoszenie do pomocy

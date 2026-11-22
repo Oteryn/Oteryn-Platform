@@ -67,6 +67,7 @@ pub enum Error {
     Disabled,
     Invalid,
     Unavailable,
+    MissingGameData,
     NotFound,
 }
 #[derive(Clone, Debug, Default)]

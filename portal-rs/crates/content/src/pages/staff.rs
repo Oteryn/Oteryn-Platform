@@ -109,15 +109,7 @@ async fn index(
         ))
         .into_response();
     }
-    let lang = if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
-    };
+    let lang = crate::staff_language(&headers);
     let rows:Result<Vec<(String,String)>,_>=sqlx::query_as("SELECT p.slug,e.locale FROM pages p JOIN editorial_pages e ON e.page_id=p.id ORDER BY p.slug,e.locale LIMIT 500 OFFSET $1").bind(i64::from(query.page)*500).fetch_all(&pool).await;
     match rows {
         Ok(rows) => oteryn_web::render(&Listing {
@@ -128,6 +120,7 @@ async fn index(
             slug_label: text(lang, "slug"),
             locale_label: text(lang, "locale"),
             create_label: text(lang, "create"),
+            next_label: text(lang, "next"),
             rows,
         }),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -150,6 +143,7 @@ struct Listing {
     slug_label: String,
     locale_label: String,
     create_label: String,
+    next_label: String,
     rows: Vec<(String, String)>,
 }
 async fn edit(

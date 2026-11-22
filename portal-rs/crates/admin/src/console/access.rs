@@ -495,6 +495,16 @@ pub(crate) fn language(value: Option<&str>) -> Result<&'static str, Error> {
         _ => Err(Error::BadInput),
     }
 }
+pub(super) fn request_language(
+    value: Option<&str>,
+    headers: &axum::http::HeaderMap,
+) -> Result<&'static str, Error> {
+    match value {
+        Some(value) => language(Some(value)),
+        None => Ok(oteryn_web::negotiate(headers).code()),
+    }
+}
+
 pub(crate) fn tr(lang: &str, key: &str) -> String {
     let locale = if lang == "en" { "en" } else { "pl" };
     let Ok(id) = locale.parse::<unic_langid::LanguageIdentifier>() else {
@@ -631,7 +641,7 @@ pub(crate) async fn page<B: Backend>(
     Query(input): Query<Locale>,
 ) -> Result<Response, Error> {
     state.check(actor, "admin.roles.manage").await?;
-    let lang = language(input.lang.as_deref())?;
+    let lang = request_language(input.lang.as_deref(), &headers)?;
     let roles: Vec<(String,String)> = sqlx::query_as("SELECT r.key, COALESCE(rp.permission,'') FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id ORDER BY r.key, rp.permission LIMIT 1000").fetch_all(&state.pool).await?;
     let metadata = state.backend.access().await?;
     let mut page = Page::new(lang, "access");

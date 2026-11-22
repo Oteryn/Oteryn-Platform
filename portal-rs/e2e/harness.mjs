@@ -55,6 +55,8 @@ if (crawl && (outbox || fixtureOwned || argv.includes('--puzzle-browser') || see
   throw new Error('The crawl requires its own disposable fixture');
 }
 
+const roles = argv.includes('--serve-only') ? ['serve'] : ['serve', 'worker', 'gateway'];
+
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
   const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line.trim());
@@ -231,6 +233,7 @@ async function stopChild({ child, closed }) {
 let closing = false;
 let browserNetwork;
 let createRequested = false;
+let createConfirmed = false;
 let creation;
 async function close(code = 0) {
   if (closing) return;
@@ -248,7 +251,7 @@ async function close(code = 0) {
     log('failed to stop services for database', dbName);
     code = 1;
   }
-  if ((createRequested || crawlDatabase?.roleRequested) && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+  if ((createRequested || crawlDatabase?.roleRequested) && !(createConfirmed && process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
     try {
       await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName), {
         dropDatabase: createRequested,
@@ -291,6 +294,7 @@ async function createDatabase() {
     createRequested = true;
     try {
       await admin.query('CREATE DATABASE "' + dbName + '"' + (crawlDatabase?.ownerClause ?? ''));
+      createConfirmed = true;
     } catch (error) {
       // A definite name collision belongs to the existing database owner.
       if (error.code === '42P04') {
@@ -409,7 +413,7 @@ async function start() {
   }
 
   // ---- services ----------------------------------------------------------------
-  for (const role of ['serve', 'worker', 'gateway']) {
+  for (const role of roles) {
     const file = path.join(dirs.logs, `${role}.log`);
     const fd = fs.openSync(file, 'a');
     try {
@@ -448,7 +452,9 @@ async function start() {
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.http, path: '/', method: 'GET' }).then(() => true), 'public listener');
   await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
-  await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
+  if (roles.includes('gateway')) {
+    await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
+  }
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------
@@ -497,7 +503,7 @@ async function start() {
     internalServerName: 'localhost',
     clients: Object.fromEntries(Object.entries(clients).map(([name, c]) => [name, { san: c.san, env: c.env, cert: c.cert, key: c.key }])),
     witnessDirectory: dirs.witness,
-    logs: Object.fromEntries(['migrate', 'serve', 'worker', 'gateway'].map(role => [role, path.join(dirs.logs, `${role}.log`)])),
+    logs: Object.fromEntries(['migrate', ...roles].map(role => [role, path.join(dirs.logs, `${role}.log`)])),
     seed,
     pending,
     pid: process.pid,

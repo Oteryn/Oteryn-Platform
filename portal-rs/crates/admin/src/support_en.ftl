@@ -71,3 +71,5 @@ error-unavailable = Support is temporarily unavailable.
 report-evidence = Report evidence
 escalate-report = Escalate for review
 dismiss-report = Dismiss report
+
+tickets = Support tickets

@@ -417,17 +417,6 @@ impl SessionLayer {
         }
     }
 }
-pub(crate) async fn chrome_session_account(
-    layer: &SessionLayer,
-    request: &mut Request,
-) -> Option<Uuid> {
-    read_signed_in(layer, request)
-        .await
-        .ok()
-        .flatten()
-        .map(|session| session.account_id)
-}
-
 /// Attach after route matching. Deployment overrides can be supplied as outer
 /// `Extension<SessionConfig>` and `Extension<CsrfConfig>` layers on the public router.
 pub async fn middleware(

@@ -222,7 +222,11 @@ impl<A: Authority> League<A> {
     }
     async fn read_inner(&self) -> Result<Vec<Snapshot>> {
         if !self.flags.ready() || !self.flags.public {
-            return Err(Error::Unavailable);
+            return Err(if self.flags.invalid_policy {
+                Error::InvalidPolicy
+            } else {
+                Error::MissingGameData
+            });
         }
         let mut tx = begin(&self.pool).await?;
         #[cfg(test)]
