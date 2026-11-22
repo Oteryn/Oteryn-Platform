@@ -50,8 +50,12 @@ async fn signed_in(pool: &PgPool) -> Result<(Uuid, String), sqlx::Error> {
 
 #[tokio::test]
 async fn activity_reads_only_session_owned_rows_and_rejects_invalid_requests() -> TestResult {
+    let Ok(database_url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        eprintln!("Bazaar activity integration test requires PORTAL_TEST_DATABASE_URL");
+        return Ok(());
+    };
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
-    let pool = PgPool::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    let pool = PgPool::connect(&database_url).await?;
     oteryn_db::migrate(&pool).await?;
     let (seller, seller_cookie) = signed_in(&pool).await?;
     let (buyer, buyer_cookie) = signed_in(&pool).await?;
