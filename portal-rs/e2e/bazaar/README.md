@@ -53,27 +53,16 @@ which browser surface should expose the item search.
 
 ## Run
 
-Use a disposable local PostgreSQL instance and install the existing Playwright
-dependencies as in the [browser harness README](../README.md). Run these from
-`portal-rs/e2e` with `PORTAL_E2E_BINARY` pointing to the built portal.
+Use the disposable local PostgreSQL instance and installed Playwright
+dependencies described in the [browser harness README](../README.md). From
+`portal-rs/e2e`, export `PORTAL_E2E_ADMIN_DATABASE_URL` in both shells, then
+start the Game-backed stack with `node local.mjs`. The fallback test starts and stops its own `harness.mjs`
+instance on port 18082 with a separate disposable database.
 
-With `node local.mjs` serving the Game-backed stack:
-
-```sh
-node run.mjs /absolute/scratch/env.json test --config=bazaar/playwright.config.mjs --grep 'Game runtime'
-```
-
-After stopping that stack, start the fallback with the existing cross-repository
-harness and its default ports. Disable restore-notice as in the browser launcher
-so Store delivery and restore-notice do not conflict during startup.
+The default Playwright config used by the workflow discovers both Bazaar tests
+and includes their results in the normal project and shard totals. The dedicated
+config runs the same two tests on their own.
 
 ```sh
-PORTAL_GAME_RESTORE_NOTICE_ENABLED=false node harness.mjs
-```
-
-In another shell, use the harness's private environment file to load the local
-database configuration.
-
-```sh
-PORTAL_E2E_ORIGIN=http://localhost:18080 node run.mjs .harness/run/secrets/env.json test --config=bazaar/playwright.config.mjs --grep fallback
+node run.mjs /absolute/scratch/env.json test --config=bazaar/playwright.config.mjs --project=pl-1440 --project=en-390
 ```

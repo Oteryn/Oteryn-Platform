@@ -4,4 +4,5 @@ import config from '../playwright.config.mjs';
 export default defineConfig({
   ...config,
   testDir: '.',
+  testMatch: 'legacy.spec.mjs',
 });
