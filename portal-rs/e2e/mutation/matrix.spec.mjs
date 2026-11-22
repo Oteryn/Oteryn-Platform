@@ -52,11 +52,11 @@ async function rejected({ page, url, fields, snapshot, baseline, method = 'POST'
   expect(await snapshot()).toEqual(baseline);
 }
 
-async function wrongActor({ page, lang, url, fields, status, snapshot, baseline }) {
+async function wrongActor({ page, lang, url, fields, status, snapshot, baseline, method = 'POST' }) {
   await page.goto(`/${lang}/login`);
   const csrf = await page.locator('main form [name=_csrf]').inputValue();
   expect(Boolean(csrf), 'anonymous actor has its own CSRF token').toBe(true);
-  const response = await sendForm(page, url, { ...fields, _csrf: csrf });
+  const response = await sendForm(page, url, { ...fields, _csrf: csrf }, method);
   expect(response.status()).toBe(status);
   expect(await snapshot()).toEqual(baseline);
 }
@@ -105,49 +105,53 @@ async function seededPlayer(page, lang, role) {
 
 const formSelector = 'main form[method=post]';
 
-test('account privacy preferences', async ({ page, browser }, info) => {
-  const lang = info.project.metadata.locale;
-  const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL,
-    ignoreHTTPSErrors: true,
-    locale: lang,
+for (const method of ['POST', 'PUT']) {
+  test(`account privacy preferences (${method})`, async ({ page, browser }, info) => {
+    const lang = info.project.metadata.locale;
+    const anonymous = await browser.newContext({
+      baseURL: info.project.use.baseURL,
+      ignoreHTTPSErrors: true,
+      locale: lang,
+    });
+    try {
+      const account = await seededPlayer(page, lang);
+      expect((await page.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+      await page.locator('[name=locale]').selectOption(lang);
+      const snapshot = () => query(
+        'SELECT public_account_association, public_status_visible, locale FROM accounts WHERE id=$1',
+        [account.id],
+      );
+      const baseline = await snapshot();
+      const { url, fields } = await prepare(page, formSelector, {
+        public_account_association: '1', public_status_visible: '1',
+      });
+      await rejected({ page, url, fields, snapshot, baseline, method });
+      await wrongActor({ page: await anonymous.newPage(), lang, url, fields, status: 403, snapshot, baseline, method });
+      await invalid({
+        page, url, fields, snapshot, baseline, method,
+        message: lang === 'pl'
+          ? 'Sprawdź ustawienia prywatności i wybierz język polski lub angielski.'
+          : 'Check the privacy settings and select Polish or English.',
+        samples: [
+          { name: 'empty locale', patch: { locale: '' } },
+          { name: 'overlong locale', patch: { locale: 'en'.repeat(256) } },
+          { name: 'wrong boolean type', patch: { public_status_visible: 'abc' } },
+          { name: 'boolean beyond the upper boundary', patch: { public_status_visible: '2' } },
+        ],
+      });
+      await useFormMethod(page, url, method, () => submit(page, formSelector, {
+        public_account_association: true, public_status_visible: true,
+      }));
+      await expect(page.locator('[name=public_account_association]')).toBeChecked();
+      await expect(page.locator('[name=public_status_visible]')).toBeChecked();
+      expect(await snapshot()).toEqual([{
+        public_account_association: true, public_status_visible: true, locale: lang,
+      }]);
+    } finally {
+      await anonymous.close();
+    }
   });
-  try {
-    const account = await seededPlayer(page, lang);
-    expect((await page.goto(`/${lang}/account/privacy`)).status()).toBe(200);
-    await page.locator('[name=locale]').selectOption(lang);
-    const snapshot = () => query(
-      'SELECT public_account_association, public_status_visible, locale FROM accounts WHERE id=$1',
-      [account.id],
-    );
-    const baseline = await snapshot();
-    const { url, fields } = await prepare(page, formSelector, {
-      public_account_association: '1', public_status_visible: '1',
-    });
-    await rejected({ page, url, fields, snapshot, baseline });
-    await wrongActor({ page: await anonymous.newPage(), lang, url, fields, status: 403, snapshot, baseline });
-    await invalid({
-      page, url, fields, snapshot, baseline,
-      message: lang === 'pl'
-        ? 'Sprawdź ustawienia prywatności i wybierz język polski lub angielski.'
-        : 'Check the privacy settings and select Polish or English.',
-      samples: [
-        { name: 'empty locale', patch: { locale: '' } },
-        { name: 'overlong locale', patch: { locale: 'en'.repeat(256) } },
-        { name: 'wrong boolean type', patch: { public_status_visible: 'abc' } },
-        { name: 'boolean beyond the upper boundary', patch: { public_status_visible: '2' } },
-      ],
-    });
-    await submit(page, formSelector, { public_account_association: true, public_status_visible: true });
-    await expect(page.locator('[name=public_account_association]')).toBeChecked();
-    await expect(page.locator('[name=public_status_visible]')).toBeChecked();
-    expect(await snapshot()).toEqual([{
-      public_account_association: true, public_status_visible: true, locale: lang,
-    }]);
-  } finally {
-    await anonymous.close();
-  }
-});
+}
 
 test('ticket creation and exact request-key replay', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
@@ -715,5 +719,122 @@ test('player report persists one private report for the submitted request key', 
     expect(await snapshot()).toEqual(submitted);
   } finally {
     await reader.close();
+  }
+});
+
+test('wallet transfer binds one debit and credit to the sending actor', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const recipientContext = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  const otherContext = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  try {
+    const sender = await seededPlayer(page, lang);
+    const recipient = await seededPlayer(await recipientContext.newPage(), lang);
+    const otherPage = await otherContext.newPage();
+    await seededPlayer(otherPage, lang, 'content_editor');
+
+    await page.goto(`/${lang}/shop/coins`);
+    await submit(page, packageForm);
+    const checkout = new URL(page.url()).pathname;
+    const intent = checkout.split('/').at(-1);
+    await page.locator('main form button[value=pay]').click();
+    const wallet = account => query(
+      'SELECT coalesce(sum(available_delta), 0)::text AS available FROM wallet_entries WHERE account_id=$1',
+      [account],
+    );
+    await expect.poll(() => wallet(sender.id), { timeout: 30_000 }).toEqual([{ available: '1234' }]);
+    expect((await query('SELECT state, provider FROM payment_intents WHERE id=$1', [intent])))
+      .toEqual([{ state: 'succeeded', provider: 'test' }]);
+
+    const transfer = `/${lang}/shop/transfer`;
+    const selector = 'main form[action$="/shop/transfer"]';
+    expect((await otherPage.goto(transfer)).status()).toBe(200);
+    const otherToken = await otherPage.locator(`${selector} [name=_csrf]`).inputValue();
+    expect((await page.goto(transfer)).status()).toBe(200);
+    const values = { recipient: recipient.id, amount: '34' };
+    const { url, fields } = await prepare(page, selector, values);
+    const snapshot = async () => ({
+      entries: await query(
+        'SELECT account_id, available_delta FROM wallet_entries WHERE operation_id=$1 ORDER BY available_delta',
+        [fields.operation],
+      ),
+      sender: await wallet(sender.id),
+      recipient: await wallet(recipient.id),
+    });
+    const baseline = { entries: [], sender: [{ available: '1234' }], recipient: [{ available: '0' }] };
+    expect(await snapshot()).toEqual(baseline);
+    await rejected({ page, url, fields, snapshot, baseline });
+    expect((await sendForm(otherPage, url, { ...fields, _csrf: otherToken })).status()).toBe(403);
+    expect(await snapshot()).toEqual(baseline);
+    await invalid({ page, url, fields, snapshot, baseline, message: storeError[lang], samples: [
+      { name: 'empty amount', patch: { amount: '' } },
+      { name: 'overlong amount', patch: { amount: '9'.repeat(128) } },
+      { name: 'wrong recipient type', patch: { recipient: 'bad' } },
+      { name: 'zero below the minimum transfer', patch: { amount: '0' } },
+    ] });
+
+    await submit(page, selector, values);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/shop/history$`));
+    await expect(page.locator('main dl dd').first()).toHaveText('1200');
+    const done = {
+      entries: [
+        { account_id: sender.id, available_delta: '-34' },
+        { account_id: recipient.id, available_delta: '34' },
+      ],
+      sender: [{ available: '1200' }],
+      recipient: [{ available: '34' }],
+    };
+    expect(await snapshot()).toEqual(done);
+    expect((await sendForm(page, url, fields)).status()).toBe(303);
+    expect(await snapshot()).toEqual(done);
+    expect((await sendForm(otherPage, url, { ...fields, _csrf: otherToken })).status()).toBe(409);
+    expect(await snapshot()).toEqual(done);
+  } finally {
+    await Promise.all([otherContext.close(), recipientContext.close()]);
+  }
+});
+
+test('unwired hunt sharing, shop purchasing and bearer-only watches expose their closed boundaries', async ({ page }, info) => {
+  const lang = info.project.metadata.locale;
+  const player = await seededPlayer(page, lang);
+  await page.goto(`/${lang}/account/privacy`);
+  const { fields } = await prepare(page, formSelector);
+  const base = new URL(page.url()).origin;
+  const huntShare = `/${lang}/account/hunts/${uuid7()}/share`;
+  const unavailableShare = await page.goto(huntShare);
+  expect(unavailableShare.status()).toBe(503);
+  expect(unavailableShare.headers()['cache-control']).toContain('no-store');
+  await expect(page.locator(formSelector)).toHaveCount(0);
+  const refusedShare = await sendForm(page, new URL(huntShare, base).href, fields);
+  expect(refusedShare.status()).toBe(503);
+  expect(refusedShare.headers()['cache-control']).toContain('no-store');
+
+  const shop = `/${lang}/shop`;
+  const shopPage = await page.goto(shop);
+  expect(shopPage.status()).toBe(200);
+  await expect(page.locator(formSelector)).toHaveCount(0);
+  const operation = uuid7();
+  const deniedPurchase = await sendForm(page, new URL(shop, base).href, {
+    _csrf: fields._csrf, operation, character: uuid7(), world: uuid7(),
+    offer: 'matrix', price: '1', quantity: '1', revision: 'matrix',
+  });
+  expect(deniedPurchase.status()).toBe(503);
+  expect(await deniedPurchase.text()).toContain(lang === 'pl'
+    ? 'Operacja jest niedostępna. Powodzenie nie zostało potwierdzone.'
+    : 'This operation is unavailable. No success has been confirmed.');
+  expect(await query('SELECT order_id FROM store_orders WHERE account_id=$1', [player.id])).toEqual([]);
+
+  const watch = new URL('/api/v1/stats/watches', base);
+  for (const method of ['POST', 'DELETE']) {
+    const response = await page.request.fetch(watch.href, {
+      method, headers: { origin: base }, data: { source: 'matrix' },
+    });
+    expect(response.status()).toBe(401);
+    expect(response.headers()['cache-control']).toContain('no-store');
+    expect(await query('SELECT account_id FROM stats_watches WHERE account_id=$1', [player.id])).toEqual([]);
   }
 });

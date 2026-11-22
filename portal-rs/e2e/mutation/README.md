@@ -19,7 +19,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 
 | Browser mutation | a | b | c | d | e |
 | --- | --- | --- | --- | --- | --- |
-| `/{lang}/account/privacy` | Yes | Yes | Anonymous | Yes | Each save advances the revision |
+| `/{lang}/account/privacy` (POST and PUT) | Yes | Yes | Anonymous | Yes | Each save advances the revision |
 | `/{lang}/support/tickets` | Yes | Yes | Anonymous | Yes | Request-key replay |
 | `/{lang}/support/tickets/{id}/reply` | Yes | Yes | Foreign player | Yes | Stale lock version |
 | `/{lang}/support/tickets/{id}/status` (POST and PUT, close and reopen) | Yes | Yes | Foreign player | Yes | Stale lock version |
@@ -28,12 +28,22 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/support/tickets/{id}/read` | Yes | Yes | Foreign player and content editor | Yes | Unread flag clears once |
 | `/{lang}/support/reports` | Yes | Yes | Anonymous, and report stays private from another player | Yes | Request-key replay |
 | `/{lang}/shop/coins` | Yes | Yes | Anonymous | Yes | Operation replay |
+| `/{lang}/shop/transfer` | Yes | Yes | Content editor with a separate wallet | Yes | One debit and one credit |
 | `/{lang}/shop/test-checkout/{intent}` (pay) | Yes | Yes | Foreign player | Yes | One event and one credit |
 | `/{lang}/shop/test-checkout/{intent}` (reject) | Yes | Yes | Foreign player | Yes | One event and zero credits |
 | `/{lang}/shop/test-checkout/{intent}` (cancel) | Yes | Yes | Foreign player | Yes | One event and zero credits |
 | `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous | Yes | Submission replay |
 
 The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, daily puzzle answers, and collection PvP and set purchases. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, daily puzzle catalogue, or the collection PvP gameplay and wallet adapters. The standard matrix proves that the character creation form persists one pending command. The separate Game publisher run proves the terminal receipt and visible creation result.
+
+Additional refusal boundaries were verified in all four projects. Hunt sharing
+returns 503 because the browser composition closes the share route pending its
+accepted party privacy scope. The shop purchase form is absent because the
+configured browser shop has no authoritative Game ownership adapter and
+sets purchases off. A signed-in browser receives 503 on the attempted purchase,
+and no store order is persisted. Stats watch POST and DELETE refuse browser
+cookies with 401 and no subscription. These routes are bearer-only and the
+configured policy denies all bearer principals until the T66 adapter is wired.
 
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 
