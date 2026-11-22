@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { isGameUnavailable } from './game-unavailable.mjs';
 
 const require = createRequire(import.meta.url);
 const { test, expect } = require('@playwright/test');
@@ -190,7 +191,7 @@ async function checkRegistration(page, url, language, defect) {
   }
 }
 
-async function openPage(context, source, report, request) {
+async function openPage(context, source, report, request, responseNote) {
   const page = await context.newPage();
   const session = await context.newCDPSession(page);
   const documentResponses = new Map();
@@ -226,9 +227,8 @@ async function openPage(context, source, report, request) {
       try {
         const response = await request(url, intercepted.method);
         if (resourceType === 'Document') documentResponses.set(url.href, response);
-        const expectedLegal = resourceType === 'Document' && legalPath.test(url.pathname) &&
-          [404, 410].includes(response.status);
-        if (!expectedLegal && (response.status < 200 || response.status >= 400)) {
+        const expectedUnavailable = resourceType === 'Document' && responseNote(url, response);
+        if (!expectedUnavailable && (response.status < 200 || response.status >= 400)) {
           report('broken links', source, `HTTP ${response.status} ${url.href}`);
         }
         const responseHeaders = [...response.headers]
@@ -281,7 +281,19 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
   };
   const note = (url, evidence) => notes.add(JSON.stringify({ url: String(url), evidence }));
 
-  async function probe(source, target) {
+  function responseNote(url, result) {
+    if (legalPath.test(url.pathname) && [404, 410].includes(result.status)) {
+      note(url, `legal content unavailable (HTTP ${result.status})`);
+      return true;
+    }
+    if (url.origin === home.origin && isGameUnavailable(url, result)) {
+      note(url, 'Game data unavailable (HTTP 503, localized portal view, no-store)');
+      return true;
+    }
+    return false;
+  }
+
+  async function probe(source, target, document = true) {
     const seen = new Set();
     let url = target;
     try {
@@ -294,9 +306,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
           if (!origins.has(url.origin)) return result;
           continue;
         }
-        if (legalPath.test(url.pathname) && [404, 410].includes(result.status)) {
-          note(target, `legal content unavailable (HTTP ${result.status})`);
-        } else if (result.status < 200 || result.status >= 400) {
+        if ((result.status < 200 || result.status >= 400) && !(document && responseNote(url, result))) {
           defect('broken links', source, `HTTP ${result.status} ${url.href}`);
         }
         return result;
@@ -348,7 +358,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       defect('other', url, `expected a rendered HTML page, received ${first.headers.get('content-type') || '(no content-type)'}`);
       continue;
     }
-    const browser = await openPage(context, url.href, defect, request);
+    const browser = await openPage(context, url.href, defect, request, responseNote);
     const { page, documentResponses } = browser;
     try {
       await page.goto(url.href, { waitUntil: 'load', timeout: 90_000 });
@@ -411,7 +421,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         }
         const link = data.links.includes(value);
         const locale = target.pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1];
-        const response = await probe(final, target);
+        const response = await probe(final, target, link && !data.assets.includes(value));
         if (link && response?.status < 400 && response.headers.get('content-type')?.includes('text/html') &&
             (!locale || locale === language)) enqueue(target);
       }

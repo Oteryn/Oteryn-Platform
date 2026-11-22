@@ -35,3 +35,9 @@ requests. `LIVE DEFECT` records hard findings with their source URLs.
 `LIVE NOTE` records legal content status, a pending security.txt 404, and
 unavailable or excluded coverage. The JSON report for each project is attached
 to the Playwright result in the run's temporary directory.
+
+While the Game feed is pending, a known public Game-data route with HTTP 503
+is report-only when it serves HTML with the route's localized unavailable view
+and a `Cache-Control: no-store` directive. The check requires the matching
+document language and the specific heading and refusal markers in the main
+content. Unexpected error responses and failing assets remain hard findings.
