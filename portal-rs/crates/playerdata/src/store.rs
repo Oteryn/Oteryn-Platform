@@ -357,7 +357,7 @@ fn decimal_row(row: &sqlx::postgres::PgRow, name: &str) -> Result<u64> {
 /// delivery of an authority the account has no stream for yet. Lock order is
 /// global: this account lock first, then authority locks in ascending order, so
 /// erasure and delivery cannot deadlock.
-async fn lock_account(tx: &mut Transaction<'_, Postgres>, account: &str) -> Result<()> {
+pub(crate) async fn lock_account(tx: &mut Transaction<'_, Postgres>, account: &str) -> Result<()> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,73))")
         .bind(account)
         .execute(&mut **tx)

@@ -12,3 +12,7 @@ locale = Język
 create = Utwórz lub edytuj
 
 not-published = Ta strona nie została jeszcze opublikowana.
+support = Pomoc dla graczy
+report-a-bug = Zgłoś błąd
+help-tickets = Wyślij zgłoszenie do pomocy
+help-password = Odzyskaj dostęp do konta

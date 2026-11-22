@@ -790,10 +790,12 @@ ownership('Atlas bestiary and Collection fail closed with only a verified roster
     [b.id, character],
   );
   const options = {status: 503, privateValues: [character, name, b.id], snapshot};
-  for (const path of [`/${lang}/atlas/bestiary/${character}`, `/${lang}/collection/${character}`]) {
-    await check(b.page, path, options);
-    await check(a.page, path, options);
-  }
+  const bestiary = `/${lang}/atlas/bestiary/${character}`;
+  await check(b.page, bestiary, options);
+  await check(a.page, bestiary, options);
+  const collection = `/${lang}/collection/${character}`;
+  await check(b.page, collection, options);
+  await check(a.page, collection, {...options, status: 403});
 });
 
 ownership('Bazaar promotion form is scoped to the seller', async ({players: {a, b, lang}, operator, request}) => {

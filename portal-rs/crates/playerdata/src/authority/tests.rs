@@ -3027,3 +3027,68 @@ async fn fx_expired_remove_allows_next_login() {
     assert_eq!(history(&db, SELLER).await, vec![event]);
     db.close().await;
 }
+
+#[tokio::test]
+async fn collection_evidence_requires_current_ownership_and_valid_character_id() {
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    db.account(SELLER, "1", "1").await;
+    db.account(BUYER, "1", "1").await;
+    db.exec("UPDATE accounts SET email_verified_at=now()", &[])
+        .await;
+    db.character(SELLER, CHARACTER, WORLD).await;
+    db.baseline(SELLER, CHARACTER, WORLD, ["1", "1", "1", "1", "1"])
+        .await;
+    let owner = uuid(SELLER).unwrap();
+    let other = uuid(BUYER).unwrap();
+    let character = uuid(CHARACTER).unwrap();
+    let read = async |actor, character| {
+        CollectionEvidence::read(
+            db.pool.begin().await.unwrap(),
+            actor,
+            character,
+            ITEMS_AUTHORITY,
+            PROGRESS_AUTHORITY,
+        )
+        .await
+    };
+
+    assert_eq!(
+        CollectionEvidence::characters(db.pool.begin().await.unwrap(), owner)
+            .await
+            .unwrap(),
+        vec![(character, "Hero".into())]
+    );
+    assert!(
+        CollectionEvidence::characters(db.pool.begin().await.unwrap(), other)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let evidence = read(owner, character).await.unwrap();
+    assert_eq!(evidence.inventory_updated_ms, None);
+    assert_eq!(evidence.bestiary_feed_updated_ms, None);
+    assert!(matches!(read(other, character).await, Err(Error::Denied)));
+    assert!(matches!(
+        read(owner, Uuid::now_v7()).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        read(owner, Uuid::nil()).await,
+        Err(Error::Invalid)
+    ));
+
+    db.pending_transfer(CHARACTER).await;
+    assert!(matches!(
+        read(owner, character).await,
+        Err(Error::Unavailable)
+    ));
+    assert!(
+        CollectionEvidence::characters(db.pool.begin().await.unwrap(), owner)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    db.close().await;
+}
