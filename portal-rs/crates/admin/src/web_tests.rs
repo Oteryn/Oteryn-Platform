@@ -135,6 +135,7 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            invites_label: text(lang, "invite-title"),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -148,6 +149,7 @@ fn localized_responsive_labelled_template() {
         .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains("href=\"/admin/staff-invites\""));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));

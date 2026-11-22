@@ -60,8 +60,8 @@ export async function seedPasswordRange(value) {
     await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
   } finally { await db.end(); }
 }
-export async function register(page,lang) {
-  const email=`browser-${crypto.randomUUID()}@local.test`, pass=password();
+export async function register(page,lang,email=`browser-${crypto.randomUUID()}@local.test`) {
+  const pass=password();
   await seedPasswordRange(pass);
   const registration=await page.goto(`/${lang}/register`);
   expect(registration.status()).toBe(200);

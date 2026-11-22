@@ -359,31 +359,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     if !identity.mfa_satisfied {
         return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
     }
-    let proof = match (
-        session.identity_hash().await,
-        session
-            .get(oteryn_web::session::SessionKey::<String>::new(
-                oteryn_identity::mfa::SESSION_GRANT_KEY,
-            ))
-            .await,
-    ) {
-        (Some(hash), Ok(Some(grant))) => {
-            use sha2::{Digest, Sha256};
-            hash.try_into()
-                .ok()
-                .map(|session_hash| crate::rbac::SessionProof {
-                    session_hash,
-                    grant_hash: Sha256::digest(grant.as_bytes()).into(),
-                })
-        }
-        _ => None,
-    };
-    let context = CheckContext {
-        account: identity.account,
-        require_staff_mfa: true,
-        mfa_verified: true,
-        session_proof: proof,
-    };
+    let context = staff_context(session, identity).await;
     let permission = s
         .required
         .unwrap_or(if request.uri().path() == "/admin/roles" {
@@ -408,6 +384,36 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         .insert(crate::rbac::MutationAuthorization::new(s.auth.clone()));
     next.run(request).await
 }
+pub(crate) async fn staff_context(
+    session: &BrowserSession,
+    identity: StaffIdentity,
+) -> CheckContext {
+    let session_proof = match (
+        session.identity_hash().await,
+        session
+            .get(oteryn_web::session::SessionKey::<String>::new(
+                oteryn_identity::mfa::SESSION_GRANT_KEY,
+            ))
+            .await,
+    ) {
+        (Some(hash), Ok(Some(grant))) => {
+            use sha2::{Digest, Sha256};
+            hash.try_into()
+                .ok()
+                .map(|session_hash| crate::rbac::SessionProof {
+                    session_hash,
+                    grant_hash: Sha256::digest(grant.as_bytes()).into(),
+                })
+        }
+        _ => None,
+    };
+    CheckContext {
+        account: identity.account,
+        require_staff_mfa: true,
+        mfa_verified: identity.mfa_satisfied,
+        session_proof,
+    }
+}
 async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     audit::append(
@@ -427,7 +433,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
+pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
@@ -438,7 +444,7 @@ fn language(headers: &axum::http::HeaderMap) -> &'static str {
         "pl"
     }
 }
-fn text(lang: &str, key: &str) -> String {
+pub(crate) fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
     };
@@ -466,6 +472,7 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    invites_label: String,
     account_label: String,
     role_label: String,
     grant: String,
@@ -539,6 +546,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        invites_label: text(lang, "invite-title"),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

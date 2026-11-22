@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.tr("invite-heading") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ self.tr("invite-heading") }}</h1>
+  <p>{{ self.tr(message) }}</p>
+  {% if message == "invite-sign-in" %}
+  <div class="op-row">
+    <a class="op-button" href="/{{ lang }}/login">{{ self.tr("invite-login") }}</a>
+    <a class="op-button op-button--secondary" href="/{{ lang }}/register">{{ self.tr("invite-register") }}</a>
+  </div>
+  {% elif message == "invite-mfa" %}
+  <div><a class="op-button" href="/{{ lang }}/mfa">{{ self.tr("invite-enroll") }}</a></div>
+  {% elif !token.is_empty() %}
+  <form method="post" action="/{{ lang }}/staff-invite">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button class="op-button">{{ self.tr("invite-accept") }}</button>
+  </form>
+  {% endif %}
+</main>
+</body>
+</html>

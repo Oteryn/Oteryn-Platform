@@ -53,6 +53,9 @@ macro_rules! policies {
 }
 policies! {
     PublicGameData, "public-game-data", 120, 60, Source;
+    StaffInviteManage, "staff-invite-manage", 12, 60, AccountSource;
+    StaffInviteLink, "staff-invite-link", 60, 60, Source;
+    StaffInviteAccept, "staff-invite-accept", 12, 60, AccountSource;
     IdentityRegistration, "identity-registration", 5, 60, Source;
     IdentityLogin, "identity-login", 5, 60, EmailSource;
     IdentityLoginSource, "identity-login-source", 20, 60, Source;

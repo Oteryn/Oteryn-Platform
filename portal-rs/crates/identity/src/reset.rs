@@ -40,7 +40,8 @@ impl DeliveryKey {
         }
         Some(Self(bytes))
     }
-    fn seal(&self, token: &str) -> Result<Vec<u8>, sqlx::Error> {
+    /// Encrypt a one-use token for storage in a mail delivery job.
+    pub fn seal(&self, token: &str) -> Result<Vec<u8>, sqlx::Error> {
         let mut nonce = [0; 12];
         getrandom::fill(&mut nonce).map_err(|_| unavailable())?;
         let mut ciphertext = ChaCha20Poly1305::new((&self.0).into())

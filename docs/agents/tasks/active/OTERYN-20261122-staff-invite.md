@@ -1,0 +1,80 @@
+---
+task_id: OTERYN-20261122-staff-invite
+governing_issue: 2002
+required_reads: []
+search_first: []
+optional_reads: []
+---
+
+# Staff invitations
+
+Governing issue [#2002](https://github.com/Oteryn/Oteryn-Platform/issues/2002)
+
+Allow staff role managers to send and revoke email invitations. Accept only from the matching verified account after MFA. Keep the one-use credential digest, role changes and audit evidence in PostgreSQL.
+
+## Acceptance criteria
+
+- Role delegation requires current membership in the selected roles and rechecks the inviter's authority at acceptance.
+- Invitations expire after 48 hours. Issuance, revocation and acceptance produce audit entries.
+- Both locales support registered and existing invitees through the existing mail delivery and MFA enrollment flows.
+- PostgreSQL tests cover denial and replay. Browser tests use the local mail catcher in all four projects.
+
+## Context checkpoint
+
+```yaml
+checkpoint_version: 1
+updated_at: 2026-11-22T13:10:57Z
+head: 4a608fc30a65d36e6af3397d2cfc1f1a0c46db24
+branch: codex/feat-staff-invite
+pr: none
+status: ready
+context_routes: []
+owned_paths:
+  - portal-rs/crates/admin/src/staff_invites/
+  - portal-rs/templates/admin/staff-invite*.html
+  - portal-rs/migrations/20261122150000_staff_invites.sql
+  - portal-rs/e2e/specs/staff-invite.spec.mjs
+proven:
+  - The existing roles page requires admin.roles.manage and admin.access.
+derived: []
+unknown: []
+conflicts: []
+first_failure:
+  marker: none
+  evidence: none
+rejected_hypotheses: []
+changed_paths:
+  - portal-rs/bin/oteryn-portal/src/
+  - portal-rs/crates/admin/src/
+  - portal-rs/crates/identity/src/
+  - portal-rs/crates/web/src/ratelimit.rs
+  - portal-rs/e2e/
+  - portal-rs/migrations/20261122150000_staff_invites.sql
+  - portal-rs/templates/admin/
+validation:
+  - command: cargo check --locked -p oteryn-portal
+    result: PASS
+    evidence: The composed portal compiles.
+  - command: cargo test --locked -p oteryn-admin staff_invites
+    result: PASS
+    evidence: Three PostgreSQL invite tests passed. The existing localized template and authorization/CSRF tests passed separately.
+  - command: node run.mjs <private-environment> test specs/staff-invite.spec.mjs
+    result: PASS
+    evidence: Polish and English desktop and mobile each passed with the existing mail catcher. Four passed with zero retries.
+  - command: node harness.mjs --seed-plan <private-account-plan> --exit-after-ready
+    result: PASS
+    evidence: The existing cross-repository harness started and the seed CLI created an active account.
+  - command: cargo clippy --locked -p oteryn-admin -p oteryn-portal --all-targets -- -D warnings
+    result: FAIL
+    evidence: Existing result_large_err findings in oteryn-store. Strict focused lint also reports chunks_exact_to_as_chunks in admin commerce.
+blockers: []
+next_action: Deliver the verified feature branch for owner review.
+```
+
+## Source branch closeout
+
+```yaml
+source_branch_disposition: pending
+source_branch_reason: Issue 2002 remains open and the owner requested branch-only delivery.
+source_branch_evidence: pending verified push
+```

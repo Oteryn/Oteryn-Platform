@@ -82,3 +82,12 @@ plaintext production mode. `TRUSTED_PROXIES` is a comma-separated list of exact 
 addresses, validated once per process; absent/empty trusts no forwarding headers.
 Every browser limiter and abuse adapter uses this policy. Invalid entries refuse
 startup. Proxies must append/overwrite `X-Forwarded-For` correctly.
+
+## Staff invitations
+
+Role managers can open Staff invitations from the Roles page or the Access
+console. The inviter must currently hold each selected role. The public link
+uses `OTERYN_PUBLIC_ORIGIN`. Sending uses the existing registration SMTP settings
+and `OTERYN_RESET_DELIVERY_KEY` to encrypt the queued token. The recipient uses
+the matching verified email account and reopens the link after signing in and
+completing MFA. Pending invitations can be revoked from the staff panel.

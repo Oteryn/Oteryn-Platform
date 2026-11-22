@@ -5,16 +5,21 @@ use sqlx::{PgPool, Postgres, Transaction};
 pub fn token_hash(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
+/// Generate an opaque one-use email credential.
+pub fn new_token() -> Result<String, sqlx::Error> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|_| sqlx::Error::Protocol("secure randomness unavailable".into()))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// Caller must hold the account lock when replacing an existing token.
 pub async fn issue(
     tx: &mut Transaction<'_, Postgres>,
     id: AccountId,
     locale: &str,
 ) -> Result<(), sqlx::Error> {
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes)
-        .map_err(|_| sqlx::Error::Protocol("secure randomness unavailable".into()))?;
-    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let token = new_token()?;
     sqlx::query("UPDATE account_email_tokens SET used_at=now(),updated_at=now() WHERE account_id=$1 AND purpose='verify_email' AND used_at IS NULL").bind(id).execute(&mut **tx).await?;
     sqlx::query("INSERT INTO account_email_tokens (account_id,token_hash,purpose,expires_at) VALUES ($1,$2,'verify_email',now()+interval '24 hours')").bind(id).bind(token_hash(&token)).execute(&mut **tx).await?;
     enqueue(tx, id, locale, &token).await

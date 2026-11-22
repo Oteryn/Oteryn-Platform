@@ -2,7 +2,8 @@
 //! Delivery is at least once: a crash after SMTP acceptance and before outbox acknowledgement can resend the message.
 use crate::worker::{Handler, HandlerFuture, Registry};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
-use oteryn_identity::verify::token_hash;
+use oteryn_admin::staff_invites;
+use oteryn_identity::{reset::DeliveryKey, verify::token_hash};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -35,6 +36,57 @@ fn mail_configured() -> bool {
         .iter()
         .any(|name| std::env::var_os(name).is_some())
 }
+pub fn staff_invite_key() -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
+    if !mail_configured() {
+        return Ok(None);
+    }
+    std::env::var("OTERYN_RESET_DELIVERY_KEY")
+        .ok()
+        .map(|value| DeliveryKey::parse(&value).ok_or_else(|| "invalid mail delivery key".into()))
+        .transpose()
+}
+
+struct StaffInviteMailer {
+    mailer: Arc<Mailer>,
+    key: DeliveryKey,
+}
+
+impl std::fmt::Debug for StaffInviteMailer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StaffInviteMailer([redacted])")
+    }
+}
+
+impl Handler for StaffInviteMailer {
+    fn run<'a>(&'a self, job: &'a oteryn_db::outbox::Job) -> HandlerFuture<'a> {
+        Box::pin(async move {
+            let Some((email, locale, token)) =
+                staff_invites::delivery(&self.mailer.pool, &self.key, &job.payload).await?
+            else {
+                return Ok(());
+            };
+            let (subject, body) = staff_invites::mail_text(&locale);
+            let message = Message::builder()
+                .from(self.mailer.from.clone())
+                .to(email
+                    .parse()
+                    .map_err(|_| "invalid staff invite recipient")?)
+                .subject(subject)
+                .body(format!(
+                    "{body}\n\n{}/{locale}/staff-invite?token={token}",
+                    self.mailer.origin
+                ))
+                .map_err(|_| "invalid staff invite message")?;
+            self.mailer
+                .smtp
+                .send(message)
+                .await
+                .map_err(|_| "staff invite delivery failed")?;
+            Ok(())
+        })
+    }
+}
+
 pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     if !mail_configured() {
         return Ok(());
@@ -62,6 +114,15 @@ pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std
         from: std::env::var("OTERYN_MAIL_FROM")?.parse()?,
         origin: origin.trim_end_matches('/').into(),
     });
+    if let Some(key) = staff_invite_key()? {
+        registry.register(
+            staff_invites::MAIL_KIND,
+            Arc::new(StaffInviteMailer {
+                mailer: mailer.clone(),
+                key,
+            }),
+        )?;
+    }
     registry.register("email.verify", mailer.clone())?;
     registry.register("email.account_exists", mailer)?;
     Ok(())

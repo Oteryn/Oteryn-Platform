@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.tr("invite-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ self.tr("invite-title") }}</h1>
+  <nav class="op-tabs" aria-label="{{ self.tr("title") }}"><a href="/admin/roles">{{ self.tr("roles") }}</a></nav>
+  {% if mail_configured %}
+  <form class="op-stack" method="post" action="/admin/staff-invites">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label for="invite-email">{{ self.tr("invite-email") }}</label>
+    <input class="op-input" id="invite-email" name="email" type="email" maxlength="254" required>
+    <fieldset>
+      <legend>{{ self.tr("invite-roles") }}</legend>
+      {% for (id, key) in roles %}
+      <div><label><input type="checkbox" name="role" value="{{ id }}"> {{ key }}</label></div>
+      {% endfor %}
+    </fieldset>
+    <p>{{ self.tr("invite-expiry") }}</p>
+    <div><button class="op-button">{{ self.tr("invite-send") }}</button></div>
+  </form>
+  {% else %}
+  <p>{{ self.tr("invite-mail-unavailable") }}</p>
+  {% endif %}
+  <section class="op-stack">
+    <h2>{{ self.tr("invite-pending") }}</h2>
+    {% for (id, email, roles) in pending %}
+    <article class="op-stack">
+      <strong>{{ email }}</strong>
+      <ul>{% for key in roles %}<li>{{ key }}</li>{% endfor %}</ul>
+      <form method="post" action="/admin/staff-invites/{{ id }}/revoke">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <button class="op-button op-button--secondary">{{ self.tr("invite-revoke") }}</button>
+      </form>
+    </article>
+    {% else %}
+    <p>{{ self.tr("invite-none") }}</p>
+    {% endfor %}
+    {% if let Some(before) = next %}<a href="/admin/staff-invites?before={{ before }}">{{ self.tr("invite-next") }}</a>{% endif %}
+  </section>
+</main>
+</body>
+</html>
