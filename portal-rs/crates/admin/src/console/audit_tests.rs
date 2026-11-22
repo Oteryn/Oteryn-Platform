@@ -156,6 +156,19 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
             .await?;
     let request_id = Uuid::now_v7();
     let equivalent_instants = [
+        ("Jan 1 2020 00:00:00 UTC", "2020-01-01T00:00:00Z"),
+        ("1 January 2020 00:00:00 EST", "2020-01-01T05:00:00Z"),
+        ("Wed, 01 Jan 2020 00:00:00 GMT", "2020-01-01T00:00:00Z"),
+        ("Wed Jan 01 00:00:00 2020 UTC", "2020-01-01T00:00:00Z"),
+        ("Jan 1 2020 at 0:0:0 UTC", "2020-01-01T00:00:00Z"),
+        ("Jan 1 2020 00:00:00 UTC on", "2020-01-01T00:00:00Z"),
+        ("January 1, 2020 00:00:00 UTC", "2020-01-01T00:00:00Z"),
+        ("2020 Jan 1 00:00:00 UTC", "2020-01-01T00:00:00Z"),
+        ("2020/1/2 00:00:00 UTC", "2020-01-02T00:00:00Z"),
+        ("2020 1 2 UTC", "2020-01-02T00:00:00Z"),
+        ("2020.001 00:00:00 UTC", "2020-01-01T00:00:00Z"),
+        ("20200101 00:00:00 UTC", "2020-01-01T00:00:00Z"),
+        ("J2458850 00:00:00 UTC", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00+0000", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00 UTC", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00 gmt", "2020-01-01T00:00:00Z"),
@@ -204,6 +217,9 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
         ("2020-01-01 00:00:00 Mars/Olympus", "2020-01-01 00:00:00 AD"),
         ("2020-01-01 00:00:00", "2020-01-01 00:00:00 pm"),
         (padded_zoneless.as_str(), "2020-01-01 00:00:00 on"),
+        ("01/02/2020 00:00:00 UTC", "Jan 1 2020 00:00:00"),
+        ("Jan 1 20 -0500", "Jan 1 20 00:00:00 UTC"),
+        ("today 00:00:00 UTC", "2020-01-01"),
     ];
     for (published, translated) in unknown_instants {
         let mut tx = db.pool.begin().await?;

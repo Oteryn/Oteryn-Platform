@@ -41,7 +41,8 @@ CROSS JOIN LATERAL (
     CROSS JOIN LATERAL (
         SELECT CASE
             WHEN field IN ('published_at', 'translation_published_at')
-            -- Let PostgreSQL parse the absolute ISO input and round fractions.
+            -- Limit normalization to absolute dates whose order does not depend on DateStyle.
+            -- Let PostgreSQL validate and parse the result, including fractional seconds.
             -- Test its zone suffix against an already zoned literal: a real zone conflicts
             -- with +00, while non-zone qualifiers like AD or PM do not.
             AND jsonb_typeof(recorded.value) = 'string'
@@ -49,9 +50,27 @@ CROSS JOIN LATERAL (
             AND NOT pg_input_is_valid(
                 '2000-01-01 00:00:00+00 ' || substring(
                     recorded.value #>> '{}' FROM
-                    '(?i)^[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}'
-                    '(?:[T[:space:]]+[0-9]{2}:?[0-9]{2}(?::?[0-9]{2}(?:[.][0-9]+)?)?(?:[[:space:]]+(?:am|pm)[[:space:]]+)?)?'
-                    '[[:space:]]*([+-][0-9:]+|[a-z][a-z0-9_/+.:-]*(?:[[:space:]]+dst)?)[[:space:]]*$'
+                    $audit_timestamp$(?ix)
+                    ^ [[:space:]]*
+                    (?: (?:mon|tue|wed|thu|fri|sat|sun)[a-z]* [[:space:],]+ )?
+                    (?:
+                        [0-9]{4} (?:[[:space:]./-]+[0-9]{1,2}){2}
+                      | [0-9]{4}[.-][0-9]{3} | [0-9]{8} | j[0-9]+
+                      | # Find a named month and four-digit year in the date fields.
+                        # PostgreSQL's traditional format can put the clock before the year.
+                        (?= (?:[0-9]{1,4}[[:space:],./-]+){0,2}
+                            (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\y )
+                        (?= (?:(?:[a-z]+|[0-9]{1,2})[[:space:],./-]+){0,2}
+                            (?:[0-9]{1,2}:[0-9:.]+[[:space:]]+)? [0-9]{4}(?![0-9]) )
+                        (?:[a-z]+|[0-9]{1,4})
+                        (?:[[:space:],./-]+(?:[0-9]{1,2}:[0-9:.]+[[:space:]]+)?(?:[a-z]+|[0-9]{1,4})){2}
+                    )
+                    (?: [T[:space:]]+ (?:at[[:space:]]+)? [0-9]+ (?:[:.][0-9]+)*
+                        (?:[[:space:]]+(?:am|pm)[[:space:]]+)? )?
+                    [[:space:]]* ([+-][0-9:]+|[a-z][a-z0-9_/+.:-]*(?:[[:space:]]+dst)?)
+                    (?:[[:space:]]+(?:at|on|ad))*
+                    [[:space:]]* $
+                    $audit_timestamp$
                 ),
                 'timestamp with time zone'
             )
