@@ -4,25 +4,37 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
-use fluent_bundle::{FluentBundle, FluentResource};
+use fluent_bundle::{FluentResource, concurrent::FluentBundle};
+use std::sync::LazyLock;
+use unic_langid::{LanguageIdentifier, langid};
+
+fn catalogue(locale: LanguageIdentifier, source: &str) -> Option<FluentBundle<FluentResource>> {
+    let mut bundle = FluentBundle::new_concurrent(vec![locale]);
+    bundle
+        .add_resource(FluentResource::try_new(source.to_owned()).ok()?)
+        .ok()?;
+    Some(bundle)
+}
+
+static ENGLISH: LazyLock<Option<FluentBundle<FluentResource>>> =
+    LazyLock::new(|| catalogue(langid!("en"), include_str!("../i18n/en.ftl")));
+static POLISH: LazyLock<Option<FluentBundle<FluentResource>>> =
+    LazyLock::new(|| catalogue(langid!("pl"), include_str!("../i18n/pl.ftl")));
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {
-    let (locale, source) = if lang == "en" {
-        (unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
-    } else {
-        (unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
-    };
-    let mut bundle = FluentBundle::new(vec![locale]);
-    if let Ok(resource) = FluentResource::try_new(source.to_owned())
-        && bundle.add_resource(resource).is_ok()
-        && let Some(pattern) = bundle.get_message(key).and_then(|m| m.value())
-    {
-        return bundle
-            .format_pattern(pattern, None, &mut Vec::new())
-            .into_owned();
-    }
-    String::new()
+    let catalogue = if lang == "en" { &ENGLISH } else { &POLISH };
+    catalogue
+        .as_ref()
+        .and_then(|bundle| {
+            let pattern = bundle.get_message(key)?.value()?;
+            Some(
+                bundle
+                    .format_pattern(pattern, None, &mut Vec::new())
+                    .into_owned(),
+            )
+        })
+        .unwrap_or_default()
 }
 
 /// Navigation group. Labels are Fluent keys, never language-dependent module code.
@@ -380,6 +392,28 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_shell_translations_keep_their_locale_and_fallback() -> std::thread::Result<()> {
+        std::thread::scope(|scope| {
+            let requests: Vec<_> = [("pl", "Graj"), ("en", "Play"), ("unknown", "Graj")]
+                .into_iter()
+                .cycle()
+                .take(12)
+                .map(|(locale, label)| {
+                    scope.spawn(move || {
+                        assert_eq!(text(locale, "shell-play"), label);
+                        assert_eq!(text(locale, "missing-message"), "");
+                    })
+                })
+                .collect();
+            for request in requests {
+                request.join()?;
+            }
+            Ok(())
+        })
+    }
+
     fn registry() -> Registry {
         let mut registry = Registry {
             login: true,
