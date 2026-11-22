@@ -12,11 +12,13 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{any, get, post},
 };
+use oteryn_ui::Chrome;
 use oteryn_web::session::{BrowserSession, SessionKey, SessionLayer};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::account::Locale;
 use crate::coin::{
     CHECKOUT_PATH, CoinOrderRequest, MAX_REQUEST_BYTES, OrderState, canonical_id, checkout_path,
 };
@@ -50,10 +52,22 @@ pub fn router(pool: PgPool, service: Service) -> Router {
 
 async fn private(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
+    // Like OAuth consent, checkout submits a native form that needs its real
+    // Origin for CSRF. Keep the order path out of the referrer.
+    let referrer = if response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"))
+    {
+        "strict-origin"
+    } else {
+        "no-referrer"
+    };
     for (name, value) in [
         (header::CACHE_CONTROL, "no-store"),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        (header::REFERRER_POLICY, "no-referrer"),
+        (header::REFERRER_POLICY, referrer),
     ] {
         response
             .headers_mut()
@@ -186,11 +200,21 @@ async fn status(
 #[derive(Template)]
 #[template(path = "coin/checkout.html")]
 struct CheckoutPage {
+    lang: &'static str,
+    title: String,
+    note: String,
+    order_label: String,
+    coins_label: String,
+    price_label: String,
+    status_label: String,
+    pay_label: String,
+    fail_label: String,
+    done: String,
     csrf: String,
     order_id: Uuid,
     coins: i64,
     price: String,
-    state: &'static str,
+    state: String,
     awaiting: bool,
 }
 
@@ -199,11 +223,21 @@ struct Decision {
     action: String,
 }
 
+fn checkout_language(chrome: Option<Extension<Chrome>>) -> &'static str {
+    if chrome.is_some_and(|Extension(chrome)| chrome.lang == "en") {
+        "en"
+    } else {
+        "pl"
+    }
+}
+
 async fn page(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    chrome: Option<Extension<Chrome>>,
 ) -> Response {
+    let lang = checkout_language(chrome);
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -214,7 +248,7 @@ async fn page(
         if session.set(RETURN_KEY, &target).await.is_err() {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
-        return Redirect::to("/pl/login").into_response();
+        return Redirect::to(&format!("/{lang}/login")).into_response();
     };
     let order = match service.checkout(account, order).await {
         Ok(order) => order,
@@ -223,12 +257,25 @@ async fn page(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let Ok(locale) = Locale::parse(lang) else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
     oteryn_web::render(&CheckoutPage {
+        lang,
+        title: locale.text("coin-checkout-title"),
+        note: locale.text("coin-checkout-note"),
+        order_label: locale.text("coin-checkout-order"),
+        coins_label: locale.text("coin-checkout-coins"),
+        price_label: locale.text("coin-checkout-price"),
+        status_label: locale.text("coin-checkout-status"),
+        pay_label: locale.text("coin-checkout-pay"),
+        fail_label: locale.text("coin-checkout-fail"),
+        done: locale.text("coin-checkout-done"),
         csrf,
         order_id: order.order_id,
         coins: order.coins,
         price: order.price.display(),
-        state: order.state.as_str(),
+        state: locale.text(&format!("coin-state-{}", order.state.as_str())),
         awaiting: order.state == OrderState::AwaitingPayment,
     })
 }
@@ -238,10 +285,12 @@ async fn act(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    chrome: Option<Extension<Chrome>>,
     Form(decision): Form<Decision>,
 ) -> Response {
     let Some(account) = session.account_id().await else {
-        return Redirect::to("/pl/login").into_response();
+        let lang = checkout_language(chrome);
+        return Redirect::to(&format!("/{lang}/login")).into_response();
     };
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
