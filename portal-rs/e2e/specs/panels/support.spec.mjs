@@ -142,6 +142,13 @@ test('ticket queue and moderation preserve owner privacy and refuse invalid writ
     });
     expect(noStaff.status()).toBe(403);
 
+    for (const invalid of ['page=bad', 'status=open&status=closed']) {
+      const response = await team.page.goto(`${tickets}?${invalid}`);
+      expect(response.status()).toBe(400);
+      expect(await response.text()).toBe(pl
+        ? 'Sprawdź numer strony i filtry spraw.'
+        : 'Check the page number and ticket filters.');
+    }
     await visit(team.page, tickets, lang, pl ? 'Kolejka spraw pomocy' : 'Ticket queue');
     const filters = team.page.locator('form[method=get]');
     await filters.locator('[name=status]').selectOption('closed');

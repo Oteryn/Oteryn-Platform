@@ -60,6 +60,7 @@ revoke_sanction = Revoke Platform sanction
 revocation-reason = Public reason for revocation
 duration_hours = Duration in hours (1–8760)
 error-conflict = The record changed or this action is no longer available. Reload the record and try again.
+error-queue-query = Check the page number and ticket filters.
 error-invalid = Check the submitted values and provide a reason.
 error-not-found = Support record not found.
 error-denied = You do not have permission for this action.

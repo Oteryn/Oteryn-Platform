@@ -3,7 +3,7 @@ use super::*;
 use crate::web::{self, PanelConfig, StaffSession};
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, rejection::QueryRejection},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -241,18 +241,15 @@ async fn list<A: AccountStateReader, B: Backend>(
 }
 async fn ticket_queue<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
-    Query(paging): Query<Paging>,
-    Query(filter): Query<TicketFilter>,
+    paging: Result<Query<Paging>, QueryRejection>,
+    filter: Result<Query<TicketFilter>, QueryRejection>,
     headers: HeaderMap,
 ) -> Response {
-    queue(
-        &s.backend,
-        Area::Tickets,
-        paging,
-        filter,
-        language(&headers),
-    )
-    .await
+    let lang = language(&headers);
+    let (Ok(Query(paging)), Ok(Query(filter))) = (paging, filter) else {
+        return (StatusCode::BAD_REQUEST, text(lang, "error-queue-query")).into_response();
+    };
+    queue(&s.backend, Area::Tickets, paging, filter, lang).await
 }
 
 async fn queue<B: Backend>(

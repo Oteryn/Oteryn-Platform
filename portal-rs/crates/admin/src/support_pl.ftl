@@ -60,6 +60,7 @@ revoke_sanction = Cofnij karę platformy
 revocation-reason = Publiczny powód cofnięcia kary
 duration_hours = Czas trwania w godzinach (1–8760)
 error-conflict = Rekord się zmienił lub ta czynność jest już niedostępna. Odśwież stronę i spróbuj ponownie.
+error-queue-query = Sprawdź numer strony i filtry spraw.
 error-invalid = Sprawdź przesłane dane i podaj powód.
 error-not-found = Nie znaleziono rekordu pomocy.
 error-denied = Nie masz uprawnień do wykonania tej czynności.
