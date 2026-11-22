@@ -293,14 +293,8 @@ async fn policy(mut request: Request, next: Next) -> Response {
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static(REFERRER),
-    );
-    headers.insert(
-        "permissions-policy",
-        HeaderValue::from_static(PERMISSIONS),
-    );
+    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static(REFERRER));
+    headers.insert("permissions-policy", HeaderValue::from_static(PERMISSIONS));
     headers.insert(
         "cross-origin-opener-policy",
         HeaderValue::from_static("same-origin"),
