@@ -206,6 +206,7 @@ def verify_current_release(component, sha):
 PORTAL = Path('/opt/oteryn-portal')
 PORTAL_PROJECT = 'oteryn-portal'
 PORTAL_NETWORK = 'oteryn-oracle_private'
+PORTAL_HTTP_PORT = 8080
 PORTAL_CONTAINERS = {'portal': 'oteryn-portal-portal-1', 'portal-worker': 'oteryn-portal-portal-worker-1',
                      'portal-gateway': 'oteryn-portal-portal-gateway-1', 'portal-pg': 'oteryn-portal-portal-pg-1'}
 PORTAL_APPS = ('portal', 'portal-worker', 'portal-gateway')
@@ -281,7 +282,7 @@ def backup_platform(sha):
         durable_replace(staged, path)
 
 
-def portal_ready():
+def portal_ready(*, signup=False):
     # The portal is published only on the private network and its image has no
     # HTTP client. Host root reaches the bridge address directly; /readyz
     # includes the database check. No edge, DNS or TLS dependency.
@@ -289,12 +290,15 @@ def portal_ready():
     address = networks.get(PORTAL_NETWORK, {}).get('IPAddress')
     if not address:
         raise ValueError('portal has no address on the private network')
-    try:
-        with urllib.request.urlopen('http://' + address + ':8080/readyz', timeout=10) as response:
-            if response.status != 200:
-                raise ValueError('portal readiness differs')
-    except OSError as error:
-        raise ValueError('portal readiness probe failed') from error
+    paths = ('/readyz', '/en/register', '/pl/register') if signup else ('/readyz',)
+    for path in paths:
+        url = f'http://{address}:{PORTAL_HTTP_PORT}{path}'
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                if response.status != 200 or response.geturl() != url:
+                    raise ValueError('portal readiness differs: ' + path)
+        except OSError as error:
+            raise ValueError('portal readiness probe failed: ' + path) from error
 
 
 def portal_containers():
@@ -322,7 +326,7 @@ def platform_status(allow_pending):
     labels = inspect_image(images.pop())['Config'].get('Labels') or {}
     if labels.get(REVISION) != sha:
         raise ValueError('running portal differs from the recorded release')
-    portal_ready()
+    portal_ready(signup=True)
 
 
 def wait_platform(image_id):
@@ -360,13 +364,20 @@ def platform_deploy(directory, sha, run_id, attempt):
     portal_containers()
     portal_ready()
     reauthorize('platform', sha, run_id, attempt)
+    current = portal_compose()
+    signup_check = ['run', '--rm', '-T', '--no-deps', 'portal', 'check-signup-legal']
+    # Check the qualified image with the live portal's configuration while the
+    # existing services and composition files are still untouched.
+    with tempfile.TemporaryDirectory(prefix='portal-signup-', dir=STATE) as temporary:
+        override = Path(temporary) / 'candidate.json'
+        atomic(override, json.dumps({'services': {'portal': {'image': image}}}))
+        run(current + ['-f', str(override)] + signup_check, timeout=120)
     backup_platform(sha)
     reauthorize('platform', sha, run_id, attempt)
     journal('platform', sha, 'prepared', schema=schema,
             previous_image=inspect(PORTAL_CONTAINERS['portal'])['Image'], platform_image=info['Id'])
     for path, before, _ in texts:
         atomic(STATE / (sha + '-portal.' + path.name.split('.')[0] + '.before'), before)
-    current = portal_compose()
     try:
         for path, _, after in texts:
             rewrite(path, after)
@@ -374,6 +385,7 @@ def platform_deploy(directory, sha, run_id, attempt):
         journal('platform', sha, 'schema_unknown')
         run(current + ['run', '--rm', '-T', 'portal', 'migrate'])
         journal('platform', sha, 'schema_known')
+        run(current + signup_check, timeout=120)
         run(current + ['up', '-d', *PORTAL_APPS])
         wait_platform(info['Id'])
     except BaseException:

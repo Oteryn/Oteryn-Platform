@@ -8,8 +8,9 @@ Editorial slugs cannot be served through the generic page route.
 
 Content starts empty until an operator installs the legal defaults or staff
 publish a page. Missing, draft, future-dated, or stale translated content
-shows an unpublished notice on reserved routes and returns 404 on generic
-routes. Database failures return 503. English is the source locale. Saving a
+returns 404 on generic routes. Reserved routes show an unpublished notice or,
+for Help, Support and Report a Bug, localized support links. Database failures
+return 503. English is the source locale. Saving a
 Polish translation binds it to the current English revision. Updating English
 makes prior Polish revisions unavailable until reviewed and saved again.
 Markdown is rendered and sanitized; titles and editor fields remain escaped.
@@ -46,6 +47,10 @@ Set the two signup version variables to the exact published values. Each
 approval belongs to the immutable edition, including its locale and content.
 An unchanged resave keeps the existing approval. Previously published
 unapproved editions require a new version for approval.
+Run `oteryn-portal check-signup-legal` with the candidate's live configuration
+before activating it. This read-only check requires both locales. See the
+[Oracle deployment procedure](../../../../../deploy/oracle/README.md) for upgrades
+from a release whose snapshots lack explicit approval.
 
 The editor is `/admin/pages`. Its create form opens
 `/admin/pages/{slug}/{locale}`, which supports GET and CSRF-protected POST.

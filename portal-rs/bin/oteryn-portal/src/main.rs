@@ -12,6 +12,7 @@ enum Role {
     Serve,
     Migrate,
     InstallLegalPages,
+    CheckSignupLegal,
     Worker,
 }
 
@@ -20,6 +21,7 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
         Some("serve") | None => Some(Role::Serve),
         Some("migrate") => Some(Role::Migrate),
         Some("install-legal-pages") => Some(Role::InstallLegalPages),
+        Some("check-signup-legal") => Some(Role::CheckSignupLegal),
         Some("worker") => Some(Role::Worker),
         Some(_) => None,
     }
@@ -89,7 +91,7 @@ async fn main() -> ExitCode {
         };
     }
     let Some(role) = parse_role(arg.as_deref()) else {
-        tracing::error!(role = ?arg, "unknown role; expected serve, migrate, install-legal-pages or worker");
+        tracing::error!(role = ?arg, "unknown role; expected serve, migrate, install-legal-pages, check-signup-legal or worker");
         return ExitCode::from(2);
     };
     match run(role).await {
@@ -121,6 +123,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
         Role::InstallLegalPages => {
             let installed = legal::install(&db, legal_profile.as_deref()).await?;
             tracing::info!(installed, "default legal document pairs installed");
+        }
+        Role::CheckSignupLegal => {
+            oteryn_web::register::check_live_signup(&db).await?;
+            tracing::info!("signup legal editions ready in both locales");
         }
         Role::Worker => {
             tracing::info!("worker started");

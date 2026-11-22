@@ -367,6 +367,18 @@ journal, stop, migrate, image swap and supervisor start.
 - Preflight: the running release must already pass the container and
   `/readyz` checks below, so a host the probe cannot reach is refused before
   any effect instead of rolling back a good release after migration.
+- Signup staging for the first release that enforces explicit approval:
+  use the reviewed candidate's staff CMS through restricted staff ingress
+  against the retained CMS database. Run only the candidate web role for this
+  step with the usual staff authentication and page-management permissions.
+  Publish the real approved terms and privacy editions in English and then in
+  Polish under new versions. The predecessor's snapshots remain immutable.
+  Set `OTERYN_TERMS_VERSION` and `OTERYN_PRIVACY_VERSION` in the candidate
+  portal environment to the exact published versions. Pause predecessor signup
+  during the publication window if it still submits the old versions.
+  The host helper runs `portal check-signup-legal` from the candidate image
+  against that same configuration before backup, migration or service
+  replacement, and again after migration before service replacement.
 - Release: recheck authority, `pg_dump -Fc` inside `oteryn-portal-portal-pg-1`
   to a staged file checked with `pg_restore --list` and published as
   `state/actions/<sha>-platform.dump` (0600), recheck, journal `prepared` with the
@@ -379,6 +391,8 @@ journal, stop, migrate, image swap and supervisor start.
   is the recorded release; `GET /readyz` on port 8080 at the portal's
   `oteryn-oracle_private` address, sent from the host (the image has no HTTP
   client and the port is not published; `/readyz` includes the database check).
+  Both localized signup routes, `/en/register` and `/pl/register`, must also
+  respond directly with HTTP 200.
   This assumes the portal listens on `0.0.0.0:8080` inside its container, as
   the edge already requires (`OTERYN_BIND` defaults to loopback).
   A release is ready after two consecutive passing samples with unchanged

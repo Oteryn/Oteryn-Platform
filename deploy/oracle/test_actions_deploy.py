@@ -1,4 +1,5 @@
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import importlib.util
 import inspect
@@ -10,6 +11,7 @@ import subprocess
 import os
 import stat
 import tarfile
+from threading import Thread
 import zipfile
 from unittest.mock import patch
 
@@ -220,7 +222,7 @@ class LivePortalDeployment(unittest.TestCase):
         compose = ['docker', 'compose', '-p', 'oteryn-portal', '-f', str(portal / 'compose.yml')]
         def command(args, **kwargs):
             calls.append((args, kwargs))
-            if fail and args == compose + fail:
+            if fail and args[-len(fail):] == fail:
                 raise subprocess.CalledProcessError(1, args)
         image = {'Architecture': 'arm64', 'Id': 'new-id',
                  'Config': {'Labels': {'org.opencontainers.image.revision': self.sha}}}
@@ -251,6 +253,13 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none', 'oteryn-portal:fedcba98-arm64', 'check-image'])
             migrate = argv.index(compose + ['run', '--rm', '-T', 'portal', 'migrate'])
             up = argv.index(compose + ['up', '-d', 'portal', 'portal-worker', 'portal-gateway'])
+            check = ['run', '--rm', '-T', '--no-deps', 'portal', 'check-signup-legal']
+            checks = [index for index, args in enumerate(argv) if args[-len(check):] == check]
+            self.assertEqual(len(checks), 2)
+            self.assertEqual(argv[checks[0]][:len(compose) + 1], compose + ['-f'])
+            self.assertLess(checks[0], argv.index(['backup']))
+            self.assertLess(migrate, checks[1])
+            self.assertLess(checks[1], up)
             self.assertLess(argv.index(['probe']), argv.index(['backup']))
             self.assertLess(argv.index(['backup']), migrate)
             self.assertLess(migrate, up)
@@ -271,6 +280,19 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual(images, {'oteryn-portal-portal-1': 'new-id', 'oteryn-portal-portal-worker-1': 'new-id',
                                       'oteryn-portal-portal-gateway-1': 'new-id'})
             self.assertEqual(sorted(p.name for p in portal.iterdir()), ['compose.yml', 'gateway.env'])
+
+    def test_candidate_with_unstaged_legal_editions_cannot_replace_the_running_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            check = ['run', '--rm', '-T', '--no-deps', 'portal', 'check-signup-legal']
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                self.deploy(portal, state, fail=check)
+            argv = [args for args, _ in raised.exception.calls]
+            self.assertEqual(argv[-1][-len(check):], check)
+            self.assertFalse(any('backup' in args or 'migrate' in args or 'up' in args for args in argv))
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+            self.assertEqual(list(state.iterdir()), [])
 
     def test_failed_migration_restores_the_previous_release_and_requires_reconciliation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -378,11 +400,13 @@ class LivePortalDeployment(unittest.TestCase):
         opened = []
         class Response:
             status = 200
+            def __init__(self, url): self.url = url
+            def geturl(self): return self.url
             def __enter__(self): return self
             def __exit__(self, *args): return False
         def urlopen(url, timeout):
             opened.append(url)
-            return Response()
+            return Response(url)
         labels = {'Config': {'Labels': {'org.opencontainers.image.revision': revision or self.sha}}}
         with patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', side_effect=self.containers(**containers)), \
              patch.object(deploy, 'inspect_image', return_value=labels), patch.object(deploy, 'run') as command, \
@@ -397,7 +421,11 @@ class LivePortalDeployment(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'no runner-deployed'):
                 self.status(state)
             (state / 'platform-current.json').write_text(json.dumps({'sha': self.sha, 'phase': 'ready'}))
-            self.assertEqual(self.status(state), ['http://172.18.0.42:8080/readyz'])
+            self.assertEqual(self.status(state), [
+                'http://172.18.0.42:8080/readyz',
+                'http://172.18.0.42:8080/en/register',
+                'http://172.18.0.42:8080/pl/register',
+            ])
             for kwargs, message in [({'revision': 'b' * 40}, 'recorded release'),
                                     ({'worker_image': 'other-id'}, 'different images'),
                                     ({'worker_state': {'Running': False}}, 'worker'),
@@ -410,6 +438,36 @@ class LivePortalDeployment(unittest.TestCase):
                 self.status(state)
             # During a release, readiness is measured against the pending revision.
             self.status(state, revision='c' * 40, allow_pending=True)
+
+    def test_live_http_readiness_refuses_either_unavailable_signup_locale(self):
+        statuses = {}
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(statuses.get(self.path, 200))
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+            thread = Thread(target=server.serve_forever)
+            thread.start()
+            networks = {'NetworkSettings': {'Networks': {
+                deploy.PORTAL_NETWORK: {'IPAddress': '127.0.0.1'},
+            }}}
+            try:
+                with patch.object(deploy, 'inspect', return_value=networks), \
+                     patch.object(deploy, 'PORTAL_HTTP_PORT', server.server_port):
+                    deploy.portal_ready(signup=True)
+                    for path in ['/en/register', '/pl/register']:
+                        statuses[path] = 503
+                        deploy.portal_ready()
+                        with self.assertRaisesRegex(ValueError, path):
+                            deploy.portal_ready(signup=True)
+                        statuses.clear()
+            finally:
+                server.shutdown()
+                thread.join()
 
     def test_unreachable_portal_is_not_ready(self):
         with tempfile.TemporaryDirectory() as temporary:
