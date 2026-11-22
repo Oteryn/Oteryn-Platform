@@ -12,10 +12,11 @@ async function run() {
     return 1;
   }
   const args = process.argv.slice(2);
-  const seeded = args[0] === '--seeded-privacy';
-  if (seeded) args.shift();
+  const seededPrivacy = args[0] === '--seeded-privacy';
+  const seededAuth = args[0] === '--seeded-auth';
+  if (seededPrivacy || seededAuth) args.shift();
   if (args.length > 1 || args.some((arg) => !/^--project=(pl-1440|en-390)$/.test(arg))) {
-    console.error('Usage: node prod/run.mjs [--seeded-privacy] [--project=pl-1440|--project=en-390]');
+    console.error('Usage: node prod/run.mjs [--seeded-auth|--seeded-privacy] [--project=pl-1440|--project=en-390]');
     return 1;
   }
 
@@ -27,10 +28,11 @@ async function run() {
     ));
     env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
     env.MONITOR_RUN_DIRECTORY = dir;
+    env.MONITOR_LOCAL_AUTH = seededAuth ? '1' : '0';
     const counter = join(dir, 'requests');
     await writeFile(counter, '0');
     const cli = fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url));
-    const configName = seeded ? 'playwright.seeded-privacy.config.mjs' : 'playwright.prod.config.mjs';
+    const configName = seededPrivacy ? 'playwright.seeded-privacy.config.mjs' : 'playwright.prod.config.mjs';
     const config = fileURLToPath(new URL(configName, import.meta.url));
     const child = spawn(process.execPath, [cli, 'test', '--config', config, ...args], {
       env, stdio: 'ignore',
@@ -42,8 +44,8 @@ async function run() {
           || /^Diagnostic: [A-Za-z0-9 /_:(),.-]{1,160}$/.test(line)) console.log(line);
     }
     const count = await readFile(counter, 'utf8');
-    if (!seeded && /^\d{1,2}$/.test(count)) console.log(`Monitor sent ${count} requests.`);
-    if (code !== 0) console.error(seeded ? 'Seeded Privacy checks failed.' : 'Production monitor failed.');
+    if (!seededPrivacy && /^\d{1,2}$/.test(count)) console.log(`Monitor sent ${count} requests.`);
+    if (code !== 0) console.error(seededPrivacy ? 'Seeded Privacy checks failed.' : 'Production monitor failed.');
     return code === 0 ? 0 : 1;
   } finally {
     await rm(dir, { recursive: true, force: true });

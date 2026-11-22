@@ -1,8 +1,8 @@
 # Production synthetic monitor
 
-The monitor runs one Chromium worker with two sequential projects. `pl-1440` covers Polish desktop at 1440 × 900. `en-390` covers English mobile at 390 × 844. Each verifies the final localized home URL, document language and public news heading, then signs in through the header, opens account overview, Privacy and Security, checks the current session, and signs out through the account menu. It verifies that revisiting Sessions redirects to the login form. The desktop project also checks `/healthz` and `/login` directly.
+The monitor runs one Chromium worker with two sequential projects. `pl-1440` covers Polish desktop at 1440 × 900. `en-390` covers English mobile at 390 × 844. Both verify the localized home URL, document language and public news heading. The desktop project also checks `/healthz`. These are the only page endpoints the production monitor may request. Browser telemetry is suppressed.
 
-Both production projects read the Privacy form and verify that the saved locale and visibility controls are present. Preference writes run separately against disposable seeded accounts.
+The sign-in journey runs on the disposable harness. It checks the login form, account overview, Privacy, Security, sessions, logout and the post-logout redirect. Preference writes run in a separate seeded test.
 
 ## Run locally
 
@@ -14,9 +14,7 @@ npx playwright install chromium
 node prod/run.mjs
 ```
 
-Supply `MONITOR_EMAIL` and `MONITOR_PASSWORD` through the environment. Supply the Base32 `MONITOR_TOTP_SECRET` for a TOTP-enabled account. The monitor requires a challenge whenever that secret is configured and uses a fresh code for the second project. Set `MONITOR_ALLOW_AUTH_WRITES=1` to authorize ordinary authentication writes for the dedicated account. These include login auditing, web session creation and revocation, new-device notification records, and TOTP challenge, counter and grant records. The browser requires the exact serialized form for each permitted POST. The TOTP POST accepts only the CSRF token and current code, so it cannot request a remembered device.
-
-The browser defaults to `https://oteryn.com`. Set `MONITOR_ANONYMOUS_ONLY=1` for public checks alone. The launcher accepts `--project=pl-1440` or `--project=en-390` for local diagnosis. Set `CHROMIUM_PATH` if using an installed Chromium.
+The browser defaults to `https://oteryn.com` and runs public checks only. The launcher accepts `--project=pl-1440` or `--project=en-390` for local diagnosis. Set `CHROMIUM_PATH` if using an installed Chromium.
 
 ### Seeded harness
 
@@ -42,7 +40,7 @@ chmod 700 "$monitor_wrapper"
 PORTAL_E2E_BINARY="$monitor_wrapper" e2e/start.sh --seed-plan "$SEED_PLAN"
 ```
 
-Use the `account` seed command for a disposable account and optionally `account-mfa` to enroll TOTP. In a second shell, set `MONITOR_BASE_URL` to the harness public origin, using the same hostname as `OTERYN_PUBLIC_ORIGIN` for CSRF. The harness default is `http://localhost:18080`. Supply the seeded credentials through the environment and run the launcher.
+Use the `account` seed command for a disposable account and optionally `account-mfa` to enroll TOTP. In a second shell, set `MONITOR_BASE_URL` to the harness public origin, using the same hostname as `OTERYN_PUBLIC_ORIGIN` for CSRF. The harness default is `http://localhost:18080`. Set `PORTAL_E2E_DATABASE_URL` to the disposable database and supply the seeded credentials through `MONITOR_EMAIL` and `MONITOR_PASSWORD`. If the fixture uses TOTP, set `MONITOR_TOTP_SECRET` to its Base32 secret. Run `node prod/run.mjs --seeded-auth` from `portal-rs/e2e`. This mode requires a loopback portal and an active seeded account in a local `portal_e2e_` database. It authorizes the ordinary login, session and MFA writes on that fixture. The browser requires the exact serialized form for each permitted POST. The TOTP POST accepts only the CSRF token and current code, so it cannot request a remembered device.
 
 ### Seeded Privacy writes
 
@@ -52,7 +50,7 @@ Use a separate password-only `account` seed. With `MONITOR_BASE_URL` pointing to
 
 | Step | Maximum |
 | --- | ---: |
-| Public homes, health and anonymous login form | 10 s each |
+| Public homes, health and fixture login form | 10 s each |
 | Home to login form, overview, settings, security, current session and post-logout redirect | 10 s each |
 | Password sign-in and logout | 15 s each |
 | TOTP challenge, including the wait for a fresh code | 45 s |
@@ -64,15 +62,15 @@ Failure screenshots are limited to public home pages. Traces, video and Playwrig
 
 ## Owner setup for scheduled runs
 
-Create both GitHub Actions environments in repository settings before enabling the monitor or adding credentials. In each environment, set the deployment branch policy to **Selected branches and tags**, allow the **repository default branch only** (currently `main`), and add no tag rules. A preflight job checks both environment names and branch rules before the probe or incident job can start. Put the credentials only in the environments below. Move any repository-level copies of these secrets to the matching environment.
+Create both GitHub Actions environments in repository settings before enabling the monitor or adding credentials. In each environment, set the deployment branch policy to **Selected branches and tags**, allow the **repository default branch only** (currently `main`), and add no tag rules. A preflight job checks both environment names and branch rules before the probe or incident job can start. Keep SMTP credentials in the alert environment.
 
-| Environment | Environment secrets | Environment variable |
-| --- | --- | --- |
-| `production-monitor-probe` | `MONITOR_EMAIL`, `MONITOR_PASSWORD`, and `MONITOR_TOTP_SECRET` if the dedicated account uses TOTP | Set `MONITOR_ALLOW_AUTH_WRITES` to `1` to authorize the ordinary authentication writes listed above. |
-| `production-monitor-alert` | `MONITOR_SMTP_HOST`, `MONITOR_SMTP_USER`, and `MONITOR_SMTP_PASSWORD` to enable email alerts | |
+| Environment | Environment secrets |
+| --- | --- |
+| `production-monitor-probe` | None |
+| `production-monitor-alert` | `MONITOR_SMTP_HOST`, `MONITOR_SMTP_USER`, and `MONITOR_SMTP_PASSWORD` to enable email alerts |
 
-The workflow runs every 15 minutes and supports default-branch manual dispatch. An empty `MONITOR_EMAIL` leaves the workflow idle with a notice. The probe has read-only contents access. The incident job alone has issues-write access. It updates the outage issue and persists the newest probe run number and attempt in a separate `prod-monitor-state` issue. The state issue records a pending result before updating incidents. Later runs reconcile it before processing a newer result. Keep that issue and its label so older reruns cannot change incident state.
+The workflow runs every 15 minutes and supports default-branch manual dispatch. The probe has read-only contents access. The incident job alone has issues-write access and reads completed probe jobs from GitHub Actions history. Job outcomes remain available if the incident job fails to write to Issues. The incident job applies outstanding results in run and attempt order, using the `prod-monitor-state` issue to track reconciliation. Keep that issue, its label and the unprocessed Actions runs until they have been reconciled.
 
-The incident job validates SMTP configuration before marking a transition `attempted`. Confirmed failures before submission, such as login denial, clear the attempt so the pending alert can retry. Relay acceptance or an uncertain outcome keeps the attempt recorded to prevent duplicate mail. A crash between recording the attempt and relay acceptance can leave an alert undelivered. If both labels remain, check the relay before any manual resend. The Message-ID is stable for relay lookup.
+The incident job validates SMTP configuration before marking a transition `attempted`. Definitive SMTP rejections, including a temporary recipient rejection, clear the attempt so the pending alert can retry. Relay acceptance or an uncertain outcome keeps the attempt recorded to prevent duplicate mail. A crash between recording the attempt and relay acceptance can leave an alert undelivered. If both labels remain, check the relay before any manual resend. The Message-ID is stable for relay lookup.
 
 The relay must accept the SMTP user as sender when it is an email address, or `support@oteryn.com` when the user is a relay login. The host accepts a hostname, `smtp://host:port` for STARTTLS, or `smtps://host:port` for implicit TLS. The default ports are 587 and 465 respectively.

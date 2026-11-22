@@ -21,12 +21,26 @@ function requireThat(condition, message) {
 
 test('Production portal synthetic monitor', async ({ browser, context, baseURL }, info) => {
   const { lang, checkPublicEndpoints } = info.project.metadata;
-  const origin = new URL(baseURL).origin;
+  const target = new URL(baseURL);
+  const origin = target.origin;
   const runDirectory = process.env.MONITOR_RUN_DIRECTORY;
   const counter = join(runDirectory, 'requests');
   const diagnostics = join(runDirectory, 'diagnostics');
-  const anonymousOnly = process.env.MONITOR_ANONYMOUS_ONLY === '1';
+  const localAuth = process.env.MONITOR_LOCAL_AUTH === '1' && process.env.MONITOR_ANONYMOUS_ONLY !== '1';
   const { MONITOR_EMAIL: email, MONITOR_PASSWORD: password, MONITOR_TOTP_SECRET: secret } = process.env;
+  if (localAuth) {
+    try {
+      requireThat(['http:', 'https:'].includes(target.protocol)
+        && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)
+        && email?.endsWith('@example.invalid') && password, 'disposable account required');
+      const { query } = await import('../staff-rbac-helpers.mjs');
+      const [account] = await query("SELECT id FROM accounts WHERE email=$1 AND status='active'", [email]);
+      requireThat(account, 'seeded active account required');
+    } catch {
+      appendFileSync(diagnostics, `${info.project.name} failed at disposable auth fixture\n`);
+      throw new MonitorFailure('Start the harness and provide a disposable seeded account');
+    }
+  }
   const page = await context.newPage();
   const cdp = await context.newCDPSession(page);
   const browserCdp = await browser.newBrowserCDPSession();
@@ -101,11 +115,14 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     return socket.close();
   });
 
-  const safeReads = new Set(['/account', '/account/security', '/login', '/healthz', '/']);
-  for (const lang of LANGUAGES) {
-    for (const suffix of ['', 'login', 'account', 'account/privacy', 'account/security',
-      'password/change', 'account/sessions', 'mfa/challenge']) {
-      safeReads.add(`/${lang}/${suffix}`);
+  const safeReads = new Set(['/healthz', '/pl/', '/en/']);
+  if (localAuth) {
+    for (const path of ['/account', '/account/security', '/login', '/']) safeReads.add(path);
+    for (const lang of LANGUAGES) {
+      for (const suffix of ['login', 'account', 'account/privacy', 'account/security',
+        'password/change', 'account/sessions', 'mfa/challenge']) {
+        safeReads.add(`/${lang}/${suffix}`);
+      }
     }
   }
 
@@ -147,7 +164,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
         await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
         return;
       }
-      if (request.method === 'POST' && portal && !search && pathname === allowedPost?.path
+      if (localAuth && request.method === 'POST' && portal && !search && pathname === allowedPost?.path
           && resourceType === 'Document') {
         const { fields } = allowedPost;
         allowedPost = undefined;
@@ -160,7 +177,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
         record('unexpected mutation blocked');
         await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
         return;
-      } else if (resourceType === 'Document' && (targetOrigin !== origin || !safeReads.has(pathname))) {
+      } else if (resourceType === 'Document' && (targetOrigin !== origin || !safeReads.has(pathname) || (!localAuth && search))) {
         record('unexpected navigation blocked');
         await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
         return;
@@ -283,10 +300,13 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     publicChecks.push(['Public health', async () => {
       const response = await go('/healthz');
       requireThat(response.ok() && currentPath() === '/healthz', 'unexpected health response');
-    }], ['Anonymous login form', async () => {
-      await go('/login');
-      await loginForm();
     }]);
+    if (localAuth) {
+      publicChecks.push(['Anonymous login form', async () => {
+        await go('/login');
+        await loginForm();
+      }]);
+    }
   }
   publicChecks.push([`Anonymous ${lang} home`, async () => {
     await go(home);
@@ -311,15 +331,10 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     appendFileSync(diagnostics, `${info.project.name} passed\n`);
   }
 
-  if (anonymousOnly) {
+  if (!localAuth) {
     await finish();
     return;
   }
-  await step('Monitor credentials configured', READ, () => {
-    requireThat(email && password, 'MONITOR_EMAIL and MONITOR_PASSWORD are required');
-    requireThat(process.env.MONITOR_ALLOW_AUTH_WRITES === '1',
-      'MONITOR_ALLOW_AUTH_WRITES must be 1 for the dedicated account');
-  });
 
   async function openMobileMenu() {
     const toggle = page.locator('#portal-menu-toggle');
