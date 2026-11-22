@@ -47,6 +47,8 @@ Object.assign(env,{
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',allowed_worlds:['019b0760-0000-7000-8000-000000000001'],allowed_nodes:[],identity:{san:'spiffe://local.test/admin/e2e'}}]),
 });
+const splitStaffOrigin = process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1';
+if(splitStaffOrigin) env.OTERYN_ADMIN_HOST='127.0.0.1:443';
 // The pinned lane producer still emits an unsupported negative compatibility candidate.
 // Never read raw Game content or fabricate a Today producer/catalogue.
 const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
@@ -119,8 +121,6 @@ await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password
 await bazaarSeed.query("UPDATE referral_campaign_settings SET enabled=true WHERE singleton");
 await bazaarSeed.end();
 const bazaarGame=startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
-const splitStaffOrigin = process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1';
-if(splitStaffOrigin) env.OTERYN_ADMIN_HOST='127.0.0.1:443';
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
 const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
