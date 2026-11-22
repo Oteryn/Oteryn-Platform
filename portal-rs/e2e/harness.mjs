@@ -13,11 +13,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { once } from 'node:events';
 import https from 'node:https';
 import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { withDeadline } from './support/harness-deadline.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -159,39 +161,74 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-const admin = new pg.Client({ connectionString: adminURL });
+const admin = new pg.Client({ connectionString: adminURL, connectionTimeoutMillis: 5_000 });
 const children = [];
-let closeOutboxBrowser;
+let outboxBrowser;
+let databaseCreation;
 let createdDatabase = false;
 let closing = false;
+
+async function stopService(child) {
+  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
+  const stopped = once(child, 'exit');
+  child.kill('SIGINT');
+  try {
+    await withDeadline(stopped, 6_000, 'service shutdown timed out');
+  } catch (error) {
+    child.kill('SIGKILL');
+    await withDeadline(stopped, 2_000, 'service did not exit after SIGKILL');
+    throw error;
+  }
+}
+
+async function cleanDatabase() {
+  try {
+    await databaseCreation?.catch(() => {});
+    if (createdDatabase && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+      // Limit the server-side work as well as the time this process awaits it.
+      await admin.query("SET lock_timeout = '4s'; SET statement_timeout = '10s'");
+      await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+    }
+  } finally {
+    await admin.end();
+  }
+}
+
 async function close(code = 0) {
   if (closing) return;
   closing = true;
-  await Promise.all(children.map(async child => {
-    if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
-    const stopped = new Promise(resolve => child.once('exit', resolve));
-    child.kill('SIGINT');
-    await stopped;
-  }));
-  closeOutboxBrowser?.();
-  if (createdDatabase && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
-    try {
-      await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
-    } catch {
-      log('failed to drop database', dbName);
-      code = 1;
-    }
+  const services = await Promise.allSettled([
+    ...children.map(stopService),
+    withDeadline(
+      Promise.resolve(outboxBrowser).then(closeBrowser => closeBrowser?.()),
+      8_000,
+      'outbox browser shutdown timed out',
+    ),
+  ]);
+  if (services.some(result => result.status === 'rejected')) {
+    log('failed to stop services for database', dbName);
+    code = 1;
   }
-  await admin.end().catch(() => {});
+  try {
+    await withDeadline(cleanDatabase(), 15_000, 'database cleanup timed out');
+  } catch (error) {
+    log('failed to clean database', dbName, error.code ?? error.name);
+    code = 1;
+  }
+  if (code !== 0) log('harness failed for database', dbName);
   process.exit(code);
 }
 
 async function start() {
-  await admin.connect();
-  await admin.query(`CREATE DATABASE "${dbName}"`);
-  createdDatabase = true;
-  const databaseURL = (() => { const url = new URL(adminURL); url.pathname = `/${dbName}`; return url.toString(); })();
   log('database', dbName);
+  databaseCreation = (async () => {
+    await admin.connect();
+    await admin.query(`CREATE DATABASE "${dbName}"`);
+    createdDatabase = true;
+  })();
+  await databaseCreation;
+  if (closing) return;
+  const databaseURL = (() => { const url = new URL(adminURL); url.pathname = `/${dbName}`; return url.toString(); })();
 
   // Gateway service token for the native admission listener (sha256 hex on the portal side).
   const token = crypto.randomBytes(32).toString('base64url');
@@ -248,7 +285,10 @@ async function start() {
     env.OTERYN_SMTP_FROM = 'portal@local.test';
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
-    closeOutboxBrowser = await startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    if (closing) return;
+    outboxBrowser = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    await outboxBrowser;
+    if (closing) return;
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 

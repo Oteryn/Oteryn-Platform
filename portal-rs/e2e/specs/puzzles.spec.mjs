@@ -12,6 +12,7 @@ import { createInterface } from 'node:readline';
 import { test as base, expect } from '../fixtures.mjs';
 import { csrfRejected, login, password, pool } from '../helpers.mjs';
 import { query as databaseQuery } from '../staff-rbac-helpers.mjs';
+import { withDeadline } from '../support/harness-deadline.mjs';
 
 // Reserve the loopback ports together so the child never reuses one
 // of its own ports. The harness verifies readiness on the new listeners.
@@ -31,7 +32,7 @@ async function puzzlePorts() {
 }
 
 const test = base.extend({
-  puzzleApp: async ({}, use) => {
+  puzzleApp: [async ({}, use) => {
     const [http, internal, admission, gateway, https] = await puzzlePorts();
     const origin = `https://localhost:${https}`;
     const scratch = await mkdtemp(join(tmpdir(), 'portal-e2e-puzzles-'));
@@ -50,20 +51,34 @@ const test = base.extend({
         OTERYN_PUBLIC_ORIGIN: origin,
         PORTAL_GAME_RESTORE_NOTICE_ENABLED: 'false',
       },
-      stdio: ['ignore', 'pipe', 'ignore'],
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const exited = new Promise(resolve => child.once('close', resolve));
+    const exited = once(child, 'close');
     const lines = createInterface({ input: child.stdout });
+    const diagnostics = createInterface({ input: child.stderr });
+    let database = 'unallocated';
+    diagnostics.on('line', line => {
+      // The harness logs the name before allocating it. Keep credentials out
+      // of Playwright output, including on startup and teardown failures.
+      const match = /^\[harness\] database (portal_e2e_[a-f0-9]{12})$/.exec(line);
+      if (match) database = match[1];
+    });
     let proxy;
     try {
       const ready = await Promise.race([
         once(lines, 'line', { signal: AbortSignal.timeout(60_000) }).then(([line]) => line),
-        exited.then(code => { throw new Error(`Puzzle harness stopped before readiness (${code})`); }),
+        exited.then(([code, signal]) => { throw new Error(`Puzzle harness stopped before readiness (${code ?? signal}) for database ${database}`); }),
       ]);
-      if (JSON.parse(ready).status !== 'ready') throw new Error('Puzzle harness did not report readiness');
+      const report = JSON.parse(ready);
+      if (report.status !== 'ready' || !/^portal_e2e_[a-f0-9]{12}$/.test(report.database)) {
+        throw new Error('Puzzle harness did not report a disposable database');
+      }
+      database = report.database;
       const env = JSON.parse(await readFile(join(output, 'secrets', 'env.json'), 'utf8'));
       const databaseURL = env.OTERYN_DATABASE_URL;
-      if (!databaseURL || [process.env.OTERYN_DATABASE_URL, process.env.PORTAL_E2E_DATABASE_URL].some(
+      if (!databaseURL || new URL(databaseURL).pathname !== `/${database}`
+        || [process.env.OTERYN_DATABASE_URL, process.env.PORTAL_E2E_DATABASE_URL].some(
         shared => shared && new URL(shared).pathname === new URL(databaseURL).pathname,
       )) throw new Error('Puzzle harness must supply a separate database');
       proxy = createHttpsServer({
@@ -84,17 +99,36 @@ const test = base.extend({
       await use({ origin, databaseURL, env });
     } finally {
       if (proxy) {
-        await new Promise(resolve => {
-          proxy.close(resolve);
-          proxy.closeAllConnections();
-        });
+        proxy.close();
+        proxy.closeAllConnections();
       }
-      lines.close();
-      child.kill('SIGTERM');
-      await exited;
-      await rm(scratch, { recursive: true, force: true });
+      try {
+        child.kill('SIGTERM');
+        // Allow the harness its service and database budgets plus exit reporting.
+        const [code, signal] = await withDeadline(exited, 28_000, 'harness shutdown timed out')
+          .catch(async error => {
+            if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+              // Kill the whole fixture process group if the harness cannot
+              // finish its own bounded cleanup.
+              try {
+                process.kill(-child.pid, 'SIGKILL');
+              } catch (killError) {
+                if (killError.code !== 'ESRCH') throw killError;
+              }
+              await withDeadline(exited, 2_000, 'harness did not exit after SIGKILL');
+            }
+            throw error;
+          });
+        if (code !== 0) throw new Error(`harness exited with ${code ?? signal}`);
+      } catch (error) {
+        throw new Error(`Puzzle harness cleanup failed for database ${database} (${error.code ?? error.message})`);
+      } finally {
+        lines.close();
+        diagnostics.close();
+        await rm(scratch, { recursive: true, force: true });
+      }
     }
-  },
+  }, { timeout: 100_000 }],
   baseURL: async ({ puzzleApp }, use) => use(puzzleApp.origin),
 });
 
