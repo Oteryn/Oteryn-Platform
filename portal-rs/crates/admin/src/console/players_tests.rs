@@ -403,6 +403,23 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
         assert_eq!(response.status(), expected, "player search with {site:?}");
     }
     for area in ["players", "audit", "access", "approvals"] {
+        for (query, accept_language, expected) in [("", "en", "en"), ("?lang=pl", "en", "pl")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("/admin/console/{area}{query}"))
+                        .header("host", "staff.test")
+                        .header("accept-language", accept_language)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK, "{area}");
+            let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+            assert!(
+                html.contains(&format!(r#"<html lang="{expected}">"#)),
+                "{area}"
+            );
+        }
         let path = format!("/admin/console/{area}?lang=en");
         let response = app
             .clone()

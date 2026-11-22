@@ -292,7 +292,7 @@ pub(crate) async fn page<B: Backend>(
     Extension(actor): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
     headers: axum::http::HeaderMap,
-    Query(input): Query<Input>,
+    Query(mut input): Query<Input>,
 ) -> Result<Response, Error> {
     if (input.q.is_some() || input.character.is_some()) && !super::trusted_navigation(&headers) {
         return Err(Error::Denied);
@@ -307,6 +307,9 @@ pub(crate) async fn page<B: Backend>(
         flags: state.flags,
         backend,
     };
+    input
+        .lang
+        .get_or_insert_with(|| crate::web::language(&headers).to_owned());
     let mut page = view(&scoped, actor, input).await?;
     if page.search && state.backend.advertised("player.search").await {
         page.csrf = session.csrf_token().await?;
