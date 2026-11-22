@@ -106,7 +106,7 @@ test('platform operations are discoverable and enforce staff-only, read-only acc
     }
     await visit(admin, '/admin/operations/statistics');
     await admin.locator('select[name="days"]').selectOption('1');
-    await admin.locator('form button').click();
+    await admin.locator('main form button').click();
     await expect(admin).toHaveURL(/days=1$/);
     await expect(admin.locator('tbody tr')).toHaveCount(1);
 
