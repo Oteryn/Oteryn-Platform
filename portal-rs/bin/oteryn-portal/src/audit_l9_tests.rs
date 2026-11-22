@@ -139,6 +139,12 @@ async fn fixture(name: &str, mode: &str) -> Result {
         .env("OTERYN_ACCOUNT_SESSIONS", "false")
         .env("OTERYN_ACCOUNT_LOGIN", "false")
         .env("OTERYN_ACCOUNT_PASSKEYS", "false");
+    if name == "production_registration_account_exists" {
+        command
+            .env("OTERYN_ENV", "production")
+            .env_remove("OTERYN_TERMS_VERSION")
+            .env_remove("OTERYN_PRIVACY_VERSION");
+    }
     if name == "missing_mail_refuses_admission" {
         command.env_remove("OTERYN_SMTP_HOST");
     }
@@ -418,6 +424,7 @@ async fn production_registration_account_exists() -> Result {
     if std::env::var("L9_CHILD").is_err() {
         return fixture("production_registration_account_exists", "starttls").await;
     }
+    assert_eq!(std::env::var("OTERYN_ENV")?, "production");
     let start = Instant::now();
     let db = database().await?;
     account(&db.pool, "existing@example.test").await?;
@@ -426,6 +433,35 @@ async fn production_registration_account_exists() -> Result {
         .execute(&db.pool)
         .await?;
     let app = app(db.pool.clone());
+    // A final-looking version with retained fictional details must be refused by
+    // the configured production router before the real account-exists flow.
+    sqlx::query(
+        "UPDATE editorial_pages SET body='KRS 0000000000'
+         WHERE page_id=(SELECT id FROM pages WHERE slug='terms-of-service')",
+    )
+    .execute(&db.pool)
+    .await?;
+    for locale in ["en", "pl"] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "GET",
+                &format!("/{locale}/register"),
+                &browser,
+                "10.0.0.1:1234",
+                "192.0.2.1",
+                "",
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+    sqlx::query(
+        "UPDATE editorial_pages e SET body=v.content->>'body'
+         FROM page_legal_versions v WHERE v.page_id=e.page_id
+         AND v.locale=e.locale AND v.version=e.legal_version",
+    )
+    .execute(&db.pool)
+    .await?;
     let body = registration_body(
         &app,
         &db.pool,
