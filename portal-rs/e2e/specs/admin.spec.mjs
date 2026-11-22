@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {recoveryCodes} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -21,7 +22,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const codes=await page.locator('textarea[readonly]').allTextContents();
+ const codes=await recoveryCodes(page);
  expect(codes.length).toBeGreaterThan(0);
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
@@ -37,9 +38,10 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    const page=await staffContext.newPage();
    try {
    let response;try{response=await page.goto(['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`)?path:`${path}?lang=${lang}`);}catch(error){failures.push(`${path}: ${error.message}`);return;}
-   if(response.status()!==200)failures.push(`${path}: HTTP ${response.status()}`);
-   if(response.status()===200 && await page.locator('html').getAttribute('lang')!==lang)failures.push(`${path}: wrong page language`);
-   if(response.status()===200) await assertShell(page);
+   const expected=path==='/console/dashboard'?403:200;
+   if(response.status()!==expected)failures.push(`${path}: HTTP ${response.status()}`);
+   if(response.status()===expected && await page.locator('html').getAttribute('lang')!==lang)failures.push(`${path}: wrong page language`);
+   if(response.status()===expected) await assertShell(page);
    const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
    for(const form of forms)await csrfRejected(page,form.action,form.fields);
    } finally {await page.close();}
@@ -56,7 +58,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
      await page.goto('/admin/roles');
      const token=await page.locator('input[name=_csrf]').first().inputValue();
-     const fields={account:target,role,action:'grant'};
+     const fields={account:target,role,action:'grant',reason:'Assign privileged workflow role'};
      await csrfRejected(page,'/admin/roles',fields);
      const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
      expect(refused.status()).toBe(403);

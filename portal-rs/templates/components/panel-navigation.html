@@ -1,0 +1,5 @@
+{% if !panel_links.is_empty() %}
+<nav class="op-tabs" aria-label="{{ panel_label }}" data-panel="{{ panel_name }}">
+  {% for link in panel_links %}<a href="{{ link.url }}">{{ link.label }}</a>{% endfor %}
+</nav>
+{% endif %}
