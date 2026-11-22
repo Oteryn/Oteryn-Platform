@@ -443,8 +443,7 @@ async fn login(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
-    RawQuery(query): RawQuery,
+    (headers, RawQuery(query)): (HeaderMap, RawQuery),
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
     let limiter = supplied

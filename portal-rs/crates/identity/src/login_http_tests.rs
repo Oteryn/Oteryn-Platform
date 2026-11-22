@@ -679,7 +679,10 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
 #[test]
 fn staff_dashboard_return_is_exact_and_bound_to_the_staff_host() {
     let mut headers = HeaderMap::new();
-    headers.insert(header::HOST, "staff.test".parse().unwrap());
+    headers.insert(
+        header::HOST,
+        axum::http::HeaderValue::from_static("staff.test"),
+    );
     assert!(dashboard_return(
         Some("return_to=/admin"),
         &headers,
@@ -705,7 +708,10 @@ fn staff_dashboard_return_is_exact_and_bound_to_the_staff_host() {
             Some(host)
         ));
     }
-    headers.append(header::HOST, "public.test".parse().unwrap());
+    headers.append(
+        header::HOST,
+        axum::http::HeaderValue::from_static("public.test"),
+    );
     assert!(!dashboard_return(
         Some("return_to=/admin"),
         &headers,

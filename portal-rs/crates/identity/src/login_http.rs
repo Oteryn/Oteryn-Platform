@@ -153,8 +153,7 @@ async fn submit(
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
-    RawQuery(query): RawQuery,
+    (headers, RawQuery(query)): (HeaderMap, RawQuery),
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
     let Some(Extension(ConnectInfo(peer))) = peer else {
