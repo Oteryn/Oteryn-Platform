@@ -239,8 +239,9 @@ pub(super) async fn save_form(
     now: i64,
 ) -> Result<(), Error> {
     let form = parse(body)?;
+    let expected_revision = form.expected_revision.ok_or(Error::Conflict)?;
     let submitted = form.preferences.hide_all_characters;
-    // Forms rendered before the baseline field was added can still save character edits.
+    // An omitted baseline leaves the account-wide preference alone.
     let account_hide = form
         .rendered_hide_all
         .filter(|&rendered| rendered != submitted)
@@ -251,7 +252,7 @@ pub(super) async fn save_form(
             name,
             form.preferences,
             account_hide,
-            form.expected_revision,
+            Some(expected_revision),
             now,
         )
         .await

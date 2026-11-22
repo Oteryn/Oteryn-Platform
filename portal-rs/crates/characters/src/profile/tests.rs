@@ -105,6 +105,17 @@ async fn postgres_profile_form_conflicts_preserve_the_saved_revision()
         http::save_form(&service, fixture.account, "Aldric", stale.as_bytes(), 1000).await,
         Err(Error::Conflict),
     );
+    assert_eq!(
+        http::save_form(
+            &service,
+            fixture.account,
+            "Aldric",
+            b"comment=Older+form",
+            1000
+        )
+        .await,
+        Err(Error::Conflict),
+    );
     let (_, saved, current) = service
         .edit_with_revision(fixture.account, "Aldric", 1000)
         .await
@@ -376,8 +387,8 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
             .ok_or("missing policy")?
             .show_deaths
     );
-    let (_, stale_form) = service
-        .edit(account, "Belric", 1000)
+    let (_, stale_form, stale_revision) = service
+        .edit_with_revision(account, "Belric", 1000)
         .await
         .map_err(|error| format!("edit Belric: {error:?}"))?;
     assert!(!stale_form.hide_all_characters);
@@ -395,18 +406,32 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
             .ok_or("missing second policy")?
             .hidden
     );
-    let body = format!(
-        "rendered_hide_all_characters={}&comment=Saved+from+an+older+form",
+    let stale = format!(
+        "expected_revision={stale_revision}&rendered_hide_all_characters={}&comment=Stale+edit",
         u8::from(stale_form.hide_all_characters)
+    );
+    assert_eq!(
+        http::save_form(&service, account, "Belric", stale.as_bytes(), 1000).await,
+        Err(Error::Conflict),
+    );
+    let (_, current, revision) = service
+        .edit_with_revision(account, "Belric", 1000)
+        .await
+        .map_err(|error| format!("edit Belric: {error:?}"))?;
+    assert!(current.hide_all_characters);
+    assert_eq!(current.comment, stale_form.comment);
+    let body = format!(
+        "expected_revision={revision}&rendered_hide_all_characters={}&hide_all_characters=1&comment=Saved+from+a+fresh+form",
+        u8::from(current.hide_all_characters)
     );
     http::save_form(&service, account, "Belric", body.as_bytes(), 1000)
         .await
         .map_err(|error| format!("save Belric form: {error:?}"))?;
-    let (_, saved) = service
-        .edit(account, "Belric", 1000)
+    let (_, saved, mut revision) = service
+        .edit_with_revision(account, "Belric", 1000)
         .await
         .map_err(|error| format!("edit Belric: {error:?}"))?;
-    assert_eq!(saved.comment, "Saved from an older form");
+    assert_eq!(saved.comment, "Saved from a fresh form");
     assert!(
         saved.hide_all_characters,
         "stale character save cleared the account-wide hide"
@@ -416,14 +441,16 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         ("rendered_hide_all_characters=1", false),
         ("rendered_hide_all_characters=0&hide_all_characters=1", true),
     ] {
-        http::save_form(&service, account, "Belric", body.as_bytes(), 1000)
+        let form = format!("expected_revision={revision}&{body}");
+        http::save_form(&service, account, "Belric", form.as_bytes(), 1000)
             .await
             .map_err(|error| format!("save Belric form: {error:?}"))?;
-        let (_, saved) = service
-            .edit(account, "Belric", 1000)
+        let (_, saved, new_revision) = service
+            .edit_with_revision(account, "Belric", 1000)
             .await
             .map_err(|error| format!("edit Belric: {error:?}"))?;
         assert_eq!(saved.hide_all_characters, expected);
+        revision = new_revision;
     }
     switches.comment = "a".repeat(501);
     assert_eq!(
@@ -629,9 +656,15 @@ async fn committed_transfer_blocks_profile_save() -> Result<(), Box<dyn std::err
         return Ok(());
     };
     let service = Service::new(pool.clone(), settings, true);
-    http::save_form(&service, account, "Belric", b"comment=Original", 1000)
-        .await
-        .map_err(|e| format!("initial save: {e:?}"))?;
+    http::save_form(
+        &service,
+        account,
+        "Belric",
+        b"expected_revision=0&comment=Original",
+        1000,
+    )
+    .await
+    .map_err(|e| format!("initial save: {e:?}"))?;
     let receipt = serde_json::json!({
         "character_id": character,
         "outcome": "COMMITTED",
@@ -645,7 +678,7 @@ async fn committed_transfer_blocks_profile_save() -> Result<(), Box<dyn std::err
             &service,
             account,
             "Belric",
-            b"comment=Changed&hidden=1",
+            b"expected_revision=1&comment=Changed&hidden=1",
             1000
         )
         .await,
