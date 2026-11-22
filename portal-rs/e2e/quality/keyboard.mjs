@@ -18,6 +18,7 @@ async function focusState(page) {
         (link ? ' ' + new URL(link, location.href).pathname : ''),
       visible: Boolean(visible && bounds.width > 0 && bounds.height > 0 &&
         bounds.right > 0 && bounds.left < innerWidth && bounds.bottom > 0 && bounds.top < innerHeight),
+      inHeader: !!element.closest('header'),
       inScope: !!(element.form || element.closest('form, header, nav')),
     };
   });
@@ -136,25 +137,30 @@ async function assertNativeMenu(page, label, bound) {
   await page.keyboard.press('Enter');
   await soft(menu).toHaveAttribute('open', '');
   const account = menu.locator('details.om-fallback-account');
-  if (await account.count()) {
-    const accountSummary = account.locator(':scope > summary');
-    const reachedAccount = await tabUntil(page, accountSummary, (await tabStops(page)).length);
-    soft(reachedAccount, `${label}: account disclosure is keyboard reachable`).toBe(true);
-    if (reachedAccount) await page.keyboard.press('Enter');
-  }
-  const expected = (await tabStops(page)).filter(stop => stop.inHeader);
-  await resetTabStart(page);
-  const reachedStops = [];
-  for (let step = 0; step < expected.length + 2; step++) {
+  const accountSummary = account.locator(':scope > summary');
+  const hasAccount = await accountSummary.count() === 1;
+  const accountIndex = hasAccount ? await accountSummary.evaluate(summary =>
+    [...document.querySelectorAll('*')].indexOf(summary)) : -1;
+  const menuIndex = (await focusState(page)).index;
+  let expected = (await tabStops(page)).filter(stop => stop.inHeader && stop.index > menuIndex);
+  let openedAccount = false;
+  for (let index = 0; index < expected.length; index++) {
     await page.keyboard.press('Tab');
     const focus = await focusState(page);
-    if (expected.some(stop => stop.index === focus.index)) {
-      reachedStops.push(focus.index);
-      soft(focus.visible, `${label}: open menu focus indicator for ${focus.target}`).toBe(true);
-    } else if (reachedStops.length) break;
+    const stop = expected[index];
+    soft(focus.index, `${label}: open menu follows source order`).toBe(stop.index);
+    soft(focus.visible, `${label}: open menu focus indicator for ${focus.target}`).toBe(true);
+    if (stop.index === accountIndex && focus.index === accountIndex) {
+      await page.keyboard.press('Enter');
+      await soft(account).toHaveAttribute('open', '');
+      openedAccount = true;
+      expected = (await tabStops(page)).filter(candidate => candidate.inHeader && candidate.index > accountIndex);
+      index = -1;
+    }
   }
-  soft(reachedStops, `${label}: can Tab through the open menu in source order`)
-    .toEqual(expected.map(stop => stop.index));
+  if (hasAccount) soft(openedAccount, `${label}: can open the account disclosure from the keyboard`).toBe(true);
+  await page.keyboard.press('Tab');
+  soft((await focusState(page)).inHeader, `${label}: Tab leaves the open menu`).toBe(false);
   await resetTabStart(page);
   const returned = await tabUntil(page, summary, bound);
   soft(returned, `${label}: keyboard can return to the main disclosure`).toBe(true);
