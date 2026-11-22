@@ -485,10 +485,11 @@ test('party caps five active and ten hourly posts, isolates an owner and resets'
   });
 });
 
-test('party reports accept the twentieth and refuse the twenty-first under each cap', async ({ browser, browserDiagnostics }, info) => {
+test('party reports accept twenty, isolate a second reporter and recover under each cap', async ({ browser, browserDiagnostics }, info) => {
   await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/party`;
-    const fields = await formFields(a.page, `/${lang}/support/tickets/create`);
+    const forms = new Map();
+    for (const player of [a, b]) forms.set(player.id, await formFields(player.page, `/${lang}/support/tickets/create`));
     // These reports count toward the hourly cap only.
     const reports = await query(
       `WITH posts AS (
@@ -503,23 +504,29 @@ test('party reports accept the twentieth and refuse the twenty-first under each 
       [b.id, world, a.id],
     );
     expect(reports).toHaveLength(19);
-    const targets = await query(
+    const livePosts = (owner, count) => query(
       `INSERT INTO pd_party_posts(account_id,character_id,character_name,world_id,purpose,
          min_level,max_level,profession,note,starts_at,expires_at)
        SELECT $1,uuidv7(),'Party Owner',$2,'hunt',1,200,'any','Current party post',
-         now(),now()+interval '30 minutes' FROM generate_series(1,4) RETURNING id`, [b.id, world],
+         now(),now()+interval '30 minutes' FROM generate_series(1,$3::int) RETURNING id`,
+      [owner.id, world, count],
     );
-    const report = ({ id }) => post(a.page, `${route}/${id}/report`, {
-      _csrf: fields._csrf, reason: 'Browser qualification report',
+    const targets = await livePosts(b, 4);
+    const otherTargets = await livePosts(a, 2);
+    const report = (player, { id }) => post(player.page, `${route}/${id}/report`, {
+      _csrf: forms.get(player.id)._csrf, reason: 'Browser qualification report',
     });
-    const saved = ({ id }) => query(
-      'SELECT status FROM pd_party_reports WHERE account_id=$1 AND post_id=$2', [a.id, id],
+    const saved = (player, { id }) => query(
+      'SELECT status FROM pd_party_reports WHERE account_id=$1 AND post_id=$2', [player.id, id],
     );
 
-    redirect(await report(targets[0]), 303, route);
-    expect(await saved(targets[0])).toEqual([{ status: 'open' }]);
-    await partyQuotaDenied(await report(targets[1]));
-    expect(await saved(targets[1])).toEqual([]);
+    redirect(await report(a, targets[0]), 303, route);
+    expect(await saved(a, targets[0])).toEqual([{ status: 'open' }]);
+    await partyQuotaDenied(await report(a, targets[1]));
+    redirect(await report(b, otherTargets[0]), 303, route);
+    expect(await saved(b, otherTargets[0])).toEqual([{ status: 'open' }]);
+    await partyQuotaDenied(await report(a, targets[1]));
+    expect(await saved(a, targets[1])).toEqual([]);
 
     // Age all twenty reports out of the hourly window, then make only the
     // nineteen seeded reports pending to test the second cap independently.
@@ -529,17 +536,20 @@ test('party reports accept the twentieth and refuse the twenty-first under each 
            status=CASE WHEN id=ANY($2::uuid[]) THEN 'open' ELSE 'resolved' END
        WHERE account_id=$1 RETURNING id`, [a.id, reports.map(row => row.id)],
     )).toHaveLength(20);
-    redirect(await report(targets[2]), 303, route);
-    expect(await saved(targets[2])).toEqual([{ status: 'open' }]);
-    await partyQuotaDenied(await report(targets[3]));
-    expect(await saved(targets[3])).toEqual([]);
+    redirect(await report(a, targets[2]), 303, route);
+    expect(await saved(a, targets[2])).toEqual([{ status: 'open' }]);
+    await partyQuotaDenied(await report(a, targets[3]));
+    redirect(await report(b, otherTargets[1]), 303, route);
+    expect(await saved(b, otherTargets[1])).toEqual([{ status: 'open' }]);
+    await partyQuotaDenied(await report(a, targets[3]));
+    expect(await saved(a, targets[3])).toEqual([]);
 
     expect(await query(
       "UPDATE pd_party_reports SET status='resolved' WHERE account_id=$1 AND status='open' RETURNING id",
       [a.id],
     )).toHaveLength(20);
-    redirect(await report(targets[3]), 303, route);
-    expect(await saved(targets[3])).toEqual([{ status: 'open' }]);
+    redirect(await report(a, targets[3]), 303, route);
+    expect(await saved(a, targets[3])).toEqual([{ status: 'open' }]);
   });
 });
 
