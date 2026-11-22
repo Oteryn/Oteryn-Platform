@@ -627,3 +627,58 @@ async fn manage_only_save_cannot_unpublish_event() {
     assert!(matches!(result, Err(Error::Authorization(_))));
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_event_save_audits_changed_content_and_removed_locale() {
+    use sha2::{Digest, Sha256};
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let (actor, auth, _) = db.author().await;
+    let events = Events::new(db.pool.clone());
+    let mut initial = draft("content-audit");
+    initial.en.title = "Original title".into();
+    initial.en.body = "Original body".into();
+    initial.pl = Some(Translation {
+        slug: "tresc-audytu".into(),
+        title: "Polski tytuł".into(),
+        summary: "Opis".into(),
+        body: "Polska treść".into(),
+    });
+    let context = context(actor);
+    let id = events
+        .save(&auth, context, None, initial.clone())
+        .await
+        .unwrap();
+    initial.en.title = "Edited title".into();
+    initial.en.body = "Edited body".into();
+    initial.pl = None;
+    events
+        .save(&auth, context, Some((id, 1)), initial)
+        .await
+        .unwrap();
+
+    let (before, after): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT before,after FROM audit_log WHERE action='events.event_updated' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    let hash = |v: &str| format!("{:x}", Sha256::digest(v));
+    let old = &before["translations"];
+    let new = &after["translations"];
+    assert_eq!(old["en"]["slug"], "content-audit");
+    assert_eq!(new["en"]["slug"], "content-audit");
+    assert_eq!(old["en"]["title_sha256"], hash("Original title"));
+    assert_eq!(new["en"]["title_sha256"], hash("Edited title"));
+    assert_eq!(old["en"]["body_sha256"], hash("Original body"));
+    assert_eq!(new["en"]["body_sha256"], hash("Edited body"));
+    assert_eq!(old["en"]["summary_sha256"], new["en"]["summary_sha256"]);
+    assert_eq!(old["pl"]["slug"], "tresc-audytu");
+    assert_eq!(old["pl"]["body_sha256"], hash("Polska treść"));
+    assert!(new.get("pl").is_none());
+    assert!(!before.to_string().contains("Original body"));
+    assert!(!after.to_string().contains("Edited body"));
+    db.close().await;
+}

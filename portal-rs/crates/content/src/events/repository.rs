@@ -3,8 +3,36 @@ use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
 };
-use serde_json::json;
-use sqlx::PgPool;
+use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
+use sqlx::{PgConnection, PgPool};
+
+async fn translation_snapshot(
+    db: &mut PgConnection,
+    event: Uuid,
+) -> Result<Map<String, Value>, sqlx::Error> {
+    let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        "SELECT locale, slug, title, summary, body FROM event_translations WHERE event_id=$1",
+    )
+    .bind(event)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(locale, slug, title, summary, body)| {
+            let fingerprint = |text: &str| format!("{:x}", Sha256::digest(text.as_bytes()));
+            (
+                locale,
+                json!({
+                    "slug": slug,
+                    "title_sha256": fingerprint(&title),
+                    "summary_sha256": fingerprint(&summary),
+                    "body_sha256": fingerprint(&body),
+                }),
+            )
+        })
+        .collect())
+}
 
 #[derive(Debug, Clone)]
 pub struct Events {
@@ -127,11 +155,13 @@ impl Events {
                     .await?;
                 permissions.push(Permission::PublishEvents);
             }
+            let translations = translation_snapshot(&mut tx, id).await?;
             sqlx::query("UPDATE events SET status='draft',starts_at=$2,ends_at=$3,featured=$4,updated_by=$5,published_by=NULL,lock_version=lock_version+1,updated_at=now() WHERE id=$1")
                 .bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).execute(&mut *tx).await?;
             json!({
                 "status": row.status, "version": version, "featured": row.featured,
                 "starts_at": row.starts_at.unix_timestamp(), "ends_at": row.ends_at.unix_timestamp(),
+                "translations": translations,
             })
         } else {
             sqlx::query("INSERT INTO events (id,starts_at,ends_at,featured,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$5)").bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).execute(&mut *tx).await?;
@@ -146,6 +176,7 @@ impl Events {
                 sqlx::query("INSERT INTO event_translations (event_id,locale,title,slug,summary,body) VALUES ($1,$2,$3,$4,$5,$6)").bind(id).bind(locale).bind(t.title).bind(t.slug).bind(t.summary).bind(t.body).execute(&mut *tx).await.map_err(constraint)?;
             }
         }
+        let translations = translation_snapshot(&mut tx, id).await?;
         audit::append(
             &mut tx,
             Entry {
@@ -163,7 +194,7 @@ impl Events {
                 after: json!({
                     "status": "draft", "version": existing.map_or(1, |(_, version)| version + 1),
                     "starts_at": draft.starts_at.unix_timestamp(), "ends_at": draft.ends_at.unix_timestamp(),
-                    "featured": draft.featured, "reason": reason,
+                    "featured": draft.featured, "reason": reason, "translations": translations,
                 }),
             },
         )
