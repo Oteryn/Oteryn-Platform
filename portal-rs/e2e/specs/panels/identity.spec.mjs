@@ -187,6 +187,9 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   await expectProofRefusal(await post(page, replacement, replacementToken, {
     password, code: codeAt(next, -3),
   }), lang, 403, { confirm: true });
+  await expectProofRefusal(await post(page, replacement, replacementToken, {
+    password: 'wrong', code: codeAt(next, 0),
+  }), lang, 403, { confirm: true });
   await submitProof(page, replacement, password, next);
   const replacementCodes = await codes(page);
   expect(replacementCodes.length).toBe(8);
