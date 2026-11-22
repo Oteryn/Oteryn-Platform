@@ -3,6 +3,9 @@ import {execFileSync} from 'node:child_process';
 import {test,expect} from '../fixtures.mjs';
 import {csrfRejected,login,mailLink,password,register,submit} from '../helpers.mjs';
 import {audit,enrollMfa,loginWithRecoveryCode,query} from '../staff-rbac-helpers.mjs';
+import {cookie,deviceCookie,hash} from '../security/auth-fixtures.mjs';
+
+test.use({trace:'off',screenshot:'off'});
 
 const manage='/admin/staff-invites';
 const address=()=>`invite-${crypto.randomUUID()}@example.invalid`;
@@ -166,7 +169,16 @@ test('staff invitations reach verified registered and existing accounts through 
     expect(await memberships(existing.email)).toEqual([]);
     await login(page,lang,existing);
     const existingCodes=await enrollMfa(page,lang,existing);
-    await loginWithRecoveryCode(page,lang,existing,existingCodes[0]);
+    await login(page,lang,existing);
+    const mfaChallenge=new RegExp(`/${lang}/mfa/challenge$`);
+    await expect(page).toHaveURL(mfaChallenge);
+    await submit(page,'main form[action$="/mfa/challenge"]',{code:existingCodes[0],remember:true});
+    const deviceHash=hash(await cookie(page.context(),deviceCookie));
+    const remembered=await query(
+      "SELECT 1 FROM account_mfa_tokens WHERE account_id=$1 AND token_hash=$2 AND purpose='trusted'",
+      [existing.id,deviceHash],
+    );
+    expect(remembered).toHaveLength(1);
     await visit(page,existingLink,200);
     const copied=await browser.newContext({
       baseURL:origin(),ignoreHTTPSErrors:true,storageState:await page.context().storageState(),
@@ -180,6 +192,9 @@ test('staff invitations reach verified registered and existing accounts through 
       const stale=await copied.request.get('/admin',{maxRedirects:0});
       expect(stale.status()).toBe(303);
       expect(stale.headers().location).toBe('/login');
+      const beforePromotion=await copied.newPage();
+      await login(beforePromotion,lang,existing);
+      await expect(beforePromotion).toHaveURL(mfaChallenge);
     } finally {
       await copied.close();
     }

@@ -58,17 +58,18 @@ pub async fn delivery(
     let token = key
         .open(&job.ciphertext)
         .ok_or("invalid staff invite ciphertext")?;
-    let address: Option<(String, String, OffsetDateTime, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT i.email,i.locale,i.expires_at,{awaiting} FROM staff_invites i
+    let address: Option<(String, String, OffsetDateTime, bool)> =
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT i.email,i.locale,i.expires_at,{awaiting} FROM staff_invites i
          WHERE {PENDING} AND i.id=$1 AND i.token_hash=$2 AND {issuer_authorized}",
-        awaiting = awaiting_approval_sql(),
-        issuer_authorized = current_manager_sql("a.id=i.invited_by"),
-    )))
-    .bind(job.invite)
-    .bind(token_hash(&token))
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| "staff invite delivery unavailable")?;
+            awaiting = awaiting_approval_sql(),
+            issuer_authorized = current_manager_sql("a.id=i.invited_by"),
+        )))
+        .bind(job.invite)
+        .bind(token_hash(&token))
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| "staff invite delivery unavailable")?;
     Ok(match address {
         Some((_, _, _, true)) => DeliveryDecision::AwaitingApproval,
         Some((email, locale, expires_at, false)) => DeliveryDecision::Send {

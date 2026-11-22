@@ -196,7 +196,10 @@ async fn success_requires_mfa_and_consumes_once() -> TestResult {
             .bind(f.recipient.account)
             .fetch_all(&f.invites.pool)
             .await?;
-    assert_eq!(surviving_tokens, [(proof.grant_hash.to_vec(), "grant".into())]);
+    assert_eq!(
+        surviving_tokens,
+        [(proof.grant_hash.to_vec(), "grant".into())]
+    );
     assert!(
         !rbac::durable_session_in(
             &mut *f.invites.pool.acquire().await?,
@@ -298,10 +301,12 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
             .await,
         Err(Error::Denied)
     ));
-    sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.manage'")
-        .bind(manager)
-        .execute(&f.invites.pool)
-        .await?;
+    sqlx::query(
+        "DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.manage'",
+    )
+    .bind(manager)
+    .execute(&f.invites.pool)
+    .await?;
     assert!(matches!(
         delivery(&f.invites.pool, &f.key, &payload).await?,
         DeliveryDecision::Closed
