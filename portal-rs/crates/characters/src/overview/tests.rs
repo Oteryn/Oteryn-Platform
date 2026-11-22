@@ -127,6 +127,18 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     let facts = progression::load(&pool, id).await;
     let facts = facts.get(&character).ok_or("fresh progression missing")?;
     assert_eq!((facts.level, facts.vocation), (412, 4));
+    let mut writer = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut *writer)
+        .await?;
+    let during_write = tokio::time::timeout(
+        std::time::Duration::from_secs(6),
+        progression::load(&pool, id),
+    )
+    .await?;
+    assert!(during_write.is_empty());
+    writer.rollback().await?;
+    assert!(progression::load(&pool, id).await.contains_key(&character));
     assert!(progression::load(&pool, Uuid::now_v7()).await.is_empty());
     sqlx::query("UPDATE public_snapshots SET watermark=0 WHERE is_watermark")
         .execute(&pool)

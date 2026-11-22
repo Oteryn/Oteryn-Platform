@@ -18,6 +18,9 @@ pub(super) async fn load(pool: &PgPool, account: Uuid) -> HashMap<Uuid, Facts> {
 
 async fn load_owned(pool: &PgPool, account: Uuid) -> Result<HashMap<Uuid, Facts>, Unavailable> {
     let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
+        .execute(&mut *tx)
+        .await?;
     let active: Option<String> =
         sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
             .bind(account)
