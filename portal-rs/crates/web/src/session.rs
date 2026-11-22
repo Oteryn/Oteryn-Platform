@@ -565,9 +565,24 @@ pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
 ) -> oteryn_ui::Account {
-    match read_signed_in(layer, request).await {
-        Ok(Some(session)) => oteryn_ui::Account::SignedIn { csrf: session.csrf },
-        _ => oteryn_ui::Account::Anonymous,
+    let Ok(Some(session)) = read_signed_in(layer, request).await else {
+        return oteryn_ui::Account::Anonymous;
+    };
+    let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
+        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
+         FROM accounts WHERE id=$1",
+    )
+    .bind(session.account_id)
+    .fetch_optional(&layer.pool)
+    .await;
+    let passkeys_eligible = matches!(
+        policy,
+        Ok(Some((status, verified, mfa_required)))
+            if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
+    );
+    oteryn_ui::Account::SignedIn {
+        csrf: session.csrf,
+        passkeys_eligible,
     }
 }
 
