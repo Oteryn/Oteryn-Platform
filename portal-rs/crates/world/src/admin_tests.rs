@@ -222,7 +222,7 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
         )
         .await
         .status(),
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         get(

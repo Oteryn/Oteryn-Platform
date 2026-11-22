@@ -197,11 +197,11 @@ async fn load_page<A>(
     q: Selection,
 ) -> Result<Page, StatusCode> {
     if q.compare.is_some() && (q.version.is_none() || q.version == q.compare) {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        return Err(StatusCode::BAD_REQUEST);
     }
     let number = q.page.unwrap_or(1);
     if !(1..=10000).contains(&number) {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        return Err(StatusCode::BAD_REQUEST);
     }
     let offset = i64::from(number - 1) * 200;
     let store = WorldStore::new(s.pool.clone(), WorldOptions { enabled: s.enabled });
