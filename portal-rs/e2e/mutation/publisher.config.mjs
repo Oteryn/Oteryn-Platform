@@ -10,7 +10,8 @@ process.env.PORTAL_E2E_DATABASE_URL = game.env.OTERYN_DATABASE_URL;
 export default defineConfig({
   ...shared,
   testDir: '.',
-  testMatch: ['publisher.spec.mjs', 'services.spec.mjs', 'rename.spec.mjs', 'party.spec.mjs'],
+  testMatch: 'matrix.spec.mjs',
+  grep: /@game-publisher/,
   use: { ...shared.use, baseURL: game.origin },
   projects: shared.projects.map(project => ({
     ...project,

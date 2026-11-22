@@ -3,11 +3,11 @@ import { test, expect } from '../fixtures.mjs';
 import { login, password, submit } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
-import { GamePublishers } from '../game-publishers.mjs';
 import { prepare, sendForm, rejected, invalid, useFormMethod } from './matrix-helpers.mjs';
 
-test('Game confirms creation and only the character owner can mutate the profile', async ({ page, browser }, info) => {
+test('Game confirms creation and only the character owner can mutate the profile', { tag: '@game-publisher' }, async ({ page, browser }, info) => {
   test.setTimeout(300_000);
+  const { GamePublishers } = await import('../game-publishers.mjs');
   const game = new GamePublishers(process.env.PORTAL_E2E_GAME_DATA_REPORT);
   const lang = info.project.metadata.locale;
   const contexts = [];

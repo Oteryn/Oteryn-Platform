@@ -6,5 +6,5 @@ export default defineConfig({
   testDir: '.',
   testMatch: 'matrix.spec.mjs',
   timeout: 300_000,
-  grepInvert: /@uncredited-payment/,
+  grepInvert: /@uncredited-payment|@game-publisher/,
 });

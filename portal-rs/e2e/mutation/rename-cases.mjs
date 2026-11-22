@@ -1,13 +1,14 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { login, password, submit } from '../helpers.mjs';
+import { login, password, pool, submit } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
-import { GamePublishers } from '../game-publishers.mjs';
+import { paidTopup } from '../staff-commerce-helpers.mjs';
 import { prepare, sendForm, rejected } from './matrix-helpers.mjs';
 
-test('Game publication drives character deletion scheduling and cancellation exactly once', async ({ page, browser }, info) => {
+test('the Game confirms exactly one paid browser rename and captures one test-provider-funded coin', { tag: '@game-publisher' }, async ({ page, browser }, info) => {
   test.setTimeout(300_000);
+  const { GamePublishers } = await import('../game-publishers.mjs');
   const game = new GamePublishers(process.env.PORTAL_E2E_GAME_DATA_REPORT);
   const lang = info.project.metadata.locale;
   const contexts = [];
@@ -68,6 +69,20 @@ test('Game publication drives character deletion scheduling and cancellation exa
     expect(await query('SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2', [accountId, characterId]))
       .toEqual([{ name }]);
 
+    const money = pool();
+    try {
+      // Fund the account through the browser checkout and its local test provider.
+      await paidTopup(page, lang, money);
+    } finally {
+      await money.end();
+    }
+    const available = () => query(
+      `SELECT coalesce(sum(available_delta),0)::text AS available,
+              coalesce(sum(reserved_delta),0)::text AS reserved FROM wallet_entries WHERE account_id=$1`,
+      [accountId],
+    );
+    const before = [{ available: '1234', reserved: '0' }];
+    expect(await available()).toEqual(before);
     for (const actor of [{ screen: page, password: owner.password }, ...outsiders]) {
       expect((await actor.screen.goto(`/${lang}/account/sudo`)).status()).toBe(200);
       await submit(actor.screen, form, { current_password: actor.password });
@@ -137,10 +152,11 @@ test('Game publication drives character deletion scheduling and cancellation exa
       await submit(page, form, { confirm: true, ...extras });
       expect((await outcome).status()).toBe(202);
       await expect(page.locator('body')).toContainText(status);
-      const pending = [{ id: expect.any(String), command, state: 'PENDING', financial_state: 'FREE' }];
+      const pending = [{ id: expect.any(String), command, state: 'PENDING', financial_state: 'RESERVED' }];
       expect(await snapshot()).toEqual(pending);
       expect((await sendForm(page, prepared.url, prepared.fields)).status()).toBe(202);
       expect(await snapshot()).toEqual(pending);
+      expect(await available()).toEqual([{ available: '1233', reserved: '1' }]);
       const [{ id }] = await snapshot();
       const intent = await game.post('character-commands', `${commandRoute}/read`, {
         contract_version: 2, operation: 'ReadCharacterCommandIntentV2', source_authority: commandAuthority,
@@ -160,40 +176,39 @@ test('Game publication drives character deletion scheduling and cancellation exa
         ...effect, recovery_generation: '1', decided_at: decided,
       });
       expect(await request.snapshot()).toEqual([
-        { id: request.id, command: request.command, state: 'TERMINAL', financial_state: 'FREE' },
+        { id: request.id, command: request.command, state: 'TERMINAL', financial_state: 'SETTLED' },
       ]);
     };
-    const badConfirmation = [{ confirm: '' }, { confirm: 'x'.repeat(513) },
-      { request_id: '1' }, { confirm: 'yes ' }];
-    const scheduled = await write('schedule', 'ScheduleCharacterDeletion', {}, badConfirmation);
-    const start = Math.floor(Date.now() / 1000);
-    const deletion = {
-      lifecycle: 'DELETION_PENDING', deletion_operation_id: scheduled.id,
-      deletion_scheduled_at: String(start), deletion_effective_at: String(start + 3600),
-    };
-    await acknowledge(scheduled, 2, deletion);
-    const publishState = async (version, info) => {
-      await game.publish('character-services', `${servicePath}/state`, {
-        contract_version: 2, operation: 'PublishCharacterServiceStateV2', source_authority: serviceAuthority,
-        account_id: accountId, character_id: characterId, projection_epoch: '1', projection_revision: String(version),
-        source_observed_at: String(Math.floor(Date.now() / 1000)), character_revision: String(7 + version),
-        world_id: worldId, name, sex: null, ...info,
-      });
-    };
-    await publishState(2, deletion);
-    const cancelled = await write('cancel', 'CancelCharacterDeletion', {}, badConfirmation);
-    expect(cancelled.intent.deletion_operation_id).toBe(scheduled.id);
-    await acknowledge(cancelled, 3, { lifecycle: 'ACTIVE', deletion_operation_id: scheduled.id });
-    await publishState(3, {
+    const requestedName = `${name} Renamed`;
+    const request = await write('rename', 'RenameCharacter', { requested_name: requestedName }, [
+      { requested_name: '' }, { requested_name: 'x'.repeat(30) }, { accepted_price: 'invalid' }, { requested_name: 'X' },
+    ]);
+    expect(request.intent.requested_name).toBe(requestedName);
+    await acknowledge(request, 2, { previous_name: name, name: requestedName });
+    expect(await available()).toEqual([{ available: '1233', reserved: '0' }]);
+    const [{ settlements }] = await query(
+      `SELECT count(*)::int AS settlements FROM character_service_orders o
+       JOIN wallet_entries w ON w.operation_id=o.settlement_id AND w.account_id=o.account_id
+       WHERE o.operation_id=$1 AND w.available_delta=0 AND w.reserved_delta=-1`, [request.id],
+    );
+    expect(settlements).toBe(1);
+    const at = String(Math.floor(Date.now() / 1000));
+    await game.publish('character-services', `${servicePath}/state`, {
+      contract_version: 2, operation: 'PublishCharacterServiceStateV2', source_authority: serviceAuthority,
+      account_id: accountId, character_id: characterId, projection_epoch: '1', projection_revision: '2',
+      source_observed_at: at, character_revision: '9', world_id: worldId, name: requestedName, sex: null,
       lifecycle: 'ACTIVE', deletion_operation_id: null, deletion_scheduled_at: null, deletion_effective_at: null,
+    });
+    await game.publish('lcfa', '/internal/v1/game-auth/native-account-characters', {
+      contract_version: 1, operation: 'PublishAccountCharactersV1', source_authority: game.env.OTERYN_LCFA_SOURCE_AUTHORITY,
+      account_id: accountId, projection_epoch: '1', projection_revision: '2', source_observed_at: at,
+      characters: [{ character_id: characterId, world_id: worldId, name: requestedName, availability: 'AVAILABLE' }],
     });
     await refresh();
     expect((await page.goto(pathname)).status()).toBe(200);
-    await expect(page.locator('main form:has([name=action][value=cancel])')).toHaveCount(0);
-    for (const operation of [scheduled.id, cancelled.id]) {
-      const row = page.locator('main li').filter({ hasText: operation });
-      await expect(row).toHaveText(`${operation}: ${lang === 'pl' ? 'Potwierdzone przez grę' : 'Confirmed by the game'}`);
-    }
+    await expect(page.locator('main h2').first()).toHaveText(requestedName);
+    const confirmation = page.locator('main li').filter({ hasText: request.id });
+    await expect(confirmation).toHaveText(`${request.id}: ${lang === 'pl' ? 'Potwierdzone przez grę' : 'Confirmed by the game'}`);
   } finally {
     await Promise.all(contexts.map(context => context.close()));
   }

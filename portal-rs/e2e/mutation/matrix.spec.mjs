@@ -10,6 +10,10 @@ import { action, enrollMfa, loginWithRecoveryCode, player, query, rolePage } fro
 import { uuid7 } from '../game-sim-helpers.mjs';
 
 import { prepare, sendForm, useFormMethod, rejected, wrongActor, invalid } from './matrix-helpers.mjs';
+import './publisher-cases.mjs';
+import './services-cases.mjs';
+import './rename-cases.mjs';
+import './party-cases.mjs';
 
 const portal = fileURLToPath(new URL('../../', import.meta.url));
 
