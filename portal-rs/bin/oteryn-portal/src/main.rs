@@ -170,6 +170,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
+            let app = app.merge(oteryn_support::sanctions::enforcement::configured_browser(
+                db.clone(),
+                internal_configuration.enforcement_browser_available()
+                    && internal_tls::Config::from_env()?.is_some(),
+            )?);
             let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(

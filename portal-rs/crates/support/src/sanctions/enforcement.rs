@@ -1001,3 +1001,401 @@ async fn result(State(shared): State<Arc<Shared>>, request: Request) -> Response
 #[cfg(test)]
 #[path = "enforcement_tests.rs"]
 mod enforcement_tests;
+
+/// Browser actions use the same profile switches as the internal command
+/// stream. The caller also verifies that both mTLS purposes are operational.
+pub fn configured_browser(
+    pool: PgPool,
+    exchange_available: bool,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    let profiles = Settings::from_lookup(|key| std::env::var(key).ok()).profiles;
+    let authority = std::env::var("OTERYN_LCFA_SOURCE_AUTHORITY")
+        .ok()
+        .filter(|authority| {
+            !authority.is_empty() && std::env::var("OTERYN_LCFA_ENABLED").as_deref() == Ok("true")
+        });
+    oteryn_admin::console::enforcement::configured_router(
+        pool,
+        BrowserJournal {
+            profiles,
+            exchange_available,
+            authority,
+        },
+    )
+}
+
+use oteryn_admin::console::enforcement::{
+    Action, Backend, Decision, Error as BrowserError, Profile as BrowserProfile, Restriction,
+    StateLabel, Target,
+};
+
+struct BrowserJournal {
+    profiles: Profiles,
+    exchange_available: bool,
+    authority: Option<String>,
+}
+
+impl From<BrowserProfile> for Profile {
+    fn from(profile: BrowserProfile) -> Self {
+        match profile {
+            BrowserProfile::Mute => Self::Mute,
+            BrowserProfile::Jail => Self::Jail,
+        }
+    }
+}
+
+impl From<Action> for Intent {
+    fn from(action: Action) -> Self {
+        match action {
+            Action::Apply => Self::Apply,
+            Action::Replace => Self::Replace,
+            Action::Revoke => Self::Revoke,
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct Latest {
+    position: i64,
+    operation_id: Uuid,
+    sanction_stream_id: Uuid,
+    decision_revision: i64,
+    state: Option<String>,
+    stream_state: Option<String>,
+    result_code: Option<String>,
+    accepted_revision: Option<i64>,
+    received_at: Option<String>,
+    effective_until_ms: Option<i64>,
+    confirmed: Option<String>,
+    confirmed_until_ms: Option<i64>,
+    confirmed_received_at: Option<String>,
+}
+
+async fn latest(
+    tx: &mut Transaction<'_, Postgres>,
+    target: &Target,
+    profile: BrowserProfile,
+) -> Result<Option<Latest>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT c.position,c.operation_id,c.sanction_stream_id,c.decision_revision,r.state,
+            r.body->>'stream_state' AS stream_state,r.body->>'result_code' AS result_code,
+            (r.body->>'accepted_decision_revision')::bigint AS accepted_revision,
+            to_char(r.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS received_at,
+            (r.body->>'effective_until_ms')::bigint AS effective_until_ms,
+            h.state AS confirmed,
+            h.effective_until_ms AS confirmed_until_ms,
+            to_char(h.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS confirmed_received_at
+         FROM (
+            SELECT * FROM support_enforcement_commands
+            WHERE account_id=$1 AND character_id=$2 AND profile=$3
+            ORDER BY position DESC LIMIT 1
+         ) c
+         LEFT JOIN LATERAL (
+            SELECT state,received_at,convert_from(result,'UTF8')::jsonb AS body
+            FROM support_enforcement_results WHERE operation_id=c.operation_id
+            ORDER BY receipt_revision DESC LIMIT 1
+         ) r ON true
+         LEFT JOIN LATERAL (
+            SELECT h.state,h.received_at,(convert_from(h.result,'UTF8')::jsonb->>'effective_until_ms')::bigint AS effective_until_ms
+            FROM support_enforcement_commands p
+            JOIN support_enforcement_results h ON h.operation_id=p.operation_id
+            WHERE p.sanction_stream_id=c.sanction_stream_id AND h.terminal AND h.state<>'REJECTED'
+            ORDER BY p.position DESC LIMIT 1
+         ) h ON true",
+    )
+    .bind(target.account)
+    .bind(target.character)
+    .bind(profile.name())
+    .fetch_optional(&mut **tx)
+    .await
+}
+
+impl Latest {
+    fn actions(&self) -> &'static [Action] {
+        match (self.state.as_deref(), self.stream_state.as_deref()) {
+            (None | Some("ACCEPTED_PENDING"), _) => &[],
+            (_, Some("NONE" | "REVOKED" | "EXPIRED")) => &[Action::Apply],
+            (_, Some("ACTIVE"))
+                if self
+                    .accepted_revision
+                    .is_some_and(|r| r > 0 && r <= self.decision_revision) =>
+            {
+                &[Action::Replace, Action::Revoke]
+            }
+            _ => &[],
+        }
+    }
+
+    fn confirmed_state(&self) -> StateLabel {
+        // Pending and refused attempts never become successful enforcement.
+        // A terminal rejection can nevertheless report that the old stream ended.
+        match self.stream_state.as_deref() {
+            Some("NONE") => StateLabel::None,
+            Some("EXPIRED") => StateLabel::Expired,
+            Some("REVOKED") => StateLabel::Revoked,
+            _ => self
+                .confirmed
+                .as_deref()
+                .map_or(StateLabel::Unconfirmed, operation_state),
+        }
+    }
+}
+
+fn operation_state(state: &str) -> StateLabel {
+    match state {
+        "APPLIED" | "REPLACED" => StateLabel::Applied,
+        "REVOKED" => StateLabel::Revoked,
+        "EXPIRED" => StateLabel::Expired,
+        "REJECTED" => StateLabel::Refused,
+        _ => StateLabel::Pending,
+    }
+}
+
+fn utc(ms: Option<i64>) -> Option<String> {
+    time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms?) * 1_000_000)
+        .ok()?
+        .format(&time::format_description::well_known::Rfc3339)
+        .ok()
+}
+
+impl Backend for BrowserJournal {
+    async fn lock_resources(
+        &self,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<(), BrowserError> {
+        sqlx::query("SELECT 1 FROM account_character_feed WHERE id=1 FOR SHARE")
+            .execute(&mut *connection)
+            .await?;
+        // record() uses the same publication lock. Acquire it before loading
+        // the previous operation to serialize duplicate apply and revision checks.
+        sqlx::query("SELECT 1 FROM support_enforcement_counter WHERE singleton FOR UPDATE")
+            .execute(connection)
+            .await?;
+        Ok(())
+    }
+
+    async fn target(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        character: Uuid,
+    ) -> Result<Target, BrowserError> {
+        let authority = self.authority.as_deref().ok_or(BrowserError::Unavailable)?;
+        // This is the LCFA character-to-account lookup. Hold the same feed lock
+        // as LCFA readers so a snapshot or epoch cannot change during submission.
+        let fresh = sqlx::query_scalar::<_, bool>(
+            "SELECT COALESCE(highest_epoch=watermark_epoch AND source_authority=$1
+                AND complete_through BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29
+                    AND floor(extract(epoch FROM clock_timestamp()))::bigint+1,false)
+             FROM account_character_feed WHERE id=1 FOR SHARE",
+        )
+        .bind(authority)
+        .fetch_one(&mut **tx)
+        .await?;
+        if !fresh {
+            return Err(BrowserError::Unavailable);
+        }
+        let matches: Vec<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT c.account_id,c.name,c.availability
+             FROM account_characters c JOIN account_character_snapshots s USING(account_id)
+             CROSS JOIN account_character_feed f
+             WHERE c.character_id=$1 AND f.id=1 AND s.projection_epoch=f.highest_epoch
+               AND s.source_authority=$2 AND NOT s.invalid
+             LIMIT 2",
+        )
+        .bind(character)
+        .bind(authority)
+        .fetch_all(&mut **tx)
+        .await?;
+        match matches.as_slice() {
+            [(account, name, availability)]
+                if availability == "AVAILABLE" && super::valid_id(*account).is_ok() =>
+            {
+                Ok(Target {
+                    account: *account,
+                    character,
+                    name: name.clone(),
+                })
+            }
+            [] => Err(BrowserError::NotFound),
+            _ => Err(BrowserError::Unavailable),
+        }
+    }
+
+    async fn restrictions(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        target: &Target,
+    ) -> Result<Vec<Restriction>, BrowserError> {
+        let mut restrictions = Vec::new();
+        for profile in BrowserProfile::ALL {
+            let mut actions: &'static [Action] = &[];
+            if self.exchange_available && self.profiles.enabled(profile.into()) {
+                actions = &[Action::Apply];
+            }
+            let mut row = Restriction {
+                profile,
+                version: 0,
+                operation: None,
+                state: StateLabel::None,
+                current: StateLabel::None,
+                received_at: None,
+                current_received_at: None,
+                effective_until: None,
+                result_code: None,
+                actions,
+            };
+            if let Some(last) = latest(tx, target, profile).await? {
+                row.current = last.confirmed_state();
+                row.actions = if actions.is_empty() {
+                    &[]
+                } else {
+                    last.actions()
+                };
+                row.state = last
+                    .state
+                    .as_deref()
+                    .map_or(StateLabel::Pending, operation_state);
+                row.version = last.position;
+                row.operation = Some(last.operation_id);
+                row.current_received_at = match last.stream_state.as_deref() {
+                    Some("NONE" | "EXPIRED" | "REVOKED") => last.received_at.clone(),
+                    _ => last.confirmed_received_at,
+                };
+                row.received_at = last.received_at;
+                row.effective_until = match last.stream_state.as_deref() {
+                    Some("ACTIVE") => utc(last.effective_until_ms),
+                    None | Some("PENDING") if matches!(row.current, StateLabel::Applied) => {
+                        utc(last.confirmed_until_ms)
+                    }
+                    _ => None,
+                };
+                if matches!(row.state, StateLabel::Refused) {
+                    row.result_code = last.result_code;
+                }
+            }
+            restrictions.push(row);
+        }
+        Ok(restrictions)
+    }
+
+    async fn submit(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        target: &Target,
+        input: Decision,
+    ) -> Result<(), BrowserError> {
+        use oteryn_admin::audit::{self, AuditContext, Entry};
+        use serde_json::json;
+
+        let profile = input.profile.into();
+        if !self.exchange_available || !self.profiles.enabled(profile) {
+            return Err(BrowserError::Unavailable);
+        }
+        let intent: Intent = input.action.into();
+        let details = json!({
+            "operation_id": input.operation,
+            "character_id": target.character,
+            "profile": input.profile.name(),
+            "intent": intent.as_str(),
+            "reason_code": input.reason.code(),
+            "duration_minutes": input.minutes,
+            "form_version": input.version,
+        });
+        // An identical retry reuses its committed decision. The audit Ref is
+        // the opaque link between the private staff decision and its wire item.
+        let replay: Option<bool> = sqlx::query_scalar(
+            "SELECT COALESCE(a.actor=$2 AND c.account_id=$3 AND
+                 a.after @> $4::jsonb,false)
+             FROM support_enforcement_commands c
+             LEFT JOIN audit_log a ON a.request_id=c.operation_id AND a.action='game.enforcement.requested'
+             WHERE c.operation_id=$1",
+        ).bind(input.operation).bind(input.actor).bind(target.account).bind(&details)
+            .fetch_optional(&mut **tx).await?;
+        if let Some(replay) = replay {
+            return if replay {
+                Ok(())
+            } else {
+                Err(BrowserError::Conflict)
+            };
+        }
+
+        let previous = latest(tx, target, input.profile).await?;
+        let actions = previous
+            .as_ref()
+            .map_or(&[Action::Apply][..], Latest::actions);
+        if previous.as_ref().map_or(0, |row| row.position) != input.version
+            || !actions.contains(&input.action)
+        {
+            return Err(BrowserError::Conflict);
+        }
+        let (stream, revision, prior) = match (intent, &previous) {
+            (Intent::Apply, _) => (Uuid::now_v7(), 1, None),
+            (_, Some(last)) => (
+                last.sanction_stream_id,
+                last.decision_revision
+                    .checked_add(1)
+                    .ok_or(BrowserError::Conflict)?,
+                last.accepted_revision,
+            ),
+            _ => return Err(BrowserError::Conflict),
+        };
+        let now_ms: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+                .fetch_one(&mut **tx)
+                .await?;
+        let expires = input
+            .minutes
+            .map(|minutes| now_ms + i64::from(minutes) * 60_000);
+        let target_id = target.character.to_string();
+        // The journal and this private decision record share the transaction.
+        // Only the typed category crosses the wire; there are no free-text notes.
+        let mut after = details;
+        after["decision_revision"] = json!(revision);
+        after["sanction_stream_id"] = json!(stream);
+        after["state"] = json!("pending");
+        after["effective_until_ms"] = json!(expires);
+        let audit_ref = audit::append(
+            tx,
+            Entry {
+                context: AuditContext {
+                    actor: Some(input.actor),
+                    request_id: input.operation,
+                },
+                action: "game.enforcement.requested",
+                target: &target_id,
+                before: previous.as_ref().map_or(serde_json::Value::Null, |last| {
+                    json!({
+                        "sanction_stream_id": last.sanction_stream_id,
+                        "decision_revision": last.decision_revision,
+                        "receipt_state": last.state,
+                        "effective_until_ms": last.effective_until_ms,
+                    })
+                }),
+                after,
+            },
+        )
+        .await?;
+        let command = Command {
+            operation_id: input.operation,
+            sanction_stream_id: stream,
+            intent,
+            profile,
+            decision_revision: revision,
+            prior_decision_revision: prior,
+            policy_revision: 1,
+            account_id: target.account,
+            character_id: target.character,
+            effective_at_ms: expires.map(|_| now_ms),
+            expires_at_ms: expires,
+            reason_code: Some(input.reason.code()),
+            decided_at_ms: now_ms,
+            audit_ref,
+            correlation_id: input.operation,
+        };
+        match record(tx, &self.profiles, &command).await {
+            Ok(Some(_)) => Ok(()),
+            Err(Error::Conflict | Error::Stale) => Err(BrowserError::Conflict),
+            _ => Err(BrowserError::Unavailable),
+        }
+    }
+}

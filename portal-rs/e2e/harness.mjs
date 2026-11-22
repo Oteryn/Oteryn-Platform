@@ -29,6 +29,8 @@ const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const outbox = argv.includes('--outbox');
+const gmEnforcement = argv.includes('--gm-enforce') || process.env.PORTAL_E2E_GM_ENFORCE === '1';
+if (gmEnforcement && !outbox) throw new Error('Use --outbox --gm-enforce for the GM browser and Game exchange');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -133,6 +135,12 @@ const identities = [
   ['security-revocations', 'PORTAL_SECURITY_REVOCATION_EXPORT_IDENTITY'],
   ['public-projections', 'PORTAL_PUBLIC_PROJECTIONS_SAN'],
 ];
+if (gmEnforcement) {
+  identities.push(
+    ['enforcement-reader', 'PORTAL_GAME_ENFORCEMENT_READER_IDENTITY'],
+    ['enforcement-results', 'PORTAL_GAME_ENFORCEMENT_RESULTS_IDENTITY'],
+  );
+}
 const domain = process.env.PORTAL_E2E_IDENTITY_DOMAIN || 'game.e2e.oteryn.test';
 const clients = {};
 const identityEnv = {};
@@ -237,6 +245,20 @@ async function start() {
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
     closeOutboxBrowser = await startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    if (gmEnforcement) {
+      Object.assign(env, {
+        OTERYN_ADMIN_CONSOLE: 'true',
+        OTERYN_ADMIN_PANEL: 'true',
+        OTERYN_ADMIN_HOST: new URL(env.OTERYN_PUBLIC_ORIGIN).host,
+        OTERYN_ACCOUNT_MFA: 'true',
+        OTERYN_NOTIFY_UNSUBSCRIBE_KEY: crypto.randomBytes(32).toString('hex'),
+        OTERYN_NOTIFY_UNSUBSCRIBE_URL: new URL('/en/unsubscribe', env.OTERYN_PUBLIC_ORIGIN).href,
+        PORTAL_GAME_ENFORCEMENT_ENABLED: 'true',
+        PORTAL_GAME_ENFORCEMENT_PROFILES: '["MUTE","JAIL"]',
+        // The accepted contract keeps results off on a restore-enabled stack.
+        PORTAL_GAME_RESTORE_NOTICE_ENABLED: 'false',
+      });
+    }
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
