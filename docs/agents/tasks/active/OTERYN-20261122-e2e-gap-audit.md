@@ -11,22 +11,24 @@ optional_reads: []
 [Governing issue #2002](https://github.com/Oteryn/Oteryn-Platform/issues/2002)
 
 The account menu exposes `/admin` on the enabled staff panel's configured host
-for signed-in, active, email-verified accounts holding `admin.access`. The panel
-continues to enforce its server-side authorization and MFA requirements. The
-scope removal commit `0f0e01d6` moves the general crawl and unrelated product
-changes out of this branch's diff.
+for active, email-verified accounts holding `admin.access` and using a session
+with a current MFA grant. The panel enforces its own server-side authorization.
+The scope removal commit `0f0e01d6` moves the general crawl and unrelated
+product changes out of this branch's diff.
 
-The PostgreSQL regression seeds an unexpired session for each account state.
-The Playwright regression signs in through MFA, opens the menu, follows the
-staff link, and checks the destination's HTML and visible localized heading.
-It then suspends the account and checks the normal session revocation path.
+The PostgreSQL regression seeds an unexpired session for each account state and
+exercises MFA grant expiry. The Playwright regression checks that a staff role
+alone gives no link and that the panel returns its designed MFA refusal. It
+signs in through MFA, follows the staff link, and checks the destination's HTML
+and visible localized heading. It then suspends the account and checks normal
+session revocation.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T17:40:45Z
-head: ed6cb21ff8d3a40f8c86d84191867c1f898f8117
+updated_at: 2026-11-22T17:58:58Z
+head: 75a4bc00e152fb795978595b6a377ac36e84d5a2
 branch: codex/e2e-gap-audit
 pr: none
 status: ready
@@ -60,10 +62,13 @@ changed_paths: []
 validation:
   - command: cargo test --locked -p oteryn-web --lib staff_navigation_requires_eligible_account_on_enabled_panel_host
     result: PASS
-    evidence: Disabled panel, host and port mismatch, suspended account, and unverified account were covered with PostgreSQL.
-  - command: node run.mjs /absolute/scratch/env.json test specs/staff-menu.spec.mjs --workers=1 --trace=off
+    evidence: Disabled panel, host and port mismatch, expired MFA, suspended account, and unverified account were covered with PostgreSQL.
+  - command: focused web and admin tests and the UI library suite
     result: PASS
-    evidence: All four Polish and English desktop and mobile projects passed against the standard local launcher.
+    evidence: Sixteen Rust tests passed in total, including the staff visibility regression, against the disposable PostgreSQL environment.
+  - command: node run.mjs /absolute/scratch/env.json test specs/staff-menu.spec.mjs --workers=2 --trace=off
+    result: PASS
+    evidence: All four Polish and English desktop and mobile projects passed against the standard local launcher after the MFA fix.
   - command: node run.mjs /absolute/scratch/env.json test --list
     result: PASS
     evidence: Each project discovers the focused staff-menu spec. The general crawl spec was removed from this branch.
