@@ -21,10 +21,15 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account =
-        crate::session::chrome_account(&shell.sessions, request.headers(), request.extensions())
-            .await;
     let path = request.uri().path();
+    let account = if request.method() == axum::http::Method::POST && path == "/admin/media" {
+        // Media uploads authorize before reading the body under a deadline.
+        // Leave session I/O to that route so its timeout covers the first lookup.
+        oteryn_ui::Account::Anonymous
+    } else {
+        crate::session::chrome_account(&shell.sessions, request.headers(), request.extensions())
+            .await
+    };
     let local = path
         .strip_prefix("/pl/")
         .or_else(|| path.strip_prefix("/en/"))

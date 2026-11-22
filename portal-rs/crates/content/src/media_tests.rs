@@ -643,7 +643,15 @@ async fn browser_lifecycle(pool: &PgPool) {
         "OTERYN_MFA_KEY" => Some(test_mfa_key.clone()),
         _ => None,
     };
-    let app = configured_router_from(pool.clone(), &lookup).unwrap();
+    let app = configured_router_from(pool.clone(), &lookup)
+        .unwrap()
+        .layer(axum::middleware::from_fn_with_state(
+            oteryn_web::chrome::Shell {
+                registry: oteryn_ui::Registry::default(),
+                sessions: oteryn_web::session::SessionLayer::new(pool.clone()),
+            },
+            oteryn_web::chrome::middleware,
+        ));
     let form_page = app
         .clone()
         .oneshot(
@@ -669,7 +677,7 @@ async fn browser_lifecycle(pool: &PgPool) {
         .insert(header::ORIGIN, "https://other.test".parse().unwrap());
     let refusal = tokio::time::timeout(Duration::from_secs(2), app.clone().oneshot(foreign_origin))
         .await
-        .unwrap()
+        .expect("origin must be checked before any session lookup, including in the shared shell")
         .unwrap();
     assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
 
