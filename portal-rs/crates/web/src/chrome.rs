@@ -356,7 +356,7 @@ fn without_attribute(tag: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_landmark, inject, shell_asset_policy};
+    use super::{WRAP_LIMIT, content_landmark, inject, shell_asset_policy, wrap_document};
 
     #[test]
     fn article_shell_phrase_does_not_suppress_composition() -> Result<(), &'static str> {
