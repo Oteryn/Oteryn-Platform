@@ -13,6 +13,7 @@ enum Role {
     Migrate,
     InstallLegalPages,
     CheckSignupLegal,
+    CheckSignupLegalUpgrade,
     Worker,
 }
 
@@ -22,6 +23,7 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
         Some("migrate") => Some(Role::Migrate),
         Some("install-legal-pages") => Some(Role::InstallLegalPages),
         Some("check-signup-legal") => Some(Role::CheckSignupLegal),
+        Some("check-signup-legal-upgrade") => Some(Role::CheckSignupLegalUpgrade),
         Some("worker") => Some(Role::Worker),
         Some(_) => None,
     }
@@ -40,15 +42,8 @@ fn legal_install_requires_an_explicit_disposable_profile() {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let mut args = std::env::args().skip(1);
-    let arg = args.next();
+    let arg = std::env::args().nth(1);
     if arg.as_deref() == Some("check-image") {
-        if std::env::var_os("OTERYN_ORACLE_DEPLOY_IMAGE").is_some()
-            && (args.next().as_deref() != Some("signup-legal-v1") || args.next().is_some())
-        {
-            eprintln!("Oracle image check requires the signup-legal-v1 deployment helper");
-            return ExitCode::FAILURE;
-        }
         let directory = std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "/app/static".into());
         return if std::fs::metadata(directory).is_ok_and(|metadata| metadata.is_dir()) {
             println!(
@@ -98,7 +93,7 @@ async fn main() -> ExitCode {
         };
     }
     let Some(role) = parse_role(arg.as_deref()) else {
-        tracing::error!(role = ?arg, "unknown role; expected serve, migrate, install-legal-pages, check-signup-legal or worker");
+        tracing::error!(role = ?arg, "unknown role; expected serve, migrate, install-legal-pages, check-signup-legal, check-signup-legal-upgrade or worker");
         return ExitCode::from(2);
     };
     match run(role).await {
@@ -124,6 +119,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
     }
     match role {
         Role::Migrate => {
+            // An installed predecessor helper can still call the same migrate command.
+            if std::env::var_os("OTERYN_ORACLE_DEPLOY_IMAGE").is_some() {
+                oteryn_web::register::check_live_signup(&db).await?;
+            }
             oteryn_db::migrate(&db).await?;
             tracing::info!("migrations applied");
         }
@@ -131,7 +130,24 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let installed = legal::install(&db, legal_profile.as_deref()).await?;
             tracing::info!(installed, "default legal document pairs installed");
         }
-        Role::CheckSignupLegal => {
+        Role::CheckSignupLegal | Role::CheckSignupLegalUpgrade => {
+            if role == Role::CheckSignupLegalUpgrade
+                && sqlx::query_scalar::<_, bool>(
+                    "SELECT current_schema() IS NOT NULL
+                     AND to_regclass('_sqlx_migrations') IS NULL
+                     AND to_regclass('pages') IS NULL
+                     AND NOT EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_class c
+                       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                       WHERE n.nspname = current_schema()
+                     )",
+                )
+                .fetch_one(&db)
+                .await?
+            {
+                tracing::info!("empty portal schema; first installation may proceed");
+                return Ok(());
+            }
             oteryn_web::register::check_live_signup(&db).await?;
             tracing::info!("signup legal editions ready in both locales");
         }

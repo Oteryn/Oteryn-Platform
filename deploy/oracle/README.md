@@ -335,15 +335,11 @@ The `platform` branch of `actions-deploy.py` deploys the live portal layout on
 oteryn-vps. It does not create or migrate that layout; it only replaces the app
 image of an installed one.
 
-The Platform forced command for releases is
-`deploy-signup-legal-v1 <40-character SHA> <run ID> <run attempt>`. Before
-enabling releases, install the reviewed root-owned helper and have the workflow
-owner update `.github/workflows/oracle-operations.yml`: replace the `deploy)`
-arm's command assignment with
-`command="deploy-signup-legal-v1 $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT"`.
-Keep the SHA validation, bounded SSH invocation, and `status` arm. A predecessor
-helper rejects the new command. The candidate Oracle image also rejects the
-predecessor's unversioned image check before backup or migration.
+The Platform forced command remains
+`deploy <40-character SHA> <run ID> <run attempt>`. Install the reviewed
+root-owned helper for the pre-backup check and bilingual signup probes.
+The candidate Oracle image also checks the published editions in its
+`migrate` command, before any schema changes, for hosts with an older helper.
 
 ### Game image artifact (deploy-image)
 
@@ -374,7 +370,7 @@ journal, stop, migrate, image swap and supervisor start.
   tagged `oteryn-portal:<sha8>-arm64` and labelled with the full revision. The
   recipe keeps the live runtime: Ubuntu 26.04, uid 10001, `/app/oteryn-portal`,
   `/app/static`, `/app/migrations`. It must be arm64 and pass
-  `check-image signup-legal-v1` with networking disabled.
+  `check-image` with networking disabled.
 - Preflight: the running release must already pass the container and
   `/readyz` checks below, so a host the probe cannot reach is refused before
   any effect instead of rolling back a good release after migration.
@@ -439,7 +435,10 @@ schema-owner URL. Mount certificate/key files, `gateway-token` and its hexadecim
 `gateway-token.sha256` in the
 read-only `platform-secrets` directory, readable by image UID 65532. These files
 remain host-private; `prepare-platform.sh <reviewed-checkout>` validates their
-presence and runs the Rust migration role. Existing game/money flags remain off
+presence and runs the Rust migration role. Before stopping services, it checks
+the candidate image against the application database and signup configuration.
+An existing schema requires approved editions in both locales as described
+above. An empty schema can proceed with first-time provisioning. Existing game/money flags remain off
 unless the operator explicitly enables them.
 
 Both Platform deployment paths provision

@@ -79,32 +79,26 @@ fn serve_starts_and_answers_health_and_legacy_redirects() -> Result<(), Box<dyn 
 }
 
 #[test]
-fn oracle_candidate_refuses_predecessor_image_check() -> Result<(), Box<dyn std::error::Error>> {
-    let check = |args: &[&str], oracle: bool| {
+fn oracle_candidate_accepts_predecessor_image_check() -> Result<(), Box<dyn std::error::Error>> {
+    let check = |directory: &str, oracle: bool| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_oteryn-portal"));
         command
             .env_clear()
-            .env(
-                "OTERYN_STATIC_DIR",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../../static"),
-            )
-            .arg("check-image")
-            .args(args);
+            .env("OTERYN_STATIC_DIR", directory)
+            .arg("check-image");
         if oracle {
             command.env("OTERYN_ORACLE_DEPLOY_IMAGE", "1");
         }
         command.output()
     };
-    for args in [&[][..], &["signup-legal-v2"], &["signup-legal-v1", "extra"]] {
-        let refused = check(args, true)?;
-        assert!(!refused.status.success());
-        assert!(
-            String::from_utf8(refused.stderr)?
-                .contains("requires the signup-legal-v1 deployment helper")
-        );
-    }
-    assert!(check(&["signup-legal-v1"], true)?.status.success());
-    assert!(check(&[], false)?.status.success());
+    let static_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../static");
+    assert!(check(static_dir, true)?.status.success());
+    assert!(check(static_dir, false)?.status.success());
+    assert!(
+        !check(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"), true)?
+            .status
+            .success()
+    );
     Ok(())
 }
 
@@ -123,6 +117,26 @@ async fn live_signup_preflight_requires_staged_bilingual_editions_before_migrati
     let separator = if url.contains('?') { '&' } else { '?' };
     let scoped_url = format!("{url}{separator}options=-csearch_path%3D{schema}");
     let pool = oteryn_db::lazy_pool(&scoped_url)?;
+    let check = |command: &str, version: &str, oracle: bool| {
+        let mut process = Command::new(env!("CARGO_BIN_EXE_oteryn-portal"));
+        process
+            .arg(command)
+            .env_clear()
+            .env("OTERYN_ENV", "production")
+            .env("OTERYN_DATABASE_URL", &scoped_url)
+            .env("OTERYN_TERMS_VERSION", version)
+            .env("OTERYN_PRIVACY_VERSION", version)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if oracle {
+            process.env("OTERYN_ORACLE_DEPLOY_IMAGE", "1");
+        }
+        process.status()
+    };
+    let upgrade = "check-signup-legal-upgrade";
+    let strict = "check-signup-legal";
+    assert!(check(upgrade, DEFAULT_LEGAL_VERSION, false)?.success());
+    assert!(!check(strict, DEFAULT_LEGAL_VERSION, false)?.success());
     let preceding = sqlx::migrate::Migrator {
         migrations: std::borrow::Cow::Owned(
             oteryn_db::MIGRATOR
@@ -137,19 +151,16 @@ async fn live_signup_preflight_requires_staged_bilingual_editions_before_migrati
     let legacy = (APPROVED_SIGNUP_EDITION.0, APPROVED_SIGNUP_EDITION.1, false);
     seed_signup_editions(&pool, DEFAULT_LEGAL_VERSION, legacy, legacy).await?;
 
-    let check = |version: &str| {
-        Command::new(env!("CARGO_BIN_EXE_oteryn-portal"))
-            .arg("check-signup-legal")
-            .env_clear()
-            .env("OTERYN_ENV", "production")
-            .env("OTERYN_DATABASE_URL", &scoped_url)
-            .env("OTERYN_TERMS_VERSION", version)
-            .env("OTERYN_PRIVACY_VERSION", version)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
+    assert!(!check(strict, DEFAULT_LEGAL_VERSION, false)?.success());
+    assert!(!check(upgrade, DEFAULT_LEGAL_VERSION, false)?.success());
+    assert!(!check("migrate", DEFAULT_LEGAL_VERSION, true)?.success());
+    let migration_applied = || {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version=20261122124500)",
+        )
+        .fetch_one(&pool)
     };
-    assert!(!check(DEFAULT_LEGAL_VERSION)?.success());
+    assert!(!migration_applied().await?);
 
     let version = "approved-fixture-v2";
     for locale in ["en", "pl"] {
@@ -166,8 +177,11 @@ async fn live_signup_preflight_requires_staged_bilingual_editions_before_migrati
         .bind(locale)
         .execute(&pool)
         .await?;
-        assert_eq!(check(version)?.success(), locale == "pl");
+        assert_eq!(check(strict, version, false)?.success(), locale == "pl");
+        assert_eq!(check(upgrade, version, false)?.success(), locale == "pl");
     }
+    assert!(check("migrate", version, true)?.success());
+    assert!(migration_applied().await?);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM page_legal_versions WHERE version=$1")
             .bind(DEFAULT_LEGAL_VERSION)

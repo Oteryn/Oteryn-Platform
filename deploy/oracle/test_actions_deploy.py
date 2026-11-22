@@ -112,16 +112,15 @@ class AuthorityBoundary(unittest.TestCase):
             with self.subTest(component=component, command=command), self.assertRaises(ValueError):
                 deploy.parse(component, command)
 
-    def test_platform_deploy_requires_the_signup_legal_capability(self):
+    def test_platform_deploy_accepts_the_current_workflow_command(self):
         sha = 'a' * 40
-        for verb in ('deploy', 'deploy-signup-legal', 'deploy-signup-legal-v2'):
-            with self.subTest(verb=verb), self.assertRaisesRegex(ValueError, 'signup-legal-v1'):
-                deploy.parse('platform', f'{verb} {sha} 100 1')
-        self.assertEqual(deploy.parse('platform', f'deploy-signup-legal-v1 {sha} 100 1'),
+        workflow = Path(__file__).resolve().parents[2] / '.github/workflows/oracle-operations.yml'
+        self.assertIn('command="deploy $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT"', workflow.read_text())
+        self.assertEqual(deploy.parse('platform', f'deploy {sha} 100 1'),
                          ('deploy', sha, 100, 1, None))
         self.assertEqual(deploy.parse('platform', 'status'), ('status', None, None, None, None))
         with self.assertRaises(ValueError):
-            deploy.parse('game', f'deploy-signup-legal-v1 {sha} 100 1')
+            deploy.parse('game', f'deploy {sha} 100 1')
 
     def test_exact_current_main_and_aggregate_success_are_independent(self):
         sha = 'a' * 40
@@ -262,7 +261,7 @@ class LivePortalDeployment(unittest.TestCase):
                                      '-f', 'deploy/oracle/portal.Dockerfile', '-t', 'oteryn-portal:fedcba98-arm64', 'portal-rs'])
             self.assertEqual(build_kwargs, {'cwd': Path('/archive'), 'timeout': 7200})
             self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none',
-                                      'oteryn-portal:fedcba98-arm64', 'check-image', 'signup-legal-v1'])
+                                      'oteryn-portal:fedcba98-arm64', 'check-image'])
             migrate = argv.index(compose + ['run', '--rm', '-T', 'portal', 'migrate'])
             up = argv.index(compose + ['up', '-d', 'portal', 'portal-worker', 'portal-gateway'])
             check = ['run', '--rm', '-T', '--no-deps', 'portal', 'check-signup-legal']
@@ -306,10 +305,10 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
             self.assertEqual(list(state.iterdir()), [])
 
-    def test_missing_image_capability_stops_before_any_deployment_effects(self):
+    def test_failed_image_check_stops_before_any_deployment_effects(self):
         with tempfile.TemporaryDirectory() as temporary:
             portal, state = self.host(temporary)
-            check = ['check-image', 'signup-legal-v1']
+            check = ['check-image']
             with self.assertRaises(subprocess.CalledProcessError) as raised:
                 self.deploy(portal, state, fail=check)
             argv = [args for args, _ in raised.exception.calls]
@@ -732,7 +731,7 @@ class GameBranchUnchanged(unittest.TestCase):
     # serves the Game forced command, so a Platform change must not move these.
     # Updated deliberately for the Game image artifact path (deploy-image).
     REVIEWED = {
-        'parse': '442915a5e8807393d0c49a5e2d93d7beab7da70ace18c27bb2b2bae620754a50',
+        'parse': '5c4f83672f01a4e1a3fe88fb0357de1187ca23db13168a7399aa53768dd26f70',
         'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
         'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
         'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',

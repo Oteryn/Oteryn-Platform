@@ -11,6 +11,20 @@ WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/oracle-opera
 
 
 class RunnerBoundary(unittest.TestCase):
+    def test_manual_platform_preflight_precedes_writer_stop(self):
+        script = Path(__file__).with_name('prepare-platform.sh').read_text().splitlines()
+        config = script.index('"${compose[@]}" config --quiet')
+        detect = script.index('installed=$("${compose[@]}" ps --all --quiet platform)')
+        preflight = script.index('"${compose[@]}" run --rm -T --no-deps worker "$preflight"')
+        stop = script.index('"${compose[@]}" stop platform worker')
+        migrate = script.index('"${compose[@]}" run --rm -T --no-deps migrate')
+        self.assertLess(config, detect)
+        self.assertLess(detect, preflight)
+        self.assertIn('preflight=check-signup-legal-upgrade', script[detect:preflight])
+        self.assertIn('    preflight=check-signup-legal', script[detect:preflight])
+        self.assertLess(preflight, stop)
+        self.assertLess(stop, migrate)
+
     def test_platform_witness_uses_a_durable_writable_mount(self):
         compose = Path(__file__).with_name('public-platform.compose.yml')
         environment = dict(os.environ, PLATFORM_IMAGE='platform:fixture', GATEWAY_IMAGE='gateway:fixture')

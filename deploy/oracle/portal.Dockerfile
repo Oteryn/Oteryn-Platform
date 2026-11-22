@@ -36,5 +36,6 @@ COPY --chown=0:0 static /app/static
 COPY --chown=0:0 migrations /app/migrations
 USER portal
 EXPOSE 8080 8091
+# Keep the legal gate in `migrate` when an older installed helper runs this image.
 ENV OTERYN_ORACLE_DEPLOY_IMAGE=1
 ENTRYPOINT ["/app/oteryn-portal"]
