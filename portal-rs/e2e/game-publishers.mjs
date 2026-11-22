@@ -134,10 +134,17 @@ export class GamePublishers {
       source_observed_at: observed,
       characters: [{character_id: characterId, world_id: worldId, name, availability: 'AVAILABLE'}],
     });
-    await this.publish('lcfa', `${route}/watermark`, {
-      contract_version: 1, operation: 'PublishProjectionWatermarkV1', source_authority,
+    await this.portfolioWatermark(observed);
+  }
+
+  async portfolioWatermark(observed = String(seconds())) {
+    if (observed === this.portfolioWatermarkAt) return;
+    await this.publish('lcfa', '/internal/v1/game-auth/native-account-characters/watermark', {
+      contract_version: 1, operation: 'PublishProjectionWatermarkV1',
+      source_authority: this.env.OTERYN_LCFA_SOURCE_AUTHORITY,
       projection_epoch: epoch, complete_through: observed, observed_at: observed,
     });
+    this.portfolioWatermarkAt = observed;
   }
 
   async publicCharacter({characterId, worldId, name}, deathId) {

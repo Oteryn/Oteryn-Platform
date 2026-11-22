@@ -30,7 +30,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/shop/test-checkout/{intent}` (cancel) | Yes | Yes | Foreign player | Yes | One event and zero credits |
 | `/{lang}/account/characters/new` | Queued, Game outcome pending | Yes | Anonymous | Yes | Submission replay |
 
-The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, and daily puzzle answers. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, or daily puzzle catalogue. The character creation matrix verifies the pending command and submission replay. [The Game-data spec](../specs/game-data.spec.mjs) uses `harness.mjs --game-data` to publish a CreateCharacter receipt and verify the confirmed outcome.
+The unavailable Game-backed case checks both the views and every corresponding write. The POST cases verify missing and invalid CSRF, anonymous and authenticated refusal, and unchanged durable state. Collection deck and battle POSTs use portal-owned fixtures to exercise foreign ownership. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, or daily puzzle catalogue. The character creation matrix verifies the pending command and submission replay. [The Game-data spec](../specs/game-data.spec.mjs) uses `harness.mjs --game-data` to publish a CreateCharacter receipt and verify the confirmed outcome.
 
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 

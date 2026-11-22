@@ -66,6 +66,22 @@ actions allow 30 seconds for password hashing and navigation. These waits retain
 the exact destination assertions, production proof difficulty and zero retries.
 
 
+## Game-data browser qualification
+
+With the same disposable PostgreSQL administrator environment used by the local
+stack, run the dedicated config from `portal-rs/e2e`.
+
+```sh
+npx playwright test --config game-data.playwright.config.mjs
+```
+
+Its Playwright setup starts `harness.mjs --game-data`, waits for the readiness
+report, and stops the harness after the run. An existing Game-data harness can
+be reused by setting `PORTAL_E2E_GAME_DATA_REPORT` to its report path.
+The existing GitHub Actions browser command uses the same setup and includes
+Game-data in its normal project and shard counts. Ordinary local runs of the
+default config use the local stack and leave Game-data to the dedicated config.
+
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 
 One command starts portal-rs for an external E2E harness. It needs Node 22+,

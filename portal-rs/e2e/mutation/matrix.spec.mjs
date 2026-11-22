@@ -115,10 +115,15 @@ test('account privacy preferences', async ({ page, browser }, info) => {
     expect((await page.goto(`/${lang}/account/privacy`)).status()).toBe(200);
     await page.locator('[name=locale]').selectOption(lang);
     const snapshot = () => query(
-      'SELECT public_account_association, public_status_visible, locale FROM accounts WHERE id=$1',
+      `SELECT a.public_account_association, a.public_status_visible, a.locale,
+              a.privacy_revision,
+              ARRAY(SELECT e.revision::text FROM account_privacy_events e
+                    WHERE e.account_id=a.id ORDER BY e.revision) AS events
+       FROM accounts a WHERE a.id=$1`,
       [account.id],
     );
     const baseline = await snapshot();
+    expect(baseline).toHaveLength(1);
     const { url, fields } = await prepare(page, formSelector, {
       public_account_association: '1', public_status_visible: '1',
     });
@@ -136,12 +141,27 @@ test('account privacy preferences', async ({ page, browser }, info) => {
         { name: 'boolean beyond the upper boundary', patch: { public_status_visible: '2' } },
       ],
     });
-    await submit(page, formSelector, { public_account_association: true, public_status_visible: true });
-    await expect(page.locator('[name=public_account_association]')).toBeChecked();
-    await expect(page.locator('[name=public_status_visible]')).toBeChecked();
-    expect(await snapshot()).toEqual([{
-      public_account_association: true, public_status_visible: true, locale: lang,
-    }]);
+    const events = [...baseline[0].events];
+    for (const increment of [1n, 2n]) {
+      await page.locator('[name=public_account_association]').check();
+      await page.locator('[name=public_status_visible]').check();
+      const [saved] = await Promise.all([
+        page.waitForResponse(response => response.url() === url && response.request().method() === 'POST'),
+        page.locator(formSelector).getByRole('button', {
+          name: lang === 'pl' ? 'Zapisz ustawienia' : 'Save preferences', exact: true,
+        }).click(),
+      ]);
+      expect(saved.status()).toBe(303);
+      expect(saved.headers().location).toBe(`/${lang}/account/privacy`);
+      await expect(page.locator('[name=public_account_association]')).toBeChecked();
+      await expect(page.locator('[name=public_status_visible]')).toBeChecked();
+      const revision = String(BigInt(baseline[0].privacy_revision) + increment);
+      events.push(revision);
+      expect(await snapshot()).toEqual([{
+        public_account_association: true, public_status_visible: true, locale: lang,
+        privacy_revision: revision, events,
+      }]);
+    }
   } finally {
     await anonymous.close();
   }
@@ -159,9 +179,10 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
     const body = `Local support question for ${subject}`;
     const { url, fields } = await prepare(page, formSelector, { subject, body });
     const snapshot = () => query(
-      `SELECT t.id, t.account_id, t.subject, m.body FROM tickets t
-       JOIN ticket_messages m ON m.ticket_id=t.id WHERE t.request_key=$1`,
-      [fields.request_key],
+      `SELECT t.id, t.account_id, t.request_key, t.subject, m.body FROM tickets t
+       LEFT JOIN ticket_messages m ON m.ticket_id=t.id WHERE t.account_id=$1
+       ORDER BY t.id, m.id`,
+      [owner.id],
     );
     const baseline = await snapshot();
     expect(baseline).toEqual([]);
@@ -184,7 +205,9 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
     await expect(page.locator('main')).toContainText(subject);
     await expect(page.locator('main')).toContainText(body);
     const target = new URL(page.url()).pathname;
-    const created = [{ id: target.split('/').at(-1), account_id: owner.id, subject, body }];
+    const created = [{
+      id: target.split('/').at(-1), account_id: owner.id, request_key: fields.request_key, subject, body,
+    }];
     expect(await snapshot()).toEqual(created);
     const replay = await post(page, url, fields);
     expect(replay.status()).toBe(302);
@@ -195,51 +218,147 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
   }
 });
 
-const unavailable = [
-  {
-    family: 'collection decks and battle actions',
-    target: lang => `/${lang}/collection/${uuid7()}`,
-    status: 503,
-    message: {
-      pl: 'Kolekcja jest niedostępna. Wymagana jest weryfikacja aktualnego prywatnego postępu i właściciela postaci.',
-      en: 'Collection is unavailable. Current private progress and ownership must be verified.',
-    },
-    routes: [
-      '/{lang}/collection/{character}/decks', '/{lang}/collection/decks/{id}/battle',
-      '/{lang}/collection/decks/{id}/delete', '/{lang}/collection/battles/{id}',
-      '/{lang}/collection/battles/{id}/forfeit',
-    ],
-  },
-  {
-    family: 'season-pass buy and claim',
-    target: lang => `/${lang}/pass`,
-    status: 503,
-    message: {
-      pl: 'Przepustka sezonowa jest obecnie niedostępna. Nie pobrano coinów ani nie wydano nagród.',
-      en: 'The season pass is currently unavailable. No coins were charged and no rewards were issued.',
-    },
-    routes: ['/{lang}/pass/{season}/buy', '/{lang}/pass/{season}/claim'],
-  },
-  {
-    family: 'daily puzzle answer',
-    target: lang => `/${lang}/puzzles`,
-    status: 200,
-    routes: ['/{lang}/puzzles/{id}/answer'],
-    message: { pl: 'Dzisiejsze zagadki są niedostępne.', en: "Today's puzzles are unavailable." },
-  },
-];
-
-test('unavailable Game-backed browser actions', async ({ page }, info) => {
+test('unavailable Game-backed browser actions refuse writes without durable effects', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
   const lang = info.project.metadata.locale;
-  await seededPlayer(page, lang);
-  for (const surface of unavailable) {
-    await test.step(`${surface.family} (${surface.routes.join(', ')})`, async () => {
-      const response = await page.goto(surface.target(lang));
-      expect(response.status()).toBe(surface.status);
-      expect(response.headers()['cache-control']).toContain('no-store');
-      await expect(page.locator('main')).toContainText(surface.message[lang]);
+  const options = {
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
+  };
+  const anonymous = await browser.newContext(options);
+  const foreign = await browser.newContext(options);
+  try {
+    const owner = await seededPlayer(page, lang);
+    const other = await foreign.newPage();
+    const visitor = await anonymous.newPage();
+    const stranger = await seededPlayer(other, lang);
+    const accounts = [owner.id, stranger.id];
+    const csrf = async actor => {
+      expect((await actor.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+      return (await prepare(actor, formSelector, {})).fields._csrf;
+    };
+    const ownerCsrf = await csrf(page);
+    const foreignCsrf = await csrf(other);
+    expect((await visitor.goto(`/${lang}/login`)).status()).toBe(200);
+    const anonymousCsrf = (await prepare(visitor, formSelector, {})).fields._csrf;
+
+    const character = uuid7();
+    const deck = uuid7();
+    const battle = uuid7();
+    const card = uuid7();
+    const season = uuid7();
+    const buy = uuid7();
+    const claim = uuid7();
+    const puzzle = uuid7();
+    const missing = uuid7();
+
+    // Portal-owned records provide real foreign IDs. Game ownership and progress
+    // remain unavailable, so the fixtures cannot authorize starting or playing.
+    await query(
+      `INSERT INTO collection_decks (id,account_id,character_id,name,cards)
+       VALUES ($1,$2,$3,'Ownership fixture',ARRAY[$4::uuid])`,
+      [deck, owner.id, character, card],
+    );
+    const fighter = { card, health: 30 };
+    await query(
+      `INSERT INTO collection_battles (id,account_id,character_id,deck_id,state)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [battle, owner.id, character, deck, {
+        ruleset: 1, turn: 0, player: [fighter], enemy: [fighter],
+        outcome: 'active', seed: 1, last_action: null,
+      }],
+    );
+
+    const collectionState = () => query(
+      `SELECT (SELECT jsonb_agg(to_jsonb(d) ORDER BY id) FROM collection_decks d
+                WHERE account_id=ANY($1::uuid[]) OR id=$2) AS decks,
+              (SELECT jsonb_agg(to_jsonb(b) ORDER BY id) FROM collection_battles b
+                WHERE account_id=ANY($1::uuid[]) OR id=$3) AS battles`,
+      [accounts, deck, battle],
+    );
+    const passState = () => query(
+      `SELECT (SELECT jsonb_agg(to_jsonb(p) ORDER BY account_id,season_id) FROM pass_progress p
+                WHERE account_id=ANY($1::uuid[]) OR season_id=$2) AS progress,
+              (SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM pass_claims c
+                WHERE account_id=ANY($1::uuid[]) OR season_id=$2) AS claims,
+              (SELECT jsonb_agg(to_jsonb(w) ORDER BY id) FROM wallet_operations w
+                WHERE account_id=ANY($1::uuid[]) OR id=ANY($3::uuid[])) AS operations,
+              (SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM wallet_entries e
+                WHERE account_id=ANY($1::uuid[]) OR operation_id=ANY($3::uuid[])) AS entries,
+              (SELECT jsonb_agg(to_jsonb(u) ORDER BY entitlement_id) FROM store_fulfilment_units u
+                WHERE account_id=ANY($1::uuid[])) AS entitlements,
+              (SELECT jsonb_agg(to_jsonb(o) ORDER BY operation_id) FROM store_operations o
+                JOIN store_fulfilment_units u USING (entitlement_id)
+                WHERE u.account_id=ANY($1::uuid[]) OR o.operation_id=ANY($3::uuid[])) AS delivery`,
+      [accounts, season, [buy, claim]],
+    );
+    const puzzleState = () => query(
+      `SELECT (SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM puzzles_answers a
+                WHERE account_id=ANY($1::uuid[]) OR puzzle_id=$2) AS answers,
+              (SELECT jsonb_agg(to_jsonb(s) ORDER BY account_id) FROM puzzles_streaks s
+                WHERE account_id=ANY($1::uuid[])) AS streaks`,
+      [accounts, puzzle],
+    );
+    const surfaces = [
+      {
+        target: `collection/${character}`, status: 503, anonymousStatus: 303,
+        message: lang === 'pl'
+          ? 'Kolekcja jest niedostępna. Wymagana jest weryfikacja aktualnego prywatnego postępu i właściciela postaci.'
+          : 'Collection is unavailable. Current private progress and ownership must be verified.',
+        snapshot: collectionState,
+        writes: [
+          { route: `collection/${character}/decks`, form: { name: 'Rejected deck', first: card }, owner: 503, other: 503 },
+          { route: `collection/decks/${deck}/battle`, owner: 503, other: 403 },
+          { route: `collection/decks/${deck}/delete`, ownerRoute: `collection/decks/${missing}/delete`, owner: 403, other: 403 },
+          { route: `collection/battles/${battle}`, form: { expected: '0', action: 'strike' }, owner: 503, other: 403 },
+          { route: `collection/battles/${battle}/forfeit`, ownerRoute: `collection/battles/${missing}/forfeit`, owner: 403, other: 403 },
+        ],
+      },
+      {
+        target: 'pass', status: 503, anonymousStatus: 401,
+        message: lang === 'pl'
+          ? 'Przepustka sezonowa jest obecnie niedostępna. Nie pobrano coinów ani nie wydano nagród.'
+          : 'The season pass is currently unavailable. No coins were charged and no rewards were issued.',
+        snapshot: passState,
+        writes: [
+          { route: `pass/${season}/buy`, form: { operation: buy }, owner: 404, other: 404 },
+          { route: `pass/${season}/claim`, form: { operation: claim, reward: uuid7() }, owner: 404, other: 404 },
+        ],
+      },
+      {
+        target: 'puzzles', status: 200, anonymousStatus: 303,
+        message: lang === 'pl' ? 'Dzisiejsze zagadki są niedostępne.' : "Today's puzzles are unavailable.",
+        snapshot: puzzleState,
+        writes: [{ route: `puzzles/${puzzle}/answer`, form: { choice: '0' }, owner: 404, other: 404 }],
+      },
+    ];
+    for (const surface of surfaces) {
+      const view = await page.goto(`/${lang}/${surface.target}`);
+      expect(view.status()).toBe(surface.status);
+      expect(view.headers()['cache-control']).toContain('no-store');
+      await expect(page.locator('main')).toContainText(surface.message);
       await expect(page.locator(formSelector)).toHaveCount(0);
-    });
+      const baseline = await surface.snapshot();
+      for (const { route, ownerRoute = route, form = {}, owner: ownerStatus, other: otherStatus } of surface.writes) {
+        await test.step(`POST /${lang}/${route}`, async () => {
+          const url = new URL(`/${lang}/${route}`, page.url()).href;
+          await rejected({ page, url, fields: form, snapshot: surface.snapshot, baseline });
+          const attempts = [
+            [visitor, route, anonymousCsrf, surface.anonymousStatus],
+            [other, route, foreignCsrf, otherStatus],
+            [page, ownerRoute, ownerCsrf, ownerStatus],
+          ];
+          for (const [actor, target, token, status] of attempts) {
+            const response = await post(actor, new URL(`/${lang}/${target}`, url).href, { ...form, _csrf: token });
+            expect(response.status()).toBe(status);
+            if (status === 303) expect(response.headers().location).toBe(`/${lang}/login`);
+            expect(await surface.snapshot()).toEqual(baseline);
+          }
+        });
+      }
+    }
+  } finally {
+    await Promise.all([anonymous.close(), foreign.close()]);
   }
 });
 

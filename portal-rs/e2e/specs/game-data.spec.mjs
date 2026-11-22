@@ -58,6 +58,8 @@ test('Game confirms character creation and publishes the public profile, presenc
     const publicPage = await reader.newPage();
     const deathId = uuid7();
     await game.publicCharacter(character, deathId);
+    // The owner preference forms can outlast the initial LCFA freshness cut.
+    await game.portfolioWatermark();
     await open(publicPage, `characters/${encodeURIComponent(name)}`);
     await expect(publicPage.locator('main').getByRole('heading', {name, exact: true})).toBeVisible();
     await expect(publicPage.locator('main')).toContainText('412');
