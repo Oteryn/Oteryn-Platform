@@ -179,6 +179,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
+            let app = app.merge(oteryn_admin::staff_invites::router(
+                db.clone(),
+                registration_delivery::staff_invite_key(&db),
+            )?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
                 db.clone(),
@@ -397,7 +401,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
-            let app = registration_delivery::admission(app, db.clone());
+            let app = registration_delivery::admission(app);
             let app = app.merge(code_routes::configured(db.clone())?);
             let app = with_proxy_policy(app, db.clone(), proxies);
             let (public_app, app) =

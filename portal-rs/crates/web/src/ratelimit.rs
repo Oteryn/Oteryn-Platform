@@ -25,6 +25,7 @@ enum Scope {
     Source,
     EmailSource,
     AccountSource,
+    Account,
     TokenSource,
     PendingSource,
     Pending,
@@ -53,6 +54,11 @@ macro_rules! policies {
 }
 policies! {
     PublicGameData, "public-game-data", 120, 60, Source;
+    StaffInviteManageAccount, "staff-invite-manage-account", 12, 60, Account;
+    StaffInviteAcceptAccount, "staff-invite-accept-account", 12, 60, Account;
+    StaffInviteManage, "staff-invite-manage", 12, 60, AccountSource;
+    StaffInviteLink, "staff-invite-link", 60, 60, Source;
+    StaffInviteAccept, "staff-invite-accept", 12, 60, AccountSource;
     IdentityRegistration, "identity-registration", 5, 60, Source;
     IdentityLogin, "identity-login", 5, 60, EmailSource;
     IdentityLoginSource, "identity-login-source", 20, 60, Source;
@@ -135,7 +141,7 @@ impl Keys {
         part(&mut digest, policy.name());
         match policy.scope() {
             Scope::EmailSource => part(&mut digest, &required(&self.email)?.trim().to_lowercase()),
-            Scope::AccountSource => part(&mut digest, required(&self.account)?),
+            Scope::Account | Scope::AccountSource => part(&mut digest, required(&self.account)?),
             Scope::TokenSource => part(&mut digest, required(&self.token)?),
             Scope::Pending | Scope::PendingSource => {
                 part(&mut digest, required(&self.pending_account)?)
@@ -146,7 +152,10 @@ impl Keys {
             Scope::LocaleSource => part(&mut digest, self.locale.ok_or(Denial::BadInput)?.code()),
             Scope::Source => {}
         }
-        if !matches!(policy.scope(), Scope::Pending | Scope::Credential) {
+        if !matches!(
+            policy.scope(),
+            Scope::Pending | Scope::Credential | Scope::Account
+        ) {
             part(&mut digest, &self.source.to_string());
         }
         Ok(digest.finalize().to_vec())

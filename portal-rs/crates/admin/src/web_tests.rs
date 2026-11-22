@@ -135,6 +135,7 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            invites_label: text(lang, "invite-title"),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -148,6 +149,7 @@ fn localized_responsive_labelled_template() {
         .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains(&format!("href=\"/admin/staff-invites?lang={lang}\"")));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));
@@ -220,7 +222,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .to_vec(),
     )
     .unwrap();
-    assert!(!body.contains("href=\"/admin/roles\""));
+    assert!(!body.contains("href=\"/admin/roles"));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),
@@ -288,7 +290,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .to_vec(),
     )
     .unwrap();
-    assert!(body.contains("href=\"/admin/roles\""));
+    assert!(body.contains("href=\"/admin/roles?lang=pl\""));
     let csrf = body
         .split("name=\"_csrf\" value=\"")
         .nth(1)

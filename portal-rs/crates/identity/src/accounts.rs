@@ -27,6 +27,18 @@ impl std::fmt::Debug for Account {
 pub fn normalize_email(email: &str) -> String {
     email.trim().to_ascii_lowercase()
 }
+
+/// Validate a bare address for an account lookup or delivery.
+pub fn valid_bare_email(email: &str) -> bool {
+    email.len() <= 254
+        && email.is_ascii()
+        && email_address::EmailAddress::parse_with_options(
+            email,
+            email_address::Options::default().without_display_text(),
+        )
+        .is_ok()
+}
+
 #[derive(Debug, Clone)]
 pub struct Accounts {
     pub pool: PgPool,

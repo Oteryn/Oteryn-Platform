@@ -566,6 +566,31 @@ fn named_policies_match_the_existing_portal_limits() -> TestResult {
     assert_eq!(codes.name(), "store-code-redeem");
     assert_eq!(codes.limit(), 5);
     assert_eq!(codes.window_seconds(), 60);
+    for (policy, name, limit) in [
+        (NamedPolicy::StaffInviteManage, "staff-invite-manage", 12),
+        (NamedPolicy::StaffInviteLink, "staff-invite-link", 60),
+        (NamedPolicy::StaffInviteAccept, "staff-invite-accept", 12),
+    ] {
+        assert_eq!(policy.name(), name);
+        assert_eq!(policy.limit(), limit);
+        assert_eq!(policy.window_seconds(), 60);
+        found += 1;
+    }
+    for (policy, name) in [
+        (
+            NamedPolicy::StaffInviteManageAccount,
+            "staff-invite-manage-account",
+        ),
+        (
+            NamedPolicy::StaffInviteAcceptAccount,
+            "staff-invite-accept-account",
+        ),
+    ] {
+        assert_eq!(policy.name(), name);
+        assert_eq!(policy.limit(), 12);
+        assert_eq!(policy.window_seconds(), 60);
+        found += 1;
+    }
     assert_eq!(found + 1, NamedPolicy::ALL.len());
     Ok(())
 }
@@ -671,4 +696,39 @@ fn explicit_proxy_configuration_rejects_invalid_addresses() -> TestResult {
         assert!(TrustedProxies::parse(invalid).is_err());
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn invitation_account_budgets_span_source_addresses() -> TestResult {
+    let db = Database::open()
+        .await?
+        .ok_or("PostgreSQL is required for invitation quotas")?;
+    let limiter = RateLimiter::new(db.pool.clone());
+    for (source_policy, account_policy) in [
+        (
+            NamedPolicy::StaffInviteManage,
+            NamedPolicy::StaffInviteManageAccount,
+        ),
+        (
+            NamedPolicy::StaffInviteAccept,
+            NamedPolicy::StaffInviteAcceptAccount,
+        ),
+    ] {
+        for host in 1..=13 {
+            let mut key = keys(&format!("192.0.2.{host}"))?;
+            key.account = Some("invitation-account".into());
+            limiter
+                .check(source_policy, std::slice::from_ref(&key))
+                .await?;
+            let account = limiter.check(account_policy, &[key.clone()]).await;
+            if host == 13 {
+                assert!(matches!(account, Err(Denial::Limited { .. })));
+                key.account = Some("other-account".into());
+                limiter.check(account_policy, &[key]).await?;
+            } else {
+                account?;
+            }
+        }
+    }
+    db.close().await
 }

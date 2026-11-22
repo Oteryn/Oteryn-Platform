@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.tr("invite-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ self.tr("invite-title") }}</h1>
+  <nav class="op-tabs" aria-label="{{ self.tr("title") }}"><a href="/admin/roles?lang={{ lang }}">{{ self.tr("roles") }}</a></nav>
+  {% if let Some(invite) = approval %}
+  <section class="op-stack">
+    <h2>{{ self.tr("invite-approve") }}</h2>
+    <p>{{ invite.email }}</p>
+    <ul>{% for key in invite.roles %}<li>{{ key }}</li>{% endfor %}</ul>
+    <form method="post" action="/admin/staff-invites?lang={{ lang }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="approve" value="{{ invite.id }}">
+      <button class="op-button">{{ self.tr("invite-approve") }}</button>
+    </form>
+  </section>
+  {% elif mail_configured %}
+  <form class="op-stack" method="post" action="/admin/staff-invites?lang={{ lang }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="request_key" value="{{ request_key }}">
+    <label for="invite-email">{{ self.tr("invite-email") }}</label>
+    <input class="op-input" id="invite-email" name="email" type="email" maxlength="254" required>
+    <fieldset>
+      <legend>{{ self.tr("invite-roles") }}</legend>
+      {% for (id, key) in roles %}
+      <div><label><input type="checkbox" name="role" value="{{ id }}"> {{ key }}</label></div>
+      {% endfor %}
+    </fieldset>
+    <p>{{ self.tr("invite-expiry") }}</p>
+    <div><button class="op-button">{{ self.tr("invite-send") }}</button></div>
+  </form>
+  {% else %}
+  <p>{{ self.tr("invite-mail-unavailable") }}</p>
+  {% endif %}
+  <section class="op-stack">
+    <h2>{{ self.tr("invite-pending") }}</h2>
+    {% for invite in pending %}
+    <article class="op-stack">
+      <strong>{{ invite.email }}</strong>
+      <ul>{% for key in invite.roles %}<li>{{ key }}</li>{% endfor %}</ul>
+      {% if invite.awaiting_approval %}
+      <p>{{ self.tr("invite-approval-required") }}</p>
+      <p><a href="/admin/staff-invites?approval={{ invite.id }}&amp;lang={{ lang }}">{{ self.tr("invite-approval-link") }}</a></p>
+      {% endif %}
+      <form method="post" action="/admin/staff-invites/{{ invite.id }}/revoke?lang={{ lang }}">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <button class="op-button op-button--secondary">{{ self.tr("invite-revoke") }}</button>
+      </form>
+    </article>
+    {% else %}
+    <p>{{ self.tr("invite-none") }}</p>
+    {% endfor %}
+    {% if let Some(before) = next %}<a href="/admin/staff-invites?before={{ before }}&amp;lang={{ lang }}">{{ self.tr("invite-next") }}</a>{% endif %}
+  </section>
+</main>
+</body>
+</html>

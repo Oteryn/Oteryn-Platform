@@ -152,3 +152,93 @@ async fn reward_due_index_migration_leaves_reads_available()
         .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn staff_invite_upgrade_preserves_the_outbox_claim_fence()
+-> Result<(), Box<dyn std::error::Error>> {
+    use oteryn_db::{MIGRATOR, outbox};
+    use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions, types::Uuid};
+
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
+    let root = PgPool::connect(&url).await?;
+    let schema = format!("invite_claim_{}", Uuid::now_v7().simple());
+    sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await?;
+    let search_path = schema.clone();
+    let pool = PgPoolOptions::new()
+        .after_connect(move |conn, _| {
+            let path = search_path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await?;
+
+    MIGRATOR.run_to(20261122150000, &pool).await?;
+    let invite: Uuid = sqlx::query_scalar(
+        "WITH issuer AS (
+            INSERT INTO accounts(id,email,password_hash,status,locale)
+            VALUES(uuidv7(),'invite-issuer@example.invalid','test-only','active','en') RETURNING id
+         )
+         INSERT INTO staff_invites(id,email,role_ids,invited_by,token_hash,locale,created_at,expires_at)
+         SELECT uuidv7(),'invitee@example.invalid',ARRAY[r.id],issuer.id,
+                sha256('test-only'::bytea),'en',now(),now()+interval '48 hours'
+         FROM issuer CROSS JOIN roles r WHERE r.key='platform_admin' RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await?;
+    let mut tx = pool.begin().await?;
+    let job = outbox::enqueue(
+        &mut tx,
+        "email.staff-invite",
+        "{}",
+        &invite.to_string(),
+        sqlx::types::time::OffsetDateTime::now_utc(),
+        5,
+    )
+    .await?;
+    tx.commit().await?;
+    let old = outbox::claim(&pool, 64, 3600)
+        .await?
+        .into_iter()
+        .find(|claim| claim.id == job)
+        .ok_or("outbox did not return the original invite claim")?;
+    assert_eq!(old.attempts, 1);
+
+    MIGRATOR.run_to(20261122150100, &pool).await?;
+    let rescheduled: (String, i32, bool, bool) = sqlx::query_as(
+        "SELECT o.state,o.attempts,o.leased_until IS NULL,o.run_after=i.expires_at
+         FROM outbox o JOIN staff_invites i ON o.idempotency_key=i.id::text WHERE o.id=$1",
+    )
+    .bind(job)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(rescheduled, ("pending".into(), old.attempts, true, true));
+
+    // Model the queue wake-up performed in the invitation approval transaction.
+    sqlx::query("UPDATE outbox SET run_after=clock_timestamp() WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await?;
+    let current = outbox::claim(&pool, 64, 3600)
+        .await?
+        .into_iter()
+        .find(|claim| claim.id == job)
+        .ok_or("outbox did not return the approved invite claim")?;
+    assert_eq!(current.attempts, old.attempts + 1);
+    assert!(!outbox::renew(&pool, &old, 3600).await?);
+    assert!(!outbox::finish(&pool, &old, None, false).await?);
+    assert!(outbox::finish(&pool, &current, None, false).await?);
+
+    pool.close().await;
+    sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}

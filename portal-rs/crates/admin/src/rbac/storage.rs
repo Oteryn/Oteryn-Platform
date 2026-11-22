@@ -111,13 +111,10 @@ impl<A: AccountStateReader> Authorizer<A> {
                 Change::SetPermissions { role, .. } | Change::Grant { role, .. } => Some(*role),
                 _ => None,
             };
-            if let Some(role) = protected_role {
-                let protected: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.id=$1 AND (r.key IN ('owner','platform_admin') OR EXISTS(SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND rp.permission='admin.roles.manage')))",
-                ).bind(role).fetch_one(&mut *tx).await?;
-                if protected {
-                    return Err(Error::Denied);
-                }
+            if let Some(role) = protected_role
+                && requires_grant_approval(&mut tx, &[role]).await?
+            {
+                return Err(Error::Denied);
             }
         }
         let (action, target, before, after, result) = match change {
@@ -271,6 +268,24 @@ impl<A: AccountStateReader> Authorizer<A> {
         tx.commit().await?;
         Ok(Some(result))
     }
+}
+
+// SQL predicate on a roles row aliased as r. Keep invitation reads and RBAC
+// mutations on the same definition of a protected grant.
+pub(crate) const PROTECTED_ROLE: &str = "(r.key IN ('owner','platform_admin') OR EXISTS(
+    SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND rp.permission='admin.roles.manage'
+))";
+
+pub(crate) async fn requires_grant_approval(
+    connection: &mut sqlx::PgConnection,
+    roles: &[Uuid],
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.id=ANY($1) AND {PROTECTED_ROLE})"
+    )))
+    .bind(roles)
+    .fetch_one(connection)
+    .await
 }
 
 fn validate_key(key: &str) -> Result<(), Error> {
