@@ -50,6 +50,7 @@ pub struct Flags {
 impl Flags {
     fn ready(self) -> bool {
         self.enabled
+            && !self.invalid_policy
             && self.accepted_sources
             && self.accepted_season_rules
             && self.accepted_final_freeze

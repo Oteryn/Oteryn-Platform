@@ -203,11 +203,12 @@ impl<A: Authority> League<A> {
             .map_err(|_| Error::Unavailable)?
     }
     async fn read_inner(&self, now: u64) -> Result<Vec<Snapshot>> {
-        if self.flags.invalid_policy {
-            return Err(Error::InvalidPolicy);
-        }
         if !self.flags.ready() || !self.flags.public {
-            return Err(Error::MissingGameData);
+            return Err(if self.flags.invalid_policy {
+                Error::InvalidPolicy
+            } else {
+                Error::MissingGameData
+            });
         }
         let mut tx = begin(&self.pool).await?;
         sqlx::query(
