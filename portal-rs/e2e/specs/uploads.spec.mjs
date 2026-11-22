@@ -249,6 +249,18 @@ const rejectedImages = [
     ...png,
     buffer: Buffer.concat([png.buffer, png.buffer.subarray(-12)]),
   }), 422],
+  ['PNG with a bad CRC after pixel data', () => {
+    const image = pngOfSize(png.buffer.length + 64);
+    image.buffer[image.buffer.length - 16] ^= 1;
+    return image;
+  }, 422],
+  ['WebP with an incomplete trailing chunk', () => {
+    const webp = file('webp', 'image/webp');
+    const trailing = Buffer.from([0x54, 0x45, 0x53, 0x54, 8, 0, 0, 0, 1]);
+    const buffer = Buffer.concat([webp.buffer, trailing]);
+    buffer.writeUInt32LE(buffer.length - 8, 4);
+    return { ...webp, buffer };
+  }, 422],
   ['PNG with truncated pixel data', () => file('png', 'image/png', 'truncated-pixels'), 422],
   ['JPEG with a truncated scan', () => file('jpeg', 'image/jpeg', 'truncated-scan'), 422],
   ['two JPEG images in one file', () => {

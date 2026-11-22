@@ -2814,6 +2814,7 @@ dependencies = [
  "askama",
  "axum",
  "axum-extra",
+ "crc32fast",
  "fluent-bundle",
  "futures-util",
  "httparse",

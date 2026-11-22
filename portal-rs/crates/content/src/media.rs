@@ -69,10 +69,7 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
     let boundary = match format {
         ImageFormat::Jpeg => verify_jpeg_structure(bytes).is_some(),
         ImageFormat::Png => verify_png_end(bytes).is_some(),
-        ImageFormat::WebP => bytes
-            .get(4..8)
-            .and_then(|b| <[u8; 4]>::try_from(b).ok())
-            .is_some_and(|b| u32::from_le_bytes(b) as u64 + 8 == bytes.len() as u64),
+        ImageFormat::WebP => verify_webp_chunks(bytes).is_some(),
         _ => false,
     };
     if !boundary {
@@ -132,18 +129,54 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         height,
     })
 }
-/// Check the first parsed IEND at its chunk boundary. The decoder validates
-/// the image contents and this check disallows bytes after the first image.
+/// Validate every chunk, including ancillary chunks the decoder can ignore.
 fn verify_png_end(bytes: &[u8]) -> Option<()> {
     let mut rest = bytes.strip_prefix(b"\x89PNG\r\n\x1a\n")?;
     loop {
-        let length = usize::try_from(u32::from_be_bytes(rest.get(..4)?.try_into().ok()?)).ok()?;
-        let kind = rest.get(4..8)?;
-        if kind == b"IEND" {
-            return (rest == b"\0\0\0\0IEND\xaeB`\x82").then_some(());
+        let (length, chunks) = rest.split_first_chunk::<4>()?;
+        let crc_offset = usize::try_from(u32::from_be_bytes(*length))
+            .ok()?
+            .checked_add(4)?;
+        let (chunk, checksum) = chunks.split_at_checked(crc_offset)?;
+        let (checksum, next) = checksum.split_first_chunk::<4>()?;
+        if crc32fast::hash(chunk) != u32::from_be_bytes(*checksum) {
+            return None;
         }
-        rest = rest.get(length.checked_add(12)?..)?;
+        if chunk.starts_with(b"IEND") {
+            return (chunk.len() == 4 && next.is_empty()).then_some(());
+        }
+        rest = next;
     }
+}
+
+fn verify_webp_chunks(bytes: &[u8]) -> Option<()> {
+    let riff = bytes.strip_prefix(b"RIFF")?;
+    let (size, data) = riff.split_first_chunk::<4>()?;
+    if u64::from(u32::from_le_bytes(*size)) != data.len() as u64 {
+        return None;
+    }
+    verify_webp_chunk_list(data.strip_prefix(b"WEBP")?, true)
+}
+
+fn verify_webp_chunk_list(mut rest: &[u8], allow_frame: bool) -> Option<()> {
+    while !rest.is_empty() {
+        let (kind, body) = rest.split_first_chunk::<4>()?;
+        let (size, data) = body.split_first_chunk::<4>()?;
+        let length = usize::try_from(u32::from_le_bytes(*size)).ok()?;
+        let (payload, next) = data.split_at_checked(length)?;
+        rest = next;
+        if length % 2 != 0 {
+            rest = rest.strip_prefix(&[0])?;
+        }
+        if kind == b"ANMF" {
+            if !allow_frame {
+                return None;
+            }
+            // Animated WebP frames contain a 16-byte header and nested chunks.
+            verify_webp_chunk_list(payload.get(16..)?, false)?;
+        }
+    }
+    Some(())
 }
 
 /// Require the first parsed EOI to terminate the upload and every frame

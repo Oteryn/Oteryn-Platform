@@ -108,6 +108,43 @@ fn png_rejects_bytes_after_first_iend_even_with_terminal_iend() {
 }
 
 #[test]
+fn png_checks_the_crc_of_ancillary_chunks_after_pixel_data() {
+    let mut png = fixture(ImageFormat::Png, 32, 24);
+    let iend = png.split_off(png.len() - 12);
+    let chunk = b"tEXtComment\0text";
+    png.extend_from_slice(&(chunk.len() as u32 - 4).to_be_bytes());
+    png.extend_from_slice(chunk);
+    let crc_offset = png.len();
+    png.extend_from_slice(&crc32fast::hash(chunk).to_be_bytes());
+    png.extend_from_slice(&iend);
+    assert!(process("ancillary.png", &png).is_ok());
+    png[crc_offset] ^= 1;
+    assert_eq!(
+        process("ancillary.png", &png).err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+}
+
+#[test]
+fn webp_requires_complete_trailing_chunks_and_padding() {
+    fn append_chunk(mut webp: Vec<u8>, trailing: &[u8]) -> Vec<u8> {
+        webp.extend_from_slice(trailing);
+        let size = (webp.len() - 8) as u32;
+        webp[4..8].copy_from_slice(&size.to_le_bytes());
+        webp
+    }
+    let webp = fixture(ImageFormat::WebP, 32, 24);
+    let complete = append_chunk(webp.clone(), b"TEST\x01\0\0\0a\0");
+    assert!(process("complete.webp", &complete).is_ok());
+    for trailing in [b"TEST\x08\0\0\0a".as_slice(), b"TEST\x01\0\0\0a"] {
+        assert_eq!(
+            process("truncated.webp", &append_chunk(webp.clone(), trailing)).err(),
+            Some(StatusCode::UNPROCESSABLE_ENTITY)
+        );
+    }
+}
+
+#[test]
 fn png_with_missing_scanline_reaches_pixel_decoder() {
     let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-pixels.png");
     assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Png);
@@ -708,11 +745,13 @@ async fn browser_lifecycle(pool: &PgPool) {
     );
 
     // A kick advances the account generation without removing the browser cookie or MFA grant.
-    sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1")
-        .bind(actor)
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1",
+    )
+    .bind(actor)
+    .execute(pool)
+    .await
+    .unwrap();
     let stale = with_stalled_body(make(csrf, "Kicked editor stalled upload", "image/png")).await;
     let refusal = tokio::time::timeout(Duration::from_secs(8), app.clone().oneshot(stale))
         .await
