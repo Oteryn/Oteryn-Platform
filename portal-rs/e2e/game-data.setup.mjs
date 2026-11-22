@@ -1,11 +1,14 @@
 import { spawn } from 'node:child_process';
-import { access, constants, mkdtemp, rm } from 'node:fs/promises';
+import { access, constants, mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-export default async function setup() {
+export default async function setup(config) {
+  const e2eDirectory = path.dirname(fileURLToPath(import.meta.url));
+  // Nested stand-alone suites can inherit the browser config and use their own harness.
+  if (config && await realpath(config.rootDir) !== e2eDirectory) return;
   if (process.env.PORTAL_E2E_GAME_DATA_REPORT) {
     await access(process.env.PORTAL_E2E_GAME_DATA_REPORT);
     return;
