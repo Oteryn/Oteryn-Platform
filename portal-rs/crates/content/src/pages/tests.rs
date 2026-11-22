@@ -93,6 +93,11 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
             "NIP 123-456-78-03",
             "123-456-78-03",
         ),
+        (
+            "Operator: {{operator}}",
+            "Dane operatora: {{operator}}",
+            "{{operator}}",
+        ),
     ] {
         sqlx::query(
             "UPDATE editorial_pages SET legal_version='relabeled-v1',
@@ -489,6 +494,8 @@ Updated English source",
         ),
         ("en", "Tax ID (NIP) PL 123-456-78-03"),
         ("pl", "NIP 123-456-78-03"),
+        ("en", "Operator: {{operator}}"),
+        ("pl", "Dane operatora: {{operator}}"),
         ("en", "<!-- Terms draft -->"),
         ("pl", "<!-- Projekt regulaminu -->"),
         ("en", "&#xfe0f;"),

@@ -15,6 +15,8 @@ static LEGAL_NIP: LazyLock<Result<regex::Regex, regex::Error>> = LazyLock::new(|
         r"(?i)\bnip[\s\p{P}−]*(?:pl[\s\p{P}−]*)?([0-9](?:[\p{Zs}\t().·\p{Pd}−]*[0-9])*)",
     )
 });
+static LEGAL_TEMPLATE_FIELD: LazyLock<Result<regex::Regex, regex::Error>> =
+    LazyLock::new(|| regex::Regex::new(r"\{\{\s*[^{}\s][^{}]*\}\}"));
 
 /// Properties of the text the public renderer exposes.
 #[derive(Debug)]
@@ -87,7 +89,9 @@ pub fn inspect_legal_edition(version: &str, title: &str, body: &str) -> LegalEdi
     tokenizer.end();
     let text = tokenizer.sink.0.into_inner();
 
-    let (Ok(invisible), Ok(nips)) = (&*INVISIBLE_LEGAL_TEXT, &*LEGAL_NIP) else {
+    let (Ok(invisible), Ok(nips), Ok(fields)) =
+        (&*INVISIBLE_LEGAL_TEXT, &*LEGAL_NIP, &*LEGAL_TEMPLATE_FIELD)
+    else {
         return LegalEditionText {
             has_visible_body: false,
             has_placeholder: true,
@@ -112,7 +116,8 @@ pub fn inspect_legal_edition(version: &str, title: &str, body: &str) -> LegalEdi
         .chain(text.tooltips.iter().map(String::as_str))
     {
         let normalized: String = invisible.replace_all(value, "").nfkc().collect();
-        result.has_placeholder |= contains_legal_placeholder(&normalized);
+        result.has_placeholder |=
+            fields.is_match(&normalized) || contains_legal_placeholder(&normalized);
         result.has_invalid_nip |= nips
             .captures_iter(&normalized)
             .any(|field| !valid_nip(&field[1]));

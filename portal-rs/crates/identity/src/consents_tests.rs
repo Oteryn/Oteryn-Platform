@@ -475,6 +475,29 @@ fn recognizes_placeholders_in_rendered_legal_text() {
 }
 
 #[test]
+fn detects_unresolved_template_fields_in_legal_editions() {
+    for (title, body) in [
+        ("Terms", "Operator: {{operator}}"),
+        (
+            "Regulamin",
+            "Operator: &#123;&#123; operator.name &#125;&#125;",
+        ),
+        (
+            "Terms",
+            "Contact information. ![{{operator}}](/missing-image.png)",
+        ),
+        ("Terms for {{operator}}", "Contact information."),
+    ] {
+        let edition = inspect_legal_edition("final-v1", title, body);
+        assert!(
+            edition.has_visible_body && edition.has_placeholder,
+            "{title} {body}"
+        );
+    }
+    assert!(!inspect_legal_edition("final-v1", "Terms", "Contact {operator}").has_placeholder);
+}
+
+#[test]
 fn validates_nip_in_rendered_text_and_image_alternatives() {
     for body in [
         "![Tax ID (NIP) (000) 000-00-00](/missing-image.png)",

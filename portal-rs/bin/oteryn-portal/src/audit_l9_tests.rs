@@ -457,6 +457,15 @@ async fn production_legal_signup_refusals() -> Result {
             true,
         ),
         ("invalid operator NIP", invalid_nip, true),
+        (
+            "unresolved operator field",
+            (
+                "Operator: {{operator}}",
+                "Dane operatora: {{operator}}",
+                true,
+            ),
+            true,
+        ),
         ("unapproved legacy snapshot", legacy, true),
         ("empty sanitized body", blank, false),
         ("invisible sanitized body", invisible, false),
