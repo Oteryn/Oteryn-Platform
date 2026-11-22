@@ -11,7 +11,7 @@ use askama::Template;
 use axum::{
     Router,
     extract::{Request, State},
-    http::{StatusCode, header},
+    http::StatusCode,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -86,6 +86,41 @@ impl Page {
     }
 }
 
+pub(crate) const OVERVIEW_ROUTE: &str = "/admin/analytics";
+
+pub(crate) fn view_authorizer<A: AccountStateReader>(
+    pool: PgPool,
+    accounts: A,
+    enabled: bool,
+) -> Authorizer<A> {
+    Authorizer::new(pool, accounts).with_game_flags(crate::rbac::GamePermissionFlags {
+        enabled,
+        deploy: false,
+    })
+}
+
+// Both callers first enforce staff MFA and admin.access.
+pub(crate) async fn view_permission<A: AccountStateReader>(
+    auth: &Authorizer<A>,
+    context: CheckContext,
+) -> Option<Permission> {
+    if auth
+        .check(context, Permission::AdminAnalyticsView)
+        .await
+        .is_ok()
+    {
+        Some(Permission::AdminAnalyticsView)
+    } else if auth
+        .check(context, Permission::GameAnalyticsRead)
+        .await
+        .is_ok()
+    {
+        Some(Permission::GameAnalyticsRead)
+    } else {
+        None
+    }
+}
+
 pub fn configured_router(
     pool: PgPool,
     config: Config,
@@ -110,11 +145,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![panel.csrf_origin()];
     let admin_csrf = session.csrf.clone();
-    let auth =
-        Authorizer::new(pool.clone(), accounts).with_game_flags(crate::rbac::GamePermissionFlags {
-            enabled: config.present,
-            deploy: false,
-        });
+    let auth = view_authorizer(pool.clone(), accounts, config.present);
     let state = Arc::new(Context {
         pool: pool.clone(),
         config,
@@ -123,7 +154,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     });
     let mut routes = Router::new();
     for path in [
-        "/admin/analytics",
+        OVERVIEW_ROUTE,
         "/admin/analytics/creatures",
         "/admin/analytics/activity",
         "/admin/analytics/levels",
@@ -226,16 +257,9 @@ async fn authorize<I: StaffSession, A: AccountStateReader>(
             session_proof: None,
         };
         if identity.mfa_satisfied && s.auth.check(context, Permission::Access).await.is_ok() {
-            platform = s
-                .auth
-                .check(context, Permission::AdminAnalyticsView)
-                .await
-                .is_ok();
-            allowed = platform
-                || s.auth
-                    .check(context, Permission::GameAnalyticsRead)
-                    .await
-                    .is_ok();
+            let permission = view_permission(&s.auth, context).await;
+            platform = permission == Some(Permission::AdminAnalyticsView);
+            allowed = permission.is_some();
         }
     }
     let context = {
@@ -424,11 +448,10 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":state,"cells":cells})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
+    let lang = crate::web::page_language(
+        request.headers(),
+        request.extensions().get::<oteryn_ui::Chrome>(),
+    );
     let title = match request.uri().path() {
         "/admin/analytics/creatures" => "ops-analytics-creatures-title",
         "/admin/analytics/activity" => "ops-analytics-activity-title",
@@ -437,7 +460,7 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
         _ => "ops-analytics-overview-title",
     };
     let page = Page {
-        lang: if english { "en" } else { "pl" },
+        lang,
         title,
         unavailable: if expired {
             "ops-analytics-expired"

@@ -56,6 +56,28 @@ fn uint64_and_activity_arithmetic_boundaries() {
         assert!(wire::parse("page", &serde_json::to_vec(&p).unwrap(), NOW).is_err());
     }
 }
+#[test]
+fn configured_ingestion_requires_the_flag_and_its_peer_mapping() {
+    let config = Config {
+        ingest: true,
+        ..Config::default()
+    };
+    assert!(!resolve_ingest(&config, None).unwrap().1.0);
+    assert!(
+        resolve_ingest(&config, Some("game-admin-analytics"))
+            .unwrap()
+            .1
+            .0
+    );
+    assert!(resolve_ingest(&config, Some("another-purpose")).is_err());
+    assert!(
+        !resolve_ingest(&Config::default(), Some("game-admin-analytics"))
+            .unwrap()
+            .1
+            .0
+    );
+}
+
 #[tokio::test]
 async fn wrong_purpose_transport_and_bounds() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();

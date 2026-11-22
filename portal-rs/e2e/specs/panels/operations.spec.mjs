@@ -121,6 +121,49 @@ test('platform operations are discoverable and enforce staff-only, read-only acc
   }
 });
 
+test('operations honor saved locale and analytics navigation honors the analyst role', async ({page, browser}, info) => {
+  const browserLocale = info.project.metadata.locale;
+  const saved = browserLocale === 'en' ? 'pl' : 'en';
+  await panelActor(page.context(), browserLocale, 'platform_admin');
+  expect((await visit(page, `/language/${saved}`)).status()).toBe(200);
+  await expect(page).toHaveURL(new RegExp(`/${saved}/$`));
+  for (const [path, en, pl] of pages.slice(0, 4)) {
+    expect((await visit(page, path)).status()).toBe(200);
+    await expect(page.locator('html')).toHaveAttribute('lang', saved);
+    await expect(page.getByRole('heading', {level: 1})).toHaveText(saved === 'en' ? en : pl);
+  }
+  await visit(page, '/admin/operations/flags');
+  const ingestion = page.getByRole('row').filter({has: page.getByRole('rowheader', {
+    name: 'OTERYN_ADMIN_ANALYTICS_INGEST', exact: true,
+  })});
+  expect(process.env.OTERYN_ADMIN_ANALYTICS_INGEST).toBe('true');
+  expect(process.env.OTERYN_ADMIN_ANALYTICS_PEER_SAN).toBeUndefined();
+  await expect(ingestion.getByRole('cell')).toHaveText('false');
+
+  const analyst = await browser.newContext({
+    baseURL: origin, ignoreHTTPSErrors: true, locale: browserLocale, viewport: info.project.use.viewport,
+  });
+  try {
+    await panelActor(analyst, browserLocale, 'game_analyst');
+    const dashboard = await analyst.newPage();
+    expect((await visit(dashboard, '/admin')).status()).toBe(200);
+    const navigation = dashboard.locator('nav[data-panel="admin"]');
+    await expect(navigation.locator('a[href="/admin/operations/statistics"]')).toHaveCount(0);
+    const link = navigation.getByRole('link', {
+      name: browserLocale === 'en' ? 'Game analytics' : 'Analityka gry', exact: true,
+    });
+    await expect(link).toHaveAttribute('href', '/admin/analytics');
+    const success = dashboard.waitForResponse(response => new URL(response.url()).pathname === '/admin/analytics'
+      && response.request().isNavigationRequest());
+    await link.click();
+    expect((await success).status()).toBe(200);
+    await expect(dashboard.locator('html')).toHaveAttribute('lang', browserLocale);
+    expect((await analyst.request.get('/admin/operations/statistics')).status()).toBe(403);
+  } finally {
+    await analyst.close();
+  }
+});
+
 test('analytics drills into the selected qualified UTC bucket', async ({page}, info) => {
   const lang = info.project.metadata.locale;
   await panelActor(page.context(), lang, 'platform_admin');

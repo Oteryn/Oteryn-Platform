@@ -550,12 +550,6 @@ pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
         Permission::ViewPlatformHealth,
         None,
     ),
-    (
-        "/admin/analytics",
-        "ops-analytics",
-        Permission::AdminAnalyticsView,
-        Some("OTERYN_ADMIN_ANALYTICS_PRESENT"),
-    ),
     ("/admin", "panel-admin", Permission::Access, None),
     ("/admin/roles", "panel-roles", Permission::ManageRoles, None),
     (

@@ -1,7 +1,7 @@
-use crate::{rbac::Permission, web};
+use crate::{analytics::IngestAvailability, rbac::Permission, web};
 use askama::Template;
 use axum::{
-    Router,
+    Extension, Router,
     extract::{RawQuery, State},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
@@ -16,18 +16,23 @@ type Rows = Vec<Vec<String>>;
 type ReadResult = Result<Response, StatusCode>;
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    operations_router(pool, &|key| std::env::var(key).ok())
+    operations_router(pool, IngestAvailability::configured()?, &|key| {
+        std::env::var(key).ok()
+    })
 }
 
 fn operations_router(
     pool: PgPool,
+    ingest: IngestAvailability,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
     let stats = Router::new().route("/admin/operations/statistics", get(statistics));
     let limits = Router::new()
         .route("/admin/operations/rate-limits", get(rate_limits))
         .route("/admin/operations/rate-limits.csv", get(rate_export));
-    let flags = Router::new().route("/admin/operations/flags", get(effective_flags));
+    let flags = Router::new()
+        .route("/admin/operations/flags", get(effective_flags))
+        .layer(Extension(ingest));
     let health = Router::new().route("/admin/operations/health", get(system_health));
     let mut routes = Router::new();
     for (router, permission) in [
@@ -61,21 +66,13 @@ struct Page {
 
 impl Page {
     fn new(
-        headers: &HeaderMap,
+        lang: &'static str,
         title: &'static str,
         columns: &'static [&'static str],
         rows: Rows,
     ) -> Self {
         Self {
-            lang: if headers
-                .get(header::ACCEPT_LANGUAGE)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.starts_with("en"))
-            {
-                "en"
-            } else {
-                "pl"
-            },
+            lang,
             title,
             columns,
             rows,
@@ -128,37 +125,61 @@ async fn bounded<T>(future: impl Future<Output = Result<T, sqlx::Error>>) -> Res
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)
 }
 
-async fn statistics(
-    State(pool): State<PgPool>,
-    RawQuery(raw): RawQuery,
-    headers: HeaderMap,
-) -> ReadResult {
-    let days = range(raw.as_deref())?;
-    let rows = bounded(sqlx::query_as::<_, (String, i64, i64)>(
+const STATISTICS_SQL: &str =
         "WITH bounds AS (
             SELECT (statement_timestamp() AT TIME ZONE 'UTC')::date AS today
          ), dates AS (
             SELECT today - n AS day FROM bounds, generate_series(0, $1::int - 1) AS n
          ), registrations AS (
             SELECT (created_at AT TIME ZONE 'UTC')::date AS day, count(*) AS total
-            FROM accounts, bounds
-            WHERE created_at >= ((today - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
+            FROM accounts
+            WHERE created_at >= (((SELECT today FROM bounds) - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
               AND created_at <= statement_timestamp()
             GROUP BY 1
          ), logins AS (
             SELECT (created_at AT TIME ZONE 'UTC')::date AS day, count(*) AS total
-            FROM security_events, bounds
+            FROM security_events
             WHERE kind = 'login_succeeded'
-              AND created_at >= ((today - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
+              AND created_at >= (((SELECT today FROM bounds) - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
               AND created_at <= statement_timestamp()
             GROUP BY 1
          )
          SELECT to_char(dates.day, 'YYYY-MM-DD'), coalesce(registrations.total, 0), coalesce(logins.total, 0)
          FROM dates LEFT JOIN registrations USING(day) LEFT JOIN logins USING(day)
-         ORDER BY dates.day DESC",
-    ).bind(i32::from(days)).fetch_all(&pool)).await?;
+         ORDER BY dates.day DESC";
+
+async fn statistics_transaction(
+    pool: &PgPool,
+) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
+}
+
+async fn statistics(
+    State(pool): State<PgPool>,
+    RawQuery(raw): RawQuery,
+    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+) -> ReadResult {
+    let days = range(raw.as_deref())?;
+    let rows = bounded(async {
+        let mut tx = statistics_transaction(&pool).await?;
+        let rows = sqlx::query_as::<_, (String, i64, i64)>(STATISTICS_SQL)
+            .bind(i32::from(days))
+            .fetch_all(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(rows)
+    })
+    .await?;
     let mut page = Page::new(
-        &headers,
+        web::page_language(&headers, chrome.as_deref()),
         "ops-statistics",
         &["ops-date", "ops-registrations", "ops-logins"],
         rows.into_iter()
@@ -220,10 +241,11 @@ async fn rate_limits(
     State(pool): State<PgPool>,
     RawQuery(raw): RawQuery,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> ReadResult {
     no_query(raw.as_deref())?;
     let mut page = Page::new(
-        &headers,
+        web::page_language(&headers, chrome.as_deref()),
         "ops-rate-limits",
         &["ops-policy", "ops-limit", "ops-window", "ops-saturated"],
         rate_rows(&pool).await?,
@@ -273,13 +295,21 @@ fn flag_rows(enabled: impl Fn(&str) -> bool) -> Rows {
         .collect()
 }
 
-async fn effective_flags(RawQuery(raw): RawQuery, headers: HeaderMap) -> ReadResult {
+async fn effective_flags(
+    Extension(ingest): Extension<IngestAvailability>,
+    RawQuery(raw): RawQuery,
+    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+) -> ReadResult {
     no_query(raw.as_deref())?;
     Page::new(
-        &headers,
+        web::page_language(&headers, chrome.as_deref()),
         "ops-flags",
         &["ops-name", "ops-value"],
-        flag_rows(|name| std::env::var(name).as_deref() == Ok("true")),
+        flag_rows(|name| match name {
+            "OTERYN_ADMIN_ANALYTICS_INGEST" => ingest.0,
+            _ => std::env::var(name).as_deref() == Ok("true"),
+        }),
     )
     .response()
 }
@@ -288,10 +318,11 @@ async fn system_health(
     State(pool): State<PgPool>,
     RawQuery(raw): RawQuery,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> ReadResult {
     no_query(raw.as_deref())?;
     let mut page = Page::new(
-        &headers,
+        web::page_language(&headers, chrome.as_deref()),
         "ops-health",
         &["ops-component", "ops-status"],
         vec![],
