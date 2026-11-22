@@ -217,7 +217,7 @@ apiTest('OAuth token rejects malformed, oversized, unknown client and unsupporte
 
 apiTest('OAuth token throttles its source and returns the shared refusal envelope', async ({ request }, info) => {
   const headers = requestSource(info, 3);
-  await expect.poll(() => new Date().getUTCSeconds(), { timeout: 20_000 }).toBeLessThan(50);
+  await expect.poll(() => new Date().getUTCSeconds(), { timeout: 65_000 }).toBeLessThan(20);
   const form = { grant_type: 'password', client_id: clientId };
   const body = {
     error: 'unsupported_grant_type',
