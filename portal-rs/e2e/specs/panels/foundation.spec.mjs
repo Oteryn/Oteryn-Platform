@@ -107,7 +107,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
     const dashboard = admin.locator('#podglad-konta [data-staff-dashboard]');
     await expect(dashboard).toHaveText(label.staff);
     const dashboardUrl = await dashboard.getAttribute('href');
-    expect(new URL(dashboardUrl).pathname).toBe('/admin');
+    expect(new URL(dashboardUrl, admin.url()).pathname).toBe('/admin');
     expect((await visit(admin, dashboardUrl)).status()).toBe(200);
 
     const adminNav = admin.locator('nav[data-panel="admin"]');

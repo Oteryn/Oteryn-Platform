@@ -110,7 +110,18 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         && let Some(id) = account_id
         && (staff.allows)(id).await
     {
-        Some(staff.url)
+        Some(
+            if shell
+                .registry
+                .staff_host
+                .as_ref()
+                .is_some_and(|host| crate::staff_host::matches(request.headers(), host))
+            {
+                "/admin".to_owned()
+            } else {
+                staff.url
+            },
+        )
     } else {
         None
     };

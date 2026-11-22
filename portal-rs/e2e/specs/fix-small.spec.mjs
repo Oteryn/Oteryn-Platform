@@ -26,7 +26,7 @@ async function enrollAndReadCodes(page, lang, account) {
 }
 
 async function finishStaffLogin(page, account, code) {
-  await expect(page).toHaveURL(staffUrl('/login'));
+  await expect(page).toHaveURL(staffUrl('/login?return_to=/admin'));
   await waitForLoginBudget();
   await submit(page, 'main form', {email: account.email, password: account.password});
   await expect(page).toHaveURL(url =>
@@ -67,10 +67,11 @@ test('account menu shows a localized staff link only with admin.access', async (
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
   await expect(link).toHaveText(lang === 'pl' ? 'Panel administracyjny' : 'Staff dashboard');
   const destination = staffUrl('/admin');
-  await expect(link).toHaveAttribute('href', destination);
+  const expectedHref = new URL(destination).origin === new URL(page.url()).origin ? '/admin' : destination;
+  await expect(link).toHaveAttribute('href', expectedHref);
   expect((await page.goto(consents)).status()).toBe(200);
   await expect(page.locator('main form[action$="/account/consents"]')).toHaveCount(2);
-  await expect(link).toHaveAttribute('href', destination);
+  await expect(link).toHaveAttribute('href', expectedHref);
 
   const publicOrigin = new URL(page.url()).origin;
   const [publicCode, staffCode] = await enrollAndReadCodes(page, lang, account);
