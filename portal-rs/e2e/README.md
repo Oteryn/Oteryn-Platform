@@ -127,6 +127,11 @@ services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
+To check native admission refusals, leave this harness running with a seed plan
+that includes an account step named `player`, as in `seed-plan.example.json`.
+Run `node portal-rs/e2e/native-admission-refusals.mjs /path/to/report.json`.
+The check uses the disposable database and the harness-generated credentials.
+
 ### Seed commands
 
 `oteryn-portal seed <entity> '<json object>'` runs only with

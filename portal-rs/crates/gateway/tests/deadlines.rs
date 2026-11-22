@@ -48,7 +48,14 @@ async fn incomplete_socket_bodies_expire_and_shutdown_drains_within_bound() -> T
             client.read_to_end(&mut response),
         )
         .await??;
-        assert!(String::from_utf8(response)?.starts_with("HTTP/1.1 408"));
+        let response = String::from_utf8(response)?;
+        let (headers, body) = response
+            .split_once("\r\n\r\n")
+            .ok_or("missing HTTP response header terminator")?;
+        let mut headers = headers.split("\r\n");
+        assert_eq!(headers.next(), Some("HTTP/1.1 408 Request Timeout"));
+        assert!(headers.any(|line| line == "connection: close"));
+        assert_eq!(body, "");
     }
     assert!(started.elapsed() < BODY_DEADLINE + Duration::from_secs(2));
     // An incomplete header never reaches router middleware; it must not hold shutdown.
