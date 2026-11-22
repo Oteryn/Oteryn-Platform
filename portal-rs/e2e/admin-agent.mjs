@@ -51,7 +51,7 @@ const results = {
     players: characterName.startsWith(params.query) ? [player] : [],
   }),
   'player.character.get': () => ({
-    ...player, vocation: 'E2E Knight', skills: [{ name: 'sword', level: 17 }],
+    ...player, vocation: 'E2E Knight', skills: [{ name: 'sword', level: 17, progress: 12 }],
     position: { x: 42, y: 27, z: 7 }, premium: false, bank_balance: '42',
     sanctions: [], last_logins: [],
   }),

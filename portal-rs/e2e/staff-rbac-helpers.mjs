@@ -16,6 +16,12 @@ export async function audit(page,operation,target){const rows=await query('SELEC
 
 export async function rolePage(page,id){await page.goto('/admin/roles');for(let n=0;n<10000;n++){if(await page.locator(`select[name=role] option[value="${id}"]`).count())return;const next=page.locator('a[href^="/admin/roles?after="]');expect(await next.count(),'role remains discoverable through keyset pagination').toBe(1);await next.click();}throw new Error('role pagination exceeded bound');}
 
+export async function queryWith(connect, sql, args = []) {
+ const db = connect();
+ try { return (await db.query(sql,args)).rows; }
+ finally { await db.end(); }
+}
+
 export async function enrollMfa(page,lang,account){
  await page.goto(`/${lang}/mfa`);
  await submit(page,'form[action$="/mfa/enroll"]',{password:account.password});
@@ -49,10 +55,4 @@ export async function isolatedAdmin(browser,info){
   await loginWithRecoveryCode(page,lang,account,codes[0]);
   return {context,page,account,password:account.password,codes};
  }catch(error){await context.close();throw error;}
-}
-
-export async function queryWith(connect, sql, args = []) {
- const db = connect();
- try { return (await db.query(sql,args)).rows; }
- finally { await db.end(); }
 }
