@@ -26,7 +26,10 @@ impl Runtime {
         if !state.allows_trade() {
             return Err(Error::Denied);
         }
-        if check_bid_request(tx, key, l.id, buyer, character, maximum).await? {
+        if check_bid_request(tx, key, l.id, buyer, character, maximum)
+            .await?
+            .is_some()
+        {
             return Ok(());
         }
         if l.ends_at.unix_timestamp() <= now(tx).await? as i64

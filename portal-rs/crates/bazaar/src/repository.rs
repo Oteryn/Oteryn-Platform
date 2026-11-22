@@ -170,24 +170,9 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             return Err(Error::InvalidInput);
         }
         let listing = locked(tx, id).await?;
-        self.currency(listing.currency)?;
-        let mut parties = vec![account, listing.owner];
-        parties.extend(listing.leader);
-        self.accounts.prepare(tx, &parties).await?;
-        self.authorize_many(tx, vec![(account, false), (listing.owner, false)])
-            .await?;
-        let previous: Option<(Uuid, i64, Uuid, i64, OffsetDateTime)> = sqlx::query_as(
-            "SELECT account,maximum,leader,price,ends_at FROM bazaar_bids WHERE listing_id=$1 AND idempotency_key=$2")
-            .bind(id).bind(key).fetch_optional(&mut **tx).await?;
-        if let Some((actor, amount, leader, price, ends_at)) = previous {
-            if actor != account || amount != maximum {
-                return Err(Error::IdempotencyConflict);
-            }
-            return Ok(BidOutcome {
-                leader,
-                price,
-                ends_at,
-            });
+        self.authorize_bid(tx, &listing, account).await?;
+        if let Some(outcome) = Self::prior_bid(tx, id, account, maximum, key).await? {
+            return Ok(outcome);
         }
         let now = clock(tx).await?;
         if listing.ends_at <= now {
@@ -249,6 +234,76 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
             price,
             ends_at,
         })
+    }
+
+    // The caller has already checked the immutable browser request binding.
+    // Preserve current authorization without taking the listing's writer lock.
+    pub(crate) async fn replay_coin_bid(
+        &self,
+        id: Uuid,
+        account: Uuid,
+        maximum: i64,
+        key: &str,
+        deadline: &str,
+    ) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT set_config('oteryn.mutation_deadline', $1, true)")
+            .bind(deadline)
+            .execute(&mut *tx)
+            .await?;
+        crate::locking::listing_gate(&mut tx).await?;
+        let listing: Listing =
+            sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR SHARE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::NotFound)?;
+        if listing.owner == account || listing.currency != Currency::Coins {
+            return Err(Error::Denied);
+        }
+        self.authorize_bid(&mut tx, &listing, account).await?;
+        Self::prior_bid(&mut tx, id, account, maximum, key)
+            .await?
+            .ok_or(Error::IllegalTransition)?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn authorize_bid(
+        &self,
+        db: &mut PgConnection,
+        listing: &Listing,
+        account: Uuid,
+    ) -> Result<(), Error> {
+        self.currency(listing.currency)?;
+        let mut parties = vec![account, listing.owner];
+        parties.extend(listing.leader);
+        self.accounts.prepare(db, &parties).await?;
+        self.authorize_many(db, vec![(account, false), (listing.owner, false)])
+            .await
+    }
+
+    async fn prior_bid(
+        db: &mut PgConnection,
+        id: Uuid,
+        account: Uuid,
+        maximum: i64,
+        key: &str,
+    ) -> Result<Option<BidOutcome>, Error> {
+        let previous: Option<(Uuid, i64, Uuid, i64, OffsetDateTime)> = sqlx::query_as(
+            "SELECT account,maximum,leader,price,ends_at FROM bazaar_bids WHERE listing_id=$1 AND idempotency_key=$2")
+            .bind(id).bind(key).fetch_optional(db).await?;
+        let Some((actor, amount, leader, price, ends_at)) = previous else {
+            return Ok(None);
+        };
+        if actor != account || amount != maximum {
+            return Err(Error::IdempotencyConflict);
+        }
+        Ok(Some(BidOutcome {
+            leader,
+            price,
+            ends_at,
+        }))
     }
 
     pub async fn offer(

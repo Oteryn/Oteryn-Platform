@@ -7,8 +7,8 @@ authorised; this file only says how the flow behaves.
 
 | workflow | jobs | runs on |
 |---|---|---|
-| `portal-rs-ci.yml` (`Portal RS CI`) | `lint` (`cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`); `test (shard 1..3)` (`cargo test --locked` split by package: shards 1 and 2 list theirs in `PORTAL_SHARD_1`/`PORTAL_SHARD_2`, shard 3 is every other package); `browser` (the five browser qualification tests); aggregator `check`, green only when all of them are | PR and push to `main` touching `portal-rs/**`, `docs/contracts/**` or the workflow; **not** in the Merge Queue; each test and browser job has its own PostgreSQL 18.6 |
-| `ci.yml` (`CI`) | `classify-changes`, `runtime-tests`, `platform-postgres (17)`, `platform-postgres (16)`, `test`, aggregator `platform-gate`; `php-coverage-report` on push and queue only | PR, Merge Queue (`merge_group`), push to `main` |
+| `portal-rs-ci.yml` (`Portal RS CI`) | `lint` (`cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`); `test (shard 1..6)` (`cargo test --locked` split by package, balanced on measured test time: shards 1-5 list theirs in `PORTAL_SHARD_1`..`PORTAL_SHARD_5`, shard 6 is every other package); `browser` (the five browser qualification tests); aggregator `check`, green only when all of them are | called by `CI` (`portal_rs`) on every PR, push to `main` and merge group; `platform-gate` requires it; each test and browser job has its own PostgreSQL 18.6 |
+| `ci.yml` (`CI`) | `classify-changes`, `runtime-tests`, `platform-postgres (17)`, `platform-postgres (16)`, `test`, aggregator `platform-gate`; `php-coverage-report` on push and queue only | PR, push to `main` (and `merge_group`, unused since the queue was removed) |
 | retired heavy lanes (stubs) | `phase7-production-like-validation.yml` (incl. `premium-physical-e2e`), `edge-security-emulation.yml`, `platform-db-outage-validation.yml`, `game-auth-ticket-concurrency.yml` | PR only, when `classify-changes` selects them |
 | `agent-governance.yml` | `checkpoint-validation` | PR and push touching `AGENTS.md`, `docs/agents/**`, `tools/agents/**` |
 
@@ -25,12 +25,14 @@ matter, and do not treat an unrequired portal-rs check as optional.
 
 ## Blind spot
 
-The Merge Queue runs only `CI`. `Portal RS CI` judges each PR head alone,
-so two portal-rs PRs that are green separately can break `main` together:
+There is no Merge Queue (owner decision 2026-11-22, as in Oteryn-Game): the
+required `platform-gate`, `Portal RS CI` included, runs on each PR head and
+again on `main` after each merge. Two PRs that are green separately can
+still break `main` together:
 two migrations with one version, two edits to the `web` router or the
 workspace `Cargo.toml`, a `Cargo.lock` that no longer matches. The first
-signal is the `Portal RS CI` push run on `main`. Before a portal-rs PR goes
-into the queue behind another one, build the merged tree locally
+signal is the `Portal RS CI` push run on `main`. Before a portal-rs PR merges
+right after another one, build the merged tree locally
 (`git merge-tree --write-tree origin/main HEAD`, then the checks in
 `local-checks.md` on the merge) when both touch shared files or migrations.
 PostgreSQL tests never run in CI (`local-checks.md`, *PostgreSQL tests*).
@@ -47,18 +49,18 @@ Start every merge round with the state of `main`:
 If the latest push run on `main` is red, the next merge is the fix for it;
 other merges wait.
 
-A PR is ready for the queue when all of these hold on its **current** head:
+A PR is ready to merge when all of these hold on its **current** head:
 
-1. Every check the PR started is green on that head (`Portal RS CI / check`
-   for portal-rs paths, `platform-gate` and its leaves, any heavy lane the
+1. Every check the PR started is green on that head (`platform-gate` and its
+   leaves, `portal_rs / check` among them, any heavy lane the
    classifier selected), and the PR is not conflicted.
 2. The template is complete: validation table rows for the exact head,
    compatibility and rollback for Game-facing changes, and the completion
    claim checked honestly (PostgreSQL tests run locally or marked not run).
 3. Review threads are resolved or answered (`oteryn-platform-review`).
 
-Merge through the Merge Queue with squash. After it lands, watch the push
-runs on the new `main` (`Portal RS CI` and `CI`), then do the post-merge
+Merge with squash (auto-merge). After it lands, watch the push run of `CI`
+on the new `main`; a red one is fixed before the next merge, then do the post-merge
 closeout in the template: archive the task record, release ownership.
 
 ## Reading a red check

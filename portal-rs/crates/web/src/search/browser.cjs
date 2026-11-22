@@ -32,18 +32,17 @@ const AxeBuilder = modules('@axe-core/playwright').default;
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'closed navigation overflow');
           await page.keyboard.press('Tab');
           assert.equal(await page.evaluate(() => document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle !== 'none'), true);
-          const menu = page.locator('details.om-fallback-menu');
-          const summary = menu.locator(':scope > summary');
-          const firstLink = menu.locator('a[href$="#profesje"]');
-          assert.equal(await firstLink.isVisible(), false);
+          const nav = page.locator('#portal-navigation');
+          const mobile = width <= 960;
+          assert.equal(await nav.isVisible(), !mobile);
+          if (mobile) await page.locator('.om-fallback-menu > summary').click();
+          const summary = nav.locator('.om-section > summary').first();
+          const firstLink = nav.locator('a[href$="#profesje"]');
           await summary.focus();
           await page.keyboard.press('Enter');
           assert.equal(await firstLink.isVisible(), true);
-          if (fixture === 'browser-shell') {
-            assert.equal(await menu.locator('#portal-community-panel a[href$="/online"]').isVisible(), true);
-          }
-          const bounds = await menu.locator('nav').boundingBox();
-          assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, 'open navigation fits viewport');
+          const bounds = await nav.boundingBox();
+          assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, 'navigation fits viewport');
           await page.keyboard.press('Tab');
           assert.equal(await firstLink.evaluate(n => n === document.activeElement), true);
           await summary.focus();

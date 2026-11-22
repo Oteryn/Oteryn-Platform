@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import {pool,csrfRejected,submit,register,login} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
 export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
-export async function query(sql,args=[]){const db=pool();try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
+export async function query(sql,args=[],databaseURL){const db=pool(databaseURL);try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
 export async function player(page,lang){const account=await register(page,lang);await login(page,lang,account);return {...account,id:(await query('SELECT id FROM accounts WHERE email=$1',[account.email]))[0].id};}
 // roles.html has select controls and named submit buttons; submit() cannot fill selects.
 // support_web.rs renders hidden action controls and select controls in SSR forms.
@@ -21,6 +21,7 @@ export async function enrollMfa(page,lang,account){
  await submit(page,'form[action$="/mfa/enroll"]',{password:account.password});
  const totp=new OTPAuth.TOTP({secret:await page.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
  await submit(page,'form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
+ await expect(page.locator('textarea[readonly]').first()).toBeVisible();
  return page.locator('textarea[readonly]').allTextContents();
 }
 

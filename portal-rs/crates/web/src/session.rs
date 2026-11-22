@@ -2,7 +2,7 @@
 
 use axum::{
     extract::{Request, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -464,7 +464,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
     let session = BrowserSession::new(layer.pool.clone(), layer.config, ip, agent);
-    if let Some(id) = session_identifier(request.headers())? {
+    if let Some(id) = cookie_id(request.headers())? {
         let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
             "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
                 idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
@@ -488,7 +488,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
     Ok(session)
 }
 
-fn session_identifier(headers: &axum::http::HeaderMap) -> Result<Option<&str>, sqlx::Error> {
+fn cookie_id(headers: &HeaderMap) -> Result<Option<&str>, sqlx::Error> {
     let mut identifiers = headers
         .get_all(header::COOKIE)
         .iter()
@@ -511,7 +511,7 @@ pub async fn signed_in_session(
     connection: &mut sqlx::PgConnection,
     headers: &axum::http::HeaderMap,
 ) -> Result<Option<BrowserSession>, sqlx::Error> {
-    let Some(id) = session_identifier(headers)? else {
+    let Some(id) = cookie_id(headers)? else {
         return Ok(None);
     };
     let row: Option<(Uuid, String, Uuid)> = sqlx::query_as(
@@ -536,40 +536,71 @@ pub async fn signed_in_session(
     Ok(Some(session))
 }
 
-/// Read presentation state without refreshing expiry, creating a session or setting cookies.
-pub(crate) async fn chrome_account(
-    layer: &SessionLayer,
-    headers: &axum::http::HeaderMap,
-    extensions: &axum::http::Extensions,
-) -> oteryn_ui::Account {
-    let config = extensions
-        .get::<SessionConfig>()
-        .copied()
-        .unwrap_or(layer.config);
-    match signed_in_csrf(layer, headers, config).await {
-        Some(csrf) => oteryn_ui::Account::SignedIn { csrf },
-        None => oteryn_ui::Account::Anonymous,
+/// Existing authenticated session data for a read-only page.
+#[derive(Clone)]
+pub struct SignedInSession {
+    pub account_id: Uuid,
+    pub csrf: String,
+}
+impl std::fmt::Debug for SignedInSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignedInSession").finish_non_exhaustive()
     }
 }
 
-async fn signed_in_csrf(
+async fn read_signed_in(
     layer: &SessionLayer,
-    headers: &axum::http::HeaderMap,
-    config: SessionConfig,
-) -> Option<String> {
-    if config.validate().is_err() {
-        return None;
-    }
-    let id = session_identifier(headers).ok()??;
-    sqlx::query_scalar(
-        "SELECT csrf_token FROM web_sessions WHERE id_hash=$1 AND account_id IS NOT NULL
-         AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()",
+    request: &mut Request,
+) -> Result<Option<SignedInSession>, sqlx::Error> {
+    request
+        .extensions()
+        .get::<SessionConfig>()
+        .copied()
+        .unwrap_or(layer.config)
+        .validate()?;
+    let Some(id) = cookie_id(request.headers())? else {
+        return Ok(None);
+    };
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT account_id,csrf_token FROM web_sessions WHERE id_hash=$1
+         AND account_id IS NOT NULL AND idle_expires_at>clock_timestamp()
+         AND absolute_expires_at>clock_timestamp()",
     )
     .bind(hash(id))
     .fetch_optional(&layer.pool)
-    .await
-    .ok()
-    .flatten()
+    .await?;
+    Ok(row.map(|(account_id, csrf)| SignedInSession { account_id, csrf }))
+}
+
+/// Attach existing session data to a read-only route without refreshing or creating a session.
+pub async fn read_only_middleware(
+    State(layer): State<SessionLayer>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    match read_signed_in(&layer, &mut request).await {
+        Ok(session) => {
+            if let Some(session) = session {
+                request.extensions_mut().insert(session);
+            }
+            next.run(request).await
+        }
+        Err(sqlx::Error::Protocol(message)) if message == "invalid session cookie" => {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Read presentation state without refreshing expiry, creating a session or setting cookies.
+pub(crate) async fn chrome_account(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> oteryn_ui::Account {
+    match read_signed_in(layer, request).await {
+        Ok(Some(session)) => oteryn_ui::Account::SignedIn { csrf: session.csrf },
+        _ => oteryn_ui::Account::Anonymous,
+    }
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.

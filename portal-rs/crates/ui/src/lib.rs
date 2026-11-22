@@ -4,18 +4,39 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
-use fluent_bundle::{FluentBundle, FluentResource};
+use fluent_bundle::{FluentResource, concurrent::FluentBundle};
+use std::sync::LazyLock;
+
+type Catalogue = FluentBundle<FluentResource>;
+
+fn load_catalogue(locale: unic_langid::LanguageIdentifier, source: &str) -> Option<Catalogue> {
+    #[cfg(test)]
+    {
+        use std::sync::atomic::Ordering;
+
+        if locale.language.as_str() == "en" {
+            tests::EN_PARSES.fetch_add(1, Ordering::Relaxed);
+        } else {
+            tests::PL_PARSES.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    let resource = FluentResource::try_new(source.to_owned()).ok()?;
+    let mut bundle = FluentBundle::new_concurrent(vec![locale]);
+    bundle.add_resource(resource).ok()?;
+    Some(bundle)
+}
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {
-    let (locale, source) = if lang == "en" {
-        (unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
-    } else {
-        (unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
-    };
-    let mut bundle = FluentBundle::new(vec![locale]);
-    if let Ok(resource) = FluentResource::try_new(source.to_owned())
-        && bundle.add_resource(resource).is_ok()
+    static EN: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load_catalogue(unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
+    });
+    static PL: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load_catalogue(unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
+    });
+
+    let catalogue = if lang == "en" { &EN } else { &PL };
+    if let Some(bundle) = catalogue.as_ref()
         && let Some(pattern) = bundle.get_message(key).and_then(|m| m.value())
     {
         return bundle
@@ -380,6 +401,40 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        Barrier,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    pub(super) static EN_PARSES: AtomicUsize = AtomicUsize::new(0);
+    pub(super) static PL_PARSES: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn catalogues_parse_once_and_preserve_translations() {
+        let inputs = [
+            ("en", "My account", "News"),
+            ("pl", "Moje konto", "Aktualności"),
+            ("en", "My account", "News"),
+            ("unsupported", "Moje konto", "Aktualności"),
+        ];
+        let ready = Barrier::new(inputs.len());
+        std::thread::scope(|scope| {
+            for (lang, account, news) in inputs {
+                let ready = &ready;
+                scope.spawn(move || {
+                    ready.wait();
+                    for _ in 0..2 {
+                        assert_eq!(text(lang, "stage-my-account"), account);
+                        assert_eq!(text(lang, "shell-news"), news);
+                        assert_eq!(text(lang, "missing-test-key"), "");
+                    }
+                });
+            }
+        });
+        assert_eq!(EN_PARSES.load(Ordering::Relaxed), 1, "English parses");
+        assert_eq!(PL_PARSES.load(Ordering::Relaxed), 1, "Polish parses");
+    }
+
     fn registry() -> Registry {
         let mut registry = Registry {
             login: true,
@@ -521,6 +576,48 @@ mod tests {
             assert!(html.contains("href=\"/account\""));
             assert!(!html.contains("/login\""));
             assert!(!html.contains("/register\""));
+        }
+        Ok(())
+    }
+    #[test]
+    fn home_character_creation_requires_a_session_or_a_login_route() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for (login, signed_in, visible) in [
+                (false, false, false),
+                (true, false, true),
+                (false, true, true),
+            ] {
+                let mut registry = Registry {
+                    login,
+                    ..Registry::default()
+                };
+                registry.section(
+                    true,
+                    "create-character",
+                    "shell-create-character",
+                    "account/characters/new",
+                    Group::Account,
+                    false,
+                );
+                let account = if signed_in {
+                    Account::SignedIn {
+                        csrf: String::new(),
+                    }
+                } else {
+                    Account::Anonymous
+                };
+                let chrome = registry.chrome(lang, &format!("/{lang}/"), account);
+                let html = Home::new(&chrome, &HomeData::default()).render()?;
+                assert_eq!(
+                    html.contains(&format!("href=\"/{lang}/account/characters/new\"")),
+                    visible,
+                    "{lang}, login mounted: {login}, signed in: {signed_in}"
+                );
+                assert_eq!(
+                    html.contains(&chrome.text("thais-home-character-unavailable")),
+                    !visible
+                );
+            }
         }
         Ok(())
     }

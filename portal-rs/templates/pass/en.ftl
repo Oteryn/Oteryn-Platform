@@ -1,5 +1,7 @@
 title = Season pass
-unavailable = The season pass is currently unavailable. No coins were charged and no rewards were issued.
+unavailable = The season pass is currently unavailable.
+purchase-unknown = We could not confirm the purchase outcome.
+check-purchase = Check your season pass before trying again.
 xp = Season points
 price = Price in coins
 buy = Buy paid track
