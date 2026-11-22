@@ -8,9 +8,10 @@ import { login, password, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 import { maxSamples, matches, routes } from './routes.mjs';
 import { assertKeyboard } from './keyboard.mjs';
+import { publishEditorialFixtures } from './editorial-fixtures.mjs';
 import { assertBudgets, collectResponses, installVitals, vitals } from './performance.mjs';
 
-const actors = ['anonymous', 'player', 'platform_admin'];
+const actors = ['platform_admin', 'anonymous', 'player'];
 const wcag = ['wcag2a', 'wcag2aa'];
 const requiredRules = ['color-contrast', 'label', 'bypass', 'select-name',
   'landmark-one-main', 'landmark-unique', 'region'];
@@ -59,6 +60,10 @@ async function actorState(browser, info, actor) {
       await login(page, locale, credentials);
       expect((await page.goto('/account')).status(), 'seeded player reaches account').toBe(200);
       expect(new URL(page.url()).pathname).toMatch(/\/account\/?$/);
+    }
+    if (actor === 'platform_admin' && !process.env.PORTAL_QUALITY_ROUTE) {
+      phase = 'editorial publication';
+      await publishEditorialFixtures(page, locale);
     }
     phase = 'ticket creation';
     expect((await page.goto(`/${locale}/support/tickets/create`)).status()).toBe(200);
