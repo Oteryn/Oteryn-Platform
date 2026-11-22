@@ -232,3 +232,27 @@ impl oteryn_db::outbox::Cleanup for Worker {
         Box::pin(self.tick())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{link_origin, owner_notice_origin};
+
+    #[test]
+    fn owner_notice_links_are_localized_settings_routes_without_tokens() {
+        let origin = "https://portal.example.invalid";
+        for lang in ["pl", "en"] {
+            let url = format!("{origin}/{lang}/account/security/email");
+            assert_eq!(owner_notice_origin(&url), Some(origin));
+            assert_eq!(link_origin(&url), None);
+        }
+        for invalid in [
+            "http://portal.example.invalid/en/account/security/email",
+            "https://user@portal.example.invalid/en/account/security/email",
+            "https://portal.example.invalid/en/account/security/email?return_to=roles",
+            "https://portal.example.invalid/en/account/security/email#confirmation",
+            "https://portal.example.invalid/de/account/security/email",
+        ] {
+            assert_eq!(owner_notice_origin(invalid), None);
+        }
+    }
+}
