@@ -1,10 +1,45 @@
 //! Shared portal presentation. No module, database or session dependencies.
 use askama::Template;
 use axum::{
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+
+/// Does the request allow an HTML representation? The most specific media range wins.
+pub fn accepts_html(headers: &HeaderMap) -> bool {
+    !headers.contains_key(header::ACCEPT)
+        || headers
+            .get_all(header::ACCEPT)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .filter_map(|value| {
+                let mut parts = value.split(';').map(str::trim);
+                let media = parts.next()?;
+                let specificity = if media.eq_ignore_ascii_case("text/html") {
+                    2
+                } else if media.eq_ignore_ascii_case("text/*") {
+                    1
+                } else if media == "*/*" {
+                    0
+                } else {
+                    return None;
+                };
+                let acceptable = parts
+                    .filter_map(|part| part.split_once('='))
+                    .find(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
+                    .is_none_or(|(_, value)| {
+                        value
+                            .trim()
+                            .parse::<f32>()
+                            .is_ok_and(|q| q > 0.0 && q <= 1.0)
+                    });
+                Some((specificity, acceptable))
+            })
+            .max()
+            .is_some_and(|(_, acceptable)| acceptable)
+}
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {

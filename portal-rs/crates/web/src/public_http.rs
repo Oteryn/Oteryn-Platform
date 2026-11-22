@@ -11,6 +11,8 @@ use axum::{
     routing::{MethodRouter, get},
 };
 
+use oteryn_ui::accepts_html;
+
 use crate::surface::{self, HSTS, PERMISSIONS, REFERRER};
 
 const MAX_FIELD_BYTES: usize = 8 * 1024;
@@ -176,40 +178,6 @@ fn malformed_host(request: &Request) -> bool {
         || (name.len() < host.as_str().len() && host.port_u16().is_none())
         || authority
             .is_some_and(|authority| !authority.as_str().eq_ignore_ascii_case(host.as_str()))
-}
-
-fn accepts_html(headers: &HeaderMap) -> bool {
-    !headers.contains_key(header::ACCEPT)
-        || headers
-            .get_all(header::ACCEPT)
-            .iter()
-            .filter_map(|value| value.to_str().ok())
-            .flat_map(|value| value.split(','))
-            .filter_map(|value| {
-                let mut parts = value.split(';').map(str::trim);
-                let media = parts.next()?;
-                let specificity = if media.eq_ignore_ascii_case("text/html") {
-                    2
-                } else if media.eq_ignore_ascii_case("text/*") {
-                    1
-                } else if media == "*/*" {
-                    0
-                } else {
-                    return None;
-                };
-                let acceptable = parts
-                    .filter_map(|part| part.split_once('='))
-                    .find(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
-                    .is_none_or(|(_, value)| {
-                        value
-                            .trim()
-                            .parse::<f32>()
-                            .is_ok_and(|q| q > 0.0 && q <= 1.0)
-                    });
-                Some((specificity, acceptable))
-            })
-            .max()
-            .is_some_and(|(_, acceptable)| acceptable)
 }
 
 fn is_html(headers: &HeaderMap) -> bool {
