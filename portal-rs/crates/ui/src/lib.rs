@@ -592,6 +592,49 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn home_character_creation_requires_a_session_or_a_login_route() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for (login, signed_in, visible) in [
+                (false, false, false),
+                (true, false, true),
+                (false, true, true),
+            ] {
+                let mut registry = Registry {
+                    login,
+                    ..Registry::default()
+                };
+                registry.section(
+                    true,
+                    "create-character",
+                    "shell-create-character",
+                    "account/characters/new",
+                    Group::Account,
+                    false,
+                );
+                let account = if signed_in {
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible: false,
+                    }
+                } else {
+                    Account::Anonymous
+                };
+                let chrome = registry.chrome(lang, &format!("/{lang}/"), account);
+                let html = Home::new(&chrome, &HomeData::default()).render()?;
+                assert_eq!(
+                    html.contains(&format!("href=\"/{lang}/account/characters/new\"")),
+                    visible,
+                    "{lang}, login mounted: {login}, signed in: {signed_in}"
+                );
+                assert_eq!(
+                    html.contains(&chrome.text("thais-home-character-unavailable")),
+                    !visible
+                );
+            }
+        }
+        Ok(())
+    }
+    #[test]
     fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
         let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
         let html = ShellHeader { chrome: &chrome }.render()?;
