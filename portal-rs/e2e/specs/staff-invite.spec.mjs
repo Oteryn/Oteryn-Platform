@@ -252,7 +252,7 @@ test('protected invitations retain queued mail until current authority and indep
     );
     const issuerPage=await issuerContext.newPage();
     const approverPage=await approverContext.newPage();
-    for(const [actorPage,account] of [[issuerPage,issuer],[approverPage,approver],[page,recipient]]) {
+    for(const [actorPage,account] of [[issuerPage,issuer],[approverPage,approver]]) {
       await login(actorPage,lang,account);
       const codes=await enrollMfa(actorPage,lang,account);
       await loginWithRecoveryCode(actorPage,lang,account,codes[0]);
@@ -311,6 +311,9 @@ test('protected invitations retain queued mail until current authority and indep
       const [job]=await query('SELECT state,attempts FROM outbox WHERE id=$1',[original.id]);
       return job;
     }).toEqual({state:'done',attempts:1});
+    await login(page,lang,recipient);
+    const codes=await enrollMfa(page,lang,recipient);
+    await loginWithRecoveryCode(page,lang,recipient,codes[0]);
     await visit(page,link,200);
     await submit(page,`main form[action="/${lang}/staff-invite"]`);
     await expect(page.getByText(lang==='pl' ? /Zaproszenie zostało przyjęte/ : /Invitation accepted/)).toBeVisible();
