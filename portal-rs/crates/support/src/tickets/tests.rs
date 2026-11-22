@@ -830,6 +830,10 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
             format!("_csrf={csrf}&body=answer&lock_version=1&reason=Reviewed"),
             StatusCode::FOUND,
         ),
+        (
+            format!("_csrf={csrf}&body=private+note&internal=1&lock_version=2&reason=Reviewed"),
+            StatusCode::FOUND,
+        ),
     ] {
         let response = app
             .clone()
@@ -847,6 +851,25 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
         assert_eq!(response.status(), expected);
     }
     assert_eq!(t.list(owner, false, 0).await?[0].status, "waiting_user");
+    let row: Vec<(String, bool, String)> = sqlx::query_as(
+        "SELECT a.action,m.internal,m.body FROM audit_log a JOIN ticket_messages m
+           ON m.id::text=a.after->>'message_id' AND m.ticket_id::text=a.target
+         WHERE a.target=$1 ORDER BY a.id",
+    )
+    .bind(ticket.id.to_string())
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(
+        row,
+        [
+            ("support.ticket_replied".into(), false, "answer".into()),
+            (
+                "support.ticket_internal_note_added".into(),
+                true,
+                "private note".into()
+            ),
+        ]
+    );
     db.finish().await
 }
 

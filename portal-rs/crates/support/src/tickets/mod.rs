@@ -169,10 +169,9 @@ impl Tickets {
         body: &str,
         staff: bool,
         internal: bool,
-    ) -> Result<()> {
-        sqlx::query("INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,internal,body) VALUES($1,$2,$3,$4,$5)")
-            .bind(id).bind(actor).bind(if staff {"staff"} else {"user"}).bind(internal).bind(body.trim()).execute(&mut **tx).await?;
-        Ok(())
+    ) -> Result<Uuid> {
+        Ok(sqlx::query_scalar("INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,internal,body) VALUES($1,$2,$3,$4,$5) RETURNING id")
+            .bind(id).bind(actor).bind(if staff {"staff"} else {"user"}).bind(internal).bind(body.trim()).fetch_one(&mut **tx).await?)
     }
     fn validate_change(
         &self,
@@ -229,7 +228,7 @@ impl Tickets {
     ) -> Result<Ticket> {
         self.validate_change(actor, staff, binding.1, change)?;
         let mut tx = self.pool.begin().await?;
-        let (ticket, _) = self
+        let (ticket, _, _) = self
             .change_in(
                 &mut tx,
                 actor,
@@ -274,7 +273,7 @@ impl Tickets {
         binding: (Uuid, i64),
         change: Change<'_>,
         source: MutationSource<'_>,
-    ) -> Result<(Ticket, String)> {
+    ) -> Result<(Ticket, String, Option<Uuid>)> {
         let (id, version) = binding;
         let is_staff = self.validate_change(actor, staff, version, change)?;
         // Always acquire account locks before ticket locks, including reopen operations.
@@ -349,14 +348,14 @@ impl Tickets {
             return Err(Error::Conflict);
         }
         let before = ticket.status.clone();
-        let (status, notify, reply) = match change {
+        let (status, notify, message_id) = match change {
             Change::Reply { body, internal } => {
                 if (is_staff && !active(&ticket.status))
                     || (!is_staff && !matches!(ticket.status.as_str(), "open" | "waiting_user"))
                 {
                     return Err(Error::Conflict);
                 }
-                Self::message(tx, id, actor, body, is_staff, internal).await?;
+                let message_id = Self::message(tx, id, actor, body, is_staff, internal).await?;
                 (
                     if internal {
                         ticket.status.clone()
@@ -366,7 +365,7 @@ impl Tickets {
                         "waiting_staff".into()
                     },
                     is_staff && !internal,
-                    true,
+                    Some(message_id),
                 )
             }
             Change::Status(status) => {
@@ -376,16 +375,16 @@ impl Tickets {
                 if active(status) && !active(&ticket.status) {
                     self.capacity(tx, ticket.account_id).await?;
                 }
-                (status.to_owned(), is_staff, false)
+                (status.to_owned(), is_staff, None)
             }
         };
+        let reply = message_id.is_some();
         ticket = sqlx::query_as("UPDATE tickets SET status=$2,lock_version=lock_version+1,unread_reply=CASE WHEN $3 THEN true ELSE unread_reply END,last_message_at=CASE WHEN $4 THEN now() ELSE last_message_at END,closed_at=CASE WHEN $2 IN ('resolved','closed') THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING *")
             .bind(id).bind(status).bind(notify && reply).bind(reply).fetch_one(&mut **tx).await?;
         if let MutationSource::Direct(reason) = source
             && is_staff
         {
-            let mut after =
-                serde_json::json!({"status":ticket.status,"lock_version":ticket.lock_version});
+            let mut after = ticket.audit_change(message_id);
             if let Some(reason) = reason {
                 use sha2::{Digest, Sha256};
                 after["reason_sha256"] =
@@ -445,7 +444,7 @@ impl Tickets {
                     .map_err(|_| Error::Notification)?;
             }
         }
-        Ok((ticket, before))
+        Ok((ticket, before, message_id))
     }
     pub async fn list(&self, account: Uuid, staff: bool, page: u32) -> Result<Vec<Ticket>> {
         self.enabled()?;
@@ -522,6 +521,16 @@ impl Tickets {
         Ok((ticket, messages, read_reply))
     }
 }
+impl Ticket {
+    fn audit_change(&self, message_id: Option<Uuid>) -> serde_json::Value {
+        let mut after = serde_json::json!({"status": self.status, "lock_version": self.lock_version});
+        if let Some(id) = message_id {
+            after["message_id"] = serde_json::json!(id);
+        }
+        after
+    }
+}
+
 pub(crate) enum MutationSource<'a> {
     Direct(Option<&'a str>),
     Queue,

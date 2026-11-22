@@ -439,7 +439,7 @@ impl Backend for StaffSupport {
                     },
                     _ => Change::Status(body),
                 };
-                let (ticket, before_status) = tickets
+                let (ticket, before_status, message_id) = tickets
                     .change_in(
                         tx,
                         actor,
@@ -452,7 +452,7 @@ impl Backend for StaffSupport {
                     .map_err(ticket_error)?;
                 Ok((
                     serde_json::json!({"lock_version":version,"status":before_status}),
-                    serde_json::json!({"lock_version":ticket.lock_version,"status":ticket.status}),
+                    ticket.audit_change(message_id),
                 ))
             }
             Command::Moderate { .. } | Command::LinkSanction { .. } => {

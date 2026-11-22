@@ -226,10 +226,21 @@ test('ticket queue and moderation preserve owner privacy and refuse invalid writ
 
     const [record] = await query('SELECT status,lock_version::int FROM tickets WHERE id=$1', [id]);
     expect(record).toEqual({ status: 'open', lock_version: 7 });
+    const messages = await query(
+      'SELECT id,internal,body FROM ticket_messages WHERE ticket_id=$1 AND author_account_id=$2',
+      [id, team.id],
+    );
+    expect(messages).toHaveLength(2);
+    const publicMessage = messages.find(message => message.body === reply);
+    const internalMessage = messages.find(message => message.body === privateNote);
+    expect(publicMessage).toMatchObject({ internal: false });
+    expect(internalMessage).toMatchObject({ internal: true });
     await audit(id, 'support.ticket_replied', team.id, replyReason,
-      { status: 'open', lock_version: 2 }, { status: 'waiting_user', lock_version: 3 });
+      { status: 'open', lock_version: 2 },
+      { status: 'waiting_user', lock_version: 3, message_id: publicMessage.id });
     await audit(id, 'support.ticket_internal_note_added', team.id, noteReason,
-      { status: 'waiting_user', lock_version: 3 }, { status: 'waiting_user', lock_version: 4 });
+      { status: 'waiting_user', lock_version: 3 },
+      { status: 'waiting_user', lock_version: 4, message_id: internalMessage.id });
     await audit(id, 'support.ticket_status_changed', team.id, resolvedReason,
       { status: 'waiting_user', lock_version: 4 }, { status: 'resolved', lock_version: 5 });
     await audit(id, 'support.ticket_status_changed', team.id, closeReason,
