@@ -8,7 +8,7 @@ pub mod catalog;
 #[path = "http.rs"]
 pub mod control_http;
 pub mod controls;
-mod result_schema;
+pub(crate) mod result_schema;
 pub mod signer;
 pub mod store;
 

@@ -1161,7 +1161,9 @@ async fn postgres_adm_results_validate_signed_payload_against_stored_operation()
         "agents":[], "worlds":[], "nodes":[], "players_online":18.5,
         "db_available":true, "alerts":[]
     });
-    for invalid in [counts.clone(), payload, Value::Null] {
+    let mut overflow = counts.clone();
+    overflow["players_online"] = json!(u64::from(u32::MAX) + 1);
+    for invalid in [counts.clone(), overflow, payload, Value::Null] {
         let result = signed_result(&overview, "succeeded", invalid, Value::Null);
         let refused = post(app.clone(), "results", result, true).await;
         assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
@@ -1186,7 +1188,7 @@ async fn postgres_adm_results_validate_signed_payload_against_stored_operation()
             Status::Delivered
         );
     }
-    counts["players_online"] = json!(18);
+    counts["players_online"] = json!(u32::MAX);
     let result = signed_result(&overview, "succeeded", counts.clone(), Value::Null);
     assert_eq!(
         post(app, "results", result, true).await.status(),

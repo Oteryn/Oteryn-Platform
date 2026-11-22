@@ -538,6 +538,13 @@ impl Channel for StoredChannel {
             status,
         };
         if let Some((request, result)) = verified {
+            if !control::result_schema::valid_success(
+                &request.operation,
+                request.operation_version,
+                &result.result.0,
+            ) {
+                return Err(Error::Unavailable);
+            }
             let records = super::projection::records(operation, &result.result.0)
                 .map_err(|_| Error::Unavailable)?;
             view.status = QueryStatus::Succeeded;

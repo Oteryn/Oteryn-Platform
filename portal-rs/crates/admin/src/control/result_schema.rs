@@ -3,8 +3,9 @@ use serde_json::{Value, json};
 use std::{collections::HashMap, sync::LazyLock};
 
 static V1: LazyLock<Option<HashMap<&'static str, jsonschema::Validator>>> = LazyLock::new(|| {
-    let pinned: Value =
+    let mut pinned: Value =
         serde_json::from_str(include_str!("fixtures/admin-control-v1/result.schema.json")).ok()?;
+    enforce_integer_formats(&mut pinned["$defs"]);
     super::catalog::READ_OPERATIONS
         .into_iter()
         .map(|operation| {
@@ -37,11 +38,33 @@ static V1: LazyLock<Option<HashMap<&'static str, jsonschema::Validator>>> = Lazy
         .collect()
 });
 
+// The generated schema uses format annotations for Rust integer widths.
+// JSON Schema treats these as annotations, so add their numeric constraints.
+fn enforce_integer_formats(schema: &mut Value) {
+    match schema {
+        Value::Object(fields) => {
+            let bounds = match fields.get("format").and_then(Value::as_str) {
+                Some("uint16") => Some((0, i64::from(u16::MAX))),
+                Some("uint32") => Some((0, i64::from(u32::MAX))),
+                Some("int32") => Some((i64::from(i32::MIN), i64::from(i32::MAX))),
+                _ => None,
+            };
+            if let Some((min, max)) = bounds {
+                fields.entry("minimum").or_insert_with(|| json!(min));
+                fields.entry("maximum").or_insert_with(|| json!(max));
+            }
+            fields.values_mut().for_each(enforce_integer_formats);
+        }
+        Value::Array(items) => items.iter_mut().for_each(enforce_integer_formats),
+        _ => {}
+    }
+}
+
 pub(super) fn initialize() -> bool {
     V1.is_some()
 }
 
-pub(super) fn valid_success(operation: &str, version: i32, payload: &Value) -> bool {
+pub(crate) fn valid_success(operation: &str, version: i32, payload: &Value) -> bool {
     version == 1
         && V1
             .as_ref()
