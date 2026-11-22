@@ -1,5 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: no-preference) {
+  html:not(:has(:focus-visible)) { scroll-behavior: smooth; }
+}
 body {
   margin: 0;
   color: var(--text);
@@ -176,9 +178,6 @@ svg {
 @media (prefers-reduced-motion: no-preference) and (hover: hover) {
   .portrait img { transition: transform .35s; }
   .portrait:hover img { transform: scale(1.035); }
-}
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
 }
 @media (max-width: 1080px) {
   .section-head p { max-width: 310px; }

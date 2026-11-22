@@ -482,6 +482,13 @@ mod tests {
         assert_eq!(active, ["calculators"]);
     }
     #[test]
+    fn homepage_smooth_scroll_leaves_keyboard_focus_immediate() {
+        let css = include_str!("../../../static/thais/home.css");
+        assert_eq!(css.matches("scroll-behavior: smooth").count(), 1);
+        assert!(css.contains("html:not(:has(:focus-visible)) { scroll-behavior: smooth; }"));
+    }
+
+    #[test]
     fn desktop_home_panorama_fits_the_request_budget() -> Result<(), askama::Error> {
         const PANORAMA: &str = "brama-panorama-f4db61b9.webp";
         let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
