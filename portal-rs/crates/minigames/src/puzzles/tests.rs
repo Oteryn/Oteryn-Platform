@@ -267,9 +267,10 @@ fn choice_aliases_cannot_reference_the_same_entity() {
     let mut quiz = definition(Uuid::now_v7(), Kind::Quiz);
     quiz.choices[0].source.kind = "Creature".into();
     quiz.choices[1].source.kind = "creatures".into();
-    assert!(quiz.validate().is_ok());
+    assert!(quiz.validate_publication().is_ok());
     quiz.choices[1].source.key = quiz.choices[0].source.key.clone();
-    assert!(matches!(quiz.validate(), Err(Error::Invalid)));
+    assert!(quiz.validate().is_ok());
+    assert!(matches!(quiz.validate_publication(), Err(Error::Invalid)));
 }
 
 #[test]
@@ -589,6 +590,63 @@ async fn postgres_hidden_inactive_or_disabled_sources_fail_closed() -> TestResul
             .await,
         Err(Error::Disabled)
     ));
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_legacy_aliases_leave_daily_page_and_answers_available() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::query(
+        "INSERT INTO world_entities (version_id,kind,key,data,publishable)
+         VALUES ($1,'Creature','fox','{}',true)",
+    )
+    .bind(db.version)
+    .execute(&db.pool)
+    .await?;
+    db.world.allow("Creature", "fox").await?;
+
+    let other_id = db.publish(Kind::Atlas).await?;
+    let mut legacy = definition(db.version, Kind::Quiz);
+    legacy.choices[0].source.kind = "Creature".into();
+    legacy.choices[1].source.kind = "creatures".into();
+    legacy.choices[1].source.key = legacy.choices[0].source.key.clone();
+    assert!(matches!(
+        db.service.publish(db.today, legacy.clone(), None).await,
+        Err(Error::Invalid)
+    ));
+
+    // Reproduce a row written before publication started checking aliases.
+    let legacy_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO puzzles_daily (day,kind,world_version,definition)
+         VALUES ($1,'quiz',$2,$3) RETURNING id",
+    )
+    .bind(db.today)
+    .bind(db.version)
+    .bind(sqlx::types::Json(&legacy))
+    .fetch_one(&db.pool)
+    .await?;
+    let (cookie, _) = db.login().await?;
+    let response = db
+        .router()
+        .oneshot(
+            Request::get("/en/puzzles")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    for id in [legacy_id, other_id] {
+        assert!(html.contains(&format!("/en/puzzles/{id}/answer")));
+    }
+    assert!(
+        db.service
+            .answer(db.account, legacy_id, legacy.correct_choice)
+            .await?
+            .correct
+    );
     db.close().await
 }
 

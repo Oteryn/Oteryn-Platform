@@ -125,9 +125,7 @@ impl Definition {
                 }
             }
             if self.choices[..index].iter().any(|other| {
-                (oteryn_world::canonical_kind(&other.source.kind)
-                    == oteryn_world::canonical_kind(&choice.source.kind)
-                    && other.source.key == choice.source.key)
+                (other.source.kind == choice.source.kind && other.source.key == choice.source.key)
                     || other
                         .label
                         .pl
@@ -138,6 +136,22 @@ impl Definition {
                         .en
                         .trim()
                         .eq_ignore_ascii_case(choice.label.en.trim())
+            }) {
+                return Err(Error::Invalid);
+            }
+        }
+        Ok(())
+    }
+
+    // Immutable rows can predate alias-aware validation. Apply this additional
+    // rule only to new publications so those rows remain playable.
+    fn validate_publication(&self) -> Result<(), Error> {
+        self.validate()?;
+        for (index, choice) in self.choices.iter().enumerate() {
+            if self.choices[..index].iter().any(|other| {
+                other.source.key == choice.source.key
+                    && oteryn_world::canonical_kind(&other.source.kind)
+                        == oteryn_world::canonical_kind(&choice.source.kind)
             }) {
                 return Err(Error::Invalid);
             }

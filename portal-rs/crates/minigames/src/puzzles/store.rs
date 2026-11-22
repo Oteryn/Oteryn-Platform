@@ -78,6 +78,7 @@ impl Puzzles {
         media: Option<Media>,
     ) -> Result<Uuid, Error> {
         self.enabled()?;
+        definition.validate_publication()?;
         self.visible(&definition).await?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         let id = self

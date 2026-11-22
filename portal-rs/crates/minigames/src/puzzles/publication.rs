@@ -115,7 +115,7 @@ impl Puzzles {
             return Err(Error::Invalid);
         }
         for (index, puzzle) in publication.puzzles.iter().enumerate() {
-            puzzle.definition.validate()?;
+            puzzle.definition.validate_publication()?;
             if publication.puzzles[..index]
                 .iter()
                 .any(|previous| previous.definition.kind == puzzle.definition.kind)
