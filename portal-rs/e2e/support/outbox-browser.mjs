@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import { SMTPServer } from 'smtp-server';
-import { mailSink } from './mail-sink.mjs';
+import { mailSinkOptions } from './mail-sink.mjs';
 
 function listen(server, port) {
   return new Promise((resolve, reject) => {
@@ -109,7 +109,7 @@ export async function startStaffBrowser({ upstreamPort, certificate, caFile, env
   };
   try {
     for (const port of [465, 587]) {
-      const sink = mailSink({ tls, secure: port === 465, username, password, messages });
+      const sink = new SMTPServer(mailSinkOptions({ tls, secure: port === 465, username, password, messages }));
       await listen(sink, port);
       listeners.push(sink);
     }

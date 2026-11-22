@@ -1,8 +1,6 @@
-import { SMTPServer } from 'smtp-server';
-
 // Both launchers exercise the real SMTP clients against a loopback TLS receiver.
-export function mailSink({ tls, secure, username, password, messages }) {
-  return new SMTPServer({
+export function mailSinkOptions({ tls, secure, username, password, messages }) {
+  return {
     ...tls,
     secure,
     onAuth(auth, _session, callback) {
@@ -20,5 +18,5 @@ export function mailSink({ tls, secure, username, password, messages }) {
         callback();
       });
     },
-  });
+  };
 }

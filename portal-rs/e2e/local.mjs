@@ -6,10 +6,11 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
 import dns from 'node:dns';
+import { mailSinkOptions } from './support/mail-sink.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { mailSink } from './support/mail-sink.mjs';
+import { SMTPServer } from 'smtp-server';
 import { startLocalOutbox } from './support/local-outbox.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
@@ -129,11 +130,11 @@ const bazaarGame=startBazaarProducer({...bazaarConfig,publishCharacter:gameProdu
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
 const mail={tls,username:env.OTERYN_SMTP_USERNAME,password:env.OTERYN_SMTP_PASSWORD,messages};
-const smtp=mailSink({...mail,secure:true});
+const smtp=new SMTPServer(mailSinkOptions({...mail,secure:true}));
 smtp.on('error',error=>console.error('Local SMTP error:',error.code));
 smtp.listen(465,'127.0.0.1');
 // Notification delivery uses the existing authenticated STARTTLS adapter on port 587.
-const starttls=mailSink({...mail,secure:false});
+const starttls=new SMTPServer(mailSinkOptions({...mail,secure:false}));
 starttls.on('error',error=>console.error('Local SMTP error:',error.code));
 starttls.listen(587,'127.0.0.1');
 const proxy=https.createServer(tls,(req,res)=>{
