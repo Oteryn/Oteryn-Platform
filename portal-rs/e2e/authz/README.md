@@ -61,10 +61,10 @@ For a sample on the other projects, select them with `--project` and use
 ## Executable coverage
 
 The inventory records 672 listener/path/method entries. The executable matrix
-covers 111 of these entries for each of the 19 actors, for 2,109 cells. The spec
-exercises staff reads and role creation in the browser, the missing signature on the
+covers 276 of these entries for each of the 19 actors, for 5,244 cells. The spec
+exercises public reads, staff reads and role creation in the browser, the missing signature on the
 test payment webhook, the internal listener's certificate requirement, and
-the native admission listener's token requirement. The private mTLS scope
+the native admission listener's token requirement, and listener health endpoints. The browser portal's isolated private listener covers the Bazaar, account closure, and league TLS admission cases. Set `PORTAL_E2E_BROWSER_PRIVATE_ORIGIN` when using another private port. The private mTLS scope
 assignment probe also presents a CA-valid certificate assigned to a different
 route identity and expects HTTP refusal. A TLS alert occurs before HTTP
 dispatch and establishes the listener's admission property.

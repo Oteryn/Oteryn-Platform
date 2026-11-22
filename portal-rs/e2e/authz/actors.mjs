@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expect } from '@playwright/test';
-import { login, password } from '../helpers.mjs';
-import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+import { password, waitForLoginBudget } from '../helpers.mjs';
+import { query } from '../staff-rbac-helpers.mjs';
 
 export function actorDefinitions(roles) {
   return [
@@ -27,6 +27,42 @@ function seed(entity, input) {
   }
 }
 
+export async function csrfPage(request, path) {
+  const response = await request.get(path, { maxRedirects: 0 });
+  try {
+    expect(response.status(), path).toBe(200);
+    const token = (await response.text()).match(/name="_csrf" value="([a-f0-9]{64})"/)?.[1];
+    expect(Boolean(token), `CSRF token from ${path}`).toBe(true);
+    return token;
+  } finally {
+    await response.dispose();
+  }
+}
+
+async function signIn(request, locale, account, recoveryCode) {
+  const path = `/${locale}/login`;
+  const token = await csrfPage(request, path);
+  await waitForLoginBudget();
+  const response = await request.post(path, {
+    form: { ...account, _csrf: token },
+    maxRedirects: 0,
+  });
+  expect(response.status(), 'password step').toBe(302);
+  const challenge = `/${locale}/mfa/challenge`;
+  const home = `/${locale}/`;
+  expect(response.headers().location, 'password destination').toBe(recoveryCode ? challenge : home);
+  await response.dispose();
+  if (!recoveryCode) return;
+  const challengeToken = await csrfPage(request, challenge);
+  const mfa = await request.post(challenge, {
+    form: { _csrf: challengeToken, password: '', code: recoveryCode, device: '' },
+    maxRedirects: 0,
+  });
+  expect(mfa.status(), 'MFA completion').toBe(302);
+  expect(mfa.headers().location, 'MFA destination').toBe(home);
+  await mfa.dispose();
+}
+
 export async function openActor(browser, info, definition, sanctionIssuer) {
   const locale = info.project.metadata.locale;
   const context = await browser.newContext({
@@ -34,8 +70,8 @@ export async function openActor(browser, info, definition, sanctionIssuer) {
     viewport: info.project.use.viewport,
   });
   try {
-    const page = await context.newPage();
-    if (definition.key === 'anonymous') return { context, page };
+    const { request } = context;
+    if (definition.key === 'anonymous') return { context, request };
 
     const account = { email: `matrix-${randomUUID()}@example.invalid`, password: password() };
     const { accountId } = seed('account', { ...account, locale });
@@ -54,9 +90,9 @@ export async function openActor(browser, info, definition, sanctionIssuer) {
       expect(roles.map(row => row.permission).sort(), `${definition.key} catalog permissions`)
         .toEqual([...definition.permissions].sort());
       const { recoveryCodes } = seed('account-mfa', { accountId, password: account.password });
-      await loginWithRecoveryCode(page, locale, account, recoveryCodes[0]);
+      await signIn(request, locale, account, recoveryCodes[0]);
     } else {
-      await login(page, locale, account);
+      await signIn(request, locale, account);
     }
 
     if (definition.restricted) {
@@ -65,7 +101,7 @@ export async function openActor(browser, info, definition, sanctionIssuer) {
         VALUES ($1,'restriction','active','Local authorization matrix',now(),now()+interval '1 hour',$2)
       `, [accountId, sanctionIssuer]);
     }
-    return { context, page, accountId };
+    return { context, request, accountId };
   } catch (error) {
     await context.close();
     throw error;

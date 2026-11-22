@@ -2,9 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import https from 'node:https';
 import { expect, test } from '@playwright/test';
-import { actorDefinitions, openActor } from './actors.mjs';
+import { actorDefinitions, csrfPage, openActor } from './actors.mjs';
 import { assertRefusalState, database } from './database.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
+import { waitForWikiBudget } from '../helpers.mjs';
 
 const { routes, roles } = JSON.parse(readFileSync(new URL('./routes.json', import.meta.url), 'utf8'));
 
@@ -26,6 +27,9 @@ test('route sample GET /healthz', async ({ request }) => {
 
 const privateRoutes = routes.filter(route => route.registrations.some(row => row.refusal)
   && ['internal', 'admission'].includes(route.listener));
+const isolatedIngressRoutes = routes.filter(({ listener }) => ['bazaar', 'closure', 'league'].includes(listener));
+const listenerHealth = routes.filter(({ listener, method }) =>
+  ['gateway', 'admission'].includes(listener) && method === 'GET');
 const browserRoutes = [
   ...[
     '/admin', '/admin/roles', '/admin/announcements', '/admin/announcements/create',
@@ -39,6 +43,34 @@ const browserRoutes = [
   registration('/admin/roles', 'POST'),
 ];
 
+const publicReads = JSON.parse(readFileSync(new URL('./public-reads.json', import.meta.url), 'utf8'));
+for (const { method, path } of publicReads) {
+  const route = routes.find(row => row.listener === 'public' && row.path === path && row.method === method);
+  if (!route || route.registrations[0].guard.kind !== 'anonymous') {
+    throw new Error(`Public read fixture has no matching public registration for ${method} ${path}`);
+  }
+}
+
+async function assertPublicReads(request, locale, anonymous) {
+  for (const row of publicReads) {
+    const url = row.target.replaceAll('{lang}', locale).replaceAll('{locale}', locale);
+    await test.step(`${row.method} ${row.path}`, async () => {
+      await waitForWikiBudget(url);
+      const response = await request.fetch(url, { method: row.method, maxRedirects: 0 });
+      try {
+        const status = row.status;
+        expect(response.status(), `${row.method} ${url} (${row.source})`).toBe(status);
+        if (row.pendingChallenge) {
+          const lang = /^\/(en|pl)\//.exec(url)?.[1] ?? locale;
+          expect(response.headers().location).toBe(anonymous ? `/${lang}/login` : `/${lang}/`);
+        }
+      } finally {
+        await response.dispose();
+      }
+    });
+  }
+}
+
 test.describe('browser authorization', () => {
   for (const definition of actorDefinitions(roles)) {
     test(definition.key, async ({ browser }, info) => {
@@ -46,16 +78,13 @@ test.describe('browser authorization', () => {
       const issuer = definition.restricted
         ? (await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'"))[0].id
         : undefined;
-      const { context, page } = await openActor(browser, info, definition, issuer);
+      const { context, request } = await openActor(browser, info, definition, issuer);
       const db = database();
       try {
         const entry = anonymous ? 'login' : '';
-        const home = await page.goto(`/${info.project.metadata.locale}/${entry}`, { waitUntil: 'domcontentloaded' });
-        expect(home.status()).toBe(200);
-        const form = anonymous ? 'main form' : 'form[action$="/logout"]';
-        const token = await page.locator(`${form} input[name="_csrf"]`).first().getAttribute('value');
-        expect(typeof token === 'string' && /^[0-9a-f]{64}$/.test(token)).toBe(true);
-        const cookie = (await context.cookies(page.url())).find(({ name }) => name === '__Host-oteryn_session');
+        const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
+        const token = await csrfPage(request, `/${info.project.metadata.locale}/${entry}`);
+        const cookie = (await context.cookies(origin)).find(({ name }) => name === '__Host-oteryn_session');
         expect(Boolean(cookie), 'browser session exists').toBe(true);
         const sessionHash = createHash('sha256').update(cookie.value).digest();
 
@@ -65,9 +94,9 @@ test.describe('browser authorization', () => {
             const allowed = guard.kind === 'staff' && guard.all.every(p => definition.permissions.includes(p));
             const before = mutation && !allowed ? await db.snapshot(sessionHash) : null;
             const key = `matrix_${randomUUID().replaceAll('-', '')}`;
-            const response = await page.request.fetch(path, {
+            const response = await request.fetch(path, {
               method,
-              headers: { 'x-csrf-token': token, origin: new URL(page.url()).origin },
+              headers: { 'x-csrf-token': token, origin: origin },
               ...(mutation && (refusal ? { data: {} } : { form: { action: 'create', key, permissions: '' } })),
               maxRedirects: 0,
             });
@@ -85,18 +114,35 @@ test.describe('browser authorization', () => {
             await response.dispose();
           });
         }
+        await assertPublicReads(request, info.project.metadata.locale, anonymous);
         const harness = readHarness();
-        for (const route of privateRoutes) {
+        for (const route of [...privateRoutes, ...isolatedIngressRoutes]) {
           await test.step(`${route.method} ${route.path} on ${route.listener}`, async () => {
             const refusal = route.registrations[0].refusal;
-            if (route.listener === 'internal') {
-              expect(refusal.tlsAlert, refusal.source).toBe('certificate_required');
-              await expect(internalRequest(harness, route)).rejects.toMatchObject({
+            if (route.listener !== 'admission') {
+              const internal = route.listener === 'internal';
+              const ingress = internal ? harness : {
+                baseUrls: { internal: process.env.PORTAL_E2E_BROWSER_PRIVATE_ORIGIN || 'https://127.0.0.1:18447' },
+                internalServerName: 'localhost',
+                caFile: process.env.SSL_CERT_FILE,
+              };
+              if (internal) expect(refusal.tlsAlert, refusal.source).toBe('certificate_required');
+              await expect(internalRequest(ingress, route)).rejects.toMatchObject({
                 code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
               });
             } else {
-              await assertServiceTokenRefused(page.request, harness, route);
+              await assertServiceTokenRefused(request, harness, route);
             }
+          });
+        }
+        for (const route of listenerHealth) {
+          await test.step(`${route.method} ${route.path} on ${route.listener}`, async () => {
+            const base = route.listener === 'gateway' ? harness.baseUrls.gateway : harness.baseUrls.nativeAdmission;
+            const target = new URL(route.path, base);
+            expect(target.hostname === '127.0.0.1' && target.protocol === 'http:').toBe(true);
+            const response = await request.get(target.href, { maxRedirects: 0 });
+            expect(response.status(), route.registrations[0].source).toBe(200);
+            await response.dispose();
           });
         }
       } finally {
