@@ -40,6 +40,20 @@ ROUTE_BINDINGS = {
 }
 
 
+# These bindings resolve only on private Game and admin analytics ingress routers.
+PRIVATE_BINDINGS = {
+    ("crates/admin/src/analytics/mod.rs", "&path"),
+    ("crates/characters/src/bootstrap/http.rs", "PATH"),
+    ("crates/characters/src/lcfa/http.rs", "path"),
+    ("crates/characters/src/restore/http.rs", "PATH"),
+    ("crates/minigames/src/league/config.rs", "path"),
+    ("crates/minigames/src/league/transport.rs", "path"),
+    ("crates/playerdata/src/sessions.rs", "path"),
+    ("crates/store/src/delivery_http.rs", "path"),
+    ("crates/store/src/purchase_http.rs", "path"),
+}
+
+
 def location(path, source, offset):
     return f"{path}:{source.count(chr(10), 0, offset) + 1}"
 
@@ -244,7 +258,12 @@ def inventory():
             methods.extend((method, "|") for method in INLINE_METHOD.findall(tail))
             if not methods:
                 continue
-            for endpoint in route_paths(path, expression.strip(), constants, source):
+            binding = expression.strip()
+            endpoints = route_paths(path, binding, constants, source)
+            if not endpoints and (path, binding) not in PRIVATE_BINDINGS:
+                site = location(path, source, offset)
+                raise ValueError(f"{site} has an unresolved write-route binding: {binding}")
+            for endpoint in endpoints:
                 if (not endpoint.startswith("/") or endpoint.startswith("/internal/")
                         or endpoint in NON_BROWSER or endpoint.startswith("/api/v1/game-auth/")
                         or path == "crates/admin/src/control/http.rs"
