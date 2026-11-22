@@ -15,6 +15,7 @@ economy-show = Show
 economy-policy = World × UTC day. Release delay: 24 hours. Retention: 400 days. Privacy policy:
 economy-scope = Stocks and flows are separate. Circulation excludes ground, houses, escrow, mail and in-flight gold. Store currencies are separate units and are never added to gold. Platform purchases cover all worlds.
 economy-unavailable = accepted resync baseline and fresh Game evidence required
+economy-game-delay = Game aggregates are available 24 hours after the UTC day ends
 economy-purchased-delay = Platform purchases are available 24 hours after the UTC day ends
 economy-freshness = Data cut / freshness
 economy-version = epoch / revision

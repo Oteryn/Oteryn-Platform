@@ -60,6 +60,16 @@ test('economy analytics localizes the unavailable view', async ({ page }, info) 
     ? 'Zakupy na Platformie są dostępne po 24 godzinach od zakończenia dnia UTC'
     : 'Platform purchases are available 24 hours after the UTC day ends');
   await expect(releaseStatus).not.toContainText(lang === 'pl' ? pl : en);
-  await expect(page.locator('main section').first().getByRole('status')).toContainText(lang === 'pl' ? pl : en);
+  const gameDelay = lang === 'pl'
+    ? 'Zestawienia z Gry są dostępne po 24 godzinach od zakończenia dnia UTC'
+    : 'Game aggregates are available 24 hours after the UTC day ends';
+  const gameStatuses = page.locator('main section').filter({
+    has: page.getByRole('heading', { level: 2, name: new RegExp(`^(${headings.join('|')})$`) }),
+  }).locator('[data-state="unavailable"]');
+  await expect(gameStatuses).toHaveCount(5);
+  for (const gameStatus of await gameStatuses.all()) {
+    await expect(gameStatus).toContainText(gameDelay);
+    await expect(gameStatus).not.toContainText(lang === 'pl' ? pl : en);
+  }
   expect((await page.request.get('/admin/analytics/economy?world=invalid')).status()).toBe(400);
 });

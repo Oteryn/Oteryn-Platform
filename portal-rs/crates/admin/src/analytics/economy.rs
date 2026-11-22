@@ -12,12 +12,21 @@ struct EconomyCell {
     epoch: String,
     revision: String,
 }
+
+enum UnavailableReason {
+    GameEvidence,
+    GameReleaseDelay,
+    PlatformReleaseDelay,
+}
+
 #[derive(serde::Serialize)]
 struct Group {
     family: String,
     source: &'static str,
     columns: &'static str,
     state: &'static str,
+    #[serde(skip)]
+    unavailable_reason: Option<UnavailableReason>,
     epoch: String,
     revision: String,
     cut: String,
@@ -53,11 +62,13 @@ impl EconomyPage {
     }
 
     fn unavailable_reason(&self, group: &Group) -> String {
-        self.text(if group.source == "Platform" {
-            "economy-purchased-delay"
-        } else {
-            "economy-unavailable"
-        })
+        let key = match group.unavailable_reason {
+            Some(UnavailableReason::GameEvidence) => "economy-unavailable",
+            Some(UnavailableReason::GameReleaseDelay) => "economy-game-delay",
+            Some(UnavailableReason::PlatformReleaseDelay) => "economy-purchased-delay",
+            None => return String::new(),
+        };
+        self.text(key)
     }
 
     fn heading(&self, group: &Group) -> String {
@@ -115,6 +126,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     let expired = end
         .checked_add(400 * 86400)
         .is_none_or(|expiry| expiry <= now);
+    let released = end.checked_add(86400).is_some_and(|release| release <= now);
     let mut groups = Vec::new();
     for (family, columns) in [
         (
@@ -134,6 +146,13 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
             source: "Game",
             columns,
             state: if expired { "expired" } else { "unavailable" },
+            unavailable_reason: if expired {
+                None
+            } else if released {
+                Some(UnavailableReason::GameEvidence)
+            } else {
+                Some(UnavailableReason::GameReleaseDelay)
+            },
             epoch: String::new(),
             revision: String::new(),
             cut: String::new(),
@@ -141,7 +160,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
             cells: Vec::new(),
         };
         if !expired
-            && end.checked_add(86400).is_some_and(|release| release <= now)
+            && released
             && let Some(world) = selection.world
         {
             let evidence = sqlx::query("SELECT b.epoch::text,b.revision::text,b.observed::text,w.observed::text AS watermark,b.generation FROM admin_analytics.subjects b JOIN admin_analytics.fence f ON f.authority=b.authority AND f.epoch=b.epoch AND f.active_generation=b.generation JOIN admin_analytics.generations g ON g.id=b.generation AND g.accepted_at IS NOT NULL AND g.epoch=f.epoch JOIN admin_analytics.watermarks w ON w.authority=b.authority AND w.family=b.family AND w.world=b.world AND w.epoch=f.epoch WHERE b.authority=$1 AND b.family=$2 AND b.world=$3 AND b.bucket_start=$4::text::numeric AND b.bucket_end=$5::text::numeric AND b.privacy=$6 AND f.privacy_floor=$6 AND w.privacy=$6 AND NOT w.conflict AND NOT b.conflict AND NOT b.erased AND w.observed >= $7::text::numeric-120 AND w.observed <= $7::text::numeric+2 AND w.cut <= w.observed AND w.cut >= b.observed AND w.cut >= g.baseline_cut AND b.bucket_end+86400 <= $7::text::numeric")
@@ -177,6 +196,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
                     return StatusCode::SERVICE_UNAVAILABLE.into_response();
                 }
                 group.state = "available";
+                group.unavailable_reason = None;
             }
         }
         groups.push(group);
@@ -186,7 +206,6 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         .get::<PlatformAnalytics>()
         .is_some_and(|scope| scope.0)
     {
-        let released = end.checked_add(86400).is_some_and(|release| release <= now);
         let mut purchased = Group {
             family: "purchased — Platform wallet ledger (all worlds)".into(),
             source: "Platform",
@@ -198,6 +217,8 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
             } else {
                 "unavailable"
             },
+            unavailable_reason: (!expired && !released)
+                .then_some(UnavailableReason::PlatformReleaseDelay),
             epoch: String::new(),
             revision: String::new(),
             cut: utc(&now.to_string()),
@@ -301,6 +322,7 @@ mod tests {
                     source: "Game",
                     columns: "",
                     state: "unavailable",
+                    unavailable_reason: Some(UnavailableReason::GameEvidence),
                     epoch: String::new(),
                     revision: String::new(),
                     cut: String::new(),

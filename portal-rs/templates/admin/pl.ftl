@@ -15,6 +15,7 @@ economy-show = Pokaż
 economy-policy = Świat × dzień UTC. Opóźnienie publikacji: 24 godziny. Okres przechowywania: 400 dni. Polityka prywatności:
 economy-scope = Stany i przepływy są wykazywane osobno. Obieg nie obejmuje złota na ziemi, w domach, zablokowanego w ofertach rynkowych, w poczcie ani w trakcie transferu. Waluty sklepu mają osobne jednostki i nie są doliczane do złota. Zakupy na Platformie obejmują wszystkie światy.
 economy-unavailable = Wymagana jest zaakceptowana baza ponownej synchronizacji oraz aktualne dane z Gry
+economy-game-delay = Zestawienia z Gry są dostępne po 24 godzinach od zakończenia dnia UTC
 economy-purchased-delay = Zakupy na Platformie są dostępne po 24 godzinach od zakończenia dnia UTC
 economy-freshness = Punkt odcięcia danych / aktualność
 economy-version = epoka / wersja
