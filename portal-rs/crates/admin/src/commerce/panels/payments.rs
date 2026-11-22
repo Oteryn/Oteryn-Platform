@@ -118,7 +118,7 @@ const PAYMENTS: &str = "
     LEFT JOIN commerce_refunds f ON f.intent_id=p.id
     LEFT JOIN outbox job ON job.kind='commerce.refund' AND job.idempotency_key=p.id::text AND job.payload->>'operation'=f.operation_id::text
     LEFT JOIN coin_purchase_orders o ON o.payment_intent_id=p.id
-    LEFT JOIN coin_purchase_reversals r ON r.order_id=o.id AND r.kind='chargeback'
+    LEFT JOIN coin_purchase_reversals r ON r.order_id=o.id AND (r.kind='chargeback' OR p.state='chargeback')
     LEFT JOIN coin_purchase_holds h ON h.order_id=r.order_id AND h.account_id=p.account_id
     LEFT JOIN coin_outstanding_debts d ON d.reversal_id=r.id
     LEFT JOIN LATERAL (
@@ -127,7 +127,7 @@ const PAYMENTS: &str = "
         ORDER BY updated_at DESC LIMIT 1
     ) review ON true
     WHERE ($1::uuid IS NULL OR p.id=$1) AND ($2::uuid IS NULL OR p.account_id=$2)
-      AND (NOT $3 OR (o.review_required AND (review.updated_at IS NULL OR o.updated_at > review.updated_at)) OR job.state='dead')
+      AND (NOT $3 OR (o.review_required AND (review.updated_at IS NULL OR GREATEST(o.updated_at,p.updated_at) > review.updated_at)) OR job.state='dead')
       AND ($4::uuid IS NULL OR (p.created_at,p.id)<(SELECT created_at,id FROM payment_intents WHERE id=$4))
     ORDER BY p.created_at DESC,p.id DESC LIMIT 26";
 

@@ -914,7 +914,7 @@ async fn order_history_handlers_scope_reads_and_reject_malformed_references() ->
         .bind(account)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'store_purchase',$2,10)")
+    sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'store_purchase',$2,-10)")
         .bind(operation).bind(account).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO store_purchase_requests(purchase_request_id,account_id,request_bytes,request_digest,result,answer_bytes) VALUES($1,$2,'{}',$3,'ACCEPTED','{}')")
         .bind(request).bind(account).bind(catalog.revision()).execute(&mut *tx).await?;

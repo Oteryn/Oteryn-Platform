@@ -64,7 +64,7 @@ test('store orders and delivery are scoped to the signed-in buyer', async ({page
   try {
     await conn.query('BEGIN');
     await conn.query('INSERT INTO wallet_accounts(account_id) VALUES($1)', [buyer]);
-    await conn.query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'store_purchase',$2,17)", [operation, buyer]);
+    await conn.query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'store_purchase',$2,-17)", [operation, buyer]);
     await conn.query("INSERT INTO store_purchase_requests(purchase_request_id,account_id,request_bytes,request_digest,result,answer_bytes) VALUES($1,$2,'{}',$3,'ACCEPTED','{}')", [request, buyer, revision]);
     await conn.query("INSERT INTO store_price_list_imports(catalog_revision,canonical_bytes,imported_by) VALUES($1,'{}',$2)", [revision, buyer]);
     await conn.query("INSERT INTO store_offers(catalog_revision,offer_key,currency,unit_price,max_quantity,purchasable,canonical_bytes) VALUES($1,$2,'COINS',17,1,true,'{}')", [revision, offer]);
@@ -200,8 +200,8 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     await query(`INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,receipt_id,review_required,code)
       VALUES($1,$2,$3,$4,$5,25,100,'PLN',2,'test',$6,'chargeback',$7,true,'review')`,
       [order, account, uuid7(), quote, packageId, chargeback, invoice]);
-    await query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES($1,$2,$3,'chargeback','test',$4,25,0,'held')",
-      [uuid7(), order, account, chargeback]);
+    await query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES($1,$2,$3,$4,'test',$5,25,0,'held')",
+      [uuid7(), order, account, lang === 'pl' ? 'chargeback' : 'refund', chargeback]);
     await query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')", [account, order]);
     await open(admin, `${base}&queue=true`);
     await admin.getByRole('link', {name: chargeback}).click();
