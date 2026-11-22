@@ -429,7 +429,7 @@ async fn render_record(
         Err(_) => return status(Error::Unavailable, lang),
     };
     let mut body = format!(
-        "<a href=\"{}\">{}</a><h2>{}</h2>",
+        "<a href=\"{}\">{}</a><header class=\"op-card\"><h2>{}</h2>",
         base(area),
         text(lang, area_title(area)),
         escape(&record.title),
@@ -437,6 +437,7 @@ async fn render_record(
     if !create {
         body.push_str(&format!("<p>{}</p>", text(lang, &record.status)));
     }
+    body.push_str("</header>");
     if area == Area::Tickets {
         let assignment = details
             .assigned_to

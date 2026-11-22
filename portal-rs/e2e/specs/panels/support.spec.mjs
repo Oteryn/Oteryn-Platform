@@ -41,8 +41,14 @@ async function visit(page, path, lang, visible) {
   expect(response.headers()['cache-control']).toContain('no-store');
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
   if (visible) await expect(page.locator('main')).toContainText(visible);
-  expect(await page.locator('body').evaluate(body =>
-    body.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await fitsViewport(page, path);
+}
+
+async function fitsViewport(page, path) {
+  const widths = await page.locator('body').evaluate(body => ({
+    content: body.scrollWidth, viewport: document.documentElement.clientWidth,
+  }));
+  expect(widths.content, `${path} fits the viewport`).toBeLessThanOrEqual(widths.viewport);
 }
 
 async function mutate(page, name, fields, destination) {
@@ -90,7 +96,7 @@ test('ticket queue and moderation preserve owner privacy and refuse invalid writ
   const pl = lang === 'pl';
   const owner = await seedAccount(lang);
   await login(page, lang, owner);
-  const subject = unique();
+  const subject = unique().repeat(4);
   await visit(page, `/${lang}/support/tickets/create`, lang);
   await submit(page, 'main form', { subject, body: 'Question about my account' });
   await expect(page).toHaveURL(/support\/tickets\/[a-f0-9-]+$/);
@@ -136,6 +142,8 @@ test('ticket queue and moderation preserve owner privacy and refuse invalid writ
     const ticket = team.page.getByRole('link', { name: subject, exact: true });
     await expect(ticket).toHaveAttribute('href', staffPath);
     await ticket.click();
+    await expect(team.page.getByRole('heading', { name: subject, exact: true })).toBeVisible();
+    await fitsViewport(team.page, staffPath);
 
     const assignReason = unique();
     await refused(team.page, 'assign_ticket', { assignee: 'bad-id', reason: assignReason }, 422);
@@ -169,6 +177,7 @@ test('ticket queue and moderation preserve owner privacy and refuse invalid writ
     await mutate(team.page, 'reply', { body: privateNote, reason: noteReason });
     await expect(team.page.locator('main')).toContainText(privateNote);
     await visit(page, playerPath, lang, reply);
+    await expect(page.getByRole('heading', { name: subject, exact: true })).toBeVisible();
     await expect(page.locator('main')).not.toContainText(privateNote);
     await expect(page.locator('main')).not.toContainText(team.id);
 
