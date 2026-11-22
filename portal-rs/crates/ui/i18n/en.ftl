@@ -51,10 +51,14 @@ error-404-title = Page not found
 error-404-description = The requested page could not be found.
 error-405-title = Method not allowed
 error-405-description = This request method is not supported here.
+error-406-title = Response format not available
+error-406-description = Request the page in HTML format.
 error-413-title = Request too large
 error-413-description = Send a smaller request and try again.
 error-429-title = Too many requests
 error-429-description = Please wait before trying again.
+error-431-title = Request headers are too large
+error-431-description = Reduce the size of your request headers and try again.
 error-500-title = Something went wrong
 error-500-description = Please try again later.
 

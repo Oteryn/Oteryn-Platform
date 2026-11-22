@@ -12,6 +12,10 @@ use axum::{
 
 use crate::AppState;
 
+pub(crate) const HSTS: &str = "max-age=63072000; includeSubDomains";
+pub(crate) const PERMISSIONS: &str = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
+pub(crate) const REFERRER: &str = "strict-origin-when-cross-origin";
+
 /// Per-response script nonce. Handlers may read this request extension.
 #[derive(Clone, Debug)]
 pub struct CspNonce(pub String);
@@ -283,7 +287,7 @@ async fn policy(mut request: Request, next: Next) -> Response {
     }
     headers.insert(
         header::STRICT_TRANSPORT_SECURITY,
-        HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        HeaderValue::from_static(HSTS),
     );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
@@ -291,11 +295,11 @@ async fn policy(mut request: Request, next: Next) -> Response {
     );
     headers.insert(
         header::REFERRER_POLICY,
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
+        HeaderValue::from_static(REFERRER),
     );
     headers.insert(
         "permissions-policy",
-        HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
+        HeaderValue::from_static(PERMISSIONS),
     );
     headers.insert(
         "cross-origin-opener-policy",

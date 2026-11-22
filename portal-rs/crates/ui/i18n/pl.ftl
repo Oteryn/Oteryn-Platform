@@ -51,10 +51,14 @@ error-404-title = Nie znaleziono strony
 error-404-description = Nie można znaleźć żądanej strony.
 error-405-title = Niedozwolona metoda
 error-405-description = Ta metoda żądania nie jest tutaj obsługiwana.
+error-406-title = Nieobsługiwany format odpowiedzi
+error-406-description = Poproś o stronę w formacie HTML.
 error-413-title = Zbyt duże żądanie
 error-413-description = Wyślij mniejsze żądanie i spróbuj ponownie.
 error-429-title = Zbyt wiele żądań
 error-429-description = Poczekaj przed kolejną próbą.
+error-431-title = Nagłówki żądania są za duże
+error-431-description = Zmniejsz rozmiar nagłówków żądania i spróbuj ponownie.
 error-500-title = Wystąpił błąd
 error-500-description = Spróbuj ponownie później.
 

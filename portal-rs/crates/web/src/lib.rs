@@ -709,6 +709,9 @@ mod tests {
     }
 }
 
+mod public_http;
+pub use public_http::secure_public;
+
 mod surface;
 
 pub use surface::{
