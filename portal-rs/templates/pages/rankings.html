@@ -5,7 +5,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} · Oteryn</title>
 <link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css">
-</head><body class="op-theme"><a href="#main">{{ skip }}</a>
+</head><body class="op-theme"><a class="op-skip" href="#main">{{ skip }}</a>
 <main class="op-stack" id="main" tabindex="-1"><h1>{{ title }}</h1>
 {% if !message.is_empty() %}<p role="status">{{ message }}</p>{% endif %}
 {% if !watermark.is_empty() %}

@@ -63,6 +63,7 @@ async fn disabled_unknown_and_bad_input() -> TestResult {
         let (status, html) = send(app.clone(), &format!("/pl/rankings/level?{query}")).await?;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{query}");
         assert!(html.contains("Nieprawidłowe zapytanie"));
+        assert!(html.contains(r##"class="op-skip" href="#main""##));
     }
     Ok(())
 }

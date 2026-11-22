@@ -153,11 +153,16 @@ async fn worlds_seeded_page_and_minimal_versioned_api() -> TestResult {
             "op-badge--warning",
             "name=\"viewport\"",
             "href=\"#main\"",
+            "<nav aria-label=",
         ] {
             assert!(html.contains(text), "missing {text}");
         }
         assert!(!html.contains("Private roster name"));
         assert!(!html.contains("<World>"));
+        assert!(!html.contains("<header"));
+        let footer = html.find("<footer").ok_or("missing worlds footer")?;
+        let main_end = html.find("</main>").ok_or("missing worlds main")?;
+        assert!(footer < main_end);
     }
     db.finish().await
 }

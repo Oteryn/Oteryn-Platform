@@ -12,13 +12,11 @@
 <body class="op-theme op-stack">
 {% include "components/icons.html" %}
 <a class="op-skip" href="#main">{{ language.text("skip") }}</a>
-<header class="op-panel op-row">
+<nav aria-label="{{ language.text("language-switch") }}" class="op-panel op-row">
   <a class="op-button op-button--secondary" href="/{{ lang }}/">{{ language.text("home-link") }}</a>
-  <nav aria-label="{{ language.text("language-switch") }}" class="op-row">
-    <a class="op-button op-button--secondary" href="/pl/worlds" lang="pl" hreflang="pl">{{ language.text("worlds-polish") }}</a>
-    <a class="op-button op-button--secondary" href="/en/worlds" lang="en" hreflang="en">{{ language.text("worlds-english") }}</a>
-  </nav>
-</header>
+  <a class="op-button op-button--secondary" href="/pl/worlds" lang="pl" hreflang="pl">{{ language.text("worlds-polish") }}</a>
+  <a class="op-button op-button--secondary" href="/en/worlds" lang="en" hreflang="en">{{ language.text("worlds-english") }}</a>
+</nav>
 <main id="main" tabindex="-1" class="op-panel op-stack">
   <h1>{{ language.text("worlds-title") }}</h1>
   <p class="op-muted">{{ language.text("worlds-description") }}</p>
@@ -41,7 +39,7 @@
     </article>
     {% endfor %}
   {% endif %}
+  <footer class="op-panel">{{ language.text("footer") }}</footer>
 </main>
-<footer class="op-panel">{{ language.text("footer") }}</footer>
 </body>
 </html>
