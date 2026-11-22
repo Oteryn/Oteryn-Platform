@@ -648,6 +648,18 @@ mod tests;
 mod store_tests;
 
 impl Configuration {
+    pub fn enforcement_profiles(
+        &self,
+    ) -> Result<enforcement::Profiles, Box<dyn std::error::Error>> {
+        if self.enforcement_browser_available()
+            && crate::internal_tls::Config::from_env()?.is_some()
+        {
+            Ok(enforcement::Settings::from_lookup(|key| self.values.get(key).cloned()).profiles)
+        } else {
+            Ok(enforcement::Profiles::default())
+        }
+    }
+
     pub fn enforcement_browser_available(&self) -> bool {
         let settings = enforcement::Settings::from_lookup(|key| self.values.get(key).cloned());
         settings.reader_enabled

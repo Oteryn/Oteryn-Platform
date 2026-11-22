@@ -21,6 +21,8 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::{future::Future, sync::Arc};
 use uuid::Uuid;
 
+pub use enforcement_step_up::appeal_step_up_current;
+
 const PATH: &str = "/admin/console/enforcement";
 const STEP_PATH: &str = "/admin/console/enforcement/step-up";
 const MIN_MINUTES: u32 = 1;

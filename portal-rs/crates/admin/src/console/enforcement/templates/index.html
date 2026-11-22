@@ -66,7 +66,7 @@
         <label for="minutes-{{ field_id }}">{{ lang.text("Czas trwania (minuty)", "Duration (minutes)") }}</label>
         <input class="op-input" id="minutes-{{ field_id }}" type="number" name="minutes" min="{{ MIN_MINUTES }}" max="{{ MAX_MINUTES }}" required>
         {% endif %}
-        <label for="reason-{{ field_id }}">{{ lang.text("Powód", "Reason") }}</label>
+        <label for="reason-{{ field_id }}">{{ lang.text("Powód publiczny", "Public reason") }}</label>
         <select class="op-input" id="reason-{{ field_id }}" name="reason" required>
           <option value="">{{ lang.text("Wybierz powód", "Choose a reason") }}</option>
           <option value="disruptive_behavior">{{ lang.text("Zakłócanie gry", "Disruptive behavior") }}</option>

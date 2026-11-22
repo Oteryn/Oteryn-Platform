@@ -99,6 +99,16 @@ pub fn configured_staff_router(
 ) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
     configured_staff_router_from(pool, &|key| std::env::var(key).ok())
 }
+/// Wire game-backed appeal decisions to the same validated exchange as the GM panel.
+pub fn configured_staff_router_with_game(
+    pool: PgPool,
+    profiles: crate::sanctions::enforcement::Profiles,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    let lookup = |key: &str| std::env::var(key).ok();
+    let mut backend = StaffSupport::configured_from(pool.clone(), &lookup)?;
+    backend.sanctions = backend.sanctions.with_game_enforcement(profiles);
+    oteryn_admin::support::web::configured_router_from(pool, backend, &lookup)
+}
 /// [`configured_staff_router`] reading its configuration through `lookup`.
 pub fn configured_staff_router_from(
     pool: PgPool,

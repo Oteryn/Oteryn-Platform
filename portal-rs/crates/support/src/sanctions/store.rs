@@ -45,10 +45,20 @@ impl rbac::AccountStateReader for Accounts {
 pub struct Service {
     pool: PgPool,
     features: Features,
+    game_enforcement: super::enforcement::Profiles,
 }
 impl Service {
     pub fn new(pool: PgPool, features: Features) -> Self {
-        Self { pool, features }
+        Self {
+            pool,
+            features,
+            game_enforcement: super::enforcement::Profiles::default(),
+        }
+    }
+
+    pub(crate) fn with_game_enforcement(mut self, profiles: super::enforcement::Profiles) -> Self {
+        self.game_enforcement = profiles;
+        self
     }
 
     fn staff_input(&self, context: CheckContext, request: Uuid) -> Result<(), Error> {
@@ -234,13 +244,19 @@ impl Service {
             return Err(Error::Denied);
         }
         let row = sqlx::query(
-            "SELECT status,created_by,lock_version FROM sanctions WHERE id=$1 FOR UPDATE",
+            "SELECT status,created_by,lock_version,enforcement_profile FROM sanctions WHERE id=$1 FOR UPDATE",
         )
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
         // Revalidate the durable session and grant after the sanction-row wait.
         self.staff(&mut tx, context, request).await?;
+        if row
+            .try_get::<Option<String>, _>("enforcement_profile")?
+            .is_some()
+        {
+            return Err(Error::Denied);
+        }
         let current: i64 = row.try_get("lock_version")?;
         if current != version {
             return Err(Error::Conflict);
@@ -584,6 +600,17 @@ impl Service {
             return Err(StaffError::Denied);
         }
         let current:Option<(String,i64,Uuid,String,i64,Option<i64>)>=sqlx::query_as("SELECT status,lock_version,account_id,category,(extract(epoch FROM effective_at)*1000)::bigint,(extract(epoch FROM expires_at)*1000)::bigint FROM sanctions WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        let game: Option<(String, Uuid)> = sqlx::query_as(
+            "SELECT enforcement_profile,enforcement_character_id FROM sanctions
+             WHERE id=$1 AND enforcement_profile IS NOT NULL",
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
+        if game.is_some() && matches!(command, Command::Sanction { .. }) {
+            return Err(StaffError::Denied);
+        }
         // Bind staff decisions to both the sanction and the appeal they viewed.
         // Player acknowledgements/resubmissions advance only the workflow counter.
         let workflow: Option<(String,i64)> = sqlx::query_as("SELECT status,version FROM support_appeal_workflows WHERE sanction_id=$1 AND owner_id=$2 FOR UPDATE")
@@ -678,6 +705,42 @@ impl Service {
                     "rejected" => crate::appeals::Status::Rejected,
                     _ => return Err(StaffError::Invalid),
                 };
+                let game_revoke =
+                    if let (crate::appeals::Status::Accepted, Some((profile, character))) =
+                        (status, &game)
+                    {
+                        let game_authorizer =
+                            authorizer
+                                .clone()
+                                .with_game_flags(rbac::GamePermissionFlags {
+                                    enabled: true,
+                                    deploy: false,
+                                });
+                        game_authorizer
+                            .check_in(tx, context, Permission::GameSanctionWrite)
+                            .await
+                            .map_err(|error| match error {
+                                rbac::Error::Storage(_) => StaffError::Unavailable,
+                                _ => StaffError::Denied,
+                            })?;
+                        super::enforcement::prepare_appeal_revoke(
+                            tx, id, target, *character, profile,
+                        )
+                        .await?
+                    } else {
+                        None
+                    };
+                if let Some(command) = &game_revoke {
+                    if !self.game_enforcement.enabled(command.profile) {
+                        return Err(StaffError::Unavailable);
+                    }
+                    if !oteryn_admin::console::enforcement::appeal_step_up_current(tx, context)
+                        .await
+                        .map_err(|_| StaffError::Unavailable)?
+                    {
+                        return Err(StaffError::Denied);
+                    }
+                }
                 crate::appeals::Appeals { enabled: true }
                     .change(
                         tx,
@@ -701,6 +764,15 @@ impl Service {
                     &row.0
                 };
                 sqlx::query("UPDATE sanctions SET status=$2,lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(next).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                if let Some(command) = game_revoke {
+                    super::enforcement::publish_appeal_revoke(
+                        tx,
+                        actor,
+                        command,
+                        self.game_enforcement,
+                    )
+                    .await?;
+                }
                 next.to_owned()
             }
             _ => return Err(StaffError::Invalid),

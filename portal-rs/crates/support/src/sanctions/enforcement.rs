@@ -81,6 +81,14 @@ pub enum Profile {
     Jail,
 }
 impl Profile {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "MUTE" => Some(Self::Mute),
+            "JAIL" => Some(Self::Jail),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Mute => "MUTE",
@@ -775,6 +783,29 @@ pub async fn ingest(pool: &PgPool, receipt: &Receipt, bytes: &[u8]) -> Result<()
         .bind(digest(bytes))
         .execute(&mut *tx)
         .await?;
+    if matches!(receipt.state.as_str(), "APPLIED" | "REPLACED") {
+        sqlx::query("UPDATE support_enforcement_decisions d SET reconcile_at_ms=d.expires_at_ms
+                     FROM support_enforcement_commands c
+                     WHERE c.operation_id=$1 AND d.operation_id=c.operation_id
+                       AND NOT EXISTS (SELECT 1 FROM support_enforcement_commands newer
+                         WHERE newer.sanction_stream_id=c.sanction_stream_id
+                           AND newer.decision_revision>=c.decision_revision AND newer.position>c.position)")
+            .bind(receipt.operation_id).execute(&mut *tx).await?;
+    }
+    if receipt.state == "EXPIRED" {
+        sqlx::query(
+            "UPDATE sanctions s SET status='expired', lock_version=lock_version+1,
+                        updated_at=clock_timestamp()
+                     WHERE s.id=$1 AND s.enforcement_profile IS NOT NULL AND s.status='active'
+                       AND NOT EXISTS (SELECT 1 FROM support_enforcement_commands newer
+                         JOIN support_enforcement_commands expired ON expired.operation_id=$2
+                         WHERE newer.sanction_stream_id=s.id AND newer.position>expired.position)",
+        )
+        .bind(receipt.sanction_stream_id)
+        .bind(receipt.operation_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
     Ok(())
 }
@@ -1062,6 +1093,8 @@ struct Latest {
     accepted_revision: Option<i64>,
     received_at: Option<String>,
     effective_until_ms: Option<i64>,
+    platform_status: Option<String>,
+    confirmed_revision: Option<i64>,
     confirmed: Option<String>,
     confirmed_until_ms: Option<i64>,
     confirmed_received_at: Option<String>,
@@ -1069,7 +1102,8 @@ struct Latest {
 
 async fn latest(
     tx: &mut Transaction<'_, Postgres>,
-    target: &Target,
+    account: Uuid,
+    character: Uuid,
     profile: BrowserProfile,
 ) -> Result<Option<Latest>, sqlx::Error> {
     sqlx::query_as(
@@ -1078,7 +1112,8 @@ async fn latest(
             (r.body->>'accepted_decision_revision')::bigint AS accepted_revision,
             to_char(r.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS received_at,
             (r.body->>'effective_until_ms')::bigint AS effective_until_ms,
-            h.state AS confirmed,
+            s.status AS platform_status,
+            h.decision_revision AS confirmed_revision,h.state AS confirmed,
             h.effective_until_ms AS confirmed_until_ms,
             to_char(h.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS confirmed_received_at
          FROM (
@@ -1086,21 +1121,30 @@ async fn latest(
             WHERE account_id=$1 AND character_id=$2 AND profile=$3
             ORDER BY position DESC LIMIT 1
          ) c
+         LEFT JOIN sanctions s ON s.id=c.sanction_stream_id
          LEFT JOIN LATERAL (
             SELECT state,received_at,convert_from(result,'UTF8')::jsonb AS body
             FROM support_enforcement_results WHERE operation_id=c.operation_id
             ORDER BY receipt_revision DESC LIMIT 1
          ) r ON true
          LEFT JOIN LATERAL (
-            SELECT h.state,h.received_at,(convert_from(h.result,'UTF8')::jsonb->>'effective_until_ms')::bigint AS effective_until_ms
+            SELECT p.decision_revision,h.state,h.received_at,
+                (convert_from(h.result,'UTF8')::jsonb->>'effective_until_ms')::bigint AS effective_until_ms
             FROM support_enforcement_commands p
             JOIN support_enforcement_results h ON h.operation_id=p.operation_id
-            WHERE p.sanction_stream_id=c.sanction_stream_id AND h.terminal AND h.state<>'REJECTED'
-            ORDER BY p.position DESC LIMIT 1
+            WHERE p.sanction_stream_id=c.sanction_stream_id
+              AND p.decision_revision IN (
+                CASE WHEN r.state IS DISTINCT FROM 'ACCEPTED_PENDING'
+                    THEN (r.body->>'accepted_decision_revision')::bigint END,
+                CASE WHEN c.intent='EXPIRE' THEN c.decision_revision
+                    ELSE (convert_from(c.command,'UTF8')::jsonb->>'prior_decision_revision')::bigint END
+              )
+              AND h.terminal AND h.state<>'REJECTED'
+            ORDER BY p.decision_revision DESC,p.position DESC LIMIT 1
          ) h ON true",
     )
-    .bind(target.account)
-    .bind(target.character)
+    .bind(account)
+    .bind(character)
     .bind(profile.name())
     .fetch_optional(&mut **tx)
     .await
@@ -1108,40 +1152,37 @@ async fn latest(
 
 impl Latest {
     fn actions(&self) -> &'static [Action] {
-        match (self.state.as_deref(), self.stream_state.as_deref()) {
-            (None | Some("ACCEPTED_PENDING"), _) => &[],
-            (_, Some("NONE" | "REVOKED" | "EXPIRED")) => &[Action::Apply],
-            (_, Some("ACTIVE"))
-                if self
-                    .accepted_revision
-                    .is_some_and(|r| r > 0 && r <= self.decision_revision) =>
-            {
-                &[Action::Replace, Action::Revoke]
+        if matches!(self.state.as_deref(), None | Some("ACCEPTED_PENDING")) {
+            return &[];
+        }
+        if self.accepted_revision == Some(0)
+            && self.stream_state.as_deref() == Some("NONE")
+            && self.confirmed.is_none()
+            && self.state.as_deref() == Some("REJECTED")
+        {
+            return &[Action::Apply];
+        }
+        if self.confirmed_revision.is_none() || self.confirmed_revision != self.accepted_revision {
+            return &[];
+        }
+        match (self.stream_state.as_deref(), self.confirmed.as_deref()) {
+            (Some("REVOKED"), Some("REVOKED")) | (Some("EXPIRED"), Some("EXPIRED")) => {
+                &[Action::Apply]
             }
+            (Some("ACTIVE"), Some("APPLIED" | "REPLACED")) => match self.platform_status.as_deref()
+            {
+                Some("revoked") => &[Action::Revoke],
+                Some("active") => &[Action::Replace, Action::Revoke],
+                _ => &[],
+            },
             _ => &[],
         }
     }
 
-    fn pending(&self) -> bool {
-        matches!(self.state.as_deref(), None | Some("ACCEPTED_PENDING"))
-    }
-
     fn confirmed_state(&self) -> StateLabel {
-        let confirmed = self
-            .confirmed
+        self.confirmed
             .as_deref()
-            .map_or(StateLabel::Unconfirmed, operation_state);
-        // ACCEPTED_PENDING can describe durable Game state before the runtime
-        // effect. Continue showing the last terminal confirmation in that case.
-        if self.pending() {
-            return confirmed;
-        }
-        match self.stream_state.as_deref() {
-            Some("NONE") => StateLabel::None,
-            Some("EXPIRED") => StateLabel::Expired,
-            Some("REVOKED") => StateLabel::Revoked,
-            _ => confirmed,
-        }
+            .map_or(StateLabel::Unconfirmed, operation_state)
     }
 }
 
@@ -1247,7 +1288,7 @@ impl Backend for BrowserJournal {
                 result_code: None,
                 actions,
             };
-            if let Some(last) = latest(tx, target, profile).await? {
+            if let Some(last) = latest(tx, target.account, target.character, profile).await? {
                 row.current = last.confirmed_state();
                 row.actions = if actions.is_empty() {
                     &[]
@@ -1260,18 +1301,8 @@ impl Backend for BrowserJournal {
                     .map_or(StateLabel::Pending, operation_state);
                 row.version = last.position;
                 row.operation = Some(last.operation_id);
-                row.current_received_at = match (last.pending(), last.stream_state.as_deref()) {
-                    (false, Some("NONE" | "EXPIRED" | "REVOKED")) => last.received_at.clone(),
-                    _ => last.confirmed_received_at.clone(),
-                };
-                if matches!(row.current, StateLabel::Applied) {
-                    row.effective_until =
-                        if !last.pending() && last.stream_state.as_deref() == Some("ACTIVE") {
-                            utc(last.effective_until_ms)
-                        } else {
-                            utc(last.confirmed_until_ms)
-                        };
-                }
+                row.current_received_at = last.confirmed_received_at;
+                row.effective_until = utc(last.confirmed_until_ms);
                 row.received_at = last.received_at;
                 if matches!(row.state, StateLabel::Refused) {
                     row.result_code = last.result_code;
@@ -1295,6 +1326,7 @@ impl Backend for BrowserJournal {
         if !self.exchange_available || !self.profiles.enabled(profile) {
             return Err(BrowserError::Unavailable);
         }
+        lock_publication(tx).await?;
         let intent: Intent = input.action.into();
         let details = json!({
             "operation_id": input.operation,
@@ -1323,7 +1355,7 @@ impl Backend for BrowserJournal {
             };
         }
 
-        let previous = latest(tx, target, input.profile).await?;
+        let previous = latest(tx, target.account, target.character, input.profile).await?;
         let actions = previous
             .as_ref()
             .map_or(&[Action::Apply][..], Latest::actions);
@@ -1332,33 +1364,42 @@ impl Backend for BrowserJournal {
         {
             return Err(BrowserError::Conflict);
         }
-        let (stream, revision, prior) = match (intent, &previous) {
-            (Intent::Apply, _) => (Uuid::now_v7(), 1, None),
-            (_, Some(last)) => (
-                last.sanction_stream_id,
-                last.decision_revision
-                    .checked_add(1)
-                    .ok_or(BrowserError::Conflict)?,
-                last.accepted_revision,
-            ),
+        let (stream, prior) = match (intent, &previous) {
+            (Intent::Apply, _) => (Uuid::now_v7(), None),
+            (_, Some(last)) => (last.sanction_stream_id, last.accepted_revision),
             _ => return Err(BrowserError::Conflict),
         };
-        let now_ms: i64 =
-            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
-                .fetch_one(&mut **tx)
-                .await?;
+        let now_ms = database_now(tx).await?;
         let expires = input
             .minutes
             .map(|minutes| now_ms + i64::from(minutes) * 60_000);
-        let target_id = target.character.to_string();
-        // The journal and this private decision record share the transaction.
-        // Only the typed category crosses the wire; there are no free-text notes.
+        let reason = input.reason.code();
+        let mut command = Command {
+            operation_id: input.operation,
+            sanction_stream_id: stream,
+            intent,
+            profile,
+            decision_revision: 1,
+            prior_decision_revision: prior,
+            policy_revision: 1,
+            account_id: target.account,
+            character_id: target.character,
+            effective_at_ms: expires.map(|_| now_ms),
+            expires_at_ms: expires,
+            reason_code: Some(reason),
+            decided_at_ms: now_ms,
+            audit_ref: Uuid::nil(), // Set by the audit writer before publication.
+            correlation_id: input.operation,
+        };
+        let revision = persist_platform_sanction(tx, &command, input.actor).await?;
+        command.decision_revision = revision;
+        let target_id = stream.to_string();
         let mut after = details;
         after["decision_revision"] = json!(revision);
         after["sanction_stream_id"] = json!(stream);
         after["state"] = json!("pending");
         after["effective_until_ms"] = json!(expires);
-        let audit_ref = audit::append(
+        command.audit_ref = audit::append(
             tx,
             Entry {
                 context: AuditContext {
@@ -1379,28 +1420,330 @@ impl Backend for BrowserJournal {
             },
         )
         .await?;
-        let command = Command {
-            operation_id: input.operation,
-            sanction_stream_id: stream,
-            intent,
-            profile,
-            decision_revision: revision,
-            prior_decision_revision: prior,
-            policy_revision: 1,
-            account_id: target.account,
-            character_id: target.character,
-            effective_at_ms: expires.map(|_| now_ms),
-            expires_at_ms: expires,
-            reason_code: Some(input.reason.code()),
-            decided_at_ms: now_ms,
-            audit_ref,
-            correlation_id: input.operation,
-        };
+        persist_typed_decision(tx, &command).await?;
         match record(tx, &self.profiles, &command).await {
             Ok(Some(_)) => Ok(()),
             Err(Error::Conflict | Error::Stale) => Err(BrowserError::Conflict),
             _ => Err(BrowserError::Unavailable),
         }
+    }
+}
+
+async fn lock_publication(tx: &mut Transaction<'_, Postgres>) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT 1 FROM support_enforcement_counter WHERE singleton FOR UPDATE")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn database_now(tx: &mut Transaction<'_, Postgres>) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+        .fetch_one(&mut **tx)
+        .await
+}
+
+fn public_reason(code: u16, locale: &str) -> &'static str {
+    match (code, locale) {
+        (7, "pl") => "Zakłócanie gry",
+        (7, _) => "Disruptive behavior",
+        (_, "pl") => "Naruszenie zasad",
+        _ => "Rule violation",
+    }
+}
+
+/// The legacy-facing sanction and appeal use the same stable identity as N009
+/// and the command. The typed history retains every moderator decision.
+async fn persist_platform_sanction(
+    tx: &mut Transaction<'_, Postgres>,
+    command: &Command,
+    actor: Uuid,
+) -> Result<i64, BrowserError> {
+    let code = command.reason_code.ok_or(BrowserError::BadInput)?;
+    let locale: String = sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
+        .bind(command.account_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let reason = public_reason(code, &locale);
+    let (starts, ends) = if command.intent == Intent::Apply {
+        sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,
+                        effective_at,expires_at,created_by,enforcement_profile,enforcement_character_id)
+                     VALUES($1,$2,'restriction','active',$3,to_timestamp($4::bigint::float8/1000),
+                        to_timestamp($5::bigint::float8/1000),$6,$7,$8)")
+            .bind(command.sanction_stream_id).bind(command.account_id).bind(reason)
+            .bind(command.effective_at_ms).bind(command.expires_at_ms).bind(actor)
+            .bind(command.profile.as_str()).bind(command.character_id)
+            .execute(&mut **tx).await?;
+        crate::appeals::Appeals { enabled: true }
+            .register(tx, command.sanction_stream_id, command.account_id)
+            .await
+            .map_err(|_| BrowserError::Unavailable)?;
+        (command.effective_at_ms, command.expires_at_ms)
+    } else {
+        let revoke = command.intent == Intent::Revoke;
+        sqlx::query_as(
+            "UPDATE sanctions
+             SET status=CASE WHEN $7 THEN 'revoked' ELSE 'active' END,
+                 public_reason=$4, effective_at=COALESCE(to_timestamp($5::bigint::float8/1000),effective_at),
+                 expires_at=COALESCE(to_timestamp($6::bigint::float8/1000),expires_at),
+                 lock_version=lock_version+1,updated_at=clock_timestamp()
+             WHERE id=$1 AND account_id=$2 AND enforcement_profile=$3 AND enforcement_character_id=$8
+               AND ($7 OR status='active')
+             RETURNING (extract(epoch FROM effective_at)*1000)::bigint,
+                       (extract(epoch FROM expires_at)*1000)::bigint",
+        ).bind(command.sanction_stream_id).bind(command.account_id).bind(command.profile.as_str())
+            .bind(reason).bind(command.effective_at_ms).bind(command.expires_at_ms)
+            .bind(revoke).bind(command.character_id)
+            .fetch_optional(&mut **tx).await?.ok_or(BrowserError::Conflict)?
+    };
+
+    let kind: i16 = match command.profile {
+        Profile::Mute => 1,
+        Profile::Jail => 2,
+    };
+    sqlx::query("SELECT support_sanction_export_append($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        .bind(command.sanction_stream_id)
+        .bind(command.account_id)
+        .bind(command.character_id)
+        .bind(kind)
+        .bind(i32::from(code))
+        .bind(reason)
+        .bind(starts)
+        .bind(ends)
+        .bind(command.intent == Intent::Revoke)
+        .execute(&mut **tx)
+        .await?;
+    export_revision(tx, command.sanction_stream_id)
+        .await
+        .map_err(Into::into)
+}
+
+async fn export_revision(
+    tx: &mut Transaction<'_, Postgres>,
+    stream: Uuid,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT decision_revision FROM support_sanction_export_revisions
+         WHERE sanction_stream_id=$1 ORDER BY decision_revision DESC LIMIT 1",
+    )
+    .bind(stream)
+    .fetch_one(&mut **tx)
+    .await
+}
+
+async fn persist_typed_decision(
+    tx: &mut Transaction<'_, Postgres>,
+    command: &Command,
+) -> Result<(), sqlx::Error> {
+    // A later command fences expiry on earlier revisions, including decisions
+    // that Game later refuses. A1 requires non-decreasing revisions per stream.
+    clear_expiry(tx, command.sanction_stream_id).await?;
+    sqlx::query(
+        "INSERT INTO support_enforcement_decisions(sanction_id,decision_revision,operation_id,
+            profile,character_id,intent,reason_code,decided_at_ms,expires_at_ms)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    )
+    .bind(command.sanction_stream_id)
+    .bind(command.decision_revision)
+    .bind(command.operation_id)
+    .bind(command.profile.as_str())
+    .bind(command.character_id)
+    .bind(command.intent.as_str())
+    .bind(command.reason_code.map(i32::from))
+    .bind(command.decided_at_ms)
+    .bind(command.expires_at_ms)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn clear_expiry(tx: &mut Transaction<'_, Postgres>, stream: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE support_enforcement_decisions SET reconcile_at_ms=NULL
+                 WHERE sanction_id=$1 AND reconcile_at_ms IS NOT NULL",
+    )
+    .bind(stream)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Prepare the game effect before the appeal updates N009. The caller already
+/// holds the sanction owner's account and workflow locks.
+pub(super) async fn prepare_appeal_revoke(
+    tx: &mut Transaction<'_, Postgres>,
+    stream: Uuid,
+    account: Uuid,
+    character: Uuid,
+    profile: &str,
+) -> Result<Option<Command>, oteryn_admin::support::Error> {
+    use oteryn_admin::support::Error as StaffError;
+    let profile = match profile {
+        "MUTE" => BrowserProfile::Mute,
+        "JAIL" => BrowserProfile::Jail,
+        _ => return Err(StaffError::Unavailable),
+    };
+    lock_publication(tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
+    let last = latest(tx, account, character, profile)
+        .await
+        .map_err(|_| StaffError::Unavailable)?
+        .ok_or(StaffError::Conflict)?;
+    if last.sanction_stream_id != stream || last.actions().contains(&Action::Apply) {
+        // Another stream could only open after this one was confirmed closed.
+        return Ok(None);
+    }
+    if !last.actions().contains(&Action::Revoke) {
+        return Err(StaffError::Conflict);
+    }
+    let code: i32 = sqlx::query_scalar(
+        "SELECT reason_code FROM support_sanction_export_revisions
+         WHERE sanction_stream_id=$1 ORDER BY decision_revision DESC LIMIT 1",
+    )
+    .bind(stream)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|_| StaffError::Unavailable)?;
+    let now = database_now(tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
+    let operation = Uuid::now_v7();
+    Ok(Some(Command {
+        operation_id: operation,
+        sanction_stream_id: stream,
+        intent: Intent::Revoke,
+        profile: profile.into(),
+        decision_revision: 1,
+        prior_decision_revision: last.accepted_revision,
+        policy_revision: 1,
+        account_id: account,
+        character_id: character,
+        effective_at_ms: None,
+        expires_at_ms: None,
+        reason_code: Some(u16::try_from(code).map_err(|_| StaffError::Unavailable)?),
+        decided_at_ms: now,
+        audit_ref: Uuid::nil(),
+        correlation_id: operation,
+    }))
+}
+
+pub(super) async fn publish_appeal_revoke(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: Uuid,
+    mut command: Command,
+    profiles: Profiles,
+) -> Result<(), oteryn_admin::support::Error> {
+    use oteryn_admin::{audit, support::Error as StaffError};
+    use serde_json::json;
+    // The existing appeal export trigger already wrote the public revision.
+    command.decision_revision = export_revision(tx, command.sanction_stream_id)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
+    command.audit_ref = audit::append(tx, audit::Entry {
+        context: audit::AuditContext { actor: Some(actor), request_id: command.operation_id },
+        action: "game.enforcement.appeal_revoke_requested", target: &command.sanction_stream_id.to_string(),
+        before: json!({"decision_revision":command.prior_decision_revision}),
+        after: json!({"operation_id":command.operation_id,"decision_revision":command.decision_revision,"state":"pending"}),
+    }).await.map_err(|_| StaffError::Unavailable)?;
+    persist_typed_decision(tx, &command)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
+    record(tx, &profiles, &command)
+        .await
+        .map_err(|error| match error {
+            Error::Conflict | Error::Stale => StaffError::Conflict,
+            _ => StaffError::Unavailable,
+        })?
+        .ok_or(StaffError::Conflict)?;
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct Expiry {
+    pool: PgPool,
+    profiles: Profiles,
+}
+impl Expiry {
+    pub fn new(pool: PgPool, profiles: Profiles) -> Self {
+        Self { pool, profiles }
+    }
+
+    async fn reconcile(&self) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        let locked: Option<bool> = sqlx::query_scalar(
+            "SELECT singleton FROM support_enforcement_counter WHERE singleton FOR UPDATE SKIP LOCKED",
+        ).fetch_optional(&mut *tx).await?;
+        if locked.is_none() {
+            return Ok(());
+        }
+        let now = database_now(&mut tx).await?;
+        // A successful terminal receipt ties the runtime to this exact timed
+        // decision. Older, pending, refused and already reconciled rows are ineligible.
+        let due = sqlx::query_as::<_, (Uuid, i64, String, Uuid, Uuid)>(
+            "SELECT d.sanction_id,d.decision_revision,d.profile,c.account_id,d.character_id
+             FROM support_enforcement_decisions d
+             JOIN support_enforcement_commands c ON c.operation_id=d.operation_id
+             JOIN support_enforcement_results r ON r.operation_id=c.operation_id AND r.terminal
+             WHERE d.reconcile_at_ms<=$1
+               AND ((d.profile='MUTE' AND $2) OR (d.profile='JAIL' AND $3))
+               AND r.state IN ('APPLIED','REPLACED')
+               AND convert_from(r.result,'UTF8')::jsonb->>'stream_state'='ACTIVE'
+               AND (convert_from(r.result,'UTF8')::jsonb->>'accepted_decision_revision')::bigint=d.decision_revision
+               AND NOT EXISTS (SELECT 1 FROM support_enforcement_commands newer
+                   WHERE newer.sanction_stream_id=d.sanction_id AND newer.decision_revision>=d.decision_revision
+                     AND newer.position>c.position)
+             ORDER BY d.reconcile_at_ms,d.sanction_id LIMIT 8",
+        ).bind(now).bind(self.profiles.enabled(Profile::Mute)).bind(self.profiles.enabled(Profile::Jail))
+            .fetch_all(&mut *tx).await?;
+        for (stream, revision, profile, account, character) in due {
+            let profile = Profile::parse(&profile).ok_or(Error::Encoding)?;
+            let operation = Uuid::now_v7();
+            let audit_ref = oteryn_admin::audit::append(
+                &mut tx,
+                oteryn_admin::audit::Entry {
+                    context: oteryn_admin::audit::AuditContext {
+                        actor: None,
+                        request_id: operation,
+                    },
+                    action: "game.enforcement.expiry_requested",
+                    target: &stream.to_string(),
+                    before: serde_json::json!({"decision_revision":revision}),
+                    after: serde_json::json!({"operation_id":operation,"state":"pending"}),
+                },
+            )
+            .await
+            .map_err(|_| Error::Encoding)?;
+            let command = Command {
+                operation_id: operation,
+                sanction_stream_id: stream,
+                intent: Intent::Expire,
+                profile,
+                decision_revision: revision,
+                prior_decision_revision: None,
+                policy_revision: 1,
+                account_id: account,
+                character_id: character,
+                effective_at_ms: None,
+                expires_at_ms: None,
+                reason_code: None,
+                decided_at_ms: now,
+                audit_ref,
+                correlation_id: operation,
+            };
+            record(&mut tx, &self.profiles, &command)
+                .await?
+                .ok_or(Error::Stale)?;
+            clear_expiry(&mut tx, stream).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
+impl oteryn_db::outbox::Cleanup for Expiry {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move { self.reconcile().await.map_err(|error| error.to_string()) })
     }
 }
 
