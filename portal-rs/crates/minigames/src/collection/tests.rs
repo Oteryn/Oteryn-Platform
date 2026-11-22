@@ -14,7 +14,16 @@ fn now() -> u64 {
 struct Trust {
     account: Uuid,
     character: Uuid,
+    second: Option<(Uuid, Uuid)>,
     allow: Arc<AtomicBool>,
+}
+impl Trust {
+    fn owns(&self, account: Uuid, character: Option<Uuid>) -> bool {
+        (account == self.account && character.is_none_or(|id| id == self.character))
+            || self.second.is_some_and(|(other, subject)| {
+                account == other && character.is_none_or(|id| id == subject)
+            })
+    }
 }
 impl Authority for Trust {
     fn lock_mutation<'a>(
@@ -29,10 +38,7 @@ impl Authority for Trust {
                 .bind(account)
                 .fetch_one(&mut **tx)
                 .await?;
-            if account != self.account
-                || character != self.character
-                || !self.allow.load(Ordering::SeqCst)
-            {
+            if !self.owns(account, Some(character)) || !self.allow.load(Ordering::SeqCst) {
                 return Err(progress::Error::Denied);
             }
             Ok(())
@@ -43,8 +49,7 @@ impl Authority for Trust {
     }
     fn permits(&self, s: Subject<'_>) -> bool {
         self.allow.load(Ordering::SeqCst)
-            && s.account == self.account
-            && s.character.is_none_or(|c| c == self.character)
+            && self.owns(s.account, s.character)
             && s.epoch == "1"
             && s.recovery == "1"
     }
@@ -121,6 +126,65 @@ fn terminal_outcomes_and_reserves() {
     assert_eq!(b.outcome, Outcome::Active);
     assert_eq!(b.player[1].health, 30);
 }
+async fn publish_bestiary(
+    progress: &progress::ProgressStore,
+    trust: &Trust,
+    card: &Card,
+    account: Uuid,
+    character: Uuid,
+) {
+    // SOURCE: synthetic G-11 revision 2 envelope, no copied game content.
+    let payload = progress::Bestiary {
+        race_key: card.race_key.clone(),
+        race_definition_revision: card.race_revision.clone(),
+        kill_count: 10,
+        final_kill_threshold: 10,
+        charm_points_awarded: 0,
+    };
+    let record = progress::Record {
+        contract_version: 1,
+        operation: "PublishGameJournalProgressV1".into(),
+        source_authority: trust.source().into(),
+        account_id: account,
+        character_id: Some(character),
+        world_id: Some(Uuid::now_v7()),
+        projection_revision: Some("1".into()),
+        projection_epoch: "1".into(),
+        recovery_generation: "1".into(),
+        family: "bestiary".into(),
+        source_revision: "1".into(),
+        record_id: Uuid::now_v7(),
+        entity_key: card.race_key.clone(),
+        character_revision: Some("1".into()),
+        occurred_at_unix_ms: now().to_string(),
+        record_kind: "UPSERT".into(),
+        payload: Some(
+            serde_json::value::RawValue::from_string(serde_json::to_string(&payload).unwrap())
+                .unwrap(),
+        ),
+    };
+    progress
+        .ingest(&serde_json::to_vec(&record).unwrap(), trust)
+        .await
+        .unwrap();
+    let w = progress::Watermark {
+        contract_version: 1,
+        operation: "PublishGameJournalProgressWatermarkV1".into(),
+        source_authority: trust.source().into(),
+        account_id: account,
+        projection_epoch: "1".into(),
+        recovery_generation: "1".into(),
+        family: "bestiary".into(),
+        complete_through: "1".into(),
+        observed_at_unix_ms: now().to_string(),
+        baseline_complete: true,
+    };
+    progress
+        .watermark(&serde_json::to_vec(&w).unwrap(), trust, now())
+        .await
+        .unwrap();
+}
+
 struct Database {
     admin: PgPool,
     pool: PgPool,
@@ -181,6 +245,7 @@ impl Database {
         let trust = Trust {
             account: Uuid::now_v7(),
             character: Uuid::now_v7(),
+            second: None,
             allow: Arc::new(AtomicBool::new(true)),
         };
         sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'synthetic@example.invalid','unused','active',now(),'en')").bind(trust.account).execute(&pool).await.unwrap();
@@ -192,56 +257,7 @@ impl Database {
             },
             vec!["bestiary".into()],
         );
-        // SOURCE: synthetic G-11 revision 2 envelope, no copied game content.
-        let payload = progress::Bestiary {
-            race_key: card.race_key.clone(),
-            race_definition_revision: card.race_revision.clone(),
-            kill_count: 10,
-            final_kill_threshold: 10,
-            charm_points_awarded: 0,
-        };
-        let record = progress::Record {
-            contract_version: 1,
-            operation: "PublishGameJournalProgressV1".into(),
-            source_authority: trust.source().into(),
-            account_id: trust.account,
-            character_id: Some(trust.character),
-            world_id: Some(Uuid::now_v7()),
-            projection_revision: Some("1".into()),
-            projection_epoch: "1".into(),
-            recovery_generation: "1".into(),
-            family: "bestiary".into(),
-            source_revision: "1".into(),
-            record_id: Uuid::now_v7(),
-            entity_key: card.race_key.clone(),
-            character_revision: Some("1".into()),
-            occurred_at_unix_ms: now().to_string(),
-            record_kind: "UPSERT".into(),
-            payload: Some(
-                serde_json::value::RawValue::from_string(serde_json::to_string(&payload).unwrap())
-                    .unwrap(),
-            ),
-        };
-        progress
-            .ingest(&serde_json::to_vec(&record).unwrap(), &trust)
-            .await
-            .unwrap();
-        let w = progress::Watermark {
-            contract_version: 1,
-            operation: "PublishGameJournalProgressWatermarkV1".into(),
-            source_authority: trust.source().into(),
-            account_id: trust.account,
-            projection_epoch: "1".into(),
-            recovery_generation: "1".into(),
-            family: "bestiary".into(),
-            complete_through: "1".into(),
-            observed_at_unix_ms: now().to_string(),
-            baseline_complete: true,
-        };
-        progress
-            .watermark(&serde_json::to_vec(&w).unwrap(), &trust, now())
-            .await
-            .unwrap();
+        publish_bestiary(&progress, &trust, &card, trust.account, trust.character).await;
         let service = Collection::new(pool.clone(), world, progress, Flags { collection: true });
         let mut bytes = Vec::new();
         image::ImageEncoder::write_image(
@@ -446,32 +462,65 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
             .unwrap();
         session.csrf_token().await.unwrap()
     }
-    let app = Router::new()
-        .route("/test-login", get(login))
-        .route_layer(axum::middleware::from_fn_with_state(
-            SessionLayer::new(db.pool.clone()),
-            session::middleware,
-        ))
-        .with_state(db.trust.account);
-    let response = app
-        .oneshot(Request::get("/test-login").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let cookie = response.headers()[header::SET_COOKIE]
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned();
-    let csrf =
-        String::from_utf8(to_bytes(response.into_body(), 4096).await.unwrap().to_vec()).unwrap();
+    async fn browser_identity(pool: &sqlx::PgPool, account: Uuid) -> (String, String) {
+        let app = Router::new()
+            .route("/test-login", get(login))
+            .route_layer(axum::middleware::from_fn_with_state(
+                SessionLayer::new(pool.clone()),
+                session::middleware,
+            ))
+            .with_state(account);
+        let response = app
+            .oneshot(Request::get("/test-login").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let csrf = String::from_utf8(to_bytes(response.into_body(), 4096).await.unwrap().to_vec())
+            .unwrap();
+        (cookie, csrf)
+    }
+    let (cookie, csrf) = browser_identity(&db.pool, db.trust.account).await;
+    let mut accounts = db.pool.begin().await.unwrap();
+    let foreign = oteryn_identity::accounts::Accounts::create(
+        &mut accounts,
+        "collection-foreign@example.invalid",
+        "unused",
+        "en",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        oteryn_identity::accounts::Accounts::mark_verified(&mut accounts, foreign.id)
+            .await
+            .unwrap()
+    );
+    accounts.commit().await.unwrap();
+    let (foreign_cookie, foreign_csrf) = browser_identity(&db.pool, foreign.id).await;
+    let foreign_character = Uuid::now_v7();
+    let mut trust = db.trust.clone();
+    trust.second = Some((foreign.id, foreign_character));
+    let progress = progress::ProgressStore::new(
+        db.pool.clone(),
+        progress::Flags {
+            ingest: true,
+            read: true,
+        },
+        vec!["bestiary".into()],
+    );
+    publish_bestiary(&progress, &trust, &db.card, foreign.id, foreign_character).await;
     let app = router(
         db.pool.clone(),
         db.service.clone(),
         Flags { collection: true },
-        Ownership(Arc::new(db.trust.clone())),
+        Ownership(Arc::new(trust)),
         CsrfConfig {
             trusted_origins: vec!["https://portal.example.invalid".into()],
             ..CsrfConfig::default()
@@ -591,6 +640,140 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
     }
     assert!(html.contains("Strike"));
     assert!(!html.contains("seed"));
+    let snapshot = || async {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT jsonb_build_object(
+                'decks',(SELECT jsonb_agg(d ORDER BY d.id) FROM collection_decks d WHERE d.account_id IN ($1,$2)),
+                'battles',(SELECT jsonb_agg(b ORDER BY b.id) FROM collection_battles b WHERE b.account_id IN ($1,$2))
+            )",
+        )
+        .bind(db.trust.account)
+        .bind(foreign.id)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+    };
+    let battle = path.rsplit('/').next().unwrap();
+    let before = snapshot().await;
+    for lang in ["en", "pl"] {
+        let root = format!("/{lang}/collection");
+        let character = db.trust.character;
+        let card = db.card.id;
+        let image = format!("{root}/{character}/cards/{card}/image");
+        let owner_image = app
+            .clone()
+            .oneshot(
+                Request::get(&image)
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(owner_image.status(), StatusCode::OK);
+        assert_eq!(owner_image.headers()[header::CONTENT_TYPE], "image/webp");
+        let own_image = app
+            .clone()
+            .oneshot(
+                Request::get(format!("{root}/{foreign_character}/cards/{card}/image"))
+                    .header(header::COOKIE, &foreign_cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(own_image.status(), StatusCode::OK);
+        let unavailable = StatusCode::SERVICE_UNAVAILABLE;
+        let denied = StatusCode::FORBIDDEN;
+        for (method, path, fields, expected) in [
+            (
+                "GET",
+                format!("{root}/{character}"),
+                String::new(),
+                unavailable,
+            ),
+            ("GET", image, String::new(), unavailable),
+            (
+                "POST",
+                format!("{root}/{character}/decks"),
+                format!("name=Foreign+character&first={card}"),
+                unavailable,
+            ),
+            (
+                "POST",
+                format!("{root}/{foreign_character}/decks"),
+                format!("name=Foreign+edit&first={card}&id={}", deck.id),
+                denied,
+            ),
+            (
+                "POST",
+                format!("{root}/decks/{}/delete", deck.id),
+                String::new(),
+                denied,
+            ),
+            (
+                "POST",
+                format!("{root}/decks/{}/battle", deck.id),
+                String::new(),
+                denied,
+            ),
+            (
+                "GET",
+                format!("{root}/battles/{battle}"),
+                String::new(),
+                denied,
+            ),
+            (
+                "POST",
+                format!("{root}/battles/{battle}"),
+                "expected=0&action=strike".into(),
+                denied,
+            ),
+            (
+                "POST",
+                format!("{root}/battles/{battle}/forfeit"),
+                String::new(),
+                denied,
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(&path)
+                        .header(header::COOKIE, &foreign_cookie)
+                        .header(header::ORIGIN, "https://portal.example.invalid")
+                        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                        .header("x-csrf-token", &foreign_csrf)
+                        .body(Body::from(format!("_csrf={foreign_csrf}&{fields}")))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "{method} {path}");
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "private, no-store"
+            );
+            let body = String::from_utf8(
+                to_bytes(response.into_body(), 100000)
+                    .await
+                    .unwrap()
+                    .to_vec(),
+            )
+            .unwrap();
+            for private in [
+                character.to_string(),
+                card.to_string(),
+                deck.id.to_string(),
+                battle.into(),
+            ] {
+                assert!(!body.contains(&private), "{method} {path}");
+            }
+            assert_eq!(snapshot().await, before, "{method} {path}");
+        }
+    }
     let response = app
         .oneshot(
             Request::post(&path)

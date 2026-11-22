@@ -640,6 +640,57 @@ async fn postgres_items_cut_must_equal_the_ownership_cut() {
         (StatusCode::OK, ack.into())
     );
     assert_eq!(db.count("SELECT count(*) FROM pd_records").await, 2);
+    use crate::items::model;
+    let mut tx = db.pool.begin().await.unwrap();
+    let foreign = oteryn_identity::accounts::Accounts::create(
+        &mut tx,
+        "inventory-foreign@example.invalid",
+        "unused",
+        "en",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        oteryn_identity::accounts::Accounts::mark_verified(&mut tx, foreign.id)
+            .await
+            .unwrap()
+    );
+    tx.commit().await.unwrap();
+
+    let evidence = super::JournalEvidence {
+        source: ITEMS_AUTHORITY.into(),
+    };
+    let owner = account.parse().unwrap();
+    let world = world.parse().unwrap();
+    let character = Some(character.parse().unwrap());
+    let mut tx = db.pool.begin().await.unwrap();
+    for family in ["ITEMS", "MARKET", "PLAYER_TRADE"] {
+        let scope = evidence
+            .resolve(&mut tx, owner, world, character, family)
+            .await
+            .unwrap();
+        assert_eq!(scope.account_id, account);
+        assert!(matches!(
+            evidence
+                .resolve(&mut tx, foreign.id, world, character, family)
+                .await,
+            Err(model::Error::Denied)
+        ));
+        assert!(matches!(
+            evidence
+                .authorize(&mut tx, &scope, Access::Read(foreign.id))
+                .await,
+            Err(model::Error::Denied)
+        ));
+        assert!(matches!(
+            evidence
+                .authorize(&mut tx, &scope, Access::Read(owner))
+                .await,
+            Err(model::Error::Unavailable)
+        ));
+    }
+    tx.rollback().await.unwrap();
     db.close().await;
 }
 

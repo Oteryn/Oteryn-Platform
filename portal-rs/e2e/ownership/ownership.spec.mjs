@@ -1,8 +1,9 @@
-import {randomUUID} from 'node:crypto';
+import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {test, expect} from '../fixtures.mjs';
 import {login, password, pool, submit} from '../helpers.mjs';
-import {query} from '../staff-rbac-helpers.mjs';
+import {action, isolatedAdmin, loginWithRecoveryCode, query} from '../staff-rbac-helpers.mjs';
+import {listing, uuid7} from '../game-sim-helpers.mjs';
 
 const ownership = test.extend({
   players: [async ({browser}, use, info) => {
@@ -11,27 +12,15 @@ const ownership = test.extend({
     if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(baseURL).hostname)) {
       throw new Error('Ownership fixtures require the local portal');
     }
-    const db = pool();
-    const databaseURL = db.options.connectionString;
-    await db.end();
-    const binary = process.env.PORTAL_E2E_BINARY;
-    if (!binary) throw new Error('Set PORTAL_E2E_BINARY to the local launcher binary');
-
     const actors = [];
     try {
       for (const letter of ['a', 'b']) {
-        const account = {email: `ownership-${letter}-${randomUUID()}@example.invalid`, password: password()};
-        const seed = spawnSync(binary, ['seed', 'account', JSON.stringify({...account, locale: lang})], {
-          env: {...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: databaseURL},
-          encoding: 'utf8',
-        });
-        expect(seed.status, 'seed local player').toBe(0);
-        const id = JSON.parse(seed.stdout).accountId;
+        const account = await seedAccount(letter, lang);
         const context = await browser.newContext({
           baseURL, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
         });
         const page = await context.newPage();
-        actors.push({...account, id, page, context});
+        actors.push({...account, page, context});
         await login(page, lang, account);
         expect(await page.locator('form[action$="/logout"]').count()).toBeGreaterThan(0);
       }
@@ -40,7 +29,34 @@ const ownership = test.extend({
       await Promise.all(actors.map(({context}) => context.close()));
     }
   }, {scope: 'worker'}],
+  operator: [async ({browser}, use, info) => {
+    const operator = await isolatedAdmin(browser, info);
+    try {
+      await use(operator.page);
+    } finally {
+      await operator.context.close();
+    }
+  }, {scope: 'worker'}],
 });
+
+async function seed(entity, args) {
+  const db = pool();
+  const databaseURL = db.options.connectionString;
+  await db.end();
+  const binary = process.env.PORTAL_E2E_BINARY;
+  if (!binary) throw new Error('Set PORTAL_E2E_BINARY to the local launcher binary');
+  const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
+    env: {...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: databaseURL},
+    encoding: 'utf8',
+  });
+  expect(result.status, `seed ${entity}`).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
+async function seedAccount(letter, locale) {
+  const account = {email: `ownership-${letter}-${randomUUID()}@example.invalid`, password: password()};
+  return {...account, id: (await seed('account', {...account, locale})).accountId};
+}
 
 async function view(page, path) {
   const response = await page.goto(path);
@@ -52,12 +68,12 @@ async function csrf(page, source) {
   return page.locator('main [name="_csrf"]').first().inputValue();
 }
 
-async function check(page, path, {method = 'GET', status = 404, form, data, token, privateValues, snapshot, location}) {
+async function check(page, path, {method = 'GET', status = 404, form, data, token, headers = {}, privateValues, snapshot, location, contains}) {
   await test.step(`${method} ${path}`, async () => {
     const before = await snapshot();
     const response = await page.request.fetch(path, {
       method, form: form && {...form, _csrf: token}, data, maxRedirects: 0,
-      headers: token ? {origin: new URL(page.url()).origin, 'x-csrf-token': token} : {},
+      headers: token ? {...headers, origin: new URL(page.url()).origin, 'x-csrf-token': token} : headers,
     });
     let html = await response.text();
     // The shared shell translates the requested pathname in its locale links,
@@ -69,6 +85,7 @@ async function check(page, path, {method = 'GET', status = 404, form, data, toke
     }
     expect(response.status(), 'ownership refusal status').toBe(status);
     expect(response.headers().location).toBe(location);
+    if (contains) expect(html.includes(contains), 'documented refusal notice').toBe(true);
     for (const value of privateValues) {
       expect(html.includes(value), 'foreign data in response').toBe(false);
     }
@@ -76,7 +93,7 @@ async function check(page, path, {method = 'GET', status = 404, form, data, toke
   });
 }
 
-ownership('support ticket detail, read acknowledgement, reply and status', async ({players: {a, b, lang}}) => {
+ownership('support ticket detail, read acknowledgement, reply and status', async ({players: {a, b, lang}, operator}) => {
   const root = `/${lang}/support/tickets`;
   const subject = `Private ticket ${randomUUID()}`;
   const body = `Private ticket message ${randomUUID()}`;
@@ -86,15 +103,22 @@ ownership('support ticket detail, read acknowledgement, reply and status', async
   await expect(a.page.locator('main')).toContainText(body);
   const path = new URL(a.page.url()).pathname;
   const id = path.split('/').at(-1);
-  const [ticket] = await query('SELECT account_id, lock_version FROM tickets WHERE id=$1', [id]);
-  expect(ticket.account_id).toBe(a.id);
-  const [{id: reply}] = await query('SELECT id FROM ticket_messages WHERE ticket_id=$1', [id]);
+  const replyBody = `Public staff reply ${randomUUID()}`;
+  await view(operator, `/admin/support/tickets/${id}`);
+  await action(operator, 'form:has(input[value=reply])', {body: replyBody});
+  await expect(operator.locator('main')).toContainText(replyBody);
+  const [ticket] = await query('SELECT account_id, lock_version, unread_reply FROM tickets WHERE id=$1', [id]);
+  expect(ticket).toMatchObject({account_id: a.id, unread_reply: true});
+  const [{id: reply}] = await query(
+    "SELECT id FROM ticket_messages WHERE ticket_id=$1 AND author_kind='staff' AND NOT internal AND body=$2",
+    [id, replyBody],
+  );
   const snapshot = () => query(`
     SELECT (SELECT to_jsonb(t) FROM tickets t WHERE id=$1) AS ticket,
            (SELECT jsonb_agg(m ORDER BY id) FROM ticket_messages m WHERE ticket_id=$1) AS messages
   `, [id]);
   const token = await csrf(b.page, `${root}/create`);
-  const options = {privateValues: [id, subject, body, reply], snapshot};
+  const options = {privateValues: [id, subject, body, reply, replyBody], snapshot};
   await check(b.page, path, options);
   await check(b.page, `${path}/read`, {...options, method: 'POST', token, form: {reply}});
   await check(b.page, `${path}/reply`, {
@@ -105,6 +129,13 @@ ownership('support ticket detail, read acknowledgement, reply and status', async
       ...options, method, token, form: {lock_version: ticket.lock_version, status: 'closed'},
     });
   }
+  expect((await snapshot())[0].ticket.unread_reply).toBe(true);
+  await view(a.page, path);
+  const acknowledge = a.page.locator(`main form[action="${path}/read"]`);
+  await expect(acknowledge.locator('[name=reply]')).toHaveValue(reply);
+  await submit(a.page, `main form[action="${path}/read"]`);
+  await expect(a.page).toHaveURL(new RegExp(`${path}$`));
+  expect((await snapshot())[0].ticket.unread_reply).toBe(false);
 });
 
 ownership('player report detail is private to its reporter', async ({players: {a, b, lang}}) => {
@@ -142,6 +173,10 @@ ownership('character creation request is private to its applicant', async ({play
 ownership('test checkout page, status and all three settlement actions', async ({players: {a, b, lang}}) => {
   const coins = `/${lang}/shop/coins`;
   await view(a.page, coins);
+  const fields = await a.page.locator('main form[action$="/shop/coins"]').first()
+    .evaluate((form) => Object.fromEntries(new FormData(form)));
+  const {operation, package: packageKey} = fields;
+  expect(Boolean(operation && packageKey)).toBe(true);
   await submit(a.page, 'main form[action$="/shop/coins"]');
   await expect(a.page).toHaveURL(/shop\/test-checkout\/[0-9a-f-]+$/);
   const path = new URL(a.page.url()).pathname;
@@ -150,6 +185,8 @@ ownership('test checkout page, status and all three settlement actions', async (
   const snapshot = () => query(`
     SELECT (SELECT md5(to_jsonb(p)::text) FROM payment_intents p WHERE id=$1) AS payment,
            (SELECT md5(to_jsonb(t)::text) FROM store_web_topups t WHERE payment_intent_id=$1) AS topup,
+           (SELECT jsonb_agg(e.id ORDER BY e.id) FROM payment_events e WHERE intent_id=$1) AS payment_events,
+           (SELECT jsonb_agg(i ORDER BY id) FROM invoices i WHERE intent_id=$1) AS invoices,
            (SELECT jsonb_agg(e ORDER BY id) FROM wallet_entries e WHERE operation_id=$1) AS entries,
            (SELECT jsonb_agg(o.id ORDER BY o.id) FROM outbox o WHERE idempotency_key=$1::uuid::text) AS outbox
   `, [id]);
@@ -162,6 +199,12 @@ ownership('test checkout page, status and all three settlement actions', async (
   for (const action of ['pay', 'reject', 'cancel']) {
     await check(b.page, path, {...options, method: 'POST', token, form: {action}});
   }
+  const replay = {operation, package: packageKey};
+  const ownerToken = await csrf(a.page, coins);
+  await check(a.page, coins, {
+    method: 'POST', status: 303, location: path, token: ownerToken, form: replay, privateValues: [], snapshot,
+  });
+  await check(b.page, coins, {...options, method: 'POST', status: 409, token, form: replay});
 });
 
 ownership('session list and both single-session revocation methods are account-scoped', async ({players: {a, b, lang}}) => {
@@ -302,39 +345,45 @@ ownership('notification preferences are scoped by the authenticated account', as
   expect(await snapshot()).toEqual(original);
 });
 
+async function fundWallet(actor, lang) {
+  await view(actor.page, `/${lang}/shop/coins`);
+  await submit(actor.page, 'main form[action$="/shop/coins"]');
+  await expect(actor.page).toHaveURL(/shop\/test-checkout\/[0-9a-f-]+$/);
+  const intent = new URL(actor.page.url()).pathname.split('/').at(-1);
+  await actor.page.locator('main button[value=pay]').click();
+  await expect.poll(async () => (await query(
+    'SELECT id FROM wallet_entries WHERE operation_id=$1 AND account_id=$2',
+    [intent, actor.id],
+  )).length, {timeout: 30000}).toBe(1);
+  return intent;
+}
+
 ownership('wallet cursor stays account-scoped and transfer operation IDs cannot be reused', async ({players: {a, b, lang}}) => {
   const history = `/${lang}/shop/history`;
   const transfer = `/${lang}/shop/transfer`;
-  const [{operation_id: adjustment}] = await query(`
-    WITH wallet AS (
-      INSERT INTO wallet_accounts(account_id) VALUES($1),($2) ON CONFLICT DO NOTHING
-    ), operation AS (
-      INSERT INTO wallet_operations(id,kind,account_id,amount,reason)
-      VALUES(uuidv7(),'adjustment',$1,39271,'Disposable ownership fixture') RETURNING id
-    )
-    INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta)
-    SELECT uuidv7(),id,$1,39271,0 FROM operation RETURNING operation_id
-  `, [a.id, b.id]);
+  const {id: recipient} = await seedAccount('recipient', lang);
+  const credit = await fundWallet(a, lang);
+  await fundWallet(b, lang);
   await view(a.page, transfer);
   const operation = await a.page.locator('main [name=operation]').inputValue();
-  await submit(a.page, 'main form', {recipient: b.id, amount: '120'});
+  await submit(a.page, 'main form', {recipient, amount: '120'});
   await expect(a.page).toHaveURL(new RegExp(`${history}$`));
-  await expect(a.page.locator('main')).toContainText(adjustment);
+  await expect(a.page.locator('main')).toContainText(credit);
   await expect(a.page.locator('main')).toContainText(operation);
   const [{id: cursor}] = await query('SELECT id FROM wallet_entries WHERE operation_id=$1 AND account_id=$2', [operation, a.id]);
   const snapshot = () => query(`
     SELECT (SELECT jsonb_agg(t ORDER BY id) FROM wallet_transfers t
-            WHERE sender_id IN ($1,$2) OR recipient_id IN ($1,$2)) AS transfers,
-           (SELECT jsonb_agg(e ORDER BY id) FROM wallet_entries e WHERE account_id IN ($1,$2)) AS entries,
-           (SELECT jsonb_agg(o ORDER BY id) FROM wallet_operations o WHERE account_id IN ($1,$2)) AS operations
-  `, [a.id, b.id]);
+            WHERE sender_id IN ($1,$2,$3) OR recipient_id IN ($1,$2,$3)) AS transfers,
+           (SELECT jsonb_agg(e ORDER BY id) FROM wallet_entries e WHERE account_id IN ($1,$2,$3)) AS entries,
+           (SELECT jsonb_agg(o ORDER BY id) FROM wallet_operations o WHERE account_id IN ($1,$2,$3)) AS operations
+  `, [a.id, b.id, recipient]);
   await check(b.page, `${history}?before=${cursor}`, {
-    status: 200, privateValues: [adjustment, '39271', cursor], snapshot,
+    status: 200, privateValues: [credit, cursor], snapshot,
   });
   const token = await csrf(b.page, transfer);
   await check(b.page, transfer, {
-    method: 'POST', status: 409, token, form: {operation, recipient: a.id, amount: '120'},
-    privateValues: [operation, a.id, adjustment], snapshot,
+    method: 'POST', status: 409, token, form: {operation, recipient, amount: '120'},
+    privateValues: [operation, a.id, credit], snapshot,
   });
 });
 
@@ -543,15 +592,158 @@ ownership('character service read, schedule, cancel and rename are owner-only', 
   }
 });
 
+
+ownership('Atlas marker list and deletion enforce the marker owner', async ({players: {a, b}}) => {
+  const path = '/atlas/private-markers';
+  const label = `Private marker ${randomUUID()}`;
+  const headers = (page, token) => ({
+    origin: new URL(page.url()).origin, 'x-csrf-token': token,
+  });
+  async function markers(page) {
+    const response = await page.request.get(path);
+    expect(response.status()).toBe(200);
+    return response.json();
+  }
+  const aToken = (await markers(a.page)).csrf_token;
+  const create = await a.page.request.post(path, {
+    data: {x: 100, y: 200, floor: 7, text: label}, headers: headers(a.page, aToken),
+  });
+  expect(create.status()).toBe(201);
+  const {id} = await create.json();
+  expect((await markers(a.page)).markers).toContainEqual({id, x: 100, y: 200, floor: 7, label});
+  const foreign = await markers(b.page);
+  expect(foreign.markers.some((marker) => marker.id === id || marker.label === label)).toBe(false);
+  const snapshot = () => query('SELECT * FROM atlas_private_markers WHERE id=$1', [id]);
+  expect((await snapshot())[0].account_id).toBe(a.id);
+  await check(b.page, `${path}/${id}`, {
+    method: 'DELETE', token: foreign.csrf_token, snapshot, privateValues: [id, label],
+  });
+  expect((await a.page.request.delete(`${path}/${id}`, {
+    headers: headers(a.page, aToken),
+  })).status()).toBe(204);
+  expect(await snapshot()).toEqual([]);
+});
+
+const nativeClient = '019a0000-0000-7000-8000-0000000c11e7';
+const callback = 'https://localhost:18443/__oauth/callback';
+
+async function nativePayer(page) {
+  const verifier = randomBytes(32).toString('base64url');
+  const state = randomBytes(24).toString('hex');
+  const params = new URLSearchParams({
+    response_type: 'code', client_id: nativeClient, redirect_uri: callback,
+    scope: 'game:account-services', state,
+    code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+    code_challenge_method: 'S256',
+  });
+  await view(page, `/oauth/authorize?${params}`);
+  const consent = page.locator('main form').first();
+  const form = await consent.evaluate((node) => Object.fromEntries(new FormData(node)));
+  const response = await page.request.post(await consent.getAttribute('action') || '/oauth/authorize', {
+    form: {...form, decision: 'approve'}, headers: {origin: new URL(page.url()).origin}, maxRedirects: 0,
+  });
+  expect(response.status()).toBe(302);
+  const destination = new URL(response.headers().location);
+  expect(destination.searchParams.get('state') === state).toBe(true);
+  expect(destination.origin + destination.pathname).toBe(callback);
+  const token = await page.request.post('/oauth/token', {form: {
+    grant_type: 'authorization_code', client_id: nativeClient, redirect_uri: callback,
+    code: destination.searchParams.get('code'), code_verifier: verifier,
+  }});
+  expect(token.status()).toBe(200);
+  const {access_token: accessToken} = await token.json();
+  expect(Boolean(accessToken)).toBe(true);
+  return {authorization: `Bearer ${accessToken}`};
+}
+
+ownership('native request status and sandbox checkout require the payer', async ({players: {a, b, lang}}) => {
+  await seed('oauth-native-client', {clientId: nativeClient});
+  const aHeaders = await nativePayer(a.page);
+  const bHeaders = await nativePayer(b.page);
+  const api = '/api/v1/native-account/coin-purchases';
+  const catalogue = await a.page.request.get(`${api}/catalogue`, {headers: aHeaders});
+  expect(catalogue.status()).toBe(200);
+  expect((await b.page.request.get(`${api}/catalogue`, {headers: bHeaders})).status()).toBe(200);
+  const {packages} = await catalogue.json();
+  expect(packages).toHaveLength(1);
+  const [offer] = packages;
+  const requestId = uuid7();
+  const created = await a.page.request.post(`${api}/orders`, {headers: aHeaders, data: {
+    version: 1, request_id: requestId, package_id: offer.id, quote_id: offer.quote_id, character_id: null,
+  }});
+  expect(created.status()).toBe(200);
+  const {order_id: order, checkout_url: checkout} = await created.json();
+  const checkoutPath = `/native-account/coin-checkout/${order}`;
+  expect(new URL(checkout).pathname).toBe(checkoutPath);
+  const statusPath = `${api}/requests/${requestId}`;
+  const ownerStatus = await a.page.request.get(statusPath, {headers: aHeaders});
+  expect(ownerStatus.status()).toBe(200);
+  expect(await ownerStatus.json()).toMatchObject({order_id: order, request_id: requestId, state: 'awaiting_payment'});
+  await view(a.page, checkoutPath);
+  await expect(a.page.locator('main form input[name=action]')).toHaveCount(2);
+  const [{payment_intent_id: intent}] = await query(
+    'SELECT payment_intent_id FROM coin_purchase_orders WHERE id=$1 AND payer_account_id=$2', [order, a.id],
+  );
+  const snapshot = () => query(`
+    SELECT (SELECT to_jsonb(p) FROM coin_purchase_orders p WHERE id=$1) AS purchase,
+           (SELECT md5(to_jsonb(p)::text) FROM payment_intents p WHERE id=$2) AS payment,
+           (SELECT jsonb_agg(e.id ORDER BY e.id) FROM payment_events e WHERE intent_id=$2) AS events,
+           (SELECT jsonb_agg(i ORDER BY i.id) FROM invoices i WHERE intent_id=$2) AS invoices,
+           (SELECT jsonb_agg(e ORDER BY id) FROM wallet_entries e WHERE operation_id=$2) AS entries
+  `, [order, intent]);
+  const options = {privateValues: [order, requestId, intent], snapshot};
+  await check(b.page, statusPath, {...options, headers: bHeaders});
+  await check(b.page, checkoutPath, options);
+  const token = await csrf(b.page, `/${lang}/shop/coins`);
+  for (const decision of ['pay', 'fail']) {
+    await check(b.page, checkoutPath, {
+      ...options, method: 'POST', token, form: {action: decision},
+    });
+  }
+  const [settled] = await Promise.all([
+    a.page.waitForResponse((response) => response.request().method() === 'POST'
+      && new URL(response.url()).pathname === checkoutPath),
+    a.page.locator('main form:has(input[name=action][value=pay]) button').click(),
+  ]);
+  expect(settled.status()).toBe(303);
+  expect((await snapshot())[0].purchase.state).toBe('paid');
+});
+
+async function enroll(actor, lang, remember = false) {
+  const {page} = actor;
+  const {recoveryCodes: [recovery]} = await seed('account-mfa', {accountId: actor.id, password: actor.password});
+  if (remember) {
+    await login(page, lang, actor);
+    await expect(page).toHaveURL(/mfa\/challenge/);
+    await submit(page, 'form[action$="/mfa/challenge"]', {code: recovery, remember: true});
+  } else {
+    await loginWithRecoveryCode(page, lang, actor, recovery);
+  }
+}
+
+async function publishRoster(a, b) {
+  const character = uuid7();
+  const published = await b.page.request.post('/__bazaar_game/seed', {data: {
+    seller: a.id, buyer: b.id, kind: 'item', asset_id: uuid7(),
+    seller_character_id: uuid7(), buyer_character_id: character,
+  }});
+  expect(published.status()).toBe(201);
+  const [roster] = await query(
+    'SELECT * FROM account_characters WHERE account_id=$1 AND character_id=$2',
+    [b.id, character],
+  );
+  expect(roster.account_id).toBe(b.id);
+  return roster;
+}
+
 ownership('private item and character-history reads fail closed without G-10 authority', async ({players: {a, b, lang}}) => {
-  const name = 'Private Inventory Character';
-  const {character_id: character, world_id: world} = await seedProjectedCharacter(a.id, name);
+  const {character_id: character, world_id: world, name} = await publishRoster(a, b);
   const snapshot = () => query(`
     SELECT (SELECT to_jsonb(c) FROM account_characters c WHERE account_id=$1 AND character_id=$2) AS character,
            (SELECT jsonb_agg(s ORDER BY family) FROM pd_t76_streams s
             WHERE world_id=$3 AND account_id IN ($1,$4)) AS streams
-  `, [a.id, character, world, b.id]);
-  const options = {status: 503, privateValues: [a.id, character, world, name], snapshot};
+  `, [b.id, character, world, a.id]);
+  const options = {status: 503, privateValues: [b.id, character, world, name], snapshot};
   for (const path of [
     `/${lang}/panel/items/${world}/${character}`,
     `/${lang}/panel/history/${world}/market/${character}`,
@@ -560,5 +752,82 @@ ownership('private item and character-history reads fail closed without G-10 aut
   ]) {
     await check(a.page, path, options);
     await check(b.page, path, options);
+  }
+});
+
+ownership('Atlas bestiary and Collection fail closed with only a verified roster', async ({players: {a, b, lang}}) => {
+  const {character_id: character, name} = await publishRoster(a, b);
+  const snapshot = () => query(
+    'SELECT * FROM account_characters WHERE account_id=$1 AND character_id=$2',
+    [b.id, character],
+  );
+  const options = {status: 503, privateValues: [character, name, b.id], snapshot};
+  for (const path of [`/${lang}/atlas/bestiary/${character}`, `/${lang}/collection/${character}`]) {
+    await check(b.page, path, options);
+    await check(a.page, path, options);
+  }
+});
+
+ownership('Bazaar promotion form is scoped to the seller', async ({players: {a, b, lang}, operator}) => {
+  await view(operator, `/admin/${lang}/bazaar`);
+  await submit(operator, 'form:has(input[value=fees])', {
+    promotion_price: '50', reason: 'Disposable ownership promotion quote',
+  });
+  expect(await query('SELECT id FROM bazaar_fee_revisions WHERE promotion_price=50')).not.toHaveLength(0);
+  await enroll(a, lang);
+  await view(a.page, `/${lang}/account/sudo`);
+  await submit(a.page, 'main form', {current_password: a.password});
+  const {id} = await listing(a, b, lang);
+  const path = `/${lang}/account/bazaar/${id}/promote`;
+  await view(a.page, path);
+  const form = await a.page.locator('main form').first().evaluate((node) => {
+    const {id, fee_revision, amount} = Object.fromEntries(new FormData(node));
+    return {id, fee_revision, amount};
+  });
+  expect(form.amount).toBe('50');
+  const snapshot = () => query(`
+    SELECT (SELECT jsonb_agg(p ORDER BY p.id) FROM bazaar_promotions p WHERE listing_id=$1) AS promotions,
+           (SELECT jsonb_agg(e ORDER BY e.id) FROM wallet_entries e WHERE operation_id=$2) AS debits
+  `, [id, form.id]);
+  const options = {status: 403, privateValues: [form.fee_revision, id, form.id], snapshot};
+  await check(b.page, path, options);
+  const token = await csrf(b.page, `/${lang}/shop/coins`);
+  await check(b.page, path, {...options, method: 'POST', token, form});
+});
+
+ownership('MFA trusted-device removal requires the device owner', async ({players: {a, b, lang}}) => {
+  // The promotion case already authenticated A with MFA. Use separate seeded
+  // players here so both actors exercise the real remember-device challenge.
+  const aDevice = await seedAccount('device-a', lang);
+  const bDevice = await seedAccount('device-b', lang);
+  const aState = {...aDevice, page: await a.context.newPage()};
+  const bState = {...bDevice, page: await b.context.newPage()};
+  try {
+    await login(aState.page, lang, aState);
+    await enroll(aState, lang, true);
+    const path = `/${lang}/mfa`;
+    await view(aState.page, path);
+    const selector = 'main form[action$="/mfa/devices"]';
+    const device = await aState.page.locator(`${selector} [name=device]`).inputValue();
+    const snapshot = () => query(`
+      SELECT md5(to_jsonb(t)::text) AS device FROM account_mfa_tokens t
+      WHERE account_id=$1 AND purpose='trusted' AND encode(token_hash,'hex')=$2
+    `, [aState.id, device]);
+    expect(await snapshot()).toHaveLength(1);
+
+    await login(bState.page, lang, bState);
+    await enroll(bState, lang, true);
+    await view(bState.page, path);
+    const token = await bState.page.locator(`${selector} [name=_csrf]`).inputValue();
+    await check(bState.page, `${path}/devices`, {
+      method: 'POST', status: 200, form: {device}, token, snapshot, privateValues: [device],
+      contains: lang === 'pl' ? 'Nie udało się zweryfikować żądania.' : 'The request could not be verified.',
+    });
+    await submit(aState.page, selector);
+    await expect(aState.page.locator(selector)).toHaveCount(0);
+    expect(await snapshot()).toEqual([]);
+  } finally {
+    await aState.page.close();
+    await bState.page.close();
   }
 });
