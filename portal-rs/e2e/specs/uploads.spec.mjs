@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32 } from 'node:zlib';
 import { test, expect } from '../fixtures.mjs';
-import { password, pool, submit } from '../helpers.mjs';
+import { disposableDatabaseUrl, password, pool, submit } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 
 const route = '/admin/media';
@@ -22,14 +22,14 @@ const mediaLabel = () => `Editorial upload ${randomUUID()}`;
 async function staffAccount(browser, project, role) {
   const lang = project.metadata.locale;
   const account = { email: `upload-${randomUUID()}@example.invalid`, password: password() };
-  // pool() validates the disposable loopback database before the seed CLI sees it.
-  const db = pool();
+  const databaseUrl = disposableDatabaseUrl();
+  const db = pool(databaseUrl);
   const target = process.env.CARGO_TARGET_DIR ??
     fileURLToPath(new URL('../../target', import.meta.url));
   const binary = process.env.PORTAL_E2E_BINARY ?? path.resolve(target, 'debug/oteryn-portal');
   function seed(entity, args) {
     const seeded = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
-      env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: db.options.connectionString },
+      env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: databaseUrl },
       encoding: 'utf8',
       timeout: 30_000,
     });
