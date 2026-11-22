@@ -2,13 +2,20 @@ SELECT event.request_id, event.actor, event.action, event.operation, event.targe
        event.created_at::text AS recorded_at, projected.before, projected.after
 FROM (
     SELECT request_id, actor, action, COALESCE(operation, action) AS operation,
-           COALESCE(admin_control_target->>'character_id', admin_control_target->>'view', target) AS target,
+           visible.target,
            id, created_at, before, after
     FROM audit_log
+    CROSS JOIN LATERAL (VALUES (
+        COALESCE(admin_control_target->>'character_id', admin_control_target->>'view', audit_log.target)
+    )) AS stored(target)
+    CROSS JOIN LATERAL (VALUES (
+        CASE WHEN action = ANY($6::text[]) AND NOT (stored.target = ANY($7::text[]))
+             THEN NULL ELSE stored.target END
+    )) AS visible(target)
     WHERE ($1::uuid IS NULL OR request_id = $1)
       AND ($2::uuid IS NULL OR actor = $2)
       AND ($3::text IS NULL OR COALESCE(operation, action) = $3)
-      AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id', admin_control_target->>'view', target) = $4)
+      AND ($4::text IS NULL OR visible.target = $4)
     ORDER BY created_at DESC, id DESC
     LIMIT 100
 ) AS event

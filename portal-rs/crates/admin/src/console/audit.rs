@@ -338,7 +338,7 @@ struct AuditRow {
     actor: Option<Uuid>,
     action: String,
     operation: String,
-    target: String,
+    target: Option<String>,
     recorded_at: String,
     before: Value,
     after: Value,
@@ -346,12 +346,9 @@ struct AuditRow {
 
 impl AuditRow {
     fn target_summary(&self, lang: &str) -> std::borrow::Cow<'_, str> {
-        if EDITORIAL_PAGE_ACTIONS.contains(&self.action.as_str())
-            && !LEGAL_PAGE_TARGETS.contains(&self.target.as_str())
-        {
-            tr(lang, "audit-target-hidden").into()
-        } else {
-            self.target.as_str().into()
+        match &self.target {
+            Some(target) => target.as_str().into(),
+            None => tr(lang, "audit-target-hidden").into(),
         }
     }
 
@@ -431,7 +428,13 @@ pub(crate) async fn page<B: Backend>(
                             row.recorded_at,
                             row.role_context(lang),
                         ),
-                        changes: changes(lang, &row.action, &row.target, &row.before, &row.after),
+                        changes: changes(
+                            lang,
+                            &row.action,
+                            row.target.as_deref().unwrap_or_default(),
+                            &row.before,
+                            &row.after,
+                        ),
                     })
                     .collect(),
             ),

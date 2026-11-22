@@ -9,10 +9,9 @@ fn diff(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Change> 
 async fn postgres_audit_projects_only_fields_for_the_stored_action_and_target()
 -> Result<(), Box<dyn std::error::Error>> {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
-    let db = super::super::players::tests::Database::open(&std::env::var(
-        "PORTAL_TEST_DATABASE_URL",
-    )?)
-    .await?;
+    let db =
+        super::super::players::tests::Database::open(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+            .await?;
     let request_id = Uuid::now_v7();
     for (action, target, before, after) in [
         (
@@ -88,6 +87,20 @@ async fn postgres_audit_projects_only_fields_for_the_stored_action_and_target()
             &json!({"assigned":true,"role":"00000000-0000-7000-8000-000000000001"})
         )
     );
+    assert_eq!(rows[2].target, None);
+    assert_eq!(rows[2].target_summary("en"), "Page target hidden");
+    for (target, expected) in [("draft-client-case-4821", 0), ("privacy-policy", 1)] {
+        let matching = platform_rows(
+            &db.pool,
+            &Filter {
+                request_id: Some(request_id),
+                target: Some(target.into()),
+                ..Default::default()
+            },
+        )
+        .await?;
+        assert_eq!(matching.len(), expected);
+    }
     db.close().await?;
     Ok(())
 }
@@ -96,10 +109,9 @@ async fn postgres_audit_projects_only_fields_for_the_stored_action_and_target()
 async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
 -> Result<(), Box<dyn std::error::Error>> {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
-    let db = super::super::players::tests::Database::open(&std::env::var(
-        "PORTAL_TEST_DATABASE_URL",
-    )?)
-    .await?;
+    let db =
+        super::super::players::tests::Database::open(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+            .await?;
     let request_id = Uuid::now_v7();
     for (legacy, canonical) in [
         ("2020-01-01 00:00:00+0000", "2020-01-01T00:00:00Z"),
@@ -149,8 +161,9 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
     .await?;
     assert_eq!(rows.len(), 7);
     for row in rows {
-        let changes = changes("en", &row.action, &row.target, &row.before, &row.after);
-        if row.target == "invalid" {
+        let target = row.target.as_deref().ok_or("missing test target")?;
+        let changes = changes("en", &row.action, target, &row.before, &row.after);
+        if target == "invalid" {
             assert_eq!(changes.len(), 2);
             assert!(
                 changes
@@ -158,8 +171,8 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
                     .all(|change| change.before == "—" && change.after == "Unknown")
             );
         } else {
-            assert_eq!(row.before, row.after, "{}", row.target);
-            assert!(changes.is_empty(), "{}", row.target);
+            assert_eq!(row.before, row.after, "{target}");
+            assert!(changes.is_empty(), "{target}");
         }
     }
     db.close().await?;
