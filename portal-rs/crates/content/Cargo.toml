@@ -24,6 +24,9 @@ unic-langid = "0.9"
 pulldown-cmark = "0.13"
 ammonia = "4"
 thiserror = "2"
+httparse = "1"
+memchr = "2"
+multer = "3.1"
 [dev-dependencies]
 oteryn-db = { workspace = true, features = ["test-support"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }

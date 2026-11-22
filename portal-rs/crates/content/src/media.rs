@@ -2,7 +2,8 @@
 //! X-CSRF-Token. Untrusted names and MIME headers never select stored paths.
 use axum::{
     Extension, Router,
-    extract::{DefaultBodyLimit, Path, Query, State},
+    body::Bytes,
+    extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State},
     http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -148,13 +149,89 @@ fn configured_router_from(
         lookup,
     )
 }
+// Multer inserts headers into a HeaderMap, losing repeated declarations. Check
+// the same multipart boundaries and raw header syntax before either parser runs.
+fn validate_part_headers(body: &[u8], boundary: &str) -> Result<(), StatusCode> {
+    use memchr::memmem::find;
+    let bad = StatusCode::UNPROCESSABLE_ENTITY;
+    let delimiter = format!("--{boundary}");
+    let next_delimiter = format!("\r\n{delimiter}");
+    let first = find(body, delimiter.as_bytes()).ok_or(bad)?;
+    let mut rest = &body[first + delimiter.len()..];
+    loop {
+        if rest.starts_with(b"--") {
+            return Ok(());
+        }
+        let padding = rest
+            .iter()
+            .take_while(|b| matches!(b, b' ' | b'\t'))
+            .count();
+        let part = rest[padding..].strip_prefix(b"\r\n").ok_or(bad)?;
+        let headers_end = find(part, b"\r\n\r\n").ok_or(bad)? + 4;
+        let mut headers = [httparse::EMPTY_HEADER; 32];
+        let httparse::Status::Complete((_, headers)) =
+            httparse::parse_headers(&part[..headers_end], &mut headers).map_err(invalid)?
+        else {
+            return Err(bad);
+        };
+        if headers
+            .iter()
+            .filter(|header| header.name.eq_ignore_ascii_case("content-type"))
+            .nth(1)
+            .is_some()
+        {
+            return Err(bad);
+        }
+        let data = &part[headers_end..];
+        let next = find(data, next_delimiter.as_bytes()).ok_or(bad)?;
+        rest = &data[next + next_delimiter.len()..];
+    }
+}
+
+async fn checked_body(request: &mut Request) -> Result<Bytes, StatusCode> {
+    let content_type = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+    let boundary = multer::parse_boundary(content_type).map_err(invalid)?;
+    let body = std::mem::replace(request.body_mut(), axum::body::Body::empty());
+    let bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        axum::body::to_bytes(body, MAX_BYTES + 16384),
+    )
+    .await
+    .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
+    .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+    validate_part_headers(&bytes, &boundary)?;
+    Ok(bytes)
+}
+
+#[derive(Clone)]
+struct CheckedPartHeaders;
+
+struct CheckedMultipart(Multipart);
+
+impl<S: Send + Sync> FromRequest<S> for CheckedMultipart {
+    type Rejection = StatusCode;
+
+    async fn from_request(mut request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        if request.extensions().get::<CheckedPartHeaders>().is_none() {
+            *request.body_mut() = axum::body::Body::from(checked_body(&mut request).await?);
+        }
+        Multipart::from_request(request, state)
+            .await
+            .map(Self)
+            .map_err(invalid)
+    }
+}
+
 /// Adapt a native multipart form token to the shared synchronizer-token verifier.
 /// The shared guard still validates the origin, session and constant-time token.
 async fn multipart_csrf(
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<Response, StatusCode> {
-    use axum::extract::FromRequest;
     if request.method() == axum::http::Method::POST
         && request.uri().path() == "/admin/media"
         && !request.headers().contains_key("x-csrf-token")
@@ -164,14 +241,7 @@ async fn multipart_csrf(
             .get(header::CONTENT_TYPE)
             .cloned()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-        let body = std::mem::replace(request.body_mut(), axum::body::Body::empty());
-        let bytes = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            axum::body::to_bytes(body, MAX_BYTES + 16384),
-        )
-        .await
-        .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
-        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+        let bytes = checked_body(&mut request).await?;
         let mut copy = axum::http::Request::new(axum::body::Body::from(bytes.clone()));
         copy.extensions_mut().extend(request.extensions().clone());
         copy.headers_mut()
@@ -193,6 +263,7 @@ async fn multipart_csrf(
             );
         }
         *request.body_mut() = axum::body::Body::from(bytes);
+        request.extensions_mut().insert(CheckedPartHeaders);
     }
     Ok(next.run(request).await)
 }
@@ -306,7 +377,7 @@ async fn upload(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Query(options): Query<Options>,
-    mut multipart: Multipart,
+    CheckedMultipart(mut multipart): CheckedMultipart,
 ) -> Result<Response, StatusCode> {
     let mut image = None;
     let mut alt = None;
@@ -337,9 +408,9 @@ async fn upload(
     let (name, declared_type, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
     let processed = tokio_process(name, bytes.to_vec()).await?;
     if declared_type.is_some_and(|value| {
-        !value
-            .as_bytes()
-            .eq_ignore_ascii_case(processed.mime.as_bytes())
+        let value = value.as_bytes();
+        !value.eq_ignore_ascii_case(b"application/octet-stream")
+            && !value.eq_ignore_ascii_case(processed.mime.as_bytes())
     }) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }

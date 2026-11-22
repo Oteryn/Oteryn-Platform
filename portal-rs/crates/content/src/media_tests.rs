@@ -326,6 +326,30 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap()
     );
+    for header_csrf in [false, true] {
+        let mut request = make(
+            csrf,
+            "Duplicate MIME",
+            "image/png\r\ncontent-type: image/png",
+        );
+        if header_csrf {
+            request
+                .headers_mut()
+                .insert("x-csrf-token", csrf.parse().unwrap());
+        }
+        assert_eq!(
+            app.clone().oneshot(request).await.unwrap().status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert!(
+            !sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM media WHERE alt_text='Duplicate MIME')"
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        );
+    }
     let uploaded = app
         .clone()
         .oneshot(make(csrf, "Image", "image/png"))
@@ -348,7 +372,19 @@ async fn browser_lifecycle(pool: &PgPool) {
     .await
     .unwrap();
     assert_eq!(audit_count, 1);
-    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT $1,'editorial_media.uploaded','test','null'::jsonb,'null'::jsonb,uuidv7() FROM generate_series(1,9)").bind(actor).execute(pool).await.unwrap();
+    let generic = app
+        .clone()
+        .oneshot(make(csrf, "Generic MIME", "application/octet-stream"))
+        .await
+        .unwrap();
+    assert_eq!(generic.status(), StatusCode::FOUND);
+    let mime: String =
+        sqlx::query_scalar("SELECT mime_type FROM media WHERE alt_text='Generic MIME'")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(mime, "image/png");
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT $1,'editorial_media.uploaded','test','null'::jsonb,'null'::jsonb,uuidv7() FROM generate_series(1,8)").bind(actor).execute(pool).await.unwrap();
     assert_eq!(
         app.clone()
             .oneshot(make(csrf, "Image", "image/png"))
