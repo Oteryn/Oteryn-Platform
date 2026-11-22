@@ -38,9 +38,7 @@ fn terminal_dossier_status(
         Status::Failed => Some(QueryStatus::Failed),
         Status::Cancelled => Some(QueryStatus::Cancelled),
         Status::Expired => Some(QueryStatus::Expired),
-        Status::Queued | Status::Delivered | Status::Accepted | Status::InProgress
-            if expires_at <= OffsetDateTime::now_utc() =>
-        {
+        Status::Queued | Status::Delivered if expires_at <= OffsetDateTime::now_utc() => {
             Some(QueryStatus::Expired)
         }
         _ => None,
@@ -247,31 +245,42 @@ impl StoredChannel {
         let evidence: Option<(OffsetDateTime, String)> = sqlx::query_as("SELECT t.created_at,COALESCE(s.ip::text,'') FROM account_mfa_tokens t JOIN web_sessions s ON s.account_id=t.account_id WHERE t.token_hash=$1 AND t.account_id=$2 AND t.purpose='grant' AND t.created_at<=clock_timestamp() AND t.expires_at>clock_timestamp() AND s.id_hash=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() FOR SHARE OF t,s")
             .bind(Sha256::digest(grant.as_bytes()).to_vec()).bind(actor.account).bind(&session_hash).fetch_optional(&mut *tx).await?;
         let (mfa_at, ip) = evidence.ok_or(Error::Denied)?;
-        if target.character_id.is_some() {
-            // Admission holds the actor lock. A stale or replayed retry cannot
-            // replace a newer request, and a racing GET cannot retry a failure.
-            let latest =
-                Self::latest_query(&mut tx, actor.account, operation, &target, &params, None)
-                    .await?;
-            let terminal = latest.and_then(|request| {
-                terminal_dossier_status(request.status, request.expires_at)
-                    .map(|_| request.request_id)
-            });
-            match (retry, terminal) {
-                (None, Some(id)) => {
-                    tx.commit().await?;
-                    return Ok(id);
-                }
-                (Some(expected), current) if current != Some(expected) => {
+        if risk == control::RiskClass::R1 {
+            // The actor lock serializes admissions. Hold the latest request
+            // row through the decision so reconciliation cannot change its
+            // status between the verification and pending checks.
+            let latest = Self::latest_query(
+                &mut tx,
+                actor.account,
+                operation,
+                &target,
+                &params,
+                None,
+                true,
+            )
+            .await?;
+            let terminal = latest
+                .as_ref()
+                .filter(|_| target.character_id.is_some())
+                .and_then(|request| {
+                    terminal_dossier_status(request.status, request.expires_at)
+                        .map(|_| request.request_id)
+                });
+            if let Some(expected) = retry {
+                if terminal != Some(expected) {
                     return Err(Error::Invalid);
                 }
-                _ => {}
+            } else if let Some(id) = terminal {
+                tx.commit().await?;
+                return Ok(id);
+            } else if let Some((request, _)) = self.verified_result(&mut tx, agent, latest).await? {
+                tx.commit().await?;
+                return Ok(request.request_id);
             }
         }
-        let pending: Option<Uuid> = sqlx::query_scalar("SELECT request_id FROM admin_control_requests WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND kind='query' AND expires_at>clock_timestamp() AND status IN ('queued','delivered','accepted','in_progress') ORDER BY request_id LIMIT 1")
-            .bind(actor.account).bind(operation).bind(sqlx::types::Json(&target)).bind(&params)
-            .fetch_optional(&mut *tx).await?;
-        if let Some(id) = pending {
+        if let Some(id) =
+            Self::pending_query(&mut tx, actor.account, operation, &target, &params).await?
+        {
             tx.commit().await?;
             return Ok(id);
         }
@@ -409,7 +418,7 @@ impl StoredChannel {
         if !owns {
             return Err(Error::Unavailable);
         }
-        Self::latest_query(conn, actor, operation, target, params, request_id).await
+        Self::latest_query(conn, actor, operation, target, params, request_id, false).await
     }
 
     async fn latest_query(
@@ -419,22 +428,49 @@ impl StoredChannel {
         target: &control::Target,
         params: &Value,
         request_id: Option<Uuid>,
+        for_update: bool,
     ) -> Result<Option<control::Request>, Error> {
         // Pick the latest admitted request before deciding whether its result
         // belongs to the current epoch. An older rejection cannot mask it.
-        Ok(sqlx::query_as(
+        let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             "SELECT r.* FROM admin_control_requests r
              WHERE r.actor=$1 AND r.operation=$2 AND r.target=$3 AND r.params=$4 AND r.kind='query'
                  AND ($5::uuid IS NULL OR r.request_id=$5) AND r.issued_at<=clock_timestamp()
                  AND EXISTS(SELECT 1 FROM audit_log a WHERE a.request_id=r.request_id
                      AND a.actor=r.actor AND a.action='console.query.admitted')
              ORDER BY r.issued_at DESC, r.request_id DESC LIMIT 1",
+        );
+        if for_update {
+            query.push(" FOR UPDATE OF r");
+        }
+        Ok(sqlx::query_as(query.into_sql())
+            .bind(actor)
+            .bind(operation)
+            .bind(sqlx::types::Json(target))
+            .bind(params)
+            .bind(request_id)
+            .fetch_optional(conn)
+            .await?)
+    }
+
+    async fn pending_query(
+        conn: &mut sqlx::PgConnection,
+        actor: Uuid,
+        operation: &str,
+        target: &control::Target,
+        params: &Value,
+    ) -> Result<Option<Uuid>, Error> {
+        Ok(sqlx::query_scalar(
+            "SELECT request_id FROM admin_control_requests
+             WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND kind='query'
+                 AND (status IN ('accepted','in_progress')
+                      OR (status IN ('queued','delivered') AND expires_at>clock_timestamp()))
+             ORDER BY request_id LIMIT 1",
         )
         .bind(actor)
         .bind(operation)
         .bind(sqlx::types::Json(target))
         .bind(params)
-        .bind(request_id)
         .fetch_optional(conn)
         .await?)
     }
@@ -580,10 +616,11 @@ impl StoredChannel {
                 result.result.0,
             )));
         }
-        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_requests WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND expires_at>clock_timestamp() AND status IN ('queued','delivered','accepted','in_progress'))")
-            .bind(actor.account).bind(operation).bind(sqlx::types::Json(&target)).bind(&params).fetch_one(&mut *tx).await?;
+        let pending = Self::pending_query(&mut tx, actor.account, operation, &target, &params)
+            .await
+            .map_err(|_| access::Error::Unavailable)?;
         tx.commit().await?;
-        if (admission.retry.is_some() || !pending)
+        if (admission.retry.is_some() || pending.is_none())
             && let Some(session) = admission.session
         {
             self.submit_query(
@@ -650,7 +687,7 @@ impl Channel for StoredChannel {
         let status = selected.as_ref().map_or(QueryStatus::Pending, |request| {
             use control::Status;
             match request.status {
-                Status::Queued | Status::Delivered | Status::Accepted | Status::InProgress
+                Status::Queued | Status::Delivered
                     if request.expires_at <= OffsetDateTime::now_utc() =>
                 {
                     QueryStatus::Expired
@@ -755,5 +792,7 @@ mod dossier_status_tests {
         );
         assert!(terminal_dossier_status(Status::Delivered, future).is_none());
         assert!(terminal_dossier_status(Status::Succeeded, now).is_none());
+        assert!(terminal_dossier_status(Status::Accepted, now).is_none());
+        assert!(terminal_dossier_status(Status::InProgress, now).is_none());
     }
 }
