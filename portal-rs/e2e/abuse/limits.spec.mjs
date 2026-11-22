@@ -87,6 +87,12 @@ async function denied(response, lang, { message = sharedMessage[lang], retry } =
   }
 }
 
+async function partyQuotaDenied(response) {
+  expect(response.status()).toBe(429);
+  expect(await response.text()).toBe('');
+  expect(response.headers()['retry-after']).toBeUndefined();
+}
+
 async function startMinute() {
   // Leave enough of the production window to exercise the exact boundary.
   await expect.poll(async () => Number((await query(
@@ -127,6 +133,29 @@ const createTicket = async (player, lang, suffix) => {
   return post(player.page, route, { ...fields, subject: `Browser ticket ${suffix}`, body: 'Local abuse qualification message.' });
 };
 const ticketLocation = lang => new RegExp(`^/${lang}/support/tickets/${uuidPath}$`);
+
+test('comment-only profile updates accept thirty, refuse thirty-one and recover', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([player], lang) => {
+    await partyCharacters([player]);
+    const route = `/${lang}/account/characters/${encodeURIComponent('Aldric Vale')}/profile`;
+    const form = await formFields(player.page, route);
+    const save = index => post(player.page, route, { ...form, comment: `Profile comment ${index}` });
+    const saved = () => query(
+      'SELECT comment FROM character_profiles WHERE account_id=$1 AND character_id=$2',
+      [player.id, player.character],
+    );
+    for (let i = 1; i <= 30; i++) redirect(await save(i), 303, route);
+    expect(await saved()).toEqual([{ comment: 'Profile comment 30' }]);
+    await denied(await save(31), lang);
+    expect(await saved()).toEqual([{ comment: 'Profile comment 30' }]);
+    expect(await query(
+      `UPDATE character_profile_events SET created_at=clock_timestamp()-interval '1 minute 1 second'
+       WHERE account_id=$1 AND event_type='character.profile_preferences_updated' RETURNING account_id`, [player.id],
+    )).toHaveLength(30);
+    redirect(await save(31), 303, route);
+    expect(await saved()).toEqual([{ comment: 'Profile comment 31' }]);
+  });
+});
 
 test('ticket creation allows six, isolates a second account and resets', async ({ browser }, info) => {
   await withPlayers(browser, info, async ([a, b], lang) => {
@@ -415,9 +444,9 @@ test('party caps five active and ten hourly posts, isolates an owner and resets'
 
     for (let i = 0; i < 5; i++) redirect(await create(a), 303, route);
     expect(await active(a)).toHaveLength(5);
-    await denied(await create(a), lang);
+    await partyQuotaDenied(await create(a));
     redirect(await create(b), 303, route);
-    await denied(await create(a), lang);
+    await partyQuotaDenied(await create(a));
 
     for (const { id } of await active(a)) await remove(id);
     for (let i = 0; i < 5; i++) {
@@ -426,9 +455,9 @@ test('party caps five active and ten hourly posts, isolates an owner and resets'
       await remove(id);
     }
     expect(await active(a)).toEqual([]);
-    await denied(await create(a), lang);
+    await partyQuotaDenied(await create(a));
     redirect(await create(b), 303, route);
-    await denied(await create(a), lang);
+    await partyQuotaDenied(await create(a));
     expect((await query(
       `UPDATE pd_party_posts SET created_at=clock_timestamp()-interval '1 hour 1 second'
        WHERE account_id=$1 AND status='removed' RETURNING id`, [a.id],
@@ -439,47 +468,61 @@ test('party caps five active and ten hourly posts, isolates an owner and resets'
   });
 });
 
-test('party report refusals localize the pending and hourly quotas', async ({ browser }, info) => {
+test('party reports accept the twentieth and refuse the twenty-first under each cap', async ({ browser }, info) => {
   await withPlayers(browser, info, async ([a, b], lang) => {
     const route = `/${lang}/party`;
     const fields = await formFields(a.page, `/${lang}/support/tickets/create`);
-    // The reporter already filed twenty reports on posts that have since expired.
+    // These reports count toward the hourly cap only.
     const reports = await query(
       `WITH posts AS (
          INSERT INTO pd_party_posts(account_id,character_id,character_name,world_id,purpose,
            min_level,max_level,profession,note,starts_at,expires_at,status)
          SELECT $1,uuidv7(),'Party Owner',$2,'hunt',1,200,'any','Prior party post',
            now()-interval '45 minutes',now()-interval '5 minutes','expired'
-         FROM generate_series(1,20) RETURNING id
+         FROM generate_series(1,19) RETURNING id
        )
        INSERT INTO pd_party_reports(post_id,account_id,reason,status,created_at)
        SELECT id,$3,'Prior report','resolved',now()-interval '10 minutes' FROM posts RETURNING id`,
       [b.id, world, a.id],
     );
-    expect(reports).toHaveLength(20);
-    const [{ id: target }] = await query(
+    expect(reports).toHaveLength(19);
+    const targets = await query(
       `INSERT INTO pd_party_posts(account_id,character_id,character_name,world_id,purpose,
          min_level,max_level,profession,note,starts_at,expires_at)
-       VALUES($1,uuidv7(),'Party Owner',$2,'hunt',1,200,'any','Current party post',
-         now(),now()+interval '30 minutes') RETURNING id`, [b.id, world],
+       SELECT $1,uuidv7(),'Party Owner',$2,'hunt',1,200,'any','Current party post',
+         now(),now()+interval '30 minutes' FROM generate_series(1,4) RETURNING id`, [b.id, world],
     );
-    const report = () => post(a.page, `${route}/${target}/report`, {
+    const report = ({ id }) => post(a.page, `${route}/${id}/report`, {
       _csrf: fields._csrf, reason: 'Browser qualification report',
     });
-    // Resolve status and age independently so each limit is the only refusal.
-    await denied(await report(), lang);
+    const saved = ({ id }) => query(
+      'SELECT status FROM pd_party_reports WHERE account_id=$1 AND post_id=$2', [a.id, id],
+    );
+
+    redirect(await report(targets[0]), 303, route);
+    expect(await saved(targets[0])).toEqual([{ status: 'open' }]);
+    await partyQuotaDenied(await report(targets[1]));
+    expect(await saved(targets[1])).toEqual([]);
+
+    // Age all twenty reports out of the hourly window, then make only the
+    // nineteen seeded reports pending to test the second cap independently.
     expect(await query(
-      `UPDATE pd_party_reports SET status='open', created_at=now()-interval '1 hour 1 second'
-       WHERE account_id=$1 RETURNING id`, [a.id],
+      `UPDATE pd_party_reports
+       SET created_at=now()-interval '1 hour 1 second',
+           status=CASE WHEN id=ANY($2::uuid[]) THEN 'open' ELSE 'resolved' END
+       WHERE account_id=$1 RETURNING id`, [a.id, reports.map(row => row.id)],
     )).toHaveLength(20);
-    await denied(await report(), lang);
+    redirect(await report(targets[2]), 303, route);
+    expect(await saved(targets[2])).toEqual([{ status: 'open' }]);
+    await partyQuotaDenied(await report(targets[3]));
+    expect(await saved(targets[3])).toEqual([]);
+
     expect(await query(
-      "UPDATE pd_party_reports SET status='resolved' WHERE account_id=$1 RETURNING id", [a.id],
+      "UPDATE pd_party_reports SET status='resolved' WHERE account_id=$1 AND status='open' RETURNING id",
+      [a.id],
     )).toHaveLength(20);
-    redirect(await report(), 303, route);
-    expect(await query(
-      'SELECT status FROM pd_party_reports WHERE account_id=$1 AND post_id=$2', [a.id, target],
-    )).toEqual([{ status: 'open' }]);
+    redirect(await report(targets[3]), 303, route);
+    expect(await saved(targets[3])).toEqual([{ status: 'open' }]);
   });
 });
 
