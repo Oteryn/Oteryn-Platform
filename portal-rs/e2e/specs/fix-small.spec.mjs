@@ -26,13 +26,14 @@ test('account menu shows a localized staff link only with admin.access', async (
   const lang = info.project.metadata.locale;
   const account = await register(page, lang);
   await login(page, lang, account);
-  const link = accountMenu(page).locator('a[href="/admin"]');
+  const link = accountMenu(page).locator('a[href$="/admin"]');
   await expect(accountMenu(page)).toBeAttached();
   await expect(link).toHaveCount(0);
 
   await grantRole(account, 'game_viewer');
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
   await expect(link).toHaveText(lang === 'pl' ? 'Panel zespołu' : 'Staff panel');
+  await expect(link).toHaveAttribute('href', `https://${process.env.OTERYN_ADMIN_HOST}/admin`);
 });
 
 test('cold atlas sends no-store for document and direct GET requests', async ({request}, info) => {

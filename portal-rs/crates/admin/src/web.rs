@@ -130,9 +130,19 @@ pub struct PanelConfig {
     pub host: String,
 }
 impl PanelConfig {
+    fn landing_url(&self) -> Option<String> {
+        self.admin_panel
+            .then(|| format!("{}/admin", self.csrf_origin()))
+    }
+
     pub(crate) fn csrf_origin(&self) -> String {
         format!("https://{}", self.host.to_ascii_lowercase())
     }
+}
+
+/// The staff landing URL derived from the same host configuration as the panel guard.
+pub fn configured_landing_url() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    Ok(config_from_env()?.landing_url())
 }
 
 struct Panel<I, A> {
@@ -720,6 +730,28 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     }
     tx.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod landing_tests {
+    use super::*;
+
+    #[test]
+    fn staff_landing_uses_configured_admin_origin_only_when_enabled()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for enabled in [false, true] {
+            let config = config_from(&|name| match name {
+                "OTERYN_ADMIN_PANEL" => Some(enabled.to_string()),
+                "OTERYN_ADMIN_HOST" => Some("Staff.Example.test:8443".into()),
+                _ => None,
+            })?;
+            assert_eq!(
+                config.landing_url().as_deref(),
+                enabled.then_some("https://staff.example.test:8443/admin")
+            );
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

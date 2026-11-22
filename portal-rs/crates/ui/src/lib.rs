@@ -67,6 +67,7 @@ pub struct Registry {
     pub login: bool,
     pub registration: bool,
     pub account: bool,
+    pub staff_panel_url: Option<String>,
 }
 impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.
@@ -193,6 +194,7 @@ impl Registry {
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
+            staff_panel_url: self.staff_panel_url.clone(),
         }
     }
 }
@@ -243,6 +245,7 @@ pub struct Chrome {
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
+    pub staff_panel_url: Option<String>,
 }
 impl Default for Chrome {
     fn default() -> Self {
@@ -256,14 +259,18 @@ impl Chrome {
     pub fn signed_in(&self) -> bool {
         matches!(self.account, Account::SignedIn { .. })
     }
-    pub fn staff_access(&self) -> bool {
-        matches!(
+    pub fn staff_panel_link(&self) -> Option<&str> {
+        if matches!(
             self.account,
             Account::SignedIn {
                 staff_access: true,
                 ..
             }
-        )
+        ) {
+            self.staff_panel_url.as_deref()
+        } else {
+            None
+        }
     }
     pub fn csrf(&self) -> &str {
         match &self.account {
@@ -401,6 +408,26 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn account_menu_renders_staff_link_only_when_enabled_and_authorized()
+    -> Result<(), askama::Error> {
+        let account = |staff_access| Account::SignedIn {
+            csrf: "fixture".into(),
+            staff_access,
+            passkey_eligible: false,
+        };
+        for (enabled, staff) in [(true, true), (true, false), (false, true)] {
+            let mut registry = registry();
+            let url = "https://staff.example.test:8443/admin";
+            registry.staff_panel_url = enabled.then(|| url.into());
+            let chrome = registry.chrome("en", "/en/", account(staff));
+            let html = Home::new(&chrome, &HomeData::default()).render()?;
+            assert_eq!(html.contains(&format!("href=\"{url}\"")), enabled && staff);
+            assert_eq!(html.contains("Staff panel"), enabled && staff);
+        }
+        Ok(())
+    }
+
     fn registry() -> Registry {
         let mut registry = Registry {
             login: true,
