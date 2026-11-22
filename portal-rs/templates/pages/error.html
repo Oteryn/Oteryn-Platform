@@ -5,6 +5,10 @@
   <p class="op-eyebrow">{{ status }}</p>
   <h1>{{ title }}</h1>
   <p>{{ description }}</p>
+  {% if let Some((href, label)) = link %}
+  <div><a class="op-button" href="{{ href }}">{{ label }}</a></div>
+  {% else %}
   <div><a class="op-button" href="{{ chrome.home_url() }}">{{ chrome.text("shell-back") }}</a></div>
+  {% endif %}
 </section>
 {% endblock %}

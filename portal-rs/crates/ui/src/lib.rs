@@ -364,6 +364,7 @@ struct ErrorPage<'a> {
     title: String,
     description: String,
     status: u16,
+    link: Option<(&'a str, &'a str)>,
 }
 /// Plain, translated refusal detail supplied by a module's existing decision.
 #[derive(Clone, Debug)]
@@ -380,12 +381,33 @@ pub fn error(chrome: &Chrome, status: StatusCode) -> Response {
 /// Render a domain-specific translated message with the shared status title and chrome.
 /// The message remains HTML-escaped, like every other dynamic template value.
 pub fn error_with_message(chrome: &Chrome, status: StatusCode, message: &str) -> Response {
+    render_error(chrome, status, message, None)
+}
+
+/// Render a refusal with a link to the current page for recovery from a stale form.
+pub fn error_with_link(
+    chrome: &Chrome,
+    status: StatusCode,
+    message: &str,
+    href: &str,
+    label: &str,
+) -> Response {
+    render_error(chrome, status, message, Some((href, label)))
+}
+
+fn render_error(
+    chrome: &Chrome,
+    status: StatusCode,
+    message: &str,
+    link: Option<(&str, &str)>,
+) -> Response {
     render(
         &ErrorPage {
             chrome,
             status: status.as_u16(),
             title: chrome.text(&format!("error-{}-title", status.as_u16())),
             description: message.to_owned(),
+            link,
         },
         status,
     )
@@ -759,6 +781,7 @@ mod tests {
                     title: title.clone(),
                     description: String::new(),
                     status: status.as_u16(),
+                    link: None,
                 }
                 .render()?;
                 assert!(html.contains("<body class=\"op-theme op-shell\">"));

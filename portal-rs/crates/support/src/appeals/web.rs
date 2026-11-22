@@ -289,6 +289,17 @@ async fn submit(
     .await
     .map_err(|failure| match failure {
         Error::SessionRevoked => reauthenticate(&lang, &path),
+        Error::Conflict => {
+            let chrome =
+                oteryn_ui::Registry::default().chrome(&lang, &path, oteryn_ui::Account::Anonymous);
+            oteryn_ui::error_with_link(
+                &chrome,
+                StatusCode::CONFLICT,
+                &chrome.text("appeals-conflict-description"),
+                &path,
+                &chrome.text("appeals-open-current"),
+            )
+        }
         other => error(status(other)),
     })?;
     Ok(Redirect::to(&path))

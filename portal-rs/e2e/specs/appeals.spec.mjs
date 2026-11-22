@@ -160,6 +160,8 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
         expect(invalid.status()).toBe(422);
         expect(await invalid.text()).toContain(lang === 'pl' ? 'Sprawdź wprowadzone dane' : 'Please check your input');
       }
+      const staleTab = decision === 'rejected' ? await page.context().newPage() : null;
+      if (staleTab) expect((await staleTab.goto(playerPath)).status()).toBe(200);
       await submit(page, 'main form', { message });
       await expect(page.locator('main')).toContainText(message);
       await expect(page.locator('main')).toContainText(lang === 'pl' ? 'Oczekuje na rozpatrzenie' : 'Awaiting review');
@@ -235,7 +237,26 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       if (decision === 'rejected') {
         await expect.poll(async () => Number((await query(
           "SELECT coalesce(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='support-enforcement-appeal' AND window_start=date_trunc('minute', clock_timestamp())",
-        ))[0].count), { timeout: 65_000 }).toBeLessThan(3);
+        ))[0].count), { timeout: 65_000 }).toBeLessThan(2);
+        try {
+          const form = staleTab.locator('main form');
+          await form.locator('textarea[name=message]').fill('Submitted from an old tab');
+          const [posted] = await Promise.all([
+            staleTab.waitForResponse(response => response.request().method() === 'POST'
+              && new URL(response.url()).pathname === playerPath),
+            form.locator('button[type=submit]').click(),
+          ]);
+          expect(posted.status()).toBe(409);
+          const current = staleTab.getByRole('link', { name: lang === 'pl' ? 'Otwórz odwołanie' : 'Open current appeal' });
+          await expect(current).toHaveAttribute('href', playerPath);
+          const loaded = staleTab.waitForResponse(response => response.request().method() === 'GET'
+            && new URL(response.url()).pathname === playerPath);
+          await current.click();
+          expect((await loaded).status()).toBe(200);
+          await expect(staleTab.locator('main')).toContainText(outcome);
+        } finally {
+          await staleTab.close();
+        }
         const newEvidence = `New evidence ${unique()}`;
         await submit(page, 'main form', { message: newEvidence });
         await expect(page.locator('main')).toContainText(newEvidence);
