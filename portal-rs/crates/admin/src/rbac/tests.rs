@@ -782,6 +782,7 @@ fn game_roles_have_exact_contract_permissions() {
             BuiltInRole::GameAdmin,
             "game_admin",
             &[
+                "ops.playerdata_binding_conflict.read",
                 "game.ops.read",
                 "game.ops.logs.read",
                 "game.world.read",
