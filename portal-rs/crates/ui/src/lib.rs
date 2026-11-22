@@ -537,7 +537,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn home_distinguishes_empty_and_unavailable_news_and_keeps_fallback_actions()
+    fn home_distinguishes_empty_and_unavailable_news_without_extra_hero_actions()
     -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {
             let mut registry = registry();
@@ -562,10 +562,10 @@ mod tests {
                 )));
                 assert!(html.contains(&chrome.text(status)));
                 assert!(!html.contains(&chrome.text(other_status)));
-                assert!(!html.contains("class=\"hero-story\""));
+                assert!(!html.contains("class=\"hero-story front-short\""));
                 assert!(html.contains(&format!("class=\"hero-news-all\" href=\"/{lang}/news\"")));
-                assert!(html.contains(&format!("class=\"cta\" href=\"/{lang}/register\"")));
-                assert!(html.contains("class=\"plainlink\" href=\"#jak-zaczac\""));
+                assert!(!html.contains("class=\"cta\""));
+                assert!(!html.contains("class=\"hero-today\""));
                 assert!(html.contains(&chrome.text("thais-home-no-data")));
                 assert!(html.contains("<strong aria-hidden=\"true\">—</strong>"));
             }
@@ -613,7 +613,7 @@ mod tests {
             return Err(askama::Error::Custom("homepage hero missing".into()));
         };
         let stories: Vec<_> = hero
-            .split("<details class=\"hero-story\">")
+            .split("<details class=\"hero-story front-short\">")
             .skip(1)
             .collect();
         assert_eq!(stories.len(), 3);
