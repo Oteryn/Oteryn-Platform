@@ -186,7 +186,7 @@ fn verify_webp_chunks(bytes: &[u8]) -> Option<()> {
         let length = usize::try_from(u32::from_le_bytes(*size)).ok()?;
         let (payload, next) = data.split_at_checked(length)?;
         rest = next;
-        if length % 2 != 0 {
+        if !length.is_multiple_of(2) {
             rest = rest.strip_prefix(&[0])?;
         }
         if matches!(kind, b"ANIM" | b"ANMF") || (kind == b"VP8X" && payload.first()? & 0x02 != 0) {
@@ -251,9 +251,11 @@ fn verify_jpeg_structure(bytes: &[u8]) -> Option<()> {
                             .try_into()
                             .ok()?;
                         let mut seen = 0u8;
-                        for selector in selectors.chunks_exact(2) {
+                        for selector in selectors.as_chunks::<2>().0 {
                             let index = components
-                                .chunks_exact(3)
+                                .as_chunks::<3>()
+                                .0
+                                .iter()
                                 .position(|component| component[0] == selector[0])?;
                             let mask = 1 << index;
                             if seen & mask != 0 {
