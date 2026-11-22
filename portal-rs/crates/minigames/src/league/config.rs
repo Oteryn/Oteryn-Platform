@@ -37,7 +37,14 @@ impl Default for Policy {
     }
 }
 pub fn owner_flags(on: bool) -> Flags {
-    let policy = match std::env::var("OTERYN_LEAGUE_POLICY") {
+    owner_flags_from(on, std::env::var("OTERYN_LEAGUE_POLICY"))
+}
+
+pub(super) fn owner_flags_from(
+    on: bool,
+    policy: std::result::Result<String, std::env::VarError>,
+) -> Flags {
+    let policy = match policy {
         Ok(s) => serde_json::from_str::<Policy>(&s).ok(),
         Err(std::env::VarError::NotPresent) => Some(Policy::default()),
         Err(_) => None,
@@ -46,6 +53,7 @@ pub fn owner_flags(on: bool) -> Flags {
         enabled: on,
         ingest: on,
         public: on,
+        invalid_policy: policy.is_none(),
         ..Flags::default()
     };
     if let Some(p) = policy {

@@ -20,6 +20,8 @@ pub enum Error {
     Unavailable,
     #[error("league Game feed not admitted")]
     MissingGameData,
+    #[error("invalid league owner policy")]
+    InvalidPolicy,
     #[error("league correction awaits its predecessor")]
     MissingPredecessor,
     #[error("league retention period expired")]
@@ -39,6 +41,7 @@ pub struct Flags {
     pub enabled: bool,
     pub ingest: bool,
     pub public: bool,
+    pub invalid_policy: bool,
     pub accepted_sources: bool,
     pub accepted_season_rules: bool,
     pub accepted_final_freeze: bool,

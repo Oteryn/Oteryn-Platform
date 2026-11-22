@@ -26,6 +26,7 @@ fn flags() -> Flags {
         enabled: true,
         ingest: true,
         public: true,
+        invalid_policy: false,
         accepted_sources: true,
         accepted_season_rules: true,
         accepted_final_freeze: true,
@@ -517,6 +518,27 @@ async fn unavailable_defaults_and_http() -> TestResult {
     }
     Ok(())
 }
+#[tokio::test]
+async fn invalid_owner_policy_is_not_marked_as_missing_game_data() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    let pool = PgPoolOptions::new().connect_lazy("postgres://localhost/unused")?;
+    let flags = config::owner_flags_from(true, Ok("{".into()));
+    let league = League::new(pool, flags, Unavailable);
+    assert!(matches!(league.read(NOW).await, Err(Error::InvalidPolicy)));
+    let response = web::router(league)
+        .oneshot(Request::get("/en/league").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!response.headers().contains_key("x-oteryn-game-data"));
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    Ok(())
+}
+
 #[tokio::test]
 async fn database_bad_evidence_rolls_back_and_pair_conflict_quarantines() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
