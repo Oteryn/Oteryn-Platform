@@ -378,6 +378,9 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 }
 
 #[cfg(test)]
+mod catalog_parity_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn registry() -> Registry {

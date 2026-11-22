@@ -126,7 +126,7 @@ async function assertDocument(page, locale, target) {
 
 function sample(route, locale) {
   return route
-    .replaceAll('{lang}', locale)
+    .replace(/\{(?:lang|locale|language)\}/gu, locale)
     .replaceAll('{kind}', route.includes('stats/rankings') ? 'yesterday' : route.includes('rankings') ? 'experience' : 'items')
     .replaceAll('{tab}', 'experience')
     .replaceAll('{slug}', route.startsWith('/admin/pages/') ? 'rules' : 'missing-e2e')
@@ -323,7 +323,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         if (!probe.headers()['content-type']?.startsWith('text/html')) return;
         const source = await probe.text();
         // The inventory also includes HTML fragments consumed by other pages.
-        if (!/<(?:!doctype\s+html|html(?:\s|>))/iu.test(source)) return;
+        if (!/<(?:!doctype\s+html|(?:html|body|main|title)(?:\s|>))/iu.test(source)) return;
         const final = new URL(probe.url());
         if (documents.has(final.pathname + final.search)) return;
         documents.add(final.pathname + final.search);
