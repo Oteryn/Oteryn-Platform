@@ -780,7 +780,9 @@ mod flag_boundary {
         let worker = if malformed_key {
             Some(worker?)
         } else {
-            let error = worker.expect_err("worker refuses incomplete SMTP settings");
+            let Err(error) = worker else {
+                return Err("worker accepted incomplete SMTP settings".into());
+            };
             if std::env::var_os("OTERYN_SMTP_PASSWORD").is_none() {
                 assert_eq!(
                     error.to_string(),
@@ -803,7 +805,7 @@ mod flag_boundary {
             let available = exchange(address, None, "GET", "/admin/staff-invites").await?;
             assert!(available.starts_with("HTTP/1.1 200 "));
             let fields = format!(
-                "&email=invitee%40example.test&role={role}&request_key={}",
+                "&email=invitee%40example.test&role={role}&request_key={}&reason=Verify+invite+delivery",
                 Uuid::now_v7()
             );
             let response = exchange_with_fields(address, None, "POST", "/admin/staff-invites", &fields).await?;
