@@ -13,10 +13,13 @@ concurrency:
 
 jobs:
   monitor:
+    if: github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
+    environment: production-monitor-probe
     permissions:
       contents: read
     outputs:
       enabled: ${{ steps.config.outputs.enabled }}
+      probe_sequence: ${{ steps.config.outputs.probe_sequence }}
       failing_step: ${{ steps.probe.outputs.failing_step || (steps.checkout.outcome == 'failure' && 'Checkout') || (steps.node.outcome == 'failure' && 'Set up Node') || (steps.install.outcome == 'failure' && 'Install E2E dependencies and Chromium') || 'Run production monitor' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -30,6 +33,7 @@ jobs:
             echo "::notice::Production synthetic monitor is not configured yet."
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "probe_sequence=$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout
@@ -63,7 +67,7 @@ jobs:
           MONITOR_PASSWORD: ${{ secrets.MONITOR_PASSWORD }}
           MONITOR_TOTP_SECRET: ${{ secrets.MONITOR_TOTP_SECRET }}
           MONITOR_OUTPUT_DIR: ${{ runner.temp }}/prod-monitor-results
-          MONITOR_BASELINE_LOCALE: ${{ vars.MONITOR_BASELINE_LOCALE || 'pl' }}
+          MONITOR_ALLOW_AUTH_WRITES: ${{ vars.MONITOR_ALLOW_AUTH_WRITES }}
         run: |
           set +e
           node prod/run.mjs | tee "$RUNNER_TEMP/prod-monitor.log"
@@ -76,7 +80,8 @@ jobs:
 
   incident:
     needs: monitor
-    if: ${{ !cancelled() && needs.monitor.outputs.enabled == 'true' }}
+    if: ${{ !cancelled() && needs.monitor.outputs.enabled == 'true' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch }}
+    environment: production-monitor-alert
     permissions:
       issues: write
     runs-on: ubuntu-latest
@@ -86,6 +91,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
           PROBE_OUTCOME: ${{ needs.monitor.result }}
+          PROBE_SEQUENCE: ${{ needs.monitor.outputs.probe_sequence }}
           FAILING_STEP: ${{ needs.monitor.outputs.failing_step }}
         with:
           script: |
@@ -102,11 +108,45 @@ jobs:
                 await github.rest.issues.createLabel({ ...repo, name, color });
               }
             }
+            const sequence = process.env.PROBE_SEQUENCE;
+            const parseSequence = (value) => {
+              if (typeof value !== 'string' || !/^[1-9][0-9]*\.[1-9][0-9]*$/.test(value)) {
+                throw new Error('Invalid production monitor probe sequence');
+              }
+              return value.split('.').map(BigInt);
+            };
+            const [run, attempt] = parseSequence(sequence);
+            const failed = process.env.PROBE_OUTCOME !== 'success';
+            const stateLabel = 'prod-monitor-state';
+            const stateTitle = 'Production synthetic monitor state';
+            const states = (await github.paginate(github.rest.issues.listForRepo, {
+              ...repo, state: 'all', labels: stateLabel, per_page: 100,
+            })).filter(issue => issue.title === stateTitle && !issue.pull_request);
+            if (states.length > 1) throw new Error('Multiple production monitor state issues');
+            const state = states[0];
+            const body = JSON.stringify({ sequence, failed });
+            if (state) {
+              const saved = JSON.parse(state.body);
+              const [savedRun, savedAttempt] = parseSequence(saved.sequence);
+              if (run < savedRun || (run === savedRun && attempt < savedAttempt)) {
+                core.notice('Ignored stale production monitor probe result.');
+                return;
+              }
+              if (sequence !== saved.sequence) {
+                await github.rest.issues.update({ ...repo, issue_number: state.number, body });
+              } else if (saved.failed !== failed) {
+                throw new Error('Production monitor result changed for the same probe sequence');
+              }
+            } else {
+              await ensureLabel(stateLabel, '5319e7');
+              await github.rest.issues.create({ ...repo, title: stateTitle, body, labels: [stateLabel] });
+            }
+
             const open = await github.paginate(github.rest.issues.listForRepo, {
               ...repo, state: 'open', labels: label, per_page: 100,
             });
             const incident = open.find(issue => issue.title === title && !issue.pull_request);
-            if (process.env.PROBE_OUTCOME !== 'success') {
+            if (failed) {
               const body = `Failing step: ${process.env.FAILING_STEP || 'Run production monitor'}\n\nRun: ${url}`;
               if (incident) {
                 await github.rest.issues.createComment({ ...repo, issue_number: incident.number, body });
@@ -153,20 +193,31 @@ jobs:
                 ...repo, state: 'all', labels: `prod-monitor,${label}`, per_page: 100,
               });
               for (const issue of issues) {
-                if (!issue.pull_request && issue.title === 'Production synthetic monitor failing') {
-                  queued.push({ issue, transition, label });
+                const attempted = `prod-monitor-mail-${transition}-attempted`;
+                if (!issue.pull_request && issue.title === 'Production synthetic monitor failing' &&
+                    !issue.labels.some(({ name }) => name === attempted)) {
+                  queued.push({ issue, transition, label, attempted });
                 }
               }
             }
             queued.sort((a, b) => a.issue.number - b.issue.number || a.transition.localeCompare(b.transition));
             for (const entry of queued) {
+              const issue = { ...repo, issue_number: entry.issue.number };
+              try {
+                await github.rest.issues.getLabel({ ...repo, name: entry.attempted });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ ...repo, name: entry.attempted, color: 'c5def5' });
+              }
+              // Claim before talking to SMTP. A claimed transition is never replayed.
+              await github.rest.issues.addLabels({ ...issue, labels: [entry.attempted] });
               try {
                 await send(entry);
               } catch {
-                core.setFailed('Production monitor email delivery failed. Pending alerts will be retried.');
-                return;
+                core.setFailed('Production monitor email outcome is uncertain or failed. Check the SMTP relay before any manual resend.');
+                continue;
               }
-              await github.rest.issues.removeLabel({ ...repo, issue_number: entry.issue.number, name: entry.label });
+              await github.rest.issues.removeLabel({ ...issue, name: entry.label });
             }
 
             async function send({ issue, transition }) {

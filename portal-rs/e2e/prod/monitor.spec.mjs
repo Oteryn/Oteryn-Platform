@@ -1,4 +1,5 @@
 import { test } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import { Secret, TOTP } from 'otpauth';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,7 +25,6 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   const runDirectory = process.env.MONITOR_RUN_DIRECTORY;
   const counter = join(runDirectory, 'requests');
   const diagnostics = join(runDirectory, 'diagnostics');
-  const baseline = process.env.MONITOR_BASELINE_LOCALE ?? 'pl';
   const anonymousOnly = process.env.MONITOR_ANONYMOUS_ONLY === '1';
   const { MONITOR_EMAIL: email, MONITOR_PASSWORD: password, MONITOR_TOTP_SECRET: secret } = process.env;
   const page = await context.newPage();
@@ -39,7 +39,6 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     'invalid shared request count');
   const assets = new Map();
   let allowedPost;
-  let privacyWritesForwarded = 0;
   let activeStep = 'browser setup';
   let nextScreenshot = 0;
   const problems = [];
@@ -119,7 +118,6 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       && pathname.startsWith('/beacon.min.js') && resourceType === 'Script';
     const asset = (portal && pathname.startsWith('/static/')
       && ['Stylesheet', 'Script'].includes(resourceType)) || beacon;
-    let privacyWrite = false;
     try {
       if (responseStatusCode !== undefined || event.responseErrorReason) {
         if (responseStatusCode === 200) {
@@ -151,14 +149,13 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       }
       if (request.method === 'POST' && portal && !search && pathname === allowedPost?.path
           && resourceType === 'Document') {
-        const fields = allowedPost.fields;
+        const { fields } = allowedPost;
         allowedPost = undefined;
-        if (fields && !matchesPrivacyPost(request, fields)) {
-          record('unsafe privacy form submission blocked');
+        if (!matchesFormPost(request, fields)) {
+          record('unexpected form payload blocked');
           await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
           return;
         }
-        privacyWrite = Boolean(fields);
       } else if (request.method !== 'GET' && request.method !== 'HEAD') {
         record('unexpected mutation blocked');
         await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
@@ -183,7 +180,6 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       }
       requestCount += 1;
       writeFileSync(counter, String(requestCount));
-      if (privacyWrite) privacyWritesForwarded += 1;
       await cdp.send('Fetch.continueRequest', { requestId, interceptResponse: asset });
     } catch (error) {
       // Chromium can cancel a subresource when its document is replaced.
@@ -197,7 +193,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
 
   await cdp.send('Fetch.enable', { patterns: [{ urlPattern: 'http*' }] });
 
-  function matchesPrivacyPost(request, expected) {
+  function matchesFormPost(request, expected) {
     const contentType = Object.entries(request.headers)
       .find(([name]) => name.toLowerCase() === 'content-type')?.[1];
     if (!/^application\/x-www-form-urlencoded(?:;|$)/i.test(contentType ?? '')
@@ -254,8 +250,10 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     return response;
   }
 
-  async function submit(form, path, fields) {
-    allowedPost = { path, fields };
+  async function submit(form, path, fields = []) {
+    const csrf = await form.locator('input[name="_csrf"]').inputValue();
+    requireThat(csrf, 'form CSRF field is empty');
+    allowedPost = { path, fields: new Map([['_csrf', csrf], ...fields]) };
     try {
       const [navigation, click] = await Promise.allSettled([
         page.waitForNavigation(),
@@ -317,7 +315,8 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   }
   await step('Monitor credentials configured', READ, () => {
     requireThat(email && password, 'MONITOR_EMAIL and MONITOR_PASSWORD are required');
-    requireThat(LANGUAGES.includes(baseline), 'MONITOR_BASELINE_LOCALE must be pl or en');
+    requireThat(process.env.MONITOR_ALLOW_AUTH_WRITES === '1',
+      'MONITOR_ALLOW_AUTH_WRITES must be 1 for the dedicated account');
   });
 
   async function openMobileMenu() {
@@ -340,7 +339,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     const form = await loginForm();
     await form.locator('#email').fill(email);
     await form.locator('#password').fill(password);
-    await submit(form, `${home}login`);
+    await submit(form, `${home}login`, [['email', email], ['password', password]]);
     const challenge = currentPath() === `${home}mfa/challenge`;
     requireThat(!secret || challenge, 'configured TOTP challenge was skipped');
     requireThat(challenge || currentPath() === home, 'sign-in refused');
@@ -362,8 +361,9 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       if (next > now) await delay(next - now + 250);
       const timestamp = Date.now();
       writeFileSync(totpCounter, String(Math.floor(timestamp / 30_000)));
-      await form.locator('#code[autocomplete="one-time-code"]').fill(totp.generate({ timestamp }));
-      await submit(form, `${home}mfa/challenge`);
+      const code = totp.generate({ timestamp });
+      await form.locator('#code[autocomplete="one-time-code"]').fill(code);
+      await submit(form, `${home}mfa/challenge`, [['code', code]]);
       requireThat(currentPath() === home, 'TOTP sign-in refused');
     });
   }
@@ -392,18 +392,30 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     return Promise.all(VISIBILITY.map((name) => page.locator(`input[name="${name}"]`).isChecked()));
   }
 
-  async function saveLocale(value) {
+  async function saveLocale(value, action, token) {
     requireThat(/^\/(pl|en)\/account\/privacy$/.test(currentPath()), 'privacy page unavailable');
     requireThat((await readVisibility()).every((checked, i) => checked === settings.visibility[i]),
       'visibility settings changed');
     await page.locator(LOCALE).selectOption(value);
     const savedPath = `/${value}/account/privacy`;
     const form = page.locator('main form').filter({ has: page.locator(LOCALE) });
-    const csrf = await form.locator('input[name="_csrf"]').inputValue();
-    requireThat(csrf, 'privacy form CSRF field is empty');
-    const fields = new Map([['_csrf', csrf], ['locale', value]]);
+    const control = [
+      ['synthetic_locale_action', action],
+      ['synthetic_locale_initial', settings.locale],
+      ['synthetic_locale_token', token],
+    ];
+    await form.evaluate((element, entries) => {
+      for (const [name, value] of entries) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        element.append(input);
+      }
+    }, control);
+    const fields = [['locale', value], ...control];
     for (const [index, name] of VISIBILITY.entries()) {
-      if (settings.visibility[index]) fields.set(name, '1');
+      if (settings.visibility[index]) fields.push([name, '1']);
     }
     await submit(form, currentPath(), fields);
     requireThat(currentPath() === savedPath, 'preference save did not redirect');
@@ -413,37 +425,19 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   }
 
   if (writePreference) {
-    const alternate = LANGUAGES.find((value) => value !== baseline);
-    await step('Reopen account settings', READ, () => go(privacy));
-    if (settings.locale !== baseline) {
-      await step('Reconcile baseline language', FORM, () => saveLocale(baseline));
-    }
-    const writesBeforeToggle = privacyWritesForwarded;
-    let toggleError;
-    try {
-      await step('Save alternate language', FORM, () => {
-        requireThat(requestCount <= 52, 'request budget cannot cover preference restoration');
-        return saveLocale(alternate);
-      });
-    } catch (error) {
-      toggleError = error;
-    }
-    // A rejected request cannot change the preference. An attempted delivery
-    // can still commit even when the browser reports a navigation failure.
-    if (!toggleError || privacyWritesForwarded > writesBeforeToggle) {
-      try {
-        await step('Restore baseline language', FORM, async () => {
-          if (toggleError) await go(privacy);
-          if (await page.locator(LOCALE).inputValue() !== baseline) await saveLocale(baseline);
-          requireThat(await page.locator(LOCALE).inputValue() === baseline,
-            'baseline preference was not restored');
-        });
-      } catch (restoreError) {
-        if (!toggleError) throw restoreError;
-        throw new Error(`${toggleError.message}\n${restoreError.message}`);
-      }
-    }
-    if (toggleError) throw toggleError;
+    const alternate = LANGUAGES.find((value) => value !== settings.locale);
+    const token = randomUUID();
+    await step('Reopen account settings', READ, async () => {
+      await go(privacy);
+      requireThat(await page.locator(LOCALE).inputValue() === settings.locale,
+        'starting locale changed during the journey');
+    });
+    await step('Save alternate language preview', FORM, () => {
+      requireThat(requestCount <= 52, 'request budget cannot cover preference restoration');
+      return saveLocale(alternate, 'preview', token);
+    });
+    // If a request fails or the runner stops, the server expires the preview.
+    await step('Restore starting language', FORM, () => saveLocale(settings.locale, 'restore', token));
   }
 
   await step(`${lang} current session listed`, READ, async () => {

@@ -8,7 +8,7 @@ use axum::{
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
-use oteryn_identity::privacy::{Preferences, Privacy};
+use oteryn_identity::privacy::{Preferences, Privacy, SyntheticLocale};
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -125,7 +125,7 @@ async fn page(
     let id = session.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     let prefs = state
         .policy
-        .current(&state.pool, id)
+        .settings(&state.pool, id)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .ok_or(StatusCode::FORBIDDEN)?;
@@ -169,6 +169,9 @@ struct Input {
     public_account_association: Option<String>,
     public_status_visible: Option<String>,
     locale: String,
+    synthetic_locale_action: Option<String>,
+    synthetic_locale_initial: Option<String>,
+    synthetic_locale_token: Option<uuid::Uuid>,
 }
 fn boolean(value: Option<&str>) -> Result<bool, ()> {
     match value {
@@ -227,24 +230,50 @@ async fn update(
     let Some((input, association, status)) = parsed else {
         return page(&state, &session, &lang, true).await;
     };
-    state
-        .policy
-        .update(
-            &state.pool,
-            oteryn_identity::mutation_actor::MutationActor::browser(
-                id,
-                session
-                    .csrf_token()
-                    .await
-                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-            ),
-            association,
-            status,
-            &input.locale,
-        )
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+    let actor = oteryn_identity::mutation_actor::MutationActor::browser(
+        id,
+        session
+            .csrf_token()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+    );
+    match (
+        input.synthetic_locale_action.as_deref(),
+        input.synthetic_locale_initial,
+        input.synthetic_locale_token,
+    ) {
+        (None, None, None) => {
+            state
+                .policy
+                .update(&state.pool, actor, association, status, &input.locale)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+                .ok_or(StatusCode::FORBIDDEN)?;
+        }
+        (Some(action), Some(initial), Some(token)) => {
+            let preview_locale = match action {
+                "preview" => Some(input.locale.as_str()),
+                "restore" if input.locale == initial => None,
+                _ => return page(&state, &session, &lang, true).await,
+            };
+            let change = SyntheticLocale {
+                initial_locale: &initial,
+                association,
+                status,
+                token,
+                preview_locale,
+            };
+            if !state
+                .policy
+                .synthetic_locale(&state.pool, actor, change)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            {
+                return Err(StatusCode::CONFLICT);
+            }
+        }
+        _ => return page(&state, &session, &lang, true).await,
+    }
     Ok(Redirect::to(&format!("/{}/account/privacy", input.locale)).into_response())
 }
 #[cfg(test)]
