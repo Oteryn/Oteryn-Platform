@@ -233,18 +233,22 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready.clone()),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
-            let credentials = credentials_http::configured_router(db.clone());
-            let export = oteryn_identity::export::configured_router(db.clone());
-            let export_confirmation_enabled = credentials.has_routes() && export.has_routes();
-            let app = app.merge(credentials).merge(export);
+            let app = app.merge(credentials_http::configured_router(db.clone()));
+            let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
+            let export_confirmation_enabled = [
+                "OTERYN_ACCOUNT_CREDENTIALS",
+                "OTERYN_ACCOUNT_EXPORT_ENABLED",
+            ]
+            .into_iter()
+            .all(|flag| std::env::var(flag).as_deref() == Ok("true"));
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
                 db.clone(),
                 oteryn_content::announcements::banner,
             ));
-            let email_change = email_change_http::configured_router(db.clone());
-            let email_change_enabled = email_change.has_routes();
-            let app = app.merge(email_change);
+            let app = app.merge(email_change_http::configured_router(db.clone()));
+            let email_change_enabled =
+                email_change_http::configured_router(db.clone()).has_routes();
             let app = app.merge(oteryn_admin::commerce::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());
