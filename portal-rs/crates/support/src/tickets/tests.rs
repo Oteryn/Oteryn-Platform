@@ -1249,6 +1249,13 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
             .fetch_one(&db.pool)
     };
     assert!(unread().await?);
+    let invalid = acknowledge("not-a-uuid").await?;
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        to_bytes(invalid.into_body(), 65536).await?.as_ref(),
+        b"The request could not be completed. Reload the ticket and try again.",
+    );
+    assert!(unread().await?);
     // Owner mutations establish no viewing boundary.
     tickets
         .change(

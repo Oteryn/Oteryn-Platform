@@ -466,7 +466,7 @@ async fn mark_read(
     State(t): State<Tickets>,
     Path((language, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
-    Form(form): Form<ReadForm>,
+    form: std::result::Result<Form<ReadForm>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if let Err(e) = lang(&language) {
         return e.into_response();
@@ -474,6 +474,9 @@ async fn mark_read(
     let (owner, _) = match account(&t, &session, None).await {
         Ok(v) => v,
         Err(e) => return e.into_response(),
+    };
+    let Ok(Form(form)) = form else {
+        return fail(Error::Invalid, &language);
     };
     match t
         .load_page(owner, false, id, form.after, Acknowledge::Reply(form.reply))
