@@ -127,6 +127,16 @@ impl Registry {
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
+            .filter(|entry| {
+                entry.section != "account-passkeys"
+                    || !matches!(
+                        account,
+                        Account::SignedIn {
+                            passkeys_eligible: false,
+                            ..
+                        }
+                    )
+            })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
                     e.path.to_owned()
@@ -173,6 +183,13 @@ impl Registry {
             })
             .collect();
         let signed_in = matches!(account, Account::SignedIn { .. });
+        let passkeys_eligible = matches!(
+            account,
+            Account::SignedIn {
+                passkeys_eligible: true,
+                ..
+            }
+        );
         Chrome {
             lang: lang.to_owned(),
             alternate_url: if let Some(rest) = clean
@@ -204,9 +221,14 @@ impl Registry {
                 || suffix.starts_with("panel/"))
                 && signed_in
             {
-                self.panels.links(panels::Panel::Player, lang, |p| {
-                    p == panels::Permission::AccountOwner
-                })
+                let passkeys_url = format!("/{lang}/account/passkeys");
+                self.panels
+                    .links(panels::Panel::Player, lang, |p| {
+                        p == panels::Permission::AccountOwner
+                    })
+                    .into_iter()
+                    .filter(|link| passkeys_eligible || link.url != passkeys_url)
+                    .collect()
             } else {
                 Vec::new()
             },
@@ -220,6 +242,7 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
+        passkeys_eligible: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -276,7 +299,7 @@ impl Chrome {
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf } => csrf,
+            Account::SignedIn { csrf, .. } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -542,6 +565,7 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     csrf: "escaped<&token".into(),
+                    passkeys_eligible: false,
                 },
             );
             let html = Home::new(&chrome, &HomeData::default()).render()?;

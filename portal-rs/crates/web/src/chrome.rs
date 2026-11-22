@@ -65,20 +65,11 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .or_else(|| console_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let (account, account_id) = if request.extensions().get::<StaffDashboard>().is_some() {
-        match crate::session::chrome_session(&shell.sessions, &mut request).await {
-            Some(session) => (
-                oteryn_ui::Account::SignedIn { csrf: session.csrf },
-                Some(session.account_id),
-            ),
-            None => (oteryn_ui::Account::Anonymous, None),
-        }
-    } else {
-        (
-            crate::session::chrome_account(&shell.sessions, &mut request).await,
-            None,
-        )
-    };
+    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let account_id = request
+        .extensions()
+        .get::<crate::session::ChromeSessionAccount>()
+        .map(|value| value.0);
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
