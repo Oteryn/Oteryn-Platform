@@ -150,9 +150,14 @@ test('editorial library pagination reaches entries beyond each first-page limit'
     links => links.map(entry => entry.getAttribute('href') || entry.getAttribute('src')),
    );
    const first = await entries();
-   const label = path === `/${lang}/events` ? t(lang, 'Następna', 'Next') : next;
-   await subject.locator('main').getByRole('link', { name: label, exact: true }).click();
-   await expect(subject).toHaveURL(/\?page=[12](?:&lang=[a-z]+)?$/);
+   const label = path.endsWith('/events') ? t(lang, 'Następna', 'Next') : next;
+   const pageNumber = path.endsWith('/news') ? '2' : '1';
+   const continuation = new RegExp(`[?]page=${pageNumber}(?:&lang=[a-z]+)?$`);
+   await Promise.all([
+    subject.waitForURL(continuation, { waitUntil: 'domcontentloaded' }),
+    subject.locator('main').getByRole('link', { name: label, exact: true }).click(),
+   ]);
+   await expect(subject).toHaveURL(continuation);
    await expect.poll(async () => (await entries()).some(target => !first.includes(target)
     && records.some(record => target.includes(record))), { message: path }).toBe(true);
   }
