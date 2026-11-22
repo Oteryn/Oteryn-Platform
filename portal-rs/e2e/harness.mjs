@@ -28,9 +28,12 @@ const argv = process.argv.slice(2);
 const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
+const browserCrawl = argv.includes('--browser-crawl');
+const SMTPServer = browserCrawl ? (await import('smtp-server')).SMTPServer : null;
 
 const testEnv = {};
-for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
+const profiles = browserCrawl ? ['test.env', 'crawl.env'] : ['test.env'];
+for (const line of profiles.flatMap(file => fs.readFileSync(path.join(here, file), 'utf8').split('\n'))) {
   const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line.trim());
   if (match) testEnv[match[1]] = process.env[match[1]] ?? match[2];
 }
@@ -77,6 +80,7 @@ function leaf(dir, name, san, usage) {
   return { cert, key };
 }
 const server = leaf(dirs.secrets, 'internal-server', 'DNS:localhost,IP:127.0.0.1', 'serverAuth');
+const browserPort = browserCrawl ? port('PORTAL_E2E_BROWSER_PORT') : null;
 
 // One client certificate per internal Game identity, each with a single DNS SAN.
 // `env` names the variable that binds it; `map` marks a JSON-object variable.
@@ -144,6 +148,20 @@ const env = {
   OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
 };
 for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
+if (browserCrawl) {
+  env.OTERYN_PUBLIC_ORIGIN = `https://localhost:${browserPort}`;
+  env.OTERYN_ADMIN_HOST = `localhost:${browserPort}`;
+  env.OTERYN_RESET_DELIVERY_KEY = crypto.randomBytes(32).toString('hex');
+  env.OTERYN_NOTIFY_UNSUBSCRIBE_KEY = crypto.randomBytes(32).toString('hex');
+  env.OTERYN_NOTIFY_UNSUBSCRIBE_URL = `${env.OTERYN_PUBLIC_ORIGIN}/en/unsubscribe`;
+  env.OTERYN_SMTP_HOST = 'localhost';
+  env.OTERYN_SMTP_USERNAME = 'portal-crawl';
+  env.OTERYN_SMTP_PASSWORD = crypto.randomBytes(32).toString('hex');
+  env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM = 'portal@example.invalid';
+  env.SSL_CERT_FILE = caFile;
+  env.OTERYN_ATLAS_DIRECTORY = path.join(out, 'atlas');
+  fs.mkdirSync(env.OTERYN_ATLAS_DIRECTORY, {mode: 0o700});
+}
 fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
 // ---- build, migrate ----------------------------------------------------------
@@ -167,10 +185,14 @@ run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'm
 
 // ---- services ----------------------------------------------------------------
 const children = [];
+const mailListeners = [];
+let proxy;
 let closing = false;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
+  proxy?.close();
+  for (const listener of mailListeners) listener.close();
   for (const child of children) if (child.exitCode === null) child.kill('SIGINT');
   await Promise.all(children.map(child => child.exitCode !== null ? null : new Promise(resolve => child.once('exit', resolve))));
   if (process.env.PORTAL_E2E_KEEP_DATABASE !== '1') await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {});
@@ -179,6 +201,31 @@ async function close(code = 0) {
 }
 process.on('SIGINT', () => close(0));
 process.on('SIGTERM', () => close(0));
+if (browserCrawl) {
+  for (const [port, secure] of [[465, true], [587, false]]) {
+    const listener = new SMTPServer({
+      secure, key: fs.readFileSync(server.key), cert: fs.readFileSync(server.cert),
+      onAuth(auth, _session, done) {
+        if (auth.username !== env.OTERYN_SMTP_USERNAME || auth.password !== env.OTERYN_SMTP_PASSWORD) {
+          done(new Error('Invalid SMTP credentials'));
+        } else {
+          done(null, {user: auth.username});
+        }
+      },
+      onData(stream, _session, done) {
+        stream.once('end', () => done());
+        stream.resume();
+      },
+    });
+    mailListeners.push(listener);
+    try {
+      await new Promise((resolve, reject) => listener.once('error', reject).listen(port, '127.0.0.1', resolve));
+    } catch (error) {
+      log('SMTP listener failed', error.code);
+      await close(1);
+    }
+  }
+}
 for (const role of ['serve', 'worker', 'gateway']) {
   const file = path.join(dirs.logs, `${role}.log`);
   const child = spawn(binary, [role], { cwd: root, env, stdio: ['ignore', fs.openSync(file, 'a'), fs.openSync(file, 'a')] });
@@ -209,6 +256,28 @@ const internalRequest = (client, pathName, body) => status(https.request, {
 await until(() => status(http.request, { host: '127.0.0.1', port: ports.http, path: '/', method: 'GET' }).then(() => true), 'public listener');
 await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
 await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
+if (browserCrawl) {
+  proxy = https.createServer({ key: fs.readFileSync(server.key), cert: fs.readFileSync(server.cert) }, (request, response) => {
+    const upstream = http.request({
+      host: '127.0.0.1', port: ports.http, path: request.url, method: request.method, headers: request.headers,
+    }, result => {
+      response.writeHead(result.statusCode, result.headers);
+      result.pipe(response);
+    });
+    upstream.on('error', () => { response.writeHead(502); response.end(); });
+    request.pipe(upstream);
+  });
+  try {
+    await new Promise((resolve, reject) => proxy.once('error', reject).listen(browserPort, '127.0.0.1', resolve));
+  } catch (error) {
+    log('browser listener failed', error.code);
+    await close(1);
+  }
+  fs.writeFileSync(path.join(dirs.secrets, 'browser.json'), JSON.stringify({
+    ...env, PORTAL_E2E_ORIGIN: env.OTERYN_PUBLIC_ORIGIN, PORTAL_E2E_BINARY: binary,
+    PORTAL_E2E_CRAWL_WITHOUT_GAME: '1',
+  }), {mode: 0o600});
+}
 log('services ready');
 
 // ---- seed plan ---------------------------------------------------------------

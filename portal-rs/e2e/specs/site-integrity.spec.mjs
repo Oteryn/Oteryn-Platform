@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '../fixtures.mjs';
-import { login, password, register, seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
+import { login, password, seedAccount, seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 
 const read = path => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -38,6 +38,29 @@ const coldProjections = [...read('../COVERAGE.md').matchAll(
   /^\| `([^`]+)` \| .*PASS: GET 503; (?:authority or projection unavailable|valid experience tab refuses absent accepted character\/privacy projection authority)/gm,
 )].map(([, route]) => pattern(route));
 const cold = pathname => coldProjections.some(route => route.test(pathname));
+const coldViews = [
+  {
+    path: /^\/(pl|en)\/league$/,
+    file: lang => `../../crates/minigames/src/league/${lang}.ftl`,
+    key: 'unavailable',
+    locator: 'main [role="status"]',
+  },
+  {
+    path: /^\/(pl|en)\/atlas$/,
+    file: lang => `../../crates/ui/i18n/${lang}.ftl`,
+    key: 'error-503-title',
+    locator: 'main h1',
+  },
+  {
+    path: /^\/(pl|en)\/(?:account\/)?bazaar$/,
+    file: lang => `../../templates/bazaar/${lang}.ftl`,
+    key: 'authority-unavailable',
+    locator: 'main p',
+  },
+];
+const expectedColdView = pathname => process.env.PORTAL_E2E_CRAWL_WITHOUT_GAME === '1'
+  && coldViews.find(view => view.path.test(pathname));
+const unavailable = pathname => cold(pathname) || Boolean(expectedColdView(pathname));
 
 const normalize = value => value.normalize('NFC').replace(/\s+/g, ' ').trim();
 const catalogues = Object.fromEntries(['pl', 'en'].map(locale => [
@@ -148,6 +171,9 @@ function enqueue(state, url, from, link) {
   state.queue.push({url: url.href, from, link});
 }
 
+const probeKey = (url, link) => JSON.stringify([url.href, link]);
+const assetTypes = new Set(['font', 'image', 'media', 'script', 'stylesheet']);
+
 async function crawl(page, origin, locale, section, state, defects, pages, workers) {
   const {probes, visited} = state;
   let current = '/';
@@ -158,13 +184,20 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
     });
   });
   const checkStatus = (url, status, source) => {
-    if (status === 404 || (status >= 500 && !(status === 503 && cold(url.pathname)))) {
+    if (status === 404 || (status >= 500 && !(status === 503 && unavailable(url.pathname)))) {
       defects.add(`${source} → ${label(url)} returned HTTP ${status}`);
     }
   };
   page.on('response', response => {
     const url = sameOrigin(response.url(), origin, origin);
-    if (url) checkStatus(url, response.status(), current);
+    if (!url) return;
+    checkStatus(url, response.status(), current);
+    const request = response.request();
+    // Use the browser's successful GET for assets it actually fetched. Links
+    // and resources the browser didn't fetch still get their own probe.
+    if (response.ok() && request.method() === 'GET' && assetTypes.has(request.resourceType())) {
+      probes.set(probeKey(url, false), {status: response.status(), html: false});
+    }
   });
   page.on('requestfailed', request => {
     const url = sameOrigin(request.url(), origin, origin);
@@ -177,7 +210,7 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
   page.on('console', message => {
     if (message.type() !== 'error') return;
     const url = sameOrigin(message.location().url, origin, origin);
-    if (url && cold(url.pathname) && /^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(message.text())) return;
+    if (url && unavailable(url.pathname) && /^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(message.text())) return;
     defects.add(`${current} console error: ${message.text()}`);
   });
 
@@ -193,12 +226,15 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
     }
   });
 
-  async function probe(url) {
-    if (probes.has(url.href)) return probes.get(url.href);
+  async function probe(url, link) {
+    const key = probeKey(url, link);
+    if (probes.has(key)) return probes.get(key);
     if (probes.size >= 4000) throw new Error('Site integrity GET probe budget exceeded (4000 URLs)');
     await waitForWikiBudget(url.href, workers);
     const response = await page.request.get(url.href, {
-      maxRedirects: 0, timeout: 15_000, headers: {'accept-language': locale},
+      maxRedirects: 0, timeout: 15_000, headers: {
+        'accept-language': locale, ...(link ? {accept: 'text/html'} : {}),
+      },
     });
     try {
       const type = response.headers()['content-type'] ?? '';
@@ -208,10 +244,14 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
         location: response.headers().location,
         html: /^text\/html\b/i.test(type) && /<(?:html[\s>]|!doctype\s+html)/i.test(await response.text()),
       };
-      if (status === 503 && cold(url.pathname) && !response.headers()['cache-control']?.includes('no-store')) {
+      if (status === 503 && unavailable(url.pathname) && !response.headers()['cache-control']?.includes('no-store')) {
         defects.add(`${label(url)} cold projection returned 503 without no-store`);
       }
-      probes.set(url.href, result);
+      if (expectedColdView(url.pathname)) {
+        if (status !== 503) defects.add(`${label(url)} without a producer returned HTTP ${status}, expected 503`);
+        if (!result.html) defects.add(`${label(url)} did not return the unavailable view`);
+      }
+      probes.set(key, result);
       return result;
     } finally {
       await response.dispose();
@@ -225,6 +265,7 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
     const {from, link} = entry;
     entry.done = true;
     let target = url;
+    let phase = 'probing the response';
     try {
       for (const redirects = new Set(); ; ) {
         if (redirects.has(target.href) || redirects.size >= 10) {
@@ -232,7 +273,8 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
           break;
         }
         redirects.add(target.href);
-        const result = await probe(target);
+        phase = 'probing the response';
+        const result = await probe(target, link);
         checkStatus(target, result.status, from);
         if (result.status >= 300 && result.status < 400 && result.location) {
           target = sameOrigin(result.location, target, origin);
@@ -254,9 +296,21 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
           throw new Error('Site integrity page budget exceeded (500 route patterns)');
         }
         current = label(target);
+        phase = 'waiting for the wiki quota';
         await waitForWikiBudget(target.href, workers);
+        phase = 'loading the document';
         const response = await page.goto(target.href, {waitUntil: 'load'});
-        expect(response?.status(), current).toBe(result.status);
+        if (response?.status() !== result.status) {
+          defects.add(`${current} browser received HTTP ${response?.status()}, probe received HTTP ${result.status}`);
+        }
+        phase = 'inspecting the document';
+        const view = expectedColdView(target.pathname);
+        if (view) {
+          const [, lang] = target.pathname.match(view.path);
+          const value = read(view.file(lang)).match(new RegExp(`^${view.key} = (.+)$`, 'm'))[1];
+          await expect(page.locator(view.locator).filter({hasText: value})).toBeVisible();
+          await expect(page.locator('main article, main form')).toHaveCount(0);
+        }
         samples.push(target.href);
         visited.set(key, samples);
         pages.push(current);
@@ -270,7 +324,7 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
     } catch (error) {
       // Request failures can include headers, cookies, and URL query values.
       if (error.message.startsWith('Site integrity ')) throw error;
-      defects.add(`${from} → ${label(url)} could not be checked (${error.name})`);
+      defects.add(`${from} → ${label(url)} failed while ${phase} (${error.name})`);
     }
   }
 }
@@ -290,11 +344,12 @@ for (const actor of actors) {
     }
 
     test('prepare actor', async ({page}, info) => {
+      info.setTimeout(300_000);
       const locale = info.project.metadata.locale;
       if (actor === 'anonymous') {
         await seedPasswordRange(password());
       } else {
-        const account = await register(page, locale);
+        const account = seedAccount(locale);
         if (actor === 'platform_admin') {
           await query(
             "INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",
@@ -310,7 +365,23 @@ for (const actor of actors) {
           await expect(page).not.toHaveURL(/mfa\/challenge/);
         }
         await page.goto(`/${locale}/`);
-        await expect(page.locator('[data-account-link]')).toBeAttached();
+        await expect(page.locator(`form[action="/${locale}/logout"]`)).toBeAttached();
+        const passkeys = `/${locale}/account/passkeys`;
+        const links = page.locator(`#podglad-konta a[href="${passkeys}"]`);
+        if (actor === 'platform_admin') {
+          await expect(links).toHaveCount(0);
+          expect((await page.request.get(passkeys)).status()).toBe(403);
+        } else {
+          await expect(links.first()).toBeAttached();
+          await page.route('**/static/thais/panel-frame.svg', route => route.continue());
+          const [frame, document] = await Promise.all([
+            page.waitForResponse(response =>
+              new URL(response.url()).pathname === '/static/thais/panel-frame.svg'),
+            page.goto(passkeys),
+          ]);
+          expect(document?.status()).toBe(200);
+          expect(frame.status()).toBe(200);
+        }
       }
       fs.writeFileSync(file(info, 'auth'), JSON.stringify(await page.context().storageState()), {mode: 0o600});
       const origin = new URL(info.project.use.baseURL).origin;
@@ -329,6 +400,9 @@ for (const actor of actors) {
 
     for (const section of [...sections, 'cross-section']) {
       test(section, async ({page}, info) => {
+        // A shard may render both locales and wait for a real quota window.
+        // Individual action, navigation and request deadlines still apply.
+        info.setTimeout(300_000);
         const locale = info.project.metadata.locale;
         const origin = new URL(info.project.use.baseURL).origin;
         const saved = JSON.parse(fs.readFileSync(file(info, 'crawl'), 'utf8'));

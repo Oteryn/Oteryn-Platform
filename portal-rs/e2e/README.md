@@ -127,6 +127,26 @@ services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
+### Site integrity crawl
+
+Run `./start.sh --browser-crawl` with the same disposable PostgreSQL administrator
+environment. This profile enables the routes in [`crawl.env`](crawl.env) and starts
+loopback HTTPS and authenticated SMTP listeners. The spec uses the real seed CLI
+for disposable accounts, then signs in through the browser and completes MFA for
+the administrator.
+
+From `portal-rs/e2e`, run the crawl in all four projects.
+
+```sh
+node run.mjs .harness/run/secrets/browser.json test specs/site-integrity.spec.mjs
+```
+
+This profile has no Game producer. For League, Atlas, and character Bazaar,
+the crawl requires HTTP 503, `Cache-Control: no-store`, and the localized
+unavailable view without entries or forms. An expired League watermark also
+produces that response. The dedicated League spec verifies expiry using the
+full-shell launcher's producer.
+
 ### Seed commands
 
 `oteryn-portal seed <entity> '<json object>'` runs only with

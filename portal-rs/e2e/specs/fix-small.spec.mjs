@@ -1,5 +1,5 @@
 import {test, expect} from '../fixtures.mjs';
-import {login, register} from '../helpers.mjs';
+import {login, seedAccount} from '../helpers.mjs';
 import {enrollMfa, loginWithRecoveryCode, query} from '../staff-rbac-helpers.mjs';
 
 async function grantRole(account, role) {
@@ -24,7 +24,7 @@ async function signInWithMfa(page, lang, account) {
 test('account menu shows a localized staff link only with admin.access', async ({page}, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
-  const account = await register(page, lang);
+  const account = seedAccount(lang);
   await login(page, lang, account);
   const link = accountMenu(page).locator('a[href="/admin"]');
   await expect(accountMenu(page)).toBeAttached();
@@ -47,7 +47,7 @@ test('cold atlas sends no-store for document and direct GET requests', async ({r
 test('passkey management link follows mandatory login MFA eligibility', async ({page}, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
-  const account = await register(page, lang);
+  const account = seedAccount(lang);
   await grantRole(account, 'moderator');
   await login(page, lang, account);
   const path = `/${lang}/account/passkeys`;
@@ -65,7 +65,7 @@ test('passkey management link follows mandatory login MFA eligibility', async ({
 test('moderator can review reports and is refused Platform admin areas', async ({page}, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
-  const account = await register(page, lang);
+  const account = seedAccount(lang);
   await grantRole(account, 'moderator');
   await login(page, lang, account);
   await signInWithMfa(page, lang, account);
