@@ -79,6 +79,7 @@ async function sweep(page,info,lang,part){
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
+ // Opening navigation must not grant Game read permission to the bootstrap role.
 }
 for(const part of [0,1]) {
  test(`staff navigation sweep ${part+1}`,async({browser},info)=>{
@@ -97,7 +98,6 @@ for(const part of [0,1]) {
 test('GM console refuses platform-only staff',async({browser},info)=>{
  const lang=info.project.metadata.locale;
  const {context:staffContext,page}=await openStaff(browser,info);
- // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
  await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{
