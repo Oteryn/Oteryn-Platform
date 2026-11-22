@@ -371,13 +371,10 @@ mod tests {
             sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":"invalid"}]}))
                 .is_err()
         );
-        assert_eq!(
-            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":first}]}))
-                .unwrap()
-                .unwrap()
-                .as_uuid(),
-            first
-        );
+        assert!(matches!(
+            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":first}]})),
+            Ok(Some(account)) if account.as_uuid() == first
+        ));
         assert!(sanction_account(&json!({"sanctions":[
             {"character_id":null,"account_ref":first}, {"character_id":null,"account_ref":second}
         ]})).is_err());
@@ -421,8 +418,11 @@ mod tests {
                 &result,
             )
         };
-        let dossier = project(Some("character-a")).unwrap().characters.unwrap();
-        assert_eq!(dossier[0].id, "character-a");
+        assert!(matches!(
+            project(Some("character-a")),
+            Ok(players::Snapshot { characters: Some(dossier), .. })
+                if dossier.first().is_some_and(|character| character.id == "character-a")
+        ));
         assert!(matches!(
             project(Some("character-b")),
             Err(Error::Unavailable)
