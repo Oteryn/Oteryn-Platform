@@ -541,16 +541,10 @@ struct QueryForm {
     _csrf: String,
 }
 fn lang(headers: &HeaderMap, selection: &Selection) -> &'static str {
-    if selection.lang.as_deref() == Some("en")
-        || (selection.lang.is_none()
-            && headers
-                .get(header::ACCEPT_LANGUAGE)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.starts_with("en")))
-    {
-        "en"
-    } else {
-        "pl"
+    match selection.lang.as_deref() {
+        Some("pl") => "pl",
+        Some("en") => "en",
+        _ => oteryn_web::negotiate(headers).code(),
     }
 }
 fn text(lang: &str, key: &str) -> String {
