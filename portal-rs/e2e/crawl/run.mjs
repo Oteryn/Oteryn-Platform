@@ -59,13 +59,17 @@ try {
   ]);
   if (!ready || signalCode) throw new Error('Crawl harness did not become ready');
   const env = JSON.parse(fs.readFileSync(path.join(out, 'secrets', 'env.json'), 'utf8'));
+  const runnerEnvironment = { ...process.env };
+  for (const key of ['PORTAL_E2E_ADMIN_DATABASE_URL', 'DATABASE_URL', 'PORTAL_TEST_DATABASE_URL', 'OTERYN_DATABASE_URL']) {
+    delete runnerEnvironment[key];
+  }
   runner = spawn(process.execPath, [
     'node_modules/@playwright/test/cli.js', 'test', '--config=crawl/playwright.config.mjs',
     ...process.argv.slice(2),
   ], {
     cwd: e2e,
     env: {
-      ...process.env,
+      ...runnerEnvironment,
       PORTAL_E2E_ORIGIN: env.PORTAL_E2E_ORIGIN,
       PORTAL_E2E_DATABASE_URL: env.OTERYN_DATABASE_URL,
       PORTAL_E2E_BINARY: env.PORTAL_E2E_BINARY,

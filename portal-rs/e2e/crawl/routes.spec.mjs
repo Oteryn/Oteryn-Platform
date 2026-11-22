@@ -31,6 +31,36 @@ function localURL(href, base, origin) {
   return url;
 }
 
+function inspectDocument({ html, selector, filters, accountEmail }) {
+  const doc = html === undefined ? document : new DOMParser().parseFromString(html, 'text/html');
+  const main = doc.querySelector('main');
+  const contents = {
+    lang: doc.documentElement.lang,
+    shell: Boolean(doc.querySelector('header#portal-header') && doc.querySelector('footer.foot')),
+    title: Boolean(main?.querySelector('h1')?.textContent.trim()),
+    unavailable: selector
+      ? [...(main?.querySelectorAll(selector) ?? [])].map(node => node.textContent)
+      : [...(main?.childNodes ?? [])].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent),
+    privateData: Boolean(accountEmail && doc.documentElement.outerHTML.includes(accountEmail)),
+    dataOrMutation: Boolean(main?.querySelector(filters ? 'article, ol > li, form:not([method="get" i])' : 'article, form, ol > li')),
+  };
+  if (html !== undefined) return contents;
+  return {
+    ...contents,
+    overflow: doc.documentElement.scrollWidth > innerWidth,
+    csp: window.crawlCsp,
+    links: [...doc.querySelectorAll('a[href], area[href]')].map(node => node.href),
+    assets: [...doc.querySelectorAll('link[rel~="stylesheet"][href], script[src], img[src]')]
+      .map(node => node.href || node.src),
+  };
+}
+
+function unavailableMatches(view, response, contents) {
+  const noStore = response.headers()['cache-control']?.split(',').some(value => value.trim() === 'no-store');
+  const localized = contents.unavailable.map(normalize).includes(view.text);
+  return noStore && localized && !contents.dataOrMutation && !contents.privateData;
+}
+
 function seed(entity, args) {
   const result = spawnSync(process.env.PORTAL_E2E_BINARY, ['seed', entity, JSON.stringify(args)], {
     env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: disposableDatabaseUrl() },
@@ -61,10 +91,14 @@ async function authenticate(page, locale, actor) {
     await login(page, locale, account);
     if (admin) {
       step = 'MFA enrollment';
-      const [code] = await enrollMfa(page, locale, account);
+      await enrollMfa(page, locale, account);
+      const recovery = page.locator('main textarea[readonly]').first();
+      await expect(recovery).toBeVisible();
+      const code = await recovery.inputValue();
       if (!code) throw new Error('MFA enrollment did not issue a recovery code');
       step = 'recovery code sign-in';
       await loginWithRecoveryCode(page, locale, account, code);
+      await expect(page).not.toHaveURL(/mfa\/challenge/);
     }
     step = 'signed-in home';
     await page.goto(`/${locale}/`);
@@ -159,7 +193,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
       try {
         if (!document) {
           if (loadedAssets.has(url.href)) continue;
-          const asset = await page.request.get(url.href, { maxRedirects: 0, timeout: 15_000 });
+          const asset = await page.request.get(url.href, { maxRedirects: 0 });
           const status = asset.status();
           await asset.dispose();
           if (status !== 200) defects.add(`${from} → ${current} asset returned HTTP ${status}`);
@@ -177,10 +211,12 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         const isAlternateLocale = documentLocale(target, locale) !== locale
           && /^(?:\/(?:pl|en)(?:\/|$)|\/admin\/(?:pl|en)\/)/.test(target.pathname);
         const headers = { accept: 'text/html', 'accept-language': locale };
+        const expectedLang = documentLocale(target, locale);
+        const inspection = { selector: view?.selector, filters: view?.filters, accountEmail: email };
 
         if (redirectPath) {
           const redirectStatus = actor === 'anonymous' && route === 'password/change' ? 302 : 303;
-          const redirect = await page.request.get(url.href, { maxRedirects: 0, timeout: 15_000, headers });
+          const redirect = await page.request.get(url.href, { maxRedirects: 0, headers });
           try {
             const location = redirect.headers().location;
             if (redirect.status() !== redirectStatus || !location || localURL(location, url, origin)?.href !== target.href) {
@@ -197,23 +233,26 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         if (isAlternateLocale) {
           // The matching locale project renders these documents at its viewport.
           // Here the actual link must still reach the exact HTML response.
-          const response = await page.request.get(target.href, { maxRedirects: 0, timeout: 15_000, headers });
+          const response = await page.request.get(target.href, { maxRedirects: 0, headers });
           try {
             const contentType = response.headers()['content-type'] ?? '';
-            const noStore = response.headers()['cache-control']?.split(',').some(value => value.trim() === 'no-store');
-            if (response.status() !== expectedStatus || !contentType.startsWith('text/html')
-              || (view && (!noStore || !(await response.text()).includes(view.text)))) {
+            if (response.status() !== expectedStatus || !contentType.startsWith('text/html')) {
               defects.add(`${from} → ${current} alternate language expected HTML with HTTP ${expectedStatus}, got ${response.status()}`);
-            } else {
-              covered.push({ path: label(target), status: expectedStatus, locale: documentLocale(target, locale), ...(view && { reason: view.reason }) });
+              continue;
             }
+            const contents = await page.evaluate(inspectDocument, { ...inspection, html: await response.text() });
+            if (!contents.shell || !contents.title || contents.lang !== expectedLang
+              || (view && !unavailableMatches(view, response, contents))) {
+              defects.add(`${from} → ${current} invalid ${expectedLang} alternate document`);
+            }
+            covered.push({ path: label(target), status: expectedStatus, locale: expectedLang, ...(view && { reason: view.reason }) });
           } finally {
             await response.dispose();
           }
           visited.add(target.href);
           continue;
         }
-        const response = await page.goto(target.href, { waitUntil: 'domcontentloaded' });
+        const response = await page.goto(target.href);
         if (response?.request().redirectedFrom() || response?.status() !== expectedStatus || page.url() !== target.href) {
           defects.add(`${from} → ${current} expected HTTP ${expectedStatus}, reached ${label(new URL(page.url()))} with HTTP ${response?.status()}${view ? ` (${view.reason})` : ''}`);
           continue;
@@ -227,25 +266,9 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         visited.add(target.href);
         covered.push({ path: label(target), status: expectedStatus, locale: documentLocale(target, locale), rendered: true, ...(view && { reason: view.reason }) });
 
-        const rendered = await page.evaluate(({ selector, filters, accountEmail }) => {
-          const main = document.querySelector('main');
-          return {
-            lang: document.documentElement.lang,
-            shell: Boolean(document.querySelector('header#portal-header') && document.querySelector('footer.foot')),
-            title: Boolean(main?.querySelector('h1')?.textContent.trim()),
-            overflow: document.documentElement.scrollWidth > innerWidth,
-            csp: window.crawlCsp,
-            unavailable: selector
-              ? [...(main?.querySelectorAll(selector) ?? [])].map(node => node.textContent)
-              : [...(main?.childNodes ?? [])].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent),
-            privateData: Boolean(accountEmail && main?.textContent.includes(accountEmail)),
-            dataOrMutation: Boolean(main?.querySelector(filters ? 'article, ol > li, form:not([method="get" i])' : 'article, form, ol > li')),
-            links: [...document.querySelectorAll('a[href], area[href]')].map(node => node.href),
-            assets: [...document.querySelectorAll('link[rel~="stylesheet"][href], script[src], img[src]')]
-              .map(node => node.href || node.src),
-          };
-        }, { selector: view?.selector, filters: view?.filters, accountEmail: email });
-        const expectedLang = documentLocale(target, locale);
+        // Scroll width depends on the actual metrics of the loaded shell fonts.
+        await page.evaluate(() => document.fonts.ready.then(() => null));
+        const rendered = await page.evaluate(inspectDocument, inspection);
         if (!rendered.shell || !rendered.title) defects.add(`${current} is missing the shared shell or its main heading`);
         if (rendered.lang !== expectedLang) defects.add(`${current} document language should be ${expectedLang}`);
         if (rendered.overflow) defects.add(`${current} overflows the viewport`);
@@ -254,17 +277,14 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
           defects.add(`${current} advertises passkey management to an MFA-required account`);
         }
         if (rendered.csp.length) defects.add(`${current} violated CSP (${rendered.csp.join(', ')})`);
-        if (view) {
-          const noStore = response.headers()['cache-control']?.split(',').some(value => value.trim() === 'no-store');
-          const matches = rendered.unavailable.map(normalize).includes(view.text);
-          if (!noStore || !matches || rendered.dataOrMutation || rendered.privateData) {
-            defects.add(`${current} invalid unavailable view (no-store=${Boolean(noStore)}, localized=${matches}, disclosure or action=${rendered.dataOrMutation || rendered.privateData})`);
-          }
+        if (view && !unavailableMatches(view, response, rendered)) {
+          defects.add(`${current} invalid unavailable view (${view.reason})`);
         }
         for (const href of rendered.links) enqueue(href, label(target));
         for (const href of rendered.assets) enqueue(href, label(target), false);
       } catch (error) {
-        defects.add(`${from} → ${current} failed (${error.name})`);
+        const networkError = error.message.match(/net::ERR_[A-Z_]+|ECONNRESET|ECONNREFUSED|ETIMEDOUT|socket hang up|Timeout \d+ms/)?.[0];
+        defects.add(`${from} → ${current} failed (${networkError ?? error.name})`);
       }
     }
     for (const { source, url, status } of httpNotices) {
