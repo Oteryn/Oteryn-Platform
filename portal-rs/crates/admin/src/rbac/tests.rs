@@ -42,7 +42,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 69);
+    assert_eq!(Permission::ALL.len(), 73);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
@@ -1172,9 +1172,16 @@ async fn r8_grant_invalidates_existing_staff_session() {
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'recipient@example.invalid','fixture','active','en',now())").bind(account).execute(&db.pool).await.unwrap();
     let mut target = verified(account);
     target.session_proof = Some(crate::test_staff::proof(&db.pool, account).await.unwrap());
+    let manager = db.manager().await;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(manager.account)
+        .bind(db.role("support").await)
+        .execute(&db.pool)
+        .await
+        .unwrap();
     let auth = db.auth();
     auth.change_from_panel(
-        db.manager().await,
+        manager,
         Uuid::now_v7(),
         Change::Grant {
             account,
