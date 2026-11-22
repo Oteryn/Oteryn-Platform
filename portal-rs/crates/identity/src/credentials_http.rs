@@ -295,9 +295,11 @@ async fn change(
     State(service): State<Credentials>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
-    oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
+    (oteryn_web::ratelimit::ClientSource(peer), headers): (
+        oteryn_web::ratelimit::ClientSource,
+        HeaderMap,
+    ),
     method: Method,
-    headers: HeaderMap,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
     if let Err(response) = check(
