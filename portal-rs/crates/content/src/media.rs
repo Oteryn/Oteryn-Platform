@@ -15,6 +15,7 @@ use oteryn_admin::{
     rbac::{CheckContext, MutationAuthorization, Permission},
     web::{StaffPreflight, UploadPreflight},
 };
+use oteryn_web::Language;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -533,6 +534,16 @@ struct Options {
     page: u32,
     lang: Option<String>,
 }
+
+impl Options {
+    fn language(&self) -> Language {
+        if self.lang.as_deref() == Some("en") {
+            Language::En
+        } else {
+            Language::Pl
+        }
+    }
+}
 #[derive(askama::Template)]
 #[template(
     source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media{% if lang == \"en\" %}?lang=en{% endif %}\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"upload_key\" value=\"{{ upload_key }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete{% if lang == \"en\" %}?lang=en{% endif %}\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">{{ next_label }}</a>{% endif %}</main></html>",
@@ -555,9 +566,21 @@ struct MediaPage {
 fn label(lang: &str, key: &str) -> String {
     use fluent_bundle::{FluentBundle, FluentResource};
     let source = if lang == "en" {
-        "title = Media\nimage = Image (JPEG, PNG, WebP; max 8 MiB)\nalt = Alternative text\nupload = Upload\ndelete = Delete\nnext = Next"
+        concat!(
+            "title = Media\nimage = Image (JPEG, PNG, WebP; max 8 MiB)\nalt = Alternative text\n",
+            "upload = Upload\ndelete = Delete\nnext = Next\n",
+            "timeout-title = Upload timed out\ntimeout-message = The file did not upload before the deadline.\n",
+            "conflict-title = This form was already used\nconflict-message = Open a new form to upload this file with the changed details.\n",
+            "back = Back to the media form",
+        )
     } else {
-        "title = Media\nimage = Obraz (JPEG, PNG, WebP; maks. 8 MiB)\nalt = Tekst alternatywny\nupload = Prześlij\ndelete = Usuń\nnext = Następna"
+        concat!(
+            "title = Media\nimage = Obraz (JPEG, PNG, WebP; maks. 8 MiB)\nalt = Tekst alternatywny\n",
+            "upload = Prześlij\ndelete = Usuń\nnext = Następna\n",
+            "timeout-title = Przesyłanie trwało zbyt długo\ntimeout-message = Plik nie został przesłany w wyznaczonym czasie.\n",
+            "conflict-title = Formularz został już użyty\nconflict-message = Otwórz nowy formularz, aby przesłać plik ze zmienionymi danymi.\n",
+            "back = Wróć do formularza multimediów",
+        )
     };
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -579,15 +602,13 @@ async fn index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
-    language: Option<Extension<oteryn_web::Language>>,
+    language: Option<Extension<Language>>,
     Query(options): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     use askama::Template;
-    let lang = match language {
-        Some(Extension(language)) => language.code(),
-        None if options.lang.as_deref() == Some("en") => "en",
-        None => "pl",
-    };
+    let lang = language
+        .map_or_else(|| options.language(), |Extension(lang)| lang)
+        .code();
     let rows = sqlx::query(
         "SELECT id,alt_text FROM media ORDER BY created_at DESC,id DESC LIMIT 100 OFFSET $1",
     )
@@ -965,19 +986,91 @@ async fn delete(
 }
 
 fn media_redirect(options: &Options) -> Response {
-    let location = if options.lang.as_deref() == Some("en") {
-        "/admin/media?lang=en"
-    } else {
-        "/admin/media"
+    (
+        StatusCode::FOUND,
+        [(header::LOCATION, media_url(options.language()))],
+    )
+        .into_response()
+}
+
+fn media_url(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "/admin/media?lang=en",
+        Language::Pl => "/admin/media",
+    }
+}
+
+#[derive(askama::Template)]
+#[template(
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title></head><body><main><h1>{{ title }}</h1><p>{{ message }}</p><a href=\"{{ back_url }}\">{{ back }}</a></main></body></html>",
+    ext = "html"
+)]
+struct UploadErrorPage {
+    lang: &'static str,
+    title: String,
+    message: String,
+    back_url: &'static str,
+    back: String,
+}
+
+fn upload_error_page(status: StatusCode, language: Language) -> Option<String> {
+    use askama::Template;
+    let (title, message) = match status {
+        StatusCode::REQUEST_TIMEOUT => ("timeout-title", "timeout-message"),
+        StatusCode::CONFLICT => ("conflict-title", "conflict-message"),
+        _ => return None,
     };
-    (StatusCode::FOUND, [(header::LOCATION, location)]).into_response()
+    let lang = language.code();
+    UploadErrorPage {
+        lang,
+        title: label(lang, title),
+        message: label(lang, message),
+        back_url: media_url(language),
+        back: label(lang, "back"),
+    }
+    .render()
+    .ok()
 }
 #[cfg(test)]
 #[path = "media_tests.rs"]
 mod media_tests;
 
 async fn headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let native_form = request.method() == axum::http::Method::POST
+        && request.uri().path() == "/admin/media"
+        && !request.headers().contains_key("x-csrf-token")
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|accept| accept.contains("text/html"));
+    let language = native_form.then(|| {
+        request
+            .extensions()
+            .get::<Language>()
+            .copied()
+            .unwrap_or_else(|| {
+                Query::<Options>::try_from_uri(request.uri())
+                    .unwrap_or(Query(Options::default()))
+                    .language()
+            })
+    });
     let mut response = next.run(request).await;
+    if let Some(language) = language
+        && let Some(body) = upload_error_page(response.status(), language)
+    {
+        let (mut parts, _) = response.into_parts();
+        parts.headers.remove(header::CONTENT_LENGTH);
+        parts.headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        parts.headers.insert(
+            header::CONTENT_LANGUAGE,
+            header::HeaderValue::from_static(language.code()),
+        );
+        response = Response::from_parts(parts, axum::body::Body::from(body));
+    }
     for (name, value) in [
         ("cache-control", "private, no-store"),
         ("x-content-type-options", "nosniff"),

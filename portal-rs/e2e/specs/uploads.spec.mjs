@@ -166,9 +166,59 @@ test('retrying a rendered upload returns success with one media row', async ({ p
   const changed = mediaLabel();
   expect((await postImage(page, png, changed, csrf, uploadKey)).status()).toBe(409);
   await expectNoMedia(changed);
+  await page.locator(form).locator('[name=upload_key]').evaluate((input, key) => { input.value = key; }, uploadKey);
+  await page.locator(form).locator('input[name=image]').setInputFiles(png);
+  const [conflict] = await Promise.all([
+    page.waitForResponse(response =>
+      new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+    submit(page, form, { alt_text: changed }),
+  ]);
+  expect(conflict.status()).toBe(409);
+  await expect(page.getByRole('heading', { name: lang === 'en' ? 'This form was already used' : 'Formularz został już użyty' })).toBeVisible();
+  await expectNoMedia(changed);
   const localeQuery = lang === 'en' ? '?lang=en' : '';
+  const back = backToMedia(page, lang);
+  await expect(back).toHaveAttribute('href', `${route}${localeQuery}`);
+  await back.click();
+  await expect(page.locator(form)).toBeVisible();
   await submit(page, `main form[action="${route}/${before[0].id}/delete${localeQuery}"]`);
   await expectNoMedia(alt);
+});
+
+function backToMedia(page, lang) {
+  return page.getByRole('link', { name: lang === 'en' ? 'Back to the media form' : 'Wróć do formularza multimediów', exact: true });
+}
+
+test('a native upload timeout shows a localized link back to the form', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  await page.locator(form).locator('input[name=image]').setInputFiles(png);
+  await page.locator(form).locator('[name=alt_text]').fill(alt);
+
+  const db = pool();
+  const lock = await db.connect();
+  try {
+    await lock.query('BEGIN');
+    await lock.query('LOCK TABLE web_sessions IN ACCESS EXCLUSIVE MODE');
+    const [timedOut] = await Promise.all([
+      page.waitForResponse(response =>
+        new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+      page.locator(form).locator('button').click(),
+    ]);
+    expect(await timedOut.request().headerValue('x-csrf-token')).toBeNull();
+    expect(timedOut.status()).toBe(408);
+  } finally {
+    await lock.query('ROLLBACK');
+    lock.release();
+    await db.end();
+  }
+  await expect(page.getByRole('heading', { name: lang === 'en' ? 'Upload timed out' : 'Przesyłanie trwało zbyt długo' })).toBeVisible();
+  await expectNoMedia(alt);
+  const back = backToMedia(page, lang);
+  await expect(back).toHaveAttribute('href', lang === 'en' ? `${route}?lang=en` : route);
+  await back.click();
+  await expect(page.locator(form)).toBeVisible();
 });
 
 test('an upload filename with path segments cannot select the stored media path', async ({ page }, { project }) => {

@@ -756,8 +756,11 @@ async fn browser_lifecycle(pool: &PgPool) {
     lock.rollback().await.unwrap();
 
     let alt = "Signed-in native form stalled";
-    let stalled = with_stalled_body(make(csrf, alt, "image/png")).await;
+    let mut stalled = with_stalled_body(make(csrf, alt, "image/png")).await;
     assert!(!stalled.headers().contains_key("x-csrf-token"));
+    stalled
+        .headers_mut()
+        .insert(header::ACCEPT, "text/html".parse().unwrap());
     let start = tokio::time::Instant::now();
     let refusal = tokio::time::timeout(Duration::from_secs(70), app.clone().oneshot(stalled))
         .await
@@ -765,6 +768,11 @@ async fn browser_lifecycle(pool: &PgPool) {
         .unwrap();
     assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
     assert!(start.elapsed() >= Duration::from_secs(60));
+    assert_eq!(refusal.headers()[header::CONTENT_LANGUAGE], "en");
+    let body = to_bytes(refusal.into_body(), 100_000).await.unwrap();
+    let body = std::str::from_utf8(&body).unwrap();
+    assert!(body.contains("<h1>Upload timed out</h1>"));
+    assert!(body.contains(r#"href="/admin/media?lang=en">Back to the media form</a>"#));
     assert!(
         !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM media WHERE alt_text=$1)")
             .bind(alt)
