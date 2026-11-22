@@ -103,7 +103,7 @@ impl Registry {
                         panel: panels::Panel::Player,
                         route: entry.path,
                         label: entry.label,
-                        permission: if entry.path == "account/passkeys" {
+                        permission: if entry.section == "account-passkeys" {
                             panels::Permission::PasskeysEligible
                         } else {
                             panels::Permission::AccountOwner
@@ -689,14 +689,14 @@ mod tests {
         let mut registry = registry();
         registry.section(
             true,
-            "passkeys",
-            "shell-account",
-            "account/passkeys",
+            "account-passkeys",
+            "shell-account-passkeys",
+            "account/passkeys/manage",
             Group::Account,
             false,
         );
         for lang in ["pl", "en"] {
-            let url = format!("/{lang}/account/passkeys");
+            let url = format!("/{lang}/account/passkeys/manage");
             for passkeys_eligible in [false, true] {
                 let chrome = registry.chrome(
                     lang,

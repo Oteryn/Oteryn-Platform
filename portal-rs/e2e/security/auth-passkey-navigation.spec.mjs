@@ -9,7 +9,8 @@ for (const requiresMfa of [false, true]) {
   test(`passkey management matches route access with mandatory MFA ${requiresMfa ? 'on' : 'off'}`, async ({ page, context }, info) => {
     const lang = info.project.metadata.locale;
     const account = await seedAccount(lang);
-    const route = `/${lang}/account/passkeys`;
+    const signInRoute = `/${lang}/account/passkeys`;
+    const route = `${signInRoute}/manage`;
     if (requiresMfa) {
       const { recoveryCodes } = await seedEntity('account-mfa', {
         accountId: account.id,
@@ -28,9 +29,11 @@ for (const requiresMfa of [false, true]) {
     await expect(menu).toBeVisible();
     const passkeys = menu.locator(`a[href="${route}"]`);
     if (requiresMfa) {
+      expect((await page.request.get(signInRoute, {maxRedirects: 0})).status()).toBe(403);
       expect((await page.request.get(route, { maxRedirects: 0 })).status()).toBe(403);
       await expect(passkeys).toHaveCount(0);
     } else {
+      expect((await page.request.get(signInRoute, {maxRedirects: 0})).status()).toBe(200);
       await expect(passkeys).toHaveText(lang === 'pl' ? 'Klucze dostępu' : 'Passkeys');
       const navigation = page.waitForResponse(response =>
         response.request().isNavigationRequest() && new URL(response.url()).pathname === route
