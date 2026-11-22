@@ -710,14 +710,6 @@ impl oteryn_db::outbox::Cleanup for SessionCleanup {
     }
 }
 
-/// Read the signed-in account for permission-aware presentation.
-pub(crate) async fn chrome_session(
-    layer: &SessionLayer,
-    request: &mut Request,
-) -> Option<SignedInSession> {
-    read_signed_in(layer, request).await.ok().flatten()
-}
-
 impl std::fmt::Debug for CommittedRotation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CommittedRotation([redacted])")

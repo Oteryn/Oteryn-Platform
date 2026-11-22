@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {confirmStaffPassword,role,staff as openStaff} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,isolatedAdmin,role,staff as openStaff} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap and mandatory MFA',async({page},info)=>{
@@ -32,6 +32,17 @@ test('staff bootstrap and mandatory MFA',async({page},info)=>{
  await confirmStaffPassword(page,lang,staff.password);
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
+ expect(new URL(response.url()).pathname).toBe('/admin');
+ await test.step('the populated audit table fits the viewport', async () => {
+   await role(page, 'admin.access audit.view');
+   expect((await page.goto(`/admin/console/audit?lang=${lang}`)).status()).toBe(200);
+   const table = page.locator('main .op-table-wrap').first();
+   await expect(table).toBeVisible();
+   if (info.project.use.viewport.width === 390) {
+     expect(await table.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+   }
+ });
+ expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(200);
  fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
 });
 
@@ -54,6 +65,7 @@ async function sweep(page,info,lang,part){
          await test.step(path,async()=>{
            const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
            const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
+           expect(new URL(response.url()).pathname, 'terminal staff route').toBe(new URL(path, page.url()).pathname);
            const status=response.status();
            if(status===200) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
@@ -101,7 +113,9 @@ test('GM console refuses platform-only staff',async({browser},info)=>{
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
  await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{
-   expect((await page.goto(`/console/dashboard?lang=${lang}`)).status()).toBe(403);
+   const response = await page.goto(`/console/dashboard?lang=${lang}`);
+   expect(response.status()).toBe(403);
+   expect(new URL(response.url()).pathname).toBe('/console/dashboard');
    await expect(page.locator('html')).toHaveAttribute('lang',lang);
    await assertShell(page,{status:403});
  });
@@ -111,7 +125,7 @@ test('GM console refuses platform-only staff',async({browser},info)=>{
 test('privileged role grants and non-staff admin access are refused',async({browser},info)=>{
  test.setTimeout(150_000);
  const lang=info.project.metadata.locale;
- const {context:staffContext,page}=await openStaff(browser,info);
+ const {context:staffContext,page}=await isolatedAdmin(browser,info);
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
@@ -119,8 +133,6 @@ test('privileged role grants and non-staff admin access are refused',async({brow
    try {
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-     await confirmStaffPassword(page,lang,staff.password);
-     fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
      const token=await page.locator('input[name=_csrf]').first().inputValue();
      const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);

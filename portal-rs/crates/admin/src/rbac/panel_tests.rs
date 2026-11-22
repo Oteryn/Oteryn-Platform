@@ -995,7 +995,7 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
     let escrow = "DELETE FROM role_permissions WHERE role_id=(SELECT id FROM roles WHERE key='platform_admin') AND permission='admin.roles.grant'";
     sqlx::query(escrow).execute(&db.pool).await?;
     crate::test_staff::recent_password(&db.pool, &cookie).await?;
-    for form in [edit.as_str(), confirmed.as_str(), create] {
+    for form in [confirmed.as_str(), create] {
         assert_eq!(
             post(&db, &cookie, &csrf, form.to_owned()).await?,
             StatusCode::FORBIDDEN
@@ -1018,7 +1018,7 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
     crate::test_staff::recent_password(&db.pool, &cookie).await?;
     assert_eq!(
         post(&db, &cookie, &csrf, edit.clone()).await?,
-        StatusCode::FORBIDDEN
+        StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
         post(&db, &cookie, &csrf, format!("{edit}&reason=unapproved")).await?,
@@ -1098,12 +1098,10 @@ async fn widening_an_assigned_role_requires_the_direct_grant_controls() -> TestR
         .execute(&db.pool)
         .await?;
     crate::test_staff::recent_password(&db.pool, &cookie).await?;
-    for form in [&edit, &confirmed] {
-        assert_eq!(
-            post(&db, &cookie, &csrf, form.clone()).await?,
-            StatusCode::FORBIDDEN
-        );
-    }
+    assert_eq!(
+        post(&db, &cookie, &csrf, confirmed.clone()).await?,
+        StatusCode::FORBIDDEN
+    );
 
     sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.roles.grant')")
         .bind(grant_role)
@@ -1120,7 +1118,7 @@ async fn widening_an_assigned_role_requires_the_direct_grant_controls() -> TestR
     crate::test_staff::recent_password(&db.pool, &cookie).await?;
     assert_eq!(
         post(&db, &cookie, &csrf, edit.clone()).await?,
-        StatusCode::FORBIDDEN
+        StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
         post(&db, &cookie, "invalid", confirmed.clone()).await?,
@@ -1170,7 +1168,7 @@ async fn widening_an_assigned_role_requires_the_direct_grant_controls() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=set-permissions&role={assigned}&permissions=")
+            format!("action=set-permissions&role={assigned}&permissions=&reason=role_assignment")
         )
         .await?,
         StatusCode::SEE_OTHER

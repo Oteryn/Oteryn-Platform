@@ -487,24 +487,6 @@ fn without_attribute(tag: &str, name: &str) -> String {
     }
 }
 
-pub type StaffAccess = std::sync::Arc<
-    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
-        + Send
-        + Sync,
->;
-
-#[derive(Clone)]
-pub struct StaffDashboard {
-    pub url: String,
-    pub allows: StaffAccess,
-}
-
-impl std::fmt::Debug for StaffDashboard {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StaffDashboard").finish_non_exhaustive()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{content_landmark, inject, shell_asset_policy};

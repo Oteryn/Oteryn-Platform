@@ -84,7 +84,7 @@ test('staff changes a custom role permission through the roles form', async ({br
   try {
     const id = await role(page);
     await action(page, 'form:has(button[value=set-permissions])', {
-      role: id, permissions: 'admin.access',
+      role: id, permissions: 'admin.access', reason: 'role_assignment',
     }, 'set-permissions');
     const rows = await query('SELECT permission FROM role_permissions WHERE role_id=$1', [id]);
     expect(rows).toEqual([{permission: 'admin.access'}]);
