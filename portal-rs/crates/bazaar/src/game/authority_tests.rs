@@ -5888,15 +5888,16 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
     assert!(matches!(conflict, Err(Error::Conflict)));
     reader.rollback().await.unwrap();
 
-    oteryn_db::test_support::coin_chargeback_hold(&db.pool, buyer)
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(buyer)
+        .execute(&db.pool)
         .await
         .unwrap();
-    assert!(matches!(
-        db.runtime
-            .bid(buyer, listing, 15000, destination, request)
-            .await,
-        Err(Error::Denied)
-    ));
+    let replay = db
+        .runtime
+        .bid(buyer, listing, 15000, destination, request)
+        .await;
+    assert!(matches!(replay, Err(Error::Denied)), "{replay:?}");
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_bids WHERE listing_id=$1")
         .bind(listing)
         .fetch_one(&db.pool)
