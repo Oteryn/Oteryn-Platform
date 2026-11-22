@@ -34,17 +34,18 @@ published locale and exact versions at form display and again inside the
 registration transaction. The acceptance stores the snapshot's page, locale,
 and version so later language changes preserve the edition that was accepted.
 Earlier consent records keep their original version without an inferred locale.
-Live signup requires immutable, explicitly approved
-editions and rejects known fictional operator values, including after a
-version is renamed. Missing, stale, mismatched or unapproved editions make
-signup unavailable and log the locale and reason.
+Live signup requires immutable, explicitly approved editions and rejects known
+fictional operator values, including after a version is renamed. Missing, stale,
+mismatched or unapproved editions make signup unavailable and log the locale
+and reason.
 
 To enable live signup, replace the fictional operator details and publish
-final editions under new versions. Select **Approve this legal edition as
+final editions under new versions. Select **Approve this new legal edition as
 final** when publishing each required edition, saving English before Polish.
 Set the two signup version variables to the exact published values. Each
 approval belongs to the immutable edition, including its locale and content.
-Previously published versions require a new version for approval.
+An unchanged resave keeps the existing approval. Previously published
+unapproved editions require a new version for approval.
 
 The editor is `/admin/pages`. Its create form opens
 `/admin/pages/{slug}/{locale}`, which supports GET and CSRF-protected POST.
