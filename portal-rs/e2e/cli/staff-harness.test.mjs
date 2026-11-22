@@ -168,6 +168,14 @@ function startSeedPlan(t, steps) {
   return { out, output, child, ended };
 }
 
+function parseFixtureOutput(value, label) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must contain valid JSON`);
+  }
+}
+
 test('staff seed plans keep MFA results and dependent results out of both ready reports', { timeout: 900_000 }, async t => {
   const player = { email: randomUUID() + '@example.invalid', password: password(), locale: 'en' };
   const { out, output, child, ended } = startSeedPlan(t, [
@@ -177,22 +185,22 @@ test('staff seed plans keep MFA results and dependent results out of both ready 
   ]);
   const report = await until(() => {
     if (child.exitCode !== null) throw new Error('Staff harness failed before readiness');
-    if (output.stdout.endsWith('\n')) return JSON.parse(output.stdout);
+    if (output.stdout.endsWith('\n')) return parseFixtureOutput(output.stdout, 'Staff harness stdout');
   }, t.signal);
   const file = path.join(out, 'secrets', 'seed-results.json');
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  const privateResults = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const privateResults = parseFixtureOutput(fs.readFileSync(file, 'utf8'), 'Private seed results');
   assert.equal(typeof privateResults.mfa.totpSecret, 'string');
   assert.equal(privateResults.mfa.recoveryCodes.length, 8);
-  assert.equal(privateResults.world.name, privateResults.mfa.accountId);
-  assert.equal(report.seed.player.accountId, privateResults.player.accountId);
-  assert.deepEqual(report.seed.mfa, { status: 'private' });
-  assert.deepEqual(report.seed.world, { status: 'private' });
   const reportFile = fs.readFileSync(path.join(out, 'report.json'), 'utf8');
   for (const secret of [privateResults.mfa.totpSecret, ...privateResults.mfa.recoveryCodes]) {
     assert.ok(!output.stdout.includes(secret) && !output.stderr.includes(secret) && !reportFile.includes(secret),
       'authentication material remains private');
   }
+  assert.ok(privateResults.world.name === privateResults.mfa.accountId, 'private references still resolve');
+  assert.ok(report.seed.player.accountId === privateResults.player.accountId, 'public account results are retained');
+  assert.ok(JSON.stringify(report.seed.mfa) === '{"status":"private"}', 'MFA has only a private-result marker');
+  assert.ok(JSON.stringify(report.seed.world) === '{"status":"private"}', 'dependent steps have only a private-result marker');
   child.stdin.end();
   assert.deepEqual(await ended, [0, null]);
 });
@@ -236,8 +244,8 @@ test('a blocked staff seed-plan command reaches its deadline and tears down', { 
       )).rowCount;
     }, t.signal);
     assert.deepEqual(await ended, [1, null]);
-    assert.equal(output.stdout, '');
-    assert.match(output.stderr, /seed step blocked-account exceeded its 30000 ms deadline/);
+    assert.ok(output.stdout === '', 'the failed seed plan prints no ready report');
+    assert.ok(output.stderr.includes('seed step blocked-account exceeded its 30000 ms deadline'), 'the seed deadline is reported');
     assert.equal(fs.existsSync(path.join(out, 'secrets')), false);
     assert.equal((await observer.query('SELECT 1 FROM pg_database WHERE datname = $1', [database])).rowCount, 0);
   } finally {
