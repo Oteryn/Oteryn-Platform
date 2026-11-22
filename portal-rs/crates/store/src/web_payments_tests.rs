@@ -1028,3 +1028,59 @@ async fn checkout_observes_wallet_capacity() -> TestResult {
         .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_competing_checkout_decisions_conflict_and_winner_replays() -> TestResult {
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'decision@example.invalid',now(),'unused-test-hash','active','en')")
+        .bind(account).execute(&pool).await?;
+    let topups = recovery_topups(&pool, vec![recovery_package()])?;
+    let intent = topups
+        .create(account, Uuid::now_v7(), "fixture".into())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+
+    let (paid, rejected) = tokio::join!(
+        topups.checkout(account, intent, Some("pay".into())),
+        topups.checkout(account, intent, Some("reject".into())),
+    );
+    let (winning_action, losing_action, terminal_status) = match (paid, rejected) {
+        (Ok(Some(checkout)), Err(Error::Conflict)) => {
+            assert_eq!(checkout.status, "checkout-succeeded");
+            ("pay", "reject", "checkout-succeeded")
+        }
+        (Err(Error::Conflict), Ok(Some(checkout))) => {
+            assert_eq!(checkout.status, "checkout-failed");
+            ("reject", "pay", "checkout-failed")
+        }
+        other => panic!("expected one checkout decision and one conflict, got {other:?}"),
+    };
+    let replay = topups
+        .checkout(account, intent, Some(winning_action.into()))
+        .await
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("missing checkout on replay")?;
+    assert_eq!(replay.status, terminal_status);
+    assert!(matches!(
+        topups
+            .checkout(account, intent, Some(losing_action.into()))
+            .await,
+        Err(Error::Conflict)
+    ));
+    let decisions: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM payment_events WHERE intent_id=$1")
+            .bind(intent)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(decisions, 1);
+
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    Ok(())
+}
