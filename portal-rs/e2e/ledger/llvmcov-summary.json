@@ -1,0 +1,551 @@
+{
+  "source_commit": "355926bbb5396e20735975de524027499759053c",
+  "source_tree": "35ca8519ef1e8323beed4492f3155cb7bde0ed5b",
+  "source_parents": [
+    "fe24307188ea605c45e89e3b7b3050e7cacf8c7d",
+    "06ff98c7cb82393b4379b6d964c396320ac69dd0"
+  ],
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "playwright": {
+    "projects": {
+      "en-1440": {
+        "not_run": 460
+      },
+      "en-390": {
+        "not_run": 460
+      },
+      "pl-1440": {
+        "passed": 363,
+        "failed": 90,
+        "interrupted": 1,
+        "not_run": 6
+      },
+      "pl-390": {
+        "not_run": 460
+      }
+    },
+    "executed_projects": [
+      "pl-1440"
+    ],
+    "exit_code": 130,
+    "runner_errors": 0,
+    "expected": 363,
+    "unexpected": 90,
+    "flaky": 0,
+    "skipped": 1387
+  },
+  "profraw": {
+    "serve": 1,
+    "worker": 1,
+    "merged": 2
+  },
+  "http_route_crates": [
+    "admin",
+    "atlas",
+    "bazaar",
+    "characters",
+    "community",
+    "content",
+    "downloads",
+    "gameauth",
+    "gateway",
+    "hirelings",
+    "identity",
+    "internal-api",
+    "minigames",
+    "oteryn-portal",
+    "payments",
+    "player-api",
+    "playerdata",
+    "stats",
+    "store",
+    "support",
+    "wallet",
+    "web",
+    "wiki",
+    "world"
+  ],
+  "http_route_crates_missing_functions": [],
+  "askama_generated_functions": {
+    "mapped": 0,
+    "covered": 0
+  },
+  "crates": {
+    "admin": {
+      "lines": {
+        "covered": 1097,
+        "count": 11104,
+        "percent": 9.88
+      },
+      "functions": {
+        "covered": 117,
+        "count": 1121,
+        "percent": 10.44
+      },
+      "regions": {
+        "covered": 1443,
+        "count": 17240,
+        "percent": 8.37
+      }
+    },
+    "atlas": {
+      "lines": {
+        "covered": 393,
+        "count": 2169,
+        "percent": 18.12
+      },
+      "functions": {
+        "covered": 59,
+        "count": 227,
+        "percent": 25.99
+      },
+      "regions": {
+        "covered": 536,
+        "count": 3350,
+        "percent": 16.0
+      }
+    },
+    "bazaar": {
+      "lines": {
+        "covered": 7237,
+        "count": 13275,
+        "percent": 54.52
+      },
+      "functions": {
+        "covered": 517,
+        "count": 994,
+        "percent": 52.01
+      },
+      "regions": {
+        "covered": 11668,
+        "count": 23944,
+        "percent": 48.73
+      }
+    },
+    "characters": {
+      "lines": {
+        "covered": 2964,
+        "count": 5682,
+        "percent": 52.16
+      },
+      "functions": {
+        "covered": 361,
+        "count": 623,
+        "percent": 57.95
+      },
+      "regions": {
+        "covered": 4343,
+        "count": 9852,
+        "percent": 44.08
+      }
+    },
+    "community": {
+      "lines": {
+        "covered": 3019,
+        "count": 8132,
+        "percent": 37.12
+      },
+      "functions": {
+        "covered": 357,
+        "count": 855,
+        "percent": 41.75
+      },
+      "regions": {
+        "covered": 4443,
+        "count": 13994,
+        "percent": 31.75
+      }
+    },
+    "content": {
+      "lines": {
+        "covered": 785,
+        "count": 2889,
+        "percent": 27.17
+      },
+      "functions": {
+        "covered": 123,
+        "count": 331,
+        "percent": 37.16
+      },
+      "regions": {
+        "covered": 1180,
+        "count": 4347,
+        "percent": 27.15
+      }
+    },
+    "core": {
+      "lines": {
+        "covered": 34,
+        "count": 52,
+        "percent": 65.38
+      },
+      "functions": {
+        "covered": 7,
+        "count": 11,
+        "percent": 63.64
+      },
+      "regions": {
+        "covered": 44,
+        "count": 74,
+        "percent": 59.46
+      }
+    },
+    "db": {
+      "lines": {
+        "covered": 252,
+        "count": 393,
+        "percent": 64.12
+      },
+      "functions": {
+        "covered": 26,
+        "count": 52,
+        "percent": 50.0
+      },
+      "regions": {
+        "covered": 227,
+        "count": 429,
+        "percent": 52.91
+      }
+    },
+    "downloads": {
+      "lines": {
+        "covered": 100,
+        "count": 640,
+        "percent": 15.62
+      },
+      "functions": {
+        "covered": 18,
+        "count": 56,
+        "percent": 32.14
+      },
+      "regions": {
+        "covered": 142,
+        "count": 1143,
+        "percent": 12.42
+      }
+    },
+    "gameauth": {
+      "lines": {
+        "covered": 1151,
+        "count": 7906,
+        "percent": 14.56
+      },
+      "functions": {
+        "covered": 125,
+        "count": 1012,
+        "percent": 12.35
+      },
+      "regions": {
+        "covered": 1536,
+        "count": 13650,
+        "percent": 11.25
+      }
+    },
+    "gateway": {
+      "lines": {
+        "covered": 0,
+        "count": 1807,
+        "percent": 0.0
+      },
+      "functions": {
+        "covered": 0,
+        "count": 262,
+        "percent": 0.0
+      },
+      "regions": {
+        "covered": 0,
+        "count": 2908,
+        "percent": 0.0
+      }
+    },
+    "hirelings": {
+      "lines": {
+        "covered": 90,
+        "count": 256,
+        "percent": 35.16
+      },
+      "functions": {
+        "covered": 11,
+        "count": 32,
+        "percent": 34.38
+      },
+      "regions": {
+        "covered": 153,
+        "count": 390,
+        "percent": 39.23
+      }
+    },
+    "identity": {
+      "lines": {
+        "covered": 4146,
+        "count": 6391,
+        "percent": 64.87
+      },
+      "functions": {
+        "covered": 495,
+        "count": 782,
+        "percent": 63.3
+      },
+      "regions": {
+        "covered": 6246,
+        "count": 10588,
+        "percent": 58.99
+      }
+    },
+    "internal-api": {
+      "lines": {
+        "covered": 305,
+        "count": 1462,
+        "percent": 20.86
+      },
+      "functions": {
+        "covered": 46,
+        "count": 146,
+        "percent": 31.51
+      },
+      "regions": {
+        "covered": 452,
+        "count": 3428,
+        "percent": 13.19
+      }
+    },
+    "minigames": {
+      "lines": {
+        "covered": 2435,
+        "count": 4835,
+        "percent": 50.36
+      },
+      "functions": {
+        "covered": 267,
+        "count": 495,
+        "percent": 53.94
+      },
+      "regions": {
+        "covered": 4354,
+        "count": 9084,
+        "percent": 47.93
+      }
+    },
+    "notify": {
+      "lines": {
+        "covered": 274,
+        "count": 386,
+        "percent": 70.98
+      },
+      "functions": {
+        "covered": 34,
+        "count": 50,
+        "percent": 68.0
+      },
+      "regions": {
+        "covered": 447,
+        "count": 677,
+        "percent": 66.03
+      }
+    },
+    "oteryn-portal": {
+      "lines": {
+        "covered": 1774,
+        "count": 4094,
+        "percent": 43.33
+      },
+      "functions": {
+        "covered": 173,
+        "count": 465,
+        "percent": 37.2
+      },
+      "regions": {
+        "covered": 3073,
+        "count": 6824,
+        "percent": 45.03
+      }
+    },
+    "payments": {
+      "lines": {
+        "covered": 582,
+        "count": 2302,
+        "percent": 25.28
+      },
+      "functions": {
+        "covered": 68,
+        "count": 241,
+        "percent": 28.22
+      },
+      "regions": {
+        "covered": 896,
+        "count": 3805,
+        "percent": 23.55
+      }
+    },
+    "player-api": {
+      "lines": {
+        "covered": 110,
+        "count": 306,
+        "percent": 35.95
+      },
+      "functions": {
+        "covered": 22,
+        "count": 45,
+        "percent": 48.89
+      },
+      "regions": {
+        "covered": 143,
+        "count": 485,
+        "percent": 29.48
+      }
+    },
+    "playerdata": {
+      "lines": {
+        "covered": 1496,
+        "count": 8394,
+        "percent": 17.82
+      },
+      "functions": {
+        "covered": 198,
+        "count": 865,
+        "percent": 22.89
+      },
+      "regions": {
+        "covered": 2153,
+        "count": 15298,
+        "percent": 14.07
+      }
+    },
+    "stats": {
+      "lines": {
+        "covered": 981,
+        "count": 3354,
+        "percent": 29.25
+      },
+      "functions": {
+        "covered": 117,
+        "count": 388,
+        "percent": 30.15
+      },
+      "regions": {
+        "covered": 1417,
+        "count": 5702,
+        "percent": 24.85
+      }
+    },
+    "store": {
+      "lines": {
+        "covered": 976,
+        "count": 5128,
+        "percent": 19.03
+      },
+      "functions": {
+        "covered": 111,
+        "count": 524,
+        "percent": 21.18
+      },
+      "regions": {
+        "covered": 1379,
+        "count": 8835,
+        "percent": 15.61
+      }
+    },
+    "support": {
+      "lines": {
+        "covered": 1153,
+        "count": 3337,
+        "percent": 34.55
+      },
+      "functions": {
+        "covered": 122,
+        "count": 350,
+        "percent": 34.86
+      },
+      "regions": {
+        "covered": 1628,
+        "count": 5172,
+        "percent": 31.48
+      }
+    },
+    "ui": {
+      "lines": {
+        "covered": 193,
+        "count": 201,
+        "percent": 96.02
+      },
+      "functions": {
+        "covered": 33,
+        "count": 34,
+        "percent": 97.06
+      },
+      "regions": {
+        "covered": 281,
+        "count": 294,
+        "percent": 95.58
+      }
+    },
+    "wallet": {
+      "lines": {
+        "covered": 487,
+        "count": 1509,
+        "percent": 32.27
+      },
+      "functions": {
+        "covered": 59,
+        "count": 144,
+        "percent": 40.97
+      },
+      "regions": {
+        "covered": 684,
+        "count": 2642,
+        "percent": 25.89
+      }
+    },
+    "web": {
+      "lines": {
+        "covered": 2049,
+        "count": 2746,
+        "percent": 74.62
+      },
+      "functions": {
+        "covered": 270,
+        "count": 358,
+        "percent": 75.42
+      },
+      "regions": {
+        "covered": 3203,
+        "count": 4390,
+        "percent": 72.96
+      }
+    },
+    "wiki": {
+      "lines": {
+        "covered": 619,
+        "count": 2054,
+        "percent": 30.14
+      },
+      "functions": {
+        "covered": 82,
+        "count": 229,
+        "percent": 35.81
+      },
+      "regions": {
+        "covered": 934,
+        "count": 3270,
+        "percent": 28.56
+      }
+    },
+    "world": {
+      "lines": {
+        "covered": 619,
+        "count": 2720,
+        "percent": 22.76
+      },
+      "functions": {
+        "covered": 74,
+        "count": 295,
+        "percent": 25.08
+      },
+      "regions": {
+        "covered": 929,
+        "count": 4371,
+        "percent": 21.25
+      }
+    }
+  }
+}
