@@ -36,13 +36,21 @@ async function unfinishedAppeal(page, csrfHeader) {
   });
 }
 
-async function appealWhileSessionLookupIsBlocked(page, path, form) {
+async function postWithSessionLock(page, path, form, staffEmail) {
   const db = pool();
   const lock = await db.connect();
   try {
     await lock.query('BEGIN');
-    // A row lock would leave the shared chrome SELECT free to complete.
-    await lock.query('LOCK TABLE web_sessions IN ACCESS EXCLUSIVE MODE');
+    if (staffEmail) {
+      const rows = await lock.query(
+        'SELECT s.id_hash FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE a.email=$1 FOR UPDATE OF s',
+        [staffEmail],
+      );
+      expect(rows.rowCount).toBeGreaterThan(0);
+    } else {
+      // Block the shared chrome SELECT as well as the subsequent session refresh.
+      await lock.query('LOCK TABLE web_sessions IN ACCESS EXCLUSIVE MODE');
+    }
     return await page.request.post(path, {
       form,
       headers: { origin: new URL(page.url()).origin },
@@ -119,7 +127,7 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       await expect(page.locator('main')).not.toContainText(privateNote);
       if (decision === 'accepted') {
         const fields = await page.locator('main form').evaluate(form => Object.fromEntries(new FormData(form)));
-        const blocked = await appealWhileSessionLookupIsBlocked(page, playerPath, { ...fields, message });
+        const blocked = await postWithSessionLock(page, playerPath, { ...fields, message });
         expect(blocked.status()).toBe(503);
         expect(blocked.headers()['cache-control']).toContain('no-store');
         expect(await blocked.text()).toContain(lang === 'pl' ? 'Usługa chwilowo niedostępna' : 'Temporarily unavailable');
@@ -175,6 +183,17 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
         ['support.enforcement_appeal_updated', id],
       )).toHaveLength(0);
       const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
+      if (decision === 'accepted') {
+        const blocked = await postWithSessionLock(staff.page, staffPath, {
+          ...fields,
+          appeal_status: decision,
+          appeal_outcome: outcome,
+        }, staff.account.email);
+        expect(blocked.status()).toBe(503);
+        expect(blocked.headers()['cache-control']).toContain('no-store');
+        expect(await query('SELECT status FROM support_appeal_workflows WHERE sanction_id=$1', [id]))
+          .toEqual([{ status: 'requested' }]);
+      }
       await action(staff.page, 'form:has(input[value=appeal])', { appeal_status: decision, appeal_outcome: outcome });
       await expect(staff.page.locator('main')).toContainText(outcome);
       await expect(form).toHaveCount(0);

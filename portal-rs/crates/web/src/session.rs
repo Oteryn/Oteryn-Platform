@@ -1,9 +1,10 @@
 //! Server-side browser sessions. Raw identifiers are never persisted or logged.
 
 use axum::{
-    extract::{Request, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
-    middleware::Next,
+    Router,
+    extract::{MatchedPath, Request, State},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -376,6 +377,25 @@ fn cookie(id: &str) -> String {
 /// Monotonic request deadline shared by chrome and bounded session refresh.
 #[derive(Clone, Copy, Debug)]
 pub struct BrowserMutationDeadline(tokio::time::Instant);
+
+/// Start a browser POST's budget before shared chrome looks up the session.
+pub fn with_post_deadline(app: Router, matches_path: fn(&str) -> bool) -> Router {
+    app.layer(middleware::from_fn(
+        move |mut request: Request, next: Next| async move {
+            if request.method() == Method::POST
+                && request
+                    .extensions()
+                    .get::<MatchedPath>()
+                    .is_some_and(|path| matches_path(path.as_str()))
+            {
+                request
+                    .extensions_mut()
+                    .insert(BrowserMutationDeadline::start());
+            }
+            next.run(request).await
+        },
+    ))
+}
 
 impl BrowserMutationDeadline {
     pub fn start() -> Self {

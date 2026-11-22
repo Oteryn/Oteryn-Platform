@@ -7,6 +7,7 @@ use crate::{
     audit::{self, AuditContext, Entry},
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
 };
+use oteryn_web::session::SessionMutationDeadline;
 use serde::Deserialize;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::future::Future;
@@ -265,6 +266,19 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     version: i64,
     command: &Command,
 ) -> Result<(), Error> {
+    execute_with_deadline(pool, auth, backend, context, (id, version), command, None).await
+}
+
+async fn execute_with_deadline<A: AccountStateReader, B: Backend>(
+    pool: &PgPool,
+    auth: &Authorizer<A>,
+    backend: &B,
+    context: CheckContext,
+    target: (Uuid, i64),
+    command: &Command,
+    deadline: Option<&SessionMutationDeadline>,
+) -> Result<(), Error> {
+    let (id, version) = target;
     if id.is_nil()
         || version < 1
         || (matches!(command, Command::Sanction { create: true, .. }) && version != 1)
@@ -276,12 +290,16 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         return Err(Error::Denied);
     }
     for permission in [Permission::Access, command.area().permission()] {
-        auth.check(context, permission).await.map_err(|e| match e {
-            crate::rbac::Error::Storage(_) => Error::Unavailable,
-            _ => Error::Denied,
-        })?;
+        crate::web::read_request(deadline, auth.check(context, permission))
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .map_err(commit_authorization_error)?;
     }
-    let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
+    let mut tx = match deadline {
+        Some(deadline) => deadline.begin(pool).await,
+        None => pool.begin().await,
+    }
+    .map_err(|_| Error::Unavailable)?;
     // Preparation precedes the RBAC fence, but retains its bounded lock waits.
     crate::rbac::mutation_budget(&mut tx)
         .await
@@ -341,7 +359,7 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         .await
         .map_err(commit_authorization_error)?;
     expiry
-        .arm_commit(&mut tx)
+        .arm_commit(&mut tx, deadline.is_some())
         .await
         .map_err(commit_authorization_error)?;
     tx.commit().await.map_err(|_| Error::Unavailable)

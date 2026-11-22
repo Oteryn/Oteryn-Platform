@@ -197,11 +197,19 @@ impl SessionExpiry {
     }
 
     /// Keep the locked browser proof's earliest expiry active during COMMIT.
-    pub(crate) async fn arm_commit(self, connection: &mut PgConnection) -> Result<(), Error> {
-        if let Some(expiry) = self.0
-            && !oteryn_db::transaction::arm_commit(connection, Some(expiry)).await?
+    pub(crate) async fn arm_commit(
+        self,
+        connection: &mut PgConnection,
+        has_request_deadline: bool,
+    ) -> Result<(), Error> {
+        if (has_request_deadline || self.0.is_some())
+            && !oteryn_db::transaction::arm_commit(connection, self.0).await?
         {
-            return Err(Error::Denied);
+            return Err(if has_request_deadline {
+                sqlx::Error::PoolTimedOut.into()
+            } else {
+                Error::Denied
+            });
         }
         Ok(())
     }

@@ -2,8 +2,8 @@ use super::{Entry, Error, browser_session_expiry, player_entries, submit_player}
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{FromRequest, MatchedPath, Path, Query, Request, State, rejection::PathRejection},
-    http::{Method, StatusCode, header},
+    extract::{FromRequest, Path, Query, Request, State, rejection::PathRejection},
+    http::{StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
@@ -11,7 +11,7 @@ use axum::{
 use oteryn_web::{
     Language,
     ratelimit::{ClientSource, Keys, RateLimiter},
-    session::{BrowserMutationDeadline, BrowserSession, SessionLayer, SessionMutationDeadline},
+    session::{BrowserSession, SessionLayer, SessionMutationDeadline, with_post_deadline},
 };
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -21,21 +21,7 @@ const APPEAL_DETAIL: &str = "/{lang}/support/appeals/{id}";
 
 /// Apply outside shared chrome so appeal POSTs use one budget from their first lookup.
 pub fn with_browser_deadline(app: Router) -> Router {
-    app.layer(middleware::from_fn(
-        |mut request: Request, next: Next| async move {
-            if request.method() == Method::POST
-                && request
-                    .extensions()
-                    .get::<MatchedPath>()
-                    .is_some_and(|path| path.as_str() == APPEAL_DETAIL)
-            {
-                request
-                    .extensions_mut()
-                    .insert(BrowserMutationDeadline::start());
-            }
-            next.run(request).await
-        },
-    ))
+    with_post_deadline(app, |path| path == APPEAL_DETAIL)
 }
 
 pub(crate) fn router(pool: PgPool, origin: &str, submissions: bool) -> Router {

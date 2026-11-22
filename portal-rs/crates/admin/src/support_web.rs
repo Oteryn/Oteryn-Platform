@@ -3,12 +3,12 @@ use super::*;
 use crate::web::{self, PanelConfig, StaffSession};
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
+    extract::{FromRequest, Path, Query, Request, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_web::session::BrowserSession;
+use oteryn_web::session::{BrowserSession, SessionMutationDeadline, with_post_deadline};
 use std::sync::Arc;
 
 struct Panel<A, B> {
@@ -108,6 +108,14 @@ fn base(area: Area) -> &'static str {
         Area::Enforcement => "/admin/moderation/enforcement",
     }
 }
+
+/// Apply outside shared chrome to cover enforcement submissions from their first session read.
+pub fn with_browser_deadline(app: Router) -> Router {
+    with_post_deadline(app, |path| {
+        path.strip_suffix("/{id}") == Some(base(Area::Enforcement))
+    })
+}
+
 fn area_routes<A: AccountStateReader + 'static, B: Backend>(
     area: Area,
     state: Arc<Panel<A, B>>,
@@ -455,22 +463,33 @@ async fn change<A: AccountStateReader, B: Backend>(
     Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
-    Form(mut input): Form<Input>,
+    deadline: Option<Extension<SessionMutationDeadline>>,
+    request: Request,
 ) -> Response {
+    let deadline = deadline.as_ref().map(|Extension(deadline)| deadline);
+    if area == Area::Enforcement && deadline.is_none() {
+        return status(Error::Unavailable);
+    }
+    let mut input =
+        match web::read_request(deadline, Form::<Input>::from_request(request, &s)).await {
+            Ok(Ok(Form(input))) => input,
+            Ok(Err(rejection)) => return rejection.into_response(),
+            Err(status) => return status.into_response(),
+        };
     if input.command.area() != area {
         return status(Error::Invalid);
     }
     if let Command::Appeal { appeal_outcome, .. } = &mut input.command {
         *appeal_outcome = oteryn_web::normalize_textarea(appeal_outcome);
     }
-    match execute(
+    match execute_with_deadline(
         &s.pool,
         &s.auth,
         &s.backend,
         context,
-        id,
-        input.lock_version,
+        (id, input.lock_version),
         &input.command,
+        deadline,
     )
     .await
     {
