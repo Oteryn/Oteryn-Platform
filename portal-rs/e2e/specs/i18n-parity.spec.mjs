@@ -256,12 +256,14 @@ function shellHeading(selector, routes, heading = 'h2') {
 
 // Each entry names a stable element and the authored text or accessible label
 // it exposes. Optional controls depend on the mounted modules and session.
+const interiorWorld = '.om-section:has(#portal-world-panel) > summary';
+const interiorCommunity = '.om-section:has(#portal-community-panel) > summary';
 const shellControls = [
   ['a.skip[href="#main"]', 'skip'],
   ['#portal-menu-toggle span, header#portal-header .om-fallback-menu > summary', 'shell-menu'],
   ['#portal-navigation', 'navigation', 'aria-label'],
-  ['#portal-world-button .om-label, footer.foot .foot-links .foot-group:first-child h2', 'thais-nav-world'],
-  ['#portal-community-button .om-label, footer.foot .foot-links .foot-group:has(a[href$="/news"]) h2', 'shell-community'],
+  [`#portal-world-button .om-label, ${interiorWorld} .om-label, footer.foot .foot-links .foot-group:first-child h2`, 'thais-nav-world'],
+  [`#portal-community-button .om-label, ${interiorCommunity} .om-label, footer.foot .foot-links .foot-group:has(a[href$="/news"]) h2`, 'shell-community'],
   ['#portal-world-panel .om-column:nth-child(1) h2', 'thais-nav-explore'],
   ['#portal-world-panel .om-column:nth-child(2) h2', 'thais-nav-activities'],
   [shellHeading('#portal-community-panel .om-column', ['/online', '/party', '/bazaar', '/guilds', '/deaths']), 'thais-nav-players'],
@@ -285,14 +287,14 @@ const shellControls = [
 async function assertShellCopy(page, locale, target, actor) {
   const home = /^\/(?:pl|en)\/?$/u.test(new URL(page.url()).pathname);
   const mobile = page.viewportSize().width <= 960;
-  const shell = await page.evaluate(({ controls, home, mobile, signedIn }) => {
+  const shell = await page.evaluate(({ controls, home, mobile, signedIn, interiorWorld, interiorCommunity }) => {
     const landmarks = [
       'a.skip[href="#main"]',
       'header#portal-header',
       'header#portal-header a.om-brand',
       'header#portal-header nav#portal-navigation',
-      '#portal-navigation #portal-world-button',
-      '#portal-navigation #portal-community-button',
+      home ? '#portal-navigation #portal-world-button' : interiorWorld,
+      home ? '#portal-navigation #portal-community-button' : interiorCommunity,
       '#portal-navigation .om-shop',
       'footer.foot',
       'footer.foot nav.foot-links',
@@ -302,9 +304,9 @@ async function assertShellCopy(page, locale, target, actor) {
       signedIn ? '#portal-navigation a.om-login[data-account-link]' : '#portal-navigation a.om-login[href$="/login"]',
     ];
     if (signedIn) landmarks.push('dialog#podglad-konta', '#podglad-konta .account-close', '#podglad-konta form[action$="/logout"] button');
-    const expectedControl = home
-      ? (mobile ? '#portal-menu-toggle[aria-controls="portal-navigation"]' : '#portal-navigation #portal-world-button')
-      : 'header#portal-header .om-fallback-menu > summary';
+    const expectedControl = mobile
+      ? (home ? '#portal-menu-toggle[aria-controls="portal-navigation"]' : 'header#portal-header .om-fallback-menu > summary')
+      : (home ? '#portal-navigation #portal-world-button' : interiorWorld);
     const missing = landmarks.filter((selector) => document.querySelectorAll(selector).length !== 1);
     if (!document.querySelector(expectedControl)?.checkVisibility()) missing.push(expectedControl + ' (visible)');
     const captions = controls.flatMap(([selector, key, attribute]) =>
@@ -324,7 +326,7 @@ async function assertShellCopy(page, locale, target, actor) {
       return { pathname, hash, key, text, language: link.getAttribute('hreflang'), legal: Boolean(link.closest('footer.foot .foot-legal')) };
     });
     return { missing, captions, links };
-  }, { controls: shellControls, home, mobile, signedIn: actor !== 'anonymous' });
+  }, { controls: shellControls, home, mobile, signedIn: actor !== 'anonymous', interiorWorld, interiorCommunity });
   expect.soft(shell.missing, target + ': shared shell controls for ' + actor).toEqual([]);
   const caption = (key) => shellCopy[key]?.[locale === 'pl' ? 0 : 1];
   const errors = [];
@@ -470,6 +472,7 @@ const resources = new Map([
   ['/atlas/delivery.css', 'text/css'],
   ['/favicon.ico', 'image/svg+xml'],
   ['/healthz', 'text/plain'],
+  ['/oauth/authorize', 'application/json'],
   ['/readyz', ''],
   ['/register/abuse.js', 'text/javascript'],
   ['/robots.txt', 'text/plain'],
@@ -485,7 +488,7 @@ function routeContract(target, inventoryStatus, actor, locale) {
   let status = inventoryStatus ?? (route === '/wiki/creatures' ? 503 : 200);
   let pathname = target;
   if (target === '/') pathname = `/${locale}/`;
-  if (/^\/events(?:\/|$)/u.test(target)) pathname = `/pl${target}`;
+  if (/^\/events(?:\/|$)/u.test(target)) pathname = `/${locale}${target}`;
   if (actor === 'anonymous') {
     if (signInRequired.test(route) || route === '/password/change') {
       return { status: 200, pathname: route === '/password/change' ? '/login' : `/${lang}/login`, document: true };
@@ -550,10 +553,6 @@ async function addLinkedPages(page, targets, knownRoutes, locale, actor) {
   }
 }
 
-// These compatibility routes have an explicitly localized sibling but keep
-// Polish at the unprefixed URL. A house detail without a world fails before
-// rendering and gets the shared refusal in the negotiated language.
-const fixedPolishAlias = /^\/(?:deaths|characters\/[^/]+\/deaths|guilds(?:\/[^/]+)?|houses|online|events(?:\/[^/]+)?|stats\/(?:guilds|world))$/u;
 const localeQueryRoute = /^\/(?:news(?:\/[^/]+)?|today(?:\/(?:data|widget))?|announcements\/ticker|admin\/(?:news(?:\/.*)?|media|console\/(?:access|approvals|audit|players)))$/u;
 
 const validationMessages = 'main [role=alert], main .op-error, main [aria-live]:not([aria-live=off])';
@@ -1124,7 +1123,16 @@ for (const { actor, group } of crawls) {
         const contract = routeContract(url.pathname, status, actor, locale);
         await assertRouteResponse(probe, url.pathname, contract);
         probed.push(url.pathname);
-        if (!contract.document) return;
+        if (!contract.document) {
+          if (url.pathname === '/oauth/authorize') {
+            expect(probe.headers()['cache-control']).toBe('no-store');
+            expect(await probe.json()).toEqual({
+              error: 'invalid_request',
+              error_description: 'The request is missing a required parameter or is malformed.',
+            });
+          }
+          return;
+        }
         if (target === checkout) {
           expect(probe.headers()['referrer-policy']).toBe('same-origin');
           await assertRouteResponse(await page.goto(url.href), url.pathname);
@@ -1156,7 +1164,7 @@ for (const { actor, group } of crawls) {
         expect.soft(navigation.status(), target).toBe(probe.status());
         await assertRouteResponse(navigation, url.pathname, contract);
         const localizedPath = /^\/(pl|en)(?:\/|$)/u.exec(contract.pathname)?.[1];
-        const documentLocale = localizedPath ?? (fixedPolishAlias.test(url.pathname) ? 'pl' : locale);
+        const documentLocale = localizedPath ?? locale;
         await assertDocument(page, documentLocale, target, actor);
         if (navigation.ok() && /^\/(?:(?:pl|en)\/)?(?:mfa\/)?login$/u.test(contract.pathname)) {
           await assertSignInControls(page, documentLocale);
