@@ -11,11 +11,11 @@ node ledger/report.mjs --gate
 
 Playwright clears its output directory at the start of a run. Use a single invocation for all four projects. Every worker appends to its own `test-results/ledger/<project>-<worker>.jsonl` file. The JSONL is local. Commit the generated form inventory and the two aggregate reports when refreshing the baseline.
 
-The recorder installs in Playwright workers before context creation. Browser context events include popups and pages opened by specs. Playwright's pinned in-process transport exposes API request events for both standalone and browser-associated contexts, including individual redirect hops. Check these hooks when upgrading Playwright. Each request is associated with the active Playwright test, including its setup and teardown hooks.
+The recorder installs in Playwright workers before context creation. Browser context events include popups and pages opened by specs. Playwright's pinned in-process transport exposes API request events for both standalone and browser-associated contexts, including individual redirect hops. Check these hooks when upgrading Playwright. Each request is associated with the active Playwright test. The shared fixture awaits lookups and form capture during teardown. Capture errors fail the attempt with a fixed diagnostic and prevent report generation.
 
 The recorder matches the portal origin against `inventory.json`, preferring literal segments over parameters and catchalls. Paths absent from inventory and requests to other origins have a null route pattern. Requests with no HTTP response have a null status and are excluded from coverage. The inventory has two GET patterns with the same path shape for Bazaar items. The resolver uses inventory order for that tie.
 
-The recorder looks up the session cookie sent on each request in the disposable database. It records sorted staff role keys or `player` for an authenticated account, and `anonymous` for a request with no session cookie or an existing anonymous session. An expired, revoked, or otherwise unresolved session is labeled `unknown` because lookup can race a session mutation. Only inventory patterns, static submitter names and values, actor labels, status codes and Playwright metadata are written.
+The recorder labels the supplied credential as `session`, `bearer`, `authorization`, or `none`. An Authorization header takes precedence over a cookie for attribution. Its principal stays unresolved because the recorder does not validate that credential. Session lookup can resolve a player or sorted staff role keys in the disposable database, identify an anonymous session, or leave the principal unresolved when expiry or revocation removes the session. The ledger describes request credentials and lookup evidence. HTTP statuses describe the route outcome. It writes inventory patterns, static submitter names and values, credential and principal labels, status codes and Playwright metadata.
 
 Form rows group template locations by action pattern, method, and submitter name and value. An unnamed submitter gets its own row. The extractor expands template conditionals and uses the owning renderers' paths for shared templates and implicit actions. Some form destinations are missing from the provisional route inventory. Those forms still have their own rows. The JSON identifies their mapping, when available, and includes each template location.
 
@@ -25,10 +25,15 @@ The report joins requests to the same project, test, worker and retry in Playwri
 
 Reports list observed actor and status combinations with passing test and project provenance in JSON. Success means 2xx or 3xx. Refusal means 400, 401, 403, 404, or 422. Row IDs use a deterministic number derived from the row's identity and survive report reruns and insertion of unrelated rows. The gate writes both reports and returns nonzero if any route or form row has no hit, listing each missing row.
 
-## Checked-in baseline
+## Checked-in baseline and branch delta
 
-The checked-in reports cover the completed `pl-1440` project. It ran 460 tests, with 457 passing and three failing on the calculator page's color contrast. Its request evidence includes all 460 tests. The four-project run was still in progress when this baseline was published.
+Rebuild the baseline from the standard desktop Polish suite, then capture the branch cases in both review projects on the same revision. The roster-filter case uses the `ledger-unhit` prefix in its title so it is included with the branch cases.
 
-## Branch coverage delta
+```sh
+node run.mjs /absolute/scratch/env.json test --project=pl-1440 --grep-invert ledger-unhit
+node ledger/report.mjs
+node run.mjs /absolute/scratch/env.json test --project=pl-1440 --project=en-390 --grep ledger-unhit
+node ledger/report.mjs --delta
+```
 
-The [baseline delta](DELTA.md) lists additional rows exercised by passing branch tests. Keep the historical checked-in baseline for comparison. Run the affected projects in one invocation with the default output paths, then run `node ledger/report.mjs --delta` on that same revision to generate the delta.
+The current-rule [baseline](LEDGER.md) uses browser form submissions and passing attempts. The [delta](DELTA.md) lists each additional row with its passing test and project. A report generated under older rules must be rebuilt before generating the delta.

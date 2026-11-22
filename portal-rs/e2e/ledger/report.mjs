@@ -10,6 +10,7 @@ const rows = new Map();
 const ids = new Set();
 const key = (...parts) => JSON.stringify(parts);
 
+const evidenceRules = 2;
 const resultsFile = new URL('../test-results/results.json', import.meta.url);
 const passing = new Set();
 function collectPassing(suite, parents = []) {
@@ -55,9 +56,9 @@ for (const form of forms) {
 
 function observe(destination, hit) {
   if (!destination) return;
-  const index = key(hit.actor, hit.status);
+  const index = key(hit.actor, hit.credential, hit.status);
   if (!destination.evidence.has(index)) {
-    destination.evidence.set(index, { actor: hit.actor, status: hit.status, projects: new Set(), cases: new Map() });
+    destination.evidence.set(index, { actor: hit.actor, credential: hit.credential, status: hit.status, projects: new Set(), cases: new Map() });
   }
   const evidence = destination.evidence.get(index);
   evidence.projects.add(hit.project);
@@ -69,6 +70,8 @@ if (existsSync(hitDirectory)) {
   for (const file of readdirSync(hitDirectory).filter(name => name.endsWith('.jsonl')).sort()) {
     for (const line of readFileSync(new URL(file, hitDirectory), 'utf8').split('\n').filter(Boolean)) {
       const hit = JSON.parse(line);
+      if (hit.recorder_errors) throw new Error('Ledger capture failed. See the Playwright test failure.');
+      if (!Object.hasOwn(hit, 'credential')) throw new Error('Ledger capture uses outdated evidence rules. Rerun Playwright.');
       if (hit.status === null || !passing.has(key(hit.spec, hit.test, hit.project, hit.worker, hit.retry))) continue;
       observe(rows.get(key('R', hit.route_pattern, hit.method)), hit);
       if (hit.form_action) {
@@ -85,7 +88,7 @@ const result = [...rows.values()].sort((a, b) =>
   compare(a.crate, b.crate) || compare(a.id, b.id)).map(({ evidence, ...entry }) => ({
   ...entry,
   evidence: [...evidence.values()].sort((a, b) =>
-    compare(key(a.actor), key(b.actor)) || a.status - b.status)
+    compare(key(a.actor, a.credential), key(b.actor, b.credential)) || a.status - b.status)
     .map(({ cases, projects, ...hit }) => ({
       ...hit,
       projects: [...projects].sort(),
@@ -107,6 +110,7 @@ const totals = {
 
 const yesNo = value => value ? 'Yes' : 'No';
 const code = value => `\`${String(value).replaceAll('|', '\\|').replaceAll('\`', '&#96;')}\``;
+const actorLabel = actor => Array.isArray(actor) ? actor.join(' + ') : actor ?? 'unresolved';
 const markdown = [
   '# Playwright coverage ledger',
   '',
@@ -119,8 +123,8 @@ const markdown = [
   '| ID | Method | Route or form action | Submitter | Actors and statuses | Success | Refusal |',
   '| --- | --- | --- | --- | --- | --- | --- |',
   ...result.map(entry => {
-    const evidence = entry.evidence.map(({ actor, status }) =>
-      `${Array.isArray(actor) ? actor.join(' + ') : actor ?? 'unknown'} ${status}`).join(', ');
+    const evidence = entry.evidence.map(({ actor, credential, status }) =>
+      `${actorLabel(actor)} [${credential}] ${status}`).join(', ');
     const submitter = entry.button ? code(`${entry.button.name}=${entry.button.value}`)
       : entry.action ? 'Unnamed' : '—';
     return `| ${entry.id} | ${entry.method} | ${code(entry.action ?? entry.route)} | ${submitter} | ${evidence || '—'} | ${yesNo(entry.success)} | ${yesNo(entry.refusal)} |`;
@@ -130,6 +134,7 @@ const markdown = [
 
 if (process.argv.includes('--delta')) {
   const baseline = JSON.parse(readFileSync(new URL('./ledger.json', import.meta.url)));
+  if (baseline.evidence_rules !== evidenceRules) throw new Error('Regenerate the baseline with the current ledger rules before generating a delta.');
   const baselineIds = new Set(baseline.rows.filter(row => !row.hit).map(row => row.id));
   const gained = result.filter(row => row.hit && baselineIds.has(row.id));
   const stillUnhit = result.filter(row => !row.hit && baselineIds.has(row.id));
@@ -143,13 +148,13 @@ if (process.argv.includes('--delta')) {
     '',
     `${gained.length} of ${baselineIds.size} baseline gaps hit by passing tests, including ${gained.filter(row => row.action).length} form rows. ${stillUnhit.length} baseline gaps remain.`,
     '',
-    '| Row | Method and path | Actor and status | Passing test and project |',
+    '| Row | Method and path | Principal, credential, and status | Passing test and project |',
     '| --- | --- | --- | --- |',
   ];
   for (const row of gained) {
-    for (const { actor, status, cases } of row.evidence) {
+    for (const { actor, credential, status, cases } of row.evidence) {
       for (const { spec, test, project } of cases) {
-        lines.push(`| ${row.id} | ${row.method} ${code(row.action ?? row.route)} | ${code(actor ?? 'unknown')} ${status} | ${code(spec)} · ${code(test)} · ${code(project)} |`);
+        lines.push(`| ${row.id} | ${row.method} ${code(row.action ?? row.route)} | ${code(actorLabel(actor))} [${credential}] ${status} | ${code(spec)} · ${code(test)} · ${code(project)} |`);
       }
     }
   }
@@ -157,7 +162,7 @@ if (process.argv.includes('--delta')) {
   for (const row of stillUnhit) lines.push(`- ${row.id} ${row.method} ${code(row.action ?? row.route)}`);
   writeFileSync(new URL('./DELTA.md', import.meta.url), lines.join('\n') + '\n');
 } else {
-  writeFileSync(new URL('./ledger.json', import.meta.url), JSON.stringify({ totals, rows: result }, null, 2) + '\n');
+  writeFileSync(new URL('./ledger.json', import.meta.url), JSON.stringify({ evidence_rules: evidenceRules, totals, rows: result }, null, 2) + '\n');
   writeFileSync(new URL('./LEDGER.md', import.meta.url), markdown.join('\n'));
 }
 

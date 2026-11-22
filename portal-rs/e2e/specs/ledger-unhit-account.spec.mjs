@@ -7,19 +7,26 @@ test('MFA aliases accept a real challenge and revoke its remembered device', asy
   const lang = info.project.metadata.locale;
   const account = await register(page, lang);
   await login(page, lang, account);
-  const codes = await enrollMfa(page, lang, account);
+  await enrollMfa(page, lang, account);
   await login(page, lang, account);
   await expect(page).toHaveURL(/\/mfa\/challenge$/);
   await submit(page, 'main form[action$="/mfa/email"]');
   await expect(page).toHaveURL(/\/mfa\/challenge$/);
 
+  const deliveredCode = (await mailLink(page, account.email, /(?:^|\r?\n)[a-f0-9]{64}(?=\r?\n|$)/)).trim();
+
   const origin = new URL(page.url()).origin;
   const csrf = await page.locator('main form[action$="/mfa/challenge"] [name=_csrf]').inputValue();
   const challenged = await page.request.post('/mfa/challenge', {
-    form: {_csrf: csrf, code: codes[0], remember: 'yes'},
+    form: {_csrf: csrf, code: deliveredCode, remember: 'yes'},
     headers: {origin}, maxRedirects: 0,
   });
   expect(challenged.status()).toBe(302);
+  expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
+  expect(await query(`
+    SELECT a.action FROM audit_log a JOIN accounts u ON u.id=a.actor
+    WHERE u.email=$1 AND a.action='mfa.login.email'
+  `, [account.email])).toEqual([{action: 'mfa.login.email'}]);
   expect((await page.goto(`/${lang}/mfa`)).status()).toBe(200);
   const device = 'main form[action$="/mfa/devices"]';
   await expect(page.locator(device)).toHaveCount(1);

@@ -27,7 +27,7 @@ test('coverage requires a response from the matching passing attempt', t => {
   writeFileSync(join(directory, 'test-results/results.json'), JSON.stringify({suites}));
 
   const hit = {
-    route_pattern: '/search', method: 'GET', status: 200, actor: 'anonymous',
+    route_pattern: '/search', method: 'GET', status: 200, actor: 'anonymous', credential: 'none',
     form_action: {action: '/search', buttons: [null]},
     spec: 'specs/ledger.spec.mjs', test: 'search › submits', project: 'pl-1440', worker: 1, retry: 1,
   };
@@ -44,8 +44,13 @@ test('coverage requires a response from the matching passing attempt', t => {
   const {rows} = JSON.parse(readFileSync(join(directory, 'ledger/ledger.json')));
   const search = rows.find(row => row.id === 'F-web-26667257346850');
   assert.deepEqual(search.evidence, [{
-    actor: 'anonymous', status: 200, projects: ['pl-1440'],
+    actor: 'anonymous', credential: 'none', status: 200, projects: ['pl-1440'],
     cases: [{spec: hit.spec, test: hit.test, project: 'pl-1440'}],
   }]);
   assert.equal(rows.find(row => row.id === 'R-identity-145836777639757').hit, false);
+  const capture = join(directory, 'test-results/ledger/requests.jsonl');
+  writeFileSync(capture, JSON.stringify({recorder_errors: ['session actor lookup']}) + '\n');
+  assert.throws(() => execFileSync(process.execPath, [join(directory, 'ledger/report.mjs')], {stdio: 'pipe'}),
+    error => error.status === 1 && error.stderr.toString().includes('Ledger capture failed'));
+
 });

@@ -1,8 +1,13 @@
 import {test as base,expect} from '@playwright/test';
+import {flushRecorder} from './ledger/record.mjs';
 export {expect};
 
 export const test=base.extend({
- browserDiagnostics:[async({context,page},use,info)=>{
+ ledgerCapture:[async({},use,info)=>{
+   try { await use(); }
+   finally { await flushRecorder(info); }
+ },{auto:'all-hooks-included'}],
+ browserDiagnostics:[async({ledgerCapture,context,page},use,info)=>{
    const errors=[];
    const diagnostics=[];
    const watch=screen=>{

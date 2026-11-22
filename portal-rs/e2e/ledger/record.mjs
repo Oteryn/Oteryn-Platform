@@ -98,12 +98,10 @@ function formAction(url, method, contentType, body, referer) {
 const directory = fileURLToPath(new URL('../test-results/ledger/', import.meta.url));
 const testDirectory = fileURLToPath(new URL('../', import.meta.url));
 const sessionCookie = /(?:^|;\s*)__Host-oteryn_session=([^;]+)/;
-const pending = new Set();
+const attempts = new WeakMap();
 let database;
 
-async function actorFor(cookie) {
-  const token = sessionCookie.exec(cookie ?? '')?.[1];
-  if (!token) return cookie === undefined ? null : 'anonymous';
+async function sessionActor(token) {
   if (!database) {
     database = pool();
     database.options.allowExitOnIdle = true;
@@ -121,13 +119,51 @@ async function actorFor(cookie) {
   return rows[0].roles.length ? rows[0].roles : ['player'];
 }
 
-function start(url, method, cookie) {
+function currentAttempt() {
   let info;
   try {
     info = test.info();
   } catch {
     return null;
   }
+  let attempt = attempts.get(info);
+  if (!attempt) {
+    attempt = {
+      info,
+      hits: [],
+      pages: [],
+      errors: new Set(),
+      file: resolve(directory, `${info.project.name}-${info.workerIndex}.jsonl`),
+    };
+    attempts.set(info, attempt);
+  }
+  return attempt;
+}
+
+async function attribute(hit, headers) {
+  const { authorization, cookie } = await headers;
+  if (authorization !== undefined) {
+    hit.row.credential = /^Bearer(?:\s|$)/i.test(authorization) ? 'bearer' : 'authorization';
+    return;
+  }
+
+  const token = sessionCookie.exec(cookie ?? '')?.[1];
+  hit.row.credential = token ? 'session' : 'none';
+  if (!token) {
+    hit.row.actor = 'anonymous';
+    return;
+  }
+  try {
+    hit.row.actor = await sessionActor(token);
+  } catch {
+    hit.attempt.errors.add('session actor lookup');
+  }
+}
+
+function start(url, method, headers) {
+  const attempt = currentAttempt();
+  if (!attempt) return null;
+  const { info } = attempt;
   const target = new URL(url);
   const origin = new URL(info.project.use.baseURL).origin;
   const local = target.origin === origin;
@@ -136,6 +172,7 @@ function start(url, method, cookie) {
     method,
     status: null,
     actor: null,
+    credential: null,
     form_action: null,
     spec: relative(testDirectory, info.file),
     test: info.titlePath.slice(1).join(' › '),
@@ -143,31 +180,31 @@ function start(url, method, cookie) {
     worker: info.workerIndex,
     retry: info.retry,
   };
-  const request = {
-    origin,
-    file: resolve(directory, `${row.project}-${info.workerIndex}.jsonl`),
-    row,
-    actor: local ? Promise.resolve(cookie).then(actorFor).then(actor => { row.actor = actor; }) : Promise.resolve(),
-  };
-  // Surface lookup failures without leaking connection parameters in an error.
-  request.actor = request.actor.catch(() => {
-    row.actor = null;
-    process.exitCode = 1;
-  });
-  pending.add(request);
-  return request;
+  const hit = { attempt, row, local };
+  if (local) {
+    hit.actor = attribute(hit, headers).catch(() => {
+      // Chromium may drop header data for requests that never received a response.
+      hit.missingHeaders = true;
+    });
+  }
+  attempt.hits.push(hit);
+  return hit;
 }
 
-function write(request) {
-  if (!pending.delete(request)) return;
+export async function flushRecorder(info) {
+  const attempt = attempts.get(info);
+  if (!attempt) return;
+  await Promise.all(attempt.pages);
+  await Promise.all(attempt.hits.flatMap(hit => [hit.actor, hit.form]));
+  for (const hit of attempt.hits) {
+    if (hit.row.status !== null && hit.missingHeaders) attempt.errors.add('request header capture');
+  }
+  const lines = attempt.hits.map(hit => hit.row);
+  if (attempt.errors.size) lines.push({ recorder_errors: [...attempt.errors].sort() });
   mkdirSync(directory, { recursive: true });
-  appendFileSync(request.file, JSON.stringify(request.row) + '\n');
-}
-
-function finish(request, status) {
-  if (!request) return;
-  request.row.status = status;
-  void request.actor.then(() => write(request));
+  appendFileSync(attempt.file, lines.map(row => JSON.stringify(row) + '\n').join(''));
+  attempts.delete(info);
+  if (attempt.errors.size) throw new Error(`Ledger recorder failed: ${[...attempt.errors].sort().join(', ')}`);
 }
 
 export function installRecorder() {
@@ -183,10 +220,13 @@ export function installRecorder() {
     const implementation = context._connection.toImpl(context);
     implementation.on('request', event => {
       const { url, method, headers } = event;
-      const header = name => Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1];
-      apiRequests.set(event, start(url, method, header('cookie') ?? null));
+      const credentials = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]));
+      apiRequests.set(event, start(url, method, credentials));
     });
-    implementation.on('requestfinished', event => finish(apiRequests.get(event.requestEvent), event.statusCode));
+    implementation.on('requestfinished', event => {
+      const hit = apiRequests.get(event.requestEvent);
+      if (hit) hit.row.status = event.statusCode;
+    });
   };
   const watchForms = async (context, page) => {
     const cdp = await context.newCDPSession(page);
@@ -215,50 +255,45 @@ export function installRecorder() {
       watchApi(context.request);
       const pageForms = new WeakMap();
       context.on('page', page => {
-        pageForms.set(page, watchForms(context, page).catch(() => {
-          if (!page.isClosed()) process.exitCode = 1;
-          return new Map();
-        }));
+        const attempt = currentAttempt();
+        const forms = watchForms(context, page).catch(() => {
+          if (!page.isClosed()) attempt?.errors.add('browser form capture');
+          return null;
+        });
+        pageForms.set(page, forms);
+        attempt?.pages.push(forms);
       });
       context.on('request', request => {
-        const cookie = request.headerValue('cookie').catch(() => undefined);
-        browserRequests.set(request, start(request.url(), request.method(), cookie));
+        const headers = request.allHeaders().catch(() => {
+          // Attach a rejection handler immediately, including on external requests.
+          return null;
+        });
+        browserRequests.set(request, start(request.url(), request.method(), headers));
       });
       context.on('response', response => {
         const request = response.request();
         const hit = browserRequests.get(request);
-        if (!hit || !request.isNavigationRequest() || request.redirectedFrom()) {
-          finish(hit, response.status());
-          return;
-        }
-        // Chromium document IDs are CDP loader IDs. A redirect carries the
-        // same loader ID but is a separate request with no new form submission.
-        const document = request._connection.toImpl(request)._documentId;
-        const forms = pageForms.get(request.frame().page());
-        void Promise.resolve(forms).then(submissions => {
-          const submission = submissions?.get(document);
-          submissions?.delete(document);
+        if (!hit) return;
+        hit.row.status = response.status();
+        if (!hit.local || !request.isNavigationRequest() || request.redirectedFrom()) return;
+        hit.form = (async () => {
+          // Chromium document IDs are CDP loader IDs. Only the original
+          // navigation shares both the submitted destination and method.
+          const document = request._connection.toImpl(request)._documentId;
+          const submissions = await pageForms.get(request.frame().page());
+          if (!submissions || !document) throw new Error('Missing Chromium form capture');
+          const submission = submissions.get(document);
+          submissions.delete(document);
           if (submission?.method === request.method() && submission.url === request.url()) {
             const headers = request.headers();
-            const url = new URL(request.url());
-            if (url.origin === hit.origin) {
-              hit.row.form_action = formAction(url, request.method(),
-                headers['content-type'] ?? '', request.postDataBuffer(), headers.referer);
-            }
+            hit.row.form_action = formAction(new URL(request.url()), request.method(),
+              headers['content-type'] ?? '', request.postDataBuffer(), headers.referer);
           }
-          finish(hit, response.status());
+        })().catch(() => {
+          hit.attempt.errors.add('browser form capture');
         });
-      });
-      context.on('requestfailed', request => {
-        const hit = browserRequests.get(request);
-        if (hit?.row.status === null) finish(hit, null);
       });
     },
     runAfterCreateRequestContext: watchApi,
-  });
-  // Terminated requests can lack a response event, including API transport
-  // errors. Record those attempts with a null status.
-  process.once('exit', () => {
-    for (const request of pending) write(request);
   });
 }
