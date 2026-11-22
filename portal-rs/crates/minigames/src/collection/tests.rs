@@ -467,6 +467,49 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
         .to_owned();
     let csrf =
         String::from_utf8(to_bytes(response.into_body(), 4096).await.unwrap().to_vec()).unwrap();
+    // A publisher holding the feed row must hit the PostgreSQL lock timeout
+    // before the outer HTTP deadline, while the publisher still holds the lock.
+    let mut publisher = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM account_character_feed WHERE id=1 FOR UPDATE")
+        .fetch_one(&mut *publisher)
+        .await
+        .unwrap();
+    let evidence_app = http::router_with_evidence(
+        db.pool.clone(),
+        db.service.clone(),
+        Flags { collection: true },
+        Ownership(Arc::new(db.trust.clone())),
+        CsrfConfig::default(),
+        Some(http::EvidenceSources {
+            inventory: "items".into(),
+            progress: "progress".into(),
+        }),
+    );
+    for (path, expected) in [
+        ("/en/collection".to_owned(), StatusCode::OK),
+        (
+            format!("/en/collection/{}", db.trust.character),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        let response = evidence_app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+    }
+    publisher.rollback().await.unwrap();
+
     let app = router(
         db.pool.clone(),
         db.service.clone(),

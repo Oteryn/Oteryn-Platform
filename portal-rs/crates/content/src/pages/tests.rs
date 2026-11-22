@@ -274,7 +274,12 @@ Updated English source",
                 .await?;
             assert_eq!(response.status(), StatusCode::OK);
             let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
-            assert!(html.contains(message));
+            if matches!(path, "help" | "support/report-a-bug") {
+                assert!(html.contains(&format!("href=\"/{lang}/support/tickets/create\"")));
+                assert!(html.contains(&format!("href=\"/{lang}/forgot-password\"")));
+            } else {
+                assert!(html.contains(message));
+            }
             assert!(html.contains(&format!("lang=\"{lang}\"")));
             assert!(!html.contains("Changed legal text"));
         }
