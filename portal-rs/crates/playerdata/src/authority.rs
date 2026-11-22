@@ -600,7 +600,7 @@ impl Clock for DbClock {
 }
 
 mod reads;
-pub use reads::{JournalEvidence, JournalLoginAuthority, LoginPromoter};
+pub use reads::{CollectionEvidence, JournalEvidence, JournalLoginAuthority, LoginPromoter};
 
 #[cfg(test)]
 mod tests;
