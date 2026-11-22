@@ -175,6 +175,11 @@ async function addLinkedPages(page, targets, locale, actor) {
   }
 }
 
+// These compatibility routes have an explicitly localized sibling but keep
+// Polish at the unprefixed URL. Each representation must have a coherent shell.
+const fixedPolishAlias = /^\/(?:deaths|characters\/[^/]+\/deaths|guilds(?:\/[^/]+)?|houses(?:\/[^/]+)?|online|events(?:\/[^/]+)?|stats\/(?:guilds|world))$/u;
+const localeQueryRoute = /^\/(?:news(?:\/[^/]+)?|today(?:\/(?:data|widget))?|announcements\/ticker|admin\/(?:news(?:\/.*)?|media|console\/(?:access|approvals)))$/u;
+
 const validationMessages = 'main [role=alert], main .op-error, main [aria-live]:not([aria-live=off])';
 
 async function nativeValidation(page, locale, checked, uncovered) {
@@ -314,7 +319,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         const url = new URL(target, origin);
         // These screens expose a locale query parameter. Other routes use
         // the language cookie or Accept-Language and can reject extra queries.
-        if (/^\/admin\/(?:news(?:\/|$)|media$|console\/(?:access|approvals)$)/u.test(url.pathname)) {
+        if (localeQueryRoute.test(url.pathname)) {
           url.searchParams.set('lang', locale);
         }
         await waitForWikiBudget(target, 2);
@@ -329,10 +334,11 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         documents.add(final.pathname + final.search);
         const navigation = await page.goto(url.href);
         expect.soft(navigation.status(), target).toBe(probe.status());
-        await assertDocument(page, locale, target);
+        const documentLocale = fixedPolishAlias.test(url.pathname) ? 'pl' : locale;
+        await assertDocument(page, documentLocale, target);
         if (navigation.ok()) {
           await addLinkedPages(page, targets, locale, actor);
-          await nativeValidation(page, locale, checked, uncovered);
+          await nativeValidation(page, documentLocale, checked, uncovered);
           await serverValidation(page, locale, actor, target, targets);
         }
       });
