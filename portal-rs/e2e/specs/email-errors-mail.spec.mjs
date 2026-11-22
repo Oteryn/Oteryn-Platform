@@ -478,6 +478,33 @@ supportTest.describe('support email and ticket errors', () => {
       await expect(page.locator('main')).toContainText(reply);
       unsubscribeLink(page, message);
     }
+
+    await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'open' });
+    await expect.poll(ticketSnapshot).toMatchObject({ status: 'open' });
+    expect((await page.goto(ticket)).status()).toBe(200);
+    const draftForm = page.locator(replySelector);
+    await expect(draftForm).toBeVisible();
+    const draft = await draftForm.evaluate(form => Object.fromEntries(new FormData(form)));
+    await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'closed' });
+    await expect.poll(ticketSnapshot).toMatchObject({ status: 'closed' });
+    const closed = await ticketSnapshot();
+    expect(closed.lock_version).not.toBe(draft.lock_version);
+    const draftBody = unique();
+    const closedRefusal = await page.request.post(`${ticket}/reply`, {
+      headers: { accept: 'text/html', origin: new URL(page.url()).origin },
+      form: { ...draft, body: draftBody },
+      maxRedirects: 0,
+    });
+    expect(closedRefusal.status()).toBe(409);
+    expect(closedRefusal.headers()['content-language']).toBe(lang);
+    const closedHtml = await closedRefusal.text();
+    expect(closedHtml).toContain(`<p>${stateCopy}</p>`);
+    expect(closedHtml).not.toContain(description);
+    expect(closedHtml).not.toContain(openForm);
+    expect(closedHtml).not.toContain(draftBody);
+    expect(await ticketSnapshot()).toEqual(closed);
+    expect((await page.goto(ticket)).status()).toBe(200);
+    await expect(draftForm).toHaveCount(0);
   });
 
   supportTest('moderation decisions send report, sanction and appeal mail', async ({ page, support }) => {

@@ -361,6 +361,21 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
             .await,
         Err(Error::Conflict)
     ));
+    assert!(matches!(
+        t.change_checked(
+            owner,
+            None,
+            ticket.id,
+            4,
+            Change::Reply {
+                body: "composed before resolution",
+                internal: false
+            }
+        )
+        .await,
+        Err(Error::StateConflict)
+    ));
+    assert_eq!(t.show(owner, false, ticket.id).await?.1.len(), 3);
     let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
         .fetch_one(&db.pool)
         .await?;

@@ -530,11 +530,7 @@ async fn show(
     page.status = text::text(&language, &ticket.status);
     page.version = ticket.lock_version;
     page.id = id;
-    page.can_reply = if staff.is_some() {
-        active(&ticket.status)
-    } else {
-        matches!(ticket.status.as_str(), "open" | "waiting_user")
-    };
+    page.can_reply = can_reply(&ticket.status, staff.is_some());
     page.messages = messages
         .into_iter()
         .map(|m| DisplayMessage {

@@ -77,6 +77,13 @@ fn valid_text(value: &str, max: usize) -> bool {
 fn active(status: &str) -> bool {
     matches!(status, "open" | "waiting_user" | "waiting_staff")
 }
+fn can_reply(status: &str, staff: bool) -> bool {
+    if staff {
+        active(status)
+    } else {
+        matches!(status, "open" | "waiting_user")
+    }
+}
 enum Acknowledge {
     Never,
     DisplayedPage,
@@ -346,17 +353,21 @@ impl Tickets {
         if !STATUSES.contains(&ticket.status.as_str()) {
             return Err(Error::Denied);
         }
+        match change {
+            Change::Reply { .. } if !can_reply(&ticket.status, is_staff) => {
+                return Err(Error::StateConflict);
+            }
+            Change::Status("open") if !is_staff && ticket.status != "closed" => {
+                return Err(Error::StateConflict);
+            }
+            _ => {}
+        }
         if ticket.lock_version != version {
             return Err(Error::StaleVersion);
         }
         let before = ticket.status.clone();
         let (status, notify, reply) = match change {
             Change::Reply { body, internal } => {
-                if (is_staff && !active(&ticket.status))
-                    || (!is_staff && !matches!(ticket.status.as_str(), "open" | "waiting_user"))
-                {
-                    return Err(Error::StateConflict);
-                }
                 Self::message(tx, id, actor, body, is_staff, internal).await?;
                 (
                     if internal {
@@ -371,9 +382,6 @@ impl Tickets {
                 )
             }
             Change::Status(status) => {
-                if !is_staff && status == "open" && ticket.status != "closed" {
-                    return Err(Error::StateConflict);
-                }
                 if active(status) && !active(&ticket.status) {
                     self.capacity(tx, ticket.account_id).await?;
                 }
