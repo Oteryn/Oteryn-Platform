@@ -699,6 +699,9 @@ mod login_http;
 mod credentials_http;
 #[path = "../../../crates/identity/src/email_change_http.rs"]
 mod email_change_http;
+#[cfg(test)]
+#[path = "../../../crates/identity/src/mfa_test_db.rs"]
+mod identity_test_db;
 #[path = "../../../crates/identity/src/passkeys_http.rs"]
 mod passkeys_http;
 #[path = "../../../crates/identity/src/privacy_web.rs"]

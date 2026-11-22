@@ -202,8 +202,7 @@ async fn save(
 }
 
 #[cfg(test)]
-#[path = "mfa_test_db.rs"]
-mod database;
+use crate::identity_test_db as database;
 
 #[cfg(test)]
 mod tests {

@@ -266,7 +266,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         const route = routeOf(url);
         const view = unavailableView(url, actor, locale);
         const forbidden = staffDenied(route, actor)
-          || (route === 'account/passkeys' && actor === 'platform_admin');
+          || (actor === 'platform_admin' && ['account/passkeys', 'account/passkeys/manage'].includes(route));
         const redirectPath = redirectDestination(url, actor, locale);
         const expectedStatus = forbidden && !redirectPath ? 403 : view ? 503 : 200;
         const target = redirectPath ? new URL(redirectPath, origin) : url;

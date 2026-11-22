@@ -3,6 +3,7 @@ use super::*;
 use axum::{
     body::{Body, to_bytes},
     http::Request,
+    routing::get,
 };
 use tower::ServiceExt;
 #[path = "passkeys_test_db.rs"]

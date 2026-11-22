@@ -1,6 +1,5 @@
-#[path = "mfa_test_db.rs"]
-mod database;
 use super::*;
+use crate::identity_test_db as database;
 use axum::routing::get;
 use tower::ServiceExt;
 #[tokio::test]
