@@ -5888,15 +5888,45 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
     assert!(matches!(conflict, Err(Error::Conflict)));
     reader.rollback().await.unwrap();
 
-    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
-        .bind(buyer)
-        .execute(&db.pool)
+    let mut suspension = db.pool.begin().await.unwrap();
+    let suspension_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *suspension)
         .await
         .unwrap();
-    let replay = db
-        .runtime
-        .bid(buyer, listing, 15000, destination, request)
-        .await;
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(buyer)
+        .execute(&mut *suspension)
+        .await
+        .unwrap();
+    let runtime = db.runtime.clone();
+    let replay = tokio::spawn(async move {
+        runtime
+            .bid(buyer, listing, 15000, destination, request)
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(suspension_pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            assert!(
+                !replay.is_finished(),
+                "replay completed without waiting for suspension"
+            );
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("replay must wait for the account lock held by suspension");
+    suspension.commit().await.unwrap();
+    let replay = replay.await.unwrap();
     assert!(matches!(replay, Err(Error::Denied)), "{replay:?}");
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_bids WHERE listing_id=$1")
         .bind(listing)
@@ -5904,5 +5934,12 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
         .await
         .unwrap();
     assert_eq!(count, 1);
+    let holds: Vec<(Uuid, i64, bool)> =
+        sqlx::query_as("SELECT account_id, amount, completed FROM bazaar_coin_holds WHERE id=$1")
+            .bind(listing)
+            .fetch_all(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(holds, vec![(buyer, 15000, false)]);
     db.end().await;
 }

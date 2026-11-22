@@ -178,17 +178,15 @@ test('competing checkout decisions honour the persisted winner', async ({ page }
   const intent = await topUp(page, lang);
   const url = `/${lang}/shop/test-checkout/${intent.id}`;
   const form = await formAt(page, url);
-  const replies = await burst(async index => {
-    const action = index % 2 === 0 ? 'pay' : 'reject';
-    return { action, ...await postForm(page, url, { ...form, action }) };
-  });
+  // Creating the intent spends one of the account's ten mutation requests.
+  const actions = ['pay', 'reject', 'pay', 'reject', 'pay', 'reject', 'pay', 'reject', 'pay'];
+  const replies = await Promise.all(actions.map(action => postForm(page, url, { ...form, action })));
   const [{ state }] = await query('SELECT state FROM payment_intents WHERE id=$1', [intent.id]);
   expect(['succeeded', 'failed']).toContain(state);
   const winningAction = state === 'succeeded' ? 'pay' : 'reject';
-  const admitted = replies.filter(reply => reply.status !== 429);
-  expect(admitted).toHaveLength(9);
-  for (const { action, status } of admitted) {
-    expect(status).toBe(action === winningAction ? 303 : 409);
+  expectStatuses(replies, state === 'succeeded' ? { 303: 5, 409: 4 } : { 303: 4, 409: 5 });
+  for (const [index, { status }] of replies.entries()) {
+    expect(status).toBe(actions[index] === winningAction ? 303 : 409);
   }
   expect(await query('SELECT state FROM payment_events WHERE intent_id=$1', [intent.id])).toEqual([{ state }]);
   if (state === 'succeeded') {

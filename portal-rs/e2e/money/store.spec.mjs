@@ -127,6 +127,11 @@ test('parallel Store purchases and delivery receipts commit one debit and grant 
       delivered_quantity: 5,
       decided_at: String(Math.floor(Date.now() / 1000)),
     };
+    const claims = () => query(
+      `SELECT state, convert_from(intent_bytes, 'UTF8')::jsonb->>'delivery_operation_id' AS delivery_operation_id
+       FROM store_operations WHERE entitlement_id=$1 AND operation_kind='CLAIM'`,
+      [entitlement],
+    );
     const db = pool();
     const lock = await db.connect();
     try {
@@ -137,6 +142,7 @@ test('parallel Store purchases and delivery receipts commit one debit and grant 
         .toEqual([{ state: 'PENDING' }]);
       expect(await query('SELECT state FROM store_fulfilment_units WHERE entitlement_id=$1', [entitlement]))
         .toEqual([{ state: 'DELIVERY_PENDING' }]);
+      expect(await claims()).toEqual([]);
       expect(await query('SELECT receipt_id FROM store_receipts WHERE operation_id=$1', [operation])).toEqual([]);
     } finally {
       await lock.query('ROLLBACK');
@@ -159,6 +165,7 @@ test('parallel Store purchases and delivery receipts commit one debit and grant 
       .toEqual([{ state: 'COMMITTED' }]);
     expect(await query('SELECT state FROM store_fulfilment_units WHERE entitlement_id=$1', [entitlement]))
       .toEqual([{ state: 'DELIVERED' }]);
+    expect(await claims()).toEqual([{ state: 'PENDING', delivery_operation_id: operation }]);
     expect(await query(
       'SELECT order_id, total_price FROM store_orders WHERE account_id=$1', [buyer.id],
     )).toEqual([{ order_id: answer.order_id, total_price: '25' }]);
