@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { Secret, TOTP } from 'otpauth';
 import { expect, test as base } from '../../fixtures.mjs';
 import { loginWithRecoveryCode, query } from '../../staff-rbac-helpers.mjs';
+import { pool } from '../../helpers.mjs';
 import { fixture } from '../../api/transport.mjs';
 import { gameJson, gamePeer, portalCommand, seededAccount, sourceTime } from '../../outbox-helpers.mjs';
 import { uuid7 } from '../../game-sim-helpers.mjs';
@@ -160,6 +161,18 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
       complete_through: at, observed_at: at,
     });
   }
+  async function postFresh(screen, targetPath, fields) {
+    await refreshProjection();
+    return post(screen, targetPath, fields);
+  }
+  async function submitFresh(form, fields, route) {
+    await refreshProjection();
+    await browserSubmit(page, form, fields, route);
+  }
+  async function reloadDossier() {
+    await refreshProjection();
+    expect((await page.reload()).status()).toBe(200);
+  }
   await refreshProjection();
   expect((await page.goto(`/admin/console/players?lang=${lang}`)).status()).toBe(200);
   await page.getByRole('link', { name: text.heading }).click();
@@ -175,8 +188,10 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
 
   const stepForm = page.locator('form[action*="/step-up?"]');
   const step = await formPayload(stepForm);
-  expect((await post(page, step.target, { ...step.fields, _csrf: 'forged', code: '000000' })).status()).toBe(403);
-  await browserSubmit(page, stepForm, { code: gm.totp.generate() }, `${path}/step-up`);
+  await refreshProjection();
+  const code = gm.totp.generate();
+  expect((await post(page, step.target, { ...step.fields, _csrf: 'forged', code })).status()).toBe(403);
+  await browserSubmit(page, stepForm, { code }, `${path}/step-up`);
   await expect(page).toHaveURL(url);
 
   const viewer = await browser.newContext({
@@ -193,7 +208,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     await readOnly.goto(`/${lang}/account`);
     const viewerCsrf = await readOnly.locator('input[name=_csrf]').first().inputValue();
     const apply = await formPayload(page.locator('[data-profile=MUTE] [data-action=apply]'));
-    await refused(await post(readOnly, apply.target, {
+    await refused(await postFresh(readOnly, apply.target, {
       ...apply.fields, _csrf: viewerCsrf, minutes: '15', reason: 'rule_violation',
     }), 403, text.denied);
   } finally {
@@ -212,23 +227,61 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     const early = await formPayload(form('apply'));
     const valid = { minutes: '15', reason: 'disruptive_behavior' };
 
-    for (const minutes of ['0', '1441']) {
-      await refused(await post(page, early.target, { ...early.fields, ...valid, minutes }), 400, text.invalid);
+    if (profile === 'MUTE') {
+      await refreshProjection();
+      const db = pool();
+      const locker = await db.connect();
+      try {
+        await locker.query('BEGIN');
+        await locker.query('SELECT id FROM account_character_feed WHERE id=1 FOR UPDATE');
+        expect((await page.request.get(url, { timeout: 8_000 })).status()).toBe(503);
+        const blocked = await page.request.post(early.target, {
+          form: { ...early.fields, ...valid }, headers: { origin: new URL(url, page.url()).origin },
+          maxRedirects: 0, timeout: 8_000,
+        });
+        expect(blocked.status()).toBe(503);
+      } finally {
+        await locker.query('ROLLBACK');
+        locker.release();
+        await db.end();
+      }
+
+      const competitor = await seededAccount(lang);
+      const snapshot = {
+        ...snapshotHead, operation: 'PublishAccountCharactersV1', account_id: competitor.id,
+        projection_revision: '1', source_observed_at: sourceTime(),
+        characters: [{ character_id: character, world_id: world, name, availability: 'AVAILABLE' }],
+      };
+      await gameJson(lcfa, portfolio, snapshot);
+      const conflict = await lcfa(portfolio, {
+        ...snapshot, characters: [{ ...snapshot.characters[0], name: 'Conflicting character' }],
+      });
+      expect(conflict.status).toBe(409);
+      await refreshProjection();
+      expect((await page.request.get(url)).status()).toBe(503);
+      expect((await postFresh(page, early.target, { ...early.fields, ...valid })).status()).toBe(503);
+      await gameJson(lcfa, portfolio, {
+        ...snapshot, projection_revision: '2', source_observed_at: sourceTime(), characters: [],
+      });
     }
-    await refused(await post(page, early.target, { ...early.fields, ...valid, reason: '' }), 400, text.invalid);
-    expect((await post(page, early.target, { ...early.fields, ...valid, _csrf: 'forged' })).status()).toBe(403);
+
+    for (const minutes of ['0', '1441']) {
+      await refused(await postFresh(page, early.target, { ...early.fields, ...valid, minutes }), 400, text.invalid);
+    }
+    await refused(await postFresh(page, early.target, { ...early.fields, ...valid, reason: '' }), 400, text.invalid);
+    expect((await postFresh(page, early.target, { ...early.fields, ...valid, _csrf: 'forged' })).status()).toBe(403);
     const missing = early.target.replace(character, uuid7());
-    await refused(await post(page, missing, { ...early.fields, ...valid }), 404, text.missing);
+    await refused(await postFresh(page, missing, { ...early.fields, ...valid }), 404, text.missing);
     expect(await query('SELECT 1 FROM support_enforcement_commands WHERE operation_id=$1', [early.fields.operation])).toEqual([]);
 
-    await page.reload();
+    await reloadDossier();
     const first = await formPayload(form('apply'));
-    await browserSubmit(page, form('apply'), valid, path);
+    await submitFresh(form('apply'), valid, path);
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.unconfirmed);
-    expect((await post(page, first.target, { ...first.fields, ...valid })).status()).toBe(303);
-    await refused(await post(page, first.target, { ...first.fields, ...valid, minutes: '16' }), 409, text.conflict);
-    await refused(await post(page, early.target, { ...early.fields, ...valid }), 409, text.conflict);
+    expect((await postFresh(page, first.target, { ...first.fields, ...valid })).status()).toBe(303);
+    await refused(await postFresh(page, first.target, { ...first.fields, ...valid, minutes: '16' }), 409, text.conflict);
+    await refused(await postFresh(page, early.target, { ...early.fields, ...valid }), 409, text.conflict);
     const common = { account_id: target.id, character_id: character, profile };
     const initial = await readGame(first.fields.operation, {
       ...common, intent: 'APPLY', decision_revision: 1, prior_decision_revision: null, reason_code: 7,
@@ -237,14 +290,14 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     const applied = initial.command;
     expect(applied.expires_at_ms - applied.effective_at_ms).toBe(15 * 60_000);
 
-    await page.reload();
+    await reloadDossier();
     await expect(status()).toHaveText(text.applied);
     await expect(current()).toHaveText(text.applied);
     await expect(panel.locator('time[data-receipt]')).toHaveAttribute('datetime', /T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 
     const refusedReplace = await formPayload(form('replace'));
     const staleRevoke = await formPayload(form('revoke'));
-    await browserSubmit(page, form('replace'), { ...valid, minutes: '30' }, path);
+    await submitFresh(form('replace'), { ...valid, minutes: '30' }, path);
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.applied);
     const rejected = await readGame(refusedReplace.fields.operation, {
@@ -255,22 +308,22 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
       state: 'REJECTED', result_code: 'LIFECYCLE_CONFLICT', accepted_decision_revision: 1,
       effective_until_ms: applied.expires_at_ms, runtime_effect: 'NONE',
     });
-    await page.reload();
+    await reloadDossier();
     await expect(status()).toHaveText(text.refused);
     await expect(current()).toHaveText(text.applied);
     await expect(panel.getByText('LIFECYCLE_CONFLICT', { exact: true })).toBeVisible();
-    await refused(await post(page, staleRevoke.target, {
+    await refused(await postFresh(page, staleRevoke.target, {
       ...staleRevoke.fields, reason: 'rule_violation',
     }), 409, text.conflict);
 
     const replace = await formPayload(form('replace'));
-    await browserSubmit(page, form('replace'), { minutes: '30', reason: 'rule_violation' }, path);
+    await submitFresh(form('replace'), { minutes: '30', reason: 'rule_violation' }, path);
     const replaced = await readGame(replace.fields.operation, {
       ...common, intent: 'REPLACE', decision_revision: 3, prior_decision_revision: 1, reason_code: 8,
       sanction_stream_id: applied.sanction_stream_id,
     });
     await replaced.publish({ state: 'ACCEPTED_PENDING', result_code: 'PENDING_RUNTIME' });
-    await page.reload();
+    await reloadDossier();
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.applied);
     await expect(panel.locator('time[data-current-receipt]')).toBeVisible();
@@ -278,12 +331,12 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     expect(new Date(appliedUntil).toISOString()).toBe(new Date(applied.expires_at_ms).toISOString());
     await replaced.publish({ receipt_revision: 2, state: 'REPLACED' });
     expect(replaced.command.expires_at_ms - replaced.command.effective_at_ms).toBe(30 * 60_000);
-    await page.reload();
+    await reloadDossier();
     await expect(status()).toHaveText(text.applied);
     await expect(status()).toHaveAttribute('data-operation', replace.fields.operation);
 
     const revoke = await formPayload(form('revoke'));
-    await browserSubmit(page, form('revoke'), { reason: 'rule_violation' }, path);
+    await submitFresh(form('revoke'), { reason: 'rule_violation' }, path);
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.applied);
     const revoking = await readGame(revoke.fields.operation, {
@@ -294,12 +347,12 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
       state: 'ACCEPTED_PENDING', result_code: 'PENDING_RUNTIME', stream_state: 'REVOKED',
       runtime_effect: 'NONE',
     });
-    await page.reload();
+    await reloadDossier();
     await expect(status()).toHaveText(text.pending);
     await expect(current()).toHaveText(text.applied);
     await expect(panel.locator('time[data-current-receipt]')).toBeVisible();
     await revoking.publish({ receipt_revision: 2, state: 'REVOKED', stream_state: 'REVOKED' });
-    await page.reload();
+    await reloadDossier();
     await expect(status()).toHaveText(text.revoked);
     await expect(current()).toHaveText(text.revoked);
     await expect(panel.locator('time[data-receipt]')).toHaveAttribute('datetime', /T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -309,7 +362,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
       [first.fields.operation],
     );
     expect(audit).toEqual([{
-      id: applied.audit_ref, actor: gm.account.id, target: character, before: null,
+      id: applied.audit_ref, actor: gm.account.id, target: applied.sanction_stream_id, before: null,
       after: {
         operation_id: first.fields.operation, character_id: character, profile, intent: 'APPLY',
         reason_code: 7, duration_minutes: 15, form_version: 0, decision_revision: 1,
@@ -317,6 +370,27 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
         effective_until_ms: applied.expires_at_ms,
       },
     }]);
+    const decisions = await query(
+      `SELECT d.operation_id,d.decision_revision::integer,d.intent,d.profile,d.character_id,
+              s.account_id,s.status,a.owner_id,n.kind,n.reason_code,n.revoked
+       FROM support_enforcement_decisions d
+       JOIN sanctions s ON s.id=d.sanction_id
+       JOIN support_appeal_workflows a ON a.sanction_id=s.id
+       JOIN support_sanction_export_revisions n
+         ON n.sanction_stream_id=s.id AND n.decision_revision=d.decision_revision
+       WHERE s.id=$1 ORDER BY d.decision_revision`,
+      [applied.sanction_stream_id],
+    );
+    expect(decisions).toEqual([
+      [first.fields.operation, 'APPLY', 7, false],
+      [refusedReplace.fields.operation, 'REPLACE', 7, false],
+      [replace.fields.operation, 'REPLACE', 8, false],
+      [revoke.fields.operation, 'REVOKE', 8, true],
+    ].map(([operation_id, intent, reason_code, revoked], index) => ({
+      operation_id, intent, reason_code, revoked, decision_revision: index + 1, profile,
+      character_id: character, account_id: target.id, owner_id: target.id,
+      status: 'revoked', kind: profile === 'MUTE' ? 1 : 2,
+    })));
     const operations = await query(
       'SELECT operation_id FROM support_enforcement_commands WHERE character_id=$1 AND profile=$2 ORDER BY position',
       [character, profile],
