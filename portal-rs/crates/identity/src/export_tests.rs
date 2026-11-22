@@ -1,5 +1,5 @@
 use super::{
-    http::{router, session_cookie},
+    http::{configured_router, router, session_cookie},
     *,
 };
 use axum::{
@@ -52,6 +52,25 @@ async fn browser_export_mounting_is_independent_of_password_confirmation() -> Te
             .has_routes(),
             mounted
         );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_export_requires_mounted_password_confirmation() -> TestResult {
+    let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+    for enabled in [false, true] {
+        for password_confirmation in [false, true] {
+            assert_eq!(
+                configured_router(
+                    pool.clone(),
+                    ExportConfig { enabled },
+                    password_confirmation
+                )
+                .has_routes(),
+                enabled && password_confirmation,
+            );
+        }
     }
     Ok(())
 }

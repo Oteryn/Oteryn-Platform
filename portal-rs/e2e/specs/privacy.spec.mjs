@@ -20,7 +20,7 @@ test('T45 owner settings control live online and public profile privacy',async({
   const epoch=baseline.highest_epoch||'1';
   publicState=(await db.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1')).rows[0].highest_epoch;
   const publicEpoch=publicState||'1';
-  watermarks=(await db.query("SELECT * FROM public_snapshots WHERE family IN ('character_profile','world_online') AND is_watermark")).rows;
+  watermarks=(await db.query("SELECT family,subject,is_watermark,epoch,version,watermark,payload::text AS payload,previous_snapshot::text AS previous_snapshot FROM public_snapshots WHERE family IN ('character_profile','world_online') AND is_watermark")).rows;
   await db.query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'non-loginable-test','active','en',now())",[foreign,`${foreign}@example.invalid`]);
   const stamp=()=>Math.floor(Date.now()/1000);
   for(const id of [owner,foreign])await db.query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,$3,'1',$4,$5)",[id,authority,epoch,stamp(),Buffer.alloc(32)]);

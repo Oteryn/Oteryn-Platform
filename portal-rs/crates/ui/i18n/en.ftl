@@ -380,3 +380,15 @@ panel-identity-last-browser-login = Last browser sign-in (UTC)
 staff-action-role-assignment = Role assignment
 staff-action-step-up = Confirm password for role grants
 staff-action-step-up-required = Confirm your password from the roles page before granting a role.
+
+panel-characters = Characters
+panel-characters-outfit = View outfit
+panel-characters-services = Character services
+panel-characters-updated = Last Game update
+panel-characters-rename = Rename
+panel-characters-world-transfer = World or channel transfer
+panel-characters-owner-transfer = Ownership transfer
+panel-characters-delete = Delete character
+panel-characters-restore = Restore character
+panel-characters-outfit-edit = Change outfit
+panel-characters-no-vocation = No vocation

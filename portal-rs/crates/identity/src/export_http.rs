@@ -161,6 +161,17 @@ fn private_response(mut response: Response) -> Response {
     response
 }
 
+pub(super) fn configured_router(
+    pool: PgPool,
+    config: ExportConfig,
+    password_confirmation: bool,
+) -> Router {
+    if !password_confirmation {
+        return Router::new();
+    }
+    router(pool, config, password_confirmation)
+}
+
 pub(super) fn router(pool: PgPool, config: ExportConfig, password_confirmation: bool) -> Router {
     if !config.enabled {
         return Router::new();

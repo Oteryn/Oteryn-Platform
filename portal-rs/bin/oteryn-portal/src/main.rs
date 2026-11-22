@@ -252,12 +252,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
             let app = app.merge(credentials);
-            let export = export_http::router(
+            let export = export_http::configured_router(
                 db.clone(),
                 export::ExportConfig::configured(),
                 password_confirmation,
             );
-            let export_enabled = export.has_routes() && password_confirmation;
+            let export_enabled = export.has_routes();
             let app = app.merge(export);
             let app = app.merge(profile_http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::today::router(db.clone()));
@@ -399,6 +399,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             oteryn_identity::navigation::register(&mut navigation);
             oteryn_identity::navigation::register_identity_panel(&mut navigation.panels);
             oteryn_characters::navigation::register(&mut navigation);
+            oteryn_characters::overview::register_navigation(&mut navigation);
             oteryn_store::navigation::register(&mut navigation);
             oteryn_content::navigation::register(&mut navigation);
             oteryn_wiki::navigation::register(&mut navigation);

@@ -30,7 +30,7 @@ pub fn register(registry: &mut Registry) {
         std::env::var("OTERYN_ACCOUNT_PASSKEYS").as_deref() == Ok("true"),
         "account-passkeys",
         "shell-account-passkeys",
-        "account/passkeys/manage",
+        "account/passkeys",
         Group::Account,
         false,
     );

@@ -115,13 +115,20 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
-    let mut chrome = shell.registry.chrome(lang, path, account);
-    if browser
-        && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
+    let dashboard = request.extensions().get::<StaffDashboard>().cloned();
+    let staff_dashboard = if browser
+        && matches!(account, oteryn_ui::Account::SignedIn { .. })
+        && let Some(staff) = dashboard
+        && let Some(id) =
+            crate::session::chrome_session_account(&shell.sessions, &mut request).await
         && (staff.allows)(id).await
     {
-        chrome.staff_dashboard = Some(staff.url.clone());
-    }
+        Some(staff.url)
+    } else {
+        None
+    };
+    let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    chrome.staff_dashboard = staff_dashboard;
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {

@@ -26,3 +26,6 @@ available = Dostępna
 
 main-character = Główna postać
 profile-preferences = Preferencje profilu
+
+roster-unproven = Nie udało się potwierdzić właściciela niektórych postaci. Te postacie są ukryte.
+roster-empty = Twoja lista postaci jest pusta.

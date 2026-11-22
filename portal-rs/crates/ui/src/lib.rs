@@ -207,6 +207,13 @@ impl Registry {
             })
             .collect();
         let signed_in = matches!(account, Account::SignedIn { .. });
+        let passkeys_eligible = matches!(
+            account,
+            Account::SignedIn {
+                passkeys_eligible: true,
+                ..
+            }
+        );
         Chrome {
             lang: lang.to_owned(),
             alternate_url: if let Some(rest) = clean
@@ -238,9 +245,14 @@ impl Registry {
                 || suffix.starts_with("panel/"))
                 && signed_in
             {
-                self.panels.links(panels::Panel::Player, lang, |p| {
-                    p == panels::Permission::AccountOwner
-                })
+                let passkeys_url = format!("/{lang}/account/passkeys");
+                self.panels
+                    .links(panels::Panel::Player, lang, |p| {
+                        p == panels::Permission::AccountOwner
+                    })
+                    .into_iter()
+                    .filter(|link| passkeys_eligible || link.url != passkeys_url)
+                    .collect()
             } else {
                 Vec::new()
             },

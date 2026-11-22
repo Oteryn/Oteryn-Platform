@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import {expect} from '@playwright/test';
+import {expect, request} from '@playwright/test';
 import {waitForWikiBudget} from './helpers.mjs';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -52,11 +52,24 @@ export async function assertShell(page, {accessibility=true,status=200}={}) {
     await csrfRejected(page,form.action,form.fields);
   }
   const links=await page.locator('main a[href], footer a[hreflang]').evaluateAll(nodes=>nodes.map(n=>({href:n.getAttribute('href'),language:n.hasAttribute('hreflang')})).filter(n=>n.href.startsWith('/')&&!n.href.startsWith('//')));
-  for(const link of links) {
-    await waitForWikiBudget(link.href);
-    const response=await page.request.get(link.href,{headers:{accept:'text/html'}});
-    expect(link.language?[200,503,status]:[200,503],`linked destination ${link.href}`).toContain(response.status());
-    if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
+  // A language link updates the preference cookie. Follow it with an
+  // isolated copy of the actor's session so the probe cannot steer other tabs.
+  const languageProbe = links.some(link => link.href.startsWith('/language/'))
+    ? await request.newContext({
+      baseURL: new URL(page.url()).origin,
+      ignoreHTTPSErrors: true,
+      storageState: await page.context().storageState(),
+    }) : null;
+  try {
+    for(const link of links) {
+      await waitForWikiBudget(link.href);
+      const client = link.href.startsWith('/language/') ? languageProbe : page.request;
+      const response=await client.get(link.href,{headers:{accept:'text/html'}});
+      expect(link.language?[200,503,status]:[200,503],`linked destination ${link.href}`).toContain(response.status());
+      if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
+    }
+  } finally {
+    await languageProbe?.dispose();
   }
   if(accessibility) {
     const axe=await new AxeBuilder({page}).analyze();

@@ -39,6 +39,7 @@ async fn profile_fixture() -> Result<Option<ProfileFixture>, Box<dyn std::error:
     for sql in [
         include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
         include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
+        include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql"),
         include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),
         include_str!("../../../../migrations/20261105220226_t09c_privacy.sql"),
@@ -208,7 +209,9 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .execute(&pool)
         .await?;
     // A queued publisher cannot replace ownership while this transaction reads it.
-    let mut held = service.lock().await.map_err(|_| "profile lock failed")?;
+    let mut held = service.begin().await.map_err(|_| "profile lock failed")?;
+    crate::ownership::shared_fences(&mut held).await?;
+    Service::share_feed(&mut held).await?;
     let mut publisher = pool.acquire().await?;
     sqlx::query("SET lock_timeout='100ms'")
         .execute(&mut *publisher)
@@ -475,6 +478,7 @@ async fn postgres_profile_takes_account_before_feed_like_termination()
     for sql in [
         include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
         include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
+        include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql"),
         include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),
         include_str!("../../../../migrations/20261105220226_t09c_privacy.sql"),

@@ -13,7 +13,8 @@ import { registeredRedirect } from './redirects.mjs';
 import { challengeForm, getFromPortal, signIn, submitForm } from './session-actions.mjs';
 
 const expectations = JSON.parse(readFileSync(new URL('../route-expectations.json', import.meta.url), 'utf8'))
-  .filter(row => row.method === 'GET');
+  .filter(row => row.method === 'GET')
+  .map(row => row.actor === 'game_master_senior' ? { ...row, actor: 'gm' } : row);
 const contracts = new Map([...expectations, ...additionalRoutes].map(row => [routeShape(row.route), row]));
 const ownerProfile = row => row.route.endsWith('/account/characters/{name}/profile');
 

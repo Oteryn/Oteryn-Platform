@@ -380,3 +380,15 @@ panel-identity-last-browser-login = Ostatnie logowanie w przeglądarce (UTC)
 staff-action-role-assignment = Przypisanie roli
 staff-action-step-up = Potwierdź hasło, aby nadawać role
 staff-action-step-up-required = Przed nadaniem roli potwierdź hasło na stronie ról.
+
+panel-characters = Postacie
+panel-characters-outfit = Zobacz strój
+panel-characters-services = Usługi postaci
+panel-characters-updated = Ostatnia aktualizacja z gry
+panel-characters-rename = Zmiana imienia
+panel-characters-world-transfer = Przeniesienie świata lub kanału
+panel-characters-owner-transfer = Przeniesienie własności
+panel-characters-delete = Usunięcie postaci
+panel-characters-restore = Przywrócenie postaci
+panel-characters-outfit-edit = Zmiana stroju
+panel-characters-no-vocation = Bez profesji

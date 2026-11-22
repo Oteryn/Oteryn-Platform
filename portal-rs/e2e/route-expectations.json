@@ -113,35 +113,49 @@
   },
   {
     "crate": "admin",
-    "route": "/console/dashboard",
-    "actor": "gm",
+    "route": "/console",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "redirect": "/console/dashboard?lang={lang}",
+    "reason": "redirects to the first permitted Game page"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/dashboard",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
+    "method": "GET",
+    "status": 200,
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
     "route": "/console/worlds",
-    "actor": "gm",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
-    "actor": "gm",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
     "route": "/console/database",
-    "actor": "gm",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
@@ -1910,8 +1924,8 @@
     "route": "/{lang}/account/characters/{character}/services",
     "actor": "player",
     "method": "GET",
-    "status": 503,
-    "reason": "authority or projection unavailable"
+    "status": 404,
+    "reason": "public character service is disabled pending contract acceptance"
   },
   {
     "crate": "web",

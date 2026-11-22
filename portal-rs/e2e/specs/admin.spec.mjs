@@ -33,6 +33,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  expect(response.status()).toBe(200);
  expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
+ expect(linked).not.toContain('/console');
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(path=>path!=='/console/dashboard');
  await test.step('the populated audit table fits the viewport',async()=>{
    await role(page, 'admin.access audit.view');

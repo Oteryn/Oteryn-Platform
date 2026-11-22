@@ -40,12 +40,14 @@ pub enum ReadState {
 pub struct AccountView {
     pub state: ReadState,
     pub characters: Vec<CharacterSummary>,
+    pub observed_at: Option<String>,
 }
 impl AccountView {
     fn empty(state: ReadState) -> Self {
         Self {
             state,
             characters: Vec::new(),
+            observed_at: None,
         }
     }
 }
@@ -178,11 +180,24 @@ impl Projection {
                         .saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
                         <= i64::from(self.settings.freshness_seconds)
             });
+        let Some(snapshot) = sqlx::query("SELECT projection_epoch, invalid, source_authority, CASE WHEN source_observed_at BETWEEN 0 AND 253402300799 THEN to_char(to_timestamp(source_observed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' END AS observed_at FROM account_character_snapshots WHERE account_id = $1")
+            .bind(account.0).fetch_optional(&mut *tx).await? else {
+                return Ok(AccountView::empty(if live { ReadState::Missing } else { ReadState::Stale }));
+            };
         if !live {
-            return Ok(AccountView::empty(ReadState::Stale));
+            let mut view = AccountView::empty(ReadState::Stale);
+            if !snapshot.try_get::<bool, _>("invalid")?
+                && snapshot.try_get::<String, _>("source_authority")?
+                    == self.settings.source_authority
+            {
+                view.observed_at = snapshot.try_get("observed_at")?;
+            }
+            tx.commit().await?;
+            if self.accounts.state(account).await != AccountState::Active {
+                return Ok(AccountView::empty(ReadState::Denied));
+            }
+            return Ok(view);
         }
-        let Some(snapshot) = sqlx::query("SELECT projection_epoch, invalid, source_authority FROM account_character_snapshots WHERE account_id = $1")
-            .bind(account.0).fetch_optional(&mut *tx).await? else { return Ok(AccountView::empty(ReadState::Missing)); };
         if snapshot.try_get::<bool, _>("invalid")?
             || Some(snapshot.try_get::<String, _>("projection_epoch")?) != highest
             || snapshot.try_get::<String, _>("source_authority")? != self.settings.source_authority
@@ -209,6 +224,7 @@ impl Projection {
         Ok(AccountView {
             state: ReadState::Ready,
             characters,
+            observed_at: snapshot.try_get("observed_at")?,
         })
     }
 }

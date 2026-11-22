@@ -117,14 +117,21 @@ Object.assign(env,{
 const internalOrigin=`https://${env.OTERYN_INTERNAL_TLS_BIND}`;
 const league=await leagueProducer({root,scratch,env,openssl,internalOrigin});
 const bazaarConfig=prepareBazaar(env,scratch,internalOrigin);
-// Dedicated Character/portfolio certificates; neither is a browser identity.
-function gameCertificate(name){
+// Give each test publisher a dedicated certificate for its private ingress purpose.
+function gameCertificate(name,san){
  openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/${name}-key.pem`,'-out',`${scratch}/${name}.csr`,'-subj',`/CN=${name}`]);
- fs.writeFileSync(`${scratch}/${name}.ext`,'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n');
+ fs.writeFileSync(`${scratch}/${name}.ext`,'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n'+(san?`subjectAltName=DNS:${san}\n`:''));
  openssl(['x509','-req','-in',`${scratch}/${name}.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/${name}.pem`,'-days','2','-extfile',`${scratch}/${name}.ext`]);
  return {cert:fs.readFileSync(`${scratch}/${name}.pem`),key:fs.readFileSync(`${scratch}/${name}-key.pem`)};
 }
 const character=gameCertificate('closure-character'),portfolio=gameCertificate('closure-portfolio');
+const createPeer='panels-characters.e2e';
+gameCertificate('panel-character-commands',createPeer);
+gameCertificate('panel-public-projections',env.PORTAL_PUBLIC_PROJECTIONS_SAN);
+Object.assign(env,{
+ PORTAL_CHARACTER_COMMAND_IDENTITIES:JSON.stringify({[createPeer]:[]}),
+ PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY:characterSourceAuthority,
+});
 const gameProducer=createGameClosureProducer({baseURL:internalOrigin,ca:fs.readFileSync(`${scratch}/ca.pem`),character,portfolio});
 Object.assign(env,{
  PORTAL_ACCOUNT_CLOSURE_ENABLED:'true',PORTAL_ACCOUNT_CLOSURE_BASE_URL:internalOrigin,
