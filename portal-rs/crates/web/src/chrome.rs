@@ -39,7 +39,20 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let (account, account_id) = if request.extensions().get::<StaffDashboard>().is_some() {
+        match crate::session::read_signed_in(&shell.sessions, &mut request).await {
+            Ok(Some(session)) => (
+                oteryn_ui::Account::SignedIn { csrf: session.csrf },
+                Some(session.account_id),
+            ),
+            _ => (oteryn_ui::Account::Anonymous, None),
+        }
+    } else {
+        (
+            crate::session::chrome_account(&shell.sessions, &mut request).await,
+            None,
+        )
+    };
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")

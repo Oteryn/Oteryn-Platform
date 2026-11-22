@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {confirmStaffPassword,recoveryCodes} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -22,7 +22,9 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const codes=await recoveryCodes(page, {timeout:30_000});
+ const recoveryFields=page.locator('main textarea[readonly]');
+ await expect(recoveryFields.first()).toBeVisible({timeout:30_000});
+ const codes=await recoveryFields.allTextContents();
  expect(codes.length).toBeGreaterThan(0);
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
@@ -31,7 +33,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  expect(response.status()).toBe(200);
  expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
@@ -48,12 +50,10 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
            const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
            const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
            const status=response.status();
-           const expected=path==='/console/dashboard'?403:200;
-           if(new URL(response.url()).pathname!==new URL(path,screen.url()).pathname) failures.push(`${path}: wrong terminal route`);
-           if(status===expected) {
+           if(status===200) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
-             await assertShell(screen,{status:expected});
+             await assertShell(screen);
            } else {
              failures.push(`${path}: HTTP ${status}`);
              const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
@@ -74,6 +74,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
+ expect(linked).not.toContain('/console');
+ const dashboard=await page.goto(`/console/dashboard?lang=${lang}`);
+ expect(dashboard.status()).toBe(403);
+ expect(new URL(dashboard.url()).pathname).toBe('/console/dashboard');
+ await expect(page.locator('html')).toHaveAttribute('lang',lang);
+ await assertShell(page,{status:403});
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);

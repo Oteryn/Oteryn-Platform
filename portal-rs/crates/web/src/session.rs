@@ -539,7 +539,7 @@ impl std::fmt::Debug for SignedInSession {
     }
 }
 
-async fn read_signed_in(
+pub(crate) async fn read_signed_in(
     layer: &SessionLayer,
     request: &mut Request,
 ) -> Result<Option<SignedInSession>, sqlx::Error> {
@@ -587,13 +587,10 @@ pub async fn read_only_middleware(
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
-) -> (oteryn_ui::Account, Option<Uuid>) {
+) -> oteryn_ui::Account {
     match read_signed_in(layer, request).await {
-        Ok(Some(session)) => (
-            oteryn_ui::Account::SignedIn { csrf: session.csrf },
-            Some(session.account_id),
-        ),
-        _ => (oteryn_ui::Account::Anonymous, None),
+        Ok(Some(session)) => oteryn_ui::Account::SignedIn { csrf: session.csrf },
+        _ => oteryn_ui::Account::Anonymous,
     }
 }
 
