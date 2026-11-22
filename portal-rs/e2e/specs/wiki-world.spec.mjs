@@ -18,8 +18,11 @@ const notices = {
 async function expectWikiNotice(page, path, status, heading) {
   await waitForWikiBudget(path);
   const response = await page.goto(path);
+  expect(response.request().redirectedFrom(), `direct navigation to ${path}`).toBeNull();
   expect(response.status(), path).toBe(status);
-  expect(response.headers()['cache-control']).toBe('no-store');
+  await expect(page).toHaveURL(url => url.pathname + url.search === path);
+  const cacheControl = response.headers()['cache-control'] ?? '';
+  expect(cacheControl.toLowerCase().split(',').map(directive => directive.trim())).toContain('no-store');
   await expect(page.locator('html')).toHaveAttribute('lang', path.split('/')[1]);
   await expect(page.locator('header#portal-header.om-interior')).toBeVisible();
   await expect(page.locator('footer.foot-interior')).toBeVisible();
