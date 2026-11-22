@@ -449,13 +449,16 @@ async fn edit<A: AccountStateReader>(
 }
 type MutationForm<T> = Result<Form<T>, FormRejection>;
 
-fn mutation_form<T>(form: MutationForm<T>, headers: &axum::http::HeaderMap) -> Result<T, Response> {
+fn mutation_form<T>(
+    form: MutationForm<T>,
+    headers: &axum::http::HeaderMap,
+) -> Result<T, Box<Response>> {
     match form {
         Ok(Form(fields)) => Ok(fields),
         Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
-            Err(mutation_error(Error::Invalid, headers))
+            Err(Box::new(mutation_error(Error::Invalid, headers)))
         }
-        Err(rejection) => Err(rejection.into_response()),
+        Err(rejection) => Err(Box::new(rejection.into_response())),
     }
 }
 
@@ -468,7 +471,7 @@ async fn save<A: AccountStateReader>(
 ) -> Response {
     let f = match mutation_form(form, headers) {
         Ok(fields) => fields,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let draft = match f.draft() {
         Ok(v) => v,
@@ -522,7 +525,7 @@ async fn status<A: AccountStateReader>(
 ) -> Response {
     let f = match mutation_form(form, &headers) {
         Ok(fields) => fields,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match s
         .events
