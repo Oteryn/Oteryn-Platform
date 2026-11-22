@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import https from 'node:https';
 import { expect, test } from '@playwright/test';
 import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
-import { assertRefusalState, database } from './database.mjs';
+import { assertRefusalState, database, privateDatabase } from './database.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { waitForWikiBudget } from '../helpers.mjs';
 
@@ -118,29 +118,7 @@ test.describe('browser authorization', () => {
         }
         await assertPublicReads(request, info.project.metadata.locale, anonymous);
         const harness = readHarness();
-        for (const route of [...privateRoutes, ...isolatedIngressRoutes]) {
-          await test.step(`${route.method} ${route.path} on ${route.listener}`, async () => {
-            const refusal = route.registrations[0].refusal;
-            if (route.listener !== 'admission') {
-              const internal = route.listener === 'internal';
-              const ingress = internal ? harness : {
-                baseUrls: { internal: process.env.PORTAL_E2E_BROWSER_PRIVATE_ORIGIN || 'https://127.0.0.1:18447' },
-                internalServerName: 'localhost',
-                caFile: process.env.SSL_CERT_FILE,
-              };
-              if (internal) expect(refusal.tlsAlert, refusal.source).toBe('certificate_required');
-              await expect(internalRequest(ingress, route)).rejects.toMatchObject({
-                code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
-              });
-              if (internal && refusal.wrongIdentity) {
-                expect(await internalRequest(ingress, route, harness.clients['bootstrap-intents']),
-                  refusal.wrongIdentity.source).toBe(refusal.wrongIdentity.status);
-              }
-            } else {
-              await assertServiceTokenRefused(request, harness, route);
-            }
-          });
-        }
+        await assertPrivateRoutes(request, harness);
         for (const route of listenerHealth) {
           await test.step(`${route.method} ${route.path} on ${route.listener}`, async () => {
             const base = route.listener === 'gateway' ? harness.baseUrls.gateway : harness.baseUrls.nativeAdmission;
@@ -161,6 +139,42 @@ test.describe('browser authorization', () => {
 
 function readHarness() {
   return JSON.parse(readFileSync(process.env.PORTAL_E2E_HARNESS_REPORT, 'utf8'));
+}
+
+async function assertPrivateRoutes(request, harness) {
+  const db = privateDatabase(process.env.PORTAL_E2E_HARNESS_REPORT, harness);
+  try {
+    for (const route of [...privateRoutes, ...isolatedIngressRoutes]) {
+      await test.step(`${route.method} ${route.path} on ${route.listener}`, async () => {
+        const refusal = route.registrations[0].refusal;
+        if (route.listener === 'admission') {
+          const before = await db.snapshot();
+          await assertServiceTokenRefused(request, harness, route);
+          assertRefusalState(before, await db.snapshot());
+          return;
+        }
+
+        const internal = route.listener === 'internal';
+        const ingress = internal ? harness : {
+          baseUrls: { internal: process.env.PORTAL_E2E_BROWSER_PRIVATE_ORIGIN || 'https://127.0.0.1:18447' },
+          internalServerName: 'localhost',
+          caFile: process.env.SSL_CERT_FILE,
+        };
+        if (internal) expect(refusal.tlsAlert, refusal.source).toBe('certificate_required');
+        await expect(internalRequest(ingress, route)).rejects.toMatchObject({
+          code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
+        });
+        if (internal && refusal.wrongIdentity) {
+          const before = await db.snapshot();
+          expect(await internalRequest(ingress, route, harness.clients['bootstrap-intents']),
+            refusal.wrongIdentity.source).toBe(refusal.wrongIdentity.status);
+          assertRefusalState(before, await db.snapshot());
+        }
+      });
+    }
+  } finally {
+    await db.close();
+  }
 }
 
 function internalRequest(harness, route, client) {

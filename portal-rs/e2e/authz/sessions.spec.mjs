@@ -123,7 +123,8 @@ test.describe('session, support and content authorization', () => {
               await exerciseFeatureGates(request, locale, token, accountId, routes, snapshot, verify);
             }
             await exerciseBadges(request, prefix, accountId, token, snapshot, verify);
-            await exerciseRecovery(request, prefix, token, account, accountId, snapshot, verify);
+            await exerciseRecovery({ request, token, account, accountId }, prefix, locale, snapshot, verify,
+              () => openActor(locale, definition, issuer));
             for (const { method, suffix, selection } of variants) {
               const pattern = `${prefix}/account/sessions${suffix}`;
               await test.step(`${method} ${pattern}`, async () => {

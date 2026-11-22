@@ -1,10 +1,22 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { expect } from '@playwright/test';
+import pg from 'pg';
 import { pool } from '../helpers.mjs';
 
 const identifier = value => '"' + value.replaceAll('"', '""') + '"';
 
-export function database(db = pool()) {
+export function privateDatabase(reportPath, report) {
+  const environment = JSON.parse(readFileSync(join(dirname(reportPath), 'secrets/env.json'), 'utf8'));
+  const url = new URL(environment.OTERYN_DATABASE_URL);
+  if (environment.OTERYN_ENV !== 'testing' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      || !report.database.startsWith('portal_e2e_') || url.pathname !== `/${report.database}`) {
+    throw new Error('Private listener effects can only be checked on the disposable harness database');
+  }
+  return database(new pg.Pool({ connectionString: url.href, max: 1 }));
+}
 
+export function database(db = pool()) {
   async function snapshot(sessionHash) {
     const client = await db.connect();
     try {
@@ -38,16 +50,19 @@ export function database(db = pool()) {
           to_jsonb(t) - ARRAY['last_seen_at', 'updated_at', 'idle_expires_at']
           ELSE to_jsonb(t) END` : 'to_jsonb(t)';
         return `
-          SELECT ${table}::text AS relation,
-                 encode(sha256(convert_to(COALESCE(string_agg(digest, '' ORDER BY digest), ''), 'UTF8')), 'hex') AS digest
-          FROM (
-            SELECT encode(sha256(convert_to((${rowData})::text, 'UTF8')), 'hex') AS digest
-            FROM ONLY ${relation} t
-            ${ownReferral ? `WHERE account_id <> ${parameter(session.account_id)}` : ''}
-          ) rows
+          (${table}::text, (
+            SELECT encode(sha256(convert_to(COALESCE(string_agg(digest, '' ORDER BY digest), ''), 'UTF8')), 'hex')
+            FROM (
+              SELECT encode(sha256(convert_to((${rowData})::text, 'UTF8')), 'hex') AS digest
+              FROM ONLY ${relation} t
+              ${ownReferral ? `WHERE account_id <> ${parameter(session.account_id)}` : ''}
+            ) rows
+          ))
         `;
       });
-      const { rows: fingerprints } = await client.query(statements.join(' UNION ALL '), values);
+      const { rows: fingerprints } = await client.query(`
+        SELECT relation, digest FROM (VALUES ${statements.join(',')}) AS fingerprints(relation, digest)
+      `, values);
       const state = new Map(fingerprints.map(({ relation, digest }) => [relation, digest]));
       const { rows: auditRows } = await client.query(`
         SELECT id::text, action, encode(sha256(convert_to(to_jsonb(t)::text, 'UTF8')), 'hex') AS digest

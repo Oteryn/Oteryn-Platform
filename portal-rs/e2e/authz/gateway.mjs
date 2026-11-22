@@ -1,8 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import pg from 'pg';
-import { assertRefusalState, database } from './database.mjs';
+import { assertRefusalState, privateDatabase } from './database.mjs';
 
 const id = '019a541b-a000-7000-8000-000000000001';
 const offer = {
@@ -24,13 +22,7 @@ export async function exerciseGateway(request, token, routes) {
   if (origin.hostname !== '127.0.0.1' || origin.protocol !== 'http:') {
     throw new Error('Authorization checks require the local gateway harness');
   }
-  const environment = JSON.parse(readFileSync(join(dirname(reportPath), 'secrets/env.json'), 'utf8'));
-  const url = new URL(environment.OTERYN_DATABASE_URL);
-  if (environment.OTERYN_ENV !== 'testing' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-      || !report.database.startsWith('portal_e2e_') || url.pathname !== `/${report.database}`) {
-    throw new Error('Gateway effects can only be checked on the disposable harness database');
-  }
-  const db = database(new pg.Pool({ connectionString: url.href, max: 1 }));
+  const db = privateDatabase(reportPath, report);
   try {
     for (const [path, data, code] of probes) {
       const route = routes.find(r => r.listener === 'gateway' && r.method === 'POST' && r.path === path);

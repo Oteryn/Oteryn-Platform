@@ -4,25 +4,25 @@ import { query } from '../staff-rbac-helpers.mjs';
 const fixture = '019a541b-a000-7000-8000-000000000001';
 const cases = [
   { method: 'POST', path: '/{lang}/pass/{season}/buy', anonymous: 401, signed: 404,
-    source: 'crates/minigames/src/pass/repository.rs:196', form: { operation: fixture } },
+    source: 'crates/minigames/src/pass/web.rs:136', form: { operation: fixture } },
   { method: 'POST', path: '/{lang}/pass/{season}/claim', anonymous: 401, signed: 404,
-    source: 'crates/minigames/src/pass/repository.rs:235', form: { operation: fixture, reward: fixture } },
+    source: 'crates/minigames/src/pass/web.rs:136', form: { operation: fixture, reward: fixture } },
   { method: 'POST', path: '/{lang}/collection-pvp', anonymous: 403, signed: 503,
     source: 'crates/minigames/src/collection_pvp/mod.rs:127', form: { op: 'create', capacity: '2' } },
   { method: 'GET', path: '/{lang}/bazaar/sellers/{seller}', anonymous: 404, signed: 404,
-    source: 'crates/bazaar/src/moderation.rs:145' },
+    source: 'crates/bazaar/src/moderation_web.rs:60' },
   { method: 'GET', path: '/{lang}/account/bazaar/{listing}/promote', anonymous: 303, signed: 200,
     source: 'crates/bazaar/src/moderation_web.rs:162' },
   { method: 'POST', path: '/{lang}/account/bazaar/{listing}/promote', anonymous: 403, signed: 403,
-    source: 'crates/bazaar/src/moderation.rs:241', promotion: true },
+    source: 'crates/bazaar/src/moderation_web.rs:60', promotion: true },
   { method: 'POST', path: '/{lang}/account/bazaar/{listing}/report', anonymous: 403, signed: 403,
-    source: 'crates/bazaar/src/moderation.rs:180',
+    source: 'crates/bazaar/src/moderation_web.rs:60',
     form: { id: fixture, category: 'other', detail: 'Local authorization fixture' } },
   { method: 'GET', path: '/{lang}/puzzles/{id}/image', anonymous: 303, signed: 503,
     source: 'crates/minigames/src/puzzles/store.rs:39' },
   { method: 'POST', path: '/{lang}/puzzles/{id}/answer', anonymous: 303, signed: 503,
     source: 'crates/minigames/src/puzzles/store.rs:166', form: { choice: '0' } },
-  { method: 'GET', path: '/{lang}/account/characters/requests/{operation}', anonymous: 303, signed: 503,
+  { method: 'GET', path: '/{lang}/account/characters/requests/{operation}', anonymous: 303, signed: 200,
     source: 'crates/characters/src/create_web/service.rs:269' },
 ];
 export const featureGateRoutes = cases.map(({ method, path }) => [method, path]);
@@ -54,6 +54,13 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
     VALUES(uuidv7(),$1,1000,250,0,1,'Local authorization fixture') RETURNING id
   `, [seller]);
   const puzzle = await unpublishedPuzzle();
+  const [operation] = await query(`
+    INSERT INTO character_commands(id, issuer_decision_id, request_key, command, account_id, binding_json, intent_json)
+    SELECT id, uuidv7(), 'authz-status:' || id, 'CreateCharacter', $1, '{}',
+           jsonb_build_object('account_id', $1::uuid)::text
+    FROM (SELECT uuidv7() AS id) fixture
+    RETURNING id
+  `, [accountId || seller]);
   for (const row of cases) {
     const { method, path } = row;
     const { guard } = routes.find(r => r.listener === 'public' && r.method === method && r.path === path)
@@ -61,7 +68,7 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
     const status = accountId ? row.signed : row.anonymous;
     const form = row.promotion ? { id: fixture, fee_revision: fee.id, amount: '1' } : row.form;
     const target = path.replace('{lang}', locale).replace('{season}', fixture)
-      .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle).replace('{operation}', fixture);
+      .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle).replace('{operation}', operation.id);
     expect(guard.kind, path).toBe(path.includes('/sellers/') ? 'anonymous' : 'logged-in');
     await test.step(`${method} ${path}`, async () => {
       const before = method === 'POST' && status !== 503 ? await snapshot() : null;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
+import { csrfPage } from './actors.mjs';
 
 export const recoveryMethods = [
   ['POST', '', 200], ['POST', '/confirm', 200],
@@ -8,17 +9,19 @@ export const recoveryMethods = [
 ];
 export const emailChangeRoutes = ['', '/pl', '/en'].map(prefix => ['POST', `${prefix}/account/security/email`]);
 
-export async function exerciseRecovery(request, prefix, token, account, accountId, snapshot, verifyRefusal) {
+export async function exerciseRecovery(actor, prefix, locale, snapshot, verifyRefusal, openIndependentActor) {
+  const { request, token, account, accountId } = actor;
   const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
   const path = `${prefix}/account/recovery-key`;
   const form = { current_password: account?.password ?? 'unused' };
   let key = 'OTERYN-00000000-00000000-00000000-00000000-00000000';
 
-  async function recover(method, suffix, status) {
+  async function recover(method, suffix, status, { request, token, account, accountId } = actor) {
     return test.step(`${method} ${path}${suffix}`, async () => {
       const before = account ? null : await snapshot();
+      const credentials = { current_password: account?.password ?? 'unused' };
       const response = await request.fetch(`${path}${suffix}`, {
-        method, form: suffix === '/confirm' ? { ...form, recovery_key: key } : form,
+        method, form: suffix === '/confirm' ? { ...credentials, recovery_key: key } : credentials,
         headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
       });
       try {
@@ -46,7 +49,18 @@ export async function exerciseRecovery(request, prefix, token, account, accountI
   }
 
   for (const [method, suffix, status] of recoveryMethods) {
-    if (account && method === 'DELETE') await recover('POST', '', 200);
+    if (account && method === 'DELETE') {
+      // The account's five hourly management calls are shared across method aliases.
+      const independent = await openIndependentActor();
+      try {
+        independent.token = await csrfPage(independent.request, `/${locale}/`);
+        await recover('POST', '', 200, independent);
+        await recover(method, suffix, status, independent);
+      } finally {
+        await independent.request.dispose();
+      }
+      continue;
+    }
     await recover(method, suffix, status);
     if (suffix === '/confirm') {
       const change = `${prefix}/account/security/email`;
