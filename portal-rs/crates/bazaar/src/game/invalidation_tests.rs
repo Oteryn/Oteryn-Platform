@@ -8,6 +8,7 @@ async fn approve(db: &BrowserFixture, listing: Uuid) {
         (
             uid("81"),
             StaffCommand::Suspend {
+                id: Uuid::now_v7(),
                 listing,
                 reason: "Fixture suspension".into(),
             },

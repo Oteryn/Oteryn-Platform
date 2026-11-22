@@ -85,6 +85,7 @@ async fn staff_suspend(db: &BrowserFixture, listing: Uuid) -> Result<(), crate::
         &mut tx,
         uid("81"),
         &StaffCommand::Suspend {
+            id: Uuid::now_v7(),
             listing,
             reason: "Lifecycle test suspension".into(),
         },

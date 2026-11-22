@@ -128,6 +128,7 @@ impl Db {
 }
 fn suspend(listing: Uuid) -> StaffCommand {
     StaffCommand::Suspend {
+        id: Uuid::now_v7(),
         listing,
         reason: "Verified moderation reason".into(),
     }
@@ -253,8 +254,9 @@ async fn postgres_staff_http_actor_to_result_csrf_and_localization() {
             .split('"')
             .next()
             .unwrap();
+        let id = Uuid::now_v7();
         let body = format!(
-            "action=suspend&listing={listing}&reason=Verified+moderation+reason&_csrf={token}"
+            "action=suspend&id={id}&listing={listing}&reason=Verified+moderation+reason&_csrf={token}"
         );
         let bad = app
             .clone()
@@ -309,7 +311,10 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
     let Some(db) = Db::new().await else { return };
     let listing = db.listing().await;
     let api = db.service();
-    api.execute(db.context(), suspend(listing)).await.unwrap();
+    let original_suspension = suspend(listing);
+    api.execute(db.context(), original_suspension.clone())
+        .await
+        .unwrap();
     let id = Uuid::now_v7();
     api.execute(
         db.context(),
@@ -369,6 +374,27 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
     )
     .await
     .unwrap();
+    assert!(matches!(
+        api.execute(context, original_suspension.clone()).await,
+        Err(Error::Domain(oteryn_bazaar::Error::IdempotencyConflict))
+    ));
+    api.execute(db.context(), original_suspension.clone())
+        .await
+        .unwrap();
+    let (revision, approved): (i64, bool) = sqlx::query_as(
+        "SELECT h.revision,r.state='approved' FROM bazaar_moderation_holds h
+         JOIN bazaar_invalidation_requests r ON r.listing_id=h.listing_id AND r.hold_revision=h.revision
+         WHERE r.id=$1",
+    ).bind(id).fetch_one(&db.pool).await.unwrap();
+    assert_eq!((revision, approved), (1, true));
+    let suspensions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='bazaar.suspend' AND target=$1",
+    )
+    .bind(listing.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(suspensions, 1);
     api.execute(
         context,
         StaffCommand::ApproveInvalidation {
@@ -390,6 +416,9 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    api.execute(db.context(), original_suspension)
+        .await
+        .unwrap();
     api.execute(
         context,
         StaffCommand::ApproveInvalidation {

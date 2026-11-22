@@ -163,6 +163,7 @@ fn fees() -> StaffCommand {
 }
 fn suspend(listing: Uuid) -> StaffCommand {
     StaffCommand::Suspend {
+        id: Uuid::now_v7(),
         listing,
         reason: "Review requires suspension".into(),
     }

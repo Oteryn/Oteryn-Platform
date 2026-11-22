@@ -82,6 +82,7 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
     }]);
 
     const suspendReason = 'Suspend listing for moderation review';
+    const originalSuspension = {...await fields(page, 'suspend'), listing: id, reason: suspendReason};
     expect((await post(page, {...await fields(page, 'suspend'), listing: id, reason: ' '})).status()).toBe(422);
     expect((await post(page, {...await fields(page, 'suspend'), listing: id, reason: suspendReason.padEnd(501)})).status()).toBe(422);
     await submit(page, form('suspend'), {listing: id, reason: suspendReason});
@@ -100,6 +101,9 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
     await submit(secondPage, form('approve'), {id: requestId, reason: approvalReason});
     await expect(entry(secondPage)).toHaveAttribute('data-request-state', 'approved');
     await expect(entry(secondPage)).toContainText(lang === 'pl' ? 'Zatwierdzono przez zespół' : 'Staff approved');
+    expect((await post(secondPage, {...originalSuspension, _csrf: (await fields(secondPage, 'suspend'))._csrf})).status()).toBe(409);
+    expect((await post(page, {...originalSuspension, reason: 'Changed suspension details'})).status()).toBe(409);
+    expect((await post(page, originalSuspension)).status()).toBe(303);
     await expect.poll(async () => {
       await secondPage.reload();
       return entry(secondPage).getAttribute('data-listing-state');

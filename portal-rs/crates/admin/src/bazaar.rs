@@ -226,6 +226,7 @@ impl Input {
         };
         Ok(match self.action.as_str() {
             "suspend" => StaffCommand::Suspend {
+                id: uuid(&self.id)?,
                 listing: uuid(&self.listing)?,
                 reason: self.reason,
             },

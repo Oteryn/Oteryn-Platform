@@ -344,6 +344,7 @@ async fn held(tx: &mut PgConnection, id: Uuid) -> Result<bool, Error> {
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaffCommand {
     Suspend {
+        id: Uuid,
         listing: Uuid,
         reason: String,
     },
@@ -475,8 +476,30 @@ pub async fn execute_staff(
     valid_id(command.target())?;
     lock_staff_target(tx, command).await?;
     match command {
-        StaffCommand::Suspend { listing, reason } => {
+        StaffCommand::Suspend {
+            id,
+            listing,
+            reason,
+        } => {
+            valid_id(*id)?;
             reason_valid(reason)?;
+            // The staff gate serializes first use and retry, including across listings.
+            let previous: Option<(Uuid, Uuid, String)> = sqlx::query_as(
+                "SELECT actor,listing_id,reason FROM bazaar_suspension_requests WHERE id=$1",
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some((original_actor, original_listing, original_reason)) = previous {
+                return if original_actor == actor
+                    && original_listing == *listing
+                    && original_reason == *reason
+                {
+                    Ok(StaffOutcome::Replay)
+                } else {
+                    Err(Error::IdempotencyConflict)
+                };
+            }
             let (_, state) = lock_listing(tx, *listing).await?;
             // A settled listing cannot be invalidated. Holding it before dispatch
             // would prevent the very handoff needed to retire the hold.
@@ -496,6 +519,8 @@ pub async fn execute_staff(
             .map_err(|_| Error::IllegalTransition)?;
             sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,$3) ON CONFLICT(listing_id) DO UPDATE SET revision=bazaar_moderation_holds.revision+1,actor=$2,reason=$3,updated_at=clock_timestamp()")
                 .bind(listing).bind(actor).bind(reason).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO bazaar_suspension_requests(id,actor,listing_id,reason) VALUES($1,$2,$3,$4)")
+                .bind(id).bind(actor).bind(listing).bind(reason).execute(&mut *tx).await?;
         }
         StaffCommand::RequestInvalidation {
             id,
