@@ -54,9 +54,10 @@ async fn reads_success_and_bad_input() {
         .connect_with(options.database(&name))
         .await
         .expect("connect to isolated operations database");
-    oteryn_db::migrate(&pool)
+    oteryn_db::MIGRATOR
+        .run_to(20261122160700, &pool)
         .await
-        .expect("migrate disposable PostgreSQL");
+        .expect("migrate up to concurrent index builds");
     sqlx::query(
         "WITH history AS (
            INSERT INTO accounts(email, password_hash, locale, created_at)
@@ -72,6 +73,45 @@ async fn reads_success_and_bad_input() {
     .execute(&pool)
     .await
     .expect("statistics history fixture");
+    // A failed concurrent build leaves an invalid index. A successful build
+    // may also have completed just before its migration receipt was recorded.
+    let failed = sqlx::query(
+        "CREATE UNIQUE INDEX CONCURRENTLY accounts_operations_created_at
+         ON accounts ((created_at IS NOT NULL))",
+    )
+    .execute(&pool)
+    .await
+    .expect_err("duplicate values interrupt concurrent build");
+    assert_eq!(
+        failed
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("23505")
+    );
+    let invalid: bool = sqlx::query_scalar(
+        "SELECT NOT indisvalid FROM pg_index WHERE indexrelid = 'accounts_operations_created_at'::regclass",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("invalid concurrent index");
+    assert!(invalid);
+    sqlx::query(
+        "CREATE INDEX CONCURRENTLY security_events_operations_login_created_at
+         ON security_events (created_at) WHERE kind = 'login_succeeded'",
+    )
+    .execute(&pool)
+    .await
+    .expect("login index without a migration receipt");
+    tokio::time::timeout(Duration::from_secs(15), async {
+        tokio::try_join!(oteryn_db::migrate(&pool), oteryn_db::migrate(&pool))
+    })
+    .await
+    .expect("concurrent migrators release their waiting snapshots")
+    .expect("resume both index migrations");
+    refresh_statistics(&pool)
+        .await
+        .expect("refresh statistics snapshot");
     sqlx::raw_sql("ANALYZE accounts; ANALYZE security_events")
         .execute(&pool)
         .await
@@ -139,6 +179,19 @@ async fn reads_success_and_bad_input() {
         Some("57014")
     );
     reader.rollback().await.expect("cancelled reader rollback");
+    let statistics_app = Router::new()
+        .route(ROUTES[0].0, get(statistics))
+        .with_state(pool.clone())
+        .layer(Extension(StatisticsSlots::new()));
+    let response = send(statistics_app, ROUTES[0].0, "days=30").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let content = to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .expect("rollup");
+    let html = String::from_utf8_lossy(&content);
+    assert_eq!(html.matches("<tr><th scope=\"row\"").count(), 30);
+    assert_eq!(html.matches("<td>1</td><td>1</td>").count(), 30);
+    assert!(html.contains("Last updated"));
     lock.rollback().await.expect("release registrations lock");
     let account = uuid::Uuid::now_v7();
     let source = std::net::Ipv6Addr::from(account.as_u128());
@@ -204,7 +257,8 @@ async fn reads_success_and_bad_input() {
         .route(ROUTES[3].0, get(effective_flags))
         .route(ROUTES[4].0, get(system_health))
         .with_state(pool.clone())
-        .layer(Extension(IngestAvailability(false)));
+        .layer(Extension(IngestAvailability(false)))
+        .layer(Extension(StatisticsSlots::new()));
     for &(path, query, expected) in ROUTES {
         let response = send(app.clone(), path, query).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");
@@ -293,6 +347,48 @@ async fn analytics_ingestion_flag_requires_a_running_internal_listener() {
             .await
             .expect("flags HTML");
         let expected = format!("OTERYN_ADMIN_ANALYTICS_INGEST</th><td>{enabled}</td>");
+        assert!(String::from_utf8_lossy(&body).contains(&expected));
+    }
+}
+
+#[tokio::test]
+async fn statistics_rejects_overload_before_checkout() {
+    let pool = PgPool::connect_lazy("postgres://unused@127.0.0.1:1/unused").expect("lazy pool");
+    let slots = StatisticsSlots::new();
+    let _busy = slots.0.try_acquire_many(2).expect("occupy both read slots");
+    let app = Router::new()
+        .route(ROUTES[0].0, get(statistics))
+        .with_state(pool)
+        .layer(Extension(slots.clone()));
+    assert_eq!(
+        send(app.clone(), ROUTES[0].0, "days=0").await.status(),
+        StatusCode::BAD_REQUEST,
+    );
+    let response = tokio::time::timeout(
+        Duration::from_millis(500),
+        send(app, ROUTES[0].0, "days=30"),
+    )
+    .await
+    .expect("limits are checked before attempting a database connection");
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn account_export_flag_requires_both_composed_routes() {
+    for export in [None, Some(false), Some(true)] {
+        let mut app = Router::new()
+            .route(ROUTES[3].0, get(effective_flags))
+            .layer(Extension(IngestAvailability(false)));
+        if let Some(enabled) = export {
+            app = app.layer(Extension(AccountExportReachable(enabled)));
+        }
+        let body = to_bytes(send(app, ROUTES[3].0, "").await.into_body(), 256 * 1024)
+            .await
+            .expect("flags HTML");
+        let expected = format!(
+            "OTERYN_ACCOUNT_EXPORT_ENABLED</th><td>{}</td>",
+            export == Some(true)
+        );
         assert!(String::from_utf8_lossy(&body).contains(&expected));
     }
 }

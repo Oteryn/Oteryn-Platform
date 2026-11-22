@@ -18,6 +18,10 @@ type Rows = Vec<Vec<String>>;
 #[derive(Clone, Copy, Debug)]
 pub struct InternalListenerRunning(pub bool);
 
+/// Availability of an export with its required password-confirmation route.
+#[derive(Clone, Copy, Debug)]
+pub struct AccountExportReachable(pub bool);
+
 type ReadResult = Result<Response, StatusCode>;
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
@@ -31,7 +35,9 @@ fn operations_router(
     ingest: IngestAvailability,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    let stats = Router::new().route("/admin/operations/statistics", get(statistics));
+    let stats = Router::new()
+        .route("/admin/operations/statistics", get(statistics))
+        .layer(Extension(StatisticsSlots::new()));
     let limits = Router::new()
         .route("/admin/operations/rate-limits", get(rate_limits))
         .route("/admin/operations/rate-limits.csv", get(rate_export));
@@ -67,6 +73,7 @@ struct Page {
     days: Option<u8>,
     export: bool,
     incidents: Rows,
+    refreshed_at: Option<String>,
 }
 
 impl Page {
@@ -85,6 +92,7 @@ impl Page {
             days: None,
             export: false,
             incidents: vec![],
+            refreshed_at: None,
         }
     }
 
@@ -149,6 +157,17 @@ async fn read_transaction(
     deadline: Instant,
 ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    read_statement_timeout(&mut tx, deadline).await?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
+}
+
+async fn read_statement_timeout(
+    connection: &mut PgConnection,
+    deadline: Instant,
+) -> Result<(), sqlx::Error> {
     let remaining = deadline
         .saturating_duration_since(Instant::now())
         .as_millis();
@@ -157,12 +176,18 @@ async fn read_transaction(
     }
     sqlx::query("SELECT set_config('statement_timeout', $1, true)")
         .bind(format!("{remaining}ms"))
-        .execute(&mut *tx)
+        .execute(connection)
         .await?;
-    sqlx::query("SET TRANSACTION READ ONLY")
-        .execute(&mut *tx)
-        .await?;
-    Ok(tx)
+    Ok(())
+}
+
+#[derive(Clone)]
+struct StatisticsSlots(std::sync::Arc<tokio::sync::Semaphore>);
+
+impl StatisticsSlots {
+    fn new() -> Self {
+        Self(std::sync::Arc::new(tokio::sync::Semaphore::new(2)))
+    }
 }
 
 const STATISTICS_SQL: &str =
@@ -184,36 +209,97 @@ const STATISTICS_SQL: &str =
               AND created_at <= statement_timestamp()
             GROUP BY 1
          )
-         SELECT to_char(dates.day, 'YYYY-MM-DD'), coalesce(registrations.total, 0), coalesce(logins.total, 0)
+         SELECT dates.day, coalesce(registrations.total, 0) AS registrations,
+              coalesce(logins.total, 0) AS logins
          FROM dates LEFT JOIN registrations USING(day) LEFT JOIN logins USING(day)
          ORDER BY dates.day DESC";
 
+/// Periodically rebuild the small UTC dashboard snapshot outside request handling.
+#[derive(Debug)]
+pub struct StatisticsRefresh {
+    pub pool: PgPool,
+}
+
+impl oteryn_db::outbox::Cleanup for StatisticsRefresh {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move {
+            refresh_statistics(&self.pool)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    }
+}
+
+async fn refresh_statistics(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut tx = pool.begin().await?;
+    read_statement_timeout(&mut tx, deadline).await?;
+    // Compare timestamps so an older refresh cannot replace a newer snapshot.
+    let statement = format!(
+        "WITH totals AS ({STATISTICS_SQL})
+         INSERT INTO operations_daily_statistics(day, registrations, logins, refreshed_at)
+         SELECT day, registrations, logins, statement_timestamp() FROM totals
+         ON CONFLICT (day) DO UPDATE SET
+             registrations = excluded.registrations, logins = excluded.logins,
+             refreshed_at = excluded.refreshed_at
+         WHERE operations_daily_statistics.refreshed_at < excluded.refreshed_at"
+    );
+    sqlx::query(sqlx::AssertSqlSafe(statement))
+        .bind(30_i32)
+        .execute(&mut *tx)
+        .await?;
+    read_statement_timeout(&mut tx, deadline).await?;
+    sqlx::query(
+        "DELETE FROM operations_daily_statistics
+         WHERE day < (transaction_timestamp() AT TIME ZONE 'UTC')::date - 30",
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await
+}
+
 async fn statistics(
     State(pool): State<PgPool>,
+    Extension(slots): Extension<StatisticsSlots>,
     RawQuery(raw): RawQuery,
     headers: HeaderMap,
     chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> ReadResult {
     let days = range(raw.as_deref())?;
+    let _permit = slots
+        .0
+        .try_acquire()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let rows = bounded(&pool, |connection| {
         Box::pin(
-            sqlx::query_as::<_, (String, i64, i64)>(STATISTICS_SQL)
-                .bind(i32::from(days))
-                .fetch_all(connection),
+            sqlx::query_as::<_, (String, i64, i64, String)>(
+                "SELECT to_char(day, 'YYYY-MM-DD'), registrations, logins,
+                        to_char(refreshed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')
+                 FROM operations_daily_statistics
+                 WHERE day >= (statement_timestamp() AT TIME ZONE 'UTC')::date - ($1::int - 1)
+                 ORDER BY day DESC",
+            )
+            .bind(i32::from(days))
+            .fetch_all(connection),
         )
     })
     .await?;
+    let refreshed_at = rows.first().map(|(_, _, _, updated)| updated.clone());
     let mut page = Page::new(
         web::page_language(&headers, chrome.as_deref()),
         "ops-statistics",
         &["ops-date", "ops-registrations", "ops-logins"],
         rows.into_iter()
-            .map(|(day, registrations, logins)| {
+            .map(|(day, registrations, logins, _)| {
                 vec![day, registrations.to_string(), logins.to_string()]
             })
             .collect(),
     );
     page.days = Some(days);
+    page.refreshed_at = refreshed_at;
+    if page.rows.is_empty() {
+        page.note = "ops-statistics-unavailable";
+    }
     page.response()
 }
 
@@ -325,6 +411,7 @@ fn flag_rows(enabled: impl Fn(&str) -> bool) -> Rows {
 async fn effective_flags(
     Extension(ingest): Extension<IngestAvailability>,
     listener: Option<Extension<InternalListenerRunning>>,
+    export: Option<Extension<AccountExportReachable>>,
     RawQuery(raw): RawQuery,
     headers: HeaderMap,
     chrome: Option<Extension<oteryn_ui::Chrome>>,
@@ -338,6 +425,9 @@ async fn effective_flags(
         &["ops-name", "ops-value"],
         flag_rows(|name| match name {
             "OTERYN_ADMIN_ANALYTICS_INGEST" => ingest_available,
+            "OTERYN_ACCOUNT_EXPORT_ENABLED" => {
+                matches!(export, Some(Extension(AccountExportReachable(true))))
+            }
             _ => std::env::var(name).as_deref() == Ok("true"),
         }),
     )

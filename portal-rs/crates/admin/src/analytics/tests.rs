@@ -1251,14 +1251,13 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
         "48210377",
         "low-n (below five)",
         "depot source coverage not yet delivered by Game",
-        "gold_in / gold_out",
-        "median_unit_price",
+        "Gold in / gold out",
+        "median unit price",
         "purchased",
         "Platform wallet ledger",
         "spent_in_game/coin",
         "refund/coin",
-        "Data cut",
-        "freshness",
+        "Data cut / age",
     ] {
         assert!(body.contains(text), "{text}");
     }
@@ -1266,6 +1265,29 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
     assert!(!body.contains("/journal"));
     let audit:i64=sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='admin.analytics.read' AND target='/admin/analytics/economy'").fetch_one(&pool).await.unwrap();
     assert_eq!(audit, 1);
+    let response = get(
+        panel(pool.clone(), Some(admin), true),
+        &path.replace("/economy?", "/economy/data?"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let wire: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 200000).await.unwrap()).unwrap();
+    let groups = wire["groups"].as_array().unwrap();
+    for (family, columns) in [
+        ("economy_flows_daily", "gold_in / gold_out"),
+        (
+            "economy_market_daily",
+            "traded_units / traded_gold / offers_created / median_unit_price",
+        ),
+    ] {
+        let group = groups
+            .iter()
+            .find(|group| group["family"] == family)
+            .unwrap();
+        assert_eq!(group["columns"], columns);
+        assert!(group["age"].is_u64());
+    }
     for query in [
         "family=characters_created_daily",
         "account=0192f4a0-7c00-7000-8000-000000000001",

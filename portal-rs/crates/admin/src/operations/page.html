@@ -21,6 +21,7 @@
     <button type="submit" class="op-button">{{ self.text("ops-show") }}</button>
   </form>
   {% endif %}
+  {% if let Some(updated) = refreshed_at %}<p>{{ self.text("ops-statistics-updated") }} <time datetime="{{ updated }}">{{ updated }}</time></p>{% endif %}
   {% if !note.is_empty() %}<p>{{ self.text(note) }}</p>{% endif %}
   {% if export %}<p><a href="/admin/operations/rate-limits.csv">{{ self.text("ops-csv") }}</a></p>{% endif %}
   <div class="op-table-wrap" tabindex="0" role="region" aria-label="{{ self.text(title) }}">

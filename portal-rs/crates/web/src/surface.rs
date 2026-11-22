@@ -90,7 +90,7 @@ impl Language {
     }
 }
 
-pub(crate) fn negotiate(headers: &HeaderMap) -> Language {
+pub fn negotiate(headers: &HeaderMap) -> Language {
     for cookie in headers.get_all(header::COOKIE) {
         if let Ok(cookie) = cookie.to_str() {
             for part in cookie.split(';') {

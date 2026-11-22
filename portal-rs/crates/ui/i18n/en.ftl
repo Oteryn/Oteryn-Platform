@@ -444,3 +444,10 @@ ops-economy-store-title = Store
 ops-economy-store-columns = Count / amount in currency units
 ops-economy-purchases-title = Platform wallet ledger (all worlds)
 ops-economy-purchases-columns = Credited top-ups / coins / paid amounts in minor units by currency
+staff-action-role-assignment = Role assignment
+staff-action-step-up = Confirm password for role grants
+staff-action-step-up-required = Confirm your password from the roles page before granting a role.
+
+ops-statistics-unavailable = No statistics snapshot is available for these dates yet.
+ops-statistics-updated = Last updated
+staff-action-approved-reason-required = Choose an approved reason.

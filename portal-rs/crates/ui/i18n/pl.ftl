@@ -444,3 +444,10 @@ ops-economy-store-title = Sklep
 ops-economy-store-columns = Liczba / kwota w jednostkach waluty
 ops-economy-purchases-title = Księga portfela platformy (wszystkie światy)
 ops-economy-purchases-columns = Zaksięgowane doładowania / monety / opłacone kwoty w najmniejszych jednostkach według waluty
+staff-action-role-assignment = Przypisanie roli
+staff-action-step-up = Potwierdź hasło, aby nadawać role
+staff-action-step-up-required = Przed nadaniem roli potwierdź hasło na stronie ról.
+
+ops-statistics-unavailable = Statystyki za te dni nie są jeszcze dostępne.
+ops-statistics-updated = Ostatnia aktualizacja
+staff-action-approved-reason-required = Wybierz zatwierdzony powód.

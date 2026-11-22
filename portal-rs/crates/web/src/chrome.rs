@@ -1,5 +1,5 @@
 //! Read the existing browser session for presentation without adding a CSRF gate.
-use crate::session::SessionLayer;
+use crate::{session::SessionLayer, surface::Language};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -33,10 +33,39 @@ impl std::fmt::Debug for StaffDashboard {
     }
 }
 
+/// The GM console accepts an explicit locale before its guard runs.
+fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+    if !matches!(
+        uri.path(),
+        "/console"
+            | "/console/dashboard"
+            | "/console/worlds"
+            | "/console/nodes"
+            | "/console/database"
+    ) {
+        return None;
+    }
+    let axum::extract::Query(query) =
+        axum::extract::Query::<LocaleQuery>::try_from_uri(uri).ok()?;
+    match query.lang.as_deref() {
+        Some("pl") => Some(Language::Pl),
+        Some("en") => Some(Language::En),
+        _ => None,
+    }
+}
+
+/// CSP for portal HTML that only loads same-origin scripts and styles.
+pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
+        .or_else(|| console_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
@@ -105,10 +134,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .append(header::SET_COOKIE, value.clone());
             }
             for (name, value) in [
-                (
-                    "content-security-policy",
-                    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-                ),
+                ("content-security-policy", PORTAL_CONTENT_SECURITY_POLICY),
                 (
                     "strict-transport-security",
                     "max-age=63072000; includeSubDomains",
