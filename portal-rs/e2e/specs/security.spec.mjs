@@ -12,6 +12,7 @@ test('privacy changes persist and account export contains the owning account',as
  await expect(page.locator('[name=public_status_visible]')).toBeChecked();
  const exportPath=`/${lang}/account/privacy/export`;
  expect((await page.request.get(exportPath)).status()).toBe(403);
+ expect((await page.goto('/account')).status()).toBe(200);
  await page.locator('nav[data-panel="player"] a[href$="return_to=export"]').click();
  await expect(page).toHaveURL(url=>url.pathname===`/${lang}/account/sudo` && url.searchParams.get('return_to')==='export');
  const [download]=await Promise.all([

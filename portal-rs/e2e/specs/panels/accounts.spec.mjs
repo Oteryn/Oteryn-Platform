@@ -1,4 +1,4 @@
-import {randomBytes} from 'node:crypto';
+import {randomBytes, randomUUID} from 'node:crypto';
 import {test, expect} from '../../fixtures.mjs';
 import {csrfRejected, mailLink, submit} from '../../helpers.mjs';
 import {action, confirmStaffPassword, isolatedAdmin, player, query, rolePage, unique} from '../../staff-rbac-helpers.mjs';
@@ -189,7 +189,7 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
     await query("UPDATE account_roles SET role_id=(SELECT id FROM roles WHERE key='security_admin') WHERE account_id=$1", [actor.id]);
     expect((await admin.page.request.get(path, {maxRedirects: 0})).status()).toBe(403);
     expect((await post(admin.page, path, {
-      action: 'note', body: 'Unauthorized note', reason, _csrf: csrf,
+      action: 'note', body: 'Unauthorized note', reason, _csrf: csrf, submission: randomUUID(),
     })).status()).toBe(403);
 
     // Keep the real MFA session while reducing its durable role to support.
@@ -226,7 +226,10 @@ test('role grants cannot delegate an unheld permission', async ({browser}, info)
     expect((await post(admin.page, '/admin/roles', {...form, reason: ''})).status()).toBe(422);
     expect((await post(admin.page, '/admin/roles', {...form, reason: 'private@example.test'})).status()).toBe(422);
     await query('UPDATE web_sessions SET sudo_until=clock_timestamp() WHERE account_id=$1', [actor.id]);
-    const expired = await post(admin.page, '/admin/roles', form);
+    const expired = await admin.page.request.post('/admin/roles', {
+      form, headers: {origin: new URL(admin.page.url()).origin, 'accept-language': locale},
+      maxRedirects: 0,
+    });
     expect(expired.status()).toBe(403);
     expect(await expired.text()).toContain(locale === 'pl'
       ? 'Potwierdź hasło przed zmianą przypisania ról.'
