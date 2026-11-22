@@ -248,7 +248,7 @@ test('payment history links to an account-owned printable receipt and the premiu
     await expect(item.getByText(labels.amount, { exact: true })).toBeVisible();
     await item.getByRole('link', { name: labels.receipt, exact: true }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(labels.receipt);
-    await expect(page.getByRole('heading', { level: 2 })).toHaveText(`${labels.receipt} 1`);
+    await expect(page.locator('main article').getByRole('heading', { level: 2 })).toHaveText(`${labels.receipt} 1`);
     await expect(page.getByText(labels.print)).toBeVisible();
     await expect(page.getByText(labels.amount)).toBeVisible();
 
@@ -258,12 +258,12 @@ test('payment history links to an account-owned printable receipt and the premiu
     expect((await other.goto(receipt)).status()).toBe(404);
     expect((await other.goto(`/${lang}/panel/payments/receipts/malformed`)).status()).toBe(404);
 
-    await page.getByRole('link', { name: 'Premium', exact: true }).click();
+    await page.locator('main').getByRole('link', { name: 'Premium', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Premium');
     for (const value of ['Status', labels.end, labels.noEnd, labels.noPremium]) {
       await expect(page.getByText(value, { exact: true })).toBeVisible();
     }
-    await page.getByRole('link', { name: labels.payments, exact: true }).click();
+    await page.locator('main').getByRole('link', { name: labels.payments, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${history}$`));
     expect((await page.goto(`${history}?page=0`)).status()).toBe(400);
     // Seed historical statuses below the real checkout to reach the 20-row page boundary.

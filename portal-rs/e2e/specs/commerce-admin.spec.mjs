@@ -212,7 +212,14 @@ test('code issuer submits the translated form and player redemption is idempoten
     const labels = lang === 'pl'
       ? ['Rodzaj', 'Wartość kodu', 'Liczba kodów', 'Limit użyć kodu', 'Limit użyć na konto', 'Ważny od (czas Unix w sekundach)', 'Ważny do (czas Unix w sekundach)', 'Uzasadnienie']
       : ['Kind', 'Amount per code', 'Number of codes', 'Redemptions per code', 'Redemptions per account', 'Valid from (Unix seconds)', 'Valid until (Unix seconds)', 'Reason for issuance'];
-    for (const label of labels) {
+    const [kindLabel, ...inputLabels] = labels;
+    const kind = issuer.locator('select[name="kind"]');
+    await expect(kind).toBeVisible();
+    // The wrapped select contributes its option text to getByLabel().
+    expect(await kind.evaluate(select => Array.from(select.labels[0].childNodes)
+      .filter(node => node.nodeType === Node.TEXT_NODE)
+      .map(node => node.textContent).join('').trim())).toBe(kindLabel);
+    for (const label of inputLabels) {
       await expect(issuer.getByLabel(label, { exact: true })).toBeVisible();
     }
     await expect(issuer.locator('option[value="coins"]')).toHaveText(lang === 'pl' ? 'Monety' : 'Coins');
@@ -357,11 +364,11 @@ test('Bazaar staff reviews reports, suspends a listing, and requires independent
     const seller = await signInPlayer(page, lang);
     const reporter = await seedPlayer(lang);
     const listing = uuid7();
-    // Staff moderation's own fixture pattern supplies a portal listing and
-    // pending reports. Custody and Game decisions still require Game evidence.
+    // Seed a draft for staff moderation. Activating an item listing requires
+    // a verified Game binding, which this fixture does not supply.
     await db.query(
       `INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
-       VALUES($1,$2,'item','auction','coins',100,false,'active',now()+interval '2 days')`,
+       VALUES($1,$2,'item','auction','coins',100,false,'draft',now()+interval '2 days')`,
       [listing, seller.id],
     );
     const staff = await staffActor(requesterContext, lang, db, ['marketplace.manage']);
