@@ -1241,7 +1241,7 @@ impl Backend for BrowserJournal {
                 version: 0,
                 operation: None,
                 state: StateLabel::None,
-                current: StateLabel::None,
+                current: StateLabel::Unconfirmed,
                 received_at: None,
                 current_received_at: None,
                 effective_until: None,

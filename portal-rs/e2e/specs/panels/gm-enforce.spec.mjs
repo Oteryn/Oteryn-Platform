@@ -123,7 +123,6 @@ function enforcementGame() {
       command_digest: createHash('sha256').update(exact.raw).digest('hex'),
       accepted_decision_revision: command.decision_revision,
       effective_until_ms: command.expires_at_ms,
-      decided_at_ms: 0,
     };
     async function publish(outcome) {
       const response = await publisher(`${exchange}/results`, { ...receipt, decided_at_ms: Date.now(), ...outcome });
@@ -166,6 +165,8 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
   await page.getByRole('link', { name: text.heading }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
   await expect(page.getByRole('heading', { name: text.heading })).toBeVisible();
+  const malformed = await page.request.get(`${path}?lang=${lang}&character=invalid`);
+  await refused(malformed, 400, text.invalid);
   await page.locator('[name=character]').fill(character);
   await page.locator('form[method=get] button').click();
   await expect(page.getByRole('heading', { name })).toBeVisible();
@@ -188,7 +189,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     await refreshProjection();
     expect((await readOnly.goto(url)).status()).toBe(200);
     await expect(readOnly.locator('[data-action], form[action*="/step-up?"]')).toHaveCount(0);
-    // Obtain a real viewer-bound CSRF token from the staff page before trying the write.
+    // Obtain a real viewer-bound CSRF token before trying the write.
     await readOnly.goto(`/${lang}/account`);
     const viewerCsrf = await readOnly.locator('input[name=_csrf]').first().inputValue();
     const apply = await formPayload(page.locator('[data-profile=MUTE] [data-action=apply]'));
@@ -207,6 +208,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
     const status = () => panel.locator('[data-state]');
     const current = () => panel.locator('[data-current]');
     await expect(status()).toHaveText(text.none);
+    await expect(current()).toHaveText(text.unconfirmed);
     const early = await formPayload(form('apply'));
     const valid = { minutes: '15', reason: 'disruptive_behavior' };
 

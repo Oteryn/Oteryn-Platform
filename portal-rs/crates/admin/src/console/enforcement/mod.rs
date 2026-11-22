@@ -318,7 +318,7 @@ impl Language {
 struct Selection {
     #[serde(default)]
     lang: Language,
-    character: Option<Uuid>,
+    character: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -344,6 +344,8 @@ struct StepInput {
 impl Selection {
     fn character(&self) -> Result<Uuid, Error> {
         self.character
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok())
             .filter(|id| id.get_version_num() == 7)
             .ok_or(Error::BadInput)
     }
@@ -508,7 +510,7 @@ async fn dossier<B: Backend>(
     .await;
     match result {
         Ok(page) => render(page, StatusCode::OK),
-        Err(error) => query.lang.refusal(error, query.character),
+        Err(error) => query.lang.refusal(error, query.character().ok()),
     }
 }
 
@@ -598,7 +600,7 @@ async fn submit<B: Backend>(
     .await;
     match result {
         Ok(redirect) => redirect.into_response(),
-        Err(error) => query.lang.refusal(error, query.character),
+        Err(error) => query.lang.refusal(error, query.character().ok()),
     }
 }
 
@@ -634,7 +636,7 @@ async fn step_up<B: Backend>(
     .await;
     match result {
         Ok(redirect) => redirect.into_response(),
-        Err(error) => query.lang.refusal(error, query.character),
+        Err(error) => query.lang.refusal(error, query.character().ok()),
     }
 }
 
