@@ -15,7 +15,7 @@ test('SIGTERM during the real cargo build removes the process, database, role an
   const admin = new pg.Client({ connectionString: adminURL.href });
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-crawl-target-'));
   const e2e = fileURLToPath(new URL('..', import.meta.url));
-  const env = { ...process.env, CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: '2' };
+  const env = { ...process.env, CARGO_TARGET_DIR: target, CARGO_BUILD_JOBS: '2', DATABASE_URL: adminURL.href };
   delete env.PORTAL_E2E_BINARY;
   let launcher, closed, database, buildPid, output;
   try {
@@ -29,6 +29,10 @@ test('SIGTERM during the real cargo build removes the process, database, role an
       if (pid && !buildPid) {
         buildPid = Number(pid);
         process.kill(buildPid, 'SIGSTOP');
+        const variables = fs.readFileSync(`/proc/${buildPid}/environ`, 'utf8')
+          .split('\0').filter(Boolean).map(entry => entry.slice(0, entry.indexOf('=')));
+        assert.ok(!variables.some(name => name.startsWith('PG') || name.endsWith('DATABASE_URL')),
+          'Cargo does not inherit database configuration');
         const { rows } = await admin.query(`
           SELECT r.rolname = d.datname AS owns_fixture,
             r.rolcanlogin AND NOT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls) AS limited

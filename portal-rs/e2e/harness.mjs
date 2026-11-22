@@ -103,6 +103,10 @@ const ports = {
 };
 
 const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+// Build and certificate tools do not need the crawl's administrative connection.
+const toolEnv = crawl
+  ? Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^PG|DATABASE_URL$/.test(name)))
+  : process.env;
 
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
@@ -116,7 +120,7 @@ fs.writeFileSync(path.join(out, '.portal-e2e-harness'), '');
 
 // ---- certificates (openssl, as local.mjs) ----------------------------------
 function openssl(args) {
-  const result = spawnSync('openssl', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  const result = spawnSync('openssl', args, { env: toolEnv, stdio: ['ignore', 'ignore', 'pipe'] });
   if (result.status !== 0) throw new Error(`openssl ${args[0]} failed: ${result.stderr}`);
 }
 const caKey = path.join(dirs.secrets, 'ca-key.pem');
@@ -361,9 +365,9 @@ async function start() {
   if (!binary) {
     log('cargo build --locked -p oteryn-portal');
     await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], {
-      stdio: ['ignore', 'inherit', 'inherit'], commandEnv: process.env, reportPid: crawl,
+      stdio: ['ignore', 'inherit', 'inherit'], commandEnv: toolEnv, reportPid: crawl,
     });
-    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: process.env, maxBuffer: 64 << 20 })).stdout);
+    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: toolEnv, maxBuffer: 64 << 20 })).stdout);
     // A private copy: a shared target directory may be rebuilt by another checkout.
     binary = path.join(dirs.bin, 'oteryn-portal');
     fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
