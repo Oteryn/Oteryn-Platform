@@ -1,7 +1,7 @@
 {% extends "account/register_base.html" %}
-{% block title %}{% if mode == "login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}{% endblock %}
+{% block title %}{% if mode == "login" || mode == "staff-login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}{% endblock %}
 {% block content %}
-<h1>{% if mode == "login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}</h1>
+<h1>{% if mode == "login" || mode == "staff-login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}</h1>
 {% if failed %}<p class="op-error" role="alert">{{ self.text("mfa-error") }}</p>{% endif %}
 {% if mode == "login" || mode == "staff-login" %}
 <form class="op-stack" method="post" action="/{{ lang }}{{ self.login_path() }}">
