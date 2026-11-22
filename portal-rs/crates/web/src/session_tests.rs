@@ -479,7 +479,30 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
         assert_eq!(html.contains("action=\"/en/logout\""), cookie.is_some());
         assert_eq!(html.contains(&csrf), cookie.is_some());
     }
-    assert_eq!(snapshot(db.pool.clone()).await?, before);
+    let static_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../static");
+    let css = std::fs::read(format!("{static_dir}/css/tokens.css"))?;
+    let response = crate::router(
+        crate::AppState {
+            db: db.pool.clone(),
+        },
+        static_dir,
+    )
+    .oneshot(
+        HttpRequest::get("/static/css/tokens.css")
+            .header(header::COOKIE, format!("{COOKIE_NAME}={id}"))
+            .body(Body::empty())?,
+    )
+    .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!response.headers().contains_key(header::SET_COOKIE));
+    assert_eq!(
+        to_bytes(response.into_body(), 65536).await?.as_ref(),
+        css.as_slice()
+    );
+    assert!(
+        snapshot(db.pool.clone()).await? == before,
+        "reads changed the session row"
+    );
     db.close().await
 }
 

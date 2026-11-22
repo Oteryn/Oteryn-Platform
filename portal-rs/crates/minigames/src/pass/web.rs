@@ -4,14 +4,14 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Path, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_web::{
     csrf::CsrfConfig,
-    session::{BrowserSession, SessionLayer},
+    session::{BrowserSession, SessionLayer, SignedInSession},
 };
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -23,6 +23,7 @@ struct Page {
     lang: String,
     title: String,
     unavailable: String,
+    check_purchase: Option<String>,
     xp_label: String,
     price_label: String,
     buy_label: String,
@@ -68,6 +69,7 @@ impl Page {
         Self {
             title: text(&lang, "title"),
             unavailable: text(&lang, "unavailable"),
+            check_purchase: None,
             xp_label: text(&lang, "xp"),
             price_label: text(&lang, "price"),
             buy_label: text(&lang, "buy"),
@@ -112,33 +114,45 @@ pub fn router<A: Authority + 'static, P: Payment + 'static, R: Rewards + 'static
     let mut sessions = SessionLayer::new(pool);
     sessions.csrf = csrf;
     Router::new()
-        .route("/{lang}/pass", get(page::<A, P, R>))
         .route(
-            "/{lang}/pass/{season}/buy",
-            axum::routing::post(buy::<A, P, R>),
+            "/{lang}/pass",
+            get(page::<A, P, R>).layer(axum::middleware::from_fn_with_state(
+                sessions.clone(),
+                oteryn_web::session::read_only_middleware,
+            )),
         )
-        .route(
-            "/{lang}/pass/{season}/claim",
-            axum::routing::post(claim::<A, P, R>),
+        .merge(
+            Router::new()
+                .route(
+                    "/{lang}/pass/{season}/buy",
+                    axum::routing::post(buy::<A, P, R>),
+                )
+                .route(
+                    "/{lang}/pass/{season}/claim",
+                    axum::routing::post(claim::<A, P, R>),
+                )
+                .layer(axum::middleware::from_fn_with_state(
+                    sessions,
+                    oteryn_web::session::middleware,
+                )),
         )
-        .layer(axum::middleware::from_fn_with_state(
-            sessions,
-            oteryn_web::session::middleware,
-        ))
         .layer(axum::middleware::from_fn(response_policy))
         .layer(DefaultBodyLimit::max(4096))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(4096))
         .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(Arc::new(passes))
 }
-/// No environment setting can enable missing source or cosmetic authority.
-/// Adapters remain unavailable until their owning contracts/APIs are supplied.
+/// Only the Platform account and Wallet adapters are activated in testing.
 pub fn configured_router(pool: PgPool) -> Router {
+    let enabled = std::env::var("OTERYN_SEASON_PASS_ENABLED").as_deref() == Ok("true");
+    let testing = std::env::var("OTERYN_ENV").as_deref() == Ok("testing");
     let flags = Flags {
-        enabled: std::env::var("OTERYN_SEASON_PASS_ENABLED").as_deref() == Ok("true"),
-        ..Flags::default()
+        enabled,
+        paid: enabled
+            && testing
+            && std::env::var("OTERYN_SEASON_PASS_WALLET_ENABLED").as_deref() == Ok("true"),
+        rewards: false,
     };
-    let passes = Passes::new(pool.clone(), flags, Unavailable, Unavailable, Unavailable);
     let csrf = CsrfConfig {
         trusted_origins: std::env::var("OTERYN_PUBLIC_ORIGIN")
             .ok()
@@ -146,12 +160,26 @@ pub fn configured_router(pool: PgPool) -> Router {
             .collect(),
         ..CsrfConfig::default()
     };
-    router(pool, passes, flags, csrf)
+    if testing {
+        let payment = platform::payment(pool.clone(), flags.paid);
+        let passes = Passes::new(
+            pool.clone(),
+            flags,
+            platform::AccountAuthority,
+            payment,
+            Unavailable,
+        );
+        router(pool, passes, flags, csrf)
+    } else {
+        let passes = Passes::new(pool.clone(), flags, Unavailable, Unavailable, Unavailable);
+        router(pool, passes, flags, csrf)
+    }
 }
 async fn response_policy(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    let purchase = purchase_language(&request);
     let lang = if request.uri().path().starts_with("/pl/") {
         "pl"
     } else {
@@ -160,7 +188,11 @@ async fn response_policy(
     .to_owned();
     let mut response = next.run(request).await;
     if response.status().is_client_error() || response.status().is_server_error() {
-        response = Page::new(lang, String::new(), None).response(response.status());
+        response = if let Some(lang) = purchase.filter(|_| response.status().is_server_error()) {
+            uncertain_purchase(lang, response.status())
+        } else {
+            Page::new(lang, String::new(), None).response(response.status())
+        };
     }
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -172,6 +204,34 @@ async fn response_policy(
     );
     response
 }
+pub(crate) fn purchase_language(request: &axum::extract::Request) -> Option<&'static str> {
+    if request.method() != Method::POST {
+        return None;
+    }
+    let mut segments = request.uri().path().split('/').skip(1);
+    let lang = match segments.next()? {
+        "pl" => "pl",
+        "en" => "en",
+        _ => return None,
+    };
+    match (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) {
+        (Some("pass"), Some(_), Some("buy"), None) => Some(lang),
+        _ => None,
+    }
+}
+
+pub(crate) fn uncertain_purchase(lang: &str, status: StatusCode) -> Response {
+    let mut page = Page::new(lang.to_owned(), String::new(), None);
+    page.unavailable = text(lang, "purchase-unknown");
+    page.check_purchase = Some(text(lang, "check-purchase"));
+    page.response(status)
+}
+
 fn locale(lang: &str) -> std::result::Result<(), StatusCode> {
     if matches!(lang, "pl" | "en") {
         Ok(())
@@ -192,23 +252,20 @@ fn refusal(lang: String, error: Error) -> Response {
 async fn page<A: Authority, P: Payment, R: Rewards>(
     Path(lang): Path<String>,
     State(passes): State<Arc<Passes<A, P, R>>>,
-    Extension(session): Extension<BrowserSession>,
+    session: Option<Extension<SignedInSession>>,
 ) -> Response {
     if let Err(status) = locale(&lang) {
         return status.into_response();
     }
-    let Some(account) = session.account_id().await else {
+    let Some(Extension(session)) = session else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    let csrf = match session.csrf_token().await {
-        Ok(value) => value,
-        Err(_) => return refusal(lang, Error::Unavailable),
-    };
-    match passes.overview(account).await {
-        Ok(view) => Page::new(lang, csrf, Some(view)).response(StatusCode::OK),
+    match passes.overview(session.account_id).await {
+        Ok(view) => Page::new(lang, session.csrf, Some(view)).response(StatusCode::OK),
         Err(error) => refusal(lang, error),
     }
 }
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BuyForm {

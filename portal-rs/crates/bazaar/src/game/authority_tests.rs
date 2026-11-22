@@ -5841,3 +5841,192 @@ mod worker_tests {
 
 #[path = "lifecycle_table_tests.rs"]
 mod lifecycle_table_tests;
+
+#[tokio::test]
+async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let buyer = uid("13");
+    let listing = uid("20");
+    let destination = uid("14");
+    let credit = Uuid::now_v7();
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(buyer)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,20000)",
+    )
+    .bind(credit)
+    .bind(buyer)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,20000,0)")
+        .bind(Uuid::now_v7()).bind(credit).bind(buyer).execute(&db.pool).await.unwrap();
+
+    let request = Uuid::now_v7();
+    db.runtime
+        .bid(buyer, listing, 15000, destination, request)
+        .await
+        .unwrap();
+    {
+        // Fill the fixture's four-connection pool. Gate the first transaction so
+        // another acquirer can queue ahead of the replay's second transaction.
+        let mut gate = db.pool.acquire().await.unwrap();
+        let mut observer = db.pool.acquire().await.unwrap();
+        let spare = db.pool.acquire().await.unwrap();
+        sqlx::query("BEGIN").execute(&mut *gate).await.unwrap();
+        let gate_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *gate)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(64002)")
+            .execute(&mut *gate)
+            .await
+            .unwrap();
+        let runtime = db.runtime.clone();
+        let contended = tokio::spawn(async move {
+            runtime
+                .bid(buyer, listing, 15000, destination, request)
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(gate_pid)
+                .fetch_one(&mut *observer)
+                .await
+                .unwrap();
+                if waiting {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the replay must reach the first transaction's listing gate"));
+        let mut queued = std::pin::pin!(db.pool.acquire());
+        assert!(
+            std::future::poll_fn(|cx| {
+                std::task::Poll::Ready(std::future::Future::poll(queued.as_mut(), cx).is_pending())
+            })
+            .await
+        );
+        sqlx::query("COMMIT").execute(&mut *gate).await.unwrap();
+        let occupied = tokio::time::timeout(std::time::Duration::from_secs(2), queued)
+            .await
+            .unwrap_or_else(|_| {
+                panic!("the earlier waiter must take the first transaction's connection")
+            })
+            .unwrap();
+        assert!(
+            !contended.is_finished(),
+            "the replay should still be acquiring"
+        );
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), contended)
+            .await
+            .unwrap_or_else(|_| {
+                panic!("the replay must time out even with the pool still occupied")
+            })
+            .unwrap();
+        assert!(matches!(outcome, Err(Error::Unavailable)), "{outcome:?}");
+        drop((occupied, spare, observer, gate));
+    }
+
+    let mut reader = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR SHARE")
+        .bind(listing)
+        .execute(&mut *reader)
+        .await
+        .unwrap();
+    // The listing is available to readers. Replays and conflicts must finish
+    // while a would-be writer is unable to acquire the listing lock.
+    let (a, b, conflict) = tokio::join!(
+        db.runtime.bid(buyer, listing, 15000, destination, request),
+        db.runtime.bid(buyer, listing, 15000, destination, request),
+        db.runtime.bid(buyer, listing, 16000, destination, request),
+    );
+    assert!(a.is_ok() && b.is_ok(), "{a:?}, {b:?}");
+    assert!(matches!(conflict, Err(Error::Conflict)));
+    reader.rollback().await.unwrap();
+
+    let mut suspension = db.pool.begin().await.unwrap();
+    let suspension_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *suspension)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(buyer)
+        .execute(&mut *suspension)
+        .await
+        .unwrap();
+    let runtime = db.runtime.clone();
+    let replay = tokio::spawn(async move {
+        runtime
+            .bid(buyer, listing, 15000, destination, request)
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(suspension_pid)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            assert!(
+                !replay.is_finished(),
+                "replay completed without waiting for suspension"
+            );
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("replay must wait for the account lock held by suspension"));
+    // A committed conflict must complete even when the key's writer lock
+    // is busy and the exact replay is still waiting on the account.
+    let key_lock = sqlx::query_scalar::<_, bool>(
+        "SELECT pg_try_advisory_xact_lock(hashtextextended($1,64004))",
+    )
+    .bind(request.to_string())
+    .fetch_one(&mut *suspension)
+    .await
+    .unwrap();
+    assert!(
+        key_lock,
+        "the blocked replay still owns the request-key lock"
+    );
+    let conflict = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        db.runtime.bid(buyer, listing, 16000, destination, request),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("the committed conflict must finish while the locks are held"));
+    assert!(matches!(conflict, Err(Error::Conflict)), "{conflict:?}");
+    assert!(!replay.is_finished(), "replay must still be blocked");
+    suspension.commit().await.unwrap();
+    let replay = replay.await.unwrap();
+    assert!(matches!(replay, Err(Error::Denied)), "{replay:?}");
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_bids WHERE listing_id=$1")
+        .bind(listing)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let holds: Vec<(Uuid, i64, bool)> =
+        sqlx::query_as("SELECT account_id, amount, completed FROM bazaar_coin_holds WHERE id=$1")
+            .bind(listing)
+            .fetch_all(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(holds, vec![(buyer, 15000, false)]);
+    db.end().await;
+}

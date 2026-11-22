@@ -682,3 +682,56 @@ async fn postgres_event_save_audits_changed_content_and_removed_locale() {
     assert!(!after.to_string().contains("Edited body"));
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_public_events_only_link_to_nonempty_pages() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("disposable PostgreSQL");
+    let app = web::public_router(db.pool.clone());
+    for count in [200, 1] {
+        sqlx::query(
+            "WITH added AS (
+                INSERT INTO events(status, starts_at, ends_at, created_by, updated_by, published_by)
+                SELECT 'published', now(), now()+interval '1 day', $1, $1, $1
+                FROM generate_series(1, $2) RETURNING id
+            )
+            INSERT INTO event_translations(event_id, locale, title, slug, summary, body)
+            SELECT id, locale, 'Event', id::text, 'Summary', 'Body'
+            FROM added CROSS JOIN (VALUES ('en'), ('pl')) AS locales(locale)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(count)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        for (lang, next) in [("en", "Next"), ("pl", "Następna")] {
+            let path = format!("/{lang}/events");
+            let first = public_html(&app, &path).await;
+            assert_eq!(first.matches("<article ").count(), 200);
+            assert_eq!(
+                first.contains(&format!("href=\"?page=1\">{next}</a>")),
+                count == 1
+            );
+            let second = public_html(&app, &format!("{path}?page=1")).await;
+            assert_eq!(second.matches("<article ").count(), usize::from(count == 1));
+            assert!(!second.contains("href=\"?page=2\""));
+        }
+    }
+    db.close().await;
+}
+
+async fn public_html(app: &Router, path: &str) -> String {
+    let response = app
+        .clone()
+        .oneshot(Request::get(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    String::from_utf8(
+        to_bytes(response.into_body(), 2_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}

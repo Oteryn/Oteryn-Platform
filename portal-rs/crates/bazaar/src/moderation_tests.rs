@@ -5,7 +5,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 struct Db {
     pool: PgPool,
     admin: PgPool,
@@ -40,7 +40,7 @@ impl Db {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
-        sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,amount bigint)")
+        sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,actor uuid NOT NULL,amount bigint)")
             .execute(&pool)
             .await?;
         Ok(Some(Self {
@@ -126,12 +126,13 @@ impl PromotionLedger for Ledger {
     async fn debit(
         &self,
         db: &mut PgConnection,
-        _: Uuid,
+        actor: Uuid,
         amount: i64,
         key: Uuid,
     ) -> Result<(), Error> {
-        sqlx::query("INSERT INTO test_promotion_debits VALUES($1,$2)")
+        sqlx::query("INSERT INTO test_promotion_debits(id,actor,amount) VALUES($1,$2,$3)")
             .bind(key)
+            .bind(actor)
             .bind(amount)
             .execute(db)
             .await?;
@@ -402,6 +403,156 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     Ok(())
 }
 #[tokio::test]
+async fn postgres_promotion_router_binds_session_actor_and_path_listing() -> TestResult {
+    use axum::{
+        Extension, Router,
+        body::{Body, to_bytes},
+        extract::State,
+        http::{Request, StatusCode, header},
+        middleware,
+        routing::get,
+    };
+    use oteryn_web::session::{self, BrowserSession, PrivilegeChange, SessionLayer};
+    use tower::ServiceExt;
+
+    async fn login(
+        State(id): State<Uuid>,
+        Extension(session): Extension<BrowserSession>,
+    ) -> String {
+        session::rotate(&session, PrivilegeChange::Login(id))
+            .await
+            .unwrap();
+        session.csrf_token().await.unwrap()
+    }
+
+    async fn actor(pool: &PgPool) -> TestResult<(Uuid, String, String)> {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO accounts(email,password_hash,status,email_verified_at,locale)
+             VALUES($1,'unused','active',now(),'en') RETURNING id",
+        )
+        .bind(format!("{}@example.invalid", Uuid::now_v7()))
+        .fetch_one(pool)
+        .await?;
+        let response = Router::new()
+            .route("/test-login", get(login))
+            .route_layer(middleware::from_fn_with_state(
+                SessionLayer::new(pool.clone()),
+                session::middleware,
+            ))
+            .with_state(id)
+            .oneshot(Request::get("/test-login").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response.headers()[header::SET_COOKIE]
+            .to_str()?
+            .split(';')
+            .next()
+            .unwrap()
+            .into();
+        let csrf = String::from_utf8(to_bytes(response.into_body(), 128).await?.to_vec())?;
+        Ok((id, cookie, csrf))
+    }
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let app = web::router(
+        db.pool.clone(),
+        Allow,
+        View::default(),
+        Ledger::default(),
+        Flags {
+            enabled: true,
+            public_profiles: true,
+            promotions: true,
+        },
+    );
+    for lang in ["en", "pl"] {
+        let path = format!("/{lang}/account/bazaar/{}/promote", Uuid::now_v7());
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            format!("/{lang}/login")
+        );
+    }
+
+    db.staff(Uuid::now_v7(), fees()).await?;
+    let (owner, owner_cookie, owner_csrf) = actor(&db.pool).await?;
+    let (foreign, foreign_cookie, foreign_csrf) = actor(&db.pool).await?;
+    let other_listing = db.listing(foreign).await;
+    let effect_counts = || async {
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT (SELECT count(*) FROM bazaar_promotions),
+                    (SELECT count(*) FROM test_promotion_debits)",
+        )
+        .fetch_one(&db.pool)
+        .await
+    };
+    for lang in ["en", "pl"] {
+        let listing = db.listing(owner).await;
+        let quote = db
+            .api(View::default(), Ledger::default())
+            .promotion_quote(owner, listing)
+            .await?;
+        let path = format!("/{lang}/account/bazaar/{listing}/promote");
+        let id = Uuid::now_v7();
+        let post = |cookie: &str, csrf: &str, path: &str| {
+            Request::post(path)
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={csrf}&id={id}&fee_revision={}&amount={}",
+                    quote.revision, quote.amount
+                )))
+        };
+        let (promotions, debits) = effect_counts().await?;
+        for request in [
+            post(&foreign_cookie, &foreign_csrf, &path)?,
+            post(
+                &owner_cookie,
+                &owner_csrf,
+                &format!("/{lang}/account/bazaar/{other_listing}/promote"),
+            )?,
+        ] {
+            assert_eq!(
+                app.clone().oneshot(request).await?.status(),
+                StatusCode::FORBIDDEN
+            );
+            assert_eq!(effect_counts().await?, (promotions, debits));
+        }
+
+        let response = app
+            .clone()
+            .oneshot(post(&owner_cookie, &owner_csrf, &path)?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            format!("/{lang}/bazaar/{listing}")
+        );
+        let stored: (Uuid, Uuid, Uuid, Uuid, i64) = sqlx::query_as(
+            "SELECT p.listing_id,p.owner,p.fee_revision,d.actor,d.amount
+             FROM bazaar_promotions p JOIN test_promotion_debits d USING(id) WHERE p.id=$1",
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(
+            stored,
+            (listing, owner, quote.revision, owner, quote.amount)
+        );
+        assert_eq!(effect_counts().await?, (promotions + 1, debits + 1));
+    }
+    db.end().await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_promotion_debit_is_atomic_and_idempotent() -> TestResult {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
@@ -413,7 +564,16 @@ async fn postgres_promotion_debit_is_atomic_and_idempotent() -> TestResult {
     let ledger = Ledger::default();
     let api = db.api(View::default(), ledger.clone());
     let id = Uuid::now_v7();
-    let quote = api.promotion_quote().await?;
+    let quote = api.promotion_quote(owner, listing).await?;
+    let foreign = Uuid::now_v7();
+    assert!(matches!(
+        api.promotion_quote(foreign, listing).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        api.promote(foreign, listing, id, quote).await,
+        Err(Error::Denied)
+    ));
     ledger.0.store(true, Ordering::SeqCst);
     assert!(matches!(
         api.promote(owner, listing, id, quote).await,

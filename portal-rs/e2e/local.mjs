@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
 import {prepareAdminControl} from './support/admin-control-fixture.mjs';
+import { startLocalOutbox } from './support/local-outbox.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
 import {createGameClosureProducer,characterSourceAuthority} from './game-closure-producer.mjs';
@@ -37,7 +38,7 @@ for(const key of ['OTERYN_ACCOUNT_LOGIN','OTERYN_ACCOUNT_MFA','OTERYN_ACCOUNT_PA
 Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
  OTERYN_ADMIN_ANALYTICS_INGEST:'true',OTERYN_ADMIN_ANALYTICS_PRESENT:'true',OTERYN_ADMIN_ANALYTICS_AUTHORITY:'e2e-local',OTERYN_ADMIN_ANALYTICS_PRIVACY:'e2e-local',
- PORTAL_OAUTH_CONFIG:JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
+ PORTAL_OAUTH_CONFIG:process.env.PORTAL_OAUTH_CONFIG||JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
  OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:'localhost:18443',
  OTERYN_STATIC_DIR:path.join(root,'static'),OTERYN_DATABASE_URL:databaseURL(dbName),PORTAL_E2E_DATABASE_URL:databaseURL(dbName),PORTAL_TEST_DATABASE_URL:databaseURL(testName),
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
@@ -105,10 +106,16 @@ Object.assign(env,{
  PORTAL_ACCOUNT_CLOSURE_KEY_ID:gameProducer.keyId,PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX:gameProducer.publicKeyHex,PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION:'3',PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS:'1',
  PORTAL_E2E_GAME_CLOSURE_CONTROL_URL:gameProducer.controlURL,
 });
-fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 // A prebuilt binary (PORTAL_E2E_BINARY, e.g. from a CI build job) skips the local build.
-if(!process.env.PORTAL_E2E_BINARY) command('cargo',['build','--locked','-p','oteryn-portal']);
-const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
+let binary=process.env.PORTAL_E2E_BINARY;
+if(!binary){
+ command('cargo',['build','--locked','-p','oteryn-portal']);
+ const metadata=spawnSync('cargo',['metadata','--locked','--no-deps','--format-version=1'],{cwd:root,env,encoding:'utf8'});
+ if(metadata.status!==0)throw new Error('cargo metadata failed');
+ binary=path.join(JSON.parse(metadata.stdout).target_directory,'debug','oteryn-portal');
+}
+binary=path.resolve(root,binary);
+env.PORTAL_E2E_BINARY=binary;
 command(binary,['migrate']);
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
@@ -136,14 +143,46 @@ const proxy=https.createServer(tls,(req,res)=>{
   return;
  }
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
- const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
+ // Select actual loopback peers for source-limit checks on the local login route.
+ const {'x-portal-e2e-login-peer':peer,...headers}=req.headers;
+ const localAddress=req.method==='POST'&&/^\/(?:pl\/|en\/)?login$/.test(req.url)&&
+  ['127.0.0.2','127.0.0.3'].includes(peer)?peer:'127.0.0.1';
+ const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });
 proxy.listen(18443,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
 league.start();
 await gameProducer.start();
-console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
+const outbox = startLocalOutbox(scratch, binary);
 let closing=false;
-async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
-process.on('SIGINT',close);process.on('SIGTERM',close);
+async function close(code=0) {
+ if(closing)return;
+ closing=true;
+ await outbox.close();
+ await league.close();
+ await bazaarGame.close();
+ await gameProducer.stop();
+ await Promise.all(children.map(async child=>{
+  if(child.exitCode!==null||child.signalCode!==null||child.pid===undefined)return;
+  const stopped=new Promise(resolve=>child.once('exit',resolve));
+  child.kill('SIGINT');
+  await stopped;
+ }));
+ smtp.close();
+ starttls.close();
+ proxy.close();
+ for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
+ await admin.end();
+ process.exit(code);
+}
+process.on('SIGINT',()=>void close());
+process.on('SIGTERM',()=>void close());
+try {
+ Object.assign(env,await outbox.ready);
+ fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
+ console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the task databases.`);
+} catch (error) {
+ console.error(error.message);
+ await close(1);
+}
