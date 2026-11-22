@@ -1,4 +1,4 @@
-import {adminControlAgent, agentId, nodeId, worldId} from '../support/admin-control-fixture.mjs';
+import {adminControlAgent, advertisedOperations, agentId, nodeId, worldId} from '../support/admin-control-fixture.mjs';
 import {test, expect} from '../fixtures.mjs';
 import {csrfRejected, submit} from '../helpers.mjs';
 import {action, query, seededStaff, unique} from '../staff-rbac-helpers.mjs';
@@ -191,6 +191,23 @@ test('ratified Game agent results render in every ops read view', async ({page},
       expect((await page.reload()).status()).toBe(200);
       await expect(page.locator('main').getByText(expected)).toBeVisible();
     }
+    const agentSection = page.locator('main section').filter({
+      has: page.getByRole('heading', {name: lang === 'pl'
+        ? 'Połączeni agenci, czasy obserwacji i ogłaszane operacje'
+        : 'Connected agents, observation times and advertised operations'}),
+    });
+    const agentRow = agentSection.getByRole('listitem').filter({hasText: agentId});
+    await expect(agentRow).toBeVisible();
+    const [displayedAgent, observation, operations] = (await agentRow.innerText()).trim().split(' · ');
+    expect(displayedAgent).toBe(agentId);
+    const parts = observation.match(/^(\d{4}-\d{2}-\d{2}) (\d{1,2})(:\d{2}:\d{2}(?:\.\d+)?) \+00:00:00$/);
+    expect(parts).not.toBeNull();
+    const [{last_seen_at: observedAt}] = await query(
+      'SELECT last_seen_at FROM admin_control_agents WHERE agent_id=$1', [agentId],
+    );
+    expect(Date.parse(`${parts[1]}T${parts[2].padStart(2, '0')}${parts[3]}Z`))
+      .toBe(observedAt.getTime());
+    expect(operations.split(', ').sort()).toEqual(advertisedOperations.map(op => `${op}@1 (query)`).sort());
   } finally {
     await agent.close();
   }

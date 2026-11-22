@@ -1,13 +1,11 @@
 import {test,expect} from '../fixtures.mjs';
-import fs from 'node:fs';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import {submit} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {seededStaff} from '../staff-rbac-helpers.mjs';
 
-test.beforeEach(async({context},info)=>{
- const state=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
- await context.addCookies(state.cookies);
+test.beforeEach(async({page},info)=>{
+ await seededStaff(page,info.project.metadata.locale,'platform_admin');
 });
 const slug=prefix=>`${prefix}-${crypto.randomUUID()}`;
 

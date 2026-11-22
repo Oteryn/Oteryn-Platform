@@ -19,6 +19,7 @@ const fixtures = {
   'admin.ledger.query': fixture.LedgerPage,
   'admin.policy.get': fixture.PolicyView,
 };
+export const advertisedOperations = Object.keys(fixtures);
 
 export function prepareAdminControl(scratch, openssl, internalOrigin) {
   const material = name => path.join(scratch, `admin-control-${name}`);
@@ -124,7 +125,7 @@ export function adminControlAgent() {
     worlds: [worldId], nodes: [nodeId],
   });
   return {
-    connect: () => register(Object.keys(fixtures), epoch),
+    connect: () => register(advertisedOperations, epoch),
     heartbeat: () => post('heartbeat', {agent_id: agentId, owner_epoch: epoch, clock: clock()}),
     poll: () => post('channel', {agent_id: agentId, owner_epoch: epoch, wait_seconds: 0, limit: 32}),
     authentic(request) {
