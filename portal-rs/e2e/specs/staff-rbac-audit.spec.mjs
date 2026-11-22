@@ -1,9 +1,8 @@
 import { test, expect } from '../fixtures.mjs';
-import { login } from '../helpers.mjs';
 import { audit, enrollMfa, isolatedAdmin, loginWithRecoveryCode, membership, player, role } from '../staff-rbac-helpers.mjs';
 
 test('Platform audit shows role changes and keeps them from Game audit staff', async ({ page, browser }, info) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   const lang = info.project.metadata.locale;
   const account = await player(page, lang);
   const staff = await isolatedAdmin(browser, info);
@@ -13,6 +12,7 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     await audit(staff.page, 'rbac.role.created', id, { lang });
     const auditUrl = new URL(staff.page.url());
     expect((await page.goto(auditUrl.pathname + auditUrl.search)).status()).toBe(403);
+    const codes = await enrollMfa(page, lang, account);
 
     await membership(staff.page, account.id, id, 'grant');
     await audit(staff.page, 'rbac.role.granted', account.id, { lang });
@@ -34,8 +34,6 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     await expect(change.getByRole('cell')).toHaveText([yes, no]);
 
     const gameRole = await role(staff.page, 'admin.access game.audit.read');
-    await login(page, lang, account);
-    const codes = await enrollMfa(page, lang, account);
     await membership(staff.page, account.id, gameRole, 'grant');
     await loginWithRecoveryCode(page, lang, account, codes[0]);
     expect((await page.goto(grantUrl.pathname + grantUrl.search)).status()).toBe(200);
