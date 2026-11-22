@@ -50,7 +50,7 @@ updated_at: 2026-11-22T18:59:46Z
 head: 751e84755968043f921d4ee9fe4fe7c95a425ecc
 branch: codex/feat-season-pass
 pr: 2030
-status: waiting
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/minigames/src/pass/
@@ -128,7 +128,7 @@ validation:
     evidence: The migrated harness reached ready and seeded an active player.
 blockers:
   - Store cosmetic authority and a verified journal challenge mapping remain open.
-next_action: Obtain the accepted Game progress mapping and Store cosmetic authority before enabling their adapters.
+next_action: none
 ```
 
 ## Source branch closeout
@@ -138,3 +138,5 @@ source_branch_disposition: retain
 source_branch_reason: The requested deliverable is a dedicated pushed branch.
 source_branch_evidence: No PR or merge is authorized for this task.
 ```
+
+Delivered by PR #2030 and archived.
