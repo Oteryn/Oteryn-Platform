@@ -82,7 +82,7 @@ export async function openActor(locale, definition, sanctionIssuer) {
     ignoreHTTPSErrors: true,
     extraHTTPHeaders: {
       'accept-language': locale,
-      ...(process.env.PORTAL_E2E_DISABLE_KEEPALIVE === '1' && { connection: 'close' }),
+      connection: 'close',
     },
   });
   try {
