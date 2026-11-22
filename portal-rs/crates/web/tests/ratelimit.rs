@@ -566,8 +566,94 @@ fn named_policies_match_the_existing_portal_limits() -> TestResult {
     assert_eq!(codes.name(), "store-code-redeem");
     assert_eq!(codes.limit(), 5);
     assert_eq!(codes.window_seconds(), 60);
+    for (policy, name, limit, period) in [
+        (
+            NamedPolicy::IdentityDataExport,
+            "identity-data-export",
+            3,
+            900,
+        ),
+        (
+            NamedPolicy::IdentityDataExportSource,
+            "identity-data-export-source",
+            12,
+            900,
+        ),
+        (
+            NamedPolicy::CharacterProfileUpdate,
+            "character-profile-update",
+            10,
+            60,
+        ),
+        (
+            NamedPolicy::CharacterProfileUpdateSource,
+            "character-profile-update-source",
+            30,
+            60,
+        ),
+    ] {
+        assert_eq!(policy.name(), name);
+        assert_eq!(policy.limit(), limit);
+        assert_eq!(policy.window_seconds(), period);
+        found += 1;
+    }
     assert_eq!(found + 1, NamedPolicy::ALL.len());
     Ok(())
+}
+
+#[tokio::test]
+async fn export_and_profile_budgets_are_independent_by_account_and_source() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let limiter = RateLimiter::new(db.pool.clone());
+    for (policy, source) in [
+        (
+            NamedPolicy::IdentityDataExport,
+            NamedPolicy::IdentityDataExportSource,
+        ),
+        (
+            NamedPolicy::CharacterProfileUpdate,
+            NamedPolicy::CharacterProfileUpdateSource,
+        ),
+    ] {
+        let mut first = keys("192.0.2.1")?;
+        assert_eq!(
+            limiter.check(policy, &[first.clone()]).await,
+            Err(Denial::BadInput)
+        );
+        let charged: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM web_rate_limits WHERE limiter_name = $1")
+                .bind(source.name())
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(charged, 0);
+
+        first.account = Some("first-account".into());
+        for _ in 0..policy.limit() {
+            limiter.check(policy, &[first.clone()]).await?;
+        }
+        let mut rotated = keys("192.0.2.2")?;
+        rotated.account.clone_from(&first.account);
+        assert!(matches!(
+            limiter.check(policy, &[rotated]).await,
+            Err(Denial::Limited { .. })
+        ));
+
+        for index in 0..source.limit() - policy.limit() {
+            first.account = Some(format!("source-account-{index}"));
+            limiter.check(policy, &[first.clone()]).await?;
+        }
+        first.account = Some("fresh-account".into());
+        let result = limiter.check(policy, &[first.clone()]).await;
+        assert!(
+            matches!(result, Err(Denial::Limited { retry_after }) if (1..=source.window_seconds()).contains(&retry_after))
+        );
+
+        first.source = "192.0.2.3".parse()?;
+        limiter.check(policy, &[first]).await?;
+    }
+    db.close().await
 }
 
 #[tokio::test]

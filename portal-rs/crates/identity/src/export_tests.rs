@@ -1,4 +1,12 @@
-use super::*;
+use super::{
+    http::{router, session_cookie},
+    *,
+};
+use axum::{
+    extract::ConnectInfo,
+    http::{HeaderMap, header},
+};
+use std::net::SocketAddr;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[test]
 fn ambiguous_cookies_deny() {
@@ -99,6 +107,7 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
             .oneshot(
                 axum::http::Request::get(format!("/{locale}/account/privacy/export"))
                     .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                    .extension(ConnectInfo("192.0.2.1:1000".parse::<SocketAddr>()?))
                     .body(axum::body::Body::empty())?,
             )
             .await?;

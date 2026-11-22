@@ -25,6 +25,7 @@ enum Scope {
     Source,
     EmailSource,
     AccountSource,
+    Account,
     TokenSource,
     PendingSource,
     Pending,
@@ -68,6 +69,8 @@ policies! {
     IdentitySecurityMutation, "identity-security-mutation", 10, 60, AccountSource;
     IdentityRecoveryKeyManage, "identity-recovery-key-manage", 5, 3600, AccountSource;
     IdentityRecoveryKeyUse, "identity-recovery-key-use", 5, 3600, EmailSource;
+    IdentityDataExport, "identity-data-export", 3, 900, Account;
+    IdentityDataExportSource, "identity-data-export-source", 12, 900, Source;
     IdentityTermination, "identity-termination", 3, 3600, AccountSource;
     IdentityMfaChallenge, "identity-mfa-challenge", 5, 60, PendingSource;
     IdentityMfaChallengeIdentity, "identity-mfa-challenge-identity", 10, 60, Pending;
@@ -75,6 +78,8 @@ policies! {
     IdentityMfaEnrollment, "identity-mfa-enrollment", 5, 60, AccountSource;
     IdentityMfaDisable, "identity-mfa-disable", 5, 60, AccountSource;
     CharacterCreate, "character-create", 5, 60, AccountSource;
+    CharacterProfileUpdate, "character-profile-update", 10, 60, Account;
+    CharacterProfileUpdateSource, "character-profile-update-source", 30, 60, Source;
     CharacterCreateStatus, "character-create-status", 60, 60, AccountSource;
     MarketplaceListing, "marketplace-listing", 3, 60, AccountSource;
     MarketplaceBid, "marketplace-bid", 20, 60, AccountSource;
@@ -135,7 +140,7 @@ impl Keys {
         part(&mut digest, policy.name());
         match policy.scope() {
             Scope::EmailSource => part(&mut digest, &required(&self.email)?.trim().to_lowercase()),
-            Scope::AccountSource => part(&mut digest, required(&self.account)?),
+            Scope::Account | Scope::AccountSource => part(&mut digest, required(&self.account)?),
             Scope::TokenSource => part(&mut digest, required(&self.token)?),
             Scope::Pending | Scope::PendingSource => {
                 part(&mut digest, required(&self.pending_account)?)
@@ -146,7 +151,10 @@ impl Keys {
             Scope::LocaleSource => part(&mut digest, self.locale.ok_or(Denial::BadInput)?.code()),
             Scope::Source => {}
         }
-        if !matches!(policy.scope(), Scope::Pending | Scope::Credential) {
+        if !matches!(
+            policy.scope(),
+            Scope::Account | Scope::Pending | Scope::Credential
+        ) {
             part(&mut digest, &self.source.to_string());
         }
         Ok(digest.finalize().to_vec())
@@ -245,7 +253,14 @@ impl RateLimiter {
         ) {
             check(self, NamedPolicy::IdentityAnonymousSource, keys).await?;
         }
-        check(self, policy, keys).await
+        // Refused accounts cannot drain the shared IP budget.
+        check(self, policy, keys).await?;
+        let source = match policy {
+            NamedPolicy::IdentityDataExport => NamedPolicy::IdentityDataExportSource,
+            NamedPolicy::CharacterProfileUpdate => NamedPolicy::CharacterProfileUpdateSource,
+            _ => return Ok(()),
+        };
+        check(self, source, keys).await
     }
     pub(crate) async fn check_recovery_submission(&self, keys: Keys) -> Result<(), Denial> {
         let policy = NamedPolicy::IdentityRecoveryKeyUse;

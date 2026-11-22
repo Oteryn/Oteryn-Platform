@@ -24,6 +24,12 @@ CHROMIUM_PATH=/usr/bin/chromium node run.mjs /absolute/scratch/env.json test
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
+To run just the export and profile quota checks in all four projects, append
+`specs/rate-limits-export-profile.spec.mjs` to that command. The spec uses the
+seed CLI for disposable accounts and the local mTLS producer for character
+ownership. The loopback HTTPS proxy forwards the synthetic client addresses used
+to exhaust the IP quotas across distinct accounts.
+
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
