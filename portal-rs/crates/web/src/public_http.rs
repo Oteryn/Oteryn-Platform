@@ -32,7 +32,7 @@ where
     T: 'static,
     S: Clone + Send + Sync + 'static,
 {
-    get(handler).layer(middleware::from_fn(require_html))
+    get(handler).route_layer(middleware::from_fn(require_html))
 }
 
 async fn require_html(request: Request, next: Next) -> Response {
@@ -209,6 +209,28 @@ mod tests {
     use super::*;
     use axum::http::Request;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn html_negotiation_leaves_unsupported_methods_to_axum()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = secure_public(Router::new().route("/en/example", html_get(|| async { "ok" })));
+        for accept in ["application/json", "text/html"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::OPTIONS)
+                        .uri("/en/example")
+                        .header(header::ACCEPT, accept)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+            assert_eq!(response.headers()[header::ALLOW], "GET,HEAD");
+            assert_eq!(response.headers()[header::CONTENT_SECURITY_POLICY], CSP);
+        }
+        Ok(())
+    }
 
     #[tokio::test]
     async fn late_mounted_page_and_admission_refusals_share_policy()
