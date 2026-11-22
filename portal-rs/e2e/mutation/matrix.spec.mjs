@@ -1536,3 +1536,222 @@ test('localized and unprefixed login, MFA login and logout aliases rotate only t
     await Promise.all(contexts.map(context => context.close()));
   }
 });
+
+test('native account checkout applies the locked test-provider decision only once', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const owner = await seededPlayer(page, lang, 'content_editor');
+    const foreign = [];
+    for (const role of [undefined, 'support']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const other = await context.newPage();
+      await seededPlayer(other, lang, role);
+      await other.goto(`/${lang}/account/privacy`);
+      foreign.push({ other, token: (await prepare(other, formSelector)).fields._csrf });
+    }
+    const client = 'e2e-local';
+    const verifier = randomBytes(32).toString('base64url');
+    const callback = new URL('/__oauth/callback', page.url()).href;
+    const authorization = new URLSearchParams({
+      response_type: 'code', client_id: client, redirect_uri: callback,
+      scope: 'game:account-services', state: randomUUID(),
+      code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+      code_challenge_method: 'S256',
+    });
+    expect((await page.goto(`/oauth/authorize?${authorization}`)).status()).toBe(200);
+    await page.locator('main button[name=decision][value=approve]').click();
+    await expect(page).toHaveURL(/\/__oauth\/callback\?/);
+    const code = new URL(page.url()).searchParams.get('code');
+    expect(Boolean(code)).toBe(true);
+    const token = await page.request.post('/oauth/token', { form: {
+      grant_type: 'authorization_code', client_id: client, redirect_uri: callback,
+      code, code_verifier: verifier,
+    } });
+    expect(token.status()).toBe(200);
+    const headers = { authorization: `Bearer ${(await token.json()).access_token}` };
+
+    for (const decision of ['pay', 'fail']) {
+      const api = '/api/v1/native-account/coin-purchases';
+      const catalogue = await page.request.get(`${api}/catalogue`, { headers });
+      expect(catalogue.status()).toBe(200);
+      const { packages, sandbox, version } = await catalogue.json();
+      expect(sandbox).toBe(true);
+      expect(packages).toHaveLength(1);
+      const pkg = packages[0];
+      const created = await page.request.post(`${api}/orders`, {
+        headers, data: {
+          version, request_id: uuid7(), package_id: pkg.id, quote_id: pkg.quote_id, character_id: null,
+        },
+      });
+      expect(created.status()).toBe(200);
+      const order = await created.json();
+      expect(order.sandbox).toBe(true);
+      expect(order.state).toBe('awaiting_payment');
+      expect((await page.goto(order.checkout_url)).status()).toBe(200);
+      await expect(page.locator('main h1')).toHaveText('Sandbox coin checkout');
+      const form = `main form:has([name=action][value=${decision}])`;
+      const { url, fields } = await prepare(page, form);
+      const snapshot = () => query(
+        `SELECT o.state,o.receipt_id IS NOT NULL AS receipt,
+            (SELECT count(*)::int FROM payment_events WHERE intent_id=o.payment_intent_id) AS events,
+            (SELECT count(*)::int FROM wallet_entries WHERE operation_id=o.payment_intent_id) AS credits,
+            (SELECT coalesce(sum(available_delta),0)::text FROM wallet_entries WHERE operation_id=o.payment_intent_id) AS coins
+         FROM coin_purchase_orders o WHERE o.id=$1 AND o.payer_account_id=$2`,
+        [order.order_id, owner.id],
+      );
+      const baseline = [{ state: 'awaiting_payment', receipt: false, events: 0, credits: 0, coins: '0' }];
+      expect(await snapshot()).toEqual(baseline);
+      await rejected({ page, url, fields, snapshot, baseline });
+      for (const { other, token } of foreign) {
+        expect((await sendForm(other, url, { ...fields, _csrf: token })).status()).toBe(404);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      for (const action of ['', 'x'.repeat(513), '1', 'pay ']) {
+        const response = await page.request.post(url, {
+          form: { ...fields, action },
+          headers: { origin: new URL(url).origin, 'accept-language': lang },
+          maxRedirects: 0,
+        });
+        expect(response.status()).toBe(400);
+        expect(response.headers()['content-language']).toBe(lang);
+        expect(await response.text()).toContain(lang === 'pl'
+          ? 'Sprawdź żądanie i spróbuj ponownie.'
+          : 'Check the request and try again.');
+        expect(await snapshot()).toEqual(baseline);
+      }
+      const response = page.waitForResponse(response => response.url() === url && response.request().method() === 'POST');
+      await submit(page, form);
+      const submitted = await response;
+      const requestOrigin = (await submitted.request().allHeaders()).origin;
+      expect(submitted.status()).toBe(303);
+      expect(requestOrigin).toBe(new URL(url).origin);
+      const paid = decision === 'pay';
+      const state = paid ? 'paid' : 'failed';
+      await expect(page.locator('main dl dd').last()).toHaveText(state);
+      await expect(page.locator(formSelector)).toHaveCount(0);
+      const closed = [{ state, receipt: paid, events: 1, credits: paid ? 1 : 0, coins: paid ? String(pkg.coins) : '0' }];
+      expect(await snapshot()).toEqual(closed);
+      for (const action of [decision, paid ? 'fail' : 'pay']) {
+        expect((await sendForm(page, url, { ...fields, action })).status()).toBe(303);
+        expect(await snapshot()).toEqual(closed);
+      }
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('news aliases preserve bilingual publication, revision conflicts and scoped deletion', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const auth = [];
+  try {
+    const editor = await seededPlayer(page, lang, 'content_editor');
+    for (const role of [undefined, 'support']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      });
+      contexts.push(context);
+      const reader = await context.newPage();
+      await seededPlayer(reader, lang, role);
+      await reader.goto(`/${lang}/account/privacy`);
+      const { fields } = await prepare(reader, formSelector);
+      auth.push({ reader, csrf: fields._csrf });
+    }
+    const selector = 'main form:has(input[name=slug])';
+    const publicTitle = lang === 'pl' ? 'Aktualizacja portalu' : 'Portal update';
+    const snapshot = slug => () => query(
+      "SELECT id,title,body,title_pl,body_pl,updated_at::text AS revision FROM news WHERE slug=$1",
+      [slug],
+    );
+    const verify = async ({ form, target, method = 'POST', values, state, samples }) => {
+      const prepared = await prepare(page, form, values);
+      const url = target || prepared.url;
+      const { fields } = prepared;
+      const baseline = await state();
+      await rejected({ page, url, fields, snapshot: state, baseline, method });
+      for (const { reader, csrf } of auth) {
+        expect((await sendForm(reader, url, { ...fields, _csrf: csrf }, method)).status()).toBe(403);
+        expect(await state()).toEqual(baseline);
+      }
+      for (const [patch, status] of samples) {
+        expect((await sendForm(page, url, { ...fields, ...patch }, method)).status()).toBe(status);
+        expect(await state()).toEqual(baseline);
+      }
+      return { ...prepared, target: url };
+    };
+    const invalidNews = [
+      [{ title: '' }, 422], [{ title: 'a'.repeat(201) }, 422],
+      [{ published_at: 'not-an-instant' }, 422], [{ slug: 'a'.repeat(161) }, 422],
+    ];
+    const published = new Date(Date.now() - 60_000).toISOString();
+    for (const deleteMethod of ['POST', 'DELETE']) {
+      const slug = `matrix-news-${randomUUID()}`;
+      const state = snapshot(slug);
+      const initial = {
+        slug, title: 'Portal update', title_pl: 'Aktualizacja portalu', body: 'Initial version',
+        body_pl: 'Pierwsza wersja', published_at: published, translation_published_at: published,
+      };
+      const creation = `/admin/news/create?lang=${lang}`;
+      expect((await page.goto(creation)).status()).toBe(200);
+      expect(await state()).toEqual([]);
+      await verify({ form: selector, values: initial, state, samples: invalidNews });
+      await submit(page, selector, initial);
+      await expect(page).toHaveURL(/\/admin\/news\/[a-f0-9-]+\/edit$/);
+      const [record] = await state();
+      expect(record).toEqual({
+        id: expect.any(String), title: initial.title, body: initial.body, title_pl: initial.title_pl,
+        body_pl: initial.body_pl, revision: expect.any(String),
+      });
+      const edit = `/admin/news/${record.id}/edit?lang=${lang}`;
+      const publicNews = `/${lang}/news/${slug}`;
+      expect((await page.goto(publicNews)).status()).toBe(200);
+      await expect(page.locator('main h1')).toHaveText(publicTitle);
+      expect((await page.goto(edit)).status()).toBe(200);
+
+      const updateMethod = deleteMethod === 'POST' ? 'POST' : 'PUT';
+      const content = { body: `Revision accepted by ${updateMethod}`, body_pl: `Zapis przez ${updateMethod}` };
+      const revision = await verify({
+        form: selector, method: updateMethod, values: content, state, samples: invalidNews,
+      });
+      await useFormMethod(page, revision.url, updateMethod, () => submit(page, selector, content));
+      await expect(page.locator('[name=body]')).toHaveValue(content.body);
+      const [revised] = await state();
+      expect(revised).toEqual({ ...record, ...content, revision: expect.any(String) });
+      expect(revised.revision).not.toBe(record.revision);
+      expect((await sendForm(page, revision.url, revision.fields, updateMethod)).status()).toBe(409);
+      expect(await state()).toEqual([revised]);
+      expect((await page.goto(publicNews)).status()).toBe(200);
+      await expect(page.locator('main')).toContainText(lang === 'pl' ? content.body_pl : content.body);
+      await page.goto(edit);
+
+      const remove = 'main form[action$="/delete"]';
+      const destination = deleteMethod === 'DELETE' ? new URL(`/admin/news/${record.id}`, page.url()).href : undefined;
+      const deletion = await verify({ form: remove, target: destination, method: deleteMethod, state, samples: [
+        [{ expected_revision: '' }, 409], [{ expected_revision: 'a'.repeat(257) }, 409],
+        [{ expected_revision: '1' }, 409], [{ expected_revision: record.revision }, 409],
+      ] });
+      await useFormMethod(page, deletion.url, deleteMethod, () => submit(page, remove), deletion.target);
+      await expect(page).toHaveURL(/\/admin\/news$/);
+      await expect(page.locator(`main a[href*="${record.id}"]`)).toHaveCount(0);
+      expect(await state()).toEqual([]);
+      expect((await sendForm(page, deletion.target, deletion.fields, deleteMethod)).status()).toBe(404);
+      expect(await state()).toEqual([]);
+      expect((await page.goto(publicNews)).status()).toBe(404);
+      expect(await query(
+        "SELECT action FROM audit_log WHERE target=$1 AND actor=$2 ORDER BY created_at,id",
+        [record.id, editor.id],
+      )).toEqual([
+        { action: 'cms.news_created' }, { action: 'cms.news_updated' }, { action: 'cms.news_deleted' },
+      ]);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});

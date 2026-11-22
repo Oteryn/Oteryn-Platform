@@ -9,7 +9,13 @@ python3 mutation/generate.py --check
 
 `forms.json` records source POST forms, including Rust-rendered markup, and write-method router registrations. A form's source and ordinal identify it when several forms share a line. An empty `action` submits to the current document. `actionVariants` captures finite template expansions inferred from literals or the form's rendering code. Runtime identifiers remain template expressions. Locale-prefixed routes share a row, while unprefixed aliases retain their own rows. The inventory includes source registrations behind feature gates and compatibility routes. Native and internal protocol receivers and provider webhooks are outside the browser inventory. The generator fails when it finds an unresolved write-route binding, so indirect registrations require an explicit source mapping.
 
-Start the disposable PostgreSQL and Portal harness documented in [the E2E guide](../README.md). Run the matrix from the same directory.
+Start the disposable PostgreSQL and Portal harness documented in [the E2E guide](../README.md). Give the local native test provider a synthetic coin package as part of the harness startup.
+
+```sh
+PORTAL_COIN_PACKAGES='[{"id":"019b0760-0000-7000-8000-000000000006","title":"Native local test coins","coins":121,"price":{"minor_units":250,"currency":"PLN","exponent":2},"valid_for_seconds":300}]' node local.mjs
+```
+
+Run the matrix from the same directory.
 
 ```sh
 node run.mjs /absolute/scratch/env.json test --config mutation/playwright.config.mjs --retries=0
@@ -42,6 +48,9 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/shop/test-checkout/{intent}` (pay) | Yes | Yes | Foreign player | Yes | One event and one credit |
 | `/{lang}/shop/test-checkout/{intent}` (reject) | Yes | Yes | Foreign player | Yes | One event and zero credits |
 | `/{lang}/shop/test-checkout/{intent}` (cancel) | Yes | Yes | Foreign player | Yes | One event and zero credits |
+| `/native-account/coin-checkout/{order_id}` (pay and fail) | Real test-provider form and visible terminal outcome | Yes | Foreign player and support staff | Four localized invalid decision cases | Exactly one provider event. Pay credits once and fail leaves no credit |
+| News create and update (POST and PUT) | Both languages, persisted text and staff audit | Yes | Foreign player and support staff | Malformed title, time and slug refused | Stale revision refused on update |
+| News deletion (POST and DELETE) | Editor index and public 404, durable row removed and audited | Yes | Foreign player and support staff | Missing, overlength, malformed and stale revisions conflict | Repeat returns 404 with one deletion |
 | `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous | Yes | Submission replay |
 
 The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, daily puzzle answers, and collection PvP and set purchases. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, daily puzzle catalogue, or the collection PvP gameplay and wallet adapters. The standard matrix proves that the character creation form persists one pending command. The publisher matrix proves the terminal receipt, durable portfolio, and visible creation result.
