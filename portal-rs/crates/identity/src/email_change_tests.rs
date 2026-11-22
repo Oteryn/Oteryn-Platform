@@ -570,7 +570,7 @@ impl oteryn_notify::EmailSender for RejectOld {
     }
 }
 #[tokio::test]
-async fn invalid_email_change_mail_is_quarantined_once() -> TestResult {
+async fn email_change_mail_quarantines_invalid_links_and_retries_other_origins() -> TestResult {
     let Some(db) = database::Database::open().await? else {
         return Ok(());
     };
@@ -588,8 +588,14 @@ async fn invalid_email_change_mail_is_quarantined_once() -> TestResult {
          )
          INSERT INTO account_email_change_mail(change_id,recipient,subject,body)
          SELECT id,recipient,'Fixture',body FROM change CROSS JOIN (VALUES
-            ('old@example.invalid','missing link'),
-            ('new@example.invalid',E'message\n\nhttps://wrong.invalid/email-change/revert/invalid')
+            ('missing@example.invalid','missing link'),
+            ('bad-token@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/confirm/bad'),
+            ('bad-route@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/cancel/' || repeat('a',64)),
+            ('query@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/revert/' || repeat('a',64) || '?extra=1'),
+            ('fragment@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/revert/' || repeat('a',64) || '#extra'),
+            ('userinfo@example.invalid',E'message\n\nhttps://other.example.invalid@portal.example.invalid/email-change/revert/' || repeat('a',64)),
+            ('confirm@example.invalid',E'message\n\nhttps://other.example.invalid/email-change/confirm/' || repeat('a',64)),
+            ('revert@example.invalid',E'message\n\nhttps://portal.example.invalid:8443/email-change/revert/' || repeat('b',64))
          ) AS mail(recipient,body)",
     )
     .execute(&db.pool)
@@ -615,17 +621,51 @@ async fn invalid_email_change_mail_is_quarantined_once() -> TestResult {
             .map_err(|_| "local SMTP configuration invalid")?,
         ),
     };
-    worker.tick().await?;
+    #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
+    struct MailState {
+        recipient: String,
+        digest: Vec<u8>,
+        erased: bool,
+        unsent: bool,
+        quarantined: bool,
+        delivery_attempts: i32,
+        backed_off: bool,
+        updated_at: OffsetDateTime,
+    }
     let state = || {
-        sqlx::query_as::<_, (Uuid, bool, bool, OffsetDateTime)>(
-            "SELECT id, body='' AND delivered_at IS NULL, next_attempt_at='infinity', updated_at
-             FROM account_email_change_mail ORDER BY id",
+        sqlx::query_as::<_, MailState>(
+            "SELECT recipient, sha256(convert_to(body, 'UTF8')) AS digest,
+                    body='' AS erased, delivered_at IS NULL AS unsent,
+                    next_attempt_at='infinity' AS quarantined, delivery_attempts,
+                    next_attempt_at BETWEEN updated_at+interval '29 seconds'
+                                        AND updated_at+interval '31 seconds' AS backed_off, updated_at
+             FROM account_email_change_mail ORDER BY recipient",
         )
         .fetch_all(&db.pool)
     };
+    let before = state().await?;
+    worker.tick().await?;
     let first = state().await?;
-    assert_eq!(first.len(), 2);
-    assert!(first.iter().all(|row| row.1 && row.2));
+    assert_eq!(first.len(), before.len());
+    assert_eq!(first.len(), 8);
+    for (after, before) in first.iter().zip(&before) {
+        assert_eq!(after.recipient, before.recipient);
+        assert!(after.unsent);
+        match after.recipient.as_str() {
+            "confirm@example.invalid" | "revert@example.invalid" => {
+                assert_eq!(after.digest, before.digest);
+                assert!(!after.erased);
+                assert!(!after.quarantined);
+                assert_eq!(after.delivery_attempts, 1);
+                assert!(after.backed_off);
+            }
+            _ => {
+                assert!(after.erased);
+                assert!(after.quarantined);
+                assert_eq!(after.delivery_attempts, 0);
+            }
+        }
+    }
     worker.tick().await?;
     assert_eq!(state().await?, first);
     db.close().await
