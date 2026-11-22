@@ -9,8 +9,11 @@ FROM (
         COALESCE(admin_control_target->>'character_id', admin_control_target->>'view', audit_log.target)
     )) AS stored(target)
     CROSS JOIN LATERAL (VALUES (
-        CASE WHEN action = ANY($6::text[]) AND NOT (stored.target = ANY($7::text[]))
-             THEN NULL ELSE stored.target END
+        CASE
+            WHEN action = ANY($6::text[]) AND NOT (stored.target = ANY($7::text[])) THEN NULL
+            WHEN action = 'admin.access.denied' AND starts_with(stored.target, $9::text) THEN $10::text
+            ELSE stored.target
+        END
     )) AS visible(target)
     WHERE ($1::uuid IS NULL OR request_id = $1)
       AND ($2::uuid IS NULL OR actor = $2)

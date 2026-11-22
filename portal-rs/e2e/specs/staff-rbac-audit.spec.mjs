@@ -60,6 +60,23 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
       await expect(main).not.toContainText(slug);
     });
 
+    await test.step('a denied page editor visit is recorded and shown as a route pattern', async () => {
+      expect((await page.goto(`/admin/pages/${slug}/en`)).status()).toBe(403);
+      const [{ request_id, target }] = await query(
+        "SELECT request_id,target FROM audit_log WHERE action='admin.access.denied' AND actor=$1 ORDER BY created_at DESC,id DESC LIMIT 1",
+        [account.id],
+      );
+      const pattern = '/admin/pages/{slug}/{locale}';
+      expect(target).toBe(pattern);
+      const params = new URLSearchParams({ lang, request_id, operation: 'admin.access.denied' });
+      expect((await page.goto(`/admin/console/audit?${params}`)).status()).toBe(200);
+      const main = page.locator('main');
+      const denial = main.locator('li > p').filter({ hasText: 'admin.access.denied' });
+      await expect(denial).toContainText(request_id);
+      await expect(denial).toContainText(pattern);
+      await expect(main).not.toContainText(slug);
+    });
+
     await membership(staff.page, account.id, id, 'revoke');
     await audit(staff.page, 'rbac.role.revoked', account.id, { lang });
     await expect(summary).toContainText('rbac.role.revoked');

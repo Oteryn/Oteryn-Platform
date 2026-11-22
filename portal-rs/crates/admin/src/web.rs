@@ -396,7 +396,13 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
-            return match refusal(&s.pool, context.account, request.uri().path()).await {
+            let path = request.uri().path();
+            let target = if path.starts_with(audit::EDITORIAL_PAGE_PATH_PREFIX) {
+                audit::EDITORIAL_PAGE_ROUTE
+            } else {
+                path
+            };
+            return match refusal(&s.pool, context.account, target).await {
                 Ok(()) => StatusCode::FORBIDDEN.into_response(),
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
             };

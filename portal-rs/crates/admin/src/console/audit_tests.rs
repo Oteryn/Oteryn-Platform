@@ -106,6 +106,48 @@ async fn postgres_audit_projects_only_fields_for_the_stored_action_and_target()
 }
 
 #[tokio::test]
+async fn postgres_audit_uses_only_the_route_pattern_for_historical_page_denials()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db =
+        super::super::players::tests::Database::open(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
+            .await?;
+    let request_id = Uuid::now_v7();
+    let path = "/admin/pages/draft-client-case-4821/en";
+    let pattern = "/admin/pages/{slug}/{locale}";
+    let mut tx = db.pool.begin().await?;
+    crate::audit::append(
+        &mut tx,
+        crate::audit::Entry {
+            context: crate::audit::AuditContext {
+                actor: None,
+                request_id,
+            },
+            action: "admin.access.denied",
+            target: path,
+            before: Value::Null,
+            after: json!({"allowed":false}),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+
+    let mut filter = Filter {
+        request_id: Some(request_id),
+        ..Default::default()
+    };
+    let rows = platform_rows(&db.pool, &filter).await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].target_summary("en"), pattern);
+    filter.target = Some(path.into());
+    assert!(platform_rows(&db.pool, &filter).await?.is_empty());
+    filter.target = Some(pattern.into());
+    assert_eq!(platform_rows(&db.pool, &filter).await?.len(), 1);
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
 -> Result<(), Box<dyn std::error::Error>> {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;

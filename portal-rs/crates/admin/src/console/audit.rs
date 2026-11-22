@@ -387,6 +387,8 @@ async fn platform_rows(pool: &sqlx::PgPool, filter: &Filter) -> Result<Vec<Audit
         .bind(EDITORIAL_PAGE_ACTIONS)
         .bind(LEGAL_PAGE_TARGETS)
         .bind(serde_json::json!(LEGAL_PAGE_FIELDS))
+        .bind(crate::audit::EDITORIAL_PAGE_PATH_PREFIX)
+        .bind(crate::audit::EDITORIAL_PAGE_ROUTE)
         .fetch_all(pool)
         .await
 }
