@@ -1,0 +1,2109 @@
+[
+  {
+    "template": "bin/oteryn-portal/templates/code_issuance.html",
+    "line": 7,
+    "action": "/{lang}/admin/store/codes",
+    "method": "POST",
+    "route_pattern": null,
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "amount",
+      "count",
+      "kind",
+      "max_per_account",
+      "max_per_code",
+      "note",
+      "request_id",
+      "valid_from",
+      "valid_until"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 8,
+    "action": "/console/dashboard",
+    "method": "GET",
+    "route_pattern": "/console/dashboard",
+    "crate": "admin",
+    "fields": [
+      "agent",
+      "lang",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 8,
+    "action": "/console/database",
+    "method": "GET",
+    "route_pattern": "/console/database",
+    "crate": "admin",
+    "fields": [
+      "agent",
+      "lang",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 8,
+    "action": "/console/nodes",
+    "method": "GET",
+    "route_pattern": "/console/nodes",
+    "crate": "admin",
+    "fields": [
+      "agent",
+      "lang",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 8,
+    "action": "/console/worlds",
+    "method": "GET",
+    "route_pattern": "/console/worlds",
+    "crate": "admin",
+    "fields": [
+      "agent",
+      "lang",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 12,
+    "action": "/console/dashboard",
+    "method": "POST",
+    "route_pattern": "/console/dashboard",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "agent",
+      "lang",
+      "operation",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 12,
+    "action": "/console/database",
+    "method": "POST",
+    "route_pattern": "/console/database",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "agent",
+      "lang",
+      "operation",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 12,
+    "action": "/console/nodes",
+    "method": "POST",
+    "route_pattern": "/console/nodes",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "agent",
+      "lang",
+      "operation",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/page.html",
+    "line": 12,
+    "action": "/console/worlds",
+    "method": "POST",
+    "route_pattern": "/console/worlds",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "agent",
+      "lang",
+      "operation",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/read.html",
+    "line": 5,
+    "action": "/admin/console/players",
+    "method": "POST",
+    "route_pattern": "/admin/console/players",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "lang",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/read.html",
+    "line": 5,
+    "action": "/admin/console/players",
+    "method": "GET",
+    "route_pattern": "/admin/console/players",
+    "crate": "admin",
+    "fields": [
+      "character",
+      "lang"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/templates/read.html",
+    "line": 6,
+    "action": "/admin/console/audit",
+    "method": "GET",
+    "route_pattern": "/admin/console/audit",
+    "crate": "admin",
+    "fields": [
+      "admin",
+      "lang",
+      "operation",
+      "request_id",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/payments/templates/coin/checkout.html",
+    "line": 9,
+    "action": "/native-account/coin-checkout/{order_id}",
+    "method": "POST",
+    "route_pattern": null,
+    "crate": "payments",
+    "fields": [
+      "_csrf",
+      "action"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/payments/templates/coin/checkout.html",
+    "line": 10,
+    "action": "/native-account/coin-checkout/{order_id}",
+    "method": "POST",
+    "route_pattern": null,
+    "crate": "payments",
+    "fields": [
+      "_csrf",
+      "action"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/lifecycle.html",
+    "line": 2,
+    "action": "/{lang}/account/notifications",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/notifications",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "confirmation",
+      "current_password",
+      "news_email",
+      "news_portal",
+      "support_email",
+      "support_portal",
+      "token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/lifecycle.html",
+    "line": 2,
+    "action": "/{lang}/account/privacy/delete",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/privacy/delete",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "confirmation",
+      "current_password",
+      "news_email",
+      "news_portal",
+      "support_email",
+      "support_portal",
+      "token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/lifecycle.html",
+    "line": 2,
+    "action": "/{lang}/account/privacy/delete/cancel",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/privacy/delete/cancel",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "confirmation",
+      "current_password",
+      "news_email",
+      "news_portal",
+      "support_email",
+      "support_portal",
+      "token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/lifecycle.html",
+    "line": 2,
+    "action": "/{lang}/unsubscribe",
+    "method": "POST",
+    "route_pattern": "/{lang}/unsubscribe",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "confirmation",
+      "current_password",
+      "news_email",
+      "news_portal",
+      "support_email",
+      "support_portal",
+      "token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/login/page.html",
+    "line": 7,
+    "action": "/{lang}/login",
+    "method": "POST",
+    "route_pattern": "/{lang}/login",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "email",
+      "password"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 7,
+    "action": "/{lang}/login",
+    "method": "POST",
+    "route_pattern": "/{lang}/login",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "email",
+      "password"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 13,
+    "action": "/{lang}/mfa/challenge",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/challenge",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "code",
+      "remember"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 18,
+    "action": "/{lang}/mfa/email",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/email",
+    "crate": "identity",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 21,
+    "action": "/{lang}/mfa/confirm",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/confirm",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "code",
+      "password"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 32,
+    "action": "/{lang}/mfa/enroll",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/enroll",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "password"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 37,
+    "action": "/{lang}/mfa/devices",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/devices",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "device"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/register.html",
+    "line": 5,
+    "action": "/{lang}/register",
+    "method": "POST",
+    "route_pattern": "/{lang}/register",
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "email",
+      "password",
+      "password_confirmation",
+      "privacy",
+      "terms",
+      "work_nonce",
+      "work_token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/reset/page.html",
+    "line": 7,
+    "action": "/{lang}/forgot-password",
+    "method": "POST",
+    "route_pattern": "/{lang}/forgot-password",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "email",
+      "password",
+      "password_confirmation",
+      "token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/reset/page.html",
+    "line": 7,
+    "action": "/{lang}/reset-password",
+    "method": "POST",
+    "route_pattern": "/{lang}/reset-password",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "email",
+      "password",
+      "password_confirmation",
+      "token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/verify.html",
+    "line": 6,
+    "action": "/{lang}/verify-email/resend",
+    "method": "POST",
+    "route_pattern": "/{lang}/verify-email/resend",
+    "crate": "web",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/analytics.html",
+    "line": 5,
+    "action": "/admin/analytics",
+    "method": "GET",
+    "route_pattern": "/admin/analytics",
+    "crate": "admin",
+    "fields": [
+      "family",
+      "from",
+      "to",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/analytics.html",
+    "line": 5,
+    "action": "/admin/analytics/activity",
+    "method": "GET",
+    "route_pattern": "/admin/analytics/activity",
+    "crate": "admin",
+    "fields": [
+      "family",
+      "from",
+      "to",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/analytics.html",
+    "line": 5,
+    "action": "/admin/analytics/creatures",
+    "method": "GET",
+    "route_pattern": "/admin/analytics/creatures",
+    "crate": "admin",
+    "fields": [
+      "family",
+      "from",
+      "to",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/analytics.html",
+    "line": 5,
+    "action": "/admin/analytics/health",
+    "method": "GET",
+    "route_pattern": "/admin/analytics/health",
+    "crate": "admin",
+    "fields": [
+      "family",
+      "from",
+      "to",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/analytics.html",
+    "line": 5,
+    "action": "/admin/analytics/levels",
+    "method": "GET",
+    "route_pattern": "/admin/analytics/levels",
+    "crate": "admin",
+    "fields": [
+      "family",
+      "from",
+      "to",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/analytics_economy.html",
+    "line": 5,
+    "action": "/admin/analytics/economy",
+    "method": "GET",
+    "route_pattern": "/admin/analytics/economy",
+    "crate": "admin",
+    "fields": [
+      "from",
+      "to",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/events/form.html",
+    "line": 1,
+    "action": "/admin/events",
+    "method": "POST",
+    "route_pattern": "/admin/events",
+    "crate": "content",
+    "fields": [
+      "_csrf",
+      "en_body",
+      "en_slug",
+      "en_summary",
+      "en_title",
+      "ends_at",
+      "featured",
+      "lock_version",
+      "pl_body",
+      "pl_slug",
+      "pl_summary",
+      "pl_title",
+      "starts_at"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/events/form.html",
+    "line": 1,
+    "action": "/admin/events/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/events/{id}",
+    "crate": "content",
+    "fields": [
+      "_csrf",
+      "en_body",
+      "en_slug",
+      "en_summary",
+      "en_title",
+      "ends_at",
+      "featured",
+      "lock_version",
+      "pl_body",
+      "pl_slug",
+      "pl_summary",
+      "pl_title",
+      "starts_at"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/events/form.html",
+    "line": 5,
+    "action": "/admin/events/{id}/status",
+    "method": "POST",
+    "route_pattern": "/admin/events/{id}/status",
+    "crate": "content",
+    "fields": [
+      "_csrf",
+      "lock_version",
+      "status"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/pages/edit.html",
+    "line": 1,
+    "action": "/admin/pages/{slug}/{lang}",
+    "method": "POST",
+    "route_pattern": "/admin/pages/{slug}/{lang}",
+    "crate": "content",
+    "fields": [
+      "_csrf",
+      "body",
+      "expected_revision",
+      "legal_effective_date",
+      "legal_version",
+      "published_at",
+      "reviewed_source_revision",
+      "title"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "save"
+      },
+      {
+        "name": "action",
+        "value": "delete"
+      }
+    ]
+  },
+  {
+    "template": "templates/admin/pages/index.html",
+    "line": 1,
+    "action": "/admin/pages",
+    "method": "GET",
+    "route_pattern": "/admin/pages",
+    "crate": "content",
+    "fields": [
+      "locale",
+      "slug"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/panel.html",
+    "line": 5,
+    "action": "/admin/roles",
+    "method": "POST",
+    "route_pattern": "/admin/roles",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "account",
+      "role"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "grant"
+      },
+      {
+        "name": "action",
+        "value": "revoke"
+      }
+    ]
+  },
+  {
+    "template": "templates/admin/roles.html",
+    "line": 5,
+    "action": "/admin/roles",
+    "method": "POST",
+    "route_pattern": "/admin/roles",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "account",
+      "role"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "grant"
+      },
+      {
+        "name": "action",
+        "value": "revoke"
+      }
+    ]
+  },
+  {
+    "template": "templates/admin/roles.html",
+    "line": 8,
+    "action": "/admin/roles",
+    "method": "POST",
+    "route_pattern": "/admin/roles",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "key",
+      "permissions"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "create"
+      }
+    ]
+  },
+  {
+    "template": "templates/admin/roles.html",
+    "line": 16,
+    "action": "/admin/roles",
+    "method": "POST",
+    "route_pattern": "/admin/roles",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "permissions",
+      "role"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "set-permissions"
+      }
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/action.html",
+    "line": 1,
+    "action": "/admin/wiki/articles/{id}/archive",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles/{id}/{action}",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "lock_version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/action.html",
+    "line": 1,
+    "action": "/admin/wiki/articles/{id}/publish",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles/{id}/{action}",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "lock_version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/action.html",
+    "line": 1,
+    "action": "/admin/wiki/articles/{id}/return-draft",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles/{id}/{action}",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "lock_version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/action.html",
+    "line": 1,
+    "action": "/admin/wiki/articles/{id}/submit-review",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles/{id}/{action}",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "lock_version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/action.html",
+    "line": 1,
+    "action": "/admin/wiki/articles/{id}/unpublish",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles/{id}/{action}",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "lock_version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/edit.html",
+    "line": 3,
+    "action": "/admin/wiki/articles",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "entity_key",
+      "lock_version",
+      "note",
+      "{{ value.locale }}_markdown",
+      "{{ value.locale }}_slug",
+      "{{ value.locale }}_summary",
+      "{{ value.locale }}_title"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/edit.html",
+    "line": 3,
+    "action": "/admin/wiki/articles/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles/{id}",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "entity_key",
+      "lock_version",
+      "note",
+      "{{ value.locale }}_markdown",
+      "{{ value.locale }}_slug",
+      "{{ value.locale }}_summary",
+      "{{ value.locale }}_title"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/wiki/history.html",
+    "line": 2,
+    "action": "/admin/wiki/articles/{id}/revisions/{source}/restore",
+    "method": "POST",
+    "route_pattern": "/admin/wiki/articles/{id}/revisions/{source}/restore",
+    "crate": "wiki",
+    "fields": [
+      "_csrf",
+      "lock_version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/world/index.html",
+    "line": 5,
+    "action": "/admin/world",
+    "method": "GET",
+    "route_pattern": "/admin/world",
+    "crate": "world",
+    "fields": [
+      "compare",
+      "page",
+      "version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/world/index.html",
+    "line": 10,
+    "action": "/admin/world",
+    "method": "POST",
+    "route_pattern": "/admin/world",
+    "crate": "world",
+    "fields": [
+      "_csrf",
+      "action",
+      "version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/world/index.html",
+    "line": 13,
+    "action": "/admin/world",
+    "method": "POST",
+    "route_pattern": "/admin/world",
+    "crate": "world",
+    "fields": [
+      "_csrf",
+      "action",
+      "allowed",
+      "key",
+      "kind",
+      "version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/world/index.html",
+    "line": 15,
+    "action": "/admin/world",
+    "method": "POST",
+    "route_pattern": "/admin/world",
+    "crate": "world",
+    "fields": [
+      "_csrf",
+      "action",
+      "en",
+      "key",
+      "kind",
+      "pl",
+      "version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/badges/selection.html",
+    "line": 6,
+    "action": "/account/badges",
+    "method": "POST",
+    "route_pattern": "/account/badges",
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "achievement",
+      "badge",
+      "profile",
+      "ranking"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/characters.html",
+    "line": 11,
+    "action": "/{lang}/account/bazaar/sell",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/bazaar/sell",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "character_id",
+      "currency",
+      "duration_days",
+      "publish_snapshot",
+      "request_id",
+      "starting_bid"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/characters.html",
+    "line": 37,
+    "action": "/{lang}/bazaar/{listing}",
+    "method": "GET",
+    "route_pattern": "/{lang}/bazaar/{listing}",
+    "crate": "bazaar",
+    "fields": [
+      "item"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/characters.html",
+    "line": 44,
+    "action": "/{lang}/account/bazaar/{listing}/bids",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/bazaar/{listing}/bids",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "amount",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 5,
+    "action": "/{lang}/bazaar/items/{id}/accept",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "offer_id",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 5,
+    "action": "/{lang}/bazaar/items/{id}/reject",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "offer_id",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 6,
+    "action": "/{lang}/bazaar/items/{id}/cancel",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 6,
+    "action": "/{lang}/bazaar/items/{id}/publish",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 6,
+    "action": "/{lang}/bazaar/items/{id}/renew",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 7,
+    "action": "/{lang}/bazaar/items/{id}/bid",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "amount",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 7,
+    "action": "/{lang}/bazaar/items/{id}/offer",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "amount",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/item.html",
+    "line": 7,
+    "action": "/{lang}/bazaar/items/{id}/buy-now",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items/{id}/{action}",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bazaar/new.html",
+    "line": 1,
+    "action": "/{lang}/bazaar/items",
+    "method": "POST",
+    "route_pattern": "/{lang}/bazaar/items",
+    "crate": "bazaar",
+    "fields": [
+      "_csrf",
+      "message",
+      "mode",
+      "request_id",
+      "{{ name }}"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/bestiary/page.html",
+    "line": 1,
+    "action": "/{lang}/atlas/bestiary/{character}",
+    "method": "GET",
+    "route_pattern": "/{lang}/atlas/bestiary/{character}",
+    "crate": "atlas",
+    "fields": [
+      "class",
+      "difficulty",
+      "stars"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/collection/battle.html",
+    "line": 4,
+    "action": "/{lang}/collection/battles/{id}",
+    "method": "POST",
+    "route_pattern": "/{lang}/collection/battles/{id}",
+    "crate": "minigames",
+    "fields": [
+      "_csrf",
+      "expected"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "strike"
+      },
+      {
+        "name": "action",
+        "value": "guard"
+      }
+    ]
+  },
+  {
+    "template": "templates/collection/index.html",
+    "line": 4,
+    "action": "/{lang}/collection/battles/{id}/forfeit",
+    "method": "POST",
+    "route_pattern": "/{lang}/collection/battles/{id}/forfeit",
+    "crate": "minigames",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/collection/index.html",
+    "line": 8,
+    "action": "/{lang}/collection/decks/{id}/battle",
+    "method": "POST",
+    "route_pattern": "/{lang}/collection/decks/{id}/battle",
+    "crate": "minigames",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/collection/index.html",
+    "line": 8,
+    "action": "/{lang}/collection/decks/{id}/delete",
+    "method": "POST",
+    "route_pattern": "/{lang}/collection/decks/{id}/delete",
+    "crate": "minigames",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/collection/index.html",
+    "line": 9,
+    "action": "/{lang}/collection/{character}/decks",
+    "method": "POST",
+    "route_pattern": "/{lang}/collection/{character}/decks",
+    "crate": "minigames",
+    "fields": [
+      "_csrf",
+      "first",
+      "name",
+      "second",
+      "third"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/components/thais-account-links.html",
+    "line": 25,
+    "action": "/{lang}/logout",
+    "method": "POST",
+    "route_pattern": "/{lang}/logout",
+    "crate": "identity",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/components/thais-header.html",
+    "line": 112,
+    "action": "/{lang}/logout",
+    "method": "POST",
+    "route_pattern": "/{lang}/logout",
+    "crate": "identity",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/content/announcements.html",
+    "line": 18,
+    "action": "/admin/announcements",
+    "method": "POST",
+    "route_pattern": null,
+    "crate": "content",
+    "fields": [
+      "_csrf",
+      "lock_version",
+      "{{ field.0 }}"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/content/announcements.html",
+    "line": 18,
+    "action": "/admin/announcements/{id}/edit",
+    "method": "POST",
+    "route_pattern": null,
+    "crate": "content",
+    "fields": [
+      "_csrf",
+      "lock_version",
+      "{{ field.0 }}"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/deaths/index.html",
+    "line": 8,
+    "action": "/characters/{name}/deaths",
+    "method": "GET",
+    "route_pattern": "/characters/{name}/deaths",
+    "crate": "community",
+    "fields": [
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/deaths/index.html",
+    "line": 8,
+    "action": "/deaths",
+    "method": "GET",
+    "route_pattern": "/deaths",
+    "crate": "community",
+    "fields": [
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/deaths/index.html",
+    "line": 8,
+    "action": "/{lang}/characters/{name}/deaths",
+    "method": "GET",
+    "route_pattern": "/{lang}/characters/{name}/deaths",
+    "crate": "community",
+    "fields": [
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/deaths/index.html",
+    "line": 8,
+    "action": "/{lang}/deaths",
+    "method": "GET",
+    "route_pattern": "/{lang}/deaths",
+    "crate": "community",
+    "fields": [
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/guilds/page.html",
+    "line": 5,
+    "action": "/guilds",
+    "method": "GET",
+    "route_pattern": "/guilds",
+    "crate": "community",
+    "fields": [
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/guilds/page.html",
+    "line": 5,
+    "action": "/{lang}/guilds",
+    "method": "GET",
+    "route_pattern": "/{lang}/guilds",
+    "crate": "community",
+    "fields": [
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/oauth/consent.html",
+    "line": 7,
+    "action": "/oauth/authorize",
+    "method": "POST",
+    "route_pattern": "/oauth/authorize",
+    "crate": "gameauth",
+    "fields": [
+      "_csrf",
+      "client_id",
+      "code_challenge",
+      "code_challenge_method",
+      "redirect_uri",
+      "response_type",
+      "scope",
+      "state"
+    ],
+    "buttons": [
+      {
+        "name": "decision",
+        "value": "approve"
+      },
+      {
+        "name": "decision",
+        "value": "deny"
+      }
+    ]
+  },
+  {
+    "template": "templates/pages/online.html",
+    "line": 12,
+    "action": "/online",
+    "method": "GET",
+    "route_pattern": "/online",
+    "crate": "community",
+    "fields": [
+      "sort",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/pages/online.html",
+    "line": 12,
+    "action": "/{lang}/online",
+    "method": "GET",
+    "route_pattern": "/{lang}/online",
+    "crate": "community",
+    "fields": [
+      "sort",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/pages/rankings.html",
+    "line": 13,
+    "action": "/{lang}/rankings/{kind}",
+    "method": "GET",
+    "route_pattern": "/{lang}/rankings/{kind}",
+    "crate": "community",
+    "fields": [
+      "vocation",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/pass/page.html",
+    "line": 7,
+    "action": "/{lang}/pass/{season}/buy",
+    "method": "POST",
+    "route_pattern": "/{lang}/pass/{season}/buy",
+    "crate": "minigames",
+    "fields": [
+      "_csrf",
+      "operation"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/pass/page.html",
+    "line": 9,
+    "action": "/{lang}/pass/{season}/claim",
+    "method": "POST",
+    "route_pattern": "/{lang}/pass/{season}/claim",
+    "crate": "minigames",
+    "fields": [
+      "_csrf",
+      "operation",
+      "reward"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/playerdata/hunts.html",
+    "line": 4,
+    "action": "/{lang}/account/hunts",
+    "method": "GET",
+    "route_pattern": "/{lang}/account/hunts",
+    "crate": "playerdata",
+    "fields": [
+      "character",
+      "from",
+      "offset",
+      "party",
+      "place",
+      "until"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/playerdata/hunts.html",
+    "line": 13,
+    "action": "/{lang}/account/hunts/compare",
+    "method": "GET",
+    "route_pattern": "/{lang}/account/hunts/compare",
+    "crate": "playerdata",
+    "fields": [
+      "ids"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/profile/settings.html",
+    "line": 14,
+    "action": "/account/characters/{name}/profile",
+    "method": "POST",
+    "route_pattern": "/account/characters/{name}/profile",
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "comment",
+      "hidden",
+      "hide_all_characters",
+      "is_main_character",
+      "rendered_hide_all_characters",
+      "show_account",
+      "show_deaths",
+      "show_guild",
+      "show_house",
+      "show_kills",
+      "show_online_time",
+      "show_skills",
+      "show_status"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/profile/settings.html",
+    "line": 14,
+    "action": "/{lang}/account/characters/{name}/profile",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/characters/{name}/profile",
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "comment",
+      "hidden",
+      "hide_all_characters",
+      "is_main_character",
+      "rendered_hide_all_characters",
+      "show_account",
+      "show_deaths",
+      "show_guild",
+      "show_house",
+      "show_kills",
+      "show_online_time",
+      "show_skills",
+      "show_status"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/profiles/page.html",
+    "line": 3,
+    "action": "/{lang}/characters",
+    "method": "GET",
+    "route_pattern": "/{lang}/characters",
+    "crate": "community",
+    "fields": [
+      "name"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/search/index.html",
+    "line": 4,
+    "action": "/{lang}/search",
+    "method": "GET",
+    "route_pattern": "/{lang}/search",
+    "crate": "web",
+    "fields": [
+      "kind",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/search/index.html",
+    "line": 12,
+    "action": "/search",
+    "method": "GET",
+    "route_pattern": "/search",
+    "crate": "web",
+    "fields": [
+      "kind",
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/search/index.html",
+    "line": 12,
+    "action": "/{lang}/search",
+    "method": "GET",
+    "route_pattern": "/{lang}/search",
+    "crate": "web",
+    "fields": [
+      "kind",
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/services/manage.html",
+    "line": 6,
+    "action": "/{lang}/account/characters/{character}/services",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/characters/{character}/services",
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "action",
+      "confirm",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/services/manage.html",
+    "line": 7,
+    "action": "/{lang}/account/characters/{character}/services",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/characters/{character}/services",
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "action",
+      "confirm",
+      "deletion_operation_id",
+      "request_id"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/services/manage.html",
+    "line": 10,
+    "action": "/{lang}/account/characters/{character}/services",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/characters/{character}/services",
+    "crate": "web",
+    "fields": [
+      "_csrf",
+      "accepted_price",
+      "action",
+      "confirm",
+      "request_id",
+      "requested_name"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/stats/character/index.html",
+    "line": 5,
+    "action": "/{lang}/stats/characters/{id}/{tab}",
+    "method": "GET",
+    "route_pattern": "/{lang}/stats/characters/{id}/{tab}",
+    "crate": "stats",
+    "fields": [
+      "end",
+      "ids",
+      "metric",
+      "start",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/stats/character/index.html",
+    "line": 5,
+    "action": "/{lang}/stats/compare",
+    "method": "GET",
+    "route_pattern": "/{lang}/stats/compare",
+    "crate": "stats",
+    "fields": [
+      "end",
+      "ids",
+      "metric",
+      "start",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/stats/guilds/index.html",
+    "line": 4,
+    "action": "/stats/guilds",
+    "method": "GET",
+    "route_pattern": "/stats/guilds",
+    "crate": "stats",
+    "fields": [
+      "compare",
+      "days",
+      "guild"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/stats/guilds/index.html",
+    "line": 4,
+    "action": "/{lang}/stats/guilds",
+    "method": "GET",
+    "route_pattern": "/{lang}/stats/guilds",
+    "crate": "stats",
+    "fields": [
+      "compare",
+      "days",
+      "guild"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/stats/rankings/index.html",
+    "line": 6,
+    "action": "/{lang}/stats/rankings/{kind}",
+    "method": "GET",
+    "route_pattern": "/{lang}/stats/rankings/{kind}",
+    "crate": "stats",
+    "fields": [
+      "pvp",
+      "vocation",
+      "world"
+    ],
+    "buttons": [
+      null,
+      {
+        "name": "page",
+        "value": "{{ page - 1 }}"
+      },
+      {
+        "name": "page",
+        "value": "{{ page + 1 }}"
+      }
+    ]
+  },
+  {
+    "template": "templates/stats/world/index.html",
+    "line": 5,
+    "action": "/stats/world",
+    "method": "GET",
+    "route_pattern": "/stats/world",
+    "crate": "stats",
+    "fields": [
+      "end",
+      "start",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/stats/world/index.html",
+    "line": 5,
+    "action": "/{lang}/stats/world",
+    "method": "GET",
+    "route_pattern": "/{lang}/stats/world",
+    "crate": "stats",
+    "fields": [
+      "end",
+      "start",
+      "world"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/calculators/page.html",
+    "line": 22,
+    "action": "/{lang}/wiki/calculators",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/calculators",
+    "crate": "wiki",
+    "fields": [
+      "calculator",
+      "current",
+      "target"
+    ],
+    "buttons": [
+      null
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "experience"
+    }
+  },
+  {
+    "template": "templates/wiki/calculators/page.html",
+    "line": 28,
+    "action": "/{lang}/wiki/calculators",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/calculators",
+    "crate": "wiki",
+    "fields": [
+      "calculator",
+      "current",
+      "offline"
+    ],
+    "buttons": [
+      null
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "stamina"
+    }
+  },
+  {
+    "template": "templates/wiki/calculators/page.html",
+    "line": 34,
+    "action": "/{lang}/wiki/calculators",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/calculators",
+    "crate": "wiki",
+    "fields": [
+      "calculator",
+      "dummy",
+      "family",
+      "remaining"
+    ],
+    "buttons": [
+      null
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "training"
+    }
+  },
+  {
+    "template": "templates/wiki/calculators/page.html",
+    "line": 41,
+    "action": "/{lang}/wiki/calculators",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/calculators",
+    "crate": "wiki",
+    "fields": [
+      "calculator",
+      "members",
+      "total"
+    ],
+    "buttons": [
+      null
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "loot"
+    }
+  },
+  {
+    "template": "templates/wiki/entities_list.html",
+    "line": 6,
+    "action": "/wiki/{kind}",
+    "method": "GET",
+    "route_pattern": "/wiki/{kind}",
+    "crate": "wiki",
+    "fields": [
+      "category",
+      "classification",
+      "kind",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/entities_list.html",
+    "line": 6,
+    "action": "/{lang}/wiki/{kind}",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/{kind}",
+    "crate": "wiki",
+    "fields": [
+      "category",
+      "classification",
+      "kind",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/entities_list.html",
+    "line": 15,
+    "action": "/wiki/{kind}",
+    "method": "GET",
+    "route_pattern": "/wiki/{kind}",
+    "crate": "wiki",
+    "fields": [
+      "category",
+      "classification",
+      "kind",
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/entities_list.html",
+    "line": 15,
+    "action": "/{lang}/wiki/{kind}",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/{kind}",
+    "crate": "wiki",
+    "fields": [
+      "category",
+      "classification",
+      "kind",
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/index.html",
+    "line": 3,
+    "action": "/{lang}/wiki/search",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/search",
+    "crate": "wiki",
+    "fields": [
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/index.html",
+    "line": 6,
+    "action": "/wiki",
+    "method": "GET",
+    "route_pattern": "/wiki",
+    "crate": "wiki",
+    "fields": [
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/index.html",
+    "line": 6,
+    "action": "/wiki/search",
+    "method": "GET",
+    "route_pattern": "/wiki/search",
+    "crate": "wiki",
+    "fields": [
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/index.html",
+    "line": 6,
+    "action": "/{lang}/wiki",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki",
+    "crate": "wiki",
+    "fields": [
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/wiki/index.html",
+    "line": 6,
+    "action": "/{lang}/wiki/search",
+    "method": "GET",
+    "route_pattern": "/{lang}/wiki/search",
+    "crate": "wiki",
+    "fields": [
+      "page",
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  }
+]

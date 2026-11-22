@@ -5,11 +5,15 @@ const v7=()=>{const s=crypto.randomUUID().split('');s[14]='7';return s.join('');
 
 // Disposable local read-model fixtures only. The Rust privacy_authority test
 // separately proves authenticated Game push ingestion; no production seeding exists.
-test('T45 owner settings control live online and public profile privacy',async({page},info)=>{
+async function privacyJourney(page, info, checkFilters) {
  test.setTimeout(180_000);
  const lang=info.project.metadata.locale,account=await register(page,lang);await login(page,lang,account);
  const db=pool(),character=v7(),world=v7(),foreign=v7(),foreignCharacter=v7();
  const name=`Privacy${crypto.randomBytes(4).toString('hex')}`,foreignName=`Foreign${crypto.randomBytes(4).toString('hex')}`;
+ const otherWorld = v7();
+ const higher = {id: v7(), name: `Veteran${name.slice('Privacy'.length)}`, world, level: '500'};
+ const visitor = {id: v7(), name: `Visitor${name.slice('Privacy'.length)}`, world: otherWorld, level: '700'};
+ const additional = checkFilters ? [higher, visitor] : [];
  const authority=process.env.OTERYN_LCFA_SOURCE_AUTHORITY,publicAuthority=process.env.PORTAL_PUBLIC_PROJECTIONS_AUTHORITY;
  let timer,baseline,publicState,watermarks=[];
  try {
@@ -29,6 +33,18 @@ test('T45 owner settings control live online and public profile privacy',async({
   const profile={contract_version:1,operation:'PublishCharacterProfileV1',source_authority:publicAuthority,character_id:character,projection_epoch:publicEpoch,projection_revision:'1',source_observed_at:String(stamp()),profile:[{world_id:world,name,vocation:4,level:'412',guild:[],guild_visible:false}]};
   const online={contract_version:1,operation:'PublishWorldOnlineV1',source_authority:publicAuthority,world_id:world,projection_epoch:publicEpoch,projection_revision:'1',source_observed_at:String(stamp()),characters:[{name,vocation:4,level:'412'},{name:'UnknownPrivacySubject',vocation:4,level:'500'}]};
   await db.query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,$2,1,$3,$4),('world_online',$5,$2,1,$3,$6)",[character,publicEpoch,stamp(),profile,world,online]);
+  for (const entry of additional) {
+   await db.query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,$4,'AVAILABLE')", [owner, entry.id, entry.world, entry.name]);
+   const extraProfile = {...profile, character_id: entry.id,
+    profile: [{...profile.profile[0], world_id: entry.world, name: entry.name, level: entry.level}]};
+   await db.query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,$2,1,$3,$4)", [entry.id, publicEpoch, stamp(), extraProfile]);
+  }
+  if (checkFilters) {
+   online.characters.unshift({name: higher.name, vocation: 4, level: higher.level});
+   await db.query("UPDATE public_snapshots SET payload=$2 WHERE family='world_online' AND NOT is_watermark AND subject=$1", [world, online]);
+   const secondRoster = {...online, world_id: otherWorld, characters: [{name: visitor.name, vocation: 4, level: visitor.level}]};
+   await db.query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('world_online',$1,$2,1,$3,$4)", [otherWorld, publicEpoch, stamp(), secondRoster]);
+  }
   const heartbeat=async()=>{
    await db.query('UPDATE account_character_feed SET highest_epoch=$1,watermark_epoch=$1,source_authority=$2,complete_through=$3,observed_at=$3 WHERE id=1',[epoch,authority,stamp()]);
    // Both families need a fresh complete-through cut: /online withholds names without one (H090).
@@ -47,6 +63,43 @@ test('T45 owner settings control live online and public profile privacy',async({
   expect(await onlineBody()).not.toContain(name); // account status remains the upper bound
   await page.goto(`/${lang}/account/privacy`);await submit(page,'main form',{public_status_visible:true});
   let body=await onlineBody();expect(body).toContain(name);expect(body).not.toContain('UnknownPrivacySubject');expect(body).not.toContain(owner);
+  if (checkFilters) {
+   for (const entry of additional) {
+    expect((await page.goto(`/${lang}/account/characters/${entry.name}/profile`)).status()).toBe(200);
+    await submit(page, 'main form', {hidden: false, show_status: true});
+   }
+  }
+  if (checkFilters) await test.step('submit the localized and unprefixed roster filters', async () => {
+   for (const path of [`/${lang}/online`, '/online']) {
+    await heartbeat();
+    expect((await page.goto(path)).status()).toBe(200);
+    const filter = page.locator('main form[method=get]:has(select[name=world])');
+    const displayed = page.locator('main section li');
+    await expect(displayed).toHaveCount(3);
+    const worldSection = page.locator('main section').filter({has: page.getByRole('heading', {name: world, exact: true})});
+    await expect(worldSection.locator('li')).toHaveText([
+     new RegExp(`^${name} · .*412`), new RegExp(`^${higher.name} · .*500`),
+    ]);
+    await expect(displayed.filter({hasText: visitor.name})).toBeVisible();
+    await filter.locator('[name=world]').selectOption(world);
+    await filter.locator('[name=sort]').selectOption('level');
+    const [result] = await Promise.all([
+     page.waitForResponse(response => response.request().isNavigationRequest() && new URL(response.url()).pathname === path),
+     filter.getByRole('button').click(),
+    ]);
+    expect(result.status()).toBe(200);
+    expect(result.headers()['cache-control']).toContain('no-store');
+    expect(Object.fromEntries(new URL(result.url()).searchParams)).toEqual({world, sort: 'level'});
+    await expect(page.locator('main section h2')).toHaveText([world]);
+    await expect(displayed).toHaveText([
+     new RegExp(`^${higher.name} · .*500`), new RegExp(`^${name} · .*412`),
+    ]);
+    await expect(displayed.filter({hasText: visitor.name})).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('UnknownPrivacySubject');
+    await expect(filter.locator('[name=world]')).toHaveValue(world);
+    await expect(filter.locator('[name=sort]')).toHaveValue('level');
+   }
+  });
   const profileResponse=await page.request.get(`/${lang}/characters/${name}`);expect(profileResponse.status()).toBe(200);const html=await profileResponse.text();expect(html).not.toContain('<script>private comment</script>');expect(html).toContain('private comment');
   await page.goto(target);await submit(page,'main form',{show_status:false});expect(await onlineBody()).not.toContain(name);
   await submit(page,'main form',{show_status:true,hidden:true});expect(await onlineBody()).not.toContain(name);
@@ -64,7 +117,7 @@ test('T45 owner settings control live online and public profile privacy',async({
   for(const path of ['deaths','guilds','houses','stats/guilds',`stats/world?world=${registeredWorld}&start=2026-11-01&end=2026-11-02`,'wiki/places']){const response=await page.request.get(`/${lang}/${path}`);expect(response.status(),`${path}: Game contract gate`).toBe(503);expect(response.headers()['cache-control']).toContain('no-store');}
  } finally {
   clearInterval(timer);
-  await db.query("DELETE FROM public_snapshots WHERE NOT is_watermark AND subject=ANY($1)",[[character,world]]);
+  await db.query("DELETE FROM public_snapshots WHERE NOT is_watermark AND subject=ANY($1)",[[character,world,otherWorld,...additional.map(entry=>entry.id)]]);
   await db.query("DELETE FROM public_snapshots WHERE family IN ('character_profile','world_online') AND is_watermark AND subject=''");
   for(const w of watermarks)await db.query('INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload,previous_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(family,subject,is_watermark) DO UPDATE SET epoch=$4,version=$5,watermark=$6,payload=$7,previous_snapshot=$8',[w.family,w.subject,w.is_watermark,w.epoch,w.version,w.watermark,w.payload,w.previous_snapshot]);
   await db.query('DELETE FROM accounts WHERE id=$1',[foreign]);
@@ -72,4 +125,8 @@ test('T45 owner settings control live online and public profile privacy',async({
   if(publicState!==undefined)await db.query('UPDATE public_projection_state SET highest_epoch=$1 WHERE id=1',[publicState]);
   await db.end();
  }
-});
+}
+test('T45 owner settings control live online and public profile privacy', ({page},info) =>
+ privacyJourney(page, info, false));
+test('ledger-unhit roster filters exclude other worlds and reorder visible characters', ({page},info) =>
+ privacyJourney(page, info, true));
