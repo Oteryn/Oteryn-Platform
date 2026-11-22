@@ -290,7 +290,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &cookie,
             &csrf,
             format!(
-                "action=set-permissions&role={role}&permissions=admin.access%20{}",
+                "action=set-permissions&role={role}&permissions=admin.access%20{}&reason=role_assignment",
                 Permission::ManageWikiArticles.as_str()
             )
         )
@@ -959,5 +959,117 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
             "role_assignment".into()
         )
     );
+    db.close().await
+}
+
+#[tokio::test]
+async fn widening_an_assigned_role_requires_the_direct_grant_controls() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Fixture::open(3).await?;
+    insert_account(&db, db.actor.account, "active").await?;
+    let recipient = Uuid::now_v7();
+    insert_account(&db, recipient, "active").await?;
+    let assigned: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES ('assigned_finance') RETURNING id")
+            .fetch_one(&db.pool)
+            .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(recipient)
+        .bind(assigned)
+        .execute(&db.pool)
+        .await?;
+    let (cookie, csrf) = browser(&db).await?;
+    let edit = format!("action=set-permissions&role={assigned}&permissions=payments.reconcile");
+    let confirmed = format!("{edit}&reason=role_assignment");
+    let grant_role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&db.pool)
+        .await?;
+    sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.grant'")
+        .bind(grant_role)
+        .execute(&db.pool)
+        .await?;
+    crate::test_staff::recent_password(&db.pool, &cookie).await?;
+    for form in [&edit, &confirmed] {
+        assert_eq!(
+            post(&db, &cookie, &csrf, form.clone()).await?,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.roles.grant')")
+        .bind(grant_role)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query("UPDATE web_sessions SET sudo_until=clock_timestamp() WHERE account_id=$1")
+        .bind(db.actor.account)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        post(&db, &cookie, &csrf, confirmed.clone()).await?,
+        StatusCode::FORBIDDEN
+    );
+    crate::test_staff::recent_password(&db.pool, &cookie).await?;
+    assert_eq!(
+        post(&db, &cookie, &csrf, edit.clone()).await?,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(&db, &cookie, "invalid", confirmed.clone()).await?,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(&db, &cookie, &csrf, format!("{edit}&reason=unapproved")).await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    let recipient_context = CheckContext {
+        account: recipient,
+        ..db.actor
+    };
+    let auth = Authorizer::new(db.pool.clone(), PortalIdentity::configured(db.pool.clone()));
+    let evidence = || async {
+        sqlx::query_as::<_, (serde_json::Value, serde_json::Value, String)>(
+            "SELECT before,after,staff_reason FROM audit_log WHERE action='rbac.role.permissions_changed' AND target=$1",
+        ).bind(assigned.to_string()).fetch_all(&db.pool).await
+    };
+    assert!(matches!(
+        auth.check(recipient_context, Permission::ReconcilePayments)
+            .await,
+        Err(super::Error::Denied)
+    ));
+    assert!(evidence().await?.is_empty());
+    assert_eq!(
+        post(&db, &cookie, &csrf, confirmed.clone()).await?,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        post(&db, &cookie, &csrf, confirmed).await?,
+        StatusCode::SEE_OTHER
+    );
+    auth.check(recipient_context, Permission::ReconcilePayments)
+        .await?;
+    assert_eq!(
+        evidence().await?,
+        vec![(
+            serde_json::json!({"permissions": []}),
+            serde_json::json!({"permissions": ["payments.reconcile"]}),
+            "role_assignment".into()
+        )]
+    );
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
+            &csrf,
+            format!("action=set-permissions&role={assigned}&permissions=")
+        )
+        .await?,
+        StatusCode::SEE_OTHER
+    );
+    assert!(matches!(
+        auth.check(recipient_context, Permission::ReconcilePayments)
+            .await,
+        Err(super::Error::Denied)
+    ));
     db.close().await
 }
