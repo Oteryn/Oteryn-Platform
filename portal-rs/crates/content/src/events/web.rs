@@ -141,10 +141,14 @@ async fn index(
     if let Err(e) = locale(&lang) {
         return response(e);
     }
-    match events.public_page(&lang, None, q.offset(200), 201).await {
+    const PAGE_SIZE: usize = 200;
+    match events
+        .public_page(&lang, None, q.offset(PAGE_SIZE as i64), PAGE_SIZE as i64 + 1)
+        .await
+    {
         Ok(mut rows) => {
-            let more = rows.len() > 200;
-            rows.truncate(200);
+            let more = rows.len() > PAGE_SIZE;
+            rows.truncate(PAGE_SIZE);
             oteryn_web::render(&PublicPage {
                 lang: &lang,
                 title: text(&lang, "events"),

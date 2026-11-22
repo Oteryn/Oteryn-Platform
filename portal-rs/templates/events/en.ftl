@@ -15,4 +15,4 @@ scheduled = Scheduled
 published = Published
 archived = Archived
 apply = Change status
-next = Next page
+next = Next

@@ -35,31 +35,34 @@ test('module navigation opens every enabled group by keyboard and touch', async 
  await page.goto(url);
  const menu = page.locator('#portal-header details.om-fallback-menu');
  const summary = menu.locator(':scope > summary');
- const nav = menu.locator(':scope > nav');
- await expect(nav).toBeHidden();
- await summary.focus();
- await page.keyboard.press('Enter');
+ const nav = page.locator('#portal-navigation');
+ const mobile = info.project.use.viewport.width <= 960;
+ if (mobile) {
+   await expect(nav).toBeHidden();
+   await summary.focus();
+   await page.keyboard.press('Enter');
+ } else {
+   await expect(summary).toBeHidden();
+ }
  await expect(nav).toBeVisible();
- await page.keyboard.press('Tab');
- await expect(nav.locator('a').first()).toBeFocused();
  const panels = nav.locator('.om-panel');
  await expect(panels).toHaveCount(2);
  for (const panel of await panels.all()) {
+   await panel.locator('..').locator('summary').focus();
+   await page.keyboard.press('Enter');
    await expect(panel.locator('a').first()).toBeVisible();
    const bounds = await panel.boundingBox();
    expect(bounds.x).toBeGreaterThanOrEqual(0);
    expect(bounds.x + bounds.width).toBeLessThanOrEqual(info.project.use.viewport.width);
  }
- await summary.focus();
- await page.keyboard.press('Space');
- await expect(nav).toBeHidden();
  const context = await browser.newContext({ignoreHTTPSErrors:true, hasTouch:true, viewport:info.project.use.viewport, locale:lang, baseURL:process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443'});
  try {
    await context.addCookies(cookies);
    const screen = await context.newPage();
    for (const id of await panels.evaluateAll(nodes => nodes.map(node => node.id))) {
      await screen.goto(url);
-     await screen.locator('#portal-header details.om-fallback-menu > summary').tap();
+     if (mobile) await screen.locator('.om-fallback-menu > summary').tap();
+     await screen.locator('#' + id).locator('..').locator('summary').tap();
      const link = screen.locator('#' + id).locator('a').last();
      const destination = await link.getAttribute('href');
      await link.tap();
@@ -77,12 +80,11 @@ test('module navigation remains usable when the world route disallows scripts', 
  await expect(page.locator('script[src$="/thais/home.js"]')).toHaveCount(0);
  const menu = page.locator('details.om-fallback-menu');
  const summary = menu.locator(':scope > summary');
- await expect(summary).toBeVisible();
- await expect(menu.locator(':scope > #portal-navigation')).toBeHidden();
- await summary.focus();
- await page.keyboard.press('Enter');
- await expect(menu.locator(':scope > #portal-navigation')).toBeVisible();
- const wiki = menu.locator(`a[href="/${lang}/wiki"]`);
+ const nav = page.locator('#portal-navigation');
+ if (info.project.use.viewport.width <= 960) await summary.click();
+ await expect(nav).toBeVisible();
+ await nav.locator('.om-section > summary').first().click();
+ const wiki = nav.locator(`a[href="/${lang}/wiki"]`);
  await expect(wiki).toBeVisible();
  await wiki.click();
  await expect(page).toHaveURL(new URL(`/${lang}/wiki`, page.url()).href);

@@ -23,11 +23,11 @@ delivery to the flagged Platform evidence view.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T15:25:39Z
-head: UNKNOWN
+updated_at: 2026-11-22T16:20:00Z
+head: 59b733b03c4d1c3f64235ea3e4e81fac6e181940
 branch: codex/feat-collection-adapters
 pr: 2014
-status: ready
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/crates/minigames/src/collection/
@@ -61,13 +61,13 @@ validation:
     evidence: Formatting clean.
 blockers:
   - none
-next_action: Preserve the published branch for owner review.
+next_action: none; delivered by PR #2014 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Owner requested a branch push without a PR or merge.
-source_branch_evidence: codex/feat-collection-adapters
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: Dedicated same-repository task branch for issue 2002.
+source_branch_evidence: PR #2014 merged as 59b733b03c4d1c3f64235ea3e4e81fac6e181940 on 2026-11-22; refs/heads/codex/feat-collection-adapters no longer exists on origin
 ```

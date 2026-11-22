@@ -35,3 +35,8 @@ announcement-title-pl = Tytuł (polski)
 announcement-body-pl = Treść (polska)
 announcement-action-label-pl = Etykieta akcji (polska)
 announcement-translation-published-at = Data zatwierdzenia tłumaczenia (UTC)
+
+support = Pomoc dla graczy
+report-a-bug = Zgłoś błąd
+help-tickets = Wyślij zgłoszenie do pomocy
+help-password = Odzyskaj dostęp do konta

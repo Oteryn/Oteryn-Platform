@@ -35,3 +35,8 @@ announcement-title-pl = Title (Polish)
 announcement-body-pl = Body (Polish)
 announcement-action-label-pl = Action label (Polish)
 announcement-translation-published-at = Translation approved at (UTC)
+
+support = Player support
+report-a-bug = Report a bug
+help-tickets = Submit a support ticket
+help-password = Recover access to your account
