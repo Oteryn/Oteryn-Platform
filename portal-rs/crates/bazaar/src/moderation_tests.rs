@@ -901,8 +901,6 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .bind(listing)
     .fetch_one(&db.pool)
     .await?;
-    std::fs::remove_dir_all(directory)?;
-    db.end().await;
     assert_eq!(
         state,
         State::Cancelled,
@@ -911,6 +909,38 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     assert_eq!(stale_state, State::Active);
     assert_eq!(balances, [(200, 0), (200, 0)]);
     assert_eq!(releases, 2);
+
+    // The worker may have selected the old request before a new hold and
+    // approval took effect. Rechecking must match the selected request itself.
+    let current_request = Uuid::now_v7();
+    db.staff(
+        requester,
+        StaffCommand::RequestInvalidation {
+            id: current_request,
+            listing: stale,
+            reason: "Confirmed policy violation".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        Uuid::now_v7(),
+        StaffCommand::ApproveInvalidation {
+            id: current_request,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
+    runtime.invalidate(stale_request, stale).await?;
+    let state = || {
+        sqlx::query_scalar::<_, State>("SELECT state FROM bazaar_listings WHERE id=$1")
+            .bind(stale)
+            .fetch_one(&db.pool)
+    };
+    assert_eq!(state().await?, State::Active);
+    runtime.invalidate(current_request, stale).await?;
+    assert_eq!(state().await?, State::Cancelled);
+    std::fs::remove_dir_all(directory)?;
+    db.end().await;
     Ok(())
 }
 
