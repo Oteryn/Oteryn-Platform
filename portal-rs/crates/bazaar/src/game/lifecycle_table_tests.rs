@@ -1148,7 +1148,7 @@ async fn gold_activity_hides_previous_leader_release() {
     let listing = uid("20");
     let previous_hold = uid("83");
     gold_bid(&db).await;
-    commit_gold_hold(&db, previous_hold).await;
+    commit_gold_hold(&db, previous_hold, previous, 10000).await;
     db.runtime.tick_gold_bids().await.unwrap();
     let previous_activity = bid_activity(&db, previous).await;
     assert_eq!(previous_activity.0, "accepted");
@@ -1168,7 +1168,7 @@ async fn gold_activity_hides_previous_leader_release() {
         .unwrap();
     let pending = bid_activity(&db, challenger).await;
     assert_eq!(pending.0, "pending");
-    commit_gold_hold(&db, uid("84")).await;
+    commit_gold_hold(&db, uid("84"), challenger, 20000).await;
     db.runtime.tick_gold_bids().await.unwrap();
     assert_eq!(
         funding_state(&db, request).await,
@@ -1264,7 +1264,7 @@ async fn lifecycle_gold_pending_commit_hold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let request = gold_bid(&db).await;
-    commit_gold_hold(&db, uid("83")).await;
+    commit_gold_hold(&db, uid("83"), uid("13"), 10000).await;
     db.runtime.tick().await.unwrap();
     let (phase, leader) = funding_state(&db, request).await;
     db.end().await;
@@ -1272,14 +1272,17 @@ async fn lifecycle_gold_pending_commit_hold() {
     assert_eq!(leader, Some(uid("13")));
 }
 
-async fn commit_gold_hold(db: &BrowserFixture, hold_id: Uuid) {
+async fn commit_gold_hold(db: &BrowserFixture, hold_id: Uuid, buyer: Uuid, amount: u64) {
     let hold = newest_intent(db, uid("20"), Command::Hold).await;
+    assert_eq!(
+        id(text(&hold.value, "buyer_account_id").unwrap()).unwrap(),
+        buyer
+    );
+    assert_eq!(text(&hold.value, "amount").unwrap(), amount.to_string());
     let data = format!(
-        r#"{{"hold_id":"{hold_id}","hold_revision":"1","buyer_account_id":"{}","offer_id":"{}","hold_purpose":"{}","held_amount":"{}"}}"#,
-        text(&hold.value, "buyer_account_id").unwrap(),
+        r#"{{"hold_id":"{hold_id}","hold_revision":"1","buyer_account_id":"{buyer}","offer_id":"{}","hold_purpose":"{}","held_amount":"{amount}"}}"#,
         text(&hold.value, "offer_id").unwrap(),
         text(&hold.value, "hold_purpose").unwrap(),
-        text(&hold.value, "amount").unwrap(),
     );
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
@@ -1320,7 +1323,7 @@ async fn lifecycle_gold_release(accepted: bool) {
         .unwrap();
     }
     let request = gold_bid(&db).await;
-    commit_gold_hold(&db, uid("83")).await;
+    commit_gold_hold(&db, uid("83"), uid("13"), 10000).await;
     if !accepted {
         sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
             .bind(buyer)
