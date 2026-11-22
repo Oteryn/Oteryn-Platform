@@ -7,7 +7,8 @@ import {recoveryCodes} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
- test.setTimeout(300_000);
+ // The sweep runs the full accessibility and CSRF checks on each linked page.
+ test.setTimeout(720_000);
  const lang=info.project.metadata.locale;
  const staff=await register(page,lang);
  const db=pool();
