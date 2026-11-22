@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test as base, expect } from '../fixtures.mjs';
 import { password, submit, waitForLoginBudget } from '../helpers.mjs';
+import { localDatabaseURL } from '../local-database.mjs';
 import { membership, query } from '../staff-rbac-helpers.mjs';
 import {
   adminAgent, agentId, characterId, characterName, ledgerId, nodeId, resultRevision, startStaffConsoleHarness, worldId,
@@ -13,10 +14,12 @@ import {
 const copies = {
   en: { fresh: 'Fresh', unavailable: 'Unavailable', pending: 'Awaiting a stored result',
     rejected: 'Query rejected', expired: 'Query expired', source: 'Game agent · observed at',
-    poll: 'Check stored results', player: 'Players' },
+    poll: 'Check stored results', player: 'Players',
+    playerSections: ['Characters and dossier', 'Inventory', 'Sanctions'] },
   pl: { fresh: 'Aktualne', unavailable: 'Niedostępne', pending: 'Oczekiwanie na zapisany wynik',
     rejected: 'Zapytanie odrzucone', expired: 'Zapytanie wygasło', source: 'Agent gry · czas obserwacji',
-    poll: 'Sprawdź zapisane wyniki', player: 'Gracze' },
+    poll: 'Sprawdź zapisane wyniki', player: 'Gracze',
+    playerSections: ['Postacie i dossier', 'Ekwipunek', 'Kary'] },
 };
 const operations = [
   ['dashboard', 'ops.overview.get', '', '41'],
@@ -33,10 +36,21 @@ const queryForm = operation => `form[method=post]:has(input[name=operation][valu
 const fields = form => form.evaluate(element => Object.fromEntries(new FormData(element)));
 const url = (route, params) => `${route}?${new URLSearchParams(params)}`;
 
+async function unavailableSection(page, heading, unavailable) {
+  const section = page.locator('main section').filter({
+    has: page.getByRole('heading', { level: 2, name: heading, exact: true }),
+  });
+  const rows = section.locator('ul > li');
+  await expect(rows).toHaveText([unavailable]);
+  await expect(rows).toBeVisible();
+}
+
 function harness(directory) {
   const secret = name => fs.readFileSync(path.join(directory, 'secrets', name), 'utf8');
   const settings = JSON.parse(secret('admin-agent.json'));
   const env = JSON.parse(secret('env.json'));
+  assert(localDatabaseURL(env.OTERYN_DATABASE_URL).pathname.startsWith('/portal_e2e_'),
+    'Staff console fixtures require a local portal_e2e_ database');
   const seedBinary = secret('seed-binary');
   return {
     ...settings,
@@ -328,11 +342,15 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
       const dossierForm = page.locator('main form[method=get]');
       await dossierForm.locator('[name=character]').fill(characterId);
       expect((await navigation(page, () => dossierForm.getByRole('button').click())).status()).toBe(200);
-      await expect(page.getByText(copy.unavailable, { exact: true }).first()).toBeVisible();
+      for (const heading of copy.playerSections) {
+        await unavailableSection(page, heading, copy.unavailable);
+      }
       await expect(page.locator('main')).not.toContainText(characterName);
       await post(page, players, search, 303);
       expect((await page.goto(url(players, { lang, q: search.q }))).status()).toBe(200);
-      await expect(page.getByText(copy.unavailable, { exact: true }).first()).toBeVisible();
+      for (const heading of copy.playerSections) {
+        await unavailableSection(page, heading, copy.unavailable);
+      }
       await expect(page.locator('main')).not.toContainText(characterName);
 
       expect((await auditPage.goto(url(audit, { lang }))).status()).toBe(200);
@@ -341,7 +359,7 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
         await auditForm.locator(`[name=${name}]`).fill(value);
       }
       expect((await navigation(auditPage, () => auditForm.getByRole('button').click())).status()).toBe(200);
-      await expect(auditPage.getByText(copy.unavailable, { exact: true }).first()).toBeVisible();
+      await unavailableSection(auditPage, copy.source, copy.unavailable);
       await expect(auditPage.locator('main')).not.toContainText(ledgerId);
     });
   } finally {

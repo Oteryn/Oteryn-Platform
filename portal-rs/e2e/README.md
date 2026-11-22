@@ -121,11 +121,17 @@ status and scope assignment are bound to the scopes in
 `PORTAL_E2E_NATIVE_SCOPES` (JSON array of `"<world UUIDv7>/<channel UUIDv7>"`,
 default one `Entry` scope). Ports come from `PORTAL_E2E_HTTP_PORT`,
 `PORTAL_E2E_INTERNAL_PORT`, `PORTAL_E2E_ADMISSION_PORT` and
-`PORTAL_E2E_GATEWAY_PORT`. `PORTAL_E2E_BINARY` skips the build.
+`PORTAL_E2E_GATEWAY_PORT`. `PORTAL_E2E_BINARY` skips the build. Relative
+binary paths are resolved from `portal-rs` for services and browser seeds.
+`--staff-console` requires both `OTERYN_ENV` and `APP_ENV` to be `testing`.
 `--exit-after-ready` stops after the report. Ctrl-C or SIGTERM stops the
-services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
+services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it after
+readiness). A startup failure or interruption drops the database and removes
+generated credentials, leaving diagnostic logs in the output directory.
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
+
+Run the harness guard tests from `portal-rs/e2e` with `node --test harness.test.mjs`.
 
 ### Seed commands
 

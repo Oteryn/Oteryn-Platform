@@ -13,6 +13,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { SMTPServer } from 'smtp-server';
+import { localDatabaseURL } from './local-database.mjs';
 
 export const agentId = 'staff-console-e2e';
 export const worldId = '019b0760-0000-7000-8000-000000000001';
@@ -82,9 +83,8 @@ function signingBytes({ signature, ...envelope }) {
 // Start a separate harness so attaching an agent cannot change another spec.
 export async function startStaffConsoleHarness(databaseURL) {
   assert(databaseURL, 'Set PORTAL_E2E_ADMIN_AGENT_DIRECTORY or run browser qualification with a disposable database');
-  const adminURL = new URL(databaseURL);
-  assert(['localhost', '127.0.0.1', '[::1]'].includes(adminURL.hostname)
-    && adminURL.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
+  const adminURL = localDatabaseURL(databaseURL);
+  assert(adminURL.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
   adminURL.pathname = '/postgres';
   const listeners = [];
   const portEnv = {};
@@ -128,7 +128,7 @@ export async function startStaffConsoleHarness(databaseURL) {
   }
 }
 
-export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports }) {
+export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports, onCleanup }) {
   const cn = `oteryn-admin-agent/${agentId}`;
   const san = `${agentId}.e2e.test`;
   const client = { cert: path.join(dirs.secrets, 'admin-agent.pem'), key: path.join(dirs.secrets, 'admin-agent.key') };
@@ -164,6 +164,7 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
     upstream.on('error', () => { response.writeHead(502).end(); });
     request.pipe(upstream);
   });
+  onCleanup(() => proxy.close());
   await once(proxy.listen(0, '127.0.0.1'), 'listening');
   const host = `localhost:${proxy.address().port}`;
   const origin = `https://${host}`;
@@ -185,7 +186,11 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
       stream.resume();
     },
   });
-  await once(smtp.listen(0, '127.0.0.1'), 'listening');
+  onCleanup(() => smtp.close());
+  await new Promise((resolve, reject) => {
+    smtp.once('error', reject);
+    smtp.listen(0, '127.0.0.1', resolve);
+  });
   const file = path.join(out, 'secrets', 'admin-agent.json');
   fs.writeFileSync(file, JSON.stringify({
     origin, internalPort: ports.internal, caFile, client,
@@ -213,10 +218,6 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
         cn, identity: { san }, allowed_worlds: [worldId], allowed_nodes: [nodeId],
         result_key: { public_key: rawPublicKey(resultKey.publicKey), not_before: notBefore, not_after: notAfter },
       }]),
-    },
-    close() {
-      smtp.close();
-      proxy.close();
     },
   };
 }
