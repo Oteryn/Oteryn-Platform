@@ -4,6 +4,7 @@ import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {isolatedAdmin,query} from '../staff-rbac-helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {routeCaseTitle} from '../route-cases.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
 let cookies,account,gmCookies;
@@ -11,7 +12,7 @@ test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
-for(const row of rows)test(`route ${row.crate} ${row.route}${row.route === '/console' || ['/console/dashboard','/console/worlds','/console/nodes','/console/database'].includes(row.route) ? ` (${row.actor})` : ''}`,async({page,context},info)=>{
+for(const row of rows)test(routeCaseTitle(row, rows),async({page,context},info)=>{
  const lang=info.project.metadata.locale;
  if (row.actor === 'gm') {
    if (!gmCookies) {
@@ -32,7 +33,7 @@ for(const row of rows)test(`route ${row.crate} ${row.route}${row.route === '/con
    await context.addCookies(staff.cookies);
  }else await context.addCookies(cookies);
  const target=sample(row.route,lang);
- const disabled = row.disabled && process.env[row.disabled.flag] === 'false';
+ const disabled = row.disabled && process.env[row.disabled.flag] !== 'true';
  const expectedStatus = disabled ? row.disabled.status : row.status;
  const redirect = disabled ? null : row.redirect;
  if (redirect) {
