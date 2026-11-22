@@ -24,7 +24,7 @@ class NightlyAuthorization(unittest.TestCase):
     def test_newest_scheduled_run_must_be_fresh_completed_and_successful(self):
         for now, since in [('2026-11-22T02:16:59+00:00', '2026-11-21T02:17:00Z'),
                            ('2026-11-22T02:17:00+00:00', '2026-11-22T02:17:00Z')]:
-            green = dict(display_title='Portal RS E2E Nightly', created_at=since,
+            green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly', created_at=since,
                          status='completed', conclusion='success')
             cases = [
                 ([], False),
@@ -33,6 +33,8 @@ class NightlyAuthorization(unittest.TestCase):
                 ([dict(green, conclusion='failure')], False),
                 ([dict(green, display_title='Legacy E2E')], False),
                 ([dict(green, created_at='2026-11-20T02:17:00Z')], False),
+                ([dict(green, run_attempt=None)], False),
+                ([dict(green, id='200')], False),
                 ([green], True),
             ]
             for runs, allowed in cases:
@@ -53,7 +55,7 @@ class NightlyAuthorization(unittest.TestCase):
                     })
 
     def test_mid_request_rollover_refuses_previous_windows_green_run(self):
-        green = dict(display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
+        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
                      status='completed', conclusion='success')
         with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
              patch.object(deploy, 'api', return_value={'workflow_runs': [green]}), \
@@ -69,12 +71,12 @@ class NightlyAuthorization(unittest.TestCase):
         for rejection, expected_calls in [
             ('workflow canceled', ['nightly', 'workflow']),
             ('protected main advanced', ['nightly', 'workflow', 'head']),
-            ('window changed', ['nightly', 'workflow', 'head', 'window']),
+            ('window changed', ['nightly', 'workflow', 'head', 'nightly', 'window']),
         ]:
             calls = []
             def nightly():
                 calls.append('nightly')
-                return window
+                return window, 200, 1
             def workflow(*_):
                 calls.append('workflow')
                 if rejection == 'workflow canceled':
@@ -321,7 +323,7 @@ class LivePortalDeployment(unittest.TestCase):
              patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
              patch.object(deploy, 'qualify_workflow', side_effect=reauthorize), \
              patch.object(deploy, 'qualify'), \
-             patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly or deploy.nightly_window), \
+             patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly or (lambda: (deploy.nightly_window(), 200, 1))), \
              patch.object(deploy, 'wait_platform', side_effect=ready or (lambda image_id: calls.append((['ready', image_id], {})))):
             try:
                 return deploy.platform_deploy(Path('/archive'), self.sha, 100, 1), calls, compose
@@ -394,7 +396,7 @@ class LivePortalDeployment(unittest.TestCase):
     def test_rollover_during_preparation_blocks_migration(self):
         previous = datetime.fromisoformat('2026-11-22T02:16:59+00:00')
         current = datetime.fromisoformat('2026-11-22T02:17:00+00:00')
-        green = dict(display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
+        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
                      status='completed', conclusion='success')
         queued = dict(green, created_at='2026-11-22T02:17:00Z', status='queued', conclusion=None)
         for runs in ([], [queued]):
@@ -402,11 +404,35 @@ class LivePortalDeployment(unittest.TestCase):
                 portal, state = self.host(temporary)
                 with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
                      patch.object(deploy, 'api', side_effect=[
-                         {'workflow_runs': [green]}, {'workflow_runs': [green]}, {'workflow_runs': runs},
+                         *[{'workflow_runs': [green]}] * 4, {'workflow_runs': runs},
                      ]) as api, self.assertRaisesRegex(ValueError, 'nightly E2E') as raised:
-                    clock.now.side_effect = [previous] * 6 + [current, current]
+                    clock.now.side_effect = [previous] * 10 + [current, current]
                     self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
-                self.assertEqual(api.call_count, 3)
+                self.assertEqual(api.call_count, 5)
+                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
+                self.assertFalse((state / 'platform-pending.json').exists())
+                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+
+    def test_same_window_nightly_change_blocks_migration_and_restores_configuration(self):
+        now = datetime.fromisoformat('2026-11-22T03:00:00+00:00')
+        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly',
+                     created_at='2026-11-22T02:17:00Z', status='completed', conclusion='success')
+        for final in [
+            dict(green, status='queued', conclusion=None, run_attempt=2),
+            dict(green, run_attempt=2),
+            dict(green, id=201),
+            dict(green, conclusion='failure'),
+        ]:
+            with self.subTest(final=final), tempfile.TemporaryDirectory() as temporary:
+                portal, state = self.host(temporary)
+                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
+                     patch.object(deploy, 'api', side_effect=[
+                         *[{'workflow_runs': [green]}] * 5, {'workflow_runs': [final]},
+                     ]) as api, self.assertRaisesRegex(ValueError, 'nightly E2E') as raised:
+                    clock.now.return_value = now
+                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
+                self.assertEqual(api.call_count, 6)
                 self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
                 self.assertFalse((state / 'platform-pending.json').exists())
                 self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)

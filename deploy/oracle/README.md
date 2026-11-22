@@ -280,8 +280,40 @@ Game keeps deployed World/content and routes every restart through the durable
 controller. Failures remain closed for operator reconciliation; no automatic
 schema rollback, destructive volume operation or trust reset is performed.
 The runner never installs or upgrades the root wrapper/controller itself.
-Install the wrapper with `deploy-v2` support before enabling Platform deploy.
-Older wrappers refuse the versioned request.
+
+### Platform deploy protocol cutover
+
+1. Pause Platform deploy dispatches and approvals before changing either the
+   workflow or the root-owned wrapper. Verify that no Platform deploy is queued
+   or in progress and that the host deployment lock is idle.
+2. Install the reviewed wrapper at the root-owned path used by the Platform
+   forced command. Verify the installed file against the reviewed SHA-256.
+3. On the host, import that installed file and check its parser locally. The
+   synthetic request below exercises only parsing and leaves the deploy path
+   dormant. Verify the exact legacy-protocol refusal and that `deploy-v2` parses.
+
+   ```sh
+   python3 -B - <<'PY'
+   import runpy
+
+   parse = runpy.run_path('/opt/oteryn-oracle/actions-deploy.py')['parse']
+   sha = 'a' * 40
+   try:
+       parse('platform', f'deploy {sha} 100 1')
+   except ValueError as error:
+       if 'only status or deploy-v2' not in str(error):
+           raise
+   else:
+       raise SystemExit('Installed wrapper still accepts the legacy deploy protocol')
+   if parse('platform', f'deploy-v2 {sha} 100 1') != ('deploy', sha, 100, 1, None):
+       raise SystemExit('Installed wrapper rejected the versioned deploy protocol')
+   print('Installed Platform wrapper refuses legacy deploy and accepts deploy-v2')
+   PY
+   ```
+
+4. Verify that the workflow on protected `main` sends `deploy-v2`. Run its
+   `status` action for acceptance, record the installed-wrapper check and the
+   workflow SHA, then resume Platform deploy dispatches and approvals.
 
 Before enabling these runners, disable the retired Synology runtime workflows,
 Synology image/deploy-runner builders and Tunnel endpoint mutation workflows in

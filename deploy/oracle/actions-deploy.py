@@ -164,15 +164,21 @@ def qualify_platform_nightly():
     latest = runs[0]
     if latest['status'] != 'completed' or latest['conclusion'] != 'success':
         raise ValueError(f'nightly E2E on main for the window starting {since} must complete successfully')
-    return window
+    identity = (latest.get('id'), latest.get('run_attempt'))
+    if any(type(value) is not int or value < 1 for value in identity):
+        raise ValueError('nightly E2E run or attempt is invalid')
+    return window, *identity
 
 
 def reauthorize_platform(sha, run_id, attempt):
-    window = qualify_platform_nightly()
+    approved = qualify_platform_nightly()
     qualify_workflow('platform', sha, run_id, attempt)
     qualify('platform', sha)
-    if nightly_window() != window:
+    final = qualify_platform_nightly()
+    if final[0] != approved[0] or nightly_window() != approved[0]:
         raise ValueError('nightly E2E window changed during deployment authorization')
+    if final != approved:
+        raise ValueError('nightly E2E run or attempt changed during deployment authorization')
 
 
 def journal(component, sha, phase, **facts):
