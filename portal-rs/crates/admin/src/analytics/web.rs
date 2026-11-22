@@ -66,24 +66,38 @@ struct Cell {
     #[serde(skip)]
     drill_down: String,
 }
+impl Cell {
+    fn label(&self) -> &'static str {
+        match self.state.as_str() {
+            "visible" => "ops-analytics-visible",
+            "suppressed" => "ops-analytics-suppressed",
+            "incomplete" => "ops-analytics-incomplete",
+            "expired" => "ops-analytics-expired",
+            _ => "ops-unavailable",
+        }
+    }
+}
+
 #[derive(Template)]
 #[template(path = "admin/analytics.html", config = "src/web_askama.toml")]
 struct Page {
     lang: &'static str,
     title: &'static str,
     unavailable: &'static str,
-    cut: &'static str,
-    range: &'static str,
-    freshness: &'static str,
-    epoch: &'static str,
     cells: Vec<Cell>,
     world: String,
     from: String,
     to: String,
     policy: String,
     family: String,
-    drill_down: String,
 }
+
+impl Page {
+    fn text(&self, key: &str) -> String {
+        oteryn_ui::text(self.lang, key)
+    }
+}
+
 pub fn configured_router(
     pool: PgPool,
     config: Config,
@@ -427,44 +441,24 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.starts_with("en"));
-    let title = match (request.uri().path().trim_end_matches("/data"), english) {
-        ("/admin/analytics/creatures", true) => "Creature and boss deaths by world",
-        ("/admin/analytics/creatures", false) => "Zgony stworzeń i bossów według świata",
-        ("/admin/analytics/activity", true) => "Hourly activity — exact ONLINE concurrency",
-        ("/admin/analytics/activity", false) => "Aktywność godzinowa — dokładna liczba ONLINE",
-        ("/admin/analytics/levels", true) => "Daily level distribution",
-        ("/admin/analytics/levels", false) => "Dzienny rozkład poziomów",
-        ("/admin/analytics/health", true) => "Analytics feed health",
-        ("/admin/analytics/health", false) => "Stan źródła analitycznego",
-        (_, true) => "Admin analytics overview",
-        (_, false) => "Przegląd analityki administratora",
+    let title = match request.uri().path() {
+        "/admin/analytics/creatures" => "ops-analytics-creatures-title",
+        "/admin/analytics/activity" => "ops-analytics-activity-title",
+        "/admin/analytics/levels" => "ops-analytics-levels-title",
+        "/admin/analytics/health" => "ops-analytics-feed-health",
+        _ => "ops-analytics-overview-title",
     };
     let page = Page {
         lang: if english { "en" } else { "pl" },
         title,
         unavailable: if expired {
-            if english { "Expired" } else { "Wygasłe" }
+            "ops-analytics-expired"
         } else if available {
-            if english {
-                "No eligible cells — no zero inferred"
-            } else {
-                "Brak kwalifikujących się komórek — nie oznacza zera"
-            }
-        } else if english {
-            "Unavailable — accepted resync baseline and fresh evidence required"
+            "ops-analytics-empty"
         } else {
-            "Niedostępne — wymagana zaakceptowana baza synchronizacji i aktualne dane"
-        },
-        cut: if english { "Data cut" } else { "Stan danych" },
-        range: if english { "UTC range" } else { "Zakres UTC" },
-        freshness: if english { "Freshness" } else { "Aktualność" },
-        epoch: if english {
-            "Epoch / revision"
-        } else {
-            "Epoka / rewizja"
+            "ops-analytics-unavailable"
         },
         cells,
-        drill_down: oteryn_ui::text(if english { "en" } else { "pl" }, "ops-drill-down"),
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
         from: selection.start.map(input_time).unwrap_or_default(),
         to: selection.end.map(input_time).unwrap_or_default(),
