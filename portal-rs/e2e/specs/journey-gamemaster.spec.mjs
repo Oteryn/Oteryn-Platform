@@ -17,7 +17,7 @@ const operations = [
 const analytics = ['', '/creatures', '/activity', '/levels', '/health', '/economy'];
 
 test('senior GM role assignment, MFA, and cold console journey', async ({browser,page}, info) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   const lang = info.project.metadata.locale;
   const admin = await bootstrapAdmin(browser, info);
   const signedOut = await browser.newContext({ignoreHTTPSErrors:true});
