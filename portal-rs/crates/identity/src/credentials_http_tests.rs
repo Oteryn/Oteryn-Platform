@@ -227,8 +227,16 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .fetch_one(&pool)
         .await?;
     assert_eq!(count, 1);
-    let response = success.oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=next+password&password_confirmation=next+password")?).await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
+    let response = success
+        .oneshot(request(
+            "PUT",
+            "/en/password/change",
+            &rotated,
+            &next_csrf,
+            "current_password=test+password&password=next+password&password_confirmation=next+password",
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         response
             .headers()
