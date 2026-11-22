@@ -12,3 +12,26 @@ locale = Language
 create = Create or edit
 
 not-published = This page has not been published yet.
+
+next = Next page
+announcements = Announcements
+announcement-list = List
+announcement-create = Create
+announcement-instructions = Drafts are private and published announcements are public. Enter dates in RFC 3339 (UTC). Edit the English source and Polish translation together. Set a new translation approval timestamp to approve the current translation.
+announcement-draft = Draft
+announcement-published = Published
+announcement-info = Information
+announcement-maintenance = Maintenance
+announcement-warning = Warning
+announcement-publication-state = Publication
+announcement-severity = Severity
+announcement-starts-at = Starts at (UTC)
+announcement-ends-at = Ends at (UTC, optional)
+announcement-title = Title (English)
+announcement-body = Body (English)
+announcement-action-label = Action label (English)
+announcement-action-url = Action path
+announcement-title-pl = Title (Polish)
+announcement-body-pl = Body (Polish)
+announcement-action-label-pl = Action label (Polish)
+announcement-translation-published-at = Translation approved at (UTC)

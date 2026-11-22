@@ -48,3 +48,15 @@ pub(crate) async fn revalidate(
 
 #[cfg(test)]
 mod last_wait_tests;
+
+fn staff_language(headers: &axum::http::HeaderMap) -> &'static str {
+    if headers
+        .get(axum::http::header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("en"))
+    {
+        "en"
+    } else {
+        "pl"
+    }
+}

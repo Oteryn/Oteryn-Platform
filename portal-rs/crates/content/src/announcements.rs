@@ -256,10 +256,16 @@ pub async fn banner(
     let Ok(mut html) = String::from_utf8(bytes.to_vec()) else {
         return axum::response::Response::from_parts(parts, Body::from(bytes));
     };
+    // The homepage mast overlaps the hero. Its ticker belongs below the hero.
+    const HOME_TICKER_SLOT: &str = "<!-- portal-announcement-ticker -->";
+    let placement = html
+        .find(HOME_TICKER_SLOT)
+        .map(|start| start..start + HOME_TICKER_SLOT.len())
+        .or_else(|| html.find("<main").map(|start| start..start));
     // Fragments and non-page responses are left intact.
-    if let Some(position) = html.find("<main") {
+    if let Some(placement) = placement {
         let ticker = crate::today::render_ticker(&pool, lang, OffsetDateTime::now_utc()).await;
-        html.insert_str(position, &ticker);
+        html.replace_range(placement, &ticker);
         parts.headers.remove(header::CONTENT_LENGTH);
         parts.headers.insert(
             header::CACHE_CONTROL,
