@@ -1,8 +1,7 @@
 //! Public page navigation owned by this module.
 use oteryn_ui::{Group, Registry};
 
-/// Register the bazaar pages. They are always mounted: without the Game runtime they answer
-/// with the documented unavailable page, so the sections stay visible like other Game reads.
+/// Register public and account Bazaar links, with private activity gated by its own flag.
 pub fn register(registry: &mut Registry) {
     registry.panels.register(
         crate::activity::enabled(),

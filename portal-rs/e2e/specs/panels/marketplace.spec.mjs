@@ -99,3 +99,74 @@ test('players see only their Bazaar listing, bid and settlement records', async 
   expect((await page.goto(route)).status()).toBe(200);
   await expect(page.locator('main [data-listing]')).toHaveCount(0);
 });
+
+test('activity reports recorded delivery refusal and the latest cancellation request', async ({page}, info) => {
+  const lang = info.project.metadata.locale;
+  const route = `/${lang}/account/bazaar/activity`;
+  const db = pool();
+  const coins = randomUUID();
+  const gold = randomUUID();
+  const cancelled = randomUUID();
+  const other = randomUUID();
+  const refusal = 'CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE';
+  const requestedAt = '2026-02-03T14:56:00Z';
+  let seller, buyer;
+  try {
+    seller = await actor(db, page.context(), lang);
+    buyer = await actor(db, page.context(), lang);
+    await db.query(
+      `INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at,state,updated_at)
+       VALUES ($1,$5,'character','auction','coins',100,false,now(),'awaiting_delivery','2026-01-01'),
+              ($2,$5,'item','auction','gold',100,false,now(),'awaiting_delivery','2026-01-01'),
+              ($3,$5,'item','auction','coins',100,false,now(),'active','2026-01-01'),
+              ($4,$5,'item','auction','coins',100,false,now(),'active','2026-02-02')`,
+      [coins, gold, cancelled, other, seller.id],
+    );
+    await db.query(
+      `INSERT INTO bazaar_authority_assets
+        (listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,
+         session_hash,quantity,publication_consent,input_binding,refusal_code,cancel_requested)
+       SELECT id,id,id,id,id,1,decode(repeat('00',32),'hex'),1,true,'activity-fixture',
+              CASE WHEN id = $2 THEN NULL ELSE $3 END,id = $2
+       FROM bazaar_listings WHERE id=ANY($1::uuid[])`,
+      [[coins, gold, cancelled], cancelled, refusal],
+    );
+    await db.query(
+      `INSERT INTO bazaar_settlements(id,listing_id,buyer,seller,currency,amount,commission,seller_net,reservation,idempotency_key)
+       VALUES ($1,$1,$2,$3,'coins',100,10,90,$1,'refused-sale')`,
+      [coins, buyer.id, seller.id],
+    );
+    await db.query(
+      `INSERT INTO bazaar_authority_gold_sales(id,listing_id,buyer,seller,gross_amount,fee_amount,seller_amount,hold_id,hold_revision)
+       VALUES ($1,$1,$2,$3,100,3,97,$1,1)`,
+      [gold, buyer.id, seller.id],
+    );
+    await db.query(
+      `INSERT INTO bazaar_authority_browser_requests(request_id,listing_id,actor,action,created_at)
+       VALUES ($1,$3,$4,'cancel',$5),($2,$3,$4,'resume','2026-03-01')`,
+      [randomUUID(), randomUUID(), cancelled, seller.id, requestedAt],
+    );
+  } finally {
+    await db.end();
+  }
+
+  await buyer.signIn();
+  for (const listing of [coins, gold]) {
+    expect((await page.goto(`${route}?listing=${listing}`)).status()).toBe(200);
+    await expect(page.locator('[data-activity="settlements"] li')).toContainText(
+      lang === 'pl' ? 'Dostawa odrzucona' : 'Delivery refused',
+    );
+    await expect(page.locator('[data-activity="settlements"] li')).not.toContainText(
+      lang === 'pl' ? 'Oczekuje na rozliczenie' : 'Settlement pending',
+    );
+    await expect(page.locator('main')).not.toContainText(refusal);
+  }
+  expect((await page.request.get(`${route}?listing=${cancelled}`)).status()).toBe(404);
+
+  await seller.signIn();
+  expect((await page.goto(route)).status()).toBe(200);
+  const newest = page.locator('[data-activity="listings"] li').first();
+  await expect(newest).toHaveAttribute('data-listing', cancelled);
+  await expect(newest).toContainText(lang === 'pl' ? 'Zlecono anulowanie' : 'Cancellation requested');
+  await expect(newest.locator('time')).toHaveAttribute('datetime', requestedAt);
+});

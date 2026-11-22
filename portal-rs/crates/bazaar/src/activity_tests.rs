@@ -62,8 +62,8 @@ async fn activity_reads_only_session_owned_rows_and_rejects_invalid_requests() -
     let (_, stranger_cookie) = signed_in(&pool).await?;
     let listing = Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO bazaar_listings(id, owner, kind, form, currency, price, accept_offers, ends_at)
-         VALUES ($1,$2,'character','auction','coins',100,false,now())",
+        "INSERT INTO bazaar_listings(id, owner, kind, form, currency, price, accept_offers, ends_at, state)
+         VALUES ($1,$2,'character','auction','coins',100,false,now(),'awaiting_delivery')",
     ).bind(listing).bind(seller).execute(&pool).await?;
     sqlx::query(
         "INSERT INTO bazaar_bids(id, listing_id, account, maximum, idempotency_key, leader, price, ends_at)
@@ -75,7 +75,7 @@ async fn activity_reads_only_session_owned_rows_and_rejects_invalid_requests() -
     ).bind(Uuid::now_v7()).bind(listing).bind(buyer).bind(seller).bind(Uuid::now_v7())
         .execute(&pool).await?;
 
-    let app = router(pool, true);
+    let app = router(pool.clone(), true);
     for (cookie, expected, own_listing, bid) in [
         (seller_cookie.as_str(), StatusCode::OK, true, false),
         (buyer_cookie.as_str(), StatusCode::OK, false, true),
@@ -107,6 +107,30 @@ async fn activity_reads_only_session_owned_rows_and_rejects_invalid_requests() -
             assert!(html.contains("<time datetime="));
         }
     }
+    sqlx::query(
+        "INSERT INTO bazaar_authority_assets
+         (listing_id,request_id,world_id,seller_character_id,asset_id,expected_revision,
+          session_hash,quantity,publication_consent,input_binding,refusal_code)
+         VALUES ($1,$1,$1,$1,$1,1,$2,1,true,'activity-test','CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE')",
+    )
+    .bind(listing)
+    .bind([0_u8; 32].as_slice())
+    .execute(&pool)
+    .await?;
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::get(format!("{ROUTE}?listing={listing}"))
+                .header(header::COOKIE, &buyer_cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(refused.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(refused.into_body(), 32768).await?.to_vec())?;
+    assert!(html.contains("Delivery refused"));
+    assert!(!html.contains("Settlement pending"));
+    assert!(!html.contains("CHAR_CMD_BAZAAR_DESTINATION_UNAVAILABLE"));
+
     for (method, uri, expected) in [
         (
             Method::GET,

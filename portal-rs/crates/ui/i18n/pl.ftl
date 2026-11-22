@@ -393,3 +393,4 @@ bazaar-activity-settlement_pending = Oczekuje na rozliczenie
 bazaar-activity-settlement_completed = Rozliczenie zapisane jako zakończone
 bazaar-activity-settlement_cancelled = Rozliczenie anulowane
 bazaar-activity-suspended = Wstrzymana
+bazaar-activity-settlement_refused = Dostawa odrzucona

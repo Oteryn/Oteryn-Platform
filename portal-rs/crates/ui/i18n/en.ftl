@@ -393,3 +393,4 @@ bazaar-activity-settlement_pending = Settlement pending
 bazaar-activity-settlement_completed = Settlement recorded as complete
 bazaar-activity-settlement_cancelled = Settlement cancelled
 bazaar-activity-suspended = Suspended
+bazaar-activity-settlement_refused = Delivery refused
