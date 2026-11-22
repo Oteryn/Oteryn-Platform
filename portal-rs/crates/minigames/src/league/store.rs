@@ -11,19 +11,22 @@ pub(super) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
     let mut tx = tokio::time::timeout(std::time::Duration::from_millis(250), pool.begin())
         .await
         .map_err(|_| Error::Unavailable)??;
-    tokio::time::timeout(std::time::Duration::from_millis(250), async {
-        sqlx::query("SET LOCAL lock_timeout = '100ms'")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("SET LOCAL statement_timeout = '2s'")
-            .execute(&mut *tx)
-            .await?;
-        Ok::<(), sqlx::Error>(())
-    })
+    tokio::time::timeout(
+        std::time::Duration::from_millis(250),
+        set_transaction_limits(&mut tx),
+    )
     .await
     .map_err(|_| Error::Unavailable)??;
     Ok(tx)
 }
+
+async fn set_transaction_limits(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
+    sqlx::raw_sql("SET LOCAL lock_timeout = '100ms'; SET LOCAL statement_timeout = '2s'")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 // All league consumers scope advisory fences to the resolved table, so schema
 // fixtures (or independent tenants) never contend. Using its OID rather than
 // current_schema also preserves coordination across equivalent search paths.
@@ -206,7 +209,10 @@ impl<A: Authority> League<A> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
-        let mut tx = begin(&self.pool).await?;
+        // Public reads already have a total deadline. Let cold connections
+        // use that budget while preserving the database lock and query limits.
+        let mut tx = self.pool.begin().await?;
+        set_transaction_limits(&mut tx).await?;
         sqlx::query(
             "SELECT pg_advisory_xact_lock_shared('league_subjects'::regclass::oid::int, 94000003)",
         )

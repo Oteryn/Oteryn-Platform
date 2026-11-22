@@ -190,11 +190,8 @@ async fn page<A: Authority>(
         Ok(source) => source,
         Err(status) => return Page::new(&lang, None).response(status),
     };
-    let Ok(now) = u64::try_from((state.clock)()) else {
-        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
-    };
     let Ok(Ok(slot)) =
-        tokio::time::timeout(Duration::from_secs(1), state.read_slots.acquire()).await
+        tokio::time::timeout(Duration::from_secs(3), state.read_slots.acquire()).await
     else {
         return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
@@ -213,6 +210,9 @@ async fn page<A: Authority>(
         }
     }
 
+    let Ok(now) = u64::try_from((state.clock)()) else {
+        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    };
     let snapshots = state.league.read(now).await;
     drop(slot);
     match snapshots {
