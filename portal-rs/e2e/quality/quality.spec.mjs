@@ -6,12 +6,14 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { login, password, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
-import { documentLanguage, maxSamples, matches, routes } from './routes.mjs';
+import { documentLanguage, matchingRoute, maxSamples, routes } from './routes.mjs';
 import { assertKeyboard } from './keyboard.mjs';
 import { publishEditorialFixtures } from './editorial-fixtures.mjs';
 import { assertBudgets, collectResponses, installVitals, startPaintTrace, vitals } from './performance.mjs';
 
 const actors = ['platform_admin', 'anonymous', 'player'];
+const selected = process.env.PORTAL_QUALITY_ROUTE?.split(',').map(pattern => pattern.trim()) ?? [];
+const editorialRoutes = ['/{lang}/news/{slug}', '/{lang}/events/{slug}', '/{lang}/wiki/articles/{slug}'];
 const wcag = ['wcag2a', 'wcag2aa'];
 const requiredRules = ['color-contrast', 'label', 'bypass', 'select-name',
   'landmark-one-main', 'landmark-unique', 'region'];
@@ -64,7 +66,8 @@ async function actorState(browser, info, actor) {
       expect((await page.goto('/account')).status(), 'seeded player reaches account').toBe(200);
       expect(new URL(page.url()).pathname).toMatch(/\/account\/?$/);
     }
-    if (actor === 'platform_admin' && !process.env.PORTAL_QUALITY_ROUTE) {
+    if (actor === 'platform_admin' &&
+        (!selected.length || editorialRoutes.some(pattern => selected.includes(pattern)))) {
       phase = 'editorial publication';
       editorial = await publishEditorialFixtures(page, locale);
     }
@@ -95,9 +98,7 @@ function addLinks(inventory, links, source) {
     const url = new URL(link);
     if (url.origin !== source.origin || url.pathname.startsWith('/language/')) continue;
     if (url.pathname === source.pathname && url.search === source.search) continue;
-    // Prefer the literal registration over a parameterized registration.
-    const exact = inventory.find(row => row.pattern === url.pathname);
-    const row = exact ?? inventory.find(row => matches(row.pattern, url.pathname));
+    const row = matchingRoute(inventory, url.pathname);
     if (row) {
       const target = url.pathname + url.search;
       if (!row.paths.includes(target) && row.paths.length < maxSamples) row.paths.push(target);
@@ -240,7 +241,6 @@ for (const actor of actors) {
     const covered = new Map();
     const evidence = [];
     const report = info.outputPath('quality-inventory.json');
-    const selected = process.env.PORTAL_QUALITY_ROUTE?.split(',').map(pattern => pattern.trim()) ?? [];
     for (const pattern of selected) {
       expect(inventory.some(row => row.pattern === pattern), `selected source pattern ${pattern} exists`).toBe(true);
     }

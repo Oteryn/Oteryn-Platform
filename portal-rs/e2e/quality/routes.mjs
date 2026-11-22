@@ -59,6 +59,25 @@ export function matches(pattern, pathname) {
   return new RegExp(`^${regex}$`).test(pathname);
 }
 
+function routePrecedence(pattern) {
+  return pattern.split('/').map(segment =>
+    segment.startsWith('{*') ? '0' : segment.startsWith('{') ? '1' : '2',
+  ).join('');
+}
+
+export function matchingRoute(inventory, pathname) {
+  let result;
+  let precedence = '';
+  for (const entry of inventory) {
+    if (!matches(entry.pattern, pathname)) continue;
+    const rank = routePrecedence(entry.pattern);
+    if (rank <= precedence) continue;
+    result = entry;
+    precedence = rank;
+  }
+  return result;
+}
+
 export function documentLanguage(pathname, pattern, locale) {
   const prefix = pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1];
   if (prefix) return prefix;
