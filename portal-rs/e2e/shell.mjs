@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import {expect} from '@playwright/test';
+import {expect, request} from '@playwright/test';
 import {waitForWikiBudget} from './helpers.mjs';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -52,11 +52,23 @@ export async function assertShell(page, {accessibility=true,status=200}={}) {
     await csrfRejected(page,form.action,form.fields);
   }
   const links=await page.locator('main a[href], footer a[hreflang]').evaluateAll(nodes=>nodes.map(n=>({href:n.getAttribute('href'),language:n.hasAttribute('hreflang')})).filter(n=>n.href.startsWith('/')&&!n.href.startsWith('//')));
-  for(const link of links) {
-    await waitForWikiBudget(link.href);
-    const response=await page.request.get(link.href,{headers:{accept:'text/html'}});
-    expect(link.language?[200,503,status]:[200,503],`linked destination ${link.href}`).toContain(response.status());
-    if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
+  // A language link can update the saved locale. Preserve the browser session
+  // for later assertions and for concurrent pages sharing its context.
+  const localeProbe = links.some(link => link.language) ? await request.newContext({
+    baseURL: new URL(page.url()).origin,
+    ignoreHTTPSErrors: true,
+    storageState: await page.context().storageState(),
+  }) : null;
+  try {
+    for(const link of links) {
+      await waitForWikiBudget(link.href);
+      const client = link.language ? localeProbe : page.request;
+      const response=await client.get(link.href,{headers:{accept:'text/html'}});
+      expect(link.language?[200,503,status]:[200,503],`linked destination ${link.href}`).toContain(response.status());
+      if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
+    }
+  } finally {
+    await localeProbe?.dispose();
   }
   if(accessibility) {
     const axe=await new AxeBuilder({page}).analyze();
