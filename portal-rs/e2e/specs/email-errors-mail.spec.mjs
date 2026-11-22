@@ -602,13 +602,14 @@ supportTest.describe('support email and ticket errors', () => {
     expect(reviewResponse.status()).toBe(303);
     expect(await appealState()).toEqual([{ status: 'reviewing', message }]);
     await staffPage.reload();
-    const reviewCopy = 'reviewing:';
+    const reviewCopy = lang === 'pl' ? 'Odwołanie w trakcie rozpatrywania:' : 'Appeal under review:';
     const review = await mail(page, account.email, subject, reviewCopy, reviewCopy);
     expect(review.text === `${subject}\n\n${reviewCopy}`, 'only the appeal status is mailed').toBe(true);
     messages.push(review);
     const decision = unique();
     await action(staffPage, 'form:has(input[value=appeal])', { appeal_status: 'accepted', appeal_outcome: decision });
-    const appealCopy = `accepted: ${decision}`;
+    const decisionLabel = lang === 'pl' ? 'Odwołanie uwzględnione' : 'Appeal accepted';
+    const appealCopy = `${decisionLabel}: ${decision}`;
     const appeal = await mail(page, account.email, subject, appealCopy, decision);
     expect(appeal.text === `${subject}\n\n${appealCopy}`, 'only the public appeal outcome is mailed').toBe(true);
     messages.push(appeal);

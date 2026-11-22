@@ -40,7 +40,7 @@ test('staff creates and edits a bilingual announcement', async ({browser}, info)
     expect((await page.goto('/admin/announcements')).status()).toBe(200);
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
     expect((await page.goto('/admin/announcements/create')).status()).toBe(200);
-    await expect(page.getByRole('button', {name: locale === 'pl' ? 'Zapisz' : 'Save', exact: true})).toBeVisible();
+    await expect(page.getByRole('button', {name: locale === 'pl' ? 'Zapisz ogłoszenie' : 'Save announcement', exact: true})).toBeVisible();
     const title = `Ledger announcement ${randomUUID()}`;
     await submit(page, 'main form', {
       title,
