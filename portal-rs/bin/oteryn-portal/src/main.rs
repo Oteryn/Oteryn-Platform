@@ -466,7 +466,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(test)]
             record_route_registrations("public", &public_app)?;
             let internal_listener = internal_tls::start(app, game_ingress).await?;
-            let app = public_app;
+            let app = public_app.layer(axum::Extension(
+                oteryn_admin::operations::InternalListenerRunning(internal_listener.is_some()),
+            ));
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
             #[cfg(test)]
             if native_listener.is_some() {

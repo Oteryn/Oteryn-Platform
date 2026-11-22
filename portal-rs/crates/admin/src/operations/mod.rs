@@ -14,6 +14,10 @@ use std::{future::Future, pin::Pin, time::Duration};
 use tokio::time::Instant;
 
 type Rows = Vec<Vec<String>>;
+/// Presence of the private mTLS listener, reported after successful startup.
+#[derive(Clone, Copy, Debug)]
+pub struct InternalListenerRunning(pub bool);
+
 type ReadResult = Result<Response, StatusCode>;
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
@@ -145,9 +149,6 @@ async fn read_transaction(
     deadline: Instant,
 ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SET TRANSACTION READ ONLY")
-        .execute(&mut *tx)
-        .await?;
     let remaining = deadline
         .saturating_duration_since(Instant::now())
         .as_millis();
@@ -156,6 +157,9 @@ async fn read_transaction(
     }
     sqlx::query("SELECT set_config('statement_timeout', $1, true)")
         .bind(format!("{remaining}ms"))
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET TRANSACTION READ ONLY")
         .execute(&mut *tx)
         .await?;
     Ok(tx)
@@ -320,17 +324,20 @@ fn flag_rows(enabled: impl Fn(&str) -> bool) -> Rows {
 
 async fn effective_flags(
     Extension(ingest): Extension<IngestAvailability>,
+    listener: Option<Extension<InternalListenerRunning>>,
     RawQuery(raw): RawQuery,
     headers: HeaderMap,
     chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> ReadResult {
     no_query(raw.as_deref())?;
+    let ingest_available =
+        ingest.0 && matches!(listener, Some(Extension(InternalListenerRunning(true))));
     Page::new(
         web::page_language(&headers, chrome.as_deref()),
         "ops-flags",
         &["ops-name", "ops-value"],
         flag_rows(|name| match name {
-            "OTERYN_ADMIN_ANALYTICS_INGEST" => ingest.0,
+            "OTERYN_ADMIN_ANALYTICS_INGEST" => ingest_available,
             _ => std::env::var(name).as_deref() == Ok("true"),
         }),
     )
@@ -360,10 +367,10 @@ async fn system_health(
             Box::pin(sqlx::query_as::<_, (i64, i64, bool)>(
             "SELECT count(*) FILTER (WHERE state = 'pending' AND run_after <= statement_timestamp()),
                     count(*) FILTER (WHERE state = 'running' AND leased_until <= statement_timestamp()),
-                    coalesce(bool_or(kind = 'cleanup.rate-limits' AND state = 'done'
-                      AND updated_at > statement_timestamp() - interval '5 minutes'), false)
-             FROM outbox WHERE state IN ('pending', 'running')
-                OR (kind = 'cleanup.rate-limits' AND state = 'done')",
+                    EXISTS (SELECT 1 FROM outbox_schedule_success
+                        WHERE kind = 'cleanup.rate-limits'
+                          AND completed_at > statement_timestamp() - interval '5 minutes')
+             FROM outbox WHERE state IN ('pending', 'running')",
         ).fetch_one(connection))
         }),
         bounded(&pool, |connection| {

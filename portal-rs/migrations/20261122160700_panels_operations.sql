@@ -83,8 +83,3 @@ FROM roles
 CROSS JOIN (VALUES ('admin.rate_limits.view'), ('admin.flags.view'), ('admin.health.view')) AS added(permission)
 WHERE key = 'platform_admin'
 ON CONFLICT DO NOTHING;
-
--- The statistics dashboard reads UTC ranges across all accounts.
-CREATE INDEX accounts_operations_created_at ON accounts (created_at);
-CREATE INDEX security_events_operations_login_created_at ON security_events (created_at)
-    WHERE kind = 'login_succeeded';

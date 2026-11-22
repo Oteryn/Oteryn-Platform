@@ -169,6 +169,34 @@ async fn reads_success_and_bad_input() {
     .execute(&pool)
     .await
     .expect("permanently rejected job fixture");
+    let cleanup = "cleanup.rate-limits";
+    sqlx::query(
+        "WITH previous AS (SELECT floor(extract(epoch FROM statement_timestamp()) / 60)::bigint - 1 AS slot)
+         INSERT INTO outbox (kind, payload, idempotency_key, schedule_slot)
+         SELECT $1, '{}'::jsonb, 'schedule:' || slot::text, slot FROM previous",
+    )
+    .bind(cleanup)
+    .execute(&pool)
+    .await
+    .expect("previous slot fixture");
+    let jobs = oteryn_db::outbox::claim(&pool, 1, 60)
+        .await
+        .expect("claim scheduled cleanup");
+    assert_eq!(jobs.len(), 1);
+    assert!(
+        oteryn_db::outbox::finish(&pool, &jobs[0], None, false)
+            .await
+            .expect("acknowledge scheduled cleanup")
+    );
+    oteryn_db::outbox::schedule(&pool, cleanup, 60)
+        .await
+        .expect("schedule next slot");
+    let states = sqlx::query_scalar::<_, String>("SELECT state FROM outbox WHERE kind = $1")
+        .bind(cleanup)
+        .fetch_all(&pool)
+        .await
+        .expect("schedule slot state");
+    assert_eq!(states, ["pending"]);
     let app = Router::new()
         .route(ROUTES[0].0, get(statistics))
         .route(ROUTES[1].0, get(rate_limits))
@@ -187,6 +215,7 @@ async fn reads_success_and_bad_input() {
         let html = String::from_utf8_lossy(&body);
         assert!(html.contains(expected), "{path}");
         if path == "/admin/operations/health" {
+            assert!(html.contains("Scheduled cleanup completed in the last 5 minutes"));
             assert!(html.contains("Worker job failed permanently"));
             assert!(!html.contains("private fixture failure detail"));
         }
@@ -244,4 +273,26 @@ fn range_and_flag_allowlist() {
             .iter()
             .all(|row| row[0].starts_with("OTERYN_") && !row[0].contains("URL"))
     );
+}
+
+#[tokio::test]
+async fn analytics_ingestion_flag_requires_a_running_internal_listener() {
+    for (configured, listener, enabled) in [
+        (true, None, false),
+        (true, Some(false), false),
+        (false, Some(true), false),
+        (true, Some(true), true),
+    ] {
+        let mut app = Router::new()
+            .route(ROUTES[3].0, get(effective_flags))
+            .layer(Extension(IngestAvailability(configured)));
+        if let Some(running) = listener {
+            app = app.layer(Extension(InternalListenerRunning(running)));
+        }
+        let body = to_bytes(send(app, ROUTES[3].0, "").await.into_body(), 256 * 1024)
+            .await
+            .expect("flags HTML");
+        let expected = format!("OTERYN_ADMIN_ANALYTICS_INGEST</th><td>{enabled}</td>");
+        assert!(String::from_utf8_lossy(&body).contains(&expected));
+    }
 }
