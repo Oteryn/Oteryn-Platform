@@ -570,7 +570,14 @@ mod tests {
                 .count(),
             deferred
         );
-        assert_eq!(html.matches(r#"fetchpriority="high""#).count(), 1);
+        assert_eq!(
+            html.split("<img ")
+                .skip(1)
+                .filter_map(|tag| tag.split_once('>').map(|(attributes, _)| attributes))
+                .filter(|attributes| attributes.contains(r#"fetchpriority="high""#))
+                .count(),
+            1
+        );
         Ok(())
     }
 
@@ -578,9 +585,20 @@ mod tests {
     fn home_panorama_offers_viewport_sized_sources() -> Result<(), askama::Error> {
         let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
         let html = Home::new(&chrome, &HomeData::default()).render()?;
+        for media in ["(min-width: 961px)", "(width < 961px)"] {
+            let preload =
+                format!(r#"<link rel="preload" as="image" media="{media}" imagesrcset=""#);
+            let srcset = html
+                .split_once(&preload)
+                .and_then(|(_, link)| link.split_once('"'))
+                .expect("responsive preload has a source set")
+                .0;
+            assert!(html.contains(&format!(r#" srcset="{srcset}" sizes="100vw""#)));
+        }
         for (name, width, original_size) in [
             ("brama-panorama-aee60a5b.webp", 1536, 718_188),
             ("brama-1692ad85.webp", 824, 628_654),
+            ("brama-6a5bc052.webp", 416, 118_986),
         ] {
             assert!(html.contains(&format!("/static/thais/{name} {width}w")));
             let asset = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -1,4 +1,6 @@
 {% import "components/thais-home-macros.html" as ui %}
+{% let wide_hero = "/static/thais/brama-panorama-aee60a5b.webp 1536w, /static/thais/brama-panorama-f4db61b9.webp 2868w" %}
+{% let narrow_hero = "/static/thais/brama-6a5bc052.webp 416w, /static/thais/brama-1692ad85.webp 824w, /static/thais/brama.webp 1672w" %}
 <!doctype html>
 <html lang="{{ chrome.lang }}" data-theme="dark">
 <head>
@@ -7,6 +9,8 @@
   <meta name="color-scheme" content="dark">
   <title>{{ chrome.text("home-link") }} · Oteryn</title>
   <meta name="description" content="{{ chrome.text("thais-home-meta") }}">
+  <link rel="preload" as="image" media="(min-width: 961px)" imagesrcset="{{ wide_hero }}" imagesizes="100vw" fetchpriority="high">
+  <link rel="preload" as="image" media="(width < 961px)" imagesrcset="{{ narrow_hero }}" imagesizes="100vw" fetchpriority="high">
   <link rel="stylesheet" href="/static/thais/shell.css">
   <link rel="stylesheet" href="/static/thais/home.css">
   <script src="/static/thais/home.js" defer></script>
@@ -28,8 +32,8 @@
   </svg>
   <section class="hero" id="start" aria-labelledby="hero-title">
     <picture>
-      <source media="(min-width: 961px)" srcset="/static/thais/brama-panorama-aee60a5b.webp 1536w, /static/thais/brama-panorama-f4db61b9.webp 2868w" sizes="100vw" width="2868" height="941">
-      <img class="hero-art" src="/static/thais/brama.webp" srcset="/static/thais/brama-1692ad85.webp 824w, /static/thais/brama.webp 1672w" sizes="100vw" alt="{{ chrome.text("thais-home-gate-alt") }}" width="1672" height="941" fetchpriority="high">
+      <source media="(min-width: 961px)" srcset="{{ wide_hero }}" sizes="100vw" width="2868" height="941">
+      <img class="hero-art" src="/static/thais/brama.webp" srcset="{{ narrow_hero }}" sizes="100vw" alt="{{ chrome.text("thais-home-gate-alt") }}" width="1672" height="941" fetchpriority="high">
     </picture>
     <div class="hero-body wrap" id="aktualnosci">
       {% let news = data.news.as_deref().unwrap_or_default() %}
