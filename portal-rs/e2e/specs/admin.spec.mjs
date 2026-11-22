@@ -35,17 +35,39 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
  const staffContext=page.context();
- for(const path of paths) await test.step(path,async()=>{
-   const page=await staffContext.newPage();
+ // Every page uses the same staff session. A repeated absolute link can reuse
+ // its HTTP result while each occurrence still checks its own expectations.
+ const linkProbes=new Map();
+ const pageWorkers=3;
+ const sweeps=await Promise.allSettled(Array.from({length:pageWorkers},async(_,offset)=>{
+   const screen=await staffContext.newPage();
    try {
-   let response;try{response=await page.goto(['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`)?path:`${path}?lang=${lang}`);}catch(error){failures.push(`${path}: ${error.message}`);return;}
-   if(response.status()!==200)failures.push(`${path}: HTTP ${response.status()}`);
-   if(response.status()===200 && await page.locator('html').getAttribute('lang')!==lang)failures.push(`${path}: wrong page language`);
-   if(response.status()===200) await assertShell(page);
-   const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
-   for(const form of forms)await csrfRejected(page,form.action,form.fields);
-   } finally {await page.close();}
- });
+     for(let i=offset;i<paths.length;i+=pageWorkers) await test.step(paths[i],async()=>{
+       const path=paths[i];
+       const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
+       let response;
+       try {
+         response=await screen.goto(localized?path:`${path}?lang=${lang}`);
+       } catch(error) {
+         failures.push(`${path}: ${error.message}`);
+         return;
+       }
+       const status=response.status();
+       if(status===200) {
+         if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
+         // assertShell also checks CSRF on every POST form.
+         await assertShell(screen,{linkProbes});
+       } else {
+         failures.push(`${path}: HTTP ${status}`);
+         const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
+         for(const form of forms) await csrfRejected(screen,form.action,form.fields);
+       }
+     });
+   } finally {
+     await screen.close();
+   }
+ }));
+ for(const result of sweeps) if(result.status==='rejected') throw result.reason;
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
