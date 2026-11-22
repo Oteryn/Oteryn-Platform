@@ -559,6 +559,9 @@ async fn postgres_http_forms_localization_csrf_permissions_and_input() {
     assert!(polish.contains("Nadaj premium"));
     assert!(html.contains("Grant premium"));
     assert!(html.contains("op-input"));
+    for command in ["grant", "revoke", "adjust", "reconcile", "refund"] {
+        assert!(html.contains(&format!("action=\"/admin/commerce/{command}\"")));
+    }
     let token = html
         .split("name=\"_csrf\" value=\"")
         .nth(1)

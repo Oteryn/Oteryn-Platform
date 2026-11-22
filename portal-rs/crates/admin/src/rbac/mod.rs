@@ -388,7 +388,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         Self::check_permission(connection, account, permission).await
     }
 
-    async fn check_permission(
+    pub(super) async fn check_permission(
         connection: &mut PgConnection,
         account: Uuid,
         permission: Permission,

@@ -232,29 +232,32 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
     Query(filter): Query<QueueFilter>,
 ) -> Response {
     let locale = Locale::from_headers(&headers);
-    let mut actions = vec![];
-    for (key, command) in [
+    let commands: Vec<_> = [
         ("grant", Command::Grant { days: 1 }),
         ("revoke", Command::Revoke),
         ("adjust", Command::Adjust { amount: 1 }),
         ("reconcile", Command::Reconcile),
         ("refund", Command::Refund),
-    ] {
-        if command.validate(s.flags).is_err() {
-            continue;
-        }
-        match s.authorize(context, &command).await {
-            Ok(()) => actions.push(Action {
-                key,
-                title: locale.text(key),
-                days: key == "grant",
-                amount: key == "adjust",
-                request: Uuid::now_v7(),
-            }),
-            Err(Error::Denied) => (),
-            Err(error) => return failure(locale, error),
-        }
-    }
+    ]
+    .into_iter()
+    .filter(|(_, command)| command.validate(s.flags).is_ok())
+    .collect();
+    let granted = match s.page_permissions(context, &commands).await {
+        Ok(granted) => granted,
+        Err(Error::Denied) => Vec::new(),
+        Err(error) => return failure(locale, error),
+    };
+    let actions: Vec<_> = commands
+        .into_iter()
+        .filter(|(_, command)| granted.contains(&command.permission()))
+        .map(|(key, _)| Action {
+            key,
+            title: locale.text(key),
+            days: key == "grant",
+            amount: key == "adjust",
+            request: Uuid::now_v7(),
+        })
+        .collect();
     // Apply permission predicates in SQL before exposing any queue entries.
     let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ($3::uuid IS NULL OR (created_at,id)>(SELECT created_at,id FROM commerce_operations WHERE id=$3)) AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2) OR (command->>'kind'='grant' AND $4)) ORDER BY created_at,id LIMIT 101")
         .bind(actions.iter().any(|a| a.key=="adjust")).bind(actions.iter().any(|a| a.key=="refund")).bind(filter.after).bind(actions.iter().any(|a| a.key=="grant")).fetch_all(&s.pool).await;

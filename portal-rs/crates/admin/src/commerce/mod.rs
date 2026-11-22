@@ -157,9 +157,50 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             flags,
         }
     }
-    async fn authorize(&self, context: rbac::CheckContext, command: &Command) -> Result<(), Error> {
+    async fn page_permissions(
+        &self,
+        context: rbac::CheckContext,
+        commands: &[(&str, Command)],
+    ) -> Result<Vec<rbac::Permission>, Error> {
+        if commands.is_empty() || !context.mfa_verified || !valid_id(context.account) {
+            return Ok(Vec::new());
+        }
+        let context = rbac::CheckContext {
+            require_staff_mfa: true,
+            ..context
+        };
         let mut connection = self.pool.acquire().await?;
-        self.authorize_in(&mut connection, context, command).await
+        self.auth.session_in(&mut connection, context).await?;
+        rbac::Authorizer::<A>::check_permission(
+            &mut connection,
+            context.account,
+            rbac::Permission::Access,
+        )
+        .await?;
+        let mut granted = Vec::new();
+        for permission in [
+            rbac::Permission::ManagePremiumTime,
+            rbac::Permission::ManageMarketplace,
+            rbac::Permission::ReconcilePayments,
+        ] {
+            if commands
+                .iter()
+                .any(|(_, command)| command.permission() == permission)
+            {
+                match rbac::Authorizer::<A>::check_permission(
+                    &mut connection,
+                    context.account,
+                    permission,
+                )
+                .await
+                {
+                    Ok(()) => granted.push(permission),
+                    Err(rbac::Error::Denied) => (),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        Ok(granted)
     }
     async fn authorize_in(
         &self,
