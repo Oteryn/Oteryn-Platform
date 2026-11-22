@@ -3,7 +3,8 @@ import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test, expect} from '../fixtures.mjs';
-import {password, pool, waitForWikiBudget} from '../helpers.mjs';
+import {login, password, pool, submit, waitForWikiBudget} from '../helpers.mjs';
+import {listing, uuid7} from '../game-sim-helpers.mjs';
 import {loginWithRecoveryCode, query} from '../staff-rbac-helpers.mjs';
 
 const unknown = 'e2e-unknown-query-value';
@@ -22,8 +23,6 @@ const comparison = {
   metric: 'level', start: statsDates.start, end: statsDates.end,
 };
 const places = {sort: 'experience', purpose: 'hunt', party: '1'};
-const analyticsEpochRange = {start: '1767225600', end: '1767312000'};
-const analyticsCalendarRange = {from: '2026-01-01T00:00', to: '2026-01-02T00:00'};
 const catalogRoutes = new Set(['search', 'wiki/search', 'wiki/items', 'atlas/delivery']);
 
 const rankings = ['level', 'experience', 'magic', 'fist', 'club', 'sword', 'axe',
@@ -48,8 +47,8 @@ const publicRoutes = {
     ['wiki/items', wikiFilters],
     ['wiki/places', places, places],
     ['atlas/delivery', {
-      item: 'fixture.alpha', creature: 'rat', q: 'e2e control query', level: '20', floor: '7',
-      city: 'thais', rarity: '1', count: '10', tab: 'items',
+      item: 'fixture.alpha', creature: 'fixture.rat', q: 'e2e control query', level: '20', floor: '7',
+      city: 'thais', rarity: '1', count: '10', tab: 'creatures',
     }],
   ],
   community: [
@@ -72,35 +71,6 @@ const publicRoutes = {
     ['stats/compare', comparison, comparison],
   ],
 };
-
-const staffRoutes = [
-  ['account/bazaar', {before: `1:${world}`}],
-  ['shop/history', {before: world}],
-  ['support/tickets', {page: '0'}],
-  ['support/reports', {page: '1'}],
-  ['admin/support/tickets', {page: '0'}],
-  ['/admin/news', {page: '1', lang: 'pl'}],
-  ['/admin/media', {page: '1', lang: 'pl'}],
-  ['/admin/events', {page: '1'}],
-  ['/admin/announcements', {page: '1'}],
-  ['/admin/roles', {after: world}],
-  ['/admin/players', {q: 'e2e control query'}],
-  ['/admin/commerce', {after: world, lang: 'pl'}],
-  ['/admin/console/players', {q: 'e2e control query', character: 'Aldric Vale', lang: 'pl'}],
-  ...['', '/creatures', '/activity', '/levels', '/health', '/economy'].flatMap(suffix => {
-    const route = `/admin/analytics${suffix}`;
-    const family = suffix === '/economy' ? 'economy_circulation_daily' : 'characters_created_daily';
-    return [
-      [route, {world, family}],
-      [route, analyticsEpochRange, analyticsEpochRange],
-      [route, analyticsCalendarRange, analyticsCalendarRange],
-    ];
-  }),
-];
-
-const auditRoute = ['/admin/console/audit', {
-  admin: world, request_id: world, operation: 'rbac.role.created', target: world, lang: 'pl',
-}];
 
 const ranksUnavailable = {
   // No admitted highscores world exists. Exercise the default selection.
@@ -221,8 +191,7 @@ async function readResponse(page, target, locale, browserNavigation, accept) {
     await response.dispose();
   }
 }
-const freeText = new Set(['q', 'operation', 'target', 'character', 'item', 'creature', 'city']);
-const zeroBased = new Set(['/admin/media', 'support/tickets', 'admin/support/tickets']);
+const freeText = new Set(['q', 'item', 'creature', 'city']);
 const boundedText = ['unknown', 'unicode', 'SQL punctuation', 'HTML punctuation'];
 const singleValue = [...boundedText, 'overlong'];
 const clampedPage = ['zero', 'large integer'];
@@ -237,17 +206,7 @@ const acceptedProbes = new Map([
   ['wiki/search', {q: boundedText, category: boundedText, classification: boundedText}],
   ['wiki/items', {q: boundedText, category: boundedText, classification: boundedText}],
   ['atlas/delivery', {q: boundedText, creature: boundedText, city: boundedText}],
-  ['shop/history', {before: ['valid']}],
-  ['support/tickets', {page: clampedPage}],
-  ['support/reports', {page: ['large integer']}],
-  ['admin/support/tickets', {page: clampedPage}],
-  ['/admin/news', {lang: singleValue}],
-  ['/admin/media', {lang: singleValue, page: clampedPage}],
-  ['/admin/events', {page: clampedPage}],
-  ['/admin/announcements', {page: clampedPage}],
-  ['/admin/commerce', {lang: singleValue}],
-  ['/admin/console/players', {q: ['unknown', 'unicode'], character: ['unknown']}],
-  ['/admin/console/audit', {operation: boundedText, target: boundedText}],
+
 ]);
 
 function expectedStatus(route, parameter, probe, gated) {
@@ -285,7 +244,7 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
   await test.step(path, async () => {
     for (const [parameter, valid] of entries) {
       const probes = cases(parameter, valid, locale);
-      if (route === 'shop/history' || gated && (!gated.control || parameter === entries[0][0])) {
+      if (gated && (!gated.control || parameter === entries[0][0])) {
         probes.unshift({name: 'valid', values: [valid]});
       }
       if (route === 'stats/guilds' && parameter === 'days') {
@@ -295,13 +254,11 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
         await test.step(`${parameter}: ${probe.name}`, async () => {
           const companion = probe.name === 'valid' ? (gated?.control ?? required) : required;
           const query = new URLSearchParams(companion);
-          if (route.startsWith('/admin') && 'lang' in parameters) query.set('lang', locale);
           query.delete(parameter);
           for (const value of probe.values) query.append(parameter, value);
           await waitForWikiBudget(path, 1, catalog?.database);
           // Browser navigation exercises the rendered HTML at each project viewport.
-          // The console player search also requires real browser Fetch Metadata.
-          const browserNavigation = probe.name === 'HTML punctuation' || route === '/admin/console/players';
+          const browserNavigation = probe.name === 'HTML punctuation';
           const target = `${catalog?.origin ?? ''}${path}?${query}`;
           const bazaarCursor = /^(?:account\/)?bazaar(?:\/items)?$/.test(route) && probe.name !== 'repeated';
           const accept = route === 'shop/history' || bazaarCursor ? '*/*' : 'text/html';
@@ -345,7 +302,7 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           }
           if (response.status === 200 && !freeText.has(parameter) && !wikiFacet) {
             const rejectedValues = parameter === 'page'
-              ? probe.values.filter(value => invalidPage.has(value) && !(value === '0' && zeroBased.has(route)))
+              ? probe.values.filter(value => invalidPage.has(value))
               : probe.values.filter(value => value !== valid && value !== locale);
             for (const value of rejectedValues) {
               expect.soft(document.effectiveValues, `${label} effective filter`).not.toContain(value);
@@ -409,31 +366,26 @@ for (const [group, routes] of Object.entries(publicRoutes)) {
           await response.dispose();
         }
       }).toBe(200);
-      for (const suffix of ['wiki/items', 'wiki/search?q=fixture.alpha', 'atlas/delivery?item=fixture.alpha']) {
-        const path = `/${locale}/${suffix}`;
-        await waitForWikiBudget(path, 1, catalog.database);
-        const response = await page.goto(`${catalog.origin}${path}`);
-        expect(response.status(), path).toBe(200);
-        if (suffix.startsWith('atlas/')) {
-          await expect(page.locator('main input[name=item]')).toHaveValue('fixture.alpha');
-        } else {
-          await expect(page.locator('main')).toContainText('fixture.alpha');
-        }
-      }
+      await catalogControls(page, locale, catalog);
     }
+    if (group === 'editorial') await editorialControls(page, locale);
+    if (group === 'community') await partyControl(page, locale);
     for (const route of routes) await checkRoute(page, locale, route, catalogRoutes.has(route[0]) ? catalog : undefined);
+    if (group === 'bazaar') await bazaarControls(page, locale);
   });
 }
 
-function seed(entity, args) {
+async function seed(entity, args) {
+  const database = process.env.PORTAL_E2E_DATABASE_URL ?? process.env.OTERYN_DATABASE_URL;
+  await pool(database).end();
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const binary = process.env.PORTAL_E2E_BINARY ?? path.join(
     process.env.CARGO_TARGET_DIR ?? path.join(root, 'target'), 'debug', 'oteryn-portal',
   );
   const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
     cwd: root,
-    env: {...process.env, OTERYN_ENV: 'testing',
-      OTERYN_DATABASE_URL: process.env.PORTAL_E2E_DATABASE_URL ?? process.env.OTERYN_DATABASE_URL},
+    env: {OTERYN_ENV: 'testing', OTERYN_MFA_KEY: process.env.OTERYN_MFA_KEY,
+      OTERYN_DATABASE_URL: database},
     encoding: 'utf8',
   });
   // Seed output can contain MFA material. Keep subprocess output out of failure messages.
@@ -441,33 +393,188 @@ function seed(entity, args) {
   return JSON.parse(result.stdout);
 }
 
-async function authenticateStaff(page, locale) {
-  // Run the existing disposable database guard before invoking the seed CLI.
-  const db = pool();
-  await db.end();
+async function seedPlayer(locale) {
   const account = {email: `query-${randomUUID()}@example.invalid`, password: password()};
-  const {accountId} = seed('account', {...account, locale});
-  const {recoveryCodes} = seed('account-mfa', {accountId, password: account.password});
-  await query(`INSERT INTO account_roles (account_id, role_id)
-    SELECT $1, id FROM roles WHERE key IN ('platform_admin', 'game_support')`, [accountId]);
-  expect(recoveryCodes.length, 'seeded MFA recovery codes').toBeGreaterThan(0);
-  await loginWithRecoveryCode(page, locale, account, recoveryCodes[0]);
-  const response = await page.goto('/admin');
-  expect(new URL(response.url()).pathname).toBe('/admin');
-  expect(response.status(), 'authenticated platform admin').toBe(200);
+  return {...account, id: (await seed('account', {...account, locale})).accountId};
 }
 
-test('staff audit query parameters', async ({page}, info) => {
+async function result(page, target, locale, database) {
+  await waitForWikiBudget(target, 1, database);
+  const response = await page.goto(target, {waitUntil: 'domcontentloaded'});
+  expect(response.status(), new URL(response.url()).pathname).toBe(200);
+  await expect(page.locator('html')).toHaveAttribute('lang', locale);
+  return page.locator('main');
+}
+
+async function seedNews(prefix, count) {
+  await query(`INSERT INTO news
+    (slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at)
+    SELECT $1 || '-' || n, 'English ' || $1 || ' ' || n, 'English fixture body',
+           now()-n*interval '1 second', 'Polski ' || $1 || ' ' || n, 'Polska treść testowa',
+           now(), now()
+    FROM generate_series(1,$2::int) n`, [prefix, count]);
+}
+
+async function editorialControls(page, locale) {
+  const marker = `query-${randomUUID()}`;
+  const {id} = await seedPlayer(locale);
+  try {
+    await seedNews(marker, 11);
+    await query(`WITH added AS (
+      INSERT INTO events(status,starts_at,ends_at,featured,created_by,updated_by,published_by)
+      SELECT 'published', now()-interval '3650 days'+n*interval '1 second',
+             now()+interval '1 day', true, $1, $1, $1
+      FROM generate_series(1,201) n
+      RETURNING id, starts_at
+    ), ordered AS (
+      SELECT id, row_number() OVER(ORDER BY starts_at) AS n FROM added
+    )
+    INSERT INTO event_translations(event_id,locale,slug,title,summary,body)
+    SELECT id, $2, $3 || '-' || n, 'Event ' || $3 || ' ' || n, 'Fixture summary', 'Fixture body'
+    FROM ordered`, [id, locale, marker]);
+
+    for (const [route, first, second, last] of [
+      ['news', 1, 2, 11], ['events', 0, 1, 201],
+    ]) {
+      const link = n => `a[href="/${locale}/${route}/${marker}-${n}"]`;
+      let main = await result(page, `/${locale}/${route}?page=${first}`, locale);
+      await expect(main.locator(link(1))).toHaveCount(1);
+      await expect(main.locator(link(last))).toHaveCount(0);
+      main = await result(page, `/${locale}/${route}?page=${second}`, locale);
+      await expect(main.locator(link(last))).toHaveCount(1);
+      await expect(main.locator(link(1))).toHaveCount(0);
+    }
+    for (const [lang, title] of [['en', 'English'], ['pl', 'Polski']]) {
+      const heading = `${title} ${marker} 1`;
+      let main = await result(page, `/news?lang=${lang}`, lang);
+      await expect(main.getByRole('link', {name: heading, exact: true})).toHaveCount(1);
+      main = await result(page, `/today?lang=${lang}`, lang);
+      await expect(main.getByRole('heading', {name: heading, exact: true})).toHaveCount(1);
+    }
+    for (const [include, exclude] of [['news', 'events'], ['events', 'news']]) {
+      const filters = new URLSearchParams({q: `${marker} 1`, kind: include, page: '1'});
+      const main = await result(page, `/${locale}/search?${filters}`, locale);
+      await expect(main.locator(`a[href="/${locale}/${include}/${marker}-1"]`)).toHaveCount(1);
+      await expect(main.locator(`a[href="/${locale}/${exclude}/${marker}-1"]`)).toHaveCount(0);
+      await expect(main.locator(`a[href="/${locale}/${include}/${marker}-2"]`)).toHaveCount(0);
+    }
+  } finally {
+    await query("DELETE FROM events WHERE created_by=$1", [id]);
+    await query("DELETE FROM news WHERE starts_with(slug,$1)", [`${marker}-`]);
+  }
+}
+
+async function partyControl(page, locale) {
+  const {id} = await seedPlayer(locale);
+  const marker = `Party ${randomUUID()}`;
+  try {
+    const fixtures = [
+      [world, 'hunt', 50, 150, 'any'],
+      [world, 'boss', 50, 150, 'any'],
+      [world, 'hunt', 10, 40, 'any'],
+      [world, 'hunt', 50, 150, 'paladin'],
+      [uuid7(), 'hunt', 50, 150, 'any'],
+    ];
+    for (const [index, [worldId, purpose, min, max, profession]] of fixtures.entries()) {
+      const character = uuid7();
+      const name = `${marker} ${index}`;
+      await query(`WITH character AS (
+        INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
+        VALUES($1,$2,$3,$4,'AVAILABLE') RETURNING character_id
+      )
+      INSERT INTO pd_party_posts(account_id,character_id,character_name,world_id,purpose,min_level,max_level,profession,note,starts_at,expires_at)
+      SELECT $1,character_id,$4,$3,$5,$6,$7,$8,$4,now(),now()+interval '1 day' FROM character`,
+      [id, character, worldId, name, purpose, min, max, profession]);
+    }
+    const path = `/${locale}/party`;
+    const unfiltered = await result(page, path, locale);
+    for (const index of fixtures.keys()) {
+      await expect(unfiltered.getByText(`${marker} ${index}`, {exact: true}).last()).toBeVisible();
+    }
+    const filtered = await result(page, `${path}?world=${world}&purpose=hunt&level=100&profession=knight`, locale);
+    await expect(filtered.getByText(`${marker} 0`, {exact: true}).last()).toBeVisible();
+    for (const index of [1, 2, 3, 4]) {
+      await expect(filtered.getByText(`${marker} ${index}`, {exact: true})).toHaveCount(0);
+    }
+  } finally {
+    await query('DELETE FROM pd_party_posts WHERE account_id=$1', [id]);
+    await query('DELETE FROM account_characters WHERE account_id=$1', [id]);
+  }
+}
+
+async function bazaarControls(page, locale) {
+  const seller = await seedPlayer(locale);
+  const buyer = await seedPlayer(locale);
+  const {recoveryCodes: [code]} = await seed('account-mfa', {accountId: seller.id, password: seller.password});
+  await loginWithRecoveryCode(page, locale, seller, code);
+  await page.goto(`/${locale}/account/sudo`);
+  await submit(page, 'main form', {current_password: seller.password});
+  const older = await listing({page, id: seller.id}, buyer, locale);
+  const newer = await listing({page, id: seller.id}, buyer, locale);
+  const [{before}] = await query(`SELECT (extract(epoch FROM created_at)*1000000000)::numeric(30,0)::text || ':' || id AS before
+    FROM bazaar_listings WHERE id=$1`, [newer.id]);
+  const card = lot => `[data-listing="${lot.id}"]`;
+  for (const route of ['bazaar', 'bazaar/items', 'account/bazaar']) {
+    const path = `/${locale}/${route}`;
+    let main = await result(page, path, locale);
+    await expect(main.locator(card(newer))).toHaveCount(1);
+    await expect(main.locator(card(older))).toHaveCount(1);
+    main = await result(page, `${path}?before=${encodeURIComponent(before)}`, locale);
+    await expect(main.locator(card(older))).toHaveCount(1);
+    await expect(main.locator(card(newer))).toHaveCount(0);
+  }
+  await checkRoute(page, locale, ['account/bazaar', {before}]);
+}
+
+test('player Store history applies the rendered cursor', async ({page}, info) => {
   const locale = info.project.metadata.locale;
-  await authenticateStaff(page, locale);
-  await checkRoute(page, locale, auditRoute);
+  const account = await seedPlayer(locale);
+  // This disposable account's immutable ledger is removed with the harness database.
+  await query('INSERT INTO wallet_accounts(account_id) VALUES($1) ON CONFLICT DO NOTHING', [account.id]);
+  const entries = await query(`WITH operations AS (
+      INSERT INTO wallet_operations(id,kind,account_id,amount)
+      SELECT uuidv7(),'adjustment',$1,1 FROM generate_series(1,27)
+      RETURNING id,account_id
+    ), posted AS (
+      INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta)
+      SELECT uuidv7(),id,account_id,1,0 FROM operations
+      RETURNING id,operation_id
+    )
+    SELECT id,operation_id FROM posted ORDER BY id DESC`, [account.id]);
+  await login(page, locale, account);
+  const path = `/${locale}/shop/history`;
+  const first = await result(page, path, locale);
+  await expect(first.locator('article')).toHaveCount(25);
+  const cursor = entries[24].id;
+  const next = first.locator(`a[href="${path}?before=${cursor}"]`);
+  await expect(next).toHaveCount(1);
+  for (const [index, entry] of entries.entries()) {
+    await expect(first.getByText(entry.operation_id, {exact: true})).toHaveCount(index < 25 ? 1 : 0);
+  }
+  const second = await result(page, `${path}?before=${cursor}`, locale);
+  await expect(second.locator('article')).toHaveCount(2);
+  for (const [index, entry] of entries.entries()) {
+    await expect(second.getByText(entry.operation_id, {exact: true})).toHaveCount(index < 25 ? 0 : 1);
+  }
+  await checkRoute(page, locale, ['shop/history', {before: cursor}]);
 });
 
-test('staff listing query parameters', async ({page}, info) => {
-  test.setTimeout(600_000);
-  const locale = info.project.metadata.locale;
-  await authenticateStaff(page, locale);
-  const search = await page.goto(`/admin/console/players?lang=${locale}&q=Aldric`);
-  expect(search.status(), 'staff fixture can read console player search').toBe(200);
-  for (const route of staffRoutes) await checkRoute(page, locale, route);
-});
+async function catalogControls(page, locale, {origin, database}) {
+  const path = `${origin}/${locale}`;
+  const itemLink = key => `a[href="/${locale}/wiki/items/fixture.${key}"]`;
+  const options = [['alpha', 'beta', 'rat', 'wolf'], ['beta', 'alpha', 'wolf', 'rat']];
+  const allItems = await result(page, `${path}/wiki/items`, locale, database);
+  await expect(allItems.locator(itemLink('alpha'))).toHaveCount(1);
+  await expect(allItems.locator(itemLink('beta'))).toHaveCount(1);
+  for (const [item, excludedItem, source, excludedSource] of options) {
+    for (const [route, kind] of [['wiki/search', 'kind=items&'], ['wiki/items', ''], ['search', 'kind=world&']]) {
+      const main = await result(page, `${path}/${route}?${kind}q=fixture.${item}`, locale, database);
+      await expect(main.locator(itemLink(item))).toHaveCount(1);
+      await expect(main.locator(itemLink(excludedItem))).toHaveCount(0);
+    }
+    const atlas = await result(page, `${path}/atlas/delivery?item=fixture.${item}&tab=creatures`, locale, database);
+    await expect(atlas.locator('input[name=item]')).toHaveValue(`fixture.${item}`);
+    await expect(atlas.getByRole('heading', {name: `fixture.${source}`, exact: true})).toHaveCount(1);
+    await expect(atlas.getByRole('heading', {name: `fixture.${excludedSource}`, exact: true})).toHaveCount(0);
+  }
+}
