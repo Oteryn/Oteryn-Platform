@@ -409,8 +409,10 @@ async fn change<A: AccountStateReader, I: Accounts>(
     State(s): State<Arc<Players<A, I>>>,
     Extension(context): Extension<CheckContext>,
     Extension(authority): Extension<MutationAuthorization>,
-    csrf: Option<Extension<oteryn_web::csrf::Verified>>,
-    chrome: Option<Extension<oteryn_ui::Chrome>>,
+    (csrf, chrome): (
+        Option<Extension<oteryn_web::csrf::Verified>>,
+        Option<Extension<oteryn_ui::Chrome>>,
+    ),
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     Form(form): Form<Action>,
