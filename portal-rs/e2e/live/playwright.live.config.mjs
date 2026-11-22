@@ -28,7 +28,7 @@ export default defineConfig({
     browserName: 'chromium',
     baseURL: baseURL.origin,
     serviceWorkers: 'block',
-    userAgent: 'OterynLiveSmoke/1.0 (Playwright)',
+    userAgent: 'OterynLiveSmoke/1.0 (Playwright) OterynE2E-32bec7675dad93274ee343bf',
     // Only the Node request gate is allowed to reach the network.
     proxy: { server: 'http://127.0.0.1:1', bypass: '<-loopback>' },
     launchOptions: {

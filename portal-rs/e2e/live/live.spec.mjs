@@ -6,7 +6,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 const require = createRequire(import.meta.url);
 const { test, expect } = require('@playwright/test');
 const budgetPath = join(process.env.OTERYN_SMOKE_RUN_DIR, 'budget.json');
-const userAgent = 'OterynLiveSmoke/1.0 (Playwright)';
 const legalPath = /^\/(?:pl\/|en\/)?legal\/(?:terms|privacy|cookies)\/?$/;
 const statefulPath = /(?:^|\/)(?:admin|internal|oauth|logout|sign-out|signout|language|verify-email|confirm-email|unsubscribe|callback|challenge|revoke|restore|delete|publish|unpublish|checkout|webhooks?)(?:\/|$)/i;
 const statefulQuery = /^(?:token|code|signature|action|access_token|csrf|_csrf)$/i;
@@ -27,7 +26,7 @@ function publicURL(url, origins) {
   return !statefulPath.test(path) && ![...url.searchParams.keys()].some(key => statefulQuery.test(key));
 }
 
-function requestGate(origins, language) {
+function requestGate(origins, language, userAgent) {
   let tail = Promise.resolve();
   const cache = new Map();
   return (url, method = 'GET') => {
@@ -86,6 +85,7 @@ function checkHeaders(url, headers, defect, note) {
     const value = headers.get(name);
     if (!pattern.test(value || '')) defect('headers', url, `${name} = ${value || '(missing)'}`);
   }
+  note(url, `headers: ${checks.map(([name, pattern]) => `${name}=${pattern.test(headers.get(name) || '') ? 'pass' : 'fail'}`).join(', ')}`);
   const cookies = headers.getSetCookie();
   if (!cookies.length) note(url, 'no Set-Cookie header');
   for (const cookie of cookies) {
@@ -103,6 +103,7 @@ function checkHeaders(url, headers, defect, note) {
       missing.push('host-only scope with Path=/');
     }
     if (missing.length) defect('headers', url, `cookie ${name} missing ${missing.join(', ')}`);
+    else note(url, `cookie ${name} passed Secure, HttpOnly, SameSite and __Host- scope checks`);
   }
 }
 
@@ -258,7 +259,7 @@ async function openPage(context, source, report, request) {
   };
 }
 
-test('anonymous localized production crawl', async ({ context, baseURL, viewport }, info) => {
+test('anonymous localized production crawl', async ({ context, baseURL, viewport, userAgent }, info) => {
   const [language] = info.project.name.split('-');
   const home = new URL(`/${language}/`, baseURL);
   const registration = new URL(`/${language}/register`, baseURL);
@@ -271,7 +272,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
     api.hostname = 'api.oteryn.com';
   }
   const origins = new Set([home.origin, www.origin, api.origin]);
-  const request = requestGate(origins, language);
+  const request = requestGate(origins, language, userAgent);
   const findings = new Map();
   const notes = new Set();
   const defect = (category, url, evidence) => {
@@ -312,6 +313,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       const result = await request(url);
       const evidence = check(result);
       if (evidence) defect('other', url, evidence);
+      else note(url, `edge check HTTP ${result.status}${result.headers.has('location') ? ` Location=${result.headers.get('location')}` : ''}`);
     } catch (error) {
       defect('other', url, `${error.message}${error.cause ? ` (${error.cause.message})` : ''}`);
     }
@@ -341,7 +343,11 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
     }
     const first = await probe(url, url);
     if (!first || (first.status >= 400 && legalPath.test(url.pathname))) continue;
-    if (first.status >= 400 || !first.headers.get('content-type')?.includes('text/html')) continue;
+    if (first.status >= 400) continue;
+    if (!first.headers.get('content-type')?.includes('text/html')) {
+      defect('other', url, `expected a rendered HTML page, received ${first.headers.get('content-type') || '(no content-type)'}`);
+      continue;
+    }
     const browser = await openPage(context, url.href, defect, request);
     const { page, documentResponses } = browser;
     try {
@@ -358,6 +364,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       const result = documentResponses.get(final.href);
       if (!result || result.status >= 400 || inspected.has(final.href)) continue;
       inspected.add(final.href);
+      console.log(`LIVE PAGE ${info.project.name} ${final.href}`);
       const data = await page.evaluate(inspectPage, { language, assetSelector });
       if (final.pathname === `/${language}` || final.pathname.startsWith(`/${language}/`)) {
         checkLanguage(final, data, language, defect);
@@ -372,7 +379,9 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         note(final, data.legal ? `legal article has content (${data.legal.length} characters)` : 'legal article empty');
       }
       if (final.pathname.replace(/\/$/, '') === registration.pathname) {
+        const previousFindings = findings.size;
         await checkRegistration(page, final, language, defect);
+        if (findings.size === previousFindings) note(final, 'registration form, fields and legal links present');
       }
       if (url.href === home.href || (!innerChecked && !legalPath.test(final.pathname))) {
         checkHeaders(final, result.headers, defect, note);
