@@ -1484,30 +1484,41 @@ async fn payment_queue_seeds_evidence_from_candidates() {
         .bind(None::<Uuid>)
         .fetch_one(&h.pool)
     };
-    fn rows_read(plan: &Value, table: &str) -> u64 {
+    fn relation_work(plan: &Value, table: &str) -> (u64, u64) {
         let own = if plan["Relation Name"].as_str() == Some(table) {
-            plan["Actual Rows"].as_u64().unwrap() * plan["Actual Loops"].as_u64().unwrap()
+            let loops = plan["Actual Loops"].as_u64().unwrap();
+            let rows = [
+                "Actual Rows",
+                "Rows Removed by Filter",
+                "Rows Removed by Index Recheck",
+            ]
+            .iter()
+            .map(|key| plan[*key].as_u64().unwrap_or_default())
+            .sum::<u64>();
+            (loops, rows * loops)
         } else {
-            0
+            (0, 0)
         };
-        own + plan["Plans"]
+        plan["Plans"]
             .as_array()
             .into_iter()
             .flatten()
-            .map(|child| rows_read(child, table))
-            .sum::<u64>()
+            .map(|child| relation_work(child, table))
+            .fold(own, |(loops, rows), (child_loops, child_rows)| {
+                (loops + child_loops, rows + child_rows)
+            })
     }
     let empty = plan(true).await.unwrap();
     let empty = &empty[0]["Plan"];
     assert_eq!(empty["Actual Rows"], 0);
-    assert_eq!(rows_read(empty, "payment_intents"), 0);
-    assert_eq!(rows_read(empty, "commerce_operations"), 0);
+    assert_eq!(relation_work(empty, "payment_intents"), (0, 0));
+    assert_eq!(relation_work(empty, "commerce_operations"), (0, 0));
 
     kill_refund_job(&h, payment).await;
     let sparse = plan(true).await.unwrap();
     let sparse = &sparse[0]["Plan"];
     assert_eq!(sparse["Actual Rows"], 1);
-    assert_eq!(rows_read(sparse, "payment_intents"), 1);
+    assert_eq!(relation_work(sparse, "payment_intents"), (1, 1));
     let ordinary = plan(false).await.unwrap();
     assert_eq!(ordinary[0]["Plan"]["Actual Rows"], 26);
     h.close().await;
