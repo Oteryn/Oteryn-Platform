@@ -44,6 +44,14 @@ impl EconomyPage {
         self.text(&format!("economy-state-{state}"))
     }
 
+    fn heading(&self, group: &Group) -> String {
+        if group.source == "Platform" {
+            self.text("economy-purchased")
+        } else {
+            self.text(&format!("economy-heading-{}", group.family))
+        }
+    }
+
     fn columns(&self, group: &Group) -> String {
         let key = if group.source == "Platform" {
             "economy-columns-purchased".into()
@@ -231,12 +239,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":if expired {"expired"} else if groups.iter().all(|g|g.state=="unavailable") {"unavailable"} else {"available"},"groups":groups})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
-    let lang = if english { "en" } else { "pl" };
+    let lang = oteryn_web::Language::for_request(&request).code();
     let page = EconomyPage {
         lang,
         copy: crate::web::translations(lang),

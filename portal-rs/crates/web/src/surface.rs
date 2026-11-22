@@ -69,6 +69,11 @@ pub enum Language {
     En,
 }
 impl Language {
+    /// Resolve the portal locale using the URL, preference cookie, then Accept-Language.
+    pub fn for_request(request: &Request) -> Self {
+        path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()))
+    }
+
     /// BCP 47 language code for templates and response headers.
     pub fn code(self) -> &'static str {
         match self {

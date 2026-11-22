@@ -17,9 +17,24 @@ test('economy analytics localizes the unavailable view', async ({ page }, info) 
   });
   await loginWithRecoveryCode(page, lang, staff, recoveryCodes[0]);
 
+  // The preference cookie must take precedence over the conflicting header.
+  await page.context().addCookies([{
+    name: 'portal_language', value: lang, url: new URL(page.url()).origin,
+  }]);
+  await page.setExtraHTTPHeaders({ 'Accept-Language': lang === 'pl' ? 'en' : 'pl' });
   const response = await page.goto('/admin/analytics/economy');
   expect(response.status()).toBe(200);
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
+  await expect(page.locator('#portal-header')).toContainText(lang === 'pl' ? 'Graj' : 'Play');
+  const headings = lang === 'pl'
+    ? ['Obieg złota', 'Przepływy złota', 'Handel między graczami', 'Rynek', 'Sklep w grze']
+    : ['Gold circulation', 'Gold flows', 'Player trades', 'Market', 'In-game store'];
+  for (const name of headings) {
+    await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeVisible();
+  }
+  await expect(page.locator('main')).not.toContainText(/economy_\w+_daily/);
+  const end = lang === 'pl' ? 'Do (UTC, z wyłączeniem podanej daty)' : 'To (UTC, exclusive)';
+  await expect(page.getByLabel(end, { exact: true })).toHaveAttribute('required', '');
   const status = page.locator('[data-state="unavailable"]');
   await expect(status).toHaveCount(5);
   const pl = 'Wymagana jest zaakceptowana baza ponownej synchronizacji oraz aktualne dane z Gry';
