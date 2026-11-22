@@ -41,21 +41,22 @@ pub fn with_browser_deadline(app: Router) -> Router {
 pub(crate) fn router(pool: PgPool, origin: &str, submissions: bool) -> Router {
     let mut session = SessionLayer::new(pool.clone()).with_bounded_refresh();
     session.csrf.trusted_origins = vec![origin.to_owned()];
+    let sessions = middleware::from_fn_with_state(session, oteryn_web::session::middleware);
     Router::new()
-        .route("/{lang}/support/appeals", get(index))
+        .route(
+            "/{lang}/support/appeals",
+            get(index).route_layer(sessions.clone()),
+        )
         .route(
             APPEAL_DETAIL,
-            if submissions {
+            (if submissions {
                 get(detail).post(submit)
             } else {
                 get(detail)
-            },
+            })
+            .route_layer(sessions),
         )
         .layer(Extension(Submissions(submissions)))
-        .route_layer(middleware::from_fn_with_state(
-            session,
-            oteryn_web::session::middleware,
-        ))
         .route_layer(middleware::from_fn(localize_refusal))
         .layer(middleware::from_fn(crate::tickets::private))
         .with_state(pool)

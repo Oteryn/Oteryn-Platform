@@ -889,7 +889,15 @@ async fn browser_appeals(
         assert!(!html.contains("Submit appeal"));
         assert_eq!(
             unavailable
+                .clone()
                 .oneshot(request(&owner_cookie, "en", sanction, &valid, 1)?)
+                .await?
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        assert_eq!(
+            unavailable
+                .oneshot(request("", "en", sanction, "", 1)?)
                 .await?
                 .status(),
             StatusCode::METHOD_NOT_ALLOWED
