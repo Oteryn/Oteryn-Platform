@@ -482,6 +482,28 @@ mod tests {
         assert_eq!(active, ["calculators"]);
     }
     #[test]
+    fn shell_uses_compressed_web_fonts() {
+        let static_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../static/thais");
+        let css = std::fs::read_to_string(static_dir.join("shell.css")).expect("shell stylesheet");
+        let fonts: Vec<_> = css
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("src: url(\""))
+            .filter_map(|line| line.split_once('"').map(|(file, _)| file))
+            .collect();
+        assert_eq!(fonts.len(), 3);
+        let total: usize = fonts
+            .into_iter()
+            .map(|file| {
+                let bytes = std::fs::read(static_dir.join(file)).expect("shipped shell font");
+                assert!(bytes.starts_with(b"wOF2"), "{file} uses WOFF2");
+                bytes.len()
+            })
+            .sum();
+        assert!(total < 566_128, "shell fonts use {total} bytes");
+    }
+
+    #[test]
     fn homepage_smooth_scroll_leaves_keyboard_focus_immediate() {
         let css = include_str!("../../../static/thais/home.css");
         assert_eq!(css.matches("scroll-behavior: smooth").count(), 1);

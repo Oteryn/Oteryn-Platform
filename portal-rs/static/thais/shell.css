@@ -3,18 +3,18 @@
   font-style: normal;
   font-weight: 400 900;
   font-display: swap;
-  src: url("alegreya.ttf") format("truetype");
+  src: url("alegreya-56505fe0.woff2") format("woff2");
 }
 
 @font-face {
   font-family: Manrope;
-  src: url("manrope.ttf") format("truetype");
+  src: url("manrope-c65362bb.woff2") format("woff2");
   font-weight: 200 800;
   font-display: swap;
 }
 @font-face {
   font-family: "Barlow Condensed";
-  src: url("barlow-condensed-semibold.ttf") format("truetype");
+  src: url("barlow-condensed-semibold-a614967a.woff2") format("woff2");
   font-weight: 600;
   font-display: swap;
 }
