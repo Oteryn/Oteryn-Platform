@@ -158,7 +158,7 @@ impl Projection {
     async fn feed_epoch(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        now: i64,
+        now: Option<i64>,
     ) -> Result<FeedEpoch, Error> {
         // A shared feed lock spans metadata and rows, excluding epoch changes,
         // snapshot replacement and watermark updates until the read completes.
@@ -170,6 +170,16 @@ impl Projection {
         let watermark: Option<String> = feed.try_get("watermark_epoch")?;
         let authority: Option<String> = feed.try_get("source_authority")?;
         let complete: Option<i64> = feed.try_get("complete_through")?;
+        let now = match now {
+            Some(now) => now,
+            // Read the database clock in a separate statement after the lock
+            // wait. A timestamp from before the wait can admit a stale feed.
+            None => {
+                sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+                    .fetch_one(&mut **tx)
+                    .await?
+            }
+        };
         let uncertainty = i64::from(self.settings.clock_uncertainty_seconds);
         Ok(
             if watermark.as_deref() == Some(highest.as_str())
@@ -198,16 +208,16 @@ impl Projection {
         &self,
         character: CharacterId,
         completed_at: i64,
-        now: i64,
     ) -> Result<Option<AccountId>, Error> {
-        if !self.settings.available() || completed_at < 0 || now < 0 {
+        if !self.settings.available() || completed_at < 0 {
             return Ok(None);
         }
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let FeedEpoch::Live {
             epoch,
             complete_through,
-        } = self.feed_epoch(&mut tx, now).await?
+        } = self.feed_epoch(&mut tx, None).await?
         else {
             return Ok(None);
         };
@@ -248,7 +258,7 @@ impl Projection {
             return Ok(AccountView::empty(ReadState::Denied));
         }
         let mut tx = self.pool.begin().await?;
-        let highest = match self.feed_epoch(&mut tx, now).await? {
+        let highest = match self.feed_epoch(&mut tx, Some(now)).await? {
             FeedEpoch::Live { epoch, .. } => epoch,
             FeedEpoch::Unavailable => return Ok(AccountView::empty(ReadState::Unavailable)),
             FeedEpoch::Stale => return Ok(AccountView::empty(ReadState::Stale)),

@@ -224,11 +224,7 @@ pub(super) async fn verify_sanction_account(
             .map_err(|_| unavailable)?;
     let completed_at = completed.unix_timestamp() + i64::from(completed.nanosecond() != 0);
     let owner = projection
-        .staff_character_owner(
-            character,
-            completed_at,
-            time::OffsetDateTime::now_utc().unix_timestamp(),
-        )
+        .staff_character_owner(character, completed_at)
         .await
         .map_err(|_| unavailable)?;
     if owner != Some(account) {
