@@ -19,6 +19,8 @@
 <select class="op-input" id="edit-role" name="role" required>{% for (id,key) in roles %}<option value="{{ id }}">{{ key }}</option>{% endfor %}</select>
 <label for="edit-permissions">{% if lang == "pl" %}Nowy zestaw uprawnień (oddzielone spacjami){% else %}Replacement permissions (separated by spaces){% endif %}</label>
 <textarea class="op-input" id="edit-permissions" name="permissions"></textarea>
+<label for="edit-role-reason">{{ reason_label }}</label>
+<textarea class="op-input" id="edit-role-reason" name="reason" maxlength="500"></textarea>
 <button class="op-button" name="action" value="set-permissions">{% if lang == "pl" %}Zapisz uprawnienia{% else %}Save permissions{% endif %}</button>
 </form>
 </section>{% endif %}

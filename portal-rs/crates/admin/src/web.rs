@@ -699,7 +699,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 }
             };
             s.auth
-                .change_from_panel(context, Uuid::now_v7(), change)
+                .change_from_panel_with_reason(context, Uuid::now_v7(), change, &form.reason)
                 .await
                 .map(|_| ())
         }
@@ -747,6 +747,12 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
             .await;
             return match result {
                 Ok(()) => Redirect::to("/admin/roles").into_response(),
+                Err(staff_actions::Error::Forbidden) => {
+                    match refusal(&s.pool, context.account, "/admin/roles").await {
+                        Ok(()) => staff_actions::Error::Forbidden.response(chrome),
+                        Err(_) => staff_actions::Error::Unavailable.response(chrome),
+                    }
+                }
                 Err(error) => error.response(chrome),
             };
         }

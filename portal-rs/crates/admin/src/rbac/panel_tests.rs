@@ -274,6 +274,29 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         .await?,
         StatusCode::SEE_OTHER
     );
+    let protected: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&db.pool)
+        .await?;
+    for (account, role) in [(db.actor.account, role), (target, protected)] {
+        assert_eq!(
+            post(
+                &db,
+                &cookie,
+                &csrf,
+                format!(
+                    "action=grant&account={account}&role={role}&reason=Approved+role+assignment"
+                )
+            )
+            .await?,
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target='/admin/roles'"
+        ).bind(db.actor.account).fetch_one(&db.pool).await?,
+        2
+    );
     let context = CheckContext {
         account: target,
         ..db.actor
@@ -283,18 +306,51 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         auth.check(context, Permission::ManageWikiArticles).await,
         Err(super::Error::Denied)
     ));
+    let widen = format!(
+        "action=set-permissions&role={role}&permissions=admin.access%20{}",
+        Permission::ManageWikiArticles.as_str()
+    );
+    sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.grant'")
+        .bind(protected)
+        .execute(&db.pool)
+        .await?;
     assert_eq!(
         post(
             &db,
             &cookie,
             &csrf,
-            format!(
-                "action=set-permissions&role={role}&permissions=admin.access%20{}",
-                Permission::ManageWikiArticles.as_str()
-            )
+            format!("{widen}&reason=Approved+wiki+workflow")
+        )
+        .await?,
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.grant')")
+        .bind(protected)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        post(&db, &cookie, &csrf, widen.clone()).await?,
+        StatusCode::BAD_REQUEST
+    );
+    assert!(matches!(
+        auth.check(context, Permission::ManageWikiArticles).await,
+        Err(super::Error::Denied)
+    ));
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
+            &csrf,
+            format!("{widen}&reason=Approved+wiki+workflow")
         )
         .await?,
         StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT staff_reason FROM audit_log WHERE target=$1 AND action='rbac.role.permissions_changed'"
+        ).bind(role.to_string()).fetch_one(&db.pool).await?,
+        "Approved wiki workflow"
     );
     auth.check(context, Permission::ManageWikiArticles).await?;
     assert_eq!(
@@ -317,9 +373,6 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         .await?,
         StatusCode::FORBIDDEN
     );
-    let protected: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
-        .fetch_one(&db.pool)
-        .await?;
     assert_eq!(
         post(
             &db,

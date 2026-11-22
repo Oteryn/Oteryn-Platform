@@ -55,7 +55,8 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_impl(context, request_id, change, false).await
+        self.change_impl(context, request_id, change, false, "")
+            .await
     }
 
     /// Browser role edits cannot bypass privileged-grant approval or alter the
@@ -66,7 +67,19 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_impl(context, request_id, change, true).await
+        self.change_from_panel_with_reason(context, request_id, change, "")
+            .await
+    }
+
+    pub(crate) async fn change_from_panel_with_reason(
+        &self,
+        context: CheckContext,
+        request_id: Uuid,
+        change: Change<'_>,
+        reason: &str,
+    ) -> Result<Option<Uuid>, Error> {
+        self.change_impl(context, request_id, change, true, reason)
+            .await
     }
 
     /// Grant an ordinary role under the staff-action transaction's existing locks.
@@ -95,6 +108,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
         panel: bool,
+        reason: &str,
     ) -> Result<Option<Uuid>, Error> {
         if request_id.is_nil() {
             return Err(Error::InvalidInput);
@@ -135,6 +149,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 ensure_panel_role_grant(&mut tx, role).await?;
             }
         }
+        let mut audit_reason = None;
         let (action, target, before, after, result) = match change {
             Change::CreateRole { key, permissions } => {
                 validate_key(key)?;
@@ -177,8 +192,9 @@ impl<A: AccountStateReader> Authorizer<A> {
                 }
                 // Nobody widens a role they hold themselves; narrowing stays allowed.
                 if after.iter().any(|p| !before.iter().any(|b| b == p)) {
-                    let held: bool = sqlx::query_scalar(
-                        "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+                    let (held, assigned): (bool, bool) = sqlx::query_as(
+                        "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2),
+                                EXISTS(SELECT 1 FROM account_roles WHERE role_id=$2)",
                     )
                     .bind(context.account)
                     .bind(role)
@@ -186,6 +202,14 @@ impl<A: AccountStateReader> Authorizer<A> {
                     .await?;
                     if held {
                         return Err(Error::Denied);
+                    }
+                    if assigned {
+                        self.check_in(&mut tx, context, Permission::GrantRoles)
+                            .await?;
+                        audit_reason = Some(
+                            crate::staff_actions::validated_reason(reason)
+                                .ok_or(Error::InvalidInput)?,
+                        );
                     }
                 }
                 if before == after {
@@ -258,7 +282,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 )
             }
         };
-        audit::append(
+        audit::append_with_reason(
             &mut tx,
             Entry {
                 context: AuditContext {
@@ -270,6 +294,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 before,
                 after,
             },
+            audit_reason,
         )
         .await?;
         self.check_in(&mut tx, context, Permission::ManageRoles)
@@ -404,6 +429,17 @@ async fn grant_membership<A: AccountStateReader>(
     .bind(account)
     .bind(role)
     .execute(connection)
-    .await?;
+    .await
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .and_then(|error| error.constraint())
+            == Some("role_grant_assisted_email_reversible")
+        {
+            Error::Denied
+        } else {
+            error.into()
+        }
+    })?;
     Ok(result.rows_affected() == 1)
 }

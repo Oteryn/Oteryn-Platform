@@ -111,6 +111,13 @@ pub struct Guard<'a> {
 pub type Mutation<'a> =
     Pin<Box<dyn Future<Output = Result<Option<AuditChange>, Error>> + Send + 'a>>;
 
+pub(crate) fn validated_reason(reason: &str) -> Option<&str> {
+    let reason = reason.trim();
+    ((MIN_REASON_CHARS..=MAX_REASON_CHARS).contains(&reason.chars().count())
+        && !reason.contains('\0'))
+    .then_some(reason)
+}
+
 /// Validate the form, lock its accounts and run the mutation under durable staff
 /// authorization. Return `None` from the mutation only for a successful no-op.
 pub async fn run<T, F>(
@@ -130,12 +137,7 @@ where
     {
         return Err(Error::Forbidden);
     }
-    let reason = action.reason.trim();
-    if !(MIN_REASON_CHARS..=MAX_REASON_CHARS).contains(&reason.chars().count())
-        || reason.contains('\0')
-    {
-        return Err(Error::Reason);
-    }
+    let reason = validated_reason(action.reason).ok_or(Error::Reason)?;
     let (accounts, input) = validate()?;
     let mut tx = pool.begin().await?;
     rbac::mutation_budget(&mut tx).await?;
