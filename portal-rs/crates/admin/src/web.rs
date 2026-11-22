@@ -136,7 +136,24 @@ impl PanelConfig {
     }
 
     pub(crate) fn csrf_origin(&self) -> String {
-        format!("https://{}", self.host.to_ascii_lowercase())
+        format!(
+            "https://{}",
+            https_authority(&self.host).unwrap_or_default()
+        )
+    }
+}
+
+fn https_authority(value: &str) -> Option<String> {
+    let authority: axum::http::uri::Authority = value.parse().ok()?;
+    let host = authority.host();
+    if host.is_empty() || value.contains('@') {
+        return None;
+    }
+    match authority.port_u16() {
+        Some(443) => Some(host.to_ascii_lowercase()),
+        Some(port) => Some(format!("{}:{port}", host.to_ascii_lowercase())),
+        None if value == host => Some(host.to_ascii_lowercase()),
+        None => None,
     }
 }
 
@@ -163,7 +180,7 @@ pub(crate) fn config_from(
 ) -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
     let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
-    if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
+    if enabled && https_authority(&host).is_none() {
         return Err("invalid admin host".into());
     }
     Ok(PanelConfig {
@@ -307,14 +324,16 @@ pub(crate) async fn host_guard(
     next: Next,
 ) -> Response {
     let hosts = request.headers().get_all(header::HOST);
+    let configured = https_authority(&config.host);
+    let incoming = hosts
+        .iter()
+        .next()
+        .and_then(|value| value.to_str().ok())
+        .and_then(https_authority);
     if !config.admin_panel
-        || config.host.is_empty()
         || hosts.iter().count() != 1
-        || !hosts
-            .iter()
-            .next()
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.eq_ignore_ascii_case(&config.host))
+        || configured.is_none()
+        || incoming != configured
     {
         return StatusCode::NOT_FOUND.into_response();
     }
