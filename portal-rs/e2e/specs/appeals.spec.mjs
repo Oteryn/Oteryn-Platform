@@ -236,7 +236,7 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       if (decision === 'rejected') {
         await expect.poll(async () => Number((await query(
           "SELECT coalesce(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='support-enforcement-appeal' AND window_start=date_trunc('minute', clock_timestamp())",
-        ))[0].count), { timeout: 65_000 }).toBeLessThan(2);
+        ))[0].count), { timeout: 65_000 }).toBe(0);
         try {
           const form = staleTab.locator('main form');
           await form.locator('textarea[name=message]').fill('Submitted from an old tab');
@@ -268,6 +268,41 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       }
     }
     const detail = new URL(page.url()).pathname;
+    const [{ id: expiring }] = await query(
+      `INSERT INTO sanctions (account_id, category, status, public_reason, effective_at, expires_at, created_by)
+       SELECT $1, 'restriction', 'active', $2, clock_timestamp() - interval '1 minute',
+              clock_timestamp() + interval '1 hour', id FROM accounts WHERE email = $3 RETURNING id`,
+      [owner.id, unique(), staff.account.email],
+    );
+    const expiryTab = await page.context().newPage();
+    try {
+      const expiryPath = `${index}/${expiring}`;
+      expect((await expiryTab.goto(expiryPath)).status()).toBe(200);
+      const form = expiryTab.locator('main form');
+      await expect(form).toBeVisible();
+      await query('UPDATE sanctions SET expires_at=clock_timestamp() WHERE id=$1', [expiring]);
+      await form.locator('textarea').fill('Submitted after expiry');
+      const [posted] = await Promise.all([
+        expiryTab.waitForResponse(response => response.request().method() === 'POST'
+          && new URL(response.url()).pathname === expiryPath),
+        form.locator('button[type=submit]').click(),
+      ]);
+      expect(posted.status()).toBe(409);
+      await expect(expiryTab.locator('main')).toContainText(
+        lang === 'pl' ? 'Ta sankcja nie jest już aktywna.' : 'This sanction is no longer active.',
+      );
+      const appeals = expiryTab.getByRole('link', { name: lang === 'pl' ? 'Wróć do odwołań' : 'Back to appeals' });
+      await expect(appeals).toHaveAttribute('href', index);
+      const [recovered] = await Promise.all([
+        expiryTab.waitForResponse(response => response.request().method() === 'GET'
+          && new URL(response.url()).pathname === index),
+        appeals.click(),
+      ]);
+      expect(recovered.status()).toBe(200);
+      expect(await query('SELECT status FROM support_appeal_workflows WHERE sanction_id=$1', [expiring])).toEqual([]);
+    } finally {
+      await expiryTab.close();
+    }
     const playerAdmin = `/admin/players/${owner.id}`;
     expect((await staff.page.goto(playerAdmin)).status()).toBe(200);
     await action(staff.page, 'form:has(button[value=kick])', { reason: 'Close game sessions' }, 'kick');

@@ -289,15 +289,28 @@ async fn submit(
     .await
     .map_err(|failure| match failure {
         Error::SessionRevoked => reauthenticate(&lang, &path),
-        Error::Conflict => {
+        failure @ (Error::Conflict | Error::SanctionInactive) => {
+            let (description, destination, label) = if matches!(failure, Error::SanctionInactive) {
+                (
+                    "appeals-inactive-description",
+                    format!("/{lang}/support/appeals"),
+                    "appeals-open-list",
+                )
+            } else {
+                (
+                    "appeals-conflict-description",
+                    path.clone(),
+                    "appeals-open-current",
+                )
+            };
             let chrome =
                 oteryn_ui::Registry::default().chrome(&lang, &path, oteryn_ui::Account::Anonymous);
             oteryn_ui::error_with_link(
                 &chrome,
                 StatusCode::CONFLICT,
-                &chrome.text("appeals-conflict-description"),
-                &path,
-                &chrome.text("appeals-open-current"),
+                &chrome.text(description),
+                &destination,
+                &chrome.text(label),
             )
         }
         other => error(status(other)),

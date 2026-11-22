@@ -22,6 +22,8 @@ pub enum Error {
     SessionRevoked,
     #[error("invalid input")]
     Invalid,
+    #[error("sanction is no longer active")]
+    SanctionInactive,
     #[error("stale version or invalid transition")]
     Conflict,
     #[error(transparent)]
@@ -37,7 +39,7 @@ impl Error {
             Self::Disabled | Self::NotFound => 404,
             Self::SessionRevoked => 403,
             Self::Invalid => 422,
-            Self::Conflict => 409,
+            Self::Conflict | Self::SanctionInactive => 409,
             Self::Database(_) | Self::AuditUnavailable | Self::Deadline => 503,
         }
     }
@@ -489,7 +491,7 @@ async fn submit_player(
         .await?
         .ok_or(Error::NotFound)?;
     if !active {
-        return Err(Error::Conflict);
+        return Err(Error::SanctionInactive);
     }
     oteryn_db::mutation_budget(&mut tx).await?;
     let state: Option<String> = sqlx::query_scalar(
