@@ -32,7 +32,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  expect(response.status()).toBe(200);
  fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(path=>path!=='/console/dashboard');
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
@@ -49,13 +49,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
            const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
            const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
            const status=response.status();
-           const expected = path==='/console/dashboard' ? 403 : 200;
-           if(status===expected) {
+           if(status===200) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
              await assertShell(screen);
            } else {
-             failures.push(`${path}: HTTP ${status}, expected ${expected}`);
+             failures.push(`${path}: HTTP ${status}`);
              const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
              for(const form of forms) await csrfRejected(screen,form.action,form.fields);
            }
@@ -77,6 +76,16 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
+ await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{
+   const screen=await staffContext.newPage();
+   try {
+     expect((await screen.goto(`/console/dashboard?lang=${lang}`)).status()).toBe(403);
+     await expect(screen.locator('html')).toHaveAttribute('lang',lang);
+     await assertShell(screen,{status:403});
+   } finally {
+     await screen.close();
+   }
+ });
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
