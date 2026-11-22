@@ -311,6 +311,7 @@ pub(super) async fn persist(
             return Err(Error::InvalidInput);
         }
     }
+    let mut final_approved = form.final_approved == "yes";
     if form.action == "delete" {
         if legal(slug) {
             return Err(Error::InvalidInput);
@@ -330,11 +331,14 @@ pub(super) async fn persist(
         }
         let mut content =
             json!({"title":form.title,"body":form.body,"effective":form.legal_effective_date});
-        if form.final_approved == "yes" {
-            content["final_approved"] = json!(true);
-        }
         if legal(slug) && !form.published_at.is_empty() {
             let old:Option<serde_json::Value>=sqlx::query_scalar("SELECT content FROM page_legal_versions WHERE page_id=$1 AND locale=$2 AND version=$3").bind(id).bind(locale).bind(&form.legal_version).fetch_optional(&mut *tx).await?;
+            final_approved |= old
+                .as_ref()
+                .is_some_and(|snapshot| snapshot["final_approved"] == true);
+            if final_approved {
+                content["final_approved"] = json!(true);
+            }
             if old.is_some_and(|v| v != content) {
                 return Err(Error::InvalidInput);
             }
@@ -357,7 +361,7 @@ pub(super) async fn persist(
             },
             target: slug,
             before: before.unwrap_or(json!(null)),
-            after: json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date,"final_approved":form.final_approved == "yes"}),
+            after: json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date,"final_approved":final_approved}),
         },
     )
     .await?;

@@ -13,4 +13,4 @@ create = Utwórz lub edytuj
 
 not-published = Ta strona nie została jeszcze opublikowana.
 operator-draft = Wersja robocza — dane operatora zostaną zastąpione.
-final-approval = Zatwierdź tę wersję dokumentu jako ostateczną
+final-approval = Zatwierdź tę nową wersję dokumentu jako ostateczną

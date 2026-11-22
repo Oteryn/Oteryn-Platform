@@ -466,6 +466,8 @@ Updated English source",
     }
     form.body = "Changed legal text".into();
     persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
+    form.final_approved.clear();
+    persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
     assert!(
         sqlx::query_scalar::<_, bool>(
             "SELECT content @> '{\"final_approved\":true}'::jsonb
@@ -486,6 +488,22 @@ Updated English source",
     .fetch_one(&pool)
     .await?;
     assert_eq!(edited, form.body);
+    form.body.push_str(" Another change.");
+    assert!(matches!(
+        persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await,
+        Err(oteryn_admin::rbac::Error::InvalidInput)
+    ));
+    form.body = edited;
+    form.legal_version = "test-v3".into();
+    persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT content @> '{\"final_approved\":true}'::jsonb
+             FROM page_legal_versions WHERE locale='en' AND version='test-v3'",
+        )
+        .fetch_one(&pool)
+        .await?
+    );
     use oteryn_admin::web::PanelConfig;
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(ctx.account)
