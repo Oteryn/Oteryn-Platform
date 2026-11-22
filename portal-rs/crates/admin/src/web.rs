@@ -237,22 +237,74 @@ impl StaffPreflight {
     ) -> Result<bool, Response> {
         oteryn_web::csrf::verify_origin(headers, &self.sessions.csrf.trusted_origins)
             .map_err(IntoResponse::into_response)?;
-        if !headers.contains_key(header::ORIGIN) {
+        if !headers.contains_key(header::ORIGIN) || !headers.contains_key(header::COOKIE) {
             return Ok(false);
         }
-        let session = oteryn_web::session::signed_in_session(&self.sessions, headers)
+        let mut tx = self.state.pool.begin().await.map_err(preflight_error)?;
+        // Let PostgreSQL finish or cancel its work before the HTTP preflight
+        // deadline. These limits stay on this transaction when the pool reuses it.
+        sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL lock_timeout='1s'; SET LOCAL statement_timeout='2s'")
+            .execute(&mut *tx)
             .await
-            .map_err(|error| match error {
-                sqlx::Error::Protocol(message) if message == "invalid session cookie" => {
-                    StatusCode::BAD_REQUEST.into_response()
-                }
-                _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            })?;
-        if let Some(session) = session {
-            staff_context(&self.state, &session, headers, path).await?;
-            return Ok(true);
+            .map_err(preflight_error)?;
+        let session = oteryn_web::session::signed_in_session(&self.sessions, &mut tx, headers)
+            .await
+            .map_err(preflight_error)?;
+        let Some(session) = session else {
+            return Ok(false);
+        };
+        let Some(account) = session.account_id().await else {
+            return Ok(false);
+        };
+        let grant = session
+            .get_in(&mut tx, mfa_grant_key())
+            .await
+            .map_err(preflight_error)?;
+        let Some(proof) = session_proof(&session, grant).await else {
+            return Err(mfa_refusal(headers));
+        };
+        if self.state.identity.mfa.is_none()
+            || !crate::rbac::valid_durable_session_in(&mut tx, account, proof, None)
+                .await
+                .map_err(preflight_error)?
+        {
+            return Err(mfa_refusal(headers));
         }
-        Ok(false)
+        for required in [Permission::Access, staff_permission(&self.state, path)] {
+            let check = match self.state.auth.check_permission_flag(required) {
+                Ok(()) => {
+                    Authorizer::<PortalIdentity>::check_permission(&mut tx, account, required).await
+                }
+                Err(error) => Err(error),
+            };
+            match check {
+                Ok(()) => {}
+                Err(Error::Storage(error)) => return Err(preflight_error(error)),
+                Err(_) => {
+                    tx.commit().await.map_err(preflight_error)?;
+                    return Err(match refusal(&self.state.pool, account, path).await {
+                        Ok(()) => StatusCode::FORBIDDEN.into_response(),
+                        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                    });
+                }
+            }
+        }
+        tx.commit().await.map_err(preflight_error)?;
+        Ok(true)
+    }
+}
+
+fn preflight_error(error: sqlx::Error) -> Response {
+    match error {
+        sqlx::Error::Protocol(message) if message == "invalid session cookie" => {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+        sqlx::Error::Database(error)
+            if matches!(error.code().as_deref(), Some("55P03" | "57014")) =>
+        {
+            StatusCode::REQUEST_TIMEOUT.into_response()
+        }
+        _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
@@ -439,38 +491,16 @@ async fn staff_context<I: StaffSession, A: AccountStateReader + 'static>(
         return Err(Redirect::to("/login").into_response());
     };
     if !identity.mfa_satisfied {
-        return Err((StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(headers), text(language(headers), "mfa")))).into_response());
+        return Err(mfa_refusal(headers));
     }
-    let proof = match (
-        session.identity_hash().await,
-        session
-            .get(oteryn_web::session::SessionKey::<String>::new(
-                oteryn_identity::mfa::SESSION_GRANT_KEY,
-            ))
-            .await,
-    ) {
-        (Some(hash), Ok(Some(grant))) => {
-            use sha2::{Digest, Sha256};
-            hash.try_into()
-                .ok()
-                .map(|session_hash| crate::rbac::SessionProof {
-                    session_hash,
-                    grant_hash: Sha256::digest(grant.as_bytes()).into(),
-                })
-        }
-        _ => None,
-    };
     let context = CheckContext {
         account: identity.account,
         require_staff_mfa: true,
         mfa_verified: true,
-        session_proof: proof,
+        session_proof: session_proof(session, session.get(mfa_grant_key()).await.ok().flatten())
+            .await,
     };
-    let permission = s.required.unwrap_or(if path == "/admin/roles" {
-        Permission::ManageRoles
-    } else {
-        Permission::Access
-    });
+    let permission = staff_permission(s, path);
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
@@ -483,6 +513,35 @@ async fn staff_context<I: StaffSession, A: AccountStateReader + 'static>(
         }
     }
     Ok(context)
+}
+
+fn mfa_grant_key() -> oteryn_web::session::SessionKey<String> {
+    oteryn_web::session::SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY)
+}
+
+async fn session_proof(
+    session: &BrowserSession,
+    grant: Option<String>,
+) -> Option<crate::rbac::SessionProof> {
+    use sha2::{Digest, Sha256};
+    let grant = grant?;
+    Some(crate::rbac::SessionProof {
+        session_hash: session.identity_hash().await?.try_into().ok()?,
+        grant_hash: Sha256::digest(grant.as_bytes()).into(),
+    })
+}
+
+fn staff_permission<I, A>(s: &Panel<I, A>, path: &str) -> Permission {
+    s.required.unwrap_or(if path == "/admin/roles" {
+        Permission::ManageRoles
+    } else {
+        Permission::Access
+    })
+}
+
+fn mfa_refusal(headers: &axum::http::HeaderMap) -> Response {
+    let lang = language(headers);
+    (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{lang}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(lang, "mfa")))).into_response()
 }
 
 async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> {

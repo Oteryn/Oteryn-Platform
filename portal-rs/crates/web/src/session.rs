@@ -508,6 +508,7 @@ fn session_identifier(headers: &axum::http::HeaderMap) -> Result<Option<&str>, s
 /// its expiry or setting a cookie. The normal request guard still runs later.
 pub async fn signed_in_session(
     layer: &SessionLayer,
+    connection: &mut sqlx::PgConnection,
     headers: &axum::http::HeaderMap,
 ) -> Result<Option<BrowserSession>, sqlx::Error> {
     let Some(id) = session_identifier(headers)? else {
@@ -520,7 +521,7 @@ pub async fn signed_in_session(
          AND s.absolute_expires_at>clock_timestamp()",
     )
     .bind(hash(id))
-    .fetch_optional(&layer.pool)
+    .fetch_optional(connection)
     .await?;
     let Some((session_id, csrf, account_id)) = row else {
         return Ok(None);

@@ -208,6 +208,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
         .unwrap();
     let path = format!("SET search_path TO {schema}");
     let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
         .after_connect(move |c, _| {
             let path = path.clone();
             Box::pin(async move {
@@ -731,12 +732,27 @@ async fn browser_lifecycle(pool: &PgPool) {
         .unwrap();
     assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
 
-    let blocked_lookup = with_stalled_body(make(csrf, "Blocked lookup", "image/png")).await;
-    let refusal = tokio::time::timeout(Duration::from_secs(8), app.clone().oneshot(blocked_lookup))
-        .await
-        .expect("preflight must bound the session lookup")
-        .unwrap();
-    assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
+    let blocked_one = with_stalled_body(make(csrf, "Blocked lookup", "image/png")).await;
+    let blocked_two = with_stalled_body(make(csrf, "Second blocked lookup", "image/png")).await;
+    let (first, second) = tokio::time::timeout(Duration::from_secs(8), async {
+        tokio::join!(
+            app.clone().oneshot(blocked_one),
+            app.clone().oneshot(blocked_two)
+        )
+    })
+    .await
+    .expect("preflight must bound both session lookups");
+    for refusal in [first.unwrap(), second.unwrap()] {
+        assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
+    }
+    let unrelated = tokio::time::timeout(
+        Duration::from_secs(1),
+        sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool),
+    )
+    .await
+    .expect("the pool must serve unrelated queries before the session lock is released")
+    .unwrap();
+    assert_eq!(unrelated, 1);
     lock.rollback().await.unwrap();
 
     let alt = "Signed-in native form stalled";
