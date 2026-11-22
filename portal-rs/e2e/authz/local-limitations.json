@@ -1,0 +1,37 @@
+[
+  {
+    "listener": "embedded",
+    "method": "POST",
+    "path": "/",
+    "source": "crates/gameauth/src/runtime.rs:481",
+    "reason": "Runtime authorization uses this router as an in-process probe. There is no HTTP listener for this registration."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "A request on the real native TLS listener charges the PostgreSQL device-session source budget before verifying the bearer. With the 19 browser actors, a missing bearer refusal inherently changes a non-exempt table."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions/native-characters",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "The shared dispatch charges the native source budget before checking a device credential. A direct TLS denial with a browser-only actor would change a non-exempt table."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions/tickets",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "The shared dispatch charges the native source budget before checking a device credential. A direct TLS denial with a browser-only actor would change a non-exempt table."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions/revoke",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "The shared dispatch charges the native source budget before checking a device credential. A direct TLS denial with a browser-only actor would change a non-exempt table."
+  }
+]

@@ -2913,6 +2913,11 @@
             "kind": "staff",
             "all": [
               "admin.access"
+            ],
+            "any": [
+              "products.premium.manage",
+              "marketplace.manage",
+              "payments.reconcile"
             ]
           }
         }
@@ -2929,6 +2934,11 @@
             "kind": "staff",
             "all": [
               "admin.access"
+            ],
+            "any": [
+              "products.premium.manage",
+              "marketplace.manage",
+              "payments.reconcile"
             ]
           }
         }
@@ -2945,6 +2955,11 @@
             "kind": "staff",
             "all": [
               "admin.access"
+            ],
+            "any": [
+              "products.premium.manage",
+              "marketplace.manage",
+              "payments.reconcile"
             ]
           }
         }
@@ -2961,6 +2976,11 @@
             "kind": "staff",
             "all": [
               "admin.access"
+            ],
+            "any": [
+              "products.premium.manage",
+              "marketplace.manage",
+              "payments.reconcile"
             ]
           }
         }
@@ -3011,6 +3031,10 @@
             "kind": "staff",
             "all": [
               "admin.access"
+            ],
+            "any": [
+              "audit.view",
+              "game.audit.read"
             ]
           }
         }
@@ -3027,6 +3051,10 @@
             "kind": "staff",
             "all": [
               "admin.access"
+            ],
+            "any": [
+              "game.player.read",
+              "support.tickets.manage"
             ]
           }
         }
@@ -4203,7 +4231,7 @@
         {
           "source": "crates/stats/src/watch/http.rs:17",
           "guard": {
-            "kind": "logged-in"
+            "kind": "bearer"
           }
         }
       ]
@@ -4216,7 +4244,7 @@
         {
           "source": "crates/stats/src/watch/http.rs:17",
           "guard": {
-            "kind": "logged-in"
+            "kind": "bearer"
           }
         }
       ]
@@ -4229,7 +4257,7 @@
         {
           "source": "crates/stats/src/watch/http.rs:17",
           "guard": {
-            "kind": "logged-in"
+            "kind": "bearer"
           }
         }
       ]
@@ -8431,7 +8459,7 @@
         {
           "source": "crates/identity/src/passkeys_http.rs:35",
           "guard": {
-            "kind": "logged-in"
+            "kind": "anonymous"
           }
         }
       ]

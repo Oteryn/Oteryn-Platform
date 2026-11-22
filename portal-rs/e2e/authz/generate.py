@@ -314,6 +314,18 @@ def guard_for(files, file, url, method, permission, permissions):
         result = {"kind": "staff", "all": [permissions[p] for p in required]}
         if alternatives:
             result["any"] = [permissions[p] for p in alternatives]
+        if group == "admin/src/commerce/http.rs":
+            policy = section(files[file], r"async fn authorize_panel.*?for permission in \[(.*?)\]")
+            result["any"] = [permissions[p] for p in re.findall(r"Permission::(\w+)", policy)]
+        if group == "admin/src/console/access.rs" and method == "get":
+            area = path.rsplit("/", 1)[1]
+            if area in ("audit", "players"):
+                handler = files[f"crates/admin/src/console/{area}.rs"]
+                if area == "audit":
+                    expression = section(handler, r"pub\(crate\) async fn page(.*?)if !platform && !game")
+                else:
+                    expression = section(handler, r"let can_search = (.*?)let lang =")
+                result["any"] = re.findall(r'\.check\(actor, "([^"]+)"\)', expression)
         if group == "wiki/src/web.rs" and path == "/admin/wiki/articles/create":
             required = section(files[file], r'async fn create_form.*?\.authorize\(context, Permission::(\w+)')
             result["all"].append(permissions[required])
@@ -329,6 +341,10 @@ def guard_for(files, file, url, method, permission, permissions):
             result["all"].append(section(files[module], r'const PERMISSION: &str = "([^"]+)"'))
         return "public", result
 
+    if method == "get" and group == "identity/src/passkeys_http.rs":
+        return public
+    if group == "stats/src/watch/http.rs":
+        return "public", {"kind": "bearer"}
     if path.startswith(("/account/", "/panel/", "/support/tickets", "/support/reports",
                         "/password/change", "/atlas/private-markers", "/atlas/map-reports",
                         "/atlas/places", "/puzzles", "/collection", "/pass", "/shop",

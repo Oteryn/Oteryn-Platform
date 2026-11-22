@@ -68,6 +68,7 @@ export async function openActor(browser, info, definition, sanctionIssuer) {
   const context = await browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true, locale,
     viewport: info.project.use.viewport,
+    ...(process.env.PORTAL_E2E_DISABLE_KEEPALIVE === '1' && { extraHTTPHeaders: { connection: 'close' } }),
   });
   try {
     const { request } = context;
@@ -101,7 +102,7 @@ export async function openActor(browser, info, definition, sanctionIssuer) {
         VALUES ($1,'restriction','active','Local authorization matrix',now(),now()+interval '1 hour',$2)
       `, [accountId, sanctionIssuer]);
     }
-    return { context, request, accountId };
+    return { context, request, accountId, account };
   } catch (error) {
     await context.close();
     throw error;

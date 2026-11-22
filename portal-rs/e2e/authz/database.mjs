@@ -27,33 +27,34 @@ export function database() {
                encode(sha256(convert_to((to_jsonb(t) - ARRAY['last_activity', 'updated_at'])::text, 'UTF8')), 'hex') AS stable
         FROM public.referral_activity t WHERE account_id = $1
       `, [session.account_id]) : { rows: [] };
-      const state = new Map();
-      const audit = new Map();
-      for (const { schema, name } of tables) {
+      const nonAuditTables = tables.filter(({ schema, name }) => schema !== 'public' || name !== 'audit_log');
+      const values = [];
+      const parameter = value => '$' + values.push(value);
+      const statements = nonAuditTables.map(({ schema, name }) => {
         const relation = `${identifier(schema)}.${identifier(name)}`;
-        if (schema === 'public' && name === 'audit_log') {
-          const { rows } = await client.query(`
-            SELECT id::text, action, encode(sha256(convert_to(to_jsonb(t)::text, 'UTF8')), 'hex') AS digest
-            FROM ${relation} t
-          `);
-          for (const { id, action, digest } of rows) audit.set(id, { action, digest });
-        } else {
-          const ownReferral = schema === 'public' && name === 'referral_activity' && session?.account_id;
-          const ownSession = schema === 'public' && name === 'web_sessions' && sessionHash;
-          const rowData = ownSession ? `CASE WHEN id_hash = $1 THEN
-            to_jsonb(t) - ARRAY['last_seen_at', 'updated_at', 'idle_expires_at']
-            ELSE to_jsonb(t) END` : 'to_jsonb(t)';
-          const { rows: [row] } = await client.query(`
-            SELECT encode(sha256(convert_to(COALESCE(string_agg(digest, '' ORDER BY digest), ''), 'UTF8')), 'hex') AS digest
-            FROM (
-              SELECT encode(sha256(convert_to((${rowData})::text, 'UTF8')), 'hex') AS digest
-              FROM ONLY ${relation} t
-              ${ownReferral ? 'WHERE account_id <> $1' : ''}
-            ) rows
-          `, ownReferral ? [session.account_id] : ownSession ? [sessionHash] : []);
-          state.set(relation, row.digest);
-        }
-      }
+        const table = parameter(relation);
+        const ownReferral = schema === 'public' && name === 'referral_activity' && session?.account_id;
+        const ownSession = schema === 'public' && name === 'web_sessions' && sessionHash;
+        const rowData = ownSession ? `CASE WHEN id_hash = ${parameter(sessionHash)} THEN
+          to_jsonb(t) - ARRAY['last_seen_at', 'updated_at', 'idle_expires_at']
+          ELSE to_jsonb(t) END` : 'to_jsonb(t)';
+        return `
+          SELECT ${table}::text AS relation,
+                 encode(sha256(convert_to(COALESCE(string_agg(digest, '' ORDER BY digest), ''), 'UTF8')), 'hex') AS digest
+          FROM (
+            SELECT encode(sha256(convert_to((${rowData})::text, 'UTF8')), 'hex') AS digest
+            FROM ONLY ${relation} t
+            ${ownReferral ? `WHERE account_id <> ${parameter(session.account_id)}` : ''}
+          ) rows
+        `;
+      });
+      const { rows: fingerprints } = await client.query(statements.join(' UNION ALL '), values);
+      const state = new Map(fingerprints.map(({ relation, digest }) => [relation, digest]));
+      const { rows: auditRows } = await client.query(`
+        SELECT id::text, action, encode(sha256(convert_to(to_jsonb(t)::text, 'UTF8')), 'hex') AS digest
+        FROM public.audit_log t
+      `);
+      const audit = new Map(auditRows.map(({ id, action, digest }) => [id, { action, digest }]));
       await client.query('COMMIT');
       return { state, audit, session, activity };
     } catch (error) {
