@@ -1,6 +1,6 @@
 # Portal ledger coverage delta
 
-Tested revision `aad9438f9ee7e8c552b1be3da9a4d658d4aea347`.
+Tested revision `1c8fa5ba144ba9361d4df4fc5029f9e4ab484a3c`.
 
 66 of 131 baseline gaps hit by passing tests, including 34 form rows. 65 baseline gaps remain.
 
