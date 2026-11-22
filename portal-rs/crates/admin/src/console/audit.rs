@@ -1,5 +1,5 @@
 //! Combined Platform audit and verified Game ledger, joined visually by request id.
-use super::access::{Backend, Console, Error, Page, language, tr};
+use super::access::{Backend, Console, Error, Page, request_language, tr};
 use crate::rbac::CheckContext;
 use axum::{
     Extension,
@@ -77,7 +77,7 @@ pub(crate) async fn page<B: Backend>(
         return Err(Error::Denied);
     }
     filter.validate()?;
-    let lang = language(filter.lang.as_deref())?;
+    let lang = request_language(filter.lang.as_deref(), &headers)?;
     let mut page = Page::new(lang, "audit");
     page.filters = true;
     if platform {

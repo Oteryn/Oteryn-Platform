@@ -70,16 +70,16 @@ struct Options {
     page: Option<i64>,
 }
 impl Options {
-    fn lang(&self) -> &str {
-        if self.lang.as_deref() == Some("en") {
-            "en"
-        } else {
-            "pl"
+    fn lang(&self, headers: &axum::http::HeaderMap) -> &str {
+        match self.lang.as_deref() {
+            Some("en") => "en",
+            Some(_) => "pl",
+            None => oteryn_ui::preferred_language(headers),
         }
     }
     fn staff_lang(&self, headers: &axum::http::HeaderMap) -> &str {
         if self.lang.is_some() {
-            self.lang()
+            self.lang(headers)
         } else {
             crate::staff_language(headers)
         }
@@ -170,8 +170,9 @@ fn language(lang: &str) -> Result<(), StatusCode> {
 async fn index(
     State(pool): State<PgPool>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
-    listing(&pool, q.lang(), &q).await
+    listing(&pool, q.lang(&headers), &q).await
 }
 async fn local_index(
     State(pool): State<PgPool>,
@@ -251,8 +252,9 @@ async fn show(
     State(pool): State<PgPool>,
     Path(slug): Path<String>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
-    article(&pool, q.lang(), &slug).await
+    article(&pool, q.lang(&headers), &slug).await
 }
 async fn local_show(
     State(pool): State<PgPool>,

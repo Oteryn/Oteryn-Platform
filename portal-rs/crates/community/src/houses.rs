@@ -353,6 +353,7 @@ async fn page(
     State(state): State<Houses>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     if !state.config.serving_enabled {
         return StatusCode::NOT_FOUND.into_response();
@@ -370,7 +371,7 @@ async fn page(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let en = uri.path().starts_with("/en/");
+    let en = oteryn_ui::browser_language(uri.path(), &headers) == "en";
     let result = load(&state, query.world.as_deref(), key, en).await;
     let unavailable = result.is_err();
     let houses = result.unwrap_or_default();

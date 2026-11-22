@@ -5,3 +5,16 @@ role = Rola
 grant = Przypisz rolę
 revoke = Odbierz rolę
 mfa = Wymagane uwierzytelnianie wieloskładnikowe
+
+economy-circulation-title = Obieg złota
+economy-circulation-columns = złoto (stan na koniec dnia według położenia)
+economy-flows-title = Przepływy złota
+economy-flows-columns = wpływy złota / odpływy złota
+economy-trades-title = Transakcje graczy
+economy-trades-columns = transakcje / złoto w transakcjach
+economy-market-title = Aktywność rynku
+economy-market-columns = sprzedane jednostki / złoto w transakcjach / utworzone oferty / mediana ceny jednostkowej
+economy-store-title = Aktywność sklepu w grze
+economy-store-columns = liczba / kwota (jednostki waluty)
+economy-purchased-title = Zakupy — księga portfela Platformy (wszystkie światy)
+economy-purchased-columns = zaksięgowane doładowania / monety; kwoty w najmniejszych jednostkach danej waluty
