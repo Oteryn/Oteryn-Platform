@@ -76,8 +76,21 @@ fn failure(error: Error, lang: &str) -> Response {
     let (status, key) = match error {
         Error::NotFound => (StatusCode::NOT_FOUND, "missing"),
         Error::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
-        Error::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "invalid"),
         Error::BadInput => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
+        Error::RateLimited => {
+            let chrome =
+                oteryn_ui::Registry::default().chrome(lang, "/", oteryn_ui::Account::Anonymous);
+            let mut response = oteryn_ui::error(&chrome, StatusCode::TOO_MANY_REQUESTS);
+            // The rolling mutation cap only counts saves from the preceding minute.
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, header::HeaderValue::from_static("60"));
+            response.headers_mut().insert(
+                header::CONTENT_LANGUAGE,
+                header::HeaderValue::from_static(if lang == "en" { "en" } else { "pl" }),
+            );
+            return response;
+        }
     };
     (status, text(lang, key)).into_response()
 }
@@ -236,6 +249,22 @@ pub(super) async fn save_form(
         .update_with_account_hide(account, name, form.preferences, account_hide, now)
         .await
 }
+/// Verify ownership before spending a shared HTTP quota. The save transaction
+/// checks ownership again after the quota admission has completed.
+pub async fn authorize_update(
+    pool: &PgPool,
+    account: Uuid,
+    lang: &str,
+    name: &str,
+) -> Result<(), Box<Response>> {
+    let result = async {
+        let now = now()?;
+        service(pool).authorize_update(account, name, now).await
+    }
+    .await;
+    result.map_err(|error| Box::new(private(failure(error, lang))))
+}
+
 /// The mounting router must enforce session CSRF before this browser mutation.
 pub async fn update(
     pool: &PgPool,
@@ -322,6 +351,24 @@ mod tests {
             }
         }
     }
+    #[tokio::test]
+    async fn rolling_cap_refusal_renders_a_localized_retry_page()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (language, heading) in [("en", "Too many requests"), ("pl", "Zbyt wiele żądań")] {
+            let response = private(failure(Error::RateLimited, language));
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert_eq!(response.headers()[header::RETRY_AFTER], "60");
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], language);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "private, no-store"
+            );
+            let body = axum::body::to_bytes(response.into_body(), 65_536).await?;
+            assert!(std::str::from_utf8(&body)?.contains(heading));
+        }
+        Ok(())
+    }
+
     #[test]
     fn escaped_accessible_form() -> Result<(), Box<dyn std::error::Error>> {
         let html = Page {

@@ -1488,6 +1488,18 @@
       ]
     },
     {
+      "source": "crates/identity/src/export_http.rs:44",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
       "source": "crates/identity/src/privacy_web.rs:77",
       "ordinal": 1,
       "action": "",
@@ -1975,7 +1987,7 @@
       "route": "/account/badges",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:473",
+          "source": "crates/web/src/lib.rs:493",
           "handler": "inline closure"
         }
       ]
@@ -1985,7 +1997,7 @@
       "route": "/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:476",
+          "source": "crates/web/src/lib.rs:496",
           "handler": "inline closure"
         }
       ]
@@ -2635,11 +2647,11 @@
       "route": "/{lang}/account/badges",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:474",
+          "source": "crates/web/src/lib.rs:494",
           "handler": "inline closure"
         },
         {
-          "source": "crates/web/src/lib.rs:475",
+          "source": "crates/web/src/lib.rs:495",
           "handler": "inline closure"
         }
       ]
@@ -2717,7 +2729,7 @@
       "route": "/{lang}/account/characters/{character}/services",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:482",
+          "source": "crates/web/src/lib.rs:502",
           "handler": "inline closure"
         }
       ]
@@ -2727,11 +2739,11 @@
       "route": "/{lang}/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:477",
+          "source": "crates/web/src/lib.rs:497",
           "handler": "inline closure"
         },
         {
-          "source": "crates/web/src/lib.rs:481",
+          "source": "crates/web/src/lib.rs:501",
           "handler": "inline closure"
         }
       ]
@@ -2741,7 +2753,7 @@
       "route": "/{lang}/account/consents",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:331",
+          "source": "crates/web/src/lib.rs:351",
           "handler": "inline closure"
         }
       ]
@@ -2868,6 +2880,20 @@
     },
     {
       "method": "POST",
+      "route": "/{lang}/account/privacy/export",
+      "sources": [
+        {
+          "source": "crates/identity/src/export_http.rs:154",
+          "handler": "handler"
+        },
+        {
+          "source": "crates/identity/src/export_http.rs:160",
+          "handler": "handler"
+        }
+      ]
+    },
+    {
+      "method": "POST",
       "route": "/{lang}/account/recovery-key",
       "sources": [
         {
@@ -2971,7 +2997,7 @@
       "route": "/{lang}/admin/support/tickets/{id}/reply",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:129",
+          "source": "crates/support/src/tickets/web.rs:130",
           "handler": "reply"
         }
       ]
@@ -2981,7 +3007,7 @@
       "route": "/{lang}/admin/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:133",
+          "source": "crates/support/src/tickets/web.rs:134",
           "handler": "status"
         }
       ]
@@ -3241,7 +3267,7 @@
       "route": "/{lang}/pass/{season}/buy",
       "sources": [
         {
-          "source": "crates/minigames/src/pass/web.rs:116",
+          "source": "crates/minigames/src/pass/web.rs:126",
           "handler": "buy::"
         }
       ]
@@ -3251,7 +3277,7 @@
       "route": "/{lang}/pass/{season}/claim",
       "sources": [
         {
-          "source": "crates/minigames/src/pass/web.rs:120",
+          "source": "crates/minigames/src/pass/web.rs:130",
           "handler": "claim::"
         }
       ]
@@ -3399,7 +3425,7 @@
       "route": "/{lang}/support/tickets",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:99",
+          "source": "crates/support/src/tickets/web.rs:100",
           "handler": "create"
         }
       ]
@@ -3409,7 +3435,7 @@
       "route": "/{lang}/support/tickets/{id}/read",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:102",
+          "source": "crates/support/src/tickets/web.rs:103",
           "handler": "mark_read"
         }
       ]
@@ -3419,7 +3445,7 @@
       "route": "/{lang}/support/tickets/{id}/reply",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:106",
+          "source": "crates/support/src/tickets/web.rs:107",
           "handler": "reply"
         }
       ]
@@ -3429,7 +3455,7 @@
       "route": "/{lang}/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:110",
+          "source": "crates/support/src/tickets/web.rs:111",
           "handler": "status"
         }
       ]
@@ -3477,7 +3503,7 @@
       "route": "/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:476",
+          "source": "crates/web/src/lib.rs:496",
           "handler": "inline closure"
         }
       ]
@@ -3527,11 +3553,11 @@
       "route": "/{lang}/account/characters/{name}/profile",
       "sources": [
         {
-          "source": "crates/web/src/lib.rs:477",
+          "source": "crates/web/src/lib.rs:497",
           "handler": "inline closure"
         },
         {
-          "source": "crates/web/src/lib.rs:481",
+          "source": "crates/web/src/lib.rs:501",
           "handler": "inline closure"
         }
       ]
@@ -3551,7 +3577,7 @@
       "route": "/{lang}/admin/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:133",
+          "source": "crates/support/src/tickets/web.rs:134",
           "handler": "status"
         }
       ]
@@ -3571,7 +3597,7 @@
       "route": "/{lang}/support/tickets/{id}/status",
       "sources": [
         {
-          "source": "crates/support/src/tickets/web.rs:110",
+          "source": "crates/support/src/tickets/web.rs:111",
           "handler": "status"
         }
       ]

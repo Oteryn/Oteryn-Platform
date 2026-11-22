@@ -324,10 +324,22 @@ impl Passkeys {
         Ok(())
     }
 }
+/// Account policy for passkey management, shared with navigation.
+pub fn account_eligible(status: &str, email_verified: bool, login_mfa_required: bool) -> bool {
+    status == "active" && email_verified && !login_mfa_required
+}
+
 async fn eligible(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), Error> {
-    let valid: Option<bool> = sqlx::query_scalar("SELECT status='active' AND email_verified_at IS NOT NULL AND NOT login_mfa_required FROM accounts WHERE id=$1 FOR UPDATE")
-        .bind(account).fetch_optional(&mut **tx).await?;
-    if valid != Some(true) {
+    let state: Option<(String, bool, bool)> = sqlx::query_as(
+        "SELECT status, email_verified_at IS NOT NULL, login_mfa_required
+         FROM accounts WHERE id=$1 FOR UPDATE",
+    )
+    .bind(account)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if !state.is_some_and(|(status, verified, mfa_required)| {
+        account_eligible(&status, verified, mfa_required)
+    }) {
         return Err(Error::Refused);
     }
     Ok(())

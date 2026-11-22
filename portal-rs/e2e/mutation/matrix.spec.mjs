@@ -318,11 +318,11 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
       {
         target: 'pass', status: 503, anonymousStatus: 401,
         message: lang === 'pl'
-          ? 'Przepustka sezonowa jest obecnie niedostępna. Nie pobrano coinów ani nie wydano nagród.'
-          : 'The season pass is currently unavailable. No coins were charged and no rewards were issued.',
+          ? 'Przepustka sezonowa jest obecnie niedostępna.'
+          : 'The season pass is currently unavailable.',
         snapshot: passState,
         writes: [
-          { route: `pass/${season}/buy`, form: { operation: buy }, malformed: { operation: 'invalid' }, owner: 404, other: 404 },
+          { route: `pass/${season}/buy`, form: { operation: buy }, malformed: { operation: 'invalid' }, owner: 403, other: 403 },
           { route: `pass/${season}/claim`, form: { operation: claim, reward: uuid7() }, malformed: { reward: 'invalid' }, owner: 404, other: 404 },
         ],
       },
@@ -337,7 +337,7 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
       const view = await page.goto(`/${lang}/${surface.target}`);
       expect(view.status()).toBe(surface.status);
       expect(view.headers()['cache-control']).toContain('no-store');
-      await expect(page.locator('main')).toContainText(surface.message);
+      await expect(page.locator('main').getByText(surface.message, { exact: true })).toBeVisible();
       await expect(page.locator(formSelector)).toHaveCount(0);
       const baseline = await surface.snapshot();
       for (const { route, form = {}, malformed, invalidStatus = 422, owner: ownerStatus, other: otherStatus } of surface.writes) {

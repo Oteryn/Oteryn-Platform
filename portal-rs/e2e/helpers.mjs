@@ -129,16 +129,28 @@ export async function waitForWikiBudget(target, needed=1) {
     await db.end();
   }
 }
-export async function waitForLoginBudget(needed=1) {
- const db=pool();
+export async function waitForLoginBudget(needed=1,databaseURL) {
+ const db=pool(databaseURL);
  try {
   if(needed>=6) await expect.poll(async()=>Number((await db.query("SELECT extract(second FROM clock_timestamp()) AS second")).rows[0].second),{timeout:65000,intervals:[1000]}).toBeLessThan(50);
   await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-login-source' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThanOrEqual(20-needed);
  } finally {await db.end();}
 }
-export async function login(page,lang,account) {
+export async function login(page,lang,account,databaseURL) {
  await logout(page,lang);
  await page.goto(`/${lang}/login`);
- await waitForLoginBudget();
+ await waitForLoginBudget(1,databaseURL);
  await submit(page,'main form',{email:account.email,password:account.password});
+}
+
+
+// Read the token from the same confirmation form a browser uses for downloads.
+export async function exportOptions(page, lang) {
+ const target=`/${lang}/account/privacy/export`;
+ const confirmation=await page.goto(target);
+ expect(confirmation.status()).toBe(200);
+ expect(confirmation.headers()['content-security-policy']?.split(';').map(directive=>directive.trim()))
+  .toContain("frame-ancestors 'none'");
+ const csrf=await page.locator('main form[method=post] [name=_csrf]').inputValue();
+ return {form:{_csrf:csrf},headers:{origin:new URL(page.url()).origin},maxRedirects:0};
 }

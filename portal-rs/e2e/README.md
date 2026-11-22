@@ -31,6 +31,12 @@ automatically, and the main suite keeps its own Store catalogue and character fe
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
+To run just the export and profile quota checks in all four projects, append
+`specs/rate-limits-export-profile.spec.mjs` to that command. The spec uses the
+seed CLI for disposable accounts and the local mTLS producer for character
+ownership. The loopback HTTPS proxy forwards the synthetic client addresses used
+to exhaust the IP quotas across distinct accounts.
+
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. The Bazaar legacy spec also needs the matching
@@ -39,7 +45,15 @@ URL for the fallback harness. Fixtures refuse non-local connections and database
 
 The local launcher supplies a disposable Bazaar Game producer and the real private transport. Character/item Bazaar and account listing reads require HTTP 200, no-store, the shared shell and CSRF refusal for every rendered mutation. Missing listing references require HTTP 404; malformed UUIDs require HTTP 400. Both retain no-store and the shared shell without account disclosure. The dedicated Bazaar spec proves funded bids, delivery, seller credit and Game-refusal behavior against synthetic fixtures; it does not qualify a production Game integration.
 
-Game-login-history, journal-report, dashboard and season-pass startup adapters still document missing accepted game authority. Those cases assert exactly HTTP 503, no-store and no account-data disclosure; they do not prove a successful game-backed flow.
+Game-login-history, journal-report and dashboard startup adapters still document missing accepted game authority. Those cases assert exactly HTTP 503, no-store and no account-data disclosure; they do not prove a successful game-backed flow.
+
+The focused `specs/season-pass.spec.mjs` uses the `local.mjs` browser launcher
+and runs in all four projects. It uses the seed CLI for a verified player
+and the sandbox checkout to fund the real Wallet. Run
+`node run.mjs /absolute/scratch/env.json test specs/season-pass.spec.mjs`
+with `PORTAL_E2E_BINARY` set if the launcher used a prebuilt binary.
+The browser launcher enables the two default-off pass flags. An empty
+season catalog still gives a private 503, and cosmetic claims stay closed.
 
 The suite includes public navigation/accessibility checks, identity lifecycle, account surface reads/CSRF, ticket creation/reply/foreign-owner refusal, character requests, recovery-key management, player reports, party refusal and staff bootstrap/MFA/navigation. The report distinguishes the completed composition flows from broader product workflows outside this task. Tests retain strict success assertions for required portal flows. A game-dependent refusal must be explicitly documented and asserted before it can count as qualified.
 
