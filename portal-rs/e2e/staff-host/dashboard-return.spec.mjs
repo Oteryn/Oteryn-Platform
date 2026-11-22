@@ -29,9 +29,20 @@ test('the staff dashboard survives sign-in and MFA on a separate host', async ({
   await expect(page).toHaveTitle(`${signInTitle} · Oteryn`);
   await expect(page.getByRole('heading', { level: 1, name: signInTitle, exact: true })).toBeVisible();
 
+  const otherLang = lang === 'pl' ? 'en' : 'pl';
+  const otherSignIn = `/${otherLang}/login?return_to=/admin`;
+  const languageSwitch = page.locator('footer').getByRole('link', {
+    name: otherLang === 'en' ? 'English' : 'Polski',
+    exact: true,
+  });
+  await expect(languageSwitch).toHaveAttribute('href', otherSignIn);
+  await languageSwitch.click();
+  await expect(page).toHaveURL(`${staffOrigin}${otherSignIn}`);
+  await expect(page.locator('main form')).toHaveAttribute('action', otherSignIn);
+
   await waitForLoginBudget();
   await submit(page, 'main form', credentials);
-  await expect(page).toHaveURL(`${staffOrigin}/${lang}/mfa/challenge`);
+  await expect(page).toHaveURL(`${staffOrigin}/${otherLang}/mfa/challenge`);
   const navigation = page.waitForNavigation();
   await submit(page, 'form[action$="/mfa/challenge"]', { code: recoveryCodes[1] });
   const response = await navigation;

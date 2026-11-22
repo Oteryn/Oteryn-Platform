@@ -42,6 +42,20 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
     let mut chrome = shell.registry.chrome(lang, path, account);
+    if matches!(local, "login" | "mfa/login")
+        && let Some(host) = &shell.registry.staff_host
+        && crate::staff_host::dashboard_return_requested(
+            request.uri().query(),
+            request.headers(),
+            host,
+        )
+    {
+        chrome.alternate_url = format!(
+            "/{}{}",
+            chrome.alternate_lang,
+            crate::staff_host::DASHBOARD_LOGIN_PATH
+        );
+    }
     if let Some(host) = &shell.registry.staff_host
         && chrome.signed_in()
         && crate::session::can_link_staff_dashboard(&shell.sessions, &request).await

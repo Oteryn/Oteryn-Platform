@@ -286,17 +286,16 @@ pub(crate) fn staff_dashboard_requested(query: Option<&str>, headers: &HeaderMap
 
 pub(crate) fn login_path(staff_dashboard: bool) -> &'static str {
     if staff_dashboard {
-        "/login?return_to=/admin"
+        staff_host::DASHBOARD_LOGIN_PATH
     } else {
         "/login"
     }
 }
 
 fn dashboard_return(query: Option<&str>, headers: &HeaderMap, admin_host: Option<&str>) -> bool {
-    query == Some("return_to=/admin")
-        && admin_host
-            .and_then(staff_host::canonical_authority)
-            .is_some_and(|authority| staff_host::matches(headers, &authority))
+    admin_host
+        .and_then(staff_host::canonical_authority)
+        .is_some_and(|authority| staff_host::dashboard_return_requested(query, headers, &authority))
 }
 /// Reads the stored target before a session is replaced, so a challenge on
 /// the new session can still return to it.

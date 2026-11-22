@@ -2,6 +2,12 @@
 
 use axum::http::{HeaderMap, header, uri::Authority};
 
+pub const DASHBOARD_LOGIN_PATH: &str = "/login?return_to=/admin";
+
+pub fn dashboard_return_requested(query: Option<&str>, headers: &HeaderMap, host: &str) -> bool {
+    query == Some("return_to=/admin") && matches(headers, host)
+}
+
 /// Accept only a hostname or IP address with an optional numeric port.
 pub fn canonical_authority(input: &str) -> Option<String> {
     let authority = input.parse::<Authority>().ok()?;

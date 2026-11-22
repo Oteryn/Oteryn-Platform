@@ -355,7 +355,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let Some(identity) = s.identity.resolve(session).await else {
         let login =
             if request.method() == axum::http::Method::GET && request.uri().path() == "/admin" {
-                "/login?return_to=/admin"
+                oteryn_web::staff_host::DASHBOARD_LOGIN_PATH
             } else {
                 "/login"
             };
