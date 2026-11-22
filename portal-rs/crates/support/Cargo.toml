@@ -30,6 +30,7 @@ thiserror = "2"
 time = "0.3.47"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 sha2 = "0.10"
+tracing = "0.1"
 tower = { version = "0.5.3", features = ["util"] }
 
 [dev-dependencies]

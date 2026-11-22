@@ -1155,6 +1155,93 @@ async fn rejected_newer_revoke_claim_cannot_confirm_release() -> TestResult {
 }
 
 #[tokio::test]
+async fn refused_successors_keep_the_original_timer_and_never_publish_a_stale_expiry() -> TestResult
+{
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    for (action, minutes) in [(Action::Replace, Some(15)), (Action::Revoke, None)] {
+        let Some(db) = Database::new().await? else {
+            return Ok(());
+        };
+        let command = platform_apply(&db).await?;
+        receive(&db, RESULT_APPLIED).await?;
+        let worker = Expiry::new(db.pool.clone(), mute());
+        let journal = BrowserJournal {
+            profiles: mute(),
+            exchange_available: true,
+            authority: None,
+        };
+        let target = Target {
+            account: command.account_id,
+            character: command.character_id,
+            name: "Test character".into(),
+        };
+        let operation = Uuid::now_v7();
+        let timer = || {
+            sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT reconcile_at_ms FROM support_enforcement_decisions WHERE operation_id=$1",
+            )
+            .bind(command.operation_id)
+            .fetch_one(&db.pool)
+        };
+        let mut tx = db.pool.begin().await?;
+        journal
+            .submit(
+                &mut tx,
+                &target,
+                Decision {
+                    actor: id(0x501),
+                    profile: BrowserProfile::Mute,
+                    action,
+                    operation,
+                    version: 1,
+                    minutes,
+                    reason: oteryn_admin::console::enforcement::Reason::RuleViolation,
+                },
+            )
+            .await
+            .map_err(|error| format!("{error:?}"))?;
+        tx.commit().await?;
+        worker.reconcile().await?;
+        assert_eq!(timer().await?, command.expires_at_ms);
+        assert_eq!(db.count("support_enforcement_commands").await?, 2);
+
+        let bytes = read_command(&db.pool, operation)
+            .await?
+            .ok_or("missing successor")?;
+        let refused = std::str::from_utf8(RESULT_APPLIED)?
+            .replace(&command.operation_id.to_string(), &operation.to_string())
+            .replace(&digest(COMMAND_APPLY), &digest(&bytes))
+            .replace(
+                r#""state":"APPLIED","result_code":"OK""#,
+                r#""state":"REJECTED","result_code":"LIFECYCLE_CONFLICT""#,
+            )
+            .replace(
+                r#""runtime_effect":"ONLINE_APPLIED""#,
+                r#""runtime_effect":"NONE""#,
+            );
+        receive(&db, refused.as_bytes()).await?;
+        assert_eq!(timer().await?, command.expires_at_ms);
+        worker.reconcile().await?;
+        worker.reconcile().await?;
+        assert_eq!(timer().await?, None);
+        assert_eq!(db.count("support_enforcement_commands").await?, 2);
+
+        let mut tx = db.pool.begin().await?;
+        let rows = journal
+            .restrictions(&mut tx, &target)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(rows[0].expiry_pending);
+        assert!(matches!(rows[0].state, StateLabel::Refused));
+        assert!(matches!(rows[0].current, StateLabel::Applied));
+        assert!(rows[0].actions.contains(&Action::Revoke));
+        tx.commit().await?;
+        db.cleanup().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn worker_expires_latest_confirmed_decision_once_and_waits_for_game() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {

@@ -53,6 +53,9 @@
         {% endif %}
         {% if let Some(code) = row.result_code %}<dt>{{ lang.text("Kod odmowy", "Refusal code") }}</dt><dd>{{ code }}</dd>{% endif %}
       </dl>
+      {% if row.expiry_pending %}
+      <p data-expiry-pending>{{ lang.text("Potwierdzenie wygaśnięcia przez grę jest w toku.", "Expiry is awaiting Game confirmation.") }}</p>
+      {% endif %}
       {% for form in panel.forms %}
       {% let field_id = form.operation %}
       <form class="op-stack" action="{{ PATH }}?lang={{ lang.code() }}&amp;character={{ id }}" method="post" data-action="{{ form.intent.name() }}">

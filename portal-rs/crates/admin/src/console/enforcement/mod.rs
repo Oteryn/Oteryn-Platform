@@ -103,6 +103,7 @@ pub struct Restriction {
     pub operation: Option<Uuid>,
     pub state: StateLabel,
     pub current: StateLabel,
+    pub expiry_pending: bool,
     pub received_at: Option<String>,
     pub current_received_at: Option<String>,
     pub effective_until: Option<String>,
