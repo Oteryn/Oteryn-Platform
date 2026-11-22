@@ -170,11 +170,14 @@ async function publishWarmPortfolio(page, locale) {
     },
   });
   expect(publication.status()).toBe(201);
-  const [{ name }] = await query(
-    'SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2',
+  const [character] = await query(
+    `SELECT c.character_id AS id, c.account_id AS account, c.world_id AS world, c.name,
+            s.projection_epoch AS epoch, s.projection_revision AS revision
+     FROM account_characters c JOIN account_character_snapshots s USING (account_id)
+     WHERE c.account_id=$1 AND c.character_id=$2`,
     [buyer, buyerCharacter],
   );
-  return { id: buyerCharacter, name };
+  return character;
 }
 
 test.afterAll(async () => {
@@ -223,7 +226,15 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
   const cold = await playerContext.newPage();
   const warm = await warmPlayerContext.newPage();
   try {
-    const { id: character } = await publishWarmPortfolio(warm, locale);
+    const { id: character, account, world, epoch, revision } = await publishWarmPortfolio(warm, locale);
+    // As in the collection suite, supply the pre-existing custody cut through
+    // the T72 baseline fixture. The producer still publishes the portfolio.
+    await query(
+      `INSERT INTO pd_ownership_baselines(character_id, account_id, world_id, character_revision,
+        from_projection_revision, to_projection_revision, projection_epoch, recovery_generation, accepted_at)
+       VALUES ($1, $2, $3, 1, $4, $4, $5, 1, now()-interval '1 hour')`,
+      [character, account, world, revision, epoch],
+    );
     for (const { route, warmStatus } of collectionRoutes) {
       const path = targetFor(route.replace('{character}', character), locale);
       const coldExpected = expectations.get(route);
