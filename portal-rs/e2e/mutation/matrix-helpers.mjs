@@ -1,5 +1,4 @@
 import { test, expect } from '../fixtures.mjs';
-import { csrfRejected } from '../helpers.mjs';
 import { loginWithRecoveryCode } from '../staff-rbac-helpers.mjs';
 
 export async function signInWithRecoveryCode(page, lang, account, code) {
@@ -30,6 +29,8 @@ export async function sendForm(page, url, form, method = 'POST') {
     method, form, headers: {
       origin: new URL(url).origin,
       'accept-language': await page.locator('html').getAttribute('lang') || 'pl',
+      // Each direct request uses a fresh socket to the harness TLS proxy.
+      connection: 'close',
     }, maxRedirects: 0,
   });
 }
@@ -51,12 +52,10 @@ export async function useFormMethod(page, url, method, submitForm, target = url)
 }
 
 export async function rejected({ page, url, fields, snapshot, baseline, method = 'POST' }) {
-  if (method === 'POST') {
-    await csrfRejected(page, url, fields);
-  } else {
-    const { _csrf, ...missing } = fields;
-    expect((await sendForm(page, url, missing, method)).status()).toBe(403);
-  }
+  const missing = Object.fromEntries(Object.entries(fields).filter(
+    ([key, value]) => key !== '_csrf' && key !== 'csrf' && value !== undefined,
+  ));
+  expect((await sendForm(page, url, missing, method)).status()).toBe(403);
   expect(await snapshot()).toEqual(baseline);
   expect((await sendForm(page, url, { ...fields, _csrf: 'invalid' }, method)).status()).toBe(403);
   expect(await snapshot()).toEqual(baseline);

@@ -5136,3 +5136,576 @@ test('referral link and invitation forms bind eligible players and preserve one 
     await Promise.all(contexts.map(context => context.close()));
   }
 });
+
+async function createBazaarListing(seller, buyer, lang, kind = 'item', currency = 'COINS') {
+  const character = uuid7();
+  const asset = kind === 'character' ? character : uuid7();
+  const destination = uuid7();
+  const seeded = await seller.page.request.post('/__bazaar_game/seed', { data: {
+    kind, asset_id: asset, seller: seller.id, buyer: buyer.id,
+    seller_character_id: character, buyer_character_id: destination,
+  } });
+  expect(seeded.status()).toBe(201);
+  expect((await seller.page.goto(`/${lang}/account/bazaar/sell`)).status()).toBe(200);
+  const form = 'main form[action$="/sell"]';
+  await seller.page.locator(`${form} [name=kind]`).selectOption(kind);
+  await seller.page.locator(`${form} [name=currency]`).selectOption(currency);
+  await submit(seller.page, form, {
+    world_id: '0192a000-0000-7000-8000-000000000012',
+    seller_character_id: character, asset_id: asset, expected_revision: '7', quantity: '1',
+    definition_key: 'fixture-sword', definition_revision: 'v1', starting_bid: '100',
+    duration_days: '1', publish_snapshot: true,
+  });
+  await expect(seller.page).toHaveURL(/\/bazaar\/[a-f0-9-]+$/);
+  const id = new URL(seller.page.url()).pathname.split('/').at(-1);
+  await expect.poll(async () => {
+    await seller.page.reload();
+    return seller.page.locator(`[data-listing="${id}"]`).getAttribute('data-state');
+  }, { timeout: 60_000, intervals: [1000] }).toBe('active');
+  return { id, asset, destination, url: `/${lang}/bazaar/${kind === 'item' ? 'items/' : ''}${id}` };
+}
+
+test('Bazaar coin bid and seller controls apply one hold, one resume and one Game return', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const open = async role => {
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    });
+    contexts.push(context);
+    const screen = await context.newPage();
+    return { screen, actor: await seededPlayer(screen, lang, role) };
+  };
+  try {
+    const seller = await seededPlayer(page, lang);
+    await enrollMfa(page, lang, seller);
+    const codes = page.locator('textarea[readonly]');
+    await expect(codes).toHaveCount(8);
+    const backups = await codes.allTextContents();
+    await signInWithRecoveryCode(page, lang, seller, backups[0]);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    const buyer = await open();
+    const editor = await open('content_editor');
+    const db = pool();
+    try {
+      await paidTopup(buyer.screen, lang, db);
+    } finally {
+      await db.end();
+    }
+    const actors = [page, editor.screen, buyer.screen];
+    const tokens = new Map();
+    for (const actor of actors) {
+      await actor.goto(`/${lang}/account/privacy`);
+      tokens.set(actor, (await prepare(actor, formSelector)).fields._csrf);
+    }
+    const offer = async () => {
+      expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
+      await submit(page, formSelector, { current_password: seller.password });
+      await expect(page).toHaveURL(new RegExp(`/${lang}/password/change$`));
+      return createBazaarListing(
+        { page, id: seller.id }, { page: buyer.screen, id: buyer.actor.id }, lang, 'item',
+      );
+    };
+    const error = lang === 'pl'
+      ? 'Prośba została odrzucona. Sprawdź konto i dane obiektu.'
+      : 'This request was refused. Check your account and the asset details.';
+    const actorRefusals = async (persons, url, fields, snapshot, baseline) => {
+      for (const actor of persons) {
+        expect((await sendForm(actor, url, { ...fields, _csrf: tokens.get(actor) })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+    };
+    const lot = await offer();
+    const bidState = async () => ({
+      holds: await query('SELECT account_id,amount FROM bazaar_coin_holds WHERE id=$1 ORDER BY account_id', [lot.id]),
+      bids: await query('SELECT buyer,character_id,maximum FROM bazaar_authority_bid_requests WHERE listing_id=$1 ORDER BY request_id', [lot.id]),
+    });
+    const baseline = { holds: [], bids: [] };
+    expect(await bidState()).toEqual(baseline);
+    expect((await buyer.screen.goto(lot.url)).status()).toBe(200);
+    const bid = 'main form[action$="/bids"]';
+    const amount = { buyer_character_id: lot.destination, maximum: '200' };
+    const request = await prepare(buyer.screen, bid, amount);
+    await rejected({ page: buyer.screen, ...request, snapshot: bidState, baseline });
+    await actorRefusals([page, editor.screen], request.url, request.fields, bidState, baseline);
+    await invalid({
+      page: buyer.screen, ...request, snapshot: bidState, baseline, message: error,
+      samples: [
+        { name: 'empty bid', patch: { maximum: '' } },
+        { name: 'overlong bid', patch: { maximum: '1'.repeat(128) } },
+        { name: 'non-numeric bid', patch: { maximum: 'x' } },
+        { name: 'zero bid', patch: { maximum: '0' } },
+      ],
+    });
+    await submit(buyer.screen, bid, amount);
+    await expect(buyer.screen).toHaveURL(new URL(`/${lang}/bazaar/${lot.id}`, request.url).href);
+    const held = {
+      holds: [{ account_id: buyer.actor.id, amount: '200' }],
+      bids: [{ buyer: buyer.actor.id, character_id: lot.destination, maximum: '200' }],
+    };
+    expect(await bidState()).toEqual(held);
+    await buyer.screen.goto(`/${lang}/shop/history`);
+    await expect(buyer.screen.locator('main dl dd').first()).toHaveText('1034');
+    expect((await sendForm(buyer.screen, request.url, request.fields)).status()).toBe(303);
+    expect(await bidState()).toEqual(held);
+
+    const second = await offer();
+    const [sellerBinding] = await query(
+      'SELECT session_hash FROM bazaar_authority_assets WHERE listing_id=$1', [second.id],
+    );
+    await signInWithRecoveryCode(page, lang, seller, backups[1]);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
+    await submit(page, formSelector, { current_password: seller.password });
+    expect((await page.goto(second.url)).status()).toBe(200);
+    const control = 'main form[action$="/control"]';
+    const controlState = async () => ({
+      listing: await query(
+        `SELECT l.state,a.cancel_requested,a.session_hash=$2 AS original_session
+         FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id WHERE l.id=$1`,
+        [second.id, sellerBinding.session_hash],
+      ),
+      operations: await query(
+        "SELECT b.action,b.actor FROM bazaar_authority_browser_requests b WHERE b.listing_id=$1 ORDER BY b.created_at,b.request_id",
+        [second.id],
+      ),
+      returns: await query(
+        "SELECT o.operation_id,r.outcome FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id) WHERE o.listing_id=$1 AND o.command='ReturnBazaarItem'",
+        [second.id],
+      ),
+    });
+    let before = { listing: [{ state: 'active', cancel_requested: false, original_session: true }], operations: [], returns: [] };
+    expect(await controlState()).toEqual(before);
+    for (const decision of ['resume', 'cancel']) {
+      const form = await prepare(page, control, { action: decision });
+      await rejected({ page, ...form, snapshot: controlState, baseline: before });
+      await actorRefusals([buyer.screen, editor.screen], form.url, form.fields, controlState, before);
+      await invalid({
+        page, ...form, snapshot: controlState, baseline: before, message: error,
+        samples: [
+          { name: 'empty control action', patch: { action: '' } },
+          { name: 'overlong control action', patch: { action: 'x'.repeat(512) } },
+          { name: 'wrong control request type', patch: { request_id: 'invalid' } },
+          { name: 'unrecognized action beyond the accepted values', patch: { action: 'resume ' } },
+        ],
+      });
+      await page.locator(`${control} button[value=${decision}]`).click();
+      await expect(page).toHaveURL(new URL(`/${lang}/bazaar/${second.id}`, form.url).href);
+      const expected = [...before.operations, { action: decision, actor: seller.id }];
+      if (decision === 'resume') {
+        await expect(page.locator(`[data-listing="${second.id}"]`)).toHaveAttribute('data-state', 'active');
+        before = { listing: [{ state: 'active', cancel_requested: false, original_session: false }], operations: expected, returns: [] };
+      } else {
+        await expect.poll(async () => {
+          await page.reload();
+          return page.locator(`[data-listing="${second.id}"]`).getAttribute('data-state');
+        }, { timeout: 60_000, intervals: [1000] }).toBe('cancelled');
+        before = {
+          listing: [{ state: 'cancelled', cancel_requested: true, original_session: false }], operations: expected,
+          returns: [{ operation_id: expect.any(String), outcome: 'COMMITTED' }],
+        };
+      }
+      expect(await controlState()).toEqual(before);
+      expect((await sendForm(page, form.url, form.fields)).status()).toBe(303);
+      expect(await controlState()).toEqual(before);
+      expect(await bidState()).toEqual(held);
+    }
+    const evidence = await (await page.request.get(`/__bazaar_game/state?asset=${second.asset}`)).json();
+    expect(evidence.asset.owner).toBe(seller.id);
+    expect(evidence.asset.consumed).toBe(true);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('Bazaar report and promotion refuse unavailable authority even for a live Game listing', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const open = async role => {
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    });
+    contexts.push(context);
+    const screen = await context.newPage();
+    const actor = await seededPlayer(screen, lang, role);
+    await screen.goto(`/${lang}/account/privacy`);
+    return { screen, actor, csrf: (await prepare(screen, formSelector)).fields._csrf };
+  };
+  try {
+    const seller = await seededPlayer(page, lang);
+    await enrollMfa(page, lang, seller);
+    const code = await page.locator('textarea[readonly]').first().inputValue();
+    await signInWithRecoveryCode(page, lang, seller, code);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    const buyer = await open();
+    const unrelated = await open('content_editor');
+    const admin = await open('platform_admin');
+    await page.goto(`/${lang}/account/sudo`);
+    await submit(page, formSelector, { current_password: seller.password });
+    const lot = await createBazaarListing({ page, id: seller.id }, { page: buyer.screen, id: buyer.actor.id }, lang);
+    await page.goto(`/${lang}/account/privacy`);
+    const sellerToken = (await prepare(page, formSelector)).fields._csrf;
+    const effects = async () => ({
+      listing: await query('SELECT state FROM bazaar_listings WHERE id=$1', [lot.id]),
+      reports: await query('SELECT id FROM bazaar_reports WHERE listing_id=$1', [lot.id]),
+      promotions: await query('SELECT id FROM bazaar_promotions WHERE listing_id=$1', [lot.id]),
+      ledger: await query('SELECT operation_id FROM wallet_entries WHERE account_id=$1', [seller.id]),
+    });
+    const baseline = { listing: [{ state: 'active' }], reports: [], promotions: [], ledger: [] };
+    expect(await effects()).toEqual(baseline);
+    const panel = `/admin/${lang}/bazaar`;
+    expect((await admin.screen.goto(panel)).status()).toBe(200);
+    const selector = 'main form:has([name=action][value=fees])';
+    const proposed = { promotion_price: '19', reason: 'Local disposable promotion quote qualification.' };
+    const fee = await prepare(admin.screen, selector, proposed);
+    const fees = () => query(
+      'SELECT coin_bps,gold_bps,listing_fee::text,promotion_price::text,actor,reason FROM bazaar_fee_revisions WHERE id=$1',
+      [fee.fields.id],
+    );
+    await rejected({ page: admin.screen, ...fee, snapshot: fees, baseline: [] });
+    for (const { screen, csrf } of [buyer, unrelated]) {
+      expect((await sendForm(screen, fee.url, { ...fee.fields, _csrf: csrf })).status()).toBe(403);
+      expect(await fees()).toEqual([]);
+    }
+    const bad = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    await invalid({ page: admin.screen, ...fee, message: bad, snapshot: fees, baseline: [], samples: [
+      { name: 'empty reason', patch: { reason: '' } },
+      { name: 'overlong reason', patch: { reason: 'x'.repeat(501) } },
+      { name: 'wrong numeric type', patch: { promotion_price: 'nineteen' } },
+      { name: 'zero promotion price', patch: { promotion_price: '0' } },
+    ] });
+    await submit(admin.screen, selector, proposed);
+    await expect(admin.screen).toHaveURL(new URL(panel, fee.url).href);
+    const revised = [{
+      coin_bps: 1000, gold_bps: 250, listing_fee: '0', promotion_price: '19',
+      actor: admin.actor.id, reason: proposed.reason,
+    }];
+    expect(await fees()).toEqual(revised);
+    await expect(admin.screen.locator('main')).toContainText(fee.fields.id);
+    expect((await sendForm(admin.screen, fee.url, fee.fields)).status()).toBe(503);
+    expect(await fees()).toEqual(revised);
+
+    const report = `/${lang}/account/bazaar/${lot.id}/report`;
+    expect((await buyer.screen.goto(report)).status()).toBe(200);
+    await expect(buyer.screen.locator('main h2')).toHaveText(lang === 'pl' ? 'Zgłoś ofertę' : 'Report listing');
+    const detail = 'Synthetic evidence about the Game-backed listing.';
+    const complaint = await prepare(buyer.screen, formSelector, { detail });
+    await rejected({ page: buyer.screen, ...complaint, snapshot: effects, baseline });
+    for (const { screen, csrf } of [{ screen: page, csrf: sellerToken }, unrelated]) {
+      expect((await sendForm(screen, complaint.url, { ...complaint.fields, _csrf: csrf })).status()).toBe(403);
+      expect(await effects()).toEqual(baseline);
+    }
+    await invalid({ page: buyer.screen, ...complaint, message: bad, snapshot: effects, baseline, samples: [
+      { name: 'empty detail', patch: { detail: '' } },
+      { name: 'overlong detail', patch: { detail: 'x'.repeat(1001) } },
+      { name: 'wrong category', patch: { category: '1' } },
+      { name: 'detail one character below the minimum', patch: { detail: '123456789' } },
+    ] });
+    await submit(buyer.screen, formSelector, { detail });
+    await expect(buyer.screen.locator('main')).toContainText(lang === 'pl'
+      ? 'Nie masz uprawnień do wyświetlenia tej strony.' : 'You do not have permission to view this page.');
+    expect(await effects()).toEqual(baseline);
+    expect((await sendForm(buyer.screen, complaint.url, complaint.fields)).status()).toBe(403);
+    expect(await effects()).toEqual(baseline);
+
+    expect((await page.goto(`/${lang}/account/bazaar/${lot.id}/promote`)).status()).toBe(200);
+    await expect(page.locator('main h2')).toHaveText(lang === 'pl' ? 'Wyróżnij ofertę' : 'Feature listing');
+    const promotion = await prepare(page, formSelector);
+    expect(promotion.fields.fee_revision).toBe(fee.fields.id);
+    expect(promotion.fields.amount).toBe('19');
+    await rejected({ page, ...promotion, snapshot: effects, baseline });
+    for (const { screen, csrf } of [buyer, unrelated]) {
+      expect((await sendForm(screen, promotion.url, { ...promotion.fields, _csrf: csrf })).status()).toBe(403);
+      expect(await effects()).toEqual(baseline);
+    }
+    await invalid({ page, ...promotion, message: bad, snapshot: effects, baseline, samples: [
+      { name: 'empty promotion amount', patch: { amount: '' } },
+      { name: 'overlong promotion amount', patch: { amount: '9'.repeat(80) } },
+      { name: 'wrong fee identifier type', patch: { fee_revision: 'text' } },
+      { name: 'promotion identifier below the v7 boundary', patch: { id: '00000000-0000-0000-0000-000000000000' } },
+    ] });
+    await submit(page, formSelector);
+    await expect(page.locator('main')).toContainText(lang === 'pl'
+      ? 'Nie masz uprawnień do wyświetlenia tej strony.' : 'You do not have permission to view this page.');
+    expect(await effects()).toEqual(baseline);
+    expect((await sendForm(page, promotion.url, promotion.fields)).status()).toBe(403);
+    expect(await effects()).toEqual(baseline);
+    expect(await fees()).toEqual(revised);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('a Gold bid reserves exactly one amount in the fake Game bank', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const seller = await seededPlayer(page, lang);
+    await enrollMfa(page, lang, seller);
+    const recovery = await page.locator('textarea[readonly]').first().inputValue();
+    await signInWithRecoveryCode(page, lang, seller, recovery);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    const [buyer, editor] = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
+    await page.goto(`/${lang}/account/sudo`);
+    await submit(page, formSelector, { current_password: seller.password });
+    const lot = await createBazaarListing({ page, id: seller.id }, { page: buyer.screen, id: buyer.account.id }, lang, 'item', 'GOLD');
+    await page.goto(`/${lang}/account/privacy`);
+    const { fields } = await prepare(page, formSelector);
+    const gameBanks = async () => {
+      const response = await page.request.get(`/__bazaar_game/state?asset=${lot.asset}`);
+      expect(response.status()).toBe(200);
+      const { banks } = await response.json();
+      return banks;
+    };
+    const amounts = bank => bank ? { balance: bank.balance, held: bank.held } : null;
+    const source = async () => amounts((await gameBanks())[buyer.account.id]);
+    const unrelatedBanks = async () => {
+      const banks = await gameBanks();
+      return [amounts(banks[seller.id]), amounts(banks[editor.account.id])];
+    };
+    const bank = await source();
+    const otherFunds = await unrelatedBanks();
+    const snapshot = async () => ({
+      bank: await source(),
+      bids: await query(
+        "SELECT buyer,maximum,phase FROM bazaar_authority_gold_bids WHERE listing_id=$1 AND phase<>'refused' ORDER BY request_id",
+        [lot.id],
+      ),
+      coins: await query('SELECT account_id FROM bazaar_coin_holds WHERE id=$1', [lot.id]),
+      listing: await query('SELECT leader,price,state FROM bazaar_listings WHERE id=$1', [lot.id]),
+    });
+    const baseline = { bank, bids: [], coins: [], listing: [{ leader: null, price: '100', state: 'active' }] };
+    expect(bank.held).toBe(0);
+    expect(await snapshot()).toEqual(baseline);
+    expect((await buyer.screen.goto(lot.url)).status()).toBe(200);
+    const bid = 'main form[action$="/bids"]';
+    const form = { buyer_character_id: lot.destination, maximum: '200' };
+    const placeBid = async screen => {
+      const controls = screen.locator(bid);
+      await controls.locator('[name=buyer_character_id]').fill(form.buyer_character_id);
+      await controls.locator('[name=maximum]').fill(form.maximum);
+      await controls.locator('button[type=submit]').click();
+    };
+    const order = await prepare(buyer.screen, bid, form);
+    await rejected({ page: buyer.screen, ...order, snapshot, baseline });
+    const selfBid = await sendForm(page, order.url, { ...order.fields, _csrf: fields._csrf });
+    expect(selfBid.status()).toBe(403);
+    expect(await snapshot()).toEqual(baseline);
+
+    // A Gold request reaches the Game bank before a trusted receipt can
+    // determine whether the destination character belongs to this bidder.
+    expect((await editor.screen.goto(lot.url)).status()).toBe(200);
+    const foreign = await prepare(editor.screen, bid, form);
+    expect(foreign.fields.request_id).not.toBe(order.fields.request_id);
+    await placeBid(editor.screen);
+    await expect(editor.screen).toHaveURL(new URL(`/${lang}/bazaar/${lot.id}`, foreign.url).href);
+    const refusal = () => query(
+      `SELECT b.buyer,b.phase,b.release_operation_id,r.outcome,r.receipt::jsonb->>'result_code' AS reason
+       FROM bazaar_authority_gold_bids b JOIN bazaar_authority_receipts r ON r.operation_id=b.hold_operation_id
+       WHERE b.request_id=$1 AND b.listing_id=$2`, [foreign.fields.request_id, lot.id],
+    );
+    const refused = [{
+      buyer: editor.account.id, phase: 'refused', release_operation_id: null,
+      outcome: 'REJECTED', reason: 'CHAR_CMD_OWNER_MISMATCH',
+    }];
+    await expect.poll(refusal, { timeout: 90_000, intervals: [1000] }).toEqual(refused);
+    expect(await snapshot()).toEqual(baseline);
+    expect(await unrelatedBanks()).toEqual(otherFunds);
+    expect((await sendForm(editor.screen, foreign.url, foreign.fields)).status()).toBe(303);
+    expect(await refusal()).toEqual(refused);
+    expect(await snapshot()).toEqual(baseline);
+    expect(await unrelatedBanks()).toEqual(otherFunds);
+    await invalid({ page: buyer.screen, ...order, snapshot, baseline, message: lang === 'pl'
+      ? 'Prośba została odrzucona. Sprawdź konto i dane obiektu.'
+      : 'This request was refused. Check your account and the asset details.', samples: [
+      { name: 'empty maximum', patch: { maximum: '' } },
+      { name: 'overlong maximum', patch: { maximum: '1'.repeat(80) } },
+      { name: 'wrong number format', patch: { maximum: 'text' } },
+      { name: 'zero maximum', patch: { maximum: '0' } },
+    ] });
+    await placeBid(buyer.screen);
+    await expect(buyer.screen).toHaveURL(new URL(`/${lang}/bazaar/${lot.id}`, order.url).href);
+    const accepted = {
+      ...baseline, bank: { ...bank, held: 200 },
+      bids: [{ buyer: buyer.account.id, maximum: '200', phase: 'accepted' }],
+      listing: [{ leader: buyer.account.id, price: '100', state: 'active' }],
+    };
+    await expect.poll(snapshot, { timeout: 60_000, intervals: [1000] }).toEqual(accepted);
+    await buyer.screen.reload();
+    await expect(buyer.screen.locator(`[data-listing="${lot.id}"]`)).toHaveAttribute('data-state', 'active');
+    expect((await sendForm(buyer.screen, order.url, order.fields)).status()).toBe(303);
+    expect(await snapshot()).toEqual(accepted);
+    // Advance only this fixture auction's real deadline to observe delivery.
+    await query("UPDATE bazaar_listings SET ends_at=clock_timestamp()-interval '1 second' WHERE id=$1", [lot.id]);
+    await expect.poll(() => query('SELECT state FROM bazaar_listings WHERE id=$1', [lot.id]),
+      { timeout: 90_000, intervals: [1000] }).toEqual([{ state: 'completed' }]);
+    await buyer.screen.reload();
+    await expect(buyer.screen.locator('main')).toContainText(lang === 'pl' ? 'Sprzedaż zakończona' : 'Sale completed');
+    expect(await source()).toEqual({ balance: bank.balance - 100, held: 0 });
+    expect(await unrelatedBanks()).toEqual([
+      { ...otherFunds[0], balance: otherFunds[0].balance + 97 }, otherFunds[1],
+    ]);
+    expect(await query(
+      'SELECT gross_amount,fee_amount,seller_amount FROM bazaar_authority_gold_sales WHERE listing_id=$1',
+      [lot.id],
+    )).toEqual([{ gross_amount: '100', fee_amount: '3', seller_amount: '97' }]);
+    expect((await snapshot()).coins).toEqual([]);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('staff Bazaar forms commit review, restriction and compensated invalidation under independent authority', async ({ page, browser }, info) => {
+  test.setTimeout(720_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const seller = await seededPlayer(page, lang);
+    await enrollMfa(page, lang, seller);
+    const recovery = await page.locator('textarea[readonly]').first().inputValue();
+    await signInWithRecoveryCode(page, lang, seller, recovery);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    const [player, editor] = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
+    const authorize = async () => {
+      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      contexts.push(context);
+      const screen = await context.newPage();
+      return { screen, account: await seededPlayer(screen, lang, 'platform_admin') };
+    };
+    const requester = await authorize();
+    const reviewer = await authorize();
+    await page.goto(`/${lang}/account/sudo`);
+    await submit(page, formSelector, { current_password: seller.password });
+    const lot = await createBazaarListing({ page, id: seller.id }, { page: player.screen, id: player.account.id }, lang);
+    const panel = `/admin/${lang}/bazaar`;
+    const form = action => `main form:has([name=action][value=${action}])`;
+    const reason = 'Verify staff marketplace custody in the disposable fixture.';
+    const message = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    const validate = async (screen, selector, values, snapshot, patches) => {
+      expect((await screen.goto(panel)).status()).toBe(200);
+      const params = await prepare(screen, selector, values);
+      const baseline = await snapshot();
+      await rejected({ page: screen, ...params, snapshot, baseline });
+      for (const { screen: outsider, csrf } of [player, editor]) {
+        expect((await sendForm(outsider, params.url, { ...params.fields, _csrf: csrf })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      await invalid({ page: screen, ...params, message, snapshot, baseline,
+        samples: patches.map(([name, patch]) => ({ name, patch })) });
+      return params;
+    };
+    const submitStaffMutation = async (screen, selector, values, target) => {
+      const form = screen.locator(selector);
+      for (const [name, value] of Object.entries(values)) {
+        await form.locator(`[name="${name}"]`).fill(value);
+      }
+      const refresh = screen.waitForResponse(response => response.url() === target && response.request().method() === 'GET',
+        { timeout: 120_000 }).then(response => response.status(), () => null);
+      const [posted] = await Promise.all([
+        screen.waitForResponse(response => response.url() === target && response.request().method() === 'POST',
+          { timeout: 120_000 }),
+        form.locator('button[type=submit], button:not([type])').click(),
+      ]);
+      expect(posted.status()).toBe(303);
+      expect(posted.headers().location).toBe(panel);
+      expect(await refresh).toBe(200);
+    };
+    const nil = '00000000-0000-0000-0000-000000000000';
+    const identifiers = name => [
+      ['empty identifier', { [name]: '' }], ['overlong identifier', { [name]: '1'.repeat(65) }],
+      ['wrong identifier type', { [name]: 'text' }], ['nil identifier outside the v7 boundary', { [name]: nil }],
+    ];
+    const recover = () => query(
+      `SELECT l.state, h.revision::int AS hold_revision, i.id, i.state AS approval, i.approved_by, i.requested_by,
+         (SELECT count(*)::int FROM bazaar_moderation_outbox WHERE listing_id=$1) AS reconciliations,
+         (SELECT count(*)::int FROM bazaar_game_outbox o JOIN bazaar_authority_receipts r USING(operation_id)
+          WHERE o.listing_id=$1 AND o.command='ReturnBazaarItem' AND r.outcome='COMMITTED') AS returns
+       FROM bazaar_listings l LEFT JOIN bazaar_moderation_holds h ON h.listing_id=l.id
+       LEFT JOIN bazaar_invalidation_requests i ON i.listing_id=l.id WHERE l.id=$1`, [lot.id],
+    );
+    const baseline = { state: 'active', hold_revision: null, id: null, approval: null, approved_by: null,
+      requested_by: null, reconciliations: 0, returns: 0 };
+    expect(await recover()).toEqual([baseline]);
+    const suspend = form('suspend');
+    const detail = { listing: lot.id, reason };
+    const suspension = await validate(requester.screen, suspend, detail, recover, [
+      ['empty reason', { reason: '' }], ['overlong reason', { reason: 'x'.repeat(501) }],
+      ['wrong listing type', { listing: 'text' }], ['reason below ten characters', { reason: '123456789' }],
+    ]);
+    await submitStaffMutation(requester.screen, suspend, detail, suspension.url);
+    await expect(requester.screen.locator('main')).toContainText(lot.id);
+    const suspended = { ...baseline, hold_revision: 1 };
+    expect(await recover()).toEqual([suspended]);
+
+    const restriction = form('restrict');
+    const restricted = {
+      world: '0192a000-0000-7000-8000-000000000012', family: 'item', production_key: `matrix-restricted-${randomUUID()}`,
+      revision_ref: 'v1', minimum_value: '4', reason,
+    };
+    const rules = () => query(
+      'SELECT production_key,minimum_value::int AS minimum,denied,actor FROM bazaar_item_restrictions WHERE production_key=$1',
+      [restricted.production_key],
+    );
+    const policy = await validate(requester.screen, restriction, restricted, rules, [
+      ['empty family', { family: '' }], ['overlong reason', { reason: 'x'.repeat(501) }],
+      ['wrong minimum type', { minimum_value: 'text' }], ['zero minimum', { minimum_value: '0' }],
+    ]);
+    await submitStaffMutation(requester.screen, restriction, restricted, policy.url);
+    await expect(requester.screen.locator('main')).toContainText(restricted.production_key);
+    expect(await rules()).toEqual([{
+      production_key: restricted.production_key, minimum: 4, denied: true, actor: requester.account.id,
+    }]);
+
+    // The live player's report endpoint requires an integration outside the
+    // fixture. Seed the two historical reports that staff are reviewing.
+    for (const [reporter, accepted] of [[player.account, true], [editor.account, false]]) {
+      const id = uuid7();
+      await query('INSERT INTO bazaar_reports(id,listing_id,reporter,category,detail) VALUES($1,$2,$3,$4,$5)',
+        [id, lot.id, reporter.id, 'fraud', reason]);
+      const report = () => query('SELECT state,reviewed_by FROM bazaar_reports WHERE id=$1', [id]);
+      const selector = `main form:has([name=action][value=review]):has([name=id][value="${id}"])`;
+      const review = await validate(requester.screen, selector, { accepted: String(accepted) }, report, identifiers('id'));
+      await requester.screen.locator(`${selector} select[name=accepted]`).selectOption(String(accepted));
+      await submitStaffMutation(requester.screen, selector, {}, review.url);
+      await expect(requester.screen.locator(selector)).toHaveCount(0);
+      const saved = [{ state: accepted ? 'accepted' : 'dismissed', reviewed_by: requester.account.id }];
+      expect(await report()).toEqual(saved);
+      expect((await sendForm(requester.screen, review.url, review.fields)).status()).toBe(409);
+      expect(await report()).toEqual(saved);
+    }
+
+    const request = form('request');
+    const proposed = await validate(requester.screen, request, detail, recover, identifiers('id'));
+    await submitStaffMutation(requester.screen, request, detail, proposed.url);
+    await expect(requester.screen.locator('main')).toContainText(proposed.fields.id);
+    const pending = { ...suspended, id: proposed.fields.id, approval: 'pending', requested_by: requester.account.id };
+    expect(await recover()).toEqual([pending]);
+    expect((await sendForm(requester.screen, proposed.url, proposed.fields)).status()).toBe(503);
+    expect(await recover()).toEqual([pending]);
+    const approve = form('approve');
+    const verdict = await validate(reviewer.screen, approve, { id: pending.id }, recover, identifiers('id'));
+    const self = await prepare(requester.screen, approve, { id: pending.id });
+    expect((await sendForm(requester.screen, self.url, self.fields)).status()).toBe(403);
+    expect(await recover()).toEqual([pending]);
+    await submitStaffMutation(reviewer.screen, approve, { id: pending.id }, verdict.url);
+    await expect(reviewer.screen).toHaveURL(new URL(panel, verdict.url).href);
+    await expect(reviewer.screen.locator('main')).not.toContainText(pending.id);
+    const expected = { ...pending, state: 'cancelled', hold_revision: null, approval: 'approved',
+      approved_by: reviewer.account.id, reconciliations: 1, returns: 1 };
+    await expect.poll(recover, { timeout: 90_000, intervals: [1000] }).toEqual([expected]);
+    expect((await sendForm(reviewer.screen, verdict.url, verdict.fields)).status()).toBe(409);
+    expect(await recover()).toEqual([expected]);
+    const game = await page.request.get(`/__bazaar_game/state?asset=${lot.asset}`);
+    expect(game.status()).toBe(200);
+    expect((await game.json()).asset.owner).toBe(seller.id);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});

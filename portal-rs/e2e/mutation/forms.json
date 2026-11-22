@@ -1404,7 +1404,7 @@
       ]
     },
     {
-      "source": "crates/bazaar/src/moderation_web.rs:116",
+      "source": "crates/bazaar/src/moderation_web.rs:138",
       "ordinal": 1,
       "action": "",
       "actionVariants": [
@@ -2909,7 +2909,7 @@
           "handler": "create::"
         },
         {
-          "source": "crates/bazaar/src/game/runtime/browser.rs:194",
+          "source": "crates/bazaar/src/game/runtime/browser.rs:201",
           "handler": "create"
         }
       ]
@@ -2923,7 +2923,7 @@
           "handler": "bid::"
         },
         {
-          "source": "crates/bazaar/src/game/runtime/browser.rs:198",
+          "source": "crates/bazaar/src/game/runtime/browser.rs:205",
           "handler": "bid"
         }
       ]
@@ -2933,7 +2933,7 @@
       "route": "/{lang}/account/bazaar/{listing}/control",
       "sources": [
         {
-          "source": "crates/bazaar/src/game/runtime/browser.rs:199",
+          "source": "crates/bazaar/src/game/runtime/browser.rs:206",
           "handler": "control"
         }
       ]
@@ -2943,7 +2943,7 @@
       "route": "/{lang}/account/bazaar/{listing}/promote",
       "sources": [
         {
-          "source": "crates/bazaar/src/moderation_web.rs:90",
+          "source": "crates/bazaar/src/moderation_web.rs:92",
           "handler": "promote::"
         }
       ]
