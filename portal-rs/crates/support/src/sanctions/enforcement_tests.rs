@@ -636,6 +636,7 @@ impl Database {
             include_str!("../../../../migrations/20261111140002_n009_sanction_export.sql"),
             include_str!("../../../../migrations/20261115100001_support_enforcement_commands.sql"),
             include_str!("../../../../migrations/20261122170100_support_enforcement_decisions.sql"),
+            include_str!("../../../../migrations/20261122170500_enforcement_overdue_cursor.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
@@ -1151,6 +1152,75 @@ async fn rejected_newer_revoke_claim_cannot_confirm_release() -> TestResult {
     assert_eq!(state.confirmed_revision, Some(1));
     assert!(state.actions().is_empty());
     tx.commit().await?;
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn overdue_worker_checks_one_bounded_batch_and_ignores_operations_with_any_receipt()
+-> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    // Backdated journal fixture, with the normal immutable publication path.
+    sqlx::query(
+        "ALTER TABLE support_enforcement_commands ALTER COLUMN created_at
+                 SET DEFAULT clock_timestamp()-interval '5 minutes'",
+    )
+    .execute(&db.pool)
+    .await?;
+    let first = apply();
+    db.record(&first).await?;
+    receive(&db, RESULT_APPLIED).await?;
+    let pending = Command {
+        operation_id: id(0x700),
+        sanction_stream_id: id(0x701),
+        ..apply()
+    };
+    let record = db
+        .record(&pending)
+        .await?
+        .ok_or("pending command missing")?;
+    let receipt = result_with(
+        r#""state":"APPLIED","result_code":"OK""#,
+        r#""state":"ACCEPTED_PENDING","result_code":"PENDING_RUNTIME""#,
+    )
+    .replace(
+        &first.operation_id.to_string(),
+        &pending.operation_id.to_string(),
+    )
+    .replace(
+        &first.sanction_stream_id.to_string(),
+        &pending.sanction_stream_id.to_string(),
+    )
+    .replace(&digest(COMMAND_APPLY), &record.command_digest);
+    receive(&db, receipt.as_bytes()).await?;
+    let mut missing = Vec::new();
+    for offset in 0..127 {
+        let command = Command {
+            operation_id: id(0x2000 + offset),
+            sanction_stream_id: id(0x3000 + offset),
+            ..apply()
+        };
+        db.record(&command).await?.ok_or("command missing")?;
+        missing.push(command.operation_id);
+    }
+    sqlx::query("ALTER TABLE support_enforcement_commands ALTER COLUMN created_at SET DEFAULT clock_timestamp()")
+        .execute(&db.pool).await?;
+    db.record(&Command {
+        operation_id: id(0x4000),
+        sanction_stream_id: id(0x4001),
+        ..apply()
+    })
+    .await?;
+    let worker = Overdue(db.pool.clone());
+    assert_eq!(worker.check().await?, missing[..126]);
+    let (left, right) = tokio::join!(worker.check(), worker.check());
+    let caught_up: Vec<_> = left?.into_iter().chain(right?).collect();
+    assert_eq!(caught_up, missing[126..]);
+    assert!(worker.check().await?.is_empty());
+    assert_eq!(db.count("support_enforcement_commands").await?, 130);
+    assert_eq!(db.count("support_enforcement_results").await?, 2);
     db.cleanup().await
 }
 

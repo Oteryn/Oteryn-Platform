@@ -315,6 +315,13 @@ fn register_security_notifications(
 }
 pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    registry.cleanup(
+        "support.enforcement.overdue",
+        1,
+        Arc::new(oteryn_support::sanctions::enforcement::Overdue(
+            pool.clone(),
+        )),
+    )?;
     if std::env::var("PORTAL_GAME_ENFORCEMENT_ENABLED").as_deref() == Ok("true") {
         use oteryn_support::sanctions::enforcement::{Expiry, Profile};
         let profiles = crate::game_routes::Configuration::from_env()?.enforcement_profiles()?;

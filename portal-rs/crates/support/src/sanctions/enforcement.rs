@@ -1809,6 +1809,75 @@ impl oteryn_db::outbox::Cleanup for Expiry {
     }
 }
 
+/// Scans a bounded prefix of the publication journal once each command reaches
+/// the receipt deadline. Keep monitoring previously published commands even
+/// when a profile has since been turned off.
+#[derive(Debug)]
+pub struct Overdue(pub PgPool);
+
+impl Overdue {
+    async fn check(&self) -> Result<Vec<Uuid>, Error> {
+        let mut tx = self.0.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        let after: Option<i64> = sqlx::query_scalar(
+            "SELECT position FROM support_enforcement_overdue_cursor WHERE singleton FOR UPDATE SKIP LOCKED",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(after) = after else {
+            return Ok(Vec::new());
+        };
+        let window = sqlx::query_as::<_, (i64, Uuid, Option<bool>)>(
+            "WITH page AS MATERIALIZED (
+                 SELECT position,operation_id,created_at FROM support_enforcement_commands
+                 WHERE position>$1 ORDER BY position LIMIT 128
+             )
+             SELECT position,operation_id,CASE
+                 WHEN created_at<=statement_timestamp()-interval '5 minutes'
+                 THEN NOT EXISTS (SELECT 1 FROM support_enforcement_results r WHERE r.operation_id=page.operation_id)
+             END FROM page ORDER BY position",
+        )
+        .bind(after)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let mut checked_through = after;
+        let mut alarms = Vec::new();
+        for (position, operation, missing) in window {
+            let Some(missing) = missing else { break };
+            checked_through = position;
+            if missing {
+                alarms.push(operation);
+            }
+        }
+        if checked_through > after {
+            sqlx::query(
+                "UPDATE support_enforcement_overdue_cursor SET position=$1 WHERE singleton",
+            )
+            .bind(checked_through)
+            .execute(&mut *tx)
+            .await?;
+        }
+        for operation in &alarms {
+            tracing::warn!(target: "support.enforcement_result_overdue", %operation,
+                "Enforcement command has no Game receipt after five minutes");
+        }
+        tx.commit().await?;
+        Ok(alarms)
+    }
+}
+
+impl oteryn_db::outbox::Cleanup for Overdue {
+    fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
+        Box::pin(async move {
+            self.check()
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+    }
+}
+
 #[cfg(test)]
 #[path = "enforcement_tests.rs"]
 mod enforcement_tests;
