@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login, password, pool, submit } from '../helpers.mjs';
-import { player, query } from '../staff-rbac-helpers.mjs';
+import { enrollMfa, loginWithRecoveryCode, player, query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 
 async function prepare(page, selector, values) {
@@ -18,16 +18,37 @@ async function prepare(page, selector, values) {
   return { url, fields: { ...fields, ...values } };
 }
 
-async function post(page, url, form) {
-  return page.request.post(url, {
-    form, headers: { origin: new URL(url).origin }, maxRedirects: 0,
+async function sendForm(page, url, form, method = 'POST') {
+  return page.request.fetch(url, {
+    method, form, headers: { origin: new URL(url).origin }, maxRedirects: 0,
   });
 }
 
-async function rejected({ page, url, fields, snapshot, baseline }) {
-  await csrfRejected(page, url, fields);
+async function useFormMethod(page, url, method, submitForm) {
+  if (method === 'POST') {
+    await submitForm();
+    return;
+  }
+  const changeMethod = route => route.continue(
+    route.request().method() === 'POST' ? { method } : {},
+  );
+  await page.route(url, changeMethod);
+  try {
+    await submitForm();
+  } finally {
+    await page.unroute(url, changeMethod);
+  }
+}
+
+async function rejected({ page, url, fields, snapshot, baseline, method = 'POST' }) {
+  if (method === 'POST') {
+    await csrfRejected(page, url, fields);
+  } else {
+    const { _csrf, ...missing } = fields;
+    expect((await sendForm(page, url, missing, method)).status()).toBe(403);
+  }
   expect(await snapshot()).toEqual(baseline);
-  expect((await post(page, url, { ...fields, _csrf: 'invalid' })).status()).toBe(403);
+  expect((await sendForm(page, url, { ...fields, _csrf: 'invalid' }, method)).status()).toBe(403);
   expect(await snapshot()).toEqual(baseline);
 }
 
@@ -35,15 +56,15 @@ async function wrongActor({ page, lang, url, fields, status, snapshot, baseline 
   await page.goto(`/${lang}/login`);
   const csrf = await page.locator('main form [name=_csrf]').inputValue();
   expect(Boolean(csrf), 'anonymous actor has its own CSRF token').toBe(true);
-  const response = await post(page, url, { ...fields, _csrf: csrf });
+  const response = await sendForm(page, url, { ...fields, _csrf: csrf });
   expect(response.status()).toBe(status);
   expect(await snapshot()).toEqual(baseline);
 }
 
-async function invalid({ page, url, fields, samples, message, snapshot, baseline }) {
+async function invalid({ page, url, fields, samples, message, snapshot, baseline, method = 'POST' }) {
   for (const { name, patch } of samples) {
     await test.step(name, async () => {
-      const response = await post(page, url, { ...fields, ...patch });
+      const response = await sendForm(page, url, { ...fields, ...patch }, method);
       expect(response.status()).toBe(422);
       expect(await response.text()).toContain(message);
       expect(await snapshot()).toEqual(baseline);
@@ -53,7 +74,7 @@ async function invalid({ page, url, fields, samples, message, snapshot, baseline
 
 const portal = fileURLToPath(new URL('../../', import.meta.url));
 
-async function seededPlayer(page, lang) {
+async function seededPlayer(page, lang, role) {
   const db = pool();
   await db.end(); // Apply the harness's disposable database guard before invoking seed.
   const binary = process.env.PORTAL_E2E_BINARY
@@ -65,8 +86,20 @@ async function seededPlayer(page, lang) {
     stdio: 'ignore',
   });
   expect(status, 'seed CLI creates the disposable player').toBe(0);
-  await login(page, lang, account);
   const [{ id }] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
+  if (role) {
+    const assignments = await query(
+      'INSERT INTO account_roles(account_id, role_id) SELECT $1, id FROM roles WHERE key=$2 RETURNING role_id',
+      [id, role],
+    );
+    expect(assignments).toHaveLength(1);
+  }
+  await login(page, lang, account);
+  if (role) {
+    await enrollMfa(page, lang, account);
+    const code = await page.locator('textarea[readonly]').first().inputValue();
+    await loginWithRecoveryCode(page, lang, account, code);
+  }
   return { id };
 }
 
@@ -155,7 +188,7 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
     const target = new URL(page.url()).pathname;
     const created = [{ id: target.split('/').at(-1), account_id: owner.id, subject, body }];
     expect(await snapshot()).toEqual(created);
-    const replay = await post(page, url, fields);
+    const replay = await sendForm(page, url, fields);
     expect(replay.status()).toBe(302);
     expect(replay.headers().location).toBe(target);
     expect(await snapshot()).toEqual(created);
@@ -165,6 +198,16 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
 });
 
 const unavailable = [
+  {
+    family: 'collection PvP and set purchases',
+    target: lang => `/${lang}/collection-pvp`,
+    status: 200,
+    message: {
+      pl: 'Walki kolekcji i zakupy są obecnie niedostępne.',
+      en: 'Collection battles and purchases are currently unavailable.',
+    },
+    routes: ['/{lang}/collection-pvp'],
+  },
   {
     family: 'collection decks and battle actions',
     target: lang => `/${lang}/collection/${uuid7()}`,
@@ -254,7 +297,7 @@ test('test-provider top-up creates one checkout intent per operation', async ({ 
       payment_intent_id: intent, coins: '1234', minor_units: '250', currency: 'PLN', provider: 'test',
     }];
     expect(await snapshot()).toEqual(created);
-    const replay = await post(page, url, fields);
+    const replay = await sendForm(page, url, fields);
     expect(replay.status()).toBe(303);
     expect(replay.headers().location).toBe(`/${lang}/shop/test-checkout/${intent}`);
     expect(await snapshot()).toEqual(created);
@@ -293,7 +336,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
       const baseline = await snapshot();
       expect(baseline).toEqual([{ state: 'pending', events: 0, credits: 0, coins: '0' }]);
       await rejected({ page, url, fields, snapshot, baseline });
-      expect((await post(other, url, { ...fields, _csrf: foreignToken })).status()).toBe(404);
+      expect((await sendForm(other, url, { ...fields, _csrf: foreignToken })).status()).toBe(404);
       expect(await snapshot()).toEqual(baseline);
       await invalid({
         page, url, fields, snapshot, baseline, message: storeError[lang],
@@ -314,7 +357,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
         ? { pl: 'Płatność przyjęta, coiny zostały zaksięgowane.', en: 'Payment accepted; coins have been credited.' }
         : { pl: 'Płatność odrzucona lub anulowana. Nie przyznano coinów.', en: 'Payment rejected or cancelled. No coins were credited.' };
       await expect(page.locator('main')).toContainText(message[lang]);
-      expect((await post(page, url, fields)).status()).toBe(303);
+      expect((await sendForm(page, url, fields)).status()).toBe(303);
       expect(await snapshot()).toEqual(settled);
     } finally {
       await foreign.close();
@@ -322,48 +365,34 @@ for (const action of ['pay', 'reject', 'cancel']) {
   });
 }
 
-test('ticket owner reply and close enforce ownership and version', async ({ page, browser }, info) => {
-  const lang = info.project.metadata.locale;
-  const foreign = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
-  });
-  try {
-    const other = await foreign.newPage();
-    await seededPlayer(other, lang);
-    await other.goto(`/${lang}/support/tickets/create`);
-    const foreignToken = await other.locator(`${formSelector} [name=_csrf]`).inputValue();
+for (const statusMethod of ['POST', 'PUT']) {
+  test(`ticket owner reply, close, and reopen enforce ownership and version (${statusMethod})`, async ({ page, browser }, info) => {
+    const lang = info.project.metadata.locale;
+    const foreign = await browser.newContext({
+      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    });
+    try {
+      const other = await foreign.newPage();
+      await seededPlayer(other, lang);
+      await other.goto(`/${lang}/support/tickets/create`);
+      const foreignToken = await other.locator(`${formSelector} [name=_csrf]`).inputValue();
 
-    const owner = await seededPlayer(page, lang);
-    await page.goto(`/${lang}/support/tickets/create`);
-    await submit(page, formSelector, { subject: 'Ticket mutation ownership', body: 'Original question' });
-    await expect(page).toHaveURL(/\/support\/tickets\/[a-f0-9-]+$/);
-    const id = new URL(page.url()).pathname.split('/').at(-1);
-    const snapshot = () => query(
-      `SELECT t.status, t.lock_version, m.body FROM tickets t
-       JOIN ticket_messages m ON m.ticket_id=t.id WHERE t.id=$1 AND t.account_id=$2
-       ORDER BY m.id`,
-      [id, owner.id],
-    );
-    const error = lang === 'pl'
-      ? 'Nie udało się wykonać żądania. Odśwież zgłoszenie i spróbuj ponownie.'
-      : 'The request could not be completed. Reload the ticket and try again.';
-    const variants = [
-      {
-        action: 'reply', fields: { body: 'Owner follow-up' },
-        samples: [
-          { name: 'empty reply', patch: { body: '' } },
-          { name: 'overlong reply', patch: { body: 'x'.repeat(8001) } },
-          { name: 'malformed lock version', patch: { lock_version: 'bad' } },
-          { name: 'lock version below one', patch: { lock_version: '0' } },
-        ],
-        submit: selector => submit(page, selector, { body: 'Owner follow-up' }),
-        visible: 'Owner follow-up',
-        effect: ['Original question', 'Owner follow-up'].map(body => ({
-          status: 'waiting_staff', lock_version: '2', body,
-        })),
-      },
-      {
-        action: 'status', fields: { status: 'closed' },
+      const owner = await seededPlayer(page, lang);
+      await page.goto(`/${lang}/support/tickets/create`);
+      await submit(page, formSelector, { subject: 'Ticket mutation ownership', body: 'Original question' });
+      await expect(page).toHaveURL(/\/support\/tickets\/[a-f0-9-]+$/);
+      const id = new URL(page.url()).pathname.split('/').at(-1);
+      const snapshot = () => query(
+        `SELECT t.status, t.lock_version, m.body FROM tickets t
+         JOIN ticket_messages m ON m.ticket_id=t.id WHERE t.id=$1 AND t.account_id=$2
+         ORDER BY m.id`,
+        [id, owner.id],
+      );
+      const error = lang === 'pl'
+        ? 'Nie udało się wykonać żądania. Odśwież zgłoszenie i spróbuj ponownie.'
+        : 'The request could not be completed. Reload the ticket and try again.';
+      const statusChange = (status, visible, lock_version) => ({
+        action: 'status', fields: { status },
         samples: [
           { name: 'empty status', patch: { status: '' } },
           { name: 'overlong status', patch: { status: 'x'.repeat(512) } },
@@ -371,36 +400,55 @@ test('ticket owner reply and close enforce ownership and version', async ({ page
           { name: 'lock version below one', patch: { lock_version: '0' } },
         ],
         submit: async selector => {
-          await page.locator(`${selector} select[name=status]`).selectOption('closed');
+          await page.locator(`${selector} select[name=status]`).selectOption(status);
           await submit(page, selector);
         },
-        visible: lang === 'pl' ? 'Zamknięte' : 'Closed',
+        visible,
         effect: ['Original question', 'Owner follow-up'].map(body => ({
-          status: 'closed', lock_version: '3', body,
+          status, lock_version, body,
         })),
-      },
-    ];
-    expect(await snapshot()).toEqual([{ status: 'open', lock_version: '1', body: 'Original question' }]);
-    for (const variant of variants) {
-      await test.step(variant.action, async () => {
-        const baseline = await snapshot();
-        const selector = `main form[action$="/${variant.action}"]`;
-        const { url, fields } = await prepare(page, selector, variant.fields);
-        await rejected({ page, url, fields, snapshot, baseline });
-        expect((await post(other, url, { ...fields, _csrf: foreignToken })).status()).toBe(404);
-        expect(await snapshot()).toEqual(baseline);
-        await invalid({ page, url, fields, samples: variant.samples, message: error, snapshot, baseline });
-        await variant.submit(selector);
-        await expect(page.locator('main')).toContainText(variant.visible);
-        expect(await snapshot()).toEqual(variant.effect);
-        expect((await post(page, url, fields)).status()).toBe(409);
-        expect(await snapshot()).toEqual(variant.effect);
       });
+      const variants = [
+        {
+          action: 'reply', fields: { body: 'Owner follow-up' },
+          samples: [
+            { name: 'empty reply', patch: { body: '' } },
+            { name: 'overlong reply', patch: { body: 'x'.repeat(8001) } },
+            { name: 'malformed lock version', patch: { lock_version: 'bad' } },
+            { name: 'lock version below one', patch: { lock_version: '0' } },
+          ],
+          submit: selector => submit(page, selector, { body: 'Owner follow-up' }),
+          visible: 'Owner follow-up',
+          effect: ['Original question', 'Owner follow-up'].map(body => ({
+            status: 'waiting_staff', lock_version: '2', body,
+          })),
+        },
+        statusChange('closed', lang === 'pl' ? 'Zamknięte' : 'Closed', '3'),
+        statusChange('open', lang === 'pl' ? 'Otwarte' : 'Open', '4'),
+      ];
+      expect(await snapshot()).toEqual([{ status: 'open', lock_version: '1', body: 'Original question' }]);
+      for (const variant of variants) {
+        await test.step(variant.action, async () => {
+          const baseline = await snapshot();
+          const selector = `main form[action$="/${variant.action}"]`;
+          const { url, fields } = await prepare(page, selector, variant.fields);
+          const method = variant.action === 'status' ? statusMethod : 'POST';
+          await rejected({ page, url, fields, snapshot, baseline, method });
+          expect((await sendForm(other, url, { ...fields, _csrf: foreignToken }, method)).status()).toBe(404);
+          expect(await snapshot()).toEqual(baseline);
+          await invalid({ page, url, fields, samples: variant.samples, message: error, snapshot, baseline, method });
+          await useFormMethod(page, url, method, () => variant.submit(selector));
+          await expect(page.locator('main')).toContainText(variant.visible);
+          expect(await snapshot()).toEqual(variant.effect);
+          expect((await sendForm(page, url, fields, method)).status()).toBe(409);
+          expect(await snapshot()).toEqual(variant.effect);
+        });
+      }
+    } finally {
+      await foreign.close();
     }
-  } finally {
-    await foreign.close();
-  }
-});
+  });
+}
 
 test('character creation queues one operation and exposes the pending Game outcome', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
@@ -437,7 +485,7 @@ test('character creation queues one operation and exposes the pending Game outco
     ];
     for (const [label, patch] of cases) {
       await test.step(label, async () => {
-        const response = await post(page, url, { ...fields, ...patch });
+        const response = await sendForm(page, url, { ...fields, ...patch });
         expect(response.status()).toBe(302);
         expect(response.headers().location).toBe(surface);
         await page.goto(surface);
@@ -460,11 +508,212 @@ test('character creation queues one operation and exposes the pending Game outco
       : 'Your request is being processed. Without a result from Game, its outcome is still unknown. Refresh this page to check again.');
     const queued = [{ id: target.split('/').at(-1), state: 'PENDING', receipt_json: null }];
     expect(await snapshot()).toEqual(queued);
-    const replay = await post(page, fresh.url, fresh.fields);
+    const replay = await sendForm(page, fresh.url, fresh.fields);
     expect(replay.status()).toBe(302);
     expect(replay.headers().location).toBe(target);
     expect(await snapshot()).toEqual(queued);
   } finally {
     await anonymous.close();
+  }
+});
+
+test('support ticket reply and resolution require the support permission', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const actor = async role => {
+    const context = await browser.newContext({
+      ...info.project.use, baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true,
+    });
+    contexts.push(context);
+    const page = await context.newPage();
+    await seededPlayer(page, lang, role);
+    return page;
+  };
+  try {
+    const owner = await seededPlayer(page, lang);
+    await page.goto(`/${lang}/support/tickets/create`);
+    await submit(page, formSelector, { subject: 'Staff matrix question', body: 'Player original' });
+    await expect(page).toHaveURL(/\/support\/tickets\/[a-f0-9-]+$/);
+    const ownerPath = new URL(page.url()).pathname;
+    const ticket = ownerPath.split('/').at(-1);
+    const staffPath = `/${lang}/admin/support/tickets/${ticket}`;
+    const support = await actor('support');
+    const editor = await actor('content_editor');
+    const other = await actor();
+    const actorToken = async screen => {
+      const response = await screen.goto(`/${lang}/support/tickets/create`);
+      expect(response.status()).toBe(200);
+      return screen.locator(`${formSelector} [name=_csrf]`).inputValue();
+    };
+    const unauthorized = [
+      { page: editor, token: await actorToken(editor) },
+      { page: other, token: await actorToken(other) },
+    ];
+    const snapshot = () => query(
+      `SELECT t.status, t.lock_version, t.unread_reply, m.author_kind, m.body
+       FROM tickets t JOIN ticket_messages m ON m.ticket_id=t.id
+       WHERE t.id=$1 AND t.account_id=$2 ORDER BY m.id`,
+      [ticket, owner.id],
+    );
+    const error = lang === 'pl'
+      ? 'Nie udało się wykonać żądania. Odśwież zgłoszenie i spróbuj ponownie.'
+      : 'The request could not be completed. Reload the ticket and try again.';
+    const verifyRefusals = async (selector, values, samples, method = 'POST') => {
+      const baseline = await snapshot();
+      const { url, fields } = await prepare(support, selector, values);
+      await rejected({ page: support, url, fields, snapshot, baseline, method });
+      for (const actor of unauthorized) {
+        expect((await sendForm(actor.page, url, { ...fields, _csrf: actor.token }, method)).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      await invalid({ page: support, url, fields, samples, message: error, snapshot, baseline, method });
+      return { url, fields };
+    };
+
+    expect((await support.goto(staffPath)).status()).toBe(200);
+    const replySelector = 'main form[action$="/reply"]';
+    const body = 'Visible support reply';
+    const reply = await verifyRefusals(replySelector, { body }, [
+      { name: 'empty reply', patch: { body: '' } },
+      { name: 'overlong reply', patch: { body: 'x'.repeat(8001) } },
+      { name: 'wrong internal flag type', patch: { internal: 'bad' } },
+      { name: 'version below one', patch: { lock_version: '0' } },
+    ]);
+    await submit(support, replySelector, { body });
+    await expect(support.locator('main')).toContainText(body);
+    const replied = [
+      { status: 'waiting_user', lock_version: '2', unread_reply: true, author_kind: 'user', body: 'Player original' },
+      { status: 'waiting_user', lock_version: '2', unread_reply: true, author_kind: 'staff', body },
+    ];
+    expect(await snapshot()).toEqual(replied);
+    expect((await sendForm(support, reply.url, reply.fields)).status()).toBe(409);
+    expect(await snapshot()).toEqual(replied);
+
+    const statusSelector = 'main form[action$="/status"]';
+    const statusSamples = [
+      { name: 'empty status', patch: { status: '' } },
+      { name: 'overlong status', patch: { status: 'x'.repeat(512) } },
+      { name: 'wrong version type', patch: { lock_version: 'x' } },
+      { name: 'version below one', patch: { lock_version: '0' } },
+    ];
+    const statusUpdate = await verifyRefusals(statusSelector, { status: 'resolved' }, statusSamples);
+    await support.locator(`${statusSelector} select[name=status]`).selectOption('resolved');
+    await submit(support, statusSelector);
+    await page.goto(ownerPath);
+    await expect(page.locator('main')).toContainText(body);
+    await expect(page.locator('main')).toContainText(lang === 'pl' ? 'Rozwiązane' : 'Resolved');
+    const resolved = replied.map(row => ({ ...row, status: 'resolved', lock_version: '3' }));
+    expect(await snapshot()).toEqual(resolved);
+    expect((await sendForm(support, statusUpdate.url, statusUpdate.fields)).status()).toBe(409);
+    expect(await snapshot()).toEqual(resolved);
+
+    const readSelector = 'main form[action$="/read"]';
+    const acknowledged = resolved.map(row => ({ ...row, unread_reply: false }));
+    const { url, fields } = await prepare(page, readSelector);
+    await rejected({ page, url, fields, snapshot, baseline: resolved });
+    for (const actor of unauthorized) {
+      expect((await sendForm(actor.page, url, { ...fields, _csrf: actor.token })).status()).toBe(404);
+      expect(await snapshot()).toEqual(resolved);
+    }
+    await invalid({ page, url, fields, snapshot, baseline: resolved, message: error, samples: [
+      { name: 'empty reply ID', patch: { reply: '' } },
+      { name: 'overlong reply ID', patch: { reply: '1'.repeat(128) } },
+      { name: 'wrong pagination cursor type', patch: { after: 'bad' } },
+    ] });
+    const stale = await sendForm(page, url, { ...fields, reply: '00000000-0000-0000-0000-000000000000' });
+    expect(stale.status()).toBe(302);
+    expect(await snapshot()).toEqual(resolved);
+    await submit(page, readSelector);
+    await expect(page.locator(readSelector)).toHaveCount(0);
+    await expect(page.locator('main')).toContainText(body);
+    expect(await snapshot()).toEqual(acknowledged);
+    expect((await sendForm(page, url, fields)).status()).toBe(302);
+    expect(await snapshot()).toEqual(acknowledged);
+
+    expect((await support.goto(staffPath)).status()).toBe(200);
+    const reopened = await verifyRefusals(statusSelector, { status: 'open' }, statusSamples, 'PUT');
+    await support.locator(`${statusSelector} select[name=status]`).selectOption('open');
+    await useFormMethod(support, reopened.url, 'PUT', () => submit(support, statusSelector));
+    await expect(support).toHaveURL(new RegExp(`/${lang}/admin/support/tickets/${ticket}$`));
+    await page.goto(ownerPath);
+    await expect(page.locator('main')).toContainText(lang === 'pl' ? 'Otwarte' : 'Open');
+    const open = acknowledged.map(row => ({ ...row, status: 'open', lock_version: '4' }));
+    expect(await snapshot()).toEqual(open);
+    expect((await sendForm(support, reopened.url, reopened.fields, 'PUT')).status()).toBe(409);
+    expect(await snapshot()).toEqual(open);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('player report persists one private report for the submitted request key', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const reader = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  try {
+    const other = await reader.newPage();
+    const owner = await seededPlayer(page, lang);
+    const create = `/${lang}/support/reports/create`;
+    expect((await page.goto(create)).status()).toBe(200);
+    const values = {
+      target_reference: `Local report target ${randomUUID()}`,
+      evidence_summary: 'Synthetic evidence for the browser mutation matrix.',
+    };
+    const { url, fields } = await prepare(page, formSelector, values);
+    const snapshot = () => query(
+      'SELECT id, target_reference, evidence_summary, status FROM player_reports WHERE reporter_account_id=$1',
+      [owner.id],
+    );
+    const baseline = await snapshot();
+    expect(baseline).toEqual([]);
+    await rejected({ page, url, fields, snapshot, baseline });
+    await wrongActor({ page: other, lang, url, fields, status: 302, snapshot, baseline });
+    const error = lang === 'pl'
+      ? 'Sprawdź rodzaj zgłoszenia, pasującą kategorię, cel i długość opisu. Jeśli klucz żądania jest nieprawidłowy, odśwież formularz.'
+      : 'Check the report type, matching category, target and evidence lengths. Reload the form if the request key is invalid.';
+    const hasReportBudget = async () => {
+      const [row] = await query(
+        `SELECT attempts < 3 OR window_started_at <= now() - interval '1 minute' AS allowed
+         FROM player_report_submission_limits WHERE account_id=$1`,
+        [owner.id],
+      );
+      return row?.allowed ?? true;
+    };
+    for (const [name, patch] of [
+      ['empty target', { target_reference: '' }],
+      ['overlong evidence', { evidence_summary: 'a'.repeat(4001) }],
+      ['malformed request key', { request_key: 'bad' }],
+      ['target beyond 160 characters', { target_reference: 'a'.repeat(161) }],
+    ]) {
+      await test.step(name, async () => {
+        await expect.poll(hasReportBudget, { timeout: 65_000 }).toBe(true);
+        const response = await sendForm(page, url, { ...fields, ...patch });
+        expect(response.status()).toBe(302);
+        expect(response.headers().location).toBe(create);
+        await page.goto(create);
+        await expect(page.getByRole('alert')).toHaveText(error);
+        expect(await snapshot()).toEqual(baseline);
+      });
+    }
+    const fresh = await prepare(page, formSelector, values);
+    await submit(page, formSelector, values);
+    await expect(page).toHaveURL(/\/support\/reports\/[a-f0-9-]+$/);
+    const target = new URL(page.url()).pathname;
+    await expect(page.locator('main')).toContainText(values.target_reference);
+    await expect(page.locator('main')).toContainText(values.evidence_summary);
+    const submitted = [{ id: target.split('/').at(-1), ...values, status: 'submitted' }];
+    expect(await snapshot()).toEqual(submitted);
+    const replay = await sendForm(page, fresh.url, fresh.fields);
+    expect(replay.status()).toBe(302);
+    expect(replay.headers().location).toBe(target);
+    expect(await snapshot()).toEqual(submitted);
+    await seededPlayer(other, lang);
+    expect((await other.goto(target)).status()).toBe(404);
+    expect(await snapshot()).toEqual(submitted);
+  } finally {
+    await reader.close();
   }
 });
