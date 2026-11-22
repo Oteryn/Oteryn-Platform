@@ -1,10 +1,67 @@
 //! Shared portal presentation. No module, database or session dependencies.
 use askama::Template;
 use axum::{
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+
+/// Resolve a browser locale from its portal preference and Accept-Language.
+pub fn preferred_language(headers: &HeaderMap) -> &'static str {
+    fn supported(value: &str) -> Option<&'static str> {
+        match value {
+            "en" => Some("en"),
+            "pl" => Some("pl"),
+            _ => None,
+        }
+    }
+    for cookie in headers.get_all(header::COOKIE) {
+        if let Ok(cookie) = cookie.to_str() {
+            for part in cookie.split(';') {
+                if let Some(("portal_language", value)) = part.trim().split_once('=')
+                    && let Some(lang) = supported(value)
+                {
+                    return lang;
+                }
+            }
+        }
+    }
+    let mut candidates = Vec::new();
+    if let Some(value) = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+    {
+        for (index, item) in value.split(',').enumerate() {
+            let mut parts = item.trim().split(';');
+            let tag = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
+            let quality = match parts.next() {
+                None => 1.0,
+                Some(q) => q
+                    .trim()
+                    .strip_prefix("q=")
+                    .and_then(|q| q.parse::<f32>().ok())
+                    .unwrap_or(0.0),
+            };
+            if quality > 0.0
+                && quality <= 1.0
+                && let Some(lang) = supported(tag.split('-').next().unwrap_or_default())
+            {
+                candidates.push((quality, index, lang));
+            }
+        }
+    }
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    candidates.first().map_or("pl", |item| item.2)
+}
+
+/// An explicit locale prefix takes precedence over browser preferences.
+pub fn browser_language(path: &str, headers: &HeaderMap) -> &'static str {
+    match path.split('/').nth(1) {
+        Some("en") => "en",
+        Some("pl") => "pl",
+        _ => preferred_language(headers),
+    }
+}
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {

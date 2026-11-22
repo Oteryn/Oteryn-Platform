@@ -70,11 +70,11 @@ struct Options {
     page: Option<i64>,
 }
 impl Options {
-    fn lang(&self) -> &str {
-        if self.lang.as_deref() == Some("en") {
-            "en"
-        } else {
-            "pl"
+    fn lang(&self, headers: &axum::http::HeaderMap) -> &str {
+        match self.lang.as_deref() {
+            Some("en") => "en",
+            Some(_) => "pl",
+            None => oteryn_ui::preferred_language(headers),
         }
     }
     fn offset(&self, size: i64) -> Result<i64, StatusCode> {
@@ -163,8 +163,9 @@ fn language(lang: &str) -> Result<(), StatusCode> {
 async fn index(
     State(pool): State<PgPool>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
-    listing(&pool, q.lang(), &q).await
+    listing(&pool, q.lang(&headers), &q).await
 }
 async fn local_index(
     State(pool): State<PgPool>,
@@ -244,8 +245,9 @@ async fn show(
     State(pool): State<PgPool>,
     Path(slug): Path<String>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
-    article(&pool, q.lang(), &slug).await
+    article(&pool, q.lang(&headers), &slug).await
 }
 async fn local_show(
     State(pool): State<PgPool>,
@@ -272,6 +274,7 @@ async fn admin_index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
     let rows = sqlx::query(
         "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
@@ -280,7 +283,7 @@ async fn admin_index(
     .fetch_all(&pool)
     .await
     .map_err(unavailable)?;
-    let lang = q.lang();
+    let lang = q.lang(&headers);
     let mut html = format!(
         "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
         label(lang, "new")
@@ -306,9 +309,10 @@ async fn new(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
     Ok(form(
-        q.lang(),
+        q.lang(&headers),
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
@@ -320,10 +324,11 @@ async fn edit(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Html<String>, StatusCode> {
     let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     Ok(form(
-        q.lang(),
+        q.lang(&headers),
         Some(id),
         Input {
             expected_revision: row.get("expected_revision"),

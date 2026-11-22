@@ -328,6 +328,7 @@ async fn page(
     State(state): State<Online>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     if !state.config.enabled {
         return StatusCode::NOT_FOUND.into_response();
@@ -353,7 +354,7 @@ async fn page(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let en = uri.path().starts_with("/en/");
+    let en = oteryn_ui::browser_language(uri.path(), &headers) == "en";
     let result = load(&state, &query).await;
     let unavailable = result.is_err();
     let stale = matches!(result, Ok(None));
