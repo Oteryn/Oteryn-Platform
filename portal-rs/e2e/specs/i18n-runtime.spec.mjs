@@ -3,10 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../fixtures.mjs';
 import * as OTPAuth from 'otpauth';
-import { login, register, submit, waitForWikiBudget } from '../helpers.mjs';
+import { login, pool, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
-import { pool } from '../helpers.mjs';
-import { signInPlayer, withFreshCommercePortal } from '../commerce-helpers.mjs';
+import { seedPlayer, signInPlayer, withFreshCommercePortal } from '../commerce-helpers.mjs';
 import { uuid7 } from '../support/bazaar-game.mjs';
 
 const promotionRoute = '/{lang}/account/bazaar/{listing}/promote';
@@ -106,30 +105,37 @@ async function assertLocale(page, locale, witness) {
 let playerContext;
 let staffContext;
 let warmPlayerContext;
-let ownedCharacter;
+let warmAccount;
+
+function newLocaleContext(browser, info) {
+  return browser.newContext({
+    locale: info.project.metadata.locale,
+    viewport: info.project.use.viewport,
+    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
+    ignoreHTTPSErrors: true,
+  });
+}
 
 test.beforeAll(async ({ browser }, info) => {
   test.setTimeout(300_000);
   const locale = info.project.metadata.locale;
-  playerContext = await browser.newContext({
-    locale,
-    viewport: info.project.use.viewport,
-    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
-  });
+  playerContext = await newLocaleContext(browser, info);
   const player = await playerContext.newPage();
-  const playerAccount = await register(player, locale);
-  await login(player, locale, playerAccount);
+  await signInPlayer(player, locale);
   expect((await player.goto(`/${locale}/account/security`)).status()).toBe(200);
   await player.close();
-  staffContext = await browser.newContext({
-    locale,
-    viewport: info.project.use.viewport,
-    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
-  });
+
+  warmPlayerContext = await newLocaleContext(browser, info);
+  const warm = await warmPlayerContext.newPage();
+  warmAccount = await signInPlayer(warm, locale);
+  await warm.close();
+});
+
+async function provisionStaff(browser, info) {
+  const locale = info.project.metadata.locale;
+  staffContext = await newLocaleContext(browser, info);
   const staff = await staffContext.newPage();
-  const account = await register(staff, locale);
+  const account = await seedPlayer(locale);
   await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'", [account.email]);
   await login(staff, locale, account);
   expect((await staff.goto(`/admin?lang=${locale}`)).status()).toBe(403);
@@ -144,21 +150,16 @@ test.beforeAll(async ({ browser }, info) => {
   await loginWithRecoveryCode(staff, locale, account, await code.inputValue());
   expect((await staff.goto(`/admin?lang=${locale}`)).status()).toBe(200);
 
+  return staff;
+}
+
+async function publishWarmPortfolio(page, locale) {
   // Publish through the existing local Game producer and private LCFA transport.
-  // The ownership routes require a fresh portfolio to distinguish 404 from 503.
-  const [{ id: seller }] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
-  warmPlayerContext = await browser.newContext({
-    ...info.project.use,
-    locale,
-    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
-  });
-  const warmPlayer = await warmPlayerContext.newPage();
-  const { id: buyer } = await signInPlayer(warmPlayer, locale);
-  await warmPlayer.close();
+  const { id: seller } = await seedPlayer(locale);
+  const { id: buyer } = warmAccount;
   const sellerCharacter = uuid7();
   const buyerCharacter = uuid7();
-  const publication = await staff.request.post('/__bazaar_game/seed', {
+  const publication = await page.request.post('/__bazaar_game/seed', {
     data: {
       seller, buyer, kind: 'character', asset_id: sellerCharacter,
       seller_character_id: sellerCharacter, buyer_character_id: buyerCharacter,
@@ -169,9 +170,8 @@ test.beforeAll(async ({ browser }, info) => {
     'SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2',
     [buyer, buyerCharacter],
   );
-  ownedCharacter = name;
-  await staff.close();
-});
+  return name;
+}
 
 test.afterAll(async () => {
   await staffContext?.close();
@@ -212,6 +212,7 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
   const cold = await playerContext.newPage();
   const warm = await warmPlayerContext.newPage();
   try {
+    await publishWarmPortfolio(warm, locale);
     for (const route of collectionRoutes) {
       const path = targetFor(route, locale);
       const coldExpected = expectations.get(route);
@@ -231,7 +232,7 @@ test('locale parity across the GET route inventory', async ({ browser, page: ano
   test.setTimeout(1_200_000);
   const locale = info.project.metadata.locale;
   const player = await playerContext.newPage();
-  const staff = await staffContext.newPage();
+  const staff = await provisionStaff(browser, info);
   const warmPlayer = await warmPlayerContext.newPage();
   for (const page of [anonymous, player, staff, warmPlayer]) {
     await page.setExtraHTTPHeaders({ 'accept-language': locale });
@@ -249,6 +250,7 @@ test('locale parity across the GET route inventory', async ({ browser, page: ano
         const witness = `${actor} ${locale} ${route}`;
         await test.step(witness, async () => {
           if (actor === 'player' && route.endsWith('/account/characters/{name}/profile')) {
+            const ownedCharacter = await publishWarmPortfolio(warmPlayer, locale);
             const profile = route.replace('{lang}', locale).replace('{name}', encodeURIComponent(ownedCharacter));
             const result = await warmPlayer.goto(profile, { waitUntil: 'domcontentloaded' });
             expect.soft(result.status(), witness).toBe(200);
