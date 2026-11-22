@@ -224,7 +224,7 @@ test('anonymous form refusals do not create session rows or issue cookies', asyn
   const base = '/' + locale;
   const passkeys = base + '/account/passkeys';
   const agent = 'security-headers-media-' + randomUUID();
-  const headers = { 'user-agent': agent, accept: 'application/json' };
+  const headers = { 'user-agent': agent };
   const rows = async () => (await query(
     'SELECT count(*)::integer AS count FROM web_sessions WHERE user_agent_summary=$1',
     [agent],
@@ -235,11 +235,16 @@ test('anonymous form refusals do not create session rows or issue cookies', asyn
     [base + '/register', { ...webPolicy, referrer: 'no-referrer' }],
     [base + '/recovery-key', { ...webPolicy, referrer: 'no-referrer' }],
   ]) {
-    const refused = await getFromPortal(request, path, { headers, maxRedirects: 0 });
-    expect(refused.status(), path).toBe(406);
-    expect(refused.headers()['content-language']).toBe(locale);
-    expect(await checkHeaders(refused, path, policy)).toHaveLength(0);
-    expect(await rows(), path + ' refused before creating a session').toBe(0);
+    for (const accept of ['application/json', 'application/json; profile="one,text/html,two"']) {
+      const refused = await getFromPortal(request, path, {
+        headers: { ...headers, accept }, maxRedirects: 0,
+      });
+      const label = path + ' with ' + accept;
+      expect(refused.status(), label).toBe(406);
+      expect(refused.headers()['content-language']).toBe(locale);
+      expect(await checkHeaders(refused, label, policy)).toHaveLength(0);
+      expect(await rows(), label + ' refused before creating a session').toBe(0);
+    }
   }
 
   const accepted = await getFromPortal(request, passkeys, {
