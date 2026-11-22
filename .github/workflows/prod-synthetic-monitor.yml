@@ -84,6 +84,7 @@ jobs:
         run: node prod/run.mjs
 
   incident:
+    name: incident (probe attempt ${{ needs.monitor.outputs.probe_attempt || 'unknown' }})
     needs: [preflight, monitor]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.monitor.result == 'success' || needs.monitor.result == 'failure') && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch }}
     environment: production-monitor-alert
@@ -120,20 +121,25 @@ jobs:
             };
             const stateLabel = 'prod-monitor-state';
             const stateTitle = 'Production synthetic monitor state';
-            const states = (await github.paginate(github.rest.issues.listForRepo, {
-              ...repo, state: 'all', labels: stateLabel, per_page: 100,
-            })).filter(issue => issue.title === stateTitle && !issue.pull_request);
-            if (states.length > 1) throw new Error('Multiple production monitor state issues');
-            const state = states[0];
+            const stateMarker = '<!-- oteryn-prod-synthetic-monitor:state -->';
+            const incidentMarker = '<!-- oteryn-prod-synthetic-monitor:incident -->';
             function hasBotMarker(item, marker) {
               // github-actions[bot] is the identity used by this workflow's GITHUB_TOKEN.
               return item.user?.id === 41898282 && item.user.type === 'Bot' &&
                 item.body?.split(/\r?\n/).includes(marker);
             }
+            function isMonitorIssue(issue, expectedTitle, marker) {
+              return issue.title === expectedTitle && !issue.pull_request && hasBotMarker(issue, marker);
+            }
+            const states = (await github.paginate(github.rest.issues.listForRepo, {
+              ...repo, state: 'all', labels: stateLabel, per_page: 100,
+            })).filter(issue => isMonitorIssue(issue, stateTitle, stateMarker));
+            if (states.length > 1) throw new Error('Multiple production monitor state issues');
+            const state = states[0];
             async function reconcile(record) {
               const incidents = (await github.paginate(github.rest.issues.listForRepo, {
                 ...repo, state: 'all', labels: label, per_page: 100,
-              })).filter(issue => issue.title === title && !issue.pull_request);
+              })).filter(issue => isMonitorIssue(issue, title, incidentMarker));
               const incident = incidents.find(issue => issue.state === 'open');
               const marker = `<!-- prod-monitor:${record.sequence} -->`;
               if (record.failed) {
@@ -142,7 +148,9 @@ jobs:
                 if (!incident) {
                   await ensureLabel(label, 'b60205');
                   await ensureLabel(pending('failing'), 'fbca04');
-                  await github.rest.issues.create({ ...repo, title, body, labels: [label, pending('failing')] });
+                  await github.rest.issues.create({
+                    ...repo, title, body: `${incidentMarker}\n\n${body}`, labels: [label, pending('failing')],
+                  });
                   return;
                 }
                 const issue = { ...repo, issue_number: incident.number };
@@ -165,7 +173,7 @@ jobs:
               }
             }
 
-            const saved = state ? JSON.parse(state.body) : null;
+            const saved = state ? JSON.parse(state.body.split(/\r?\n/).filter(line => line !== stateMarker).join('\n')) : null;
             const recoveries = saved?.recoveries ?? [];
             const checkpointInput = context.eventName === 'workflow_dispatch'
               ? context.payload.inputs?.recovery_checkpoint || '' : '';
@@ -179,7 +187,8 @@ jobs:
             let stateNumber = state?.number;
             let lastOutcome = saved?.failed;
             async function save(record) {
-              const body = JSON.stringify({ ...record, ...(recoveries.length ? { recoveries } : {}) });
+              const json = JSON.stringify({ ...record, ...(recoveries.length ? { recoveries } : {}) });
+              const body = `${stateMarker}\n\n${json}`;
               if (stateNumber) {
                 await github.rest.issues.update({ ...repo, issue_number: stateNumber, body });
               } else {
@@ -207,37 +216,51 @@ jobs:
             if (BigInt(current.run_number) !== currentRun || BigInt(current.run_attempt) < currentAttempt) {
               throw new Error('Current monitor run is not visible in Actions history');
             }
-            async function readJobs(runId, attempt) {
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
-                ...repo, run_id: runId, attempt_number: attempt, per_page: 100,
-              });
-              if (jobs.some(job => job.run_id !== runId || job.run_attempt !== attempt)) {
-                throw new Error(`Actions returned jobs outside requested run ${runId} attempt ${attempt}`);
+            const outcomes = ['success', 'failure', 'timed_out'];
+            const noProbe = ['skipped', 'cancelled'];
+            async function readAttempt(runId, attempt, producing) {
+              for (let read = 0; read < 3; read++) {
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
+                  ...repo, run_id: runId, attempt_number: attempt, per_page: 100,
+                });
+                if (jobs.some(job => job.run_id !== runId || job.run_attempt !== attempt)) {
+                  throw new Error(`Actions returned jobs outside requested run ${runId} attempt ${attempt}`);
+                }
+                const probes = jobs.filter(job => job.name === 'monitor');
+                if (probes.length > 1) throw new Error(`Multiple probes for run ${runId} attempt ${attempt}`);
+                const [probe] = probes;
+                if (probe) {
+                  if (probe.status === 'completed' && (producing === undefined || producing === attempt)) {
+                    if (outcomes.includes(probe.conclusion)) return { probe };
+                    if (producing === undefined && noProbe.includes(probe.conclusion)) return {};
+                  }
+                  continue;
+                }
+                // The job name records the attempt from needs.monitor.outputs. An incident
+                // job by itself does not prove a prior probe was reused.
+                const reused = jobs.map(job => /^incident \(probe attempt ([1-9][0-9]*)\)$/.exec(job.name))
+                  .filter(Boolean).map(match => Number(match[1]));
+                if (reused.length === 1 && reused[0] < attempt &&
+                    (producing === undefined || producing === reused[0])) return { reused: reused[0] };
+                if (producing === undefined && jobs.some(job => job.name === 'preflight' &&
+                    job.status === 'completed' && (noProbe.includes(job.conclusion) ||
+                      ['failure', 'timed_out'].includes(job.conclusion)))) return {};
               }
-              return jobs;
+              throw new Error(`Monitor outcome or intentional skip is not visible for run ${runId} attempt ${attempt}`);
             }
 
             const [, producingAttempt] = parseSequence(
               `${currentRun}.${process.env.MONITOR_PROBE_ATTEMPT || currentAttempt}`);
             if (producingAttempt > currentAttempt) throw new Error('Probe attempt exceeds current workflow attempt');
             const exactAttempt = Number(currentAttempt);
-            const currentJobs = await readJobs(context.runId, exactAttempt);
-            const jobLists = new Map([[exactAttempt, currentJobs]]);
-            if (producingAttempt < currentAttempt) {
-              // A failed-jobs rerun may reuse monitor's outputs, including its original attempt.
-              // Only accept that when the incident is visible and monitor did not run in this attempt.
-              if (!currentJobs.some(job => job.name === 'incident') ||
-                  currentJobs.some(job => job.name === 'monitor')) {
-                throw new Error('Current attempt cannot verify reuse of an earlier monitor outcome');
-              }
-              jobLists.set(Number(producingAttempt), await readJobs(context.runId, Number(producingAttempt)));
+            const producing = Number(producingAttempt);
+            const currentResult = await readAttempt(context.runId, exactAttempt, producing);
+            const producingResult = currentResult.reused
+              ? await readAttempt(context.runId, producing, producing) : currentResult;
+            if ((producingResult.probe.conclusion === 'success' ? 'success' : 'failure') !== process.env.MONITOR_PROBE_RESULT) {
+              throw new Error(`Monitor outcome does not match for run ${currentRun} attempt ${producingAttempt}`);
             }
-            const outcomes = ['success', 'failure', 'timed_out'];
-            const producingProbe = jobLists.get(Number(producingAttempt)).find(job => job.name === 'monitor');
-            if (producingProbe?.status !== 'completed' || !outcomes.includes(producingProbe.conclusion) ||
-                (producingProbe.conclusion === 'success' ? 'success' : 'failure') !== process.env.MONITOR_PROBE_RESULT) {
-              throw new Error(`Monitor outcome is not visible for run ${currentRun} attempt ${producingAttempt}`);
-            }
+            const jobLists = new Map([[exactAttempt, currentResult], [producing, producingResult]]);
 
             function second(value) {
               const time = Date.parse(value);
@@ -351,12 +374,13 @@ jobs:
               const startAttempt = number === lastRun ? Number(lastAttempt) + 1 : 1;
               const endAttempt = number === currentRun ? exactAttempt : run.run_attempt;
               for (let attempt = startAttempt; attempt <= endAttempt; attempt++) {
-                const jobs = (run.id === context.runId ? jobLists.get(attempt) : undefined)
-                  ?? await readJobs(run.id, attempt);
-                const probe = jobs.find(job => job.name === 'monitor');
+                const result = (run.id === context.runId ? jobLists.get(attempt) : undefined)
+                  ?? await readAttempt(run.id, attempt);
+                if (result.reused && run.id !== context.runId) {
+                  await readAttempt(run.id, result.reused, result.reused);
+                }
+                const { probe } = result;
                 if (!probe) continue;
-                if (probe.status !== 'completed') throw new Error('Monitor outcome is not yet durable');
-                if (!outcomes.includes(probe.conclusion)) continue;
                 const record = {
                   sequence: `${run.run_number}.${attempt}`,
                   createdAt: run.created_at,
@@ -411,6 +435,8 @@ jobs:
                 const attempted = `prod-monitor-mail-${transition}-attempted`;
                 const rejected = `prod-monitor-mail-${transition}-rejected`;
                 if (!issue.pull_request && issue.title === 'Production synthetic monitor failing' &&
+                    issue.user?.id === 41898282 && issue.user.type === 'Bot' &&
+                    issue.body?.split(/\r?\n/).includes('<!-- oteryn-prod-synthetic-monitor:incident -->') &&
                     !issue.labels.some(({ name }) => name === attempted || name === rejected)) {
                   queued.push({ issue, transition, label, attempted, rejected });
                 }
@@ -526,8 +552,8 @@ jobs:
                 if (code === 0 || phase === 'accepted') return 'accepted';
                 if (phase === 'rejected') return rejection === '5' ? 'permanent-rejection' : 'not-submitted';
                 // With a visible envelope or DATA command and no 354 reply, curl could
-                // not have sent the message body before the connection was lost.
-                if ((phase === 'envelope' || phase === 'data') && [52, 55, 56].includes(code)) {
+                // not have sent the message body before the connection was lost or the transfer timed out.
+                if ((phase === 'envelope' || phase === 'data') && [28, 52, 55, 56].includes(code)) {
                   return 'not-submitted';
                 }
                 // curl failed to initialise, resolve, connect, validate TLS, or authenticate.

@@ -39,7 +39,7 @@ test('seeded account persists and restores a Privacy preference', async ({ page,
         await expect(page.locator(`main input[type="checkbox"][name="${name}"]`)).toBeChecked({ checked });
       }
     }
-    async function saveLocale(value, revisions) {
+    async function saveLocale(value, revision) {
       await locale.selectOption(value);
       await submit(page, 'main form', visibility);
       await expect(page).toHaveURL(new URL(`/${value}/account/privacy`, target).href);
@@ -48,14 +48,31 @@ test('seeded account persists and restores a Privacy preference', async ({ page,
       expect(await settings()).toEqual({
         ...visibility,
         locale: value,
-        privacy_revision: (BigInt(initial.privacy_revision) + BigInt(revisions)).toString(),
+        privacy_revision: revision.toString(),
       });
     }
 
     expect((await page.goto(privacy)).status()).toBe(200);
     await checkSettings(initial.locale);
-    await saveLocale(initial.locale === 'pl' ? 'en' : 'pl', 1);
-    await saveLocale(initial.locale, 2);
+    const initialRevision = BigInt(initial.privacy_revision);
+    let alternateVerified = false;
+    try {
+      await saveLocale(initial.locale === 'pl' ? 'en' : 'pl', initialRevision + 1n);
+      alternateVerified = true;
+    } finally {
+      try {
+        const observed = await settings();
+        if (alternateVerified || observed.locale !== initial.locale ||
+            Object.entries(visibility).some(([name, checked]) => observed[name] !== checked)) {
+          expect((await page.goto(privacy)).status()).toBe(200);
+          const restoredRevision = alternateVerified ? initialRevision + 2n : BigInt(observed.privacy_revision) + 1n;
+          await saveLocale(initial.locale, restoredRevision);
+        }
+      } catch (restoreError) {
+        if (alternateVerified) throw restoreError;
+        appendFileSync(diagnostics, 'Diagnostic: Could not restore the seeded Privacy preference.\n');
+      }
+    }
     appendFileSync(diagnostics, `${info.project.name} passed\n`);
   } catch (error) {
     appendFileSync(diagnostics, `${info.project.name} failed at seeded Privacy write\n`);
