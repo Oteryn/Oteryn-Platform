@@ -114,34 +114,34 @@
   {
     "crate": "admin",
     "route": "/console/dashboard",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
-    "status": 403,
-    "reason": "bootstrap platform admin lacks Game read permission"
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/worlds",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
-    "status": 403,
-    "reason": "bootstrap platform admin lacks Game read permission"
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
-    "status": 403,
-    "reason": "bootstrap platform admin lacks Game read permission"
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/database",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
-    "status": 403,
-    "reason": "bootstrap platform admin lacks Game read permission"
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
@@ -1012,8 +1012,8 @@
     "route": "/{lang}/account/privacy/export",
     "actor": "player",
     "method": "GET",
-    "status": 403,
-    "reason": "authorization required"
+    "status": 200,
+    "reason": "redirects to localized password confirmation before export"
   },
   {
     "crate": "identity",
@@ -1106,6 +1106,14 @@
   {
     "crate": "identity",
     "route": "/{lang}/account/passkeys",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/manage",
     "actor": "player",
     "method": "GET",
     "status": 200,
@@ -1694,6 +1702,22 @@
     "method": "POST",
     "status": 400,
     "reason": "signed test-provider protocol refuses absent signature; positive flow in wallet-topup.spec.mjs"
+  },
+  {
+    "crate": "store",
+    "route": "/{lang}/account/store-orders",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "buyer can open order history"
+  },
+  {
+    "crate": "store",
+    "route": "/{lang}/account/store-orders/{id}",
+    "actor": "player",
+    "method": "GET",
+    "status": 404,
+    "reason": "missing or foreign order is hidden"
   },
   {
     "crate": "support",
@@ -2342,6 +2366,87 @@
     "method": "GET",
     "status": 200,
     "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "admin",
+    "route": "/console",
+    "actor": "gm",
+    "method": "GET",
+    "status": 200,
+    "reason": "authorized landing redirects to Game overview",
+    "terminal": "/console/dashboard"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/commerce/reconcile",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "existing entry shows versioned payment evidence"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/commerce/reconcile",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before review"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/commerce/cancellations/{id}",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before cancellation"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/store-catalog",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "staff can read active offers and proposals"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/store-catalog",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before proposal"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/store-activation",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "staff can inspect verified catalog revisions"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/store-activation",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before activation"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/payment-review",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "staff can search payments and reconciliation evidence"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/payment-review",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before review"
   },
   {
     "crate": "identity",

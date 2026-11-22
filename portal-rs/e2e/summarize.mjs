@@ -13,9 +13,11 @@ const projects=raw.config.projects.map(p=>p.name);
 const counts=Object.fromEntries(projects.map(project=>{const set=cases.filter(c=>c.project===project);return [project,{passed:set.filter(c=>c.status==='passed').length,failed:set.filter(c=>!['passed','skipped'].includes(c.status)).length,skipped:set.filter(c=>c.status==='skipped').length,retries:set.reduce((n,c)=>n+Math.max(0,c.attempts-1),0)}];}));
 const routes=inventory.routes.map(row=>{
  const title=`route ${row.crate} ${row.route}`;
- const executed=projects.map(project=>cases.find(c=>c.project===project&&c.case===title));
- const expected=expectations.find(e=>e.crate===row.crate&&e.route===row.route);
- return {...row,actor:expected?.actor,method:expected?.method,status:expected?.status,reason:expected?.reason,case:title,result:executed.every(c=>c?.status==='passed'&&c.attempts===1)?(row.notApplicable?'NOT_APPLICABLE':'PASS'):'UNCOVERED'};
+ const matching=expectations.filter(e=>e.crate===row.crate&&e.route===row.route);
+ const expected=matching[0];
+ const titles=matching.some(e=>e.method==='GET') && matching.some(e=>e.method==='POST') ? [title,`${title} POST`] : [title];
+ const executed=projects.flatMap(project=>titles.map(caseTitle=>cases.find(c=>c.project===project&&c.case===caseTitle)));
+ return {...row,actor:expected?.actor,method:expected?.method,status:expected?.status,reason:expected?.reason,case:titles.join(', '),result:executed.every(c=>c?.status==='passed'&&c.attempts===1)?(row.notApplicable?'NOT_APPLICABLE':'PASS'):'UNCOVERED'};
 });
 const sections=inventory.sections.map(row=>({...row,result:projects.every(project=>cases.some(c=>c.project===project&&c.case===`registry ${row.section}: destination and shared shell`&&c.status==='passed'&&c.attempts===1))?'PASS':'UNCOVERED'}));
 const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','portal-rs'],{cwd:path.dirname(root),encoding:'utf8'}).trim().split('\n').filter(f=>!['portal-rs/e2e/REPORT.md','portal-rs/e2e/qualification.json','portal-rs/e2e/COVERAGE.md'].includes(f)).sort();

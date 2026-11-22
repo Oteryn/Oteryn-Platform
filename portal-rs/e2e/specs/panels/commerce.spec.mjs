@@ -155,7 +155,7 @@ test('staff stage proposals and activate verified Game revisions with replay fen
     await width(admin);
     const stage = admin.locator('main form');
     const csrf = await stage.locator('[name=_csrf]').inputValue();
-    const fields = {_csrf: csrf, current, offer, price: '31', reason: 'Update verified test price'};
+    const fields = {_csrf: csrf, current, offer, price: '31', reason: 'price_correction'};
     await csrfRejected(admin, offers, fields);
     await post(admin, offers, {...fields, price: '-1'}, 422);
     await post(admin, offers, {...fields, reason: 'short'}, 422);
@@ -174,7 +174,7 @@ test('staff stage proposals and activate verified Game revisions with replay fen
       await expect(card).toContainText(revision === verified ? '21 → 41' : '41 → 21');
       await width(admin);
       const fields = await card.locator('form').evaluate(form => Object.fromEntries(new FormData(form)));
-      return {...fields, reason: 'Approve verified Game catalog'};
+      return {...fields, reason: 'game_catalog_verified'};
     }
     const activate = await activationForm(verified);
     await csrfRejected(admin, activation, activate);
@@ -222,24 +222,33 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     await open(admin, `${base}&id=invalid`, 422);
     await open(admin, `${base}&id=${uuid7()}`, 404);
     await open(admin, `${base}&queue=true`);
-    const reversed = uuid7();
-    const quote = uuid7();
-    const order = uuid7();
-    const packageId = uuid7();
-    const invoice = uuid7();
     const state = lang === 'pl' ? 'chargeback' : 'refunded';
-    const kind = state === 'chargeback' ? state : 'refund';
-    await query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'EUR',$4)",
-      [reversed, account, `test-${reversed}`, state]);
-    await query("INSERT INTO invoices(id,intent_id,account_id,amount,currency) VALUES($1,$2,$3,250,'EUR')", [invoice, reversed, account]);
-    await query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) VALUES($1,$2,$3,25,250,'EUR',3,'test',now())",
-      [quote, account, packageId]);
-    await query(`INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,receipt_id,review_required,code)
-      VALUES($1,$2,$3,$4,$5,25,250,'EUR',3,'test',$6,$7,$8,true,'review')`,
-      [order, account, uuid7(), quote, packageId, reversed, state, invoice]);
-    await query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES($1,$2,$3,$4,'test',$5,25,0,'held')",
-      [uuid7(), order, account, kind, reversed]);
-    await query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')", [account, order]);
+    async function reverseOrder() {
+      const reversed = uuid7();
+      const quote = uuid7();
+      const order = uuid7();
+      const packageId = uuid7();
+      const invoice = uuid7();
+      const kind = state === 'chargeback' ? state : 'refund';
+      await query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'EUR',$4)",
+        [reversed, account, `test-${reversed}`, state]);
+      await query("INSERT INTO invoices(id,intent_id,account_id,amount,currency) VALUES($1,$2,$3,250,'EUR')", [invoice, reversed, account]);
+      await query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) VALUES($1,$2,$3,25,250,'EUR',3,'test',now())",
+        [quote, account, packageId]);
+      await query(`INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,receipt_id,review_required,code)
+        VALUES($1,$2,$3,$4,$5,25,250,'EUR',3,'test',$6,$7,$8,true,'review')`,
+        [order, account, uuid7(), quote, packageId, reversed, state, invoice]);
+      await query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES($1,$2,$3,$4,'test',$5,25,0,'held')",
+        [uuid7(), order, account, kind, reversed]);
+      return {reversed, order};
+    }
+    const firstReversal = await reverseOrder();
+    const {reversed, order} = await reverseOrder();
+    const [{hold_id: hold}] = await query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance') RETURNING hold_id", [account, firstReversal.order]);
+    // A review from the historical handler is visible, but has no evidence version.
+    await query(`INSERT INTO commerce_operations(id,actor_id,target_id,command,reason_sha256,requires_approval,result)
+      VALUES($1,$2,$3,'{"kind":"reconcile"}',repeat('a',64),false,
+        jsonb_build_object('resolution_code','reviewed_no_payment_state_change'))`, [uuid7(), reviewerId, reversed]);
     await open(admin, `${base}&queue=true`);
     await admin.getByRole('link', {name: reversed}).click();
     await expect(admin.locator('main')).toContainText('0.250 EUR');
@@ -253,7 +262,7 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     const reviewForm = admin.locator(`form[action^="${reconcile}?"]`);
     const readReview = async () => ({
       ...await reviewForm.evaluate(form => Object.fromEntries(new FormData(form))),
-      reason: 'Verify recorded reversal and outstanding balance',
+      reason: 'evidence_reviewed',
     });
     const staleReview = await readReview();
     // An order revision can change without a payment-state transition.
@@ -261,12 +270,43 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     await post(admin, reconcile, staleReview, 409);
     expect(await query("SELECT id FROM commerce_operations WHERE id=$1", [staleReview.request_id])).toEqual([]);
     await open(admin, `${base}&id=${reversed}`);
-    const reviewFields = await readReview();
+    await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Ostatnia zapisana weryfikacja' : 'Last review recorded');
+    const beforeCredit = await readReview();
+    const adjustment = uuid7();
+    await post(admin, '/admin/commerce/adjust', {
+      _csrf: csrf, target: account, request_id: adjustment, amount: '30',
+      reason: 'Exercise repayment from wallet credit',
+    }, 303);
+    await post(second, `/admin/commerce/approvals/${adjustment}`, {_csrf: reviewerCsrf}, 303);
+    await post(admin, reconcile, beforeCredit, 409);
+    await open(admin, `${base}&id=${reversed}`);
+    await expect(admin.locator('main')).toContainText('20 COINS');
+    const beforeRelease = await readReview();
+    await post(admin, `/admin/players/${account}`, {
+      _csrf: csrf, action: 'release-coin-hold', hold, reason: 'Release the reviewed purchase hold',
+    }, 303);
+    await post(admin, reconcile, beforeRelease, 409);
+    await open(admin, `${base}&id=${reversed}`);
+    await expect(admin.locator('main')).toContainText('20 COINS');
+    await expect(admin.locator('main dd').filter({hasText: lang === 'pl' ? /^Brak$/ : /^Absent$/})).toHaveCount(1);
+    await post(admin, '/admin/commerce/reconcile', {
+      _csrf: csrf, target: reversed, request_id: uuid7(), reason: 'evidence_reviewed',
+    }, 422);
+    await open(admin, `${base}&queue=true`);
+    await expect(admin.getByRole('link', {name: reversed})).toBeVisible();
+    const legacy = `/admin/commerce/reconcile?lang=${lang}`;
+    await open(admin, `${legacy}&id=${reversed}`);
+    const legacyForm = admin.locator('form[action^="/admin/commerce/reconcile?"]');
+    const reviewFields = {
+      ...await legacyForm.evaluate(form => Object.fromEntries(new FormData(form))),
+      reason: 'evidence_reviewed',
+    };
     await csrfRejected(admin, reconcile, reviewFields);
     await post(page, reconcile, {...reviewFields, _csrf: refusedCsrf}, 403);
     await post(admin, reconcile, {...reviewFields, id: 'bad'}, 422);
     await post(admin, reconcile, {...reviewFields, reason: ''}, 422);
-    await post(admin, reconcile, reviewFields, 303);
+    await post(admin, reconcile, {...reviewFields, reason: 'Unapproved free-text reason'}, 422);
+    await post(admin, legacy, reviewFields, 303);
     await post(admin, reconcile, reviewFields, 303);
     await expect.poll(() => query('SELECT state FROM payment_intents WHERE id=$1', [reversed])).toEqual([{state}]);
     expect(await query("SELECT staff_reason FROM audit_log WHERE target=$1 AND action='commerce.payment.reviewed'", [reversed])).toEqual([{staff_reason: reviewFields.reason}]);
@@ -283,31 +323,50 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     const request = uuid7();
     await csrfRejected(admin, refund, {...common, request_id: request});
     await post(admin, refund, {...common, reason: '', _csrf: csrf, request_id: request}, 422);
+    const cancelled = uuid7();
+    await post(admin, refund, {...common, _csrf: csrf, request_id: cancelled}, 303);
+    const cancellation = `/admin/commerce/cancellations/${cancelled}`;
+    await open(second, '/admin/commerce');
+    await csrfRejected(second, cancellation, {reason: 'refund_withdrawn'});
+    await post(second, cancellation, {_csrf: reviewerCsrf}, 422);
+    await post(second, cancellation, {_csrf: reviewerCsrf, reason: 'refund_verified'}, 422);
+    await post(second, cancellation, {_csrf: reviewerCsrf, reason: 'refund_withdrawn'}, 303);
+    await post(second, cancellation, {_csrf: reviewerCsrf, reason: 'refund_withdrawn'}, 303);
+    await post(second, `/admin/commerce/approvals/${cancelled}`, {_csrf: reviewerCsrf, reason: 'refund_verified'}, 409);
+    expect(await query("SELECT staff_reason FROM audit_log WHERE request_id=$1 AND action='commerce.cancelled'", [cancelled]))
+      .toEqual([{staff_reason: 'refund_withdrawn'}]);
+    expect(await query('SELECT operation_id FROM commerce_refunds WHERE operation_id=$1', [cancelled])).toEqual([]);
+
     await post(admin, refund, {...common, _csrf: csrf, request_id: request}, 303);
     const approval = `/admin/commerce/approvals/${request}`;
     await open(second, '/admin/commerce');
     await csrfRejected(second, approval);
-    const approvalReason = 'Independent reviewer approved the full refund';
+    const approvalReason = 'refund_verified';
     await post(admin, approval, {_csrf: csrf, reason: approvalReason}, 403);
     await post(second, approval, {_csrf: reviewerCsrf}, 422);
     await post(second, approval, {_csrf: reviewerCsrf, reason: 'short'}, 422);
     await post(second, '/admin/commerce/approvals/bad', {_csrf: reviewerCsrf}, 422);
     const approvalForm = second.locator(`form[action="${approval}"]`);
-    await expect(approvalForm.locator('textarea[name=reason]')).toHaveAttribute('required', '');
+    await expect(approvalForm.locator('select[name=reason]')).toHaveAttribute('required', '');
     await post(second, approval, {_csrf: reviewerCsrf, reason: approvalReason}, 303);
     await post(second, approval, {_csrf: reviewerCsrf, reason: approvalReason}, 303);
-    expect(await query("SELECT staff_reason FROM audit_log WHERE actor=$1 AND action='commerce.approved' AND target=$2", [reviewerId, intent])).toEqual([{staff_reason: approvalReason}]);
+    expect(await query("SELECT staff_reason,after->'result' AS result FROM audit_log WHERE actor=$1 AND action='commerce.approved' AND target=$2 AND request_id=$3", [reviewerId, intent, request]))
+      .toEqual([{staff_reason: approvalReason, result: {intent, queued: true, amount: 250, currency: 'PLN'}}]);
+    await open(second, `/admin/console/audit?request_id=${request}&operation=commerce.approved`);
+    await expect(second.locator('main')).toContainText('commerce.approved');
     await expect.poll(() => query('SELECT state FROM commerce_refunds WHERE operation_id=$1', [request]), {timeout: 30_000}).toEqual([{state: 'done'}]);
     expect((await query('SELECT intent_id FROM commerce_refunds WHERE operation_id=$1', [request]))[0].intent_id).toBe(intent);
     await open(admin, `${base}&id=${intent}`);
     await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Próby przekazania zwrotu operatorowi' : 'Provider delivery attempts');
     await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Wysłano do operatora' : 'Dispatched to provider');
     expect(await query('SELECT state FROM payment_intents WHERE id=$1', [intent])).toEqual([{state: 'succeeded'}]);
+    const beforeRefusal = await readReview();
     // Project a definitive refusal from the same records written by the worker's refusal path.
     await query("UPDATE commerce_refunds SET state='pending',provider_reference=NULL,attempt_id=NULL,claimed_at=NULL WHERE operation_id=$1", [request]);
     await query("UPDATE commerce_operations SET result=result || jsonb_build_object('refund_outcome','refused','queued',false) WHERE id=$1", [request]);
     await open(admin, `${base}&id=${intent}`);
     await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Operator odmówił zwrotu' : 'Refund refused by provider');
+    await post(admin, reconcile, beforeRefusal, 409);
 
   } finally {
     await staff.close();

@@ -127,7 +127,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/commerce/http.rs:53"
+        "crates/admin/src/commerce/http.rs:75"
       ]
     },
     {
@@ -144,7 +144,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/commerce/http.rs:54"
+        "crates/admin/src/commerce/http.rs:76"
       ]
     },
     {
@@ -161,7 +161,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/commerce/http.rs:55"
+        "crates/admin/src/commerce/http.rs:77"
       ]
     },
     {
@@ -232,7 +232,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:351"
+        "crates/admin/src/console/mod.rs:425"
       ]
     },
     {
@@ -247,7 +247,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:355"
+        "crates/admin/src/console/mod.rs:429"
       ]
     },
     {
@@ -262,7 +262,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:359"
+        "crates/admin/src/console/mod.rs:433"
       ]
     },
     {
@@ -277,7 +277,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:363"
+        "crates/admin/src/console/mod.rs:437"
       ]
     },
     {
@@ -2129,7 +2129,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:36"
+        "crates/identity/src/passkeys_http.rs:37"
       ]
     },
     {
@@ -2142,7 +2142,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:40"
+        "crates/identity/src/passkeys_http.rs:41"
       ]
     },
     {
@@ -2155,7 +2155,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:44"
+        "crates/identity/src/passkeys_http.rs:45"
       ]
     },
     {
@@ -2168,7 +2168,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:48"
+        "crates/identity/src/passkeys_http.rs:49"
       ]
     },
     {
@@ -2181,7 +2181,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:52"
+        "crates/identity/src/passkeys_http.rs:53"
       ]
     },
     {
@@ -2482,6 +2482,19 @@
       ],
       "sources": [
         "crates/identity/src/sessions_http.rs:prefix alias"
+      ]
+    },
+    {
+      "route": "/{lang}/account/passkeys/manage",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_PASSKEYS"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/identity/src/passkeys_http.rs:36"
       ]
     },
     {
@@ -3195,6 +3208,32 @@
       ],
       "sources": [
         "crates/store/src/web_payments.rs:156"
+      ]
+    },
+    {
+      "route": "/{lang}/account/store-orders",
+      "crate": "store",
+      "flags": [
+        "OTERYN_PANEL_STORE_ORDERS_ENABLED"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/store/src/web_orders.rs:51"
+      ]
+    },
+    {
+      "route": "/{lang}/account/store-orders/{id}",
+      "crate": "store",
+      "flags": [
+        "OTERYN_PANEL_STORE_ORDERS_ENABLED"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/store/src/web_orders.rs:52"
       ]
     },
     {
@@ -4227,6 +4266,107 @@
       "sources": [
         "crates/admin/src/analytics/web.rs"
       ]
+    },
+    {
+      "route": "/admin/commerce/reconcile",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PAYMENTS_ENABLED",
+        "OTERYN_PREMIUM_ENABLED",
+        "OTERYN_REFUNDS_ENABLED",
+        "OTERYN_WALLET_ENABLED"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/commerce/http.rs:62"
+      ]
+    },
+    {
+      "route": "/admin/commerce/cancellations/{id}",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PAYMENTS_ENABLED",
+        "OTERYN_PREMIUM_ENABLED",
+        "OTERYN_REFUNDS_ENABLED",
+        "OTERYN_WALLET_ENABLED"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/commerce/http.rs:78"
+      ]
+    },
+    {
+      "route": "/admin/store-catalog",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PANEL_PAYMENTS_ENABLED",
+        "OTERYN_PANEL_STORE_CATALOG_ENABLED",
+        "OTERYN_PAYMENTS_ENABLED"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/commerce/panels/catalog.rs:22"
+      ]
+    },
+    {
+      "route": "/admin/store-activation",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PANEL_PAYMENTS_ENABLED",
+        "OTERYN_PANEL_STORE_CATALOG_ENABLED",
+        "OTERYN_PAYMENTS_ENABLED"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/commerce/panels/catalog.rs:28"
+      ]
+    },
+    {
+      "route": "/admin/payment-review",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PANEL_PAYMENTS_ENABLED",
+        "OTERYN_PANEL_STORE_CATALOG_ENABLED",
+        "OTERYN_PAYMENTS_ENABLED",
+        "OTERYN_REFUNDS_ENABLED"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/commerce/panels/payments.rs:27"
+      ]
+    },
+    {
+      "route": "/console",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_CONSOLE",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/console/mod.rs:424"
+      ]
     }
   ],
   "sections": [
@@ -4260,7 +4400,7 @@
     {
       "section": "account-passkeys",
       "label": "shell-account-passkeys",
-      "path": "account/passkeys",
+      "path": "account/passkeys/manage",
       "crate": "identity",
       "group": "Account",
       "footer": false,
