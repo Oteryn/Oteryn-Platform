@@ -132,7 +132,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
       const revoked = await page.request.delete(target, {
         headers: {origin, 'x-csrf-token': csrf}, maxRedirects: 0,
       });
-      expect(revoked.status()).toBe(302);
+      expect(revoked.status()).toBe(303);
       expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(303);
       expect((await page.request.get(privacy)).status()).toBe(200);
     }

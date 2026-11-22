@@ -204,8 +204,8 @@ const unavailable = [
     target: lang => `/${lang}/pass`,
     status: 503,
     message: {
-      pl: 'Przepustka sezonowa jest obecnie niedostępna. Nie pobrano coinów ani nie wydano nagród.',
-      en: 'The season pass is currently unavailable. No coins were charged and no rewards were issued.',
+      pl: 'Przepustka sezonowa jest obecnie niedostępna.',
+      en: 'The season pass is currently unavailable.',
     },
     routes: ['/{lang}/pass/{season}/buy', '/{lang}/pass/{season}/claim'],
   },
@@ -220,7 +220,7 @@ const unavailable = [
 
 test('unavailable Game-backed browser actions', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
-  await seededPlayer(page, lang);
+  const player = await seededPlayer(page, lang);
   for (const surface of unavailable) {
     await test.step(`${surface.family} (${surface.routes.join(', ')})`, async () => {
       const response = await page.goto(surface.target(lang));
@@ -230,6 +230,12 @@ test('unavailable Game-backed browser actions', async ({ page }, info) => {
       await expect(page.locator(formSelector)).toHaveCount(0);
     });
   }
+  const [seasonPass] = await query(`
+    SELECT EXISTS (SELECT 1 FROM wallet_entries WHERE account_id = $1) AS charged,
+           EXISTS (SELECT 1 FROM pass_progress WHERE account_id = $1 AND paid) AS purchased,
+           EXISTS (SELECT 1 FROM pass_claims WHERE account_id = $1) AS claimed
+  `, [player.id]);
+  expect(seasonPass).toEqual({ charged: false, purchased: false, claimed: false });
 });
 
 const packageForm = 'main form[action$="/shop/coins"]';

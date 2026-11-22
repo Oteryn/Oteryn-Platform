@@ -109,6 +109,7 @@ async function actorFor(cookie) {
   if (!database) {
     database = pool();
     database.options.allowExitOnIdle = true;
+    database.options.max = 2;
   }
   const hash = createHash('sha256').update(token).digest();
   const { rows } = await database.query(`
