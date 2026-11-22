@@ -233,7 +233,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready.clone()),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
-            let app = app.merge(oteryn_support::appeals::web::router(db.clone(), &origin));
             let app = app.merge(credentials_http::configured_router(db.clone()));
             let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
             let app = app.merge(oteryn_content::today::router(db.clone()));
@@ -252,8 +251,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
-            let app = app.merge(oteryn_support::tickets::configured_staff_router(
+            let app = app.merge(oteryn_support::tickets::configured_support_router(
                 db.clone(),
+                &origin,
             )?);
             let app = app.merge(oteryn_atlas::spawns::configured_router(db.clone()));
             let app = app.layer(axum::middleware::from_fn(

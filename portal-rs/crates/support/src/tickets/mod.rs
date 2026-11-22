@@ -11,7 +11,9 @@ use uuid::Uuid;
 
 pub(crate) mod staff;
 mod web;
-pub use staff::{StaffSupport, configured_staff_router, configured_staff_router_from};
+pub use staff::{
+    StaffSupport, configured_staff_router, configured_staff_router_from, configured_support_router,
+};
 pub(crate) use web::private;
 pub use web::{configured_router, router, staff_router};
 #[cfg(test)]

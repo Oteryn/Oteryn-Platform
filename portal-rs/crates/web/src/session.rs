@@ -373,11 +373,27 @@ fn cookie(id: &str) -> String {
     format!("{COOKIE_NAME}={id}; Secure; HttpOnly; SameSite=Lax; Path=/")
 }
 
+/// Database deadline established before refreshing a session on a mutation route.
+#[derive(Clone, Debug)]
+pub struct SessionMutationDeadline(String);
+
+impl SessionMutationDeadline {
+    /// Carry the same deadline into the domain transaction.
+    pub async fn apply(&self, db: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT set_config('oteryn.mutation_deadline', $1, true)")
+            .bind(&self.0)
+            .execute(db)
+            .await?;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SessionLayer {
     pub pool: PgPool,
     pub config: SessionConfig,
     pub csrf: crate::csrf::CsrfConfig,
+    bounded_refresh: bool,
 }
 impl SessionLayer {
     pub fn new(pool: PgPool) -> Self {
@@ -385,7 +401,14 @@ impl SessionLayer {
             pool,
             config: SessionConfig::default(),
             csrf: crate::csrf::CsrfConfig::default(),
+            bounded_refresh: false,
         }
+    }
+
+    /// Start the mutation budget before refreshing the session for an unsafe method.
+    pub fn with_bounded_refresh(mut self) -> Self {
+        self.bounded_refresh = true;
+        self
     }
 }
 /// Attach after route matching. Deployment overrides can be supplied as outer
@@ -429,6 +452,7 @@ pub async fn middleware(
             .unwrap_or(layer.config),
         csrf,
         pool: layer.pool,
+        bounded_refresh: layer.bounded_refresh,
     };
     match run(&layer, &mut request).await {
         Ok(session) => {
@@ -447,9 +471,39 @@ pub async fn middleware(
         Err(sqlx::Error::Protocol(message)) if message == "invalid session cookie" => {
             StatusCode::BAD_REQUEST.into_response()
         }
+        Err(error) if layer.bounded_refresh && refresh_timed_out(&error) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
+
+fn refresh_timed_out(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::PoolTimedOut)
+        || error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .is_some_and(|code| matches!(code.as_ref(), "55P03" | "57014" | "25P04"))
+}
+
+async fn refresh_session<'e>(
+    db: impl sqlx::PgExecutor<'e>,
+    id_hash: Vec<u8>,
+    idle_seconds: i32,
+) -> Result<Option<(Uuid, String, Option<Uuid>)>, sqlx::Error> {
+    sqlx::query_as(
+        "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
+            idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
+         WHERE id_hash=$1 AND idle_expires_at>clock_timestamp()
+            AND absolute_expires_at>clock_timestamp()
+         RETURNING session_id,csrf_token,account_id",
+    )
+    .bind(id_hash)
+    .bind(f64::from(idle_seconds))
+    .fetch_optional(db)
+    .await
+}
+
 async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSession, sqlx::Error> {
     layer.config.validate()?;
     let ip = request
@@ -477,17 +531,32 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         if !valid_id(id) || identifiers.next().is_some() {
             return Err(sqlx::Error::Protocol("invalid session cookie".into()));
         }
-        let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
-            "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
-                idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
-             WHERE id_hash=$1 AND idle_expires_at>clock_timestamp()
-                AND absolute_expires_at>clock_timestamp()
-             RETURNING session_id,csrf_token,account_id",
-        )
-        .bind(hash(id))
-        .bind(f64::from(layer.config.idle_seconds))
-        .fetch_optional(&layer.pool)
-        .await?;
+        let id_hash = hash(id);
+        let (row, deadline) = if layer.bounded_refresh && !request.method().is_safe() {
+            let result = oteryn_db::transaction::run_transaction(&layer.pool, async |tx| {
+                let db = tx.connection().await?;
+                let deadline =
+                    sqlx::query_scalar("SELECT current_setting('oteryn.mutation_deadline')")
+                        .fetch_one(&mut *db)
+                        .await?;
+                // Evaluate expiry in the refresh statement after the row lock is acquired.
+                sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
+                    .bind(&id_hash)
+                    .execute(tx.connection().await?)
+                    .await?;
+                let row =
+                    refresh_session(tx.connection().await?, id_hash, layer.config.idle_seconds)
+                        .await?;
+                Ok::<_, sqlx::Error>((row, SessionMutationDeadline(deadline)))
+            })
+            .await?;
+            (result.0, Some(result.1))
+        } else {
+            (
+                refresh_session(&layer.pool, id_hash, layer.config.idle_seconds).await?,
+                None,
+            )
+        };
         if let Some((session_id, csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
                 session_id,
@@ -495,6 +564,9 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
                 csrf,
                 account_id,
             });
+        }
+        if let Some(deadline) = deadline {
+            request.extensions_mut().insert(deadline);
         }
     }
     Ok(session)

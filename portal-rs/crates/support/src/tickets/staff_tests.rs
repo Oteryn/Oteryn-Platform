@@ -796,7 +796,7 @@ async fn browser_appeals(
 
     let host = "staff.test";
     let origin = format!("https://{host}");
-    let player_app = crate::appeals::web::router(pool.clone(), &origin);
+    let player_app = crate::appeals::web::router(pool.clone(), &origin, true);
     let bearer = oteryn_identity::mfa::random_token()?;
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,authorization_generation) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',$3,(SELECT native_security_generation FROM accounts WHERE id=$2))")
         .bind(oteryn_identity::mfa::digest(&bearer)).bind(owner).bind(csrf).execute(pool).await?;
@@ -851,6 +851,37 @@ async fn browser_appeals(
         async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?) }
     };
     let valid = format!("_csrf={csrf}&version=1&message=Please+review");
+    let unavailable =
+        super::staff::configured_support_router_from(pool.clone(), &origin, &|_| None)
+            .map_err(|error| error.to_string())?;
+    let history = unavailable
+        .clone()
+        .oneshot(
+            Request::get(&path)
+                .header("cookie", &owner_cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(history.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(history.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("Restriction"));
+    assert!(!html.contains("Submit appeal"));
+    assert_eq!(
+        unavailable
+            .oneshot(request(&owner_cookie, "en", sanction, &valid, 1)?)
+            .await?
+            .status(),
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM support_appeal_workflows WHERE sanction_id=$1)"
+        )
+        .bind(sanction)
+        .fetch_one(pool)
+        .await?
+    );
+
     let stale_csrf = format!("_csrf={}&version=1&message=Please+review", "b".repeat(64));
     let stale = player_app
         .clone()
@@ -988,6 +1019,21 @@ async fn browser_appeals(
     let application: String = sqlx::query_scalar("SELECT current_setting('application_name')")
         .fetch_one(pool)
         .await?;
+    let mut session_lock = pool.begin().await?;
+    sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
+        .bind(oteryn_identity::mfa::digest(&bearer))
+        .execute(&mut *session_lock)
+        .await?;
+    let refresh_timeout = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        player_app
+            .clone()
+            .oneshot(request(&owner_cookie, "en", fresh, &valid, 5)?),
+    )
+    .await??;
+    assert_eq!(refresh_timeout.status(), StatusCode::SERVICE_UNAVAILABLE);
+    session_lock.rollback().await?;
+
     // The submission must roll back if the session expires after the write,
     // while the audit append is blocked.
     let expiring_bearer = oteryn_identity::mfa::random_token()?;
@@ -1034,6 +1080,51 @@ async fn browser_appeals(
     .await??;
     assert_eq!(timed_out.status(), StatusCode::SERVICE_UNAVAILABLE);
     sanction_lock.rollback().await?;
+
+    // Block deferred work inside COMMIT, after the last application-side session check.
+    sqlx::raw_sql(
+        "CREATE FUNCTION f4_wait_in_commit() RETURNS trigger LANGUAGE plpgsql AS
+         $$ BEGIN PERFORM pg_advisory_xact_lock(84209, 9130); RETURN NEW; END $$;
+         CREATE CONSTRAINT TRIGGER f4_wait_in_commit AFTER INSERT ON audit_log
+         DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+         WHEN (NEW.action = 'support.enforcement_appeal_submitted')
+         EXECUTE FUNCTION f4_wait_in_commit()",
+    )
+    .execute(pool)
+    .await?;
+    let mut commit_lock = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(84209, 9130)")
+        .execute(&mut *commit_lock)
+        .await?;
+    let commit_bearer = oteryn_identity::mfa::random_token()?;
+    let commit_cookie = format!("__Host-oteryn_session={commit_bearer}");
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,authorization_generation) SELECT $1,id,clock_timestamp()+interval '1700 milliseconds',clock_timestamp()+interval '1700 milliseconds','test',$2,native_security_generation FROM accounts WHERE id=$3")
+        .bind(oteryn_identity::mfa::digest(&commit_bearer)).bind(csrf).bind(owner).execute(pool).await?;
+    let committing =
+        tokio::spawn(
+            player_app
+                .clone()
+                .oneshot(request(&commit_cookie, "en", fresh, &valid, 6)?),
+        );
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND query='COMMIT' AND wait_event_type='Lock' AND wait_event='advisory')")
+                .bind(&application).fetch_one(pool).await?;
+            if blocked {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    }).await??;
+    // Wait for the session deadline to abort COMMIT while its blocker remains held.
+    // A request that only has the three-second mutation timer cannot finish in this window.
+    let expired =
+        tokio::time::timeout(std::time::Duration::from_millis(2300), committing).await???;
+    assert_eq!(expired.status(), StatusCode::SERVICE_UNAVAILABLE);
+    commit_lock.rollback().await?;
+    sqlx::raw_sql("DROP TRIGGER f4_wait_in_commit ON audit_log; DROP FUNCTION f4_wait_in_commit()")
+        .execute(pool)
+        .await?;
 
     let mut lock = lock_appeal_owner(pool, owner).await?;
     let pending = tokio::spawn(player_app.oneshot(request(&owner_cookie, "en", fresh, &valid, 2)?));

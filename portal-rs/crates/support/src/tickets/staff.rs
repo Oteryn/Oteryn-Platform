@@ -110,6 +110,26 @@ pub fn configured_staff_router_from(
         lookup,
     )
 }
+/// Mount the player workflow together with its configured staff decision surface.
+pub fn configured_support_router(
+    pool: PgPool,
+    origin: &str,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    configured_support_router_from(pool, origin, &|key| std::env::var(key).ok())
+}
+
+pub(crate) fn configured_support_router_from(
+    pool: PgPool,
+    origin: &str,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    let staff = StaffSupport::configured_from(pool.clone(), lookup)?;
+    let submissions = staff.available(Area::Enforcement).is_ok()
+        && oteryn_identity::mfa::Mfa::configured_from(pool.clone(), lookup).is_ok();
+    let routes = oteryn_admin::support::web::configured_router_from(pool.clone(), staff, lookup)?;
+    Ok(routes.merge(crate::appeals::web::router(pool, origin, submissions)))
+}
+
 impl Backend for StaffSupport {
     async fn prepare(
         &self,

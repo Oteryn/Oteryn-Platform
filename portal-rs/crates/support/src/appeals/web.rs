@@ -11,18 +11,24 @@ use axum::{
 use oteryn_web::{
     Language,
     ratelimit::{ClientSource, Keys, NamedPolicy, RateLimiter},
-    session::{BrowserSession, SessionLayer},
+    session::{BrowserSession, SessionLayer, SessionMutationDeadline},
 };
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-pub fn router(pool: PgPool, origin: &str) -> Router {
-    let mut session = SessionLayer::new(pool.clone());
+pub(crate) fn router(pool: PgPool, origin: &str, submissions: bool) -> Router {
+    let mut session = SessionLayer::new(pool.clone()).with_bounded_refresh();
     session.csrf.trusted_origins = vec![origin.to_owned()];
+    let detail = if submissions {
+        get(detail).post(submit)
+    } else {
+        get(detail)
+    };
     Router::new()
         .route("/{lang}/support/appeals", get(index))
-        .route("/{lang}/support/appeals/{id}", get(detail).post(submit))
+        .route("/{lang}/support/appeals/{id}", detail)
+        .layer(Extension(Submissions(submissions)))
         .route_layer(middleware::from_fn_with_state(
             session,
             oteryn_web::session::middleware,
@@ -31,6 +37,9 @@ pub fn router(pool: PgPool, origin: &str) -> Router {
         .layer(middleware::from_fn(crate::tickets::private))
         .with_state(pool)
 }
+
+#[derive(Clone, Copy)]
+struct Submissions(bool);
 
 #[derive(Template)]
 #[template(path = "appeals/page.html")]
@@ -177,15 +186,17 @@ async fn detail(
     State(pool): State<PgPool>,
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
+    Extension(submissions): Extension<Submissions>,
 ) -> Result<Response, Response> {
     let path = format!("/{lang}/support/appeals/{id}");
     let (actor, _) = actor(&pool, &session, &lang, &path).await?;
-    let rows = player_entries(&pool, actor, Some(id), 0)
+    let mut rows = player_entries(&pool, actor, Some(id), 0)
         .await
         .map_err(|error| status(error).into_response())?;
     let row = rows
-        .first()
+        .first_mut()
         .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+    row.can_submit &= submissions.0;
     let csrf = if row.can_submit {
         session
             .csrf_token()
@@ -218,6 +229,7 @@ async fn submit(
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<ClientSource>,
+    deadline: Option<Extension<SessionMutationDeadline>>,
     form: Result<Form<Input>, FormRejection>,
 ) -> Result<Redirect, Response> {
     let language = match lang.as_str() {
@@ -229,6 +241,7 @@ async fn submit(
     let error = |status| refusal(&lang, &path, status, None);
     let Form(input) = form.map_err(|rejection| error(rejection.status()))?;
     let (actor, session_hash) = actor(&pool, &session, &lang, &path).await?;
+    let Extension(deadline) = deadline.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let peer = peer.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let mut keys = Keys::source(peer.0);
     keys.account = Some(actor.to_string());
@@ -243,6 +256,7 @@ async fn submit(
         id,
         input.version,
         &input.message,
+        &deadline,
     )
     .await
     .map_err(|failure| match failure {

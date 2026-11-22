@@ -28,6 +28,8 @@ pub enum Error {
     Database(#[from] sqlx::Error),
     #[error("audit unavailable")]
     AuditUnavailable,
+    #[error("appeal submission deadline exceeded")]
+    Deadline,
 }
 impl Error {
     pub fn status_code(&self) -> u16 {
@@ -36,7 +38,7 @@ impl Error {
             Self::SessionRevoked => 403,
             Self::Invalid => 422,
             Self::Conflict => 409,
-            Self::Database(_) | Self::AuditUnavailable => 503,
+            Self::Database(_) | Self::AuditUnavailable | Self::Deadline => 503,
         }
     }
 }
@@ -441,6 +443,7 @@ async fn submit_player(
     id: Uuid,
     version: i64,
     message: &str,
+    deadline: &oteryn_web::session::SessionMutationDeadline,
 ) -> Result<(), Error> {
     use oteryn_admin::audit::{self, AuditContext};
     use serde_json::json;
@@ -450,6 +453,7 @@ async fn submit_player(
     }
     text(message, true)?;
     let mut tx = pool.begin().await?;
+    deadline.apply(&mut tx).await?;
     oteryn_db::mutation_budget(&mut tx).await?;
     sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE")
         .bind(actor)
@@ -522,6 +526,33 @@ async fn submit_player(
     oteryn_db::mutation_budget(&mut tx).await?;
     if !browser_session_live(&mut *tx, actor, session_hash).await? {
         return Err(Error::SessionRevoked);
+    }
+    // PostgreSQL keeps this timer armed through deferred work in COMMIT.
+    // Reset any inherited timer so the new interval takes effect immediately.
+    sqlx::query("SET LOCAL transaction_timeout = 0")
+        .execute(&mut *tx)
+        .await?;
+    let armed: Option<String> = sqlx::query_scalar(
+        "WITH remaining AS MATERIALIZED (
+            SELECT floor((least(
+                extract(epoch FROM least(idle_expires_at, absolute_expires_at)),
+                current_setting('oteryn.mutation_deadline')::numeric
+            ) - extract(epoch FROM clock_timestamp())) * 1000)::bigint AS ms
+            FROM web_sessions WHERE id_hash = $1 AND account_id = $2
+         )
+         SELECT set_config('transaction_timeout', ms::text || 'ms', true)
+         FROM remaining WHERE ms > 0",
+    )
+    .bind(session_hash)
+    .bind(actor)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if armed.is_none() {
+        return if browser_session_live(&mut *tx, actor, session_hash).await? {
+            Err(Error::Deadline)
+        } else {
+            Err(Error::SessionRevoked)
+        };
     }
     tx.commit().await?;
     Ok(())
