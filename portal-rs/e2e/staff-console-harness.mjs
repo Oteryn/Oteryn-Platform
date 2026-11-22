@@ -8,6 +8,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { prepareHarnessOutput } from './harness-output.mjs';
 import { HarnessProcesses } from './harness-processes.mjs';
 import { localDatabaseClient, localDatabaseURL } from './local-database.mjs';
 
@@ -151,43 +152,10 @@ if (parentLifetime) {
   process.stdin.resume();
 }
 
-function lockOutputDirectory(out) {
-  fs.mkdirSync(out, { recursive: true, mode: 0o700 });
-  const fd = fs.openSync(out, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
-  try {
-    // flock acts on the inherited open directory descriptor. Node retains the
-    // lock after flock exits, including throughout database and file cleanup.
-    const lock = spawnSync('flock', ['-n', '-E', '75', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] });
-    if (lock.status === 75) throw new Error(`${out} is in use by another harness run`);
-    if (lock.status !== 0) throw new Error('Could not lock the harness output directory (requires flock)');
-    const locked = fs.fstatSync(fd, { bigint: true });
-    const current = fs.lstatSync(out, { bigint: true, throwIfNoEntry: false });
-    if (current?.ino !== locked.ino || current.dev !== locked.dev) {
-      throw new Error(`${out} was replaced during lock acquisition`);
-    }
-  } catch (error) {
-    fs.closeSync(fd);
-    throw error;
-  }
-  onCleanup(() => fs.closeSync(fd));
-}
-
 async function start() {
-  // ---- output directory (ignored by git) -------------------------------------
   const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
-  lockOutputDirectory(out);
-  const marker = path.join(out, '.portal-e2e-harness');
-  const marked = fs.lstatSync(marker, { throwIfNoEntry: false });
-  if (!marked && fs.readdirSync(out).length === 0) {
-    fs.writeFileSync(marker, '', { flag: 'wx', mode: 0o600 });
-  } else if (!marked?.isFile()) {
-    throw new Error(`${out} exists and is not a harness directory`);
-  }
-  const dirs = { certs: path.join(out, 'certs'), clients: path.join(out, 'certs', 'clients'), witness: path.join(out, 'witness'), logs: path.join(out, 'logs'), secrets: path.join(out, 'secrets'), bin: path.join(out, 'bin') };
-  const reportFile = path.join(out, 'report.json');
-  for (const file of [dirs.certs, dirs.witness, dirs.logs, dirs.secrets, dirs.bin, reportFile]) {
-    fs.rmSync(file, { recursive: true, force: true });
-  }
+  const { dirs, marker, reportFile, release } = prepareHarnessOutput(out);
+  onCleanup(release);
   const privatePaths = new Set([dirs.secrets, dirs.clients, dirs.witness, dirs.bin]);
   const owned = [];
   onCleanup(code => {

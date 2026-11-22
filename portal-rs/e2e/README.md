@@ -114,8 +114,10 @@ portal-rs/e2e/start.sh --seed-plan portal-rs/e2e/seed-plan.example.json
    listener), waits until each answers, runs the seed plan if given, and
    prints **one JSON object** on stdout (also saved as `report.json`).
 
-Output (default `portal-rs/e2e/.harness/run`, ignored by git, replaced on
-each run; override with `PORTAL_E2E_OUT`):
+The harness locks its output directory with `flock` for the lifetime of each
+run. It replaces the generated files and preserves other entries in that
+directory. The default is `portal-rs/e2e/.harness/run`, which git ignores. Set
+`PORTAL_E2E_OUT` to use a different directory.
 
 ```json
 {"status":"ready","database":"portal_e2e_<hex>",

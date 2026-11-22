@@ -142,17 +142,19 @@ test('a contender leaves an exclusively locked harness directory untouched', t =
   const fd = fs.openSync(out, 'r');
   try {
     assert.equal(spawnSync('flock', ['-n', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] }).status, 0);
-    const run = spawnSync(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)), '--staff-console'], {
-      env: {
-        ...process.env, PORTAL_E2E_ADMIN_DATABASE_URL: 'postgres://localhost/postgres', PORTAL_E2E_OUT: out,
-        OTERYN_ENV: 'testing', APP_ENV: 'testing',
-      },
-      encoding: 'utf8', timeout: 10_000,
-    });
-    assert.equal(run.status, 1);
-    assert.match(run.stderr, /in use by another harness run/);
-    assert.equal(run.stdout, '');
-    for (const file of [marker, fixture, unrelated]) assert.equal(fs.readFileSync(file, 'utf8'), 'untouched');
+    for (const args of [[], ['--staff-console'], ['--outbox']]) {
+      const run = spawnSync(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)), ...args], {
+        env: {
+          ...process.env, PORTAL_E2E_ADMIN_DATABASE_URL: 'postgres://localhost/postgres', PORTAL_E2E_OUT: out,
+          OTERYN_ENV: 'testing', APP_ENV: 'testing',
+        },
+        encoding: 'utf8', timeout: 10_000,
+      });
+      assert.equal(run.status, 1);
+      assert.match(run.stderr, /in use by another harness run/);
+      assert.equal(run.stdout, '');
+      for (const file of [marker, fixture, unrelated]) assert.equal(fs.readFileSync(file, 'utf8'), 'untouched');
+    }
   } finally {
     fs.closeSync(fd);
   }

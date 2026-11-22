@@ -11,6 +11,7 @@
 // then prints ONE JSON object on stdout. Progress goes to stderr; service logs
 // to <out>/logs. SIGINT/SIGTERM stops the services and drops the database.
 import fs from 'node:fs';
+import { prepareHarnessOutput } from './harness-output.mjs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
@@ -107,13 +108,9 @@ const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
 
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
-if (fs.existsSync(out)) {
-  if (!fs.existsSync(path.join(out, '.portal-e2e-harness'))) throw new Error(`${out} exists and is not a harness directory`);
-  fs.rmSync(out, { recursive: true, force: true });
-}
-const dirs = { certs: path.join(out, 'certs'), clients: path.join(out, 'certs', 'clients'), witness: path.join(out, 'witness'), logs: path.join(out, 'logs'), secrets: path.join(out, 'secrets'), bin: path.join(out, 'bin') };
-for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-fs.writeFileSync(path.join(out, '.portal-e2e-harness'), '');
+// Keep the directory descriptor locked until the process exits.
+const { dirs } = prepareHarnessOutput(out);
+for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { mode: 0o700 });
 
 // ---- certificates (openssl, as local.mjs) ----------------------------------
 function openssl(args) {
