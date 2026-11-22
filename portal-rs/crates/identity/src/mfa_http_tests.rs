@@ -286,7 +286,10 @@ async fn browser_flow(
     .await?;
     let failed = app.clone().oneshot(remove_request()?).await?;
     assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(mfa.devices(id).await?, [device.clone()]);
+    assert_eq!(
+        mfa.devices(id).await?.as_slice(),
+        std::slice::from_ref(&device)
+    );
     sqlx::query("DROP TRIGGER refuse_browser_reissue ON web_sessions")
         .execute(&db.pool)
         .await?;
