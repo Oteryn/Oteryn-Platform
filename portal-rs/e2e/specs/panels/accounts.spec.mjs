@@ -1,13 +1,13 @@
 import {randomBytes} from 'node:crypto';
 import {test, expect} from '../../fixtures.mjs';
 import {csrfRejected, mailLink, submit} from '../../helpers.mjs';
-import {action, isolatedAdmin, player, query, rolePage, unique} from '../../staff-rbac-helpers.mjs';
+import {action, confirmStaffPassword, isolatedAdmin, player, query, rolePage, unique} from '../../staff-rbac-helpers.mjs';
 
 const labels = {
   pl: ['Zapisz oznaczenie', 'Zapisz status konta', 'Zleć zmianę adresu e-mail'],
   en: ['Save review flag', 'Save account status', 'Request email change'],
 };
-const reason = 'Verified support case';
+const reason = 'support_case';
 const actions = [
   ['note', 'Support reviewed this case', '   ', 'players.note.added'],
   ['review-flag', 'yes', 'unknown', 'players.flags.changed'],
@@ -52,9 +52,12 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
       const selector = `form:has(button[value="${operation}"])`;
       const csrf = await admin.page.locator(selector).locator('input[name=_csrf]').inputValue();
       const body = value ?? nextEmail;
-      await csrfRejected(admin.page, path, {action: operation, body, reason});
-      for (const fields of [{body: invalid, reason}, {body, reason: 'short'}]) {
-        expect((await post(admin.page, path, {action: operation, _csrf: csrf, ...fields})).status())
+      const submission = operation === 'note'
+        ? {submission: await admin.page.locator(selector).locator('[name=submission]').inputValue()}
+        : {};
+      await csrfRejected(admin.page, path, {action: operation, body, reason, ...submission});
+      for (const fields of [{body: invalid, reason}, {body, reason: 'private@example.test'}]) {
+        expect((await post(admin.page, path, {action: operation, _csrf: csrf, ...submission, ...fields})).status())
           .toBe(422);
       }
       const [unchanged] = await query(
@@ -65,6 +68,13 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
 
       await action(admin.page, selector, {body, reason}, operation);
       await expect(admin.page).toHaveURL(new RegExp(`${path}$`));
+      if (operation === 'note') {
+        const retry = {action: operation, _csrf: csrf, body, reason, ...submission};
+        expect((await post(admin.page, path, retry)).status()).toBe(303);
+        expect((await post(admin.page, path, {...retry, body: 'Different note'})).status()).toBe(409);
+        expect(await query('SELECT body FROM player_notes WHERE account_id=$1', [target.id]))
+          .toEqual([{body}]);
+      }
       const entries = await query(
         'SELECT before, after, staff_reason FROM audit_log WHERE target=$1 AND action=$2',
         [target.id, auditAction],
@@ -158,8 +168,10 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
     );
     const protectedPath = `/admin/players/${protectedAccount.id}`;
     expect((await admin.page.goto(protectedPath)).status()).toBe(200);
-    await expect(admin.page.locator('button[value=account-status],button[value=account-email]')).toHaveCount(0);
+    await expect(admin.page.locator('button[value=review-flag],button[value=account-status],button[value=account-email]')).toHaveCount(0);
     for (const [operation, body] of [
+      ['review-flag', 'yes'],
+      ['review-flag', 'no'],
       ['account-status', 'suspended'],
       ['account-email', `${unique()}@example.test`],
     ]) {
@@ -170,6 +182,8 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
     expect(await query('SELECT status,email FROM accounts WHERE id=$1', [protectedAccount.id]))
       .toEqual([{status: 'active', email: protectedAccount.email}]);
     expect(await query('SELECT id FROM account_email_changes WHERE account_id=$1', [protectedAccount.id]))
+      .toHaveLength(0);
+    expect(await query('SELECT account_id FROM staff_account_flags WHERE account_id=$1', [protectedAccount.id]))
       .toHaveLength(0);
 
     await query("UPDATE account_roles SET role_id=(SELECT id FROM roles WHERE key='security_admin') WHERE account_id=$1", [actor.id]);
@@ -194,7 +208,9 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
 
 test('role grants cannot delegate an unheld permission', async ({browser}, info) => {
   test.setTimeout(180_000);
-  const target = await seedAccount(info.project.metadata.locale);
+  const locale = info.project.metadata.locale;
+  const reason = 'role_assignment';
+  const target = await seedAccount(locale);
   const admin = await isolatedAdmin(browser, info);
   try {
     const [actor] = await query('SELECT id FROM accounts WHERE email=$1', [admin.account.email]);
@@ -202,10 +218,24 @@ test('role grants cannot delegate an unheld permission', async ({browser}, info)
     await query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'account.flags.edit')", [role.id]);
     await rolePage(admin.page, role.id);
     const selector = 'form:has(button[value=grant])';
-    const csrf = await admin.page.locator(selector).locator('input[name=_csrf]').inputValue();
-    const form = {action: 'grant', account: target.id, role: role.id, reason, _csrf: csrf};
+    const form = {
+      action: 'grant', account: target.id, role: role.id, reason,
+      _csrf: await admin.page.locator(selector).locator('input[name=_csrf]').inputValue(),
+    };
     await csrfRejected(admin.page, '/admin/roles', form);
     expect((await post(admin.page, '/admin/roles', {...form, reason: ''})).status()).toBe(422);
+    expect((await post(admin.page, '/admin/roles', {...form, reason: 'private@example.test'})).status()).toBe(422);
+    await query('UPDATE web_sessions SET sudo_until=clock_timestamp() WHERE account_id=$1', [actor.id]);
+    const expired = await post(admin.page, '/admin/roles', form);
+    expect(expired.status()).toBe(403);
+    expect(await expired.text()).toContain(locale === 'pl'
+      ? 'Potwierdź hasło przed zmianą przypisania ról.'
+      : 'Confirm your password before changing role assignments.');
+    expect(await query('SELECT 1 FROM account_roles WHERE account_id=$1', [target.id])).toHaveLength(0);
+    expect(await query("SELECT 1 FROM audit_log WHERE target=$1 AND action='rbac.role.granted'", [target.id])).toHaveLength(0);
+    await confirmStaffPassword(admin.page, locale, admin.password);
+    await rolePage(admin.page, role.id);
+    form._csrf = await admin.page.locator(selector).locator('input[name=_csrf]').inputValue();
     const [manager] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [unique()]);
     await query(
       "INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.access'),($1,'admin.roles.manage'),($1,'admin.roles.grant')",
@@ -220,13 +250,13 @@ test('role grants cannot delegate an unheld permission', async ({browser}, info)
     expect(await query("SELECT 1 FROM audit_log WHERE target=$1 AND action='rbac.role.granted'", [target.id])).toHaveLength(1);
     const widened = {
       action: 'set-permissions', role: role.id, permissions: 'account.flags.edit admin.access',
-      reason, _csrf: csrf,
+      reason, _csrf: form._csrf,
     };
     await csrfRejected(admin.page, '/admin/roles', widened);
     await query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.grant'", [manager.id]);
     expect((await post(admin.page, '/admin/roles', widened)).status()).toBe(403);
     await query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.grant')", [manager.id]);
-    expect((await post(admin.page, '/admin/roles', {...widened, reason: ''})).status()).toBe(400);
+    expect((await post(admin.page, '/admin/roles', {...widened, reason: ''})).status()).toBe(422);
     expect(await query("SELECT 1 FROM role_permissions WHERE role_id=$1 AND permission='admin.access'", [role.id]))
       .toHaveLength(0);
     await rolePage(admin.page, role.id);

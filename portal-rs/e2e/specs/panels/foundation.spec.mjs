@@ -40,10 +40,10 @@ async function panelActor(context, lang, staff = false) {
       );
     }
     await connection.query(
-      `INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation)
-       SELECT $1,id,now()+interval '15 minutes',now()+interval '1 hour','panel test',$3,$4,native_security_generation
+      `INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation,sudo_until)
+       SELECT $1,id,now()+interval '15 minutes',now()+interval '1 hour','panel test',$3,$4,native_security_generation,CASE WHEN $5 THEN now()+interval '15 minutes' END
        FROM accounts WHERE id=$2`,
-      [digest(session), account.id, csrf, JSON.stringify(staff ? {mfa_grant: grant} : {})],
+      [digest(session), account.id, csrf, JSON.stringify(staff ? {mfa_grant: grant} : {}), staff],
     );
     await connection.query('COMMIT');
     await context.addCookies([{
@@ -65,14 +65,14 @@ const labels = {
     export: 'Export account data', deletion: 'Delete account',
     accounts: 'Account search', bazaar: 'Bazaar moderation', gm: 'GM console',
     worlds: 'Worlds', reason: 'Action reason',
-    invalidReason: 'Enter a reason of 8 to 500 characters.',
+    invalidReason: 'Choose a reason from the list.',
   },
   pl: {
     player: 'Panel gracza', staff: 'Panel administracyjny', email: 'Ustawienia adresu e-mail',
     export: 'Eksport danych konta', deletion: 'Usuń konto',
     accounts: 'Wyszukiwanie kont', bazaar: 'Moderacja Bazaru', gm: 'Konsola GM',
     worlds: 'Światy', reason: 'Powód działania',
-    invalidReason: 'Podaj powód liczący od 8 do 500 znaków.',
+    invalidReason: 'Wybierz powód z listy.',
   },
 };
 
@@ -85,7 +85,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
   const playerNav = page.getByRole('navigation', {name: label.player, exact: true});
   for (const [name, suffix] of [
     [label.email, 'security/email'],
-    [label.export, 'privacy/export'],
+    [label.export, 'sudo?return_to=export'],
     [label.deletion, 'privacy/delete'],
   ]) {
     await expect(playerNav.getByRole('link', {name, exact: true})).toHaveAttribute('href', `/${lang}/account/${suffix}`);
@@ -143,10 +143,10 @@ test('panel navigation enforces scope and role grants require a reason', async (
     expect(await membership()).toEqual([]);
     expect(await audit()).toEqual([]);
 
-    const reason = 'Assign panel testing role';
+    const reason = 'role_assignment';
     await grant.locator('[name=account]').fill(recipient);
     await grant.locator('[name=role]').selectOption(roleId);
-    await grant.getByLabel(label.reason).fill(reason);
+    await grant.getByLabel(label.reason).selectOption(reason);
     const [granted] = await Promise.all([
       admin.waitForResponse(response =>
         new URL(response.url()).pathname === '/admin/roles'

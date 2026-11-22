@@ -9,7 +9,7 @@ test('admin cannot grant itself a role and revokes its secondary role while reta
   // Four eyes (plan §5.4): a role manager never grants a role to itself.
   await rolePage(s.page,id);
   const token=await s.page.locator('form:has(input[name=account]) input[name=_csrf]').first().inputValue();
-  const refused=await s.page.request.post('/admin/roles',{form:{_csrf:token,account:actor,role:id,action:'grant',reason:'Assign staff workflow role'},headers:{origin:new URL(s.page.url()).origin},maxRedirects:0});
+  const refused=await s.page.request.post('/admin/roles',{form:{_csrf:token,account:actor,role:id,action:'grant',reason:'role_assignment'},headers:{origin:new URL(s.page.url()).origin},maxRedirects:0});
   expect(refused.status(),'self grant refused').toBe(403);
   expect(await query(
     "SELECT before,after FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target='/admin/roles'",
