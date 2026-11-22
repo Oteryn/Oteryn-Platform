@@ -37,13 +37,30 @@ test('public browser errors use the localized shell and no-store', async ({ page
   const headers = { accept: 'text/html', 'accept-language': lang };
   const options = { headers, maxRedirects: 0 };
   await page.goto(`/${lang}/`);
+  const missing = `/${lang}/missing-${randomUUID()}`;
   for (const [status, path] of [
     [400, '/language/unsupported'],
     [401, `/${lang}/atlas/bestiary/019a0000-0000-7000-8000-000000000001`],
-    [404, `/${lang}/missing-${randomUUID()}`],
+    [404, missing],
   ]) {
     await assertError(page, lang, status, await page.request.get(path, options));
   }
+  const weighted = await page.request.get(missing, {
+    ...options, headers: { ...headers, accept: 'text/html;q=1, application/json;q=0.1' },
+  });
+  await assertError(page, lang, 404, weighted);
+  const excluded = await page.request.get(missing, {
+    ...options, headers: { ...headers, accept: 'text/html;q=0' },
+  });
+  expect(excluded.status()).toBe(404);
+  expect(excluded.headers()['content-type']).toBeUndefined();
+  expect(await excluded.text()).toBe('');
+  const wildcard = await page.request.get(missing, {
+    ...options, headers: { ...headers, accept: 'text/html;q=0, */*;q=0.8' },
+  });
+  expect(wildcard.status()).toBe(404);
+  expect(wildcard.headers()['content-type']).toMatch(/^application\/json\b/);
+  expect(await wildcard.json()).toEqual({ status: 404, error: titles[404][lang === 'pl' ? 0 : 1] });
   const forbidden = await page.request.post(`/${lang}/login`, { ...options, form: {} });
   await assertError(page, lang, 403, forbidden);
   for (const accept of ['application/json, text/html;q=0', 'application/json, text/html']) {

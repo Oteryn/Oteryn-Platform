@@ -229,56 +229,87 @@ test('security notices use the account language and the existing MFA fallback re
   await expect(page.locator('[role=alert]')).toBeVisible();
 });
 
-test('support replies, reports, sanctions and appeals deliver localized mail with unsubscribe', async ({ page, browser }, info) => {
-  test.setTimeout(360_000);
-  const lang = info.project.metadata.locale;
-  const other = lang === 'pl' ? 'en' : 'pl';
-  const account = await player(page, lang);
-  const context = await browser.newContext({
-    baseURL: new URL(page.url()).origin,
-    ignoreHTTPSErrors: true, locale: other, viewport: info.project.use.viewport,
-  });
-  const staffPage = await context.newPage();
-  const subject = lang === 'pl' ? 'Pomoc Oteryn' : 'Oteryn support';
-  const replyCopy = lang === 'pl' ? 'Pomoc odpowiedziała na Twoje zgłoszenie.' : 'Support replied to your ticket.';
-  const statusCopy = lang === 'pl' ? 'Zmienił się status Twojego zgłoszenia.' : 'Your support ticket status changed.';
-  try {
-    const staff = await register(staffPage, other);
-    await query(
-      "INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",
-      [staff.email],
-    );
-    await login(staffPage, other, staff);
-    await enrollMfa(staffPage, other, staff);
-    const recovery = staffPage.locator("textarea[readonly]").first();
-    await expect(recovery).toBeVisible();
-    await loginWithRecoveryCode(staffPage, other, staff, await recovery.inputValue());
-    const [staffAccount] = await query('SELECT id FROM accounts WHERE email=$1', [staff.email]);
-    await staffPage.goto(`/${other}/account/notifications`);
-    await submit(staffPage, 'main form', { support_email: true, support_portal: true });
+async function enableSupport(page, lang) {
+  await page.goto(`/${lang}/account/notifications`);
+  await submit(page, 'main form', { support_email: true, support_portal: true, news_email: true });
+}
 
-    const enableSupport = async () => {
-      await page.goto(`/${lang}/account/notifications`);
-      await submit(page, 'main form', { support_email: true, support_portal: true, news_email: true });
-    };
-    const preferences = async () => {
-      const [row] = await query(
-        `SELECT
-          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS support,
-          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='news') AS news,
-          (SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS portal,
-          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$2 AND category='support') AS other_support`,
-        [account.id, staffAccount.id],
+async function createSupportTicket(page, lang) {
+  await page.goto(`/${lang}/support/tickets/create`);
+  const title = unique();
+  await submit(page, 'main form', { subject: title, body: title });
+  await expect(page).toHaveURL(/support\/tickets\/[a-f0-9-]+$/);
+  const ticket = new URL(page.url()).pathname;
+  return { ticket, id: ticket.split('/').at(-1) };
+}
+
+function unsubscribeLink(page, message) {
+  expect(message.headers.get('list-unsubscribe-post')).toBe('List-Unsubscribe=One-Click');
+  const candidate = message.headers.get('list-unsubscribe')?.match(/^<(.*)>$/)?.[1];
+  const target = absoluteLink(page, candidate, /^\/(?:en|pl)\/unsubscribe$/);
+  expect([...target.searchParams.keys()]).toEqual(['token']);
+  expect(Boolean(target.searchParams.get('token')), 'one signed unsubscribe capability').toBe(true);
+  return target;
+}
+
+const supportTest = test.extend({
+  support: async ({ page, browser }, use, info) => {
+    const lang = info.project.metadata.locale;
+    const other = lang === 'pl' ? 'en' : 'pl';
+    const account = await player(page, lang);
+    const context = await browser.newContext({
+      baseURL: new URL(page.url()).origin,
+      ignoreHTTPSErrors: true, locale: other, viewport: info.project.use.viewport,
+    });
+    try {
+      const staffPage = await context.newPage();
+      const staff = await register(staffPage, other);
+      await query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",
+        [staff.email],
       );
-      return row;
-    };
-    await enableSupport();
-    await page.goto(`/${lang}/support/tickets/create`);
-    const title = unique();
-    await submit(page, 'main form', { subject: title, body: title });
-    await expect(page).toHaveURL(/support\/tickets\/[a-f0-9-]+$/);
-    const ticket = new URL(page.url()).pathname;
-    const id = ticket.split('/').at(-1);
+      await login(staffPage, other, staff);
+      await enrollMfa(staffPage, other, staff);
+      const recovery = staffPage.locator("textarea[readonly]").first();
+      await expect(recovery).toBeVisible();
+      await loginWithRecoveryCode(staffPage, other, staff, await recovery.inputValue());
+      await enableSupport(page, lang);
+      const subject = lang === 'pl' ? 'Pomoc Oteryn' : 'Oteryn support';
+      const replyCopy = lang === 'pl' ? 'Pomoc odpowiedziała na Twoje zgłoszenie.' : 'Support replied to your ticket.';
+      const statusCopy = lang === 'pl' ? 'Zmienił się status Twojego zgłoszenia.' : 'Your support ticket status changed.';
+      const [heading, description, openForm] = lang === 'pl'
+        ? ['Konflikt zmian', 'Ten formularz jest nieaktualny.', 'Otwórz aktualny formularz']
+        : ['Update conflict', 'This form is out of date.', 'Open the latest form'];
+      const stateCopy = lang === 'pl'
+        ? 'Ta akcja jest niedostępna w bieżącym stanie zgłoszenia.'
+        : 'This action is unavailable in the ticket’s current state.';
+      await use({ account, staff, staffPage, context, lang, other, subject, replyCopy, statusCopy,
+        heading, description, openForm, stateCopy });
+    } finally {
+      await context.close();
+    }
+  },
+});
+
+supportTest.describe('support email and ticket errors', () => {
+  supportTest.describe.configure({ timeout: 240_000 });
+
+  supportTest('ticket updates deliver localized mail and stale forms link to the current ticket', async ({ page, support }) => {
+    const { account, staffPage, context, lang, subject, replyCopy, statusCopy,
+      heading, description, openForm, stateCopy } = support;
+    const { ticket, id } = await createSupportTicket(page, lang);
+    const staffTicket = `/${lang}/admin/support/tickets/${id}`;
+    const localizedStaff = await context.newPage();
+    expect((await localizedStaff.goto(staffTicket)).status()).toBe(200);
+    const replySelector = 'form[action$="/reply"]';
+    const localizedForms = [];
+    for (const [browserPage, path] of [[page, ticket], [localizedStaff, staffTicket]]) {
+      const form = browserPage.locator(replySelector);
+      await expect(form).toHaveAttribute('action', `${path}/reply`);
+      localizedForms.push({ browserPage, path, fields: await form.evaluate(
+        element => Object.fromEntries(new FormData(element)),
+      ) });
+    }
     expect((await staffPage.goto(`/admin/support/tickets/${id}`)).status()).toBe(200);
     const replyForm = staffPage.locator('form:has(input[value=reply])');
     const stale = await replyForm.evaluate(form => Object.fromEntries(new FormData(form)));
@@ -297,9 +328,6 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(conflict.headers()['content-language']).toBe(lang);
     expect(conflict.headers()['cache-control']).toBe('no-store');
     const conflictHtml = await conflict.text();
-    const [heading, description, openForm] = lang === 'pl'
-      ? ['Konflikt zmian', 'Ten formularz jest nieaktualny.', 'Otwórz aktualny formularz']
-      : ['Update conflict', 'This form is out of date.', 'Open the latest form'];
     expect(conflictHtml).toContain(`<h1>${heading}</h1>`);
     expect(conflictHtml).toContain(`<p>${description}</p>`);
     expect(conflictHtml).not.toContain(staleBody);
@@ -315,6 +343,38 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(current.status()).toBe(200);
     await expect(staffPage.locator('form:has(input[value=reply]) [name=lock_version]'))
       .not.toHaveValue(stale.lock_version);
+    for (const { browserPage, path, fields } of localizedForms) {
+      const attempted = unique();
+      const refusal = await browserPage.request.post(`${path}/reply`, {
+        headers: {
+          accept: 'text/html;q=1, application/json;q=0.1',
+          origin: new URL(browserPage.url()).origin,
+        },
+        form: { ...fields, body: attempted },
+        maxRedirects: 0,
+      });
+      expect(refusal.status()).toBe(409);
+      expect(refusal.headers()['content-type']).toMatch(/^text\/html\b/);
+      expect(refusal.headers()['content-language']).toBe(lang);
+      expect(refusal.headers()['cache-control']).toBe('no-store');
+      const html = await refusal.text();
+      expect(html).toContain(`<h1>${heading}</h1>`);
+      expect(html).toContain(`<p>${description}</p>`);
+      expect(html).not.toContain(attempted);
+      await browserPage.setContent(html);
+      const link = browserPage.getByRole('link', { name: openForm, exact: true });
+      await expect(link).toHaveAttribute('href', path);
+      const [latestForm] = await Promise.all([
+        browserPage.waitForResponse(response =>
+          new URL(response.url()).pathname === path && response.request().method() === 'GET'),
+        link.click(),
+      ]);
+      expect(latestForm.status()).toBe(200);
+      await expect(browserPage.locator(`${replySelector} [name=lock_version]`))
+        .not.toHaveValue(fields.lock_version);
+      await expect(browserPage.locator('main')).toContainText(reply);
+      await expect(browserPage.locator('main')).not.toContainText(attempted);
+    }
     await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'resolved' });
     const ticketSnapshot = async () => (await query(
       `SELECT status, lock_version::text,
@@ -336,9 +396,6 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(stateConflict.headers()['content-language']).toBe(lang);
     expect(stateConflict.headers()['cache-control']).toBe('no-store');
     const stateHtml = await stateConflict.text();
-    const stateCopy = lang === 'pl'
-      ? 'Ta akcja jest niedostępna w bieżącym stanie zgłoszenia.'
-      : 'This action is unavailable in the ticket’s current state.';
     expect(stateHtml).toContain(`<h1>${heading}</h1>`);
     expect(stateHtml).toContain(`<p>${stateCopy}</p>`);
     expect(stateHtml).not.toContain(description);
@@ -366,8 +423,6 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(fallbackHtml).not.toContain(refusedReply);
     expect(await ticketSnapshot()).toEqual(resolved);
 
-
-    const messages = [];
     for (const copy of [replyCopy, statusCopy]) {
       const message = await mail(page, account.email, subject, copy, copy);
       const candidate = message.text.slice(`${subject}\n\n${copy} `.length);
@@ -376,9 +431,12 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
       expect(message.parts.filter(part => part.type === 'text/html').length).toBe(1);
       expect((await page.goto(ticket)).status()).toBe(200);
       await expect(page.locator('main')).toContainText(reply);
-      messages.push(message);
+      unsubscribeLink(page, message);
     }
+  });
 
+  supportTest('moderation decisions send report, sanction and appeal mail', async ({ page, support }) => {
+    const { account, staffPage, lang, subject, heading, description, openForm, stateCopy } = support;
     await page.goto(`/${lang}/support/reports/create`);
     const evidence = unique();
     await submit(page, 'main form', { target_reference: account.id, evidence_summary: evidence });
@@ -416,7 +474,7 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     const reportCopy = `actioned: ${outcome}`;
     const reportNotice = await mail(page, account.email, subject, reportCopy, outcome);
     expect(reportNotice.text === `${subject}\n\n${reportCopy}`, 'only the public report outcome is mailed').toBe(true);
-    messages.push(reportNotice);
+    unsubscribeLink(page, reportNotice);
 
     const reason = unique();
     await staffPage.goto('/admin/moderation/enforcement/create');
@@ -432,7 +490,7 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     for (const marker of [reason, lift]) {
       const message = await mail(page, account.email, subject, marker, marker);
       expect(message.text === `${subject}\n\n${marker}`, 'sanction mail contains only the public reason').toBe(true);
-      messages.push(message);
+      unsubscribeLink(page, message);
     }
 
     await staffPage.goto('/admin/moderation/enforcement/create');
@@ -450,14 +508,43 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     const reviewCopy = 'reviewing:';
     const review = await mail(page, account.email, subject, reviewCopy, reviewCopy);
     expect(review.text === `${subject}\n\n${reviewCopy}`, 'only the appeal status is mailed').toBe(true);
-    messages.push(review);
+    unsubscribeLink(page, review);
     const decision = unique();
     await action(staffPage, 'form:has(input[value=appeal])', { appeal_status: 'accepted', appeal_outcome: decision });
     const appealCopy = `accepted: ${decision}`;
     const appeal = await mail(page, account.email, subject, appealCopy, decision);
     expect(appeal.text === `${subject}\n\n${appealCopy}`, 'only the public appeal outcome is mailed').toBe(true);
-    messages.push(appeal);
+    unsubscribeLink(page, appeal);
+  });
 
+  supportTest('signed support unsubscribe works without a session and isolates account preferences', async ({ page, support }) => {
+    const { account, staff, staffPage, lang, other, subject, replyCopy, statusCopy } = support;
+    const { id } = await createSupportTicket(page, lang);
+    expect((await staffPage.goto(`/admin/support/tickets/${id}`)).status()).toBe(200);
+    const reply = unique();
+    await action(staffPage, 'form:has(input[value=reply])', { body: reply });
+    await expect(staffPage.locator('main')).toContainText(reply);
+    await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'resolved' });
+
+    const [staffAccount] = await query('SELECT id FROM accounts WHERE email=$1', [staff.email]);
+    await staffPage.goto(`/${other}/account/notifications`);
+    await submit(staffPage, 'main form', { support_email: true, support_portal: true });
+    const messages = [];
+    for (const copy of [replyCopy, statusCopy]) {
+      messages.push(await mail(page, account.email, subject, copy, copy));
+    }
+
+    const preferences = async () => {
+      const [row] = await query(
+        `SELECT
+          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS support,
+          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='news') AS news,
+          (SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support') AS portal,
+          (SELECT email_enabled FROM account_notification_prefs WHERE account_id=$2 AND category='support') AS other_support`,
+        [account.id, staffAccount.id],
+      );
+      return row;
+    };
     for (const message of messages) {
       // One-click and email change consume the same ten-per-minute source budget.
       await expect.poll(async () => {
@@ -466,12 +553,8 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
         );
         return usage.used;
       }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(6);
-      expect(message.headers.get('list-unsubscribe-post')).toBe('List-Unsubscribe=One-Click');
-      const candidate = message.headers.get('list-unsubscribe')?.match(/^<(.*)>$/)?.[1];
-      const target = absoluteLink(page, candidate, /^\/(?:en|pl)\/unsubscribe$/);
-      expect([...target.searchParams.keys()]).toEqual(['token']);
-      expect(Boolean(target.searchParams.get('token')), 'one signed unsubscribe capability').toBe(true);
-      await enableSupport();
+      const target = unsubscribeLink(page, message);
+      await enableSupport(page, lang);
       const enabled = { support: true, news: true, portal: true, other_support: true };
       await expect.poll(preferences).toEqual(enabled);
       const anonymous = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
@@ -489,9 +572,7 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     await page.goto(`/${lang}/account/notifications`);
     await expect(page.locator('[name=support_email]')).not.toBeChecked();
     await expect(page.locator('[name=support_portal]')).toBeChecked();
-  } finally {
-    await context.close();
-  }
+  });
 });
 
 test('duplicate registration and referral invitations deliver localized, absolute destinations', async ({ page }, info) => {
