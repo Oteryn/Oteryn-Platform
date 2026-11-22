@@ -215,6 +215,13 @@ fn accepts(headers: &HeaderMap, media_type: &str) -> bool {
         })
 }
 
+/// Paths whose responses are owned by a wire protocol rather than the browser shell.
+pub(crate) fn browser_path(path: &str) -> bool {
+    !matches!(path, "/api" | "/internal" | "/oauth/token")
+        && !path.starts_with("/api/")
+        && !path.starts_with("/internal/")
+}
+
 async fn policy(mut request: Request, next: Next) -> Response {
     let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
     let chrome = request_chrome(&request, lang);
@@ -246,7 +253,7 @@ async fn policy(mut request: Request, next: Next) -> Response {
         && (matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
-        ) || (status == StatusCode::UNAUTHORIZED && html && !json))
+        ) || (status == StatusCode::UNAUTHORIZED && html && !json && browser_path(&path)))
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
     {
@@ -460,6 +467,33 @@ mod tests {
         assert_eq!(body.matches("<script").count(), 1);
         assert!(body.contains("src=\"/static/thais/home.js\""));
         assert!(!body.contains("style="));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn native_runtime_refusal_remains_empty_for_html_accept() -> TestResult {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://localhost/unused")?;
+        let app = finish(oteryn_gameauth::runtime::configured_routes(pool, |key| {
+            match key {
+                "GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED" => Some("true".into()),
+                "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES" => Some(
+                    r#"{"runtime.example.test":["01900000-0000-7000-8000-000000000001/01900000-0000-7000-8000-000000000002"]}"#.into(),
+                ),
+                _ => None,
+            }
+        }));
+        let response = app
+            .oneshot(
+                HttpRequest::post("/internal/v1/game-auth/native-runtime-status")
+                    .header(header::ACCEPT, "text/html")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{}"))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(html(response).await?.is_empty());
         Ok(())
     }
 

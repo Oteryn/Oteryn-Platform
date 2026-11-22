@@ -78,3 +78,17 @@ test('login throttling and a cold account dependency use localized error pages',
     }
   }
 });
+
+test('OAuth token errors preserve their JSON envelope across Accept values', async ({ request }) => {
+  for (const accept of ['application/json', 'text/html', '*/*', 'text/html, application/json', undefined]) {
+    const response = await request.post('/oauth/token', {
+      form: { grant_type: 'unsupported', client_id: 'e2e-local' },
+      headers: accept ? { accept } : {},
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(400);
+    expect(response.headers()['content-type']).toMatch(/^application\/json\b/);
+    expect(response.headers()['cache-control']).toContain('no-store');
+    expect(await response.json()).toEqual({ error: 'invalid_request' });
+  }
+});
