@@ -70,8 +70,13 @@ async function post(page, route, form, source) {
 
 function redirect(response, status, location) {
   expect(response.status(), new URL(response.url()).pathname).toBe(status);
-  expect(response.headers().location).toMatch(location);
-  return response.headers().location;
+  const actual = response.headers().location;
+  if (typeof location === 'string') {
+    expect(actual).toBe(location);
+  } else {
+    expect(actual).toMatch(location);
+  }
+  return actual;
 }
 
 async function denied(response, lang, { message = sharedMessage[lang], retry } = {}) {
