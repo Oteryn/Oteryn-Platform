@@ -1,32 +1,10 @@
-import { spawnSync } from 'node:child_process';
 import { test, expect } from '../fixtures.mjs';
-import { login, password, pool } from '../helpers.mjs';
-import { loginWithRecoveryCode, query, unique } from '../staff-rbac-helpers.mjs';
-
-async function seed(entity, args) {
-  const binary = process.env.PORTAL_E2E_BINARY;
-  if (!binary) throw new Error('Set PORTAL_E2E_BINARY to the harness portal binary');
-  const connection = pool();
-  const database = connection.options.connectionString;
-  await connection.end();
-  const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
-    encoding: 'utf8',
-    env: { ...process.env, OTERYN_DATABASE_URL: database },
-  });
-  expect(result.status, `seed ${entity} succeeded`).toBe(0);
-  return JSON.parse(result.stdout);
-}
+import { login } from '../helpers.mjs';
+import { loginWithRecoveryCode, query, seedAccount, unique } from '../staff-rbac-helpers.mjs';
 
 async function signIn(page, lang, role) {
-  const credentials = { email: `${unique()}@example.invalid`, password: password() };
-  const { accountId } = await seed('account', { ...credentials, locale: lang });
+  const { credentials, accountId, recoveryCodes } = await seedAccount(lang, role);
   if (role) {
-    const { recoveryCodes } = await seed('account-mfa', { accountId, password: credentials.password });
-    const grants = await query(
-      'INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2 AND built_in RETURNING role_id',
-      [accountId, role],
-    );
-    expect(grants).toHaveLength(1);
     await loginWithRecoveryCode(page, lang, credentials, recoveryCodes[0]);
   } else {
     await login(page, lang, credentials);

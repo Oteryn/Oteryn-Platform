@@ -674,3 +674,35 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
     assert_eq!(status, StatusCode::FOUND, "admin-origin login form");
     Ok(())
 }
+
+#[test]
+fn staff_dashboard_return_is_exact_and_bound_to_the_staff_host() {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::HOST, "staff.test".parse().unwrap());
+    assert!(dashboard_return(
+        Some("return_to=/admin"),
+        &headers,
+        Some("staff.test")
+    ));
+    for query in [
+        None,
+        Some("return_to=//staff.test/admin"),
+        Some("return_to=/admin/roles"),
+        Some("return_to=/admin&return_to=//staff.test/admin"),
+    ] {
+        assert!(!dashboard_return(query, &headers, Some("staff.test")));
+    }
+    assert!(!dashboard_return(
+        Some("return_to=/admin"),
+        &headers,
+        Some("public.test")
+    ));
+    headers.append(header::HOST, "public.test".parse().unwrap());
+    assert!(!dashboard_return(
+        Some("return_to=/admin"),
+        &headers,
+        Some("staff.test")
+    ));
+    assert!(accepted("/admin"));
+    assert!(!accepted("/admin/roles"));
+}

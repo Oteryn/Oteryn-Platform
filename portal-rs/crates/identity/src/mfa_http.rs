@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, Request, State},
+    extract::{ConnectInfo, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
@@ -145,7 +145,11 @@ async fn rewrite_login(mut request: Request, next: Next) -> Response {
         request.uri().path().contains("/mfa") || request.uri().path().ends_with("/login");
     let path = request.uri().path();
     if ["/login", "/pl/login", "/en/login"].contains(&path) {
-        let replacement = path.replace("/login", "/mfa/login");
+        let mut replacement = path.replace("/login", "/mfa/login");
+        if let Some(query) = request.uri().query() {
+            replacement.push('?');
+            replacement.push_str(query);
+        }
         if let Ok(uri) = replacement.parse() {
             *request.uri_mut() = uri;
         }
@@ -268,7 +272,10 @@ async fn page(
 async fn show_login(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    crate::login_http::remember_staff_dashboard(&session, query.as_deref(), &headers).await?;
     page(
         language,
         &session,

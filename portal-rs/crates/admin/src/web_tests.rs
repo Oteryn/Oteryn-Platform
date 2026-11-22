@@ -104,7 +104,10 @@ async fn host_flag_session_and_mfa_boundaries() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let response = request(app(pool.clone(), None, true), "/admin", "staff.test").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert_eq!(response.headers()[header::LOCATION], "/login");
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "/login?return_to=/admin"
+    );
     let response = request(
         app(
             pool,

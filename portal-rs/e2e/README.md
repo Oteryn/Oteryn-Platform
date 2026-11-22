@@ -364,3 +364,11 @@ The spec creates disposable accounts through the seed CLI and signs in through
 the browser, using recovery codes for staff MFA. The GM checks cover Platform
 authorization and offline Game states. The alarm fixture is a Platform audit
 row, and the harness supplies no Game producer for these checks.
+
+For the cross-host dashboard return spec, use the same harness options with
+`OTERYN_ADMIN_HOST=127.0.0.1:18443` and keep the public origin on
+`https://localhost:18443`. From `portal-rs/e2e` run:
+
+```sh
+node run.mjs .harness/run/secrets/env.json test --config staff-host/playwright.config.mjs
+```

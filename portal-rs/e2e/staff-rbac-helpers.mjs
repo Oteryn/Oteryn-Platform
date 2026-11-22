@@ -1,8 +1,9 @@
 import {expect} from '@playwright/test';
+import { spawnSync } from 'node:child_process';
 import * as OTPAuth from 'otpauth';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {pool,csrfRejected,submit,register,login} from './helpers.mjs';
+import {pool,csrfRejected,submit,register,login,password} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
 export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
 export async function query(sql,args=[],databaseURL){const db=pool(databaseURL);try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
@@ -48,4 +49,31 @@ export async function isolatedAdmin(browser,info){
   await loginWithRecoveryCode(page,lang,account,codes[0]);
   return {context,page,account,password:account.password,codes};
  }catch(error){await context.close();throw error;}
+}
+
+export async function seed(entity, args) {
+  const binary = process.env.PORTAL_E2E_BINARY;
+  if (!binary) throw new Error('Set PORTAL_E2E_BINARY to the harness portal binary');
+  const connection = pool();
+  const database = connection.options.connectionString;
+  await connection.end();
+  const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
+    encoding: 'utf8',
+    env: { ...process.env, OTERYN_DATABASE_URL: database },
+  });
+  expect(result.status, `seed ${entity} succeeded`).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
+export async function seedAccount(lang, role) {
+  const credentials = { email: `${unique()}@example.invalid`, password: password() };
+  const { accountId } = await seed('account', { ...credentials, locale: lang });
+  if (!role) return { credentials, accountId };
+  const { recoveryCodes } = await seed('account-mfa', { accountId, password: credentials.password });
+  const grants = await query(
+    'INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2 AND built_in RETURNING role_id',
+    [accountId, role],
+  );
+  expect(grants).toHaveLength(1);
+  return { credentials, accountId, recoveryCodes };
 }

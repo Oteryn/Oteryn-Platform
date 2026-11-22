@@ -360,7 +360,13 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let Some(identity) = s.identity.resolve(session).await else {
-        return Redirect::to("/login").into_response();
+        let login =
+            if request.method() == axum::http::Method::GET && request.uri().path() == "/admin" {
+                "/login?return_to=/admin"
+            } else {
+                "/login"
+            };
+        return Redirect::to(login).into_response();
     };
     if !identity.mfa_satisfied {
         return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
