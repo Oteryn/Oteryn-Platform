@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { SMTPServer } from 'smtp-server';
 
 const e2e = fileURLToPath(new URL('../', import.meta.url));
-export async function run({ config, args, portalOptions = {} }) {
+// An existing Playwright worker can use the isolated portal through exercise.
+export async function run({ config, args, portalOptions = {}, harnessEnv = {} }, exercise) {
   const binary = path.resolve(process.env.PORTAL_E2E_BINARY
     || path.join(e2e, '../target/debug/oteryn-portal'));
   fs.accessSync(binary, fs.constants.X_OK);
@@ -17,9 +18,9 @@ export async function run({ config, args, portalOptions = {} }) {
   const output = path.join(scratch, 'harness');
   const launch = path.join(scratch, 'launch-portal.mjs');
   const seed = path.join(scratch, 'seed.json');
-  const nativePort = Number(process.env.PORTAL_API_NATIVE_PORT || 18544);
+  const nativePort = Number(harnessEnv.PORTAL_API_NATIVE_PORT || process.env.PORTAL_API_NATIVE_PORT || 18544);
   const publicOrigin = `https://127.0.0.1:${nativePort}`;
-  const smtpPort = Number(process.env.PORTAL_API_SMTP_PORT || 18587);
+  const smtpPort = Number(harnessEnv.PORTAL_API_SMTP_PORT || process.env.PORTAL_API_SMTP_PORT || 18587);
   const smtpPassword = randomBytes(32).toString('hex');
   const clientId = '019a5f4a-1000-7000-8000-000000000001';
   const redirect = 'http://127.0.0.1:41000/callback';
@@ -84,7 +85,7 @@ export async function run({ config, args, portalOptions = {} }) {
 
   const harness = spawn(process.execPath, ['harness.mjs', '--seed-plan', seed], {
     cwd: e2e,
-    env: { ...process.env, PORTAL_E2E_BINARY: launch, PORTAL_E2E_OUT: output,
+    env: { ...process.env, ...harnessEnv, PORTAL_E2E_BINARY: launch, PORTAL_E2E_OUT: output,
       OTERYN_PUBLIC_ORIGIN: publicOrigin,
       PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY: 'oteryn-game/store-consumer' },
     stdio: ['ignore', 'pipe', 'inherit'],
@@ -122,6 +123,11 @@ export async function run({ config, args, portalOptions = {} }) {
       smtp.once('error', reject);
       smtp.listen(smtpPort, '127.0.0.1', resolve);
     })]);
+    const databaseURL = JSON.parse(fs.readFileSync(path.join(output, 'secrets', 'env.json'))).OTERYN_DATABASE_URL;
+    if (exercise) {
+      await Promise.race([interruption, exercise({ origin: publicOrigin, databaseURL, account: steps[0].args })]);
+      return;
+    }
     playwright = spawn(process.execPath,
       ['node_modules/@playwright/test/cli.js', 'test', '-c', config, ...args],
       { cwd: e2e, env: { ...process.env, PORTAL_API_CONTRACT_HARNESS: output,
@@ -130,7 +136,7 @@ export async function run({ config, args, portalOptions = {} }) {
         PORTAL_API_OTHER_LOGIN_PASSWORD: steps[1].args.password,
         PORTAL_API_WEBHOOK_SECRET: webhookSecret,
         NODE_EXTRA_CA_CERTS: path.join(output, 'certs', 'ca.pem'),
-        PORTAL_E2E_DATABASE_URL: JSON.parse(fs.readFileSync(path.join(output, 'secrets', 'env.json'))).OTERYN_DATABASE_URL }, stdio: 'inherit' });
+        PORTAL_E2E_DATABASE_URL: databaseURL }, stdio: 'inherit' });
     playwrightStopped = once(playwright, 'close');
     const [code] = await Promise.race([interruption, playwrightStopped]);
     process.exitCode = code ?? 1;

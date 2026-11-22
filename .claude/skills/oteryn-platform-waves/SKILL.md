@@ -6,9 +6,8 @@ description: Planning and running several portal-rs plan tasks as a wave in Oter
 # Planning and landing waves
 
 A wave is a few plan tasks built in parallel and landed one after another.
-Parallel work is fast only while the units truly share nothing; the
-Merge Queue does not run `Portal RS CI`, so two units that collide are
-found only on `main` (`oteryn-platform-dev` `references/ci-merge.md`,
+Parallel work is fast only while the units truly share nothing; there is
+no Merge Queue, so two units that collide are found only on `main` (`oteryn-platform-dev` `references/ci-merge.md`,
 *Blind spot*).
 
 ## 1. Choose and slice

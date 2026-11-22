@@ -744,15 +744,288 @@ pub(super) fn test_render(language: &str) -> std::result::Result<String, askama:
 
 #[cfg(test)]
 #[tokio::test]
-async fn limiter_response_preserves_retry_after_and_locale() {
+async fn limiter_response_preserves_retry_after_and_locale() -> std::result::Result<(), axum::Error>
+{
     for (lang, title) in [("en", "Too many requests"), ("pl", "Zbyt wiele żądań")] {
         let response = limiter_response(Denial::Limited { retry_after: 23 }, lang);
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "23");
         assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
-        let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .expect("localized limiter response body");
+        let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await?;
         assert!(String::from_utf8_lossy(&body).contains(title));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        extract::ConnectInfo,
+    };
+    use oteryn_admin::web::{PanelConfig, PortalIdentity};
+    use sha2::{Digest, Sha256};
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    use tower::ServiceExt;
+
+    type TestError = Box<dyn std::error::Error + Send + Sync>;
+    type TestResult = std::result::Result<(), TestError>;
+
+    async fn frozen_clock_pool(
+        url: &str,
+        admin: &PgPool,
+        schema: &str,
+        second: u32,
+    ) -> std::result::Result<PgPool, TestError> {
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(admin)
+            .await?;
+        // Use the real limiter SQL and resolve its statement clock in this test
+        // schema. Other PostgreSQL sessions and clocks retain their normal behavior.
+        let options = url.parse::<PgConnectOptions>()?.options([
+            ("search_path", format!("{schema},pg_catalog")),
+            ("oteryn.test_clock_second", second.to_string()),
+        ]);
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .connect_with(options)
+            .await?;
+        oteryn_db::migrate(&pool).await?;
+        sqlx::query(
+            "CREATE FUNCTION statement_timestamp() RETURNS timestamptz LANGUAGE sql STABLE
+             AS $$ SELECT TIMESTAMPTZ '2026-11-22 00:00:00+00' +
+                 make_interval(secs => current_setting('oteryn.test_clock_second')::integer) $$",
+        )
+        .execute(&pool)
+        .await?;
+        Ok(pool)
+    }
+
+    async fn account_session(
+        pool: &PgPool,
+        locale: &str,
+    ) -> std::result::Result<(Uuid, String, String), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        let account = oteryn_identity::accounts::Accounts::create(
+            &mut conn,
+            &format!("{}@example.test", Uuid::now_v7()),
+            "unused-test-hash",
+            locale,
+        )
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+        oteryn_identity::accounts::Accounts::mark_verified(&mut conn, account.id).await?;
+
+        let token = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
+        let csrf = Uuid::now_v7().simple().to_string().repeat(2);
+        sqlx::query(
+            "INSERT INTO web_sessions(id_hash, account_id, csrf_token, user_agent_summary,
+                idle_expires_at, absolute_expires_at)
+             VALUES ($1, $2, $3, 'test', now() + interval '1 hour', now() + interval '1 day')",
+        )
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .bind(account.id)
+        .bind(&csrf)
+        .execute(&mut *conn)
+        .await?;
+        drop(conn);
+        let cookie = format!("{}={token}", oteryn_web::session::COOKIE_NAME);
+        crate::test_staff::browser(pool, account.id, &cookie).await?;
+        Ok((account.id, cookie, csrf))
+    }
+
+    async fn ticket_snapshot(pool: &PgPool) -> Result<serde_json::Value> {
+        Ok(sqlx::query_scalar(
+            "SELECT jsonb_build_array(
+                (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM tickets t),
+                (SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM ticket_messages m)
+            )",
+        )
+        .fetch_one(pool)
+        .await?)
+    }
+
+    async fn assert_ticket_route_quota(
+        pool: &PgPool,
+        app: &Router,
+        policy: NamedPolicy,
+        budget: i64,
+        locale: (&str, &str),
+        retry_after: &str,
+        request: impl Fn(i64) -> std::result::Result<Request, axum::http::Error>,
+    ) -> TestResult {
+        let (lang, title) = locale;
+        for attempt in 1..=budget {
+            let response = app.clone().oneshot(request(attempt)?).await?;
+            assert_eq!(
+                response.status(),
+                StatusCode::FOUND,
+                "{policy:?} {lang} request {attempt}"
+            );
+        }
+
+        let before = ticket_snapshot(pool).await?;
+        let response = app.clone().oneshot(request(budget + 1)?).await?;
+        assert_eq!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "{policy:?} {lang}"
+        );
+        let (charged, total): (i64, i64) = sqlx::query_as(
+            "SELECT max(count), sum(count)::bigint FROM web_rate_limits WHERE limiter_name=$1",
+        )
+        .bind(policy.name())
+        .fetch_one(pool)
+        .await?;
+        assert_eq!(
+            (charged, total),
+            (budget + 1, budget + 1),
+            "{policy:?} {lang}"
+        );
+
+        let headers = response.headers();
+        assert_eq!(
+            headers[header::RETRY_AFTER],
+            retry_after,
+            "{policy:?} {lang}"
+        );
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        assert_eq!(headers[header::CONTENT_LANGUAGE], lang);
+        assert!(
+            headers[header::CONTENT_TYPE]
+                .to_str()?
+                .starts_with("text/html")
+        );
+        let html = String::from_utf8(to_bytes(response.into_body(), 64 * 1024).await?.to_vec())?;
+        assert!(
+            html.contains(&format!("<html lang=\"{lang}\"")),
+            "{policy:?} {lang}"
+        );
+        assert!(html.contains(title), "{policy:?} {lang}");
+        assert_eq!(
+            ticket_snapshot(pool).await?,
+            before,
+            "{policy:?} {lang} mutated ticket state"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn postgres_ticket_write_routes_preserve_localized_throttle_responses() -> TestResult {
+        let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+            eprintln!("Skipping PostgreSQL support test: PORTAL_TEST_DATABASE_URL is unset");
+            return Ok(());
+        };
+        let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+        let admin = oteryn_db::lazy_pool(&url)?;
+        for (locale, clock_second, retry_after) in [
+            (("pl", "Zbyt wiele żądań"), 37, "23"),
+            (("en", "Too many requests"), 11, "49"),
+        ] {
+            let schema = format!("support_route_{}", Uuid::now_v7().simple());
+            let pool = frozen_clock_pool(&url, &admin, &schema, clock_second).await?;
+            let (lang, _) = locale;
+            let (owner, owner_cookie, owner_csrf) = account_session(&pool, lang).await?;
+            let (staff, staff_cookie, staff_csrf) = account_session(&pool, lang).await?;
+            let assigned = sqlx::query(
+                "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+            )
+            .bind(staff)
+            .execute(&pool)
+            .await?;
+            assert_eq!(assigned.rows_affected(), 1);
+
+            let tickets = Tickets {
+                pool: pool.clone(),
+                notifications: Arc::new(Notifications {
+                    pool: pool.clone(),
+                    accounts: Arc::new(NotifyAccounts(pool.clone())),
+                    unsubscribe: oteryn_notify::Unsubscribe::new(
+                        Uuid::now_v7().simple().to_string().into_bytes(),
+                        "https://portal.example.test/unsubscribe".into(),
+                    )?,
+                }),
+                enabled: true,
+                open_limit: 10,
+            };
+            let player_origin = "http://localhost:3000";
+            let staff_host = "staff.test";
+            let staff_origin = "https://staff.test";
+            let identity = PortalIdentity::configured_from(pool.clone(), &|key| {
+                (key == "OTERYN_MFA_KEY").then(|| Uuid::now_v7().simple().to_string().repeat(2))
+            });
+            let app = router(tickets.clone(), player_origin).merge(staff_router(
+                tickets.clone(),
+                PanelConfig {
+                    admin_panel: true,
+                    host: staff_host.to_owned(),
+                },
+                identity.clone(),
+                identity,
+            ));
+            let peer = ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 3210)));
+            let form = |path: &str, origin: &str, host: &str, cookie: &str| {
+                Request::post(path)
+                    .header(header::HOST, host)
+                    .header(header::ORIGIN, origin)
+                    .header(header::COOKIE, cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .extension(peer)
+            };
+
+            let create = format!("/{lang}/support/tickets");
+            assert_ticket_route_quota(
+                &pool, &app, NamedPolicy::SupportTicketCreate, 6, locale, retry_after,
+                |attempt| form(&create, player_origin, "localhost:3000", &owner_cookie)
+                    .body(Body::from(format!(
+                        "_csrf={owner_csrf}&request_key={}&category=other&subject=Ticket+{attempt}&body=Help",
+                        Uuid::now_v7()
+                    ))),
+            ).await?;
+
+            let ticket = tickets
+                .create(owner, Uuid::now_v7(), "other", "Staff test", "Help")
+                .await?;
+            let reply = format!("/{lang}/admin/support/tickets/{}/reply", ticket.id);
+            assert_ticket_route_quota(
+                &pool,
+                &app,
+                NamedPolicy::SupportTicketReply,
+                12,
+                locale,
+                retry_after,
+                |version| {
+                    form(&reply, staff_origin, staff_host, &staff_cookie).body(Body::from(format!(
+                        "_csrf={staff_csrf}&lock_version={version}&body=Reply+{version}"
+                    )))
+                },
+            )
+            .await?;
+
+            let (ticket, _) = tickets.show(owner, false, ticket.id).await?;
+            let status = format!("/{lang}/admin/support/tickets/{}/status", ticket.id);
+            assert_ticket_route_quota(
+                &pool,
+                &app,
+                NamedPolicy::SupportTicketStatus,
+                12,
+                locale,
+                retry_after,
+                |attempt| {
+                    let version = ticket.lock_version + attempt - 1;
+                    let next = if attempt % 2 == 1 { "closed" } else { "open" };
+                    form(&status, staff_origin, staff_host, &staff_cookie).body(Body::from(
+                        format!("_csrf={staff_csrf}&lock_version={version}&status={next}"),
+                    ))
+                },
+            )
+            .await?;
+            pool.close().await;
+            sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+                .execute(&admin)
+                .await?;
+        }
+        Ok(())
     }
 }
