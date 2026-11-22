@@ -10,6 +10,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
+import { prepareGameApi } from './gameapi-stack.mjs';
+import { localPostgresUrl } from './postgres-url.mjs';
 import { startLocalOutbox } from './support/local-outbox.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
@@ -18,9 +20,7 @@ dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scratch=process.env.PORTAL_E2E_SCRATCH || fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-'));
 fs.mkdirSync(scratch,{recursive:true,mode:0o700});
-const adminURL=process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
-if(!adminURL) throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a throwaway local PostgreSQL administrator URL');
-if(!['localhost','127.0.0.1','[::1]'].includes(new URL(adminURL).hostname)) throw new Error('Local PostgreSQL only');
+const adminURL=localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL).href;
 const dbName=`portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
 const testName=`${dbName}_tests`;
 const admin=new pg.Client({connectionString:adminURL});await admin.connect();
@@ -37,7 +37,6 @@ for(const key of ['OTERYN_ACCOUNT_LOGIN','OTERYN_ACCOUNT_MFA','OTERYN_ACCOUNT_PA
 Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
  OTERYN_ADMIN_ANALYTICS_INGEST:'true',OTERYN_ADMIN_ANALYTICS_PRESENT:'true',OTERYN_ADMIN_ANALYTICS_AUTHORITY:'e2e-local',OTERYN_ADMIN_ANALYTICS_PRIVACY:'e2e-local',
- PORTAL_OAUTH_CONFIG:JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
  OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:'localhost:18443',
  OTERYN_STATIC_DIR:path.join(root,'static'),OTERYN_DATABASE_URL:databaseURL(dbName),PORTAL_E2E_DATABASE_URL:databaseURL(dbName),PORTAL_TEST_DATABASE_URL:databaseURL(testName),
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
@@ -115,6 +114,7 @@ if(!binary){
 }
 binary=path.resolve(root,binary);
 env.PORTAL_E2E_BINARY=binary;
+const gatewayEnv=prepareGameApi(scratch,binary,env);
 command(binary,['migrate']);
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
@@ -150,7 +150,14 @@ const proxy=https.createServer(tls,(req,res)=>{
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });
 proxy.listen(18443,'127.0.0.1');
-const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
+const children=['serve','worker','gateway'].map(role=>{
+ const log=fs.openSync(path.join(scratch,`${role}.log`),'a',0o600);
+ try {
+  return spawn(binary,[role],{cwd:root,env:role==='gateway'?gatewayEnv:env,stdio:['ignore',log,log]});
+ } finally {
+  fs.closeSync(log);
+ }
+});
 league.start();
 await gameProducer.start();
 const outbox = startLocalOutbox(scratch, binary);
@@ -177,6 +184,16 @@ async function close(code=0) {
 }
 process.on('SIGINT',()=>void close());
 process.on('SIGTERM',()=>void close());
+for(const [index,child] of children.entries()){
+ const role=['serve','worker','gateway'][index];
+ const failed=()=>{
+  if(closing)return;
+  console.error(`Local ${role} stopped. See its private log.`);
+  void close(1);
+ };
+ child.once('error',failed);
+ child.once('exit',failed);
+}
 try {
  Object.assign(env,await outbox.ready);
  fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});

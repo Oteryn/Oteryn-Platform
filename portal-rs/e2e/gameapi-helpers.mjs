@@ -1,22 +1,15 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
 import { fixtureDatabaseURL, pool } from './helpers.mjs';
-import { characterSourceAuthority } from './game-closure-producer.mjs';
 import { uuid7 } from './game-sim-helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const portal = path.resolve(here, '..');
-export const clientId = '019a0000-0000-7000-8000-0000000c11e7';
-export const origin = 'https://localhost:18443';
-export const gateway = 'http://127.0.0.1:18090';
-export const nativeTls = 'https://localhost:18447';
-export const callback = origin + '/__oauth/callback';
-export const packageId = '019a0000-0000-7000-8000-000000000123';
+export { callback, clientId, gateway, nativeTls, origin, packageId } from './gameapi-stack.mjs';
 
 export function sha256(bytes) {
   return createHash('sha256').update(bytes);
@@ -120,66 +113,7 @@ export function providerEvent(request, body, offset = 0) {
   });
 }
 
-// From e2e/ with the local database administrator URL and a built binary:
-// node gameapi-helpers.mjs
-// node run.mjs <scratch>/env.json test 'gameapi-.*\.spec\.mjs' --retries=0
-// Run with PORTAL_E2E_ADMIN_DATABASE_URL and a built portal binary, as in README.md.
-// local.mjs owns the browser, mail, database, and documented Game producers.
-function start() {
-  const executable = path.resolve(process.env.PORTAL_E2E_BINARY ?? path.join(portal, 'target/debug/oteryn-portal'));
-  const scratch = mkdtempSync(path.join(tmpdir(), 'portal-gameapi-'));
-  const wrapper = path.join(scratch, 'portal');
-  writeFileSync(wrapper, '#!/bin/sh\nexport PORTAL_OAUTH_CONFIG="$PORTAL_GAMEAPI_OAUTH_CONFIG"\nexec "$PORTAL_GAMEAPI_REAL_BINARY" "$@"\n', { mode: 0o700 });
-  const token = randomBytes(32).toString('base64url');
-  const tokenFile = path.join(scratch, 'gateway-token');
-  const digestFile = path.join(scratch, 'gateway-token.sha256');
-  writeFileSync(tokenFile, token, { mode: 0o600 });
-  writeFileSync(digestFile, sha256(token).digest('hex'), { mode: 0o600 });
-  const env = {
-    ...process.env,
-    PORTAL_E2E_SCRATCH: scratch,
-    PORTAL_E2E_BINARY: wrapper,
-    PORTAL_GAMEAPI_REAL_BINARY: executable,
-    PORTAL_GAMEAPI_OAUTH_CONFIG: JSON.stringify({
-      enabled: true,
-      clients: [clientId, 'e2e-local'].map(client_id => ({ client_id, redirect_uris: [callback] })),
-    }),
-    OTERYN_NATIVE_TLS_BIND: '127.0.0.1:18447',
-    OTERYN_NATIVE_TLS_CERT_FILE: path.join(scratch, 'cert.pem'),
-    OTERYN_NATIVE_TLS_KEY_FILE: path.join(scratch, 'key.pem'),
-    OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY: characterSourceAuthority,
-    PORTAL_PAYMENTS_PROVIDER_WEBHOOK_SECRET: randomBytes(32).toString('base64url'),
-    PORTAL_NATIVE_ADMISSION_BIND: '127.0.0.1:18091',
-    PORTAL_GATEWAY_TOKEN_SHA256_FILE: digestFile,
-    PORTAL_COIN_PACKAGES: JSON.stringify([{
-      id: packageId, title: 'E2E coin package', coins: 500,
-      price: { minor_units: 499, currency: 'PLN', exponent: 2 }, valid_for_seconds: 300,
-    }]),
-    TRUSTED_PROXIES: '127.0.0.1',
-  };
-  const local = spawn(process.execPath, [path.join(here, 'local.mjs')], { env, stdio: 'inherit' });
-  const edge = spawn(executable, ['gateway'], {
-    env: {
-      ...process.env,
-      GATEWAY_LISTEN_ADDR: new URL(gateway).host,
-      GATEWAY_TRUSTED_PROXIES: '127.0.0.1',
-      GATEWAY_NATIVE_LOGIN_ENABLED: 'true',
-      GATEWAY_NATIVE_PROTOCOL3_ENABLED: 'false',
-      GATEWAY_VERSION: 'e2e-gameapi',
-      OTERYN_PLATFORM_BASE_URL: 'http://127.0.0.1:18091',
-      OTERYN_PLATFORM_SERVICE_TOKEN_FILE: tokenFile,
-    },
-    stdio: 'inherit',
-  });
-  for (const signal of ['SIGINT', 'SIGTERM']) {
-    process.on(signal, () => { local.kill(signal); edge.kill(signal); });
-  }
-  for (const [child, other] of [[local, edge], [edge, local]]) {
-    child.on('exit', code => {
-      other.kill('SIGTERM');
-      process.exitCode ||= code ?? 0;
-    });
-  }
+// Keep the previous dedicated launcher usable for local diagnosis.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await import('./local.mjs');
 }
-
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) start();
