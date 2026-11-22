@@ -725,9 +725,9 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
 -> Result {
     use oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION;
 
-    let Some(db) = Database::empty_legal().await? else {
-        return Ok(());
-    };
+    let db = Database::empty_legal()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the legal signup test")?;
     assert_eq!(
         db.app()
             .oneshot(Request::get("/en/register").body(Body::empty())?)
@@ -735,11 +735,10 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
             .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-    assert!(
-        register::register(&db.pool, input(), &ConsentConfig::default(), "en", None)
-            .await
-            .is_err()
-    );
+    assert!(matches!(
+        register::register(&db.pool, input(), &ConsentConfig::default(), "en", None).await,
+        Err(register::Error::LegalUnavailable)
+    ));
 
     let version = PLACEHOLDER_LEGAL_VERSION;
     let placeholder_fields = [("terms", version), ("privacy", version)];
@@ -932,9 +931,9 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
 
 #[tokio::test]
 async fn signup_consent_keeps_the_accepted_edition_after_changing_language() -> Result {
-    let Some(db) = Database::new().await? else {
-        return Ok(());
-    };
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the edition attribution test")?;
     for (accepted, changed, expected_body) in [
         ("pl", "en", "Zatwierdzony dokument testowy."),
         ("en", "pl", "Accepted English fixture edition."),
@@ -970,5 +969,26 @@ async fn signup_consent_keeps_the_accepted_edition_after_changing_language() -> 
             ),)
         );
     }
+    db.close().await
+}
+
+#[tokio::test]
+async fn registration_abuse_failure_is_distinct_from_legal_unavailability() -> Result {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the registration error test")?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=false")
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        register::register(&db.pool, input(), &ConsentConfig::default(), "en", None).await,
+        Err(register::Error::Backend(sqlx::Error::Protocol(_)))
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM accounts")
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
     db.close().await
 }

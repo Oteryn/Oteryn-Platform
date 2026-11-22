@@ -142,8 +142,8 @@ async fn submit(
     register::register(&state.db, input, &config, language.code(), Some(source))
         .await
         .map_err(|error| match error {
-            sqlx::Error::Protocol(_) => StatusCode::SERVICE_UNAVAILABLE,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
+            register::Error::LegalUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            register::Error::Backend(_) => StatusCode::INTERNAL_SERVER_ERROR,
         })?;
     session::rotate(&session, PrivilegeChange::Reissue)
         .await
