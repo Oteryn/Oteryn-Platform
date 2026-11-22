@@ -10,7 +10,7 @@ function canonicalSecret(value) {
   return /^[A-Za-z0-9_-]{43}$/.test(value) && Buffer.from(value, 'base64url').toString('base64url') === value;
 }
 
-async function deviceResponse(response, file, now, previous, characters) {
+async function deviceResponse(response, file, now, previous, characters, startedAt = now) {
   expect(response.status()).toBe(200);
   expect(response.headers()['content-type']).toBe('application/json');
   expect(response.headers()['cache-control']).toContain('no-store');
@@ -37,7 +37,9 @@ async function deviceResponse(response, file, now, previous, characters) {
     absolute_expires_at: absolute, idle_expires_at: idle });
   if (file === 'ticket-response.json') {
     expect(canonicalSecret(actual.ticket)).toBe(true);
-    expect(Math.abs(actual.expires_at - now - 60)).toBeLessThan(10);
+    expect(Number.isInteger(actual.expires_at)).toBe(true);
+    expect(actual.expires_at).toBeGreaterThanOrEqual(startedAt + expected.expires_in);
+    expect(actual.expires_at).toBeLessThanOrEqual(now + 60);
     Object.assign(expected, { ticket: actual.ticket, expires_at: actual.expires_at });
   }
   if (characters) expected.characters = characters;
@@ -56,8 +58,9 @@ export async function qualifyRememberedDevice(bearer, characters) {
       vector('enroll.json'), bearer), 'enroll-response.json', now());
     const rotated = await deviceResponse(await exchange(client, 'POST', route + '/native-characters',
       operation, credential(issued)), 'enroll-response.json', now(), issued, characters);
+    const ticketStartedAt = now();
     const ticketed = await deviceResponse(await exchange(client, 'POST', route + '/tickets',
-      operation, credential(rotated)), 'ticket-response.json', now(), rotated);
+      operation, credential(rotated)), 'ticket-response.json', now(), rotated, undefined, ticketStartedAt);
     await wire(await exchange(client, 'POST', route + '/revoke', operation, credential(ticketed)),
       200, vector('revoke-response.json'));
     await wire(await exchange(client, 'POST', route + '/tickets', operation, credential(ticketed)),

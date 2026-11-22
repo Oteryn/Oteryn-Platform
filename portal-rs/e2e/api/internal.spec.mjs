@@ -51,6 +51,23 @@ const storeCases = [
   ['operations/receipt', 'receipt.deliver-item.committed.json', 404, ''],
 ];
 
+async function storeWire(response, status, body, cacheControl = 'no-store') {
+  expect(response.headers()['cache-control']).toBe(cacheControl);
+  await wire(response, status, body);
+}
+
+async function rejectNonCanonicalStoreRequests(client, route, data, cacheControl) {
+  const entries = Object.entries(JSON.parse(data));
+  const reordered = jsonBytes(Object.fromEntries([entries[1], entries[0], ...entries.slice(2)]));
+  const spaced = Buffer.concat([Buffer.from('{ '), data.subarray(1)]);
+  for (const [variant, bytes] of [['unknown member', withUnknown(data)],
+    ['extra whitespace', spaced], ['reordered members', reordered]]) {
+    await test.step(variant, async () => {
+      await storeWire(await exchange(client, 'POST', route, bytes), 400, '', cacheControl);
+    });
+  }
+}
+
 for (const [operation, file, status, body] of storeCases) {
   test(`Store ${operation} enforces identity and closed request framing`, async () => {
     const route = `/internal/v1/products-entitlements/store/${operation}`;
@@ -58,9 +75,9 @@ for (const [operation, file, status, body] of storeCases) {
     const wrongPeer = await connect('internal', 'sanctions');
     const data = jsonBytes(JSON.parse(fixture('store-wire-v1', file)));
     try {
-      await wire(await exchange(wrongPeer, 'POST', route, data), 401, '');
-      await wire(await exchange(client, 'POST', route, withUnknown(data)), 400, '');
-      await wire(await exchange(client, 'POST', route, data), status, body);
+      await storeWire(await exchange(wrongPeer, 'POST', route, data), 401, '');
+      await rejectNonCanonicalStoreRequests(client, route, data);
+      await storeWire(await exchange(client, 'POST', route, data), status, body);
     } finally {
       await Promise.all([client.dispose(), wrongPeer.dispose()]);
     }
@@ -74,9 +91,9 @@ test('Store purchase persists the fixture digest and replays its restricted-acco
   const client = await connect('internal', 'store');
   const wrongPeer = await connect('internal', 'sanctions');
   try {
-    await wire(await exchange(wrongPeer, 'POST', route, data), 401, '');
-    await wire(await exchange(client, 'POST', route, withUnknown(data)), 400, '');
-    await wire(await exchange(client, 'POST', route, Buffer.alloc(1025, ' ')), 413, '');
+    await storeWire(await exchange(wrongPeer, 'POST', route, data), 401, '');
+    await rejectNonCanonicalStoreRequests(client, route, data);
+    await storeWire(await exchange(client, 'POST', route, Buffer.alloc(1025, ' ')), 413, '');
     const response = await exchange(client, 'POST', route, data);
     expect(response.status()).toBe(200);
     const { decided_at: decidedAt } = await response.json();
@@ -85,9 +102,9 @@ test('Store purchase persists the fixture digest and replays its restricted-acco
     const expected = JSON.parse(fixture(group, 'purchase-answer.purchase-disabled.json'));
     expect(createHash('sha256').update(data).digest('hex')).toBe(expected.request_digest);
     const answer = jsonBytes({ ...expected, result: 'ACCOUNT_RESTRICTED', decided_at: decidedAt });
-    await wire(response, 200, answer);
-    await wire(await exchange(client, 'POST', route, data), 200, answer);
-    await wire(await exchange(client, 'POST', route, jsonBytes({ ...JSON.parse(data), quantity: 2 })), 409, '');
+    await storeWire(response, 200, answer);
+    await storeWire(await exchange(client, 'POST', route, data), 200, answer);
+    await storeWire(await exchange(client, 'POST', route, jsonBytes({ ...JSON.parse(data), quantity: 2 })), 409, '');
   } finally {
     await Promise.all([client.dispose(), wrongPeer.dispose()]);
   }
@@ -176,17 +193,19 @@ test('restore notice preserves byte-exact replay and rejects a changed notice wi
   notice.source_authority = 'oteryn-game-e2e';
   const client = await connect('internal', 'restore-notice');
   const wrongPeer = await connect('internal', 'store');
+  const data = jsonBytes(notice);
+  const cacheControl = 'no-store, private';
   try {
-    await wire(await exchange(wrongPeer, 'POST', route, jsonBytes(notice)), 401, '');
-    await wire(await exchange(client, 'POST', route, withUnknown(jsonBytes(notice))), 400, '');
-    await wire(await exchange(client, 'POST', route, Buffer.alloc(513, ' ')), 413, '');
+    await storeWire(await exchange(wrongPeer, 'POST', route, data), 401, '', cacheControl);
+    await rejectNonCanonicalStoreRequests(client, route, data, cacheControl);
+    await storeWire(await exchange(client, 'POST', route, Buffer.alloc(513, ' ')), 413, '', cacheControl);
     const answer = jsonBytes({
       contract_version: 1, restore_event_id: notice.restore_event_id,
       status: 'ACKNOWLEDGED', reopened: 0, outstanding: 0,
     });
-    await wire(await exchange(client, 'POST', route, jsonBytes(notice)), 200, answer);
-    await wire(await exchange(client, 'POST', route, jsonBytes(notice)), 200, answer);
-    await wire(await exchange(client, 'POST', route, jsonBytes({ ...notice, backup_label: 'changed' })), 409, '');
+    await storeWire(await exchange(client, 'POST', route, data), 200, answer, cacheControl);
+    await storeWire(await exchange(client, 'POST', route, data), 200, answer, cacheControl);
+    await storeWire(await exchange(client, 'POST', route, jsonBytes({ ...notice, backup_label: 'changed' })), 409, '', cacheControl);
   } finally {
     await Promise.all([client.dispose(), wrongPeer.dispose()]);
   }

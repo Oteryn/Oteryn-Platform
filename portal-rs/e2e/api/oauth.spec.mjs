@@ -1,13 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { login } from '../helpers.mjs';
+import { login, pool } from '../helpers.mjs';
 import { qualifyRememberedDevice } from './device-flow.mjs';
 import { connect, exchange, fixture, harness, jsonBytes, wire, withUnknown } from './transport.mjs';
 
-test('an OAuth PKCE bearer can issue one native ticket and has a separate character budget', async ({ page }, info) => {
-  await login(page, info.project.metadata.locale, {
-    email: 'coin-1@example.invalid', password: process.env.PORTAL_API_LOGIN_PASSWORD,
-  });
+async function oauthBearer(page, locale, email, password) {
+  await login(page, locale, { email, password });
   const verifier = randomBytes(32).toString('base64url');
   const state = randomBytes(24).toString('hex');
   const clientId = '019a5f4a-1000-7000-8000-000000000001';
@@ -39,7 +37,36 @@ test('an OAuth PKCE bearer can issue one native ticket and has a separate charac
     throw new Error('The local OAuth consent or token exchange failed');
   }
   expect(/^[A-Za-z0-9_-]{43}$/.test(bearer)).toBe(true);
-  const auth = 'Bearer ' + bearer;
+  return 'Bearer ' + bearer;
+}
+
+async function nextProjectionEpoch() {
+  // One worker publishes to the shared harness projection. Read the high-water
+  // mark so additional projects and repeat-each invocations advance it.
+  const db = pool();
+  try {
+    const { rows: [feed] } = await db.query('SELECT highest_epoch FROM account_character_feed WHERE id = 1');
+    return String(BigInt(feed.highest_epoch ?? '0') + 1n);
+  } finally {
+    await db.end();
+  }
+}
+
+test('an OAuth PKCE bearer can issue one native ticket and has a separate character budget', async ({ page, browser }, info) => {
+  const locale = info.project.metadata.locale;
+  const auth = await oauthBearer(page, locale, 'coin-1@example.invalid', process.env.PORTAL_API_LOGIN_PASSWORD);
+  const other = await browser.newContext({ baseURL: process.env.PORTAL_E2E_ORIGIN,
+    locale, viewport: info.project.use.viewport, ignoreHTTPSErrors: true });
+  try {
+    const otherPage = await other.newPage();
+    const otherAuth = await oauthBearer(otherPage, locale, 'coin-2@example.invalid', process.env.PORTAL_API_OTHER_LOGIN_PASSWORD);
+    await qualifyNativeRoutes(page, auth, otherPage.request, otherAuth);
+  } finally {
+    await other.close();
+  }
+});
+
+async function qualifyNativeRoutes(page, auth, otherRequest, otherAuth) {
   const tickets = '/api/v1/game-auth/tickets';
   const characters = '/api/v1/game-auth/native-characters';
   const request = fixture('native-oauth-ticket-v1', 'ticket-request.json');
@@ -49,7 +76,7 @@ test('an OAuth PKCE bearer can issue one native ticket and has a separate charac
   const wrongPeer = await connect('internal', 'runtime-status');
   const ingest = '/internal/v1/game-auth/native-account-characters';
   const source = 'oteryn-game-e2e';
-  const epoch = String(['pl-1440', 'pl-390', 'en-1440', 'en-390'].indexOf(info.project.name) + 1);
+  const epoch = await nextProjectionEpoch();
   const timestamp = String(Math.floor(Date.now() / 1000));
   const snapshot = jsonBytes({
     contract_version: 1, operation: 'PublishAccountCharactersV1', source_authority: source,
@@ -75,6 +102,8 @@ test('an OAuth PKCE bearer can issue one native ticket and has a separate charac
   } finally {
     await Promise.all([projection.dispose(), wrongPeer.dispose()]);
   }
+  await wire(await exchange(otherRequest, 'GET', characters, undefined, otherAuth),
+    200, fixture('native-characters-v1', 'characters-empty.json'));
   for (let attempt = 0; attempt < 9; attempt++) {
     await wire(await exchange(page.request, 'GET', characters, undefined, auth), 200, responseBytes);
   }
@@ -98,4 +127,4 @@ test('an OAuth PKCE bearer can issue one native ticket and has a separate charac
 
   await wire(await exchange(page.request, 'POST', tickets, request, auth),
     401, fixture('native-oauth-ticket-v1', 'ticket-unauthenticated.json'));
-});
+}

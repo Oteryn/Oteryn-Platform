@@ -56,6 +56,21 @@ async function receiptTemplate(response, file, operationId) {
   return expected.receipt;
 }
 
+async function expectUnsettledOffer(client, settlement, senderBalance, buyerBalance) {
+  await wire(await exchange(client, 'GET', prefix + `accounts/${sender}/balance`), 200,
+    jsonBytes(senderBalance));
+  await wire(await exchange(client, 'GET', prefix + `accounts/${settlement.buyer_account_id}/balance`), 200,
+    jsonBytes(buyerBalance));
+  const db = pool();
+  try {
+    const { rows } = await db.query(
+      'SELECT amount, consumed, status FROM wallet_reservations WHERE id = $1', [settlement.reservation_id]);
+    expect(rows).toEqual([{ amount: '30', consumed: '0', status: 'active' }]);
+  } finally {
+    await db.end();
+  }
+}
+
 test('coin routes enforce peer scope, exact mutation replay and global idempotency keys', async () => {
   await seedOpeningBalance();
   const client = await connect('internal', 'coins');
@@ -100,6 +115,18 @@ test('coin routes enforce peer scope, exact mutation replay and global idempoten
       const input = JSON.parse(coin(`${operation}-request.json`));
       const operationId = `019a65f0-0000-7000-8000-00000000000${number}`;
       const marketRoute = prefix + 'market/' + operation;
+      if (operation === 'settlements') {
+        expect(input.operation_id).toBe(transfer.operation_id);
+        const balance = JSON.parse(coin('balance-ok.json'));
+        const seller = { ...balance, transferable: '65', reserved: '30' };
+        const buyer = { ...balance, account_id: input.buyer_account_id, transferable: '10' };
+        await test.step('settlement cannot reuse the transfer operation ID', async () => {
+          await expectUnsettledOffer(client, input, seller, buyer);
+          await wire(await exchange(client, 'POST', marketRoute, coin('settlements-request.json')),
+            409, coin('idempotency_conflict.json'));
+          await expectUnsettledOffer(client, input, seller, buyer);
+        });
+      }
       input.operation_id = operationId;
       await wire(await exchange(client, 'POST', marketRoute, withUnknown(jsonBytes(input))), 422, coin('invalid.json'));
       const expected = JSON.parse(coin(`${operation}-ok.json`));

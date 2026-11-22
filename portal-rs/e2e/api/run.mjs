@@ -87,11 +87,20 @@ const harness = spawn(process.execPath, ['harness.mjs', '--seed-plan', seed], {
     PRODUCTS_ENTITLEMENTS_STORE_SOURCE_AUTHORITY: 'oteryn-game/store-consumer' },
   stdio: ['ignore', 'pipe', 'inherit'],
 });
-const stopped = once(harness, 'exit');
+const stopped = once(harness, 'close');
 let smtp;
+let playwright;
+let playwrightStopped;
+const interrupted = new Error('API contract runner interrupted');
+const { promise: interruption, reject: interrupt } = Promise.withResolvers();
+const onInterrupt = () => { process.exitCode = 130; interrupt(interrupted); };
+const onTerminate = () => { process.exitCode = 143; interrupt(interrupted); };
+process.on('SIGINT', onInterrupt);
+process.on('SIGTERM', onTerminate);
 try {
   // The harness emits its report after migrations, readiness and CLI seeding.
   await Promise.race([
+    interruption,
     once(harness.stdout, 'data'),
     stopped.then(([code]) => { throw new Error(`Portal harness exited before readiness (${code})`); }),
   ]);
@@ -107,23 +116,37 @@ try {
       stream.resume();
     },
   });
-  await new Promise((resolve, reject) => {
+  await Promise.race([interruption, new Promise((resolve, reject) => {
     smtp.once('error', reject);
     smtp.listen(smtpPort, '127.0.0.1', resolve);
-  });
-  const playwright = spawn(process.execPath,
+  })]);
+  playwright = spawn(process.execPath,
     ['node_modules/@playwright/test/cli.js', 'test', '-c', 'api/playwright.config.mjs', ...process.argv.slice(2)],
     { cwd: e2e, env: { ...process.env, PORTAL_API_CONTRACT_HARNESS: output,
       PORTAL_E2E_ORIGIN: publicOrigin,
       PORTAL_API_LOGIN_PASSWORD: steps[0].args.password,
+      PORTAL_API_OTHER_LOGIN_PASSWORD: steps[1].args.password,
       PORTAL_API_WEBHOOK_SECRET: webhookSecret,
       NODE_EXTRA_CA_CERTS: path.join(output, 'certs', 'ca.pem'),
       PORTAL_E2E_DATABASE_URL: JSON.parse(fs.readFileSync(path.join(output, 'secrets', 'env.json'))).OTERYN_DATABASE_URL }, stdio: 'inherit' });
-  const [code] = await once(playwright, 'exit');
+  playwrightStopped = once(playwright, 'close');
+  const [code] = await Promise.race([interruption, playwrightStopped]);
   process.exitCode = code ?? 1;
+} catch (error) {
+  if (error !== interrupted) throw error;
 } finally {
-  harness.kill('SIGTERM');
-  await stopped;
-  if (smtp) await new Promise(resolve => smtp.close(resolve));
-  fs.rmSync(scratch, { recursive: true, force: true });
+  try {
+    if (playwright?.exitCode === null && playwright.signalCode === null) playwright.kill('SIGINT');
+    await playwrightStopped;
+  } finally {
+    harness.kill('SIGTERM');
+    try {
+      await stopped;
+      if (smtp) await new Promise(resolve => smtp.close(resolve));
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+      process.off('SIGINT', onInterrupt);
+      process.off('SIGTERM', onTerminate);
+    }
+  }
 }
