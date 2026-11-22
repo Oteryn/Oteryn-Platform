@@ -5,7 +5,12 @@ import { test, expect } from '../fixtures.mjs';
 import * as OTPAuth from 'otpauth';
 import { login, register, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+import { pool } from '../helpers.mjs';
+import { signInPlayer, withFreshCommercePortal } from '../commerce-helpers.mjs';
 import { uuid7 } from '../support/bazaar-game.mjs';
+
+const promotionRoute = '/{lang}/account/bazaar/{listing}/promote';
+const collectionRoutes = ['/{lang}/collection/{character}', '/{lang}/collection/{character}/cards/{id}/image'];
 
 const read = name => JSON.parse(fs.readFileSync(new URL(`../${name}.json`, import.meta.url), 'utf8'));
 const routes = read('inventory').routes.filter(route => route.methods.includes('GET'));
@@ -100,6 +105,7 @@ async function assertLocale(page, locale, witness) {
 
 let playerContext;
 let staffContext;
+let warmPlayerContext;
 let ownedCharacter;
 
 test.beforeAll(async ({ browser }, info) => {
@@ -141,7 +147,15 @@ test.beforeAll(async ({ browser }, info) => {
   // Publish through the existing local Game producer and private LCFA transport.
   // The ownership routes require a fresh portfolio to distinguish 404 from 503.
   const [{ id: seller }] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
-  const [{ id: buyer }] = await query('SELECT id FROM accounts WHERE email=$1', [playerAccount.email]);
+  warmPlayerContext = await browser.newContext({
+    ...info.project.use,
+    locale,
+    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
+    ignoreHTTPSErrors: true,
+  });
+  const warmPlayer = await warmPlayerContext.newPage();
+  const { id: buyer } = await signInPlayer(warmPlayer, locale);
+  await warmPlayer.close();
   const sellerCharacter = uuid7();
   const buyerCharacter = uuid7();
   const publication = await staff.request.post('/__bazaar_game/seed', {
@@ -162,14 +176,16 @@ test.beforeAll(async ({ browser }, info) => {
 test.afterAll(async () => {
   await staffContext?.close();
   await playerContext?.close();
+  await warmPlayerContext?.close();
 });
 
-test('locale parity across the GET route inventory', async ({ page: anonymous }, info) => {
+test('locale parity across the GET route inventory', async ({ browser, page: anonymous }, info) => {
   test.setTimeout(1_200_000);
   const locale = info.project.metadata.locale;
   const player = await playerContext.newPage();
   const staff = await staffContext.newPage();
-  for (const page of [anonymous, player, staff]) {
+  const warmPlayer = await warmPlayerContext.newPage();
+  for (const page of [anonymous, player, staff, warmPlayer]) {
     await page.setExtraHTTPHeaders({ 'accept-language': locale });
   }
   const checked = new Map();
@@ -184,9 +200,39 @@ test('locale parity across the GET route inventory', async ({ page: anonymous },
         await test.step(witness, async () => {
           if (actor === 'player' && route.endsWith('/account/characters/{name}/profile')) {
             const profile = route.replace('{lang}', locale).replace('{name}', encodeURIComponent(ownedCharacter));
-            const result = await page.goto(profile, { waitUntil: 'domcontentloaded' });
+            const result = await warmPlayer.goto(profile, { waitUntil: 'domcontentloaded' });
             expect.soft(result.status(), witness).toBe(200);
-            await assertLocale(page, locale, `${witness} (owned character)`);
+            await assertLocale(warmPlayer, locale, `${witness} (owned character)`);
+          }
+          if (actor === 'player' && route === promotionRoute) {
+            await withFreshCommercePortal(browser, locale, {
+              OTERYN_BAZAAR_MODERATION: 'true',
+              OTERYN_BAZAAR_PROMOTIONS: 'true',
+            }, async (quotePage, databaseURL, account) => {
+              expect((await quotePage.goto(target.pathname)).status(), witness).toBe(expected.status);
+              await assertLocale(quotePage, locale, witness);
+              const db = pool(databaseURL);
+              const revision = uuid7();
+              try {
+                await db.query(
+                  `INSERT INTO bazaar_fee_revisions
+                     (id, actor, coin_bps, gold_bps, listing_fee, promotion_price, reason)
+                   VALUES ($1, $2, 1000, 250, 0, 100, 'Locale promotion fixture')`,
+                  [revision, account.id],
+                );
+              } finally {
+                await db.end();
+              }
+              expect((await quotePage.goto(target.pathname)).status(), `${witness} (warm quote)`).toBe(200);
+              await expect(quotePage.locator('main input[name="fee_revision"]')).toHaveValue(revision);
+              await assertLocale(quotePage, locale, `${witness} (warm quote)`);
+            });
+            documents += 2;
+            return;
+          }
+          if (actor === 'player' && collectionRoutes.includes(route)) {
+            expect((await warmPlayer.goto(target.href)).status(), `${witness} (warm ownership)`).toBe(403);
+            await assertLocale(warmPlayer, locale, `${witness} (warm ownership)`);
           }
           await waitForWikiBudget(target.href, 2);
           const options = { headers: { accept: 'text/html', 'accept-language': locale } };
@@ -227,6 +273,7 @@ test('locale parity across the GET route inventory', async ({ page: anonymous },
   } finally {
     await player.close();
     await staff.close();
+    await warmPlayer.close();
     await info.attach('locale-documents', {
       body: JSON.stringify(Object.fromEntries(checked)), contentType: 'application/json',
     });

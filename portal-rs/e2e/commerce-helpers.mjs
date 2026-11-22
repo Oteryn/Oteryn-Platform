@@ -71,7 +71,7 @@ export async function pressCheckout(page, action, label) {
 }
 
 
-export async function withUnpublishedDownloads(browser, locale, check) {
+export async function withFreshCommercePortal(browser, locale, flags, check) {
   const adminURL = fixtureDatabaseURL();
   const portNames = ['HTTP', 'INTERNAL', 'ADMISSION', 'GATEWAY'];
   const listeners = portNames.map(() => createServer());
@@ -86,7 +86,7 @@ export async function withUnpublishedDownloads(browser, locale, check) {
     await Promise.all(listeners.map(server => new Promise(resolve => server.close(resolve))));
   }
 
-  const scratch = await mkdtemp(resolve(tmpdir(), 'portal-e2e-downloads-'));
+  const scratch = await mkdtemp(resolve(tmpdir(), 'portal-e2e-commerce-'));
   const out = resolve(scratch, 'harness');
   const origin = `http://localhost:${ports[0]}`;
   const child = spawn(process.execPath, [resolve(portalRoot, 'e2e/harness.mjs'), '--serve-only'], {
@@ -100,7 +100,7 @@ export async function withUnpublishedDownloads(browser, locale, check) {
       PORTAL_E2E_SEED_PLAN: '',
       OTERYN_PUBLIC_ORIGIN: origin,
       OTERYN_ACCOUNT_LOGIN: 'true',
-      OTERYN_DOWNLOADS_ENABLED: 'true',
+      ...flags,
     },
     stdio: ['ignore', 'pipe', 'ignore'],
   });
@@ -109,7 +109,7 @@ export async function withUnpublishedDownloads(browser, locale, check) {
   try {
     const [line] = await Promise.race([
       once(lines, 'line', { signal: AbortSignal.timeout(120_000) }),
-      closed.then(([code]) => { throw new Error(`Download harness exited during startup (${code})`); }),
+      closed.then(([code]) => { throw new Error(`Commerce harness exited during startup (${code})`); }),
     ]);
     const report = JSON.parse(line);
     expect(report.status).toBe('ready');
@@ -118,8 +118,8 @@ export async function withUnpublishedDownloads(browser, locale, check) {
     const context = await browser.newContext({ baseURL: origin, locale });
     try {
       const page = await context.newPage();
-      await signInPlayer(page, locale, databaseURL);
-      await check(page);
+      const player = await signInPlayer(page, locale, databaseURL);
+      await check(page, databaseURL, player);
     } finally {
       await context.close();
     }
@@ -129,4 +129,8 @@ export async function withUnpublishedDownloads(browser, locale, check) {
     await closed;
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+export function withUnpublishedDownloads(browser, locale, check) {
+  return withFreshCommercePortal(browser, locale, { OTERYN_DOWNLOADS_ENABLED: 'true' }, check);
 }
