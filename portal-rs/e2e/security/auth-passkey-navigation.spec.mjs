@@ -26,6 +26,7 @@ for (const requiresMfa of [false, true]) {
     const panel = page.locator('nav[data-panel="player"]');
     await expect(panel).toBeVisible();
     await expect(panel.locator(`a[href="${route}"]`)).toHaveCount(requiresMfa ? 0 : 1);
+    expect((await page.goto(`/${lang}/`)).status()).toBe(200);
 
     if (info.project.use.viewport.width <= 960) await page.locator('#portal-menu-toggle').click();
     await page.locator('[data-account-link]').click();
