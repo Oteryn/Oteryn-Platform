@@ -110,20 +110,27 @@ export async function bootstrapAdmin(browser, info) {
     viewport:info.project.use.viewport,
     locale:lang,
   });
+  let id;
+  const close = async () => {
+    await context.close();
+    if (id) await query('DELETE FROM account_roles WHERE account_id=$1', [id]);
+  };
   try {
     const page = await context.newPage();
     const account = await register(page, lang);
     // First administrator fixture, matching the existing staff RBAC suite.
-    await query(`
+    const [membership] = await query(`
       INSERT INTO account_roles(account_id,role_id)
       SELECT a.id,r.id FROM accounts a CROSS JOIN roles r
       WHERE a.email=$1 AND r.key='platform_admin'
+      RETURNING account_id
     `, [account.email]);
+    id = membership.account_id;
     await login(page, lang, account);
     await completeEnrollment(page, lang, account);
-    return {context,page};
+    return {page, close};
   } catch (error) {
-    await context.close();
+    await close();
     throw error;
   }
 }

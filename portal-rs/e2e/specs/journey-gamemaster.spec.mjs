@@ -29,6 +29,7 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
     ...options,
   });
 
+  let gmId;
   try {
     const account = await test.step('Register and verify the future GM in a separate browser context', async () => {
       const account = await register(page, lang);
@@ -43,6 +44,7 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
 
     const accountId = await test.step('Platform admin grants only game_master_senior through the Roles form', async () => {
       const [{id}] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
+      gmId = id;
       expect((await admin.page.goto('/admin')).status()).toBe(200);
       await admin.page.getByRole('link', {name:lang === 'pl' ? 'Role' : 'Roles', exact:true}).click();
       await grantSeniorRole(admin.page, id);
@@ -244,6 +246,7 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
     });
   } finally {
     await signedOut.close();
-    await admin.context.close();
+    await admin.close();
+    if (gmId) await query('DELETE FROM account_roles WHERE account_id=$1', [gmId]);
   }
 });

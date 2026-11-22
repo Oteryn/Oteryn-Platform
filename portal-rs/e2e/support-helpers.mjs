@@ -17,11 +17,12 @@ export async function actor(browser, info, role, use, { mfa = Boolean(role) } = 
     viewport: info.project.use.viewport,
     locale,
   });
+  let account;
   try {
     const page = await context.newPage();
     const database = pool();
     await database.end();
-    const account = { email: `support-${randomUUID()}@example.invalid`, password: password() };
+    account = { email: `support-${randomUUID()}@example.invalid`, password: password() };
     const binary = process.env.PORTAL_E2E_BINARY ||
       resolve(process.env.CARGO_TARGET_DIR || resolve(portal, 'target'), 'debug/oteryn-portal');
     const seed = (entity, values) => {
@@ -54,6 +55,7 @@ export async function actor(browser, info, role, use, { mfa = Boolean(role) } = 
     await use(page, account);
   } finally {
     await context.close();
+    if (role && account?.id) await query('DELETE FROM account_roles WHERE account_id=$1', [account.id]);
   }
 }
 
