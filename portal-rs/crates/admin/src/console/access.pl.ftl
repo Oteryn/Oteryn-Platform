@@ -67,3 +67,6 @@ audit-field-legal-effective-date = Data wejścia w życie dokumentu
 audit-field-version = Wersja
 audit-field-state = Stan publikacji
 audit-field-email = Adres e-mail
+audit-diff-hidden = Wartość ukryta
+audit-diff-hidden-change = Zmieniono (wartość ukryta)
+audit-diff-unknown = Nieznana

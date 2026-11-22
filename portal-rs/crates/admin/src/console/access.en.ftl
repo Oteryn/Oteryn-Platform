@@ -67,3 +67,6 @@ audit-field-legal-effective-date = Legal effective date
 audit-field-version = Version
 audit-field-state = Publication state
 audit-field-email = Email
+audit-diff-hidden = Value hidden
+audit-diff-hidden-change = Changed (value hidden)
+audit-diff-unknown = Unknown

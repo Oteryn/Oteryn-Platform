@@ -83,7 +83,7 @@ fn fields(action: &str) -> &'static [&'static str] {
     match action {
         "rbac.role.created" => &["key", "permissions"],
         "rbac.role.permissions_changed" => &["permissions"],
-        "rbac.role.granted" | "rbac.role.revoked" => &["role", "assigned"],
+        "rbac.role.granted" | "rbac.role.revoked" => &["assigned"],
         "players.kick" => &["native_security_generation"],
         "support.enforcement_created"
         | "support.enforcement_updated"
@@ -118,6 +118,27 @@ fn fields(action: &str) -> &'static [&'static str] {
         "portal.announcement_saved" => &["state"],
         _ => &[],
     }
+}
+
+fn publication_time(text: &str) -> Option<String> {
+    use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
+
+    // The old news editor round-tripped PostgreSQL text such as "2020-01-01 00:00:00+00".
+    let mut timestamp = text.replacen(' ', "T", 1);
+    if timestamp
+        .as_bytes()
+        .iter()
+        .rev()
+        .nth(2)
+        .is_some_and(|byte| matches!(byte, b'+' | b'-'))
+    {
+        timestamp.push_str(":00");
+    }
+    OffsetDateTime::parse(&timestamp, &Rfc3339)
+        .ok()?
+        .to_offset(UtcOffset::UTC)
+        .format(&Rfc3339)
+        .ok()
 }
 
 fn display(lang: &str, field: &str, value: &Value) -> Option<String> {
@@ -155,20 +176,20 @@ fn display(lang: &str, field: &str, value: &Value) -> Option<String> {
             | "version",
             Value::Number(value),
         ) => Some(value.to_string()),
+        ("published_at" | "translation_published_at", Value::String(text)) => {
+            publication_time(text)
+        }
+        ("title" | "title_pl" | "legal_version", Value::String(text)) if !text.is_empty() => {
+            Some(tr(lang, "audit-diff-hidden"))
+        }
         (
             "key"
-            | "role"
             | "category"
             | "status"
             | "appeal_status"
             | "state"
             | "slug"
-            | "title"
-            | "title_pl"
-            | "published_at"
-            | "translation_published_at"
             | "locale"
-            | "legal_version"
             | "legal_effective_date",
             Value::String(text),
         ) if !text.is_empty() => Some(text.clone()),
@@ -194,15 +215,28 @@ fn changes(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Chang
             if previous == current {
                 return None;
             }
-            let before = display(lang, field, previous);
-            let after = display(lang, field, current);
-            if (before.is_none() && after.is_none()) || (field != "email" && before == after) {
+            let mut previous_display = display(lang, field, previous);
+            let mut current_display = display(lang, field, current);
+            if matches!(field, "title" | "title_pl" | "legal_version") && current_display.is_some()
+            {
+                current_display = Some(tr(lang, "audit-diff-hidden-change"));
+            }
+            if field == "appeal_status"
+                && before.is_object()
+                && previous.is_null()
+                && current_display.is_some()
+            {
+                previous_display = Some(tr(lang, "audit-diff-unknown"));
+            }
+            if (previous_display.is_none() && current_display.is_none())
+                || (field != "email" && previous_display == current_display)
+            {
                 return None;
             }
             Some(Change {
                 field: tr(lang, &format!("audit-field-{}", field.replace('_', "-"))),
-                before: before.unwrap_or_else(|| "—".into()),
-                after: after.unwrap_or_else(|| "—".into()),
+                before: previous_display.unwrap_or_else(|| "—".into()),
+                after: current_display.unwrap_or_else(|| "—".into()),
             })
         })
         .collect()
@@ -218,6 +252,23 @@ struct AuditRow {
     recorded_at: String,
     before: Value,
     after: Value,
+}
+
+impl AuditRow {
+    fn role_context(&self, lang: &str) -> String {
+        if !matches!(
+            self.action.as_str(),
+            "rbac.role.granted" | "rbac.role.revoked"
+        ) {
+            return String::new();
+        }
+        [&self.after, &self.before]
+            .into_iter()
+            .filter_map(|snapshot| snapshot.get("role")?.as_str())
+            .find_map(|role| Uuid::parse_str(role).ok())
+            .map(|role| format!(" · {} {role}", tr(lang, "audit-field-role")))
+            .unwrap_or_default()
+    }
 }
 
 pub(crate) async fn page<B: Backend>(
@@ -265,12 +316,13 @@ pub(crate) async fn page<B: Backend>(
                 rows.into_iter()
                     .map(|row| SectionLine {
                         text: format!(
-                            "{} · {} · {} · {} · {}",
+                            "{} · {} · {} · {} · {}{}",
                             row.request_id,
                             row.actor.map(|id| id.to_string()).unwrap_or_default(),
                             row.operation,
                             row.target,
                             row.recorded_at,
+                            row.role_context(lang),
                         ),
                         changes: changes(lang, &row.action, &row.before, &row.after),
                     })
@@ -349,10 +401,10 @@ mod tests {
 
     #[test]
     fn diff_masks_email_and_omits_credentials_unknown_fields_and_unchanged_values() {
-        let before = json!({"email":"alice@example.invalid", "title":"Old", "slug":"same"});
+        let before = json!({"email":"alice@example.invalid", "title":"Private draft alice@example.invalid", "slug":"same"});
         let after = json!({
             "email":"amber@example.invalid",
-            "title":"New",
+            "title":"Private draft 192.0.2.42",
             "slug":"same",
             "password_hash":"placeholder",
             "access_token":"placeholder",
@@ -365,8 +417,8 @@ mod tests {
             [
                 Change {
                     field: "Title".into(),
-                    before: "Old".into(),
-                    after: "New".into()
+                    before: "Value hidden".into(),
+                    after: "Changed (value hidden)".into()
                 },
                 Change {
                     field: "Email".into(),
@@ -406,8 +458,37 @@ mod tests {
             ),
             [Change {
                 field: "Title".into(),
-                before: "Original".into(),
+                before: "Value hidden".into(),
                 after: "—".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn equivalent_legacy_publication_timestamps_do_not_create_a_change() {
+        let before = json!({"published_at":"2020-01-01T00:00:00+00:00", "translation_published_at":"2020-01-01 00:00:00+00"});
+        let after = json!({"published_at":"2020-01-01T00:00:00Z", "translation_published_at":"2020-01-01T01:00:00+01:00"});
+        assert!(changes("en", "cms.news_updated", &before, &after).is_empty());
+        assert!(changes("en", "cms.page.saved", &before, &after).is_empty());
+        assert_eq!(
+            publication_time("2020-01-02T01:00:00+01:00").as_deref(),
+            Some("2020-01-02T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn a_legacy_appeal_snapshot_marks_missing_prior_status_unknown() {
+        assert_eq!(
+            changes(
+                "en",
+                "support.enforcement_appeal_updated",
+                &json!({"status":"active"}),
+                &json!({"status":"active","appeal_status":"reviewing"})
+            ),
+            [Change {
+                field: "Appeal status".into(),
+                before: "Unknown".into(),
+                after: "reviewing".into()
             }]
         );
     }

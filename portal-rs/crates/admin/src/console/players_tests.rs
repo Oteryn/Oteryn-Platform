@@ -462,10 +462,10 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
                 request_id: diff_request,
             },
             action: "cms.news_updated",
-            target: "diff-fixture",
-            before: serde_json::json!({"title": "Earlier title", "email": "alice@example.invalid"}),
+            target: "<b>diff-fixture</b>",
+            before: serde_json::json!({"title": "Private draft before-title@example.invalid", "email": "alice@example.invalid"}),
             after: serde_json::json!({
-                "title": "<b>Later title</b>",
+                "title": "Private draft 192.0.2.42",
                 "email": "bob@example.invalid",
                 "totp_secret": "redaction-marker"
             }),
@@ -487,10 +487,13 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
     assert_eq!(response.headers()["cache-control"], "no-store");
     let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
     assert!(html.contains("<th scope=\"col\">Before</th><th scope=\"col\">After</th>"));
-    assert!(html.contains("<td>Earlier title</td><td>&#60;b&#62;Later title&#60;/b&#62;</td>"));
+    assert!(html.contains("&#60;b&#62;diff-fixture&#60;/b&#62;"));
+    assert!(html.contains("<td>Value hidden</td><td>Changed (value hidden)</td>"));
     assert!(html.contains("<td>a•••@•••</td><td>b•••@•••</td>"));
     for excluded in [
-        "<b>Later title</b>",
+        "<b>diff-fixture</b>",
+        "Private draft",
+        "192.0.2.42",
         "example.invalid",
         "totp_secret",
         "redaction-marker",
