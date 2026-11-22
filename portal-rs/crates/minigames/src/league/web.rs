@@ -202,13 +202,12 @@ async fn page<A: Authority>(
         return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
-    if let Some(ClientSource(ip)) = source {
-        if let Err(denial) = limiter
+    if let Some(ClientSource(ip)) = source
+        && let Err(denial) = limiter
             .check_public_game_data(Keys::source(ip), BoundedBrowserRead(deadline))
             .await
-        {
-            return Page::new(&lang, None).response(denial.status());
-        }
+    {
+        return Page::new(&lang, None).response(denial.status());
     }
 
     let snapshots = state.league.read_before(deadline).await;
