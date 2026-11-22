@@ -1163,16 +1163,31 @@ fn utc(ms: Option<i64>) -> Option<String> {
 }
 
 impl Backend for BrowserJournal {
+    async fn candidate_account(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        character: Uuid,
+    ) -> Result<Uuid, BrowserError> {
+        let accounts = sqlx::query_scalar::<_, Uuid>(
+            "SELECT c.account_id FROM account_characters c
+             JOIN accounts a ON a.id=c.account_id AND a.status='active'
+             WHERE c.character_id=$1 ORDER BY c.account_id LIMIT 2",
+        )
+        .bind(character)
+        .fetch_all(&mut **tx)
+        .await?;
+        match accounts.as_slice() {
+            [account] => Ok(*account),
+            [] => Err(BrowserError::NotFound),
+            _ => Err(BrowserError::Unavailable),
+        }
+    }
+
     async fn lock_resources(
         &self,
         connection: &mut sqlx::PgConnection,
     ) -> Result<(), BrowserError> {
         sqlx::query("SELECT 1 FROM account_character_feed WHERE id=1 FOR SHARE")
-            .execute(&mut *connection)
-            .await?;
-        // record() uses the same publication lock. Acquire it before loading
-        // the previous operation to serialize duplicate apply and revision checks.
-        sqlx::query("SELECT 1 FROM support_enforcement_counter WHERE singleton FOR UPDATE")
             .execute(connection)
             .await?;
         Ok(())
@@ -1186,41 +1201,25 @@ impl Backend for BrowserJournal {
         let authority = self.authority.as_deref().ok_or(BrowserError::Unavailable)?;
         // This is the LCFA character-to-account lookup. Hold the same feed lock
         // as LCFA readers so a snapshot or epoch cannot change during submission.
-        let fresh = sqlx::query_scalar::<_, bool>(
-            "SELECT COALESCE(highest_epoch=watermark_epoch AND source_authority=$1
+        let epoch: Option<String> = sqlx::query_scalar(
+            "SELECT CASE WHEN highest_epoch=watermark_epoch AND source_authority=$1
                 AND complete_through BETWEEN floor(extract(epoch FROM clock_timestamp()))::bigint-29
-                    AND floor(extract(epoch FROM clock_timestamp()))::bigint+1,false)
+                    AND floor(extract(epoch FROM clock_timestamp()))::bigint+1 THEN highest_epoch END
              FROM account_character_feed WHERE id=1 FOR SHARE",
-        )
-        .bind(authority)
-        .fetch_one(&mut **tx)
-        .await?;
-        if !fresh {
-            return Err(BrowserError::Unavailable);
-        }
-        let matches: Vec<(Uuid, String, String)> = sqlx::query_as(
-            "SELECT c.account_id,c.name,c.availability
-             FROM account_characters c JOIN account_character_snapshots s USING(account_id)
-             CROSS JOIN account_character_feed f
-             WHERE c.character_id=$1 AND f.id=1 AND s.projection_epoch=f.highest_epoch
-               AND s.source_authority=$2 AND NOT s.invalid
-             LIMIT 2",
-        )
-        .bind(character)
-        .bind(authority)
-        .fetch_all(&mut **tx)
-        .await?;
-        match matches.as_slice() {
-            [(account, name, availability)]
-                if availability == "AVAILABLE" && super::valid_id(*account).is_ok() =>
-            {
-                Ok(Target {
-                    account: *account,
-                    character,
-                    name: name.clone(),
-                })
-            }
-            [] => Err(BrowserError::NotFound),
+        ).bind(authority).fetch_one(&mut **tx).await?;
+        let epoch = epoch.ok_or(BrowserError::Unavailable)?;
+        use oteryn_db::character_ownership::{self, Owner};
+        match character_ownership::resolve(tx, character, &epoch, authority).await? {
+            Owner::Current {
+                account,
+                name,
+                available: true,
+            } if super::valid_id(account).is_ok() => Ok(Target {
+                account,
+                character,
+                name,
+            }),
+            Owner::Missing => Err(BrowserError::NotFound),
             _ => Err(BrowserError::Unavailable),
         }
     }

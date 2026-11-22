@@ -147,6 +147,12 @@ impl From<crate::rbac::Error> for Error {
 
 /// Only the owning support crate supplies this adapter at startup.
 pub trait Backend: Send + Sync + 'static {
+    fn candidate_account(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        character: Uuid,
+    ) -> impl Future<Output = Result<Uuid, Error>> + Send;
+
     fn lock_resources(
         &self,
         connection: &mut sqlx::PgConnection,
@@ -469,6 +475,7 @@ async fn dossier<B: Backend>(
             .await
             .is_ok();
         let mut tx = state.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let target = state.backend.target(&mut tx, character).await?;
         let restrictions = state.backend.restrictions(&mut tx, &target).await?;
         let actionable = edit && restrictions.iter().any(|row| !row.actions.is_empty());
@@ -546,10 +553,12 @@ async fn submit<B: Backend>(
         let proof = Signature::from_slice(&proof).map_err(|_| Error::BadInput)?;
 
         let mut tx = state.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
+        let candidate = state.backend.candidate_account(&mut tx, character).await?;
         let resources = state.clone();
         crate::rbac::authorize_mutation_with_resources_domain(
             &mut tx,
-            &[],
+            &[candidate],
             move |connection| {
                 Box::pin(async move { resources.backend.lock_resources(connection).await })
             },
@@ -566,6 +575,9 @@ async fn submit<B: Backend>(
             return Err(Error::StepUp);
         }
         let target = state.backend.target(&mut tx, character).await?;
+        if target.account != candidate {
+            return Err(Error::Conflict);
+        }
         let claim = Claim {
             account: target.account,
             character,
