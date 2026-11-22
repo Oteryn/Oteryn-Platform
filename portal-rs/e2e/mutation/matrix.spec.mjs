@@ -4048,3 +4048,190 @@ for (const prefix of ['locale', 'unprefixed']) {
     }
   });
 }
+for (const [prefix, revokeMethod] of [
+  ['locale', 'POST'], ['locale', 'DELETE'], ['unprefixed', 'POST'], ['unprefixed', 'DELETE'],
+]) {
+  test(`recovery key ${prefix} ${revokeMethod} lifecycle binds activation, recovery and revocation to the owner`, async ({ page, browser }, info) => {
+    test.setTimeout(720_000);
+    const lang = info.project.metadata.locale;
+    const start = `/${lang}/account/recovery-key`;
+    const path = prefix === 'locale' ? start : '/account/recovery-key';
+    const recoverPath = `/${lang}/recovery-key`;
+    const recoveryAlias = prefix === 'locale' ? recoverPath : '/recovery-key';
+    const contexts = [];
+    const another = async role => {
+      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      contexts.push(context);
+      const screen = await context.newPage();
+      return { screen, user: await seededPlayer(screen, lang, role) };
+    };
+    try {
+      const owner = await seededPlayer(page, lang);
+      const outsiders = [];
+      for (const role of [undefined, 'content_editor']) {
+        const { screen } = await another(role);
+        await screen.goto(`/${lang}/account/privacy`);
+        outsiders.push({ screen, token: (await prepare(screen, formSelector)).fields._csrf });
+      }
+      const stats = account => async () => ({
+        key: await query(
+          'SELECT confirmed_at IS NOT NULL AS active,used_at IS NOT NULL AS used,revoked_at IS NOT NULL AS revoked FROM account_recovery_keys WHERE account_id=$1',
+          [account.id],
+        ),
+        events: (await query('SELECT kind FROM account_recovery_key_events WHERE account_id=$1 ORDER BY id', [account.id])).map(row => row.kind),
+        generation: (await query('SELECT native_security_generation FROM accounts WHERE id=$1', [account.id]))[0].native_security_generation,
+      });
+      const checkOwnership = async (url, fields, state, baseline, method = 'POST') => {
+        for (const { screen, token } of outsiders) {
+          const response = await sendForm(screen, url, { ...fields, _csrf: token }, method);
+          expect(response.status()).toBe(method === 'DELETE' ? 303 : 302);
+          expect((await screen.goto(response.headers().location)).status()).toBe(200);
+          await expect(screen.getByRole('status')).toHaveText(localizedError);
+          expect(await state()).toEqual(baseline);
+        }
+      };
+      const localizedError = lang === 'pl'
+        ? /Sprawdź|nieprawidłowe|niedostępna/
+        : /Check your email|credentials are invalid/;
+      const bad = async (screen, url, fields, patches, snapshot, method = 'POST') => {
+        const baseline = await snapshot();
+        for (const patch of patches) {
+          const denied = await sendForm(screen, url, { ...fields, ...patch }, method);
+          expect(denied.status()).toBe(method === 'DELETE' ? 303 : 302);
+          expect((await screen.goto(denied.headers().location)).status()).toBe(200);
+          await expect(screen.getByRole('status')).toHaveText(localizedError);
+          expect(await snapshot()).toEqual(baseline);
+        }
+      };
+      const begin = async (screen, account, verify) => {
+        expect((await screen.goto(start)).status()).toBe(200);
+        const values = { current_password: account.password };
+        const contact = await prepare(screen, formSelector, values);
+        const target = new URL(path, contact.url).href;
+        if (verify) await verify(screen, target, contact.fields);
+        await useFormMethod(screen, contact.url, 'POST', () => submit(screen, formSelector, values), target);
+        await expect(screen.locator('.op-code')).toBeVisible();
+        return (await screen.locator('.op-code').innerText()).trim();
+      };
+
+      const generator = await another();
+      const sampleState = stats(generator.user);
+      await begin(generator.screen, generator.user, async (screen, url, fields) => {
+        const baseline = await sampleState();
+        await rejected({ page: screen, url, fields, snapshot: sampleState, baseline });
+        await checkOwnership(url, fields, sampleState, baseline);
+        await bad(screen, url, fields, [
+          { current_password: '' }, { current_password: 'x'.repeat(1025) },
+          { current_password: '1' }, { current_password: `${generator.user.password}x` },
+        ], sampleState);
+      });
+      expect(await sampleState()).toEqual({ key: [{ active: false, used: false, revoked: false }], events: ['generated'], generation: expect.any(String) });
+
+      const validation = await another();
+      const sampleKey = await begin(validation.screen, validation.user);
+      expect(sampleKey.length).toBe(51);
+      const sampleConfirmation = await prepare(validation.screen, formSelector, {
+        current_password: validation.user.password, recovery_key: '0'.repeat(50),
+      });
+      await bad(validation.screen, new URL(`${path}/confirm`, sampleConfirmation.url).href,
+        sampleConfirmation.fields, [{}], stats(validation.user));
+
+      const key = await begin(page, owner);
+      const state = stats(owner);
+      const pending = await state();
+      expect(pending.key).toEqual([{ active: false, used: false, revoked: false }]);
+      const confirm = await prepare(page, formSelector, { current_password: owner.password, recovery_key: key });
+      const confirmation = new URL(`${path}/confirm`, confirm.url).href;
+      await rejected({ page, url: confirmation, fields: confirm.fields, snapshot: state, baseline: pending });
+      await checkOwnership(confirmation, confirm.fields, state, pending);
+      await bad(page, confirmation, confirm.fields, [
+        { recovery_key: '' }, { recovery_key: 'x'.repeat(161) }, { recovery_key: '1' },
+      ], state);
+      await useFormMethod(page, confirm.url, 'POST', () => submit(page, formSelector, {
+        current_password: owner.password, recovery_key: key,
+      }), confirmation);
+      await expect(page.getByRole('status')).toHaveText(lang === 'pl' ? 'Klucz odzyskiwania jest aktywny.' : 'Your recovery key is active.');
+      const active = await state();
+      expect(active.key).toEqual([{ active: true, used: false, revoked: false }]);
+      expect(active.events).toEqual(['generated', 'confirmed']);
+
+      await logout(page, lang);
+      await page.goto(recoverPath);
+      const next = password();
+      await seedPasswordRange(next);
+      const values = { email: owner.email, recovery_key: key, password: next, password_confirmation: next };
+      const recovery = await prepare(page, formSelector, values);
+      const target = new URL(recoveryAlias, recovery.url).href;
+      await rejected({ page, url: target, fields: recovery.fields, snapshot: state, baseline: active });
+      // The local browser contexts share one hourly source bucket. Reset the
+      // disposable fixture between independent authorization and field cases.
+      const freshRecoveryWindow = () => query(
+        "DELETE FROM web_rate_limits WHERE limiter_name='identity-recovery-key-use'",
+      );
+      await freshRecoveryWindow();
+      for (const { screen, token } of outsiders) {
+        const denied = await sendForm(screen, target, { ...recovery.fields, _csrf: token, recovery_key: randomUUID() });
+        expect(denied.status()).toBe(302);
+        expect(denied.headers().location).toBe(recoverPath);
+        expect(await state()).toEqual(active);
+      }
+      await freshRecoveryWindow();
+      await expect.poll(async () => {
+        const [limit] = await query(
+          `SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits
+           WHERE limiter_name='identity-anonymous-source' AND window_start=date_trunc('minute',clock_timestamp())`,
+        );
+        return limit.count;
+      }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(5);
+      await bad(page, target, recovery.fields, [
+        { email: '' }, { email: 'x'.repeat(254) + '@local.test' }, { email: '1' },
+        { email: `other-${randomUUID()}@local.test`, password: 'x'.repeat(9), password_confirmation: 'x'.repeat(9) },
+      ], state);
+      await useFormMethod(page, recovery.url, 'POST', () => submit(page, formSelector, values), target);
+      await expect(page).toHaveURL(new RegExp(`/${lang}/login$`));
+      const used = await state();
+      expect(used.key).toEqual([{ active: true, used: true, revoked: false }]);
+      expect(used.events).toEqual(['generated', 'confirmed', 'used']);
+      expect(Number(used.generation)).toBe(Number(active.generation) + 1);
+      expect((await sendForm(page, target, recovery.fields)).status()).toBe(403);
+      expect(await state()).toEqual(used);
+      await login(page, lang, { ...owner, password: next });
+      await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+
+      await validation.screen.goto(start);
+      const badRevoke = await prepare(validation.screen, formSelector, { current_password: '1' });
+      const badRevokeUrl = new URL(revokeMethod === 'POST' ? `${path}/revoke` : path, badRevoke.url).href;
+      await bad(validation.screen, badRevokeUrl, badRevoke.fields, [
+        {}, { current_password: `${validation.user.password}x` },
+      ], stats(validation.user), revokeMethod);
+
+      const revoker = await another();
+      await begin(revoker.screen, revoker.user);
+      await revoker.screen.goto(start);
+      const revocationState = stats(revoker.user);
+      const before = await revocationState();
+      const revoke = await prepare(revoker.screen, formSelector, { current_password: revoker.user.password });
+      const revokeUrl = new URL(revokeMethod === 'POST' ? `${path}/revoke` : path, revoke.url).href;
+      await rejected({ page: revoker.screen, url: revokeUrl, fields: revoke.fields, snapshot: revocationState, baseline: before, method: revokeMethod });
+      await checkOwnership(revokeUrl, revoke.fields, revocationState, before, revokeMethod);
+      await bad(revoker.screen, revokeUrl, revoke.fields, [
+        { current_password: '' }, { current_password: 'x'.repeat(1025) },
+      ], revocationState, revokeMethod);
+      await revoker.screen.locator('[name=current_password]').fill(revoker.user.password);
+      const original = new URL(`${start}/revoke`, revoke.url).href;
+      await useFormMethod(
+        revoker.screen, original, revokeMethod,
+        () => revoker.screen.locator('button[formaction$="/revoke"]').click(),
+        revokeUrl,
+      );
+      await expect(revoker.screen).toHaveURL(new URL(start, revoke.url).href);
+      const revoked = await revocationState();
+      expect(revoked.key).toEqual([{ active: false, used: false, revoked: true }]);
+      expect(revoked.events).toEqual(['generated', 'revoked']);
+      expect((await sendForm(revoker.screen, revokeUrl, revoke.fields, revokeMethod)).status()).toBe(revokeMethod === 'DELETE' ? 303 : 302);
+      expect(await revocationState()).toEqual(revoked);
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
