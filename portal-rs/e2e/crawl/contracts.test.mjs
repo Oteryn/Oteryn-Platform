@@ -28,6 +28,12 @@ test('staff audit is reachable only for a signed-in staff actor', () => {
   assert.equal(staffDenied('admin/console/audit', 'platform_admin'), false);
 });
 
+test('privacy export requires localized password confirmation before disclosing account data', () => {
+  const route = url('/en/account/privacy/export');
+  assert.equal(redirectDestination(route, 'anonymous', 'pl'), '/en/login');
+  assert.equal(redirectDestination(route, 'player', 'pl'), '/en/account/sudo?return_to=export');
+});
+
 test('season pass uses the localized unavailable status', () => {
   assert.equal(unavailableView(url('/pl/pass'), 'player', 'en').text, 'Przepustka sezonowa jest obecnie niedostępna.');
   assert.equal(unavailableView(url('/en/pass'), 'player', 'pl').text, 'The season pass is currently unavailable.');

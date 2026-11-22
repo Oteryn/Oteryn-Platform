@@ -78,6 +78,7 @@ export function redirectDestination(url, actor, locale) {
     if (isPrivate(route) || /^(?:shop|puzzles|collection)(?:\/|$)/.test(route)) return `/${lang}/login`;
   } else {
     if (route === 'account/security') return `/${lang}/password/change`;
+    if (route === 'account/privacy/export') return `/${lang}/account/sudo?return_to=export`;
     if (route === 'register') return '/account';
   }
 }
