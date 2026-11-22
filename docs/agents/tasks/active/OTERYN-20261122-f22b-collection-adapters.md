@@ -26,7 +26,7 @@ checkpoint_version: 1
 updated_at: 2026-11-22T15:25:39Z
 head: UNKNOWN
 branch: codex/feat-collection-adapters
-pr: none
+pr: 2014
 status: ready
 context_routes: []
 owned_paths:
