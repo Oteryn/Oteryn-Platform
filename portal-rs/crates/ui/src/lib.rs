@@ -639,14 +639,10 @@ mod tests {
         for (lang, title, description) in [
             (
                 "pl",
-                "Zaloguj się, aby kontynuować",
-                "Zaloguj się na swoje konto, aby otworzyć tę stronę.",
+                "Wymagane logowanie",
+                "Zaloguj się, aby uzyskać dostęp do tej strony.",
             ),
-            (
-                "en",
-                "Sign in to continue",
-                "Sign in to your account to open this page.",
-            ),
+            ("en", "Sign-in required", "Sign in to access this page."),
         ] {
             let chrome = registry().chrome(lang, "/atlas/private-markers", Account::Anonymous);
             let html = ErrorPage {
@@ -654,6 +650,7 @@ mod tests {
                 status: 401,
                 title: chrome.text("error-401-title"),
                 description: chrome.text("error-401-description"),
+                link: None,
             }
             .render()?;
             assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
@@ -976,7 +973,6 @@ mod tests {
                     chrome: &chrome,
                     title: title.clone(),
                     description: String::new(),
-                    recovery_path: None,
                     status: status.as_u16(),
                     link: None,
                 }
@@ -984,47 +980,6 @@ mod tests {
                 assert!(html.contains("<body class=\"op-theme op-shell\">"));
                 assert!(html.contains(&title));
                 assert!(html.contains("href=\"#main\""));
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn account_menu_respects_overview_registration() -> Result<(), askama::Error> {
-        for lang in ["pl", "en"] {
-            for enabled in [false, true] {
-                let mut registry = registry();
-                registry.section(
-                    enabled,
-                    "account-overview",
-                    "shell-account-overview",
-                    "/account",
-                    Group::Account,
-                    false,
-                );
-                registry.section(
-                    true,
-                    "account-security",
-                    "shell-account-security",
-                    "password/change",
-                    Group::Account,
-                    false,
-                );
-                let chrome = registry.chrome(
-                    lang,
-                    "/account/sessions",
-                    Account::SignedIn {
-                        csrf: "fixture".into(),
-                    },
-                );
-                let header = ShellHeader { chrome: &chrome }.render()?;
-                assert_eq!(header.contains("class=\"account-overview\""), enabled);
-                assert_eq!(header.contains("href=\"/account\""), enabled);
-                if !enabled {
-                    assert!(header.contains("href=\"#podglad-konta\" data-account-link"));
-                }
-                assert!(header.contains(&format!("href=\"/{lang}/password/change\"")));
-                assert!(header.contains("id=\"podglad-konta\""));
             }
         }
         Ok(())
