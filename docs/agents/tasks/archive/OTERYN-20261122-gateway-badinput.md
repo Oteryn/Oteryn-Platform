@@ -67,7 +67,7 @@ next_action: none; delivered by PR #2012 and archived
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: deleted
-source_branch_reason: Delivered by squash merge of PR #2012.
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: Dedicated same-repository task branch for issue 2002.
 source_branch_evidence: PR #2012 merged as 4f8f2feb3ac9e689bb67ccb040c9d43f6cec48dc on 2026-11-22; refs/heads/codex/e2e-gateway-badinput no longer exists on origin
 ```
