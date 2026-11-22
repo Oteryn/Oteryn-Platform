@@ -15,15 +15,8 @@ pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
 }
-/// A ticket mutation's conflict reason from the authorized, locked domain check.
-#[derive(Clone, Debug)]
-pub enum TicketConflict {
-    StaleVersion {
-        /// Server-built same-origin GET path of the current ticket form.
-        recovery_path: String,
-    },
-    State,
-}
+/// CSP for portal HTML that only loads same-origin scripts and styles.
+pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
@@ -114,10 +107,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .append(header::SET_COOKIE, value.clone());
             }
             for (name, value) in [
-                (
-                    "content-security-policy",
-                    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-                ),
+                ("content-security-policy", PORTAL_CONTENT_SECURITY_POLICY),
                 (
                     "strict-transport-security",
                     "max-age=63072000; includeSubDomains",
@@ -162,6 +152,16 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+/// A ticket mutation's conflict reason from the authorized, locked domain check.
+#[derive(Clone, Debug)]
+pub enum TicketConflict {
+    StaleVersion {
+        /// Server-built same-origin GET path of the current ticket form.
+        recovery_path: String,
+    },
+    State,
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit
