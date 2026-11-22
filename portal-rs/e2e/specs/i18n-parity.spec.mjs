@@ -176,8 +176,9 @@ async function addLinkedPages(page, targets, locale, actor) {
 }
 
 // These compatibility routes have an explicitly localized sibling but keep
-// Polish at the unprefixed URL. Each representation must have a coherent shell.
-const fixedPolishAlias = /^\/(?:deaths|characters\/[^/]+\/deaths|guilds(?:\/[^/]+)?|houses(?:\/[^/]+)?|online|events(?:\/[^/]+)?|stats\/(?:guilds|world))$/u;
+// Polish at the unprefixed URL. A house detail without a world fails before
+// rendering and gets the shared refusal in the negotiated language.
+const fixedPolishAlias = /^\/(?:deaths|characters\/[^/]+\/deaths|guilds(?:\/[^/]+)?|houses|online|events(?:\/[^/]+)?|stats\/(?:guilds|world))$/u;
 const localeQueryRoute = /^\/(?:news(?:\/[^/]+)?|today(?:\/(?:data|widget))?|announcements\/ticker|admin\/(?:news(?:\/.*)?|media|console\/(?:access|approvals|audit|players)))$/u;
 
 const validationMessages = 'main [role=alert], main .op-error, main [aria-live]:not([aria-live=off])';
