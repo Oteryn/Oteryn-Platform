@@ -9,7 +9,11 @@ import { seedPlayer, signInPlayer, withFreshCommercePortal } from '../commerce-h
 import { uuid7 } from '../support/bazaar-game.mjs';
 
 const promotionRoute = '/{lang}/account/bazaar/{listing}/promote';
-const collectionRoutes = ['/{lang}/collection/{character}', '/{lang}/collection/{character}/cards/{id}/image'];
+const collectionRoutes = [
+  { route: '/{lang}/collection/{character}', warmStatus: 403 },
+  // A portfolio does not supply the Game sprite projection.
+  { route: '/{lang}/collection/{character}/cards/{id}/image', warmStatus: 503 },
+];
 
 const read = name => JSON.parse(fs.readFileSync(new URL(`../${name}.json`, import.meta.url), 'utf8'));
 const routes = read('inventory').routes.filter(route => route.methods.includes('GET'));
@@ -213,13 +217,13 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
   const warm = await warmPlayerContext.newPage();
   try {
     await publishWarmPortfolio(warm, locale);
-    for (const route of collectionRoutes) {
+    for (const { route, warmStatus } of collectionRoutes) {
       const path = targetFor(route, locale);
       const coldExpected = expectations.get(route);
       expect(coldExpected?.actor).toBe('player');
       expect((await cold.goto(path)).status(), `${route} (cold ownership)`).toBe(coldExpected.status);
       await assertLocale(cold, locale, `${route} (cold ownership)`);
-      expect((await warm.goto(path)).status(), `${route} (warm ownership)`).toBe(403);
+      expect((await warm.goto(path)).status(), `${route} (warm ownership)`).toBe(warmStatus);
       await assertLocale(warm, locale, `${route} (warm ownership)`);
     }
   } finally {
