@@ -13,9 +13,9 @@ export default defineConfig({
   outputDir: process.env.MONITOR_OUTPUT_DIR || 'test-results',
   reporter: 'dot',
   projects: [
-    { name: 'pl-1440', metadata: { lang: 'pl', writePreference: true },
+    { name: 'pl-1440', metadata: { lang: 'pl', checkPublicEndpoints: true },
       use: { viewport: { width: 1440, height: 900 }, locale: 'pl-PL' } },
-    { name: 'en-390', metadata: { lang: 'en', writePreference: false },
+    { name: 'en-390', metadata: { lang: 'en', checkPublicEndpoints: false },
       use: { viewport: { width: 390, height: 844 }, locale: 'en-US', isMobile: true, hasTouch: true } },
   ],
   use: {

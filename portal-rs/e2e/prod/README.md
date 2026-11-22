@@ -2,7 +2,7 @@
 
 The monitor runs one Chromium worker with two sequential projects. `pl-1440` covers Polish desktop at 1440 × 900. `en-390` covers English mobile at 390 × 844. Each verifies the final localized home URL, document language and public news heading, then signs in through the header, opens account overview, Privacy and Security, checks the current session, and signs out through the account menu. It verifies that revisiting Sessions redirects to the login form. The desktop project also checks `/healthz` and `/login` directly.
 
-The desktop project previews the other language on the Privacy page, verifies it, and clears the preview to restore the observed starting language. The server stores the preview with a 30-second deadline and a restore token. The account's persisted locale and visibility preferences remain intact. An expired preview is ignored on every Privacy read, even if its write commits late or the runner stops. The mobile project reads settings. The portal must be running the server change and migration in this branch before enabling the production probe.
+Both production projects read the Privacy form and verify that the saved locale and visibility controls are present. Preference writes run separately against disposable seeded accounts.
 
 ## Run locally
 
@@ -44,13 +44,17 @@ PORTAL_E2E_BINARY="$monitor_wrapper" e2e/start.sh --seed-plan "$SEED_PLAN"
 
 Use the `account` seed command for a disposable account and optionally `account-mfa` to enroll TOTP. In a second shell, set `MONITOR_BASE_URL` to the harness public origin, using the same hostname as `OTERYN_PUBLIC_ORIGIN` for CSRF. The harness default is `http://localhost:18080`. Supply the seeded credentials through the environment and run the launcher.
 
+### Seeded Privacy writes
+
+Use a separate password-only `account` seed. With `MONITOR_BASE_URL` pointing to the loopback harness, pass its disposable database URL via `PORTAL_E2E_DATABASE_URL` and the seeded account credentials via `MONITOR_SEEDED_PRIVACY_EMAIL` and `MONITOR_SEEDED_PRIVACY_PASSWORD`. From `portal-rs/e2e`, run `node prod/run.mjs --seeded-privacy`. Each project saves the alternate locale through the real Privacy form, reloads it, and restores the observed starting preference. The check verifies both visibility flags and the privacy revision in PostgreSQL after each save.
+
 ## Budgets and request limits
 
 | Step | Maximum |
 | --- | ---: |
 | Public homes, health and anonymous login form | 10 s each |
-| Home to login form, overview, settings, security, reopening settings, current session and post-logout redirect | 10 s each |
-| Password sign-in, locale preview, restoration and logout | 15 s each |
+| Home to login form, overview, settings, security, current session and post-logout redirect | 10 s each |
+| Password sign-in and logout | 15 s each |
 | TOTP challenge, including the wait for a fresh code | 45 s |
 | Each Playwright project | 6 min |
 
@@ -60,7 +64,7 @@ Failure screenshots are limited to public home pages. Traces, video and Playwrig
 
 ## Owner setup for scheduled runs
 
-Create these GitHub Actions environments in repository settings before enabling the monitor. In each environment, set the deployment branch policy to **Selected branches and tags**, allow the **repository default branch only** (currently `main`), and add no tag rules. Both workflow jobs also check the selected ref against the default branch. Put the credentials only in the environments below. Move any repository-level copies of these secrets to the matching environment.
+Create both GitHub Actions environments in repository settings before enabling the monitor or adding credentials. In each environment, set the deployment branch policy to **Selected branches and tags**, allow the **repository default branch only** (currently `main`), and add no tag rules. Both workflow jobs also check the selected ref against the default branch. Put the credentials only in the environments below. Move any repository-level copies of these secrets to the matching environment.
 
 | Environment | Environment secrets | Environment variable |
 | --- | --- | --- |

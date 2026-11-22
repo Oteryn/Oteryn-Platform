@@ -1,5 +1,4 @@
 import { test } from '@playwright/test';
-import { randomUUID } from 'node:crypto';
 import { Secret, TOTP } from 'otpauth';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +8,7 @@ const READ = 10_000;
 const FORM = 15_000;
 const MFA = 45_000;
 const LANGUAGES = ['pl', 'en'];
+const NEWS_HEADING = { pl: 'Aktualności', en: 'News' };
 const ACCOUNT_LINK = '[data-account-link][href="/account"]';
 const LOCALE = 'select#locale[name="locale"]';
 const VISIBILITY = ['public_account_association', 'public_status_visible'];
@@ -20,7 +20,7 @@ function requireThat(condition, message) {
 }
 
 test('Production portal synthetic monitor', async ({ browser, context, baseURL }, info) => {
-  const { lang, writePreference } = info.project.metadata;
+  const { lang, checkPublicEndpoints } = info.project.metadata;
   const origin = new URL(baseURL).origin;
   const runDirectory = process.env.MONITOR_RUN_DIRECTORY;
   const counter = join(runDirectory, 'requests');
@@ -279,7 +279,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   const sessions = `/${lang}/account/sessions`;
 
   const publicChecks = [];
-  if (writePreference) {
+  if (checkPublicEndpoints) {
     publicChecks.push(['Public health', async () => {
       const response = await go('/healthz');
       requireThat(response.ok() && currentPath() === '/healthz', 'unexpected health response');
@@ -292,7 +292,9 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     await go(home);
     requireThat(page.url() === new URL(home, origin).href, 'unexpected homepage destination');
     requireThat(await page.locator('html').getAttribute('lang') === lang, 'wrong homepage language');
-    await page.locator('main #hero-title').waitFor();
+    await page.locator('main #hero-title').and(
+      page.getByRole('heading', { name: NEWS_HEADING[lang], exact: true, level: 1 }),
+    ).waitFor();
   }, home]);
   const failures = [];
   for (const [name, check, screenshot] of publicChecks) {
@@ -375,11 +377,13 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     await page.locator('main dl > dd').first().waitFor();
     await page.locator('main #characters').waitFor();
   });
-  const settings = await step(`${lang} account settings`, READ, async () => {
+  await step(`${lang} account settings`, READ, async () => {
     await go(privacy);
     const locale = await page.locator(LOCALE).inputValue();
     requireThat(LANGUAGES.includes(locale), 'unexpected saved preference');
-    return { locale, visibility: await readVisibility() };
+    for (const name of VISIBILITY) {
+      await page.locator(`input[type="checkbox"][name="${name}"]`).waitFor();
+    }
   });
   await step(`${lang} account security`, READ, async () => {
     const response = await go(`${home}account/security`);
@@ -387,58 +391,6 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       'unexpected security redirect');
     await page.locator('main input#current[name="current_password"]').waitFor();
   });
-
-  async function readVisibility() {
-    return Promise.all(VISIBILITY.map((name) => page.locator(`input[name="${name}"]`).isChecked()));
-  }
-
-  async function saveLocale(value, action, token) {
-    requireThat(/^\/(pl|en)\/account\/privacy$/.test(currentPath()), 'privacy page unavailable');
-    requireThat((await readVisibility()).every((checked, i) => checked === settings.visibility[i]),
-      'visibility settings changed');
-    await page.locator(LOCALE).selectOption(value);
-    const savedPath = `/${value}/account/privacy`;
-    const form = page.locator('main form').filter({ has: page.locator(LOCALE) });
-    const control = [
-      ['synthetic_locale_action', action],
-      ['synthetic_locale_initial', settings.locale],
-      ['synthetic_locale_token', token],
-    ];
-    await form.evaluate((element, entries) => {
-      for (const [name, value] of entries) {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = name;
-        input.value = value;
-        element.append(input);
-      }
-    }, control);
-    const fields = [['locale', value], ...control];
-    for (const [index, name] of VISIBILITY.entries()) {
-      if (settings.visibility[index]) fields.push([name, '1']);
-    }
-    await submit(form, currentPath(), fields);
-    requireThat(currentPath() === savedPath, 'preference save did not redirect');
-    requireThat(await page.locator(LOCALE).inputValue() === value, 'saved preference differs');
-    requireThat((await readVisibility()).every((checked, i) => checked === settings.visibility[i]),
-      'visibility settings changed');
-  }
-
-  if (writePreference) {
-    const alternate = LANGUAGES.find((value) => value !== settings.locale);
-    const token = randomUUID();
-    await step('Reopen account settings', READ, async () => {
-      await go(privacy);
-      requireThat(await page.locator(LOCALE).inputValue() === settings.locale,
-        'starting locale changed during the journey');
-    });
-    await step('Save alternate language preview', FORM, () => {
-      requireThat(requestCount <= 52, 'request budget cannot cover preference restoration');
-      return saveLocale(alternate, 'preview', token);
-    });
-    // If a request fails or the runner stops, the server expires the preview.
-    await step('Restore starting language', FORM, () => saveLocale(settings.locale, 'restore', token));
-  }
 
   await step(`${lang} current session listed`, READ, async () => {
     await go(sessions);
