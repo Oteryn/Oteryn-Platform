@@ -340,6 +340,40 @@ async fn database_navigation_authorization_csrf_and_owner() {
             );
         }
     }
+    for (lang, input, status, message) in [
+        (
+            "en",
+            "action=create&key=&permissions=admin.access",
+            StatusCode::BAD_REQUEST,
+            "Check the request and try again.",
+        ),
+        (
+            "pl",
+            "action=grant&account=invalid",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.",
+        ),
+    ] {
+        let response = app(pool.clone(), identity, true)
+            .oneshot(
+                Request::post("/admin/roles")
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &cookie)
+                    .header("x-csrf-token", csrf)
+                    .header("accept-language", lang)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(input))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            message.as_bytes()
+        );
+    }
     let target = Uuid::now_v7();
     let ordinary: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='panel_test'")
         .fetch_one(&pool)
