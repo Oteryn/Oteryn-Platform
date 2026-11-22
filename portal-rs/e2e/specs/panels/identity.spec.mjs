@@ -177,35 +177,52 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
 });
 
-test('owner replaces and removes TOTP and rotates one-time recovery codes', async ({ page, browser }, info) => {
-  test.setTimeout(180_000);
-  const lang = info.project.metadata.locale;
+async function enrollForManagement(page, lang) {
   const mfa = `/${lang}/mfa`;
-  const manage = `${mfa}/manage`;
-  const replacement = `${mfa}/replace/confirm`;
   const account = await seedAccount(lang);
-  const password = account.password;
   const anonymous = await page.request.get(mfa, { maxRedirects: 0 });
   expect(anonymous.headers().location).toBe(`/${lang}/login`);
   await login(page, lang, account);
   await page.goto(`/${lang}/account/privacy`);
   await page.locator(`a[href="${mfa}"]`).first().click();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
-  await submit(page, 'main form', { password });
-  const original = await totp(page);
-  await submitProof(page, `${mfa}/confirm`, password, original);
-  const originalCodes = await codes(page);
-  expect(originalCodes.length).toBe(8);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize().width);
+  await submit(page, 'main form', { password: account.password });
+  const factor = await totp(page);
+  await submitProof(page, `${mfa}/confirm`, account.password, factor);
+  return { account, factor, recoveryCodes: await codes(page), mfa };
+}
 
-  async function signInWithRecovery(code, screen = page) {
-    await login(screen, lang, account);
-    await expect(screen).toHaveURL(/mfa\/challenge/);
-    await submit(screen, 'form[action$="/challenge"]', { code });
-    await expect(screen).not.toHaveURL(/mfa\/challenge/);
-    await screen.goto(mfa);
-  }
+async function challengeWithPassword(page, lang, account) {
+  await login(page, lang, account);
+  await expect(page).toHaveURL(new URL(`/${lang}/mfa/challenge`, page.url()).href);
+}
 
-  await signInWithRecovery(originalCodes[0]);
+async function useRecoveryCode(page, lang, code) {
+  await submit(page, 'form[action$="/challenge"]', { code });
+  await expect(page).not.toHaveURL(/mfa\/challenge/);
+  const mfa = `/${lang}/mfa`;
+  expect((await page.goto(mfa)).status()).toBe(200);
+  await expect(page).toHaveURL(new URL(mfa, page.url()).href);
+}
+
+async function factorState(db, account) {
+  const { rows: [state] } = await db.query(
+    `SELECT t.generation, t.last_step, t.replacement_expires_at, a.login_mfa_required,
+            (SELECT count(*)::int FROM account_recovery_codes WHERE account_id=$1) AS remaining
+     FROM accounts a LEFT JOIN account_mfa_totp t ON t.account_id=a.id WHERE a.id=$1`, [account.id]);
+  return state;
+}
+
+test('owner replaces their TOTP and revokes the other browser session', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const { account, factor: original, recoveryCodes: originalCodes, mfa } = await enrollForManagement(page, lang);
+  const manage = `${mfa}/manage`;
+  const replacement = `${mfa}/replace/confirm`;
+  const password = account.password;
+
+  await challengeWithPassword(page, lang, account);
+  await useRecoveryCode(page, lang, originalCodes[0]);
   await expect(page.locator('[data-recovery-count]')).toHaveText('7');
   const currentCodeLabel = lang === 'pl' ? 'Kod z obecnej aplikacji uwierzytelniającej' : 'Current authenticator code';
   await expect(page.getByLabel(currentCodeLabel)).toBeVisible();
@@ -221,15 +238,15 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
     locale: lang, viewport: info.project.use.viewport,
   });
   const db = pool();
-  let next;
   try {
     const other = await peer.newPage();
-    await signInWithRecovery(originalCodes[1], other);
+    await challengeWithPassword(other, lang, account);
+    await useRecoveryCode(other, lang, originalCodes[1]);
     await expect(other.locator('[data-recovery-count]')).toHaveText('6');
     await submitProof(page, manage, password, original, { action: 'replace' });
     const newCodeLabel = lang === 'pl' ? 'Kod z nowej aplikacji uwierzytelniającej' : 'New authenticator code';
     await expect(page.getByLabel(newCodeLabel)).toBeVisible();
-    next = await totp(page);
+    const next = await totp(page);
     const replacementToken = await csrf(page, replacement);
     await expectProofRefusal(await post(page, replacement, replacementToken, {
       password, code: 'invalid',
@@ -240,10 +257,7 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
     await expectProofRefusal(await post(page, replacement, replacementToken, {
       password: 'wrong', code: codeAt(next, 0),
     }), lang, 403, { confirm: true });
-    const state = async () => (await db.query(
-      `SELECT generation, last_step, replacement_expires_at,
-              (SELECT count(*)::int FROM account_recovery_codes WHERE account_id=$1) AS remaining
-       FROM account_mfa_totp WHERE account_id=$1`, [account.id])).rows[0];
+    const state = () => factorState(db, account);
     const before = await state();
     expect(before.replacement_expires_at).not.toBeNull();
     await submitProof(page, replacement, password, next, {
@@ -255,29 +269,78 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
     const revoked = await other.request.get(mfa, { maxRedirects: 0 });
     expect(revoked.status()).toBe(302);
     expect(revoked.headers().location).toBe(`/${lang}/login`);
-    expect((await state()).generation).not.toBe(before.generation);
+    const after = await state();
+    expect(after.generation).not.toBe(before.generation);
+    expect(after.replacement_expires_at).toBeNull();
+    expect(after.remaining).toBe(8);
   } finally {
     await db.end();
     await peer.close();
   }
   const replacementCodes = await codes(page);
   expect(replacementCodes.length).toBe(8);
+  await challengeWithPassword(page, lang, account);
+  await useRecoveryCode(page, lang, replacementCodes[0]);
+  await expect(page.locator('[data-recovery-count]')).toHaveText('7');
+});
 
-  await signInWithRecovery(replacementCodes[0]);
-  await submitProof(page, manage, password, next, { action: 'rotate_codes' });
+test('owner rotates one-time recovery codes and invalidates the old codes', async ({ page }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const { account, factor, recoveryCodes: oldCodes, mfa } = await enrollForManagement(page, lang);
+  await challengeWithPassword(page, lang, account);
+  await useRecoveryCode(page, lang, oldCodes[0]);
+  const db = pool();
+  try {
+    const before = await factorState(db, account);
+    expect(before.remaining).toBe(7);
+    await submitProof(page, `${mfa}/manage`, account.password, factor, {
+      action: 'rotate_codes',
+      afterCsrf: async () => expect(await factorState(db, account)).toEqual(before),
+    });
+    expect((await factorState(db, account)).remaining).toBe(8);
+  } finally {
+    await db.end();
+  }
   const rotatedCodes = await codes(page);
   expect(rotatedCodes.length).toBe(8);
-  expect(rotatedCodes.some(code => replacementCodes.includes(code))).toBe(false);
-  await login(page, lang, account);
-  await submit(page, 'form[action$="/challenge"]', { code: replacementCodes[1] });
-  await expect(page).toHaveURL(/mfa\/challenge/);
-  await submit(page, 'form[action$="/challenge"]', { code: rotatedCodes[0] });
-  await expect(page).not.toHaveURL(/mfa\/challenge/);
-  await page.goto(mfa);
+  expect(rotatedCodes.some(code => oldCodes.includes(code))).toBe(false);
+  await challengeWithPassword(page, lang, account);
+  await submit(page, 'form[action$="/challenge"]', { code: oldCodes[1] });
+  await expect(page).toHaveURL(new URL(`/${lang}/mfa/challenge`, page.url()).href);
+  await useRecoveryCode(page, lang, rotatedCodes[0]);
   await expect(page.locator('[data-recovery-count]')).toHaveText('7');
-  await submitProof(page, manage, password, next, { action: 'remove', status: 302 });
+});
+
+test('owner removes TOTP and signs in to a protected page with only their password', async ({ page }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const { account, factor, recoveryCodes, mfa } = await enrollForManagement(page, lang);
+  await challengeWithPassword(page, lang, account);
+  await useRecoveryCode(page, lang, recoveryCodes[0]);
+  await expect(page.locator('[data-recovery-count]')).toHaveText('7');
+  const db = pool();
+  try {
+    const before = await factorState(db, account);
+    expect(before.generation).not.toBeNull();
+    await submitProof(page, `${mfa}/manage`, account.password, factor, {
+      action: 'remove', status: 302,
+      afterCsrf: async () => expect(await factorState(db, account)).toEqual(before),
+    });
+    expect(await factorState(db, account)).toEqual({
+      generation: null, last_step: null, replacement_expires_at: null,
+      login_mfa_required: false, remaining: 0,
+    });
+  } finally {
+    await db.end();
+  }
+  await expect(page).toHaveURL(new URL(`/${lang}/login`, page.url()).href);
   await login(page, lang, account);
-  await expect(page).not.toHaveURL(/mfa\/challenge/);
+  await expect(page).toHaveURL(new URL(`/${lang}/`, page.url()).href);
+  const profile = `/${lang}/account/profile`;
+  expect((await page.goto(profile)).status()).toBe(200);
+  await expect(page).toHaveURL(new URL(profile, page.url()).href);
+  await expect(page.locator('input[name="display_name"]')).toBeVisible();
 });
 
 test('native device revocation requires recent authentication and family ownership', async ({ page }, info) => {
