@@ -76,6 +76,10 @@ impl Language {
             Self::En => "en",
         }
     }
+    /// Resolve the browser language preference from its cookie or Accept-Language.
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        negotiate(headers)
+    }
     /// Translate a message from the shared Fluent catalog.
     pub fn text(self, id: &str) -> String {
         message(self, id)

@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sandbox coin checkout · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<html lang="{{ lang.code() }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% if lang.code() == "pl" %}Testowy zakup monet{% else %}Sandbox coin checkout{% endif %} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme"><main class="op-stack">
-<h1>Sandbox coin checkout</h1>
-<p>Test payment only. No real money is charged. Coins are credited only after the payment is verified.</p>
-<dl><dt>Order</dt><dd><small>{{ order_id }}</small></dd><dt>Coins</dt><dd>{{ coins }}</dd><dt>Price</dt><dd>{{ price }}</dd><dt>Status</dt><dd>{{ state }}</dd></dl>
+<h1>{% if lang.code() == "pl" %}Testowy zakup monet{% else %}Sandbox coin checkout{% endif %}</h1>
+<p>{% if lang.code() == "pl" %}To płatność testowa. Nie pobieramy prawdziwych pieniędzy. Monety zostaną przyznane po zweryfikowaniu płatności.{% else %}Test payment only. No real money is charged. Coins are credited only after the payment is verified.{% endif %}</p>
+<dl><dt>{% if lang.code() == "pl" %}Zamówienie{% else %}Order{% endif %}</dt><dd><small>{{ order_id }}</small></dd><dt>{% if lang.code() == "pl" %}Monety{% else %}Coins{% endif %}</dt><dd>{{ coins }}</dd><dt>{% if lang.code() == "pl" %}Cena{% else %}Price{% endif %}</dt><dd>{{ price }}</dd><dt>Status</dt><dd>{{ self.state_label() }}</dd></dl>
 {% if awaiting %}<div class="op-row">
-<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="pay"><button class="op-button" type="submit">Complete test payment</button></form>
-<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="fail"><button class="op-button op-button--secondary" type="submit">Fail test payment</button></form>
-</div>{% else %}<p>You can return to the game. It reads the order status and your coin balance from Oteryn.</p>{% endif %}
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="pay"><button class="op-button" type="submit">{% if lang.code() == "pl" %}Zakończ płatność testową{% else %}Complete test payment{% endif %}</button></form>
+<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="fail"><button class="op-button op-button--secondary" type="submit">{% if lang.code() == "pl" %}Odrzuć płatność testową{% else %}Fail test payment{% endif %}</button></form>
+</div>{% else %}<p>{% if lang.code() == "pl" %}Możesz wrócić do gry. Gra pobierze status zamówienia i saldo monet z Oteryn.{% else %}You can return to the game. It reads the order status and your coin balance from Oteryn.{% endif %}</p>{% endif %}
 </main></body></html>
