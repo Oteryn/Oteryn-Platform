@@ -143,7 +143,12 @@ async fn index(
     }
     const PAGE_SIZE: usize = 200;
     match events
-        .public_page(&lang, None, q.offset(PAGE_SIZE as i64), PAGE_SIZE as i64 + 1)
+        .public_page(
+            &lang,
+            None,
+            q.offset(PAGE_SIZE as i64),
+            PAGE_SIZE as i64 + 1,
+        )
         .await
     {
         Ok(mut rows) => {
