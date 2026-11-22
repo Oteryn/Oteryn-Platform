@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, relative, resolve } from 'node:path';
 
 const inventory = JSON.parse(readFileSync(new URL('../inventory.json', import.meta.url)));
 const forms = JSON.parse(readFileSync(new URL('./forms.json', import.meta.url)));
@@ -12,21 +13,24 @@ const key = (...parts) => JSON.stringify(parts);
 
 const evidenceRules = 2;
 const resultsFile = new URL('../test-results/results.json', import.meta.url);
+const results = JSON.parse(readFileSync(resultsFile));
+const configDirectory = dirname(results.config.configFile);
 const passing = new Set();
 function collectPassing(suite, parents = []) {
   for (const spec of suite.specs ?? []) {
     const title = [...parents, spec.title].join(' › ');
+    const file = relative(configDirectory, resolve(results.config.rootDir, spec.file));
     for (const test of spec.tests) {
       for (const result of test.results) {
         if (result.status === 'passed' && test.expectedStatus === 'passed') {
-          passing.add(key(`specs/${spec.file}`, title, test.projectName, result.workerIndex, result.retry));
+          passing.add(key(file, title, test.projectName, result.workerIndex, result.retry));
         }
       }
     }
   }
   for (const child of suite.suites ?? []) collectPassing(child, [...parents, child.title]);
 }
-for (const suite of JSON.parse(readFileSync(resultsFile)).suites) collectPassing(suite);
+for (const suite of results.suites) collectPassing(suite);
 
 function row(kind, crate, parts, properties) {
   const index = key(kind, ...parts);

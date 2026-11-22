@@ -16,7 +16,7 @@ test('coverage requires a response from the matching passing attempt', t => {
 
   const result = (status, workerIndex, retry) => ({status, workerIndex, retry});
   const run = (projectName, expectedStatus, results) => ({projectName, expectedStatus, results});
-  const spec = (title, tests) => ({file: 'ledger.spec.mjs', title, tests});
+  const spec = (title, tests) => ({file: 'specs/ledger.spec.mjs', title, tests});
   const suites = [{suites: [{title: 'search', specs: [
     spec('submits', [
       run('pl-1440', 'passed', [result('timedOut', 0, 0), result('passed', 1, 1)]),
@@ -24,7 +24,8 @@ test('coverage requires a response from the matching passing attempt', t => {
     ]),
     spec('expected failure', [run('pl-1440', 'failed', [result('failed', 1, 0)])]),
   ]}]}];
-  writeFileSync(join(directory, 'test-results/results.json'), JSON.stringify({suites}));
+  const config = {configFile: join(directory, 'playwright.config.mjs'), rootDir: directory};
+  writeFileSync(join(directory, 'test-results/results.json'), JSON.stringify({config, suites}));
 
   const hit = {
     route_pattern: '/search', method: 'GET', status: 200, actor: 'anonymous', credential: 'none',
