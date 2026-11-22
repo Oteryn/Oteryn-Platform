@@ -69,8 +69,13 @@ where
 }
 
 /// Arm the timer and queue an absolute deadline check as the transaction's last write.
-/// The timer bounds deferred waits. The guard checks the database clock after deferred
-/// work, even if scheduling delayed timer arming or delivery.
+/// The deadline guard runs after deferred work. Its database-clock check is the last
+/// application-defined point at which COMMIT can be refused and is the authorization
+/// point for both submissions and staff decisions.
+///
+/// PostgreSQL can finish WAL synchronization or acknowledge COMMIT after that point.
+/// The transaction timeout bounds waits before the check. The authorization decision
+/// stands if the deadline passes during PostgreSQL's subsequent commit processing.
 pub async fn arm_commit(
     connection: &mut PgConnection,
     authorization_expiry: Option<sqlx::types::time::OffsetDateTime>,

@@ -178,7 +178,7 @@ async fn ok_commits_and_err_rolls_back() {
 }
 
 #[tokio::test]
-async fn absolute_commit_deadline_checks_after_transitive_deferred_work() {
+async fn deferred_commit_check_is_the_authorization_point() {
     let pool = pool(3).await.expect("PostgreSQL required");
     let schema = format!("commit_deadline_{}", sqlx::types::Uuid::now_v7().simple());
     let mut setup = pool.begin().await.unwrap();
@@ -302,8 +302,30 @@ async fn absolute_commit_deadline_checks_after_transitive_deferred_work() {
         .execute(&mut *check)
         .await
         .unwrap();
-    assert!(arm_commit(&mut check, None).await.unwrap());
+    let expiry: sqlx::types::time::OffsetDateTime =
+        sqlx::query_scalar("SELECT clock_timestamp() + interval '1500 milliseconds'")
+            .fetch_one(&mut *check)
+            .await
+            .unwrap();
+    assert!(arm_commit(&mut check, Some(expiry)).await.unwrap());
     check.commit().await.unwrap();
+
+    // An authorized commit stays visible after the deadline has passed.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let expired: bool = sqlx::query_scalar("SELECT clock_timestamp() >= $1")
+                .bind(expiry)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            if expired {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
 
     let mut check = pool.begin().await.unwrap();
     sqlx::query("SELECT set_config('search_path', $1, true)")
