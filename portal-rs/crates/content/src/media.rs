@@ -20,6 +20,7 @@ use sqlx::{PgPool, Row};
 use std::{io::Cursor, time::Duration};
 use uuid::Uuid;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
+const MAX_DECODE_BYTES: usize = 160_000_000;
 // Header CSRF is verified before reading the body. Allow the full byte cap
 // over a slower uplink while keeping the pre-authentication form read short.
 const AUTHENTICATED_UPLOAD_TIMEOUT: Duration = Duration::from_secs(15);
@@ -83,13 +84,17 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
     {
         return Err(bad);
     }
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(6000);
-    limits.max_image_height = Some(6000);
-    limits.max_alloc = Some(160_000_000);
-    reader.limits(limits);
-    let decoded = reader.decode().map_err(invalid)?;
+    let decoded = if format == ImageFormat::Jpeg {
+        decode_jpeg(bytes, width, height)?
+    } else {
+        let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(6000);
+        limits.max_image_height = Some(6000);
+        limits.max_alloc = Some(MAX_DECODE_BYTES as u64);
+        reader.limits(limits);
+        reader.decode().map_err(invalid)?
+    };
     if decoded.dimensions() != (width, height) {
         return Err(bad);
     }
@@ -122,6 +127,45 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         height,
     })
 }
+fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicImage, StatusCode> {
+    use rusty_jpeg::{Decoder, PixelFormat};
+
+    // Recovering from a truncated scan can produce a full-sized, damaged image.
+    let mut decoder = Decoder::new(bytes);
+    decoder.set_strict(true);
+    decoder.set_single_threaded(true);
+    decoder.set_max_decoding_buffer_size(MAX_DECODE_BYTES);
+    decoder.read_info().map_err(invalid)?;
+    let bad = StatusCode::UNPROCESSABLE_ENTITY;
+    let info = decoder.info().ok_or(bad)?;
+    if (u32::from(info.width), u32::from(info.height)) != (width, height) {
+        return Err(bad);
+    }
+
+    let pixels = decoder.decode().map_err(invalid)?;
+    match info.pixel_format {
+        PixelFormat::L8 => {
+            image::GrayImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageLuma8)
+        }
+        PixelFormat::RGB24 => {
+            image::RgbImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageRgb8)
+        }
+        PixelFormat::CMYK32 => {
+            let rgb = pixels
+                .chunks_exact(4)
+                .flat_map(|cmyk| {
+                    let black = 255 - u16::from(cmyk[3]);
+                    [cmyk[0], cmyk[1], cmyk[2]]
+                        .map(|ink| (((255 - u16::from(ink)) * black + 127) / 255) as u8)
+                })
+                .collect();
+            image::RgbImage::from_raw(width, height, rgb).map(image::DynamicImage::ImageRgb8)
+        }
+        PixelFormat::L16 => None,
+    }
+    .ok_or(bad)
+}
+
 /// Routes must be wrapped in the staff guard before mounting.
 pub fn admin_router(pool: PgPool) -> Router {
     Router::new()

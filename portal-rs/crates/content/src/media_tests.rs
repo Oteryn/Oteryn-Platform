@@ -7,6 +7,24 @@ fn fixture(format: ImageFormat, width: u32, height: u32) -> Vec<u8> {
     out.into_inner()
 }
 #[test]
+fn jpeg_with_incomplete_scan_passes_header_checks_but_is_rejected() {
+    let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-scan.jpeg");
+    assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Jpeg);
+    assert!(bytes.len() <= MAX_BYTES);
+    assert!(bytes.ends_with(&[255, 217]));
+    assert_eq!(
+        ImageReader::with_format(Cursor::new(bytes), ImageFormat::Jpeg)
+            .into_dimensions()
+            .unwrap(),
+        (640, 160)
+    );
+    assert_eq!(
+        process("truncated-scan.jpeg", bytes).err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+}
+
+#[test]
 fn png_with_missing_scanline_reaches_pixel_decoder() {
     let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-pixels.png");
     assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Png);

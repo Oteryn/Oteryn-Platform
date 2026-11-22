@@ -27,6 +27,7 @@ thiserror = "2"
 httparse = "1"
 memchr = "2"
 multer = "3.1"
+rusty_jpeg = "0.4.10"
 [dev-dependencies]
 futures-util = "0.3"
 oteryn-db = { workspace = true, features = ["test-support"] }

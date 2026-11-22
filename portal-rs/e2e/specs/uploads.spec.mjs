@@ -185,6 +185,7 @@ const rejectedImages = [
     buffer: Buffer.concat([png.buffer, Buffer.from('end of fixture')]),
   }), 422],
   ['PNG with truncated pixel data', () => file('png', 'image/png', 'truncated-pixels'), 422],
+  ['JPEG with a truncated scan', () => file('jpeg', 'image/jpeg', 'truncated-scan'), 422],
   ['zero-byte PNG', () => ({ ...png, buffer: Buffer.alloc(0) }), 422],
 ];
 

@@ -2825,6 +2825,7 @@ dependencies = [
  "oteryn-ui",
  "oteryn-web",
  "pulldown-cmark",
+ "rusty_jpeg",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4120,6 +4121,12 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rusty_jpeg"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32de95f6029ad28b6ec95ffb4f3cd594bc0563e7eb2fcaf74d698c5b2d802b61"
 
 [[package]]
 name = "ryu"
