@@ -21,7 +21,13 @@ function seed(entity, input) {
   try {
     return JSON.parse(execFileSync(process.env.PORTAL_E2E_BINARY,
       ['seed', entity, JSON.stringify(input)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
-  } catch {
+  } catch (error) {
+    // The seed CLI confirms the previous TOTP step and explicitly requests a
+    // fresh enrollment when the step rolls over during confirmation.
+    if (entity === 'account-mfa' && typeof error.stdout === 'string'
+        && error.stdout.includes('"reason":"MFA confirmation was refused; retry"')) {
+      return null;
+    }
     // The invocation and child output contain disposable credentials.
     throw new Error(`Harness seed failed for ${entity}`);
   }
@@ -31,6 +37,17 @@ export function seedBrowserAccount(locale) {
   const account = { email: `matrix-${randomUUID()}@example.invalid`, password: password() };
   const { accountId } = seed('account', { ...account, locale });
   return { account, accountId };
+}
+
+function seedStaffAccount(locale) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const fixture = seedBrowserAccount(locale);
+    const enrolled = seed('account-mfa', {
+      accountId: fixture.accountId, password: fixture.account.password,
+    });
+    if (enrolled) return { ...fixture, enrolled };
+  }
+  throw new Error('Harness MFA seed could not confirm within the TOTP window');
 }
 
 export async function csrfPage(request, path) {
@@ -88,7 +105,7 @@ export async function openActor(locale, definition, sanctionIssuer) {
   try {
     if (definition.key === 'anonymous') return { request };
 
-    const { account, accountId } = seedBrowserAccount(locale);
+    const { account, accountId, enrolled } = definition.role ? seedStaffAccount(locale) : seedBrowserAccount(locale);
     let totpSecret;
     let nextRecoveryCode;
     if (definition.role) {
@@ -108,7 +125,6 @@ export async function openActor(locale, definition, sanctionIssuer) {
       const roles = await query('SELECT permission FROM role_permissions WHERE role_id=$1', [roleId]);
       expect(roles.map(row => row.permission).sort(), `${definition.key} catalog permissions`)
         .toEqual([...definition.permissions].sort());
-      const enrolled = seed('account-mfa', { accountId, password: account.password });
       const { recoveryCodes } = enrolled;
       totpSecret = enrolled.totpSecret;
       nextRecoveryCode = recoveryCodes[1];
