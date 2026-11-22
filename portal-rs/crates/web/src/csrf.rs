@@ -15,6 +15,21 @@ pub struct CsrfConfig {
     pub api_allow_list: Vec<(Method, String)>,
 }
 
+/// Normalize an HTTPS host and optional port for routing and serialized origins.
+pub fn https_authority(value: &str) -> Option<String> {
+    let authority: axum::http::uri::Authority = value.parse().ok()?;
+    let host = authority.host();
+    if host.is_empty() || value.contains('@') {
+        return None;
+    }
+    match authority.port_u16() {
+        Some(443) => Some(host.to_ascii_lowercase()),
+        Some(port) => Some(format!("{}:{port}", host.to_ascii_lowercase())),
+        None if value == host => Some(host.to_ascii_lowercase()),
+        None => None,
+    }
+}
+
 pub async fn verify(
     config: &CsrfConfig,
     session: &BrowserSession,

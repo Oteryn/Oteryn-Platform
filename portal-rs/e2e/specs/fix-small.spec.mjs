@@ -1,5 +1,5 @@
 import {test, expect} from '../fixtures.mjs';
-import {login, logout, pool, register, submit} from '../helpers.mjs';
+import {login, logout, pool, register, submit, waitForLoginBudget} from '../helpers.mjs';
 import {action, enrollMfa, loginWithRecoveryCode, query, unique} from '../staff-rbac-helpers.mjs';
 
 async function grantRole(account, role) {
@@ -14,11 +14,39 @@ function accountMenu(page) {
   return page.locator('dialog').filter({has: page.locator('a.account-overview')});
 }
 
-async function signInWithMfa(page, lang, account) {
+function staffUrl(path) {
+  return new URL(path, `https://${process.env.OTERYN_ADMIN_HOST}`).href;
+}
+
+async function enrollAndReadCodes(page, lang, account) {
   await enrollMfa(page, lang, account);
-  const recoveryCode = page.locator('main textarea[readonly]').first();
-  await expect(recoveryCode).toBeVisible();
-  await loginWithRecoveryCode(page, lang, account, await recoveryCode.inputValue());
+  const codes = page.locator('main textarea[readonly]');
+  await expect(codes.nth(1)).toBeVisible();
+  return [await codes.nth(0).inputValue(), await codes.nth(1).inputValue()];
+}
+
+async function finishStaffLogin(page, account, code) {
+  await expect(page).toHaveURL(staffUrl('/login'));
+  await waitForLoginBudget();
+  await submit(page, 'main form', {email: account.email, password: account.password});
+  await expect(page).toHaveURL(url =>
+    url.origin === new URL(staffUrl('/')).origin && url.pathname.endsWith('/mfa/challenge')
+  );
+  await submit(page, 'form[action$="/mfa/challenge"]', {code});
+  expect((await page.goto(staffUrl('/admin'))).status()).toBe(200);
+}
+
+async function signInWithMfa(page, lang, account) {
+  const [code] = await enrollAndReadCodes(page, lang, account);
+  await page.goto(staffUrl('/admin'));
+  await finishStaffLogin(page, account, code);
+}
+
+async function openAccountMenu(page) {
+  const mobileMenu = page.locator('#portal-menu-toggle');
+  if (await mobileMenu.isVisible()) await mobileMenu.click();
+  await page.locator('[data-account-link]:visible').click();
+  await expect(accountMenu(page)).toBeVisible();
 }
 
 test('account menu shows a localized staff link only with admin.access', async ({page}, info) => {
@@ -38,11 +66,37 @@ test('account menu shows a localized staff link only with admin.access', async (
   await grantRole(account, 'game_viewer');
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
   await expect(link).toHaveText(lang === 'pl' ? 'Panel zespołu' : 'Staff panel');
-  const destination = new URL('/admin', `https://${process.env.OTERYN_ADMIN_HOST}`).href;
+  const destination = staffUrl('/admin');
   await expect(link).toHaveAttribute('href', destination);
   expect((await page.goto(consents)).status()).toBe(200);
   await expect(page.locator('main form[action$="/account/consents"]')).toHaveCount(2);
   await expect(link).toHaveAttribute('href', destination);
+
+  const publicOrigin = new URL(page.url()).origin;
+  const [publicCode, staffCode] = await enrollAndReadCodes(page, lang, account);
+  await loginWithRecoveryCode(page, lang, account, publicCode);
+  expect((await page.goto(`/${lang}/`)).status()).toBe(200);
+  await openAccountMenu(page);
+  const landing = page.waitForResponse(response => response.url() === destination);
+  await link.click();
+  if (process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1') {
+    expect(new URL(destination).origin).not.toBe(publicOrigin);
+  }
+  if (new URL(destination).origin !== publicOrigin) {
+    expect((await landing).status()).toBe(303);
+    await finishStaffLogin(page, account, staffCode);
+  } else {
+    expect((await landing).status()).toBe(200);
+    await expect(page).toHaveURL(destination);
+  }
+
+  expect((await page.goto(staffUrl(`/${lang}/`))).status()).toBe(200);
+  await openAccountMenu(page);
+  await submit(page, 'dialog form[action$="/logout"]');
+  await expect(accountMenu(page)).toHaveCount(0);
+  const signedOut = await page.request.get(destination, {maxRedirects: 0});
+  expect(signedOut.status()).toBe(303);
+  expect(signedOut.headers().location).toBe('/login');
 });
 
 test('cold atlas sends no-store for document and direct GET requests', async ({request}, info) => {
@@ -61,7 +115,7 @@ test('browser preserves private cache directives on a non-HTML analytics 503', a
   await grantRole(staff, 'platform_admin');
   await login(page, lang, staff);
   await signInWithMfa(page, lang, staff);
-  expect((await page.goto('/admin/analytics')).status()).toBe(200);
+  expect((await page.goto(staffUrl('/admin/analytics'))).status()).toBe(200);
   const endpoint = '/admin/analytics/data';
 
   const db = pool();
@@ -81,7 +135,7 @@ test('browser preserves private cache directives on a non-HTML analytics 503', a
     expect(response.status).toBe(503);
     expect(response.contentType).not.toContain('text/html');
     expect(response.cacheControl).toBe('no-store, private');
-    const document = await page.goto(endpoint);
+    const document = await page.goto(staffUrl(endpoint));
     expect(document.status()).toBe(503);
     expect(document.headers()['content-type']).toContain('text/html');
     expect(document.headers()['cache-control']).toBe('no-store, private');
@@ -114,15 +168,15 @@ test('moderator can review reports and is refused Platform admin areas', async (
   await grantRole(moderator, 'moderator');
   await login(page, lang, moderator);
   await signInWithMfa(page, lang, moderator);
-  expect((await page.request.get('/admin')).status()).toBe(200);
+  expect((await page.request.get(staffUrl('/admin'))).status()).toBe(200);
 
   for (const path of ['/admin/roles', '/admin/console/access', '/admin/news', '/admin/analytics']) {
-    expect((await page.request.get(path)).status(), path).toBe(403);
+    expect((await page.request.get(staffUrl(path))).status(), path).toBe(403);
   }
-  expect((await page.request.get(`/admin/${lang}/party`, {maxRedirects: 0})).status()).toBe(403);
+  expect((await page.request.get(staffUrl(`/admin/${lang}/party`), {maxRedirects: 0})).status()).toBe(403);
   const queue = '/admin/moderation/reports';
-  expect((await page.request.get(queue, {maxRedirects: 0})).status()).toBe(200);
-  expect((await page.goto(`${queue}/${reportId}`)).status()).toBe(200);
+  expect((await page.request.get(staffUrl(queue), {maxRedirects: 0})).status()).toBe(200);
+  expect((await page.goto(staffUrl(`${queue}/${reportId}`))).status()).toBe(200);
   await expect(page.locator('main')).toContainText(evidence);
 
   const outcome = unique();

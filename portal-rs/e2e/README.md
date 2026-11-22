@@ -28,6 +28,13 @@ Use a native Node 22+ installation, so loopback services and Chromium run togeth
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
 
+For the split-origin staff regression in `fix-small.spec.mjs`, launch `local.mjs`
+with `PORTAL_E2E_SPLIT_STAFF_ORIGIN=1`. This adds a loopback HTTPS listener on
+port 443 and configures `OTERYN_ADMIN_HOST=127.0.0.1:443`. Chromium uses
+`https://127.0.0.1` for staff while the public origin remains
+`https://localhost:18443`. Run `fix-small.spec.mjs` with this harness
+configuration. Other staff specs use the default single origin.
+
 The local launcher supplies a disposable Bazaar Game producer and the real private transport. Character/item Bazaar and account listing reads require HTTP 200, no-store, the shared shell and CSRF refusal for every rendered mutation. Missing listing references require HTTP 404; malformed UUIDs require HTTP 400. Both retain no-store and the shared shell without account disclosure. The dedicated Bazaar spec proves funded bids, delivery, seller credit and Game-refusal behavior against synthetic fixtures; it does not qualify a production Game integration.
 
 Game-login-history, journal-report, dashboard and season-pass startup adapters still document missing accepted game authority. Those cases assert exactly HTTP 503, no-store and no account-data disclosure; they do not prove a successful game-backed flow.

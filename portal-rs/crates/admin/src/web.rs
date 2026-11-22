@@ -15,7 +15,10 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_web::{
+    csrf::https_authority,
+    session::{BrowserSession, SessionLayer},
+};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -140,20 +143,6 @@ impl PanelConfig {
             "https://{}",
             https_authority(&self.host).unwrap_or_default()
         )
-    }
-}
-
-fn https_authority(value: &str) -> Option<String> {
-    let authority: axum::http::uri::Authority = value.parse().ok()?;
-    let host = authority.host();
-    if host.is_empty() || value.contains('@') {
-        return None;
-    }
-    match authority.port_u16() {
-        Some(443) => Some(host.to_ascii_lowercase()),
-        Some(port) => Some(format!("{}:{port}", host.to_ascii_lowercase())),
-        None if value == host => Some(host.to_ascii_lowercase()),
-        None => None,
     }
 }
 
