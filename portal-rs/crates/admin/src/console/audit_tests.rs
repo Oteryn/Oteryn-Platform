@@ -155,10 +155,19 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
         super::super::players::tests::Database::open(&std::env::var("PORTAL_TEST_DATABASE_URL")?)
             .await?;
     let request_id = Uuid::now_v7();
-    for (legacy, canonical) in [
+    let equivalent_instants = [
         ("2020-01-01 00:00:00+0000", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00 UTC", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00 gmt", "2020-01-01T00:00:00Z"),
+        ("2020-01-01 00:00:00 EST", "2020-01-01T05:00:00Z"),
+        ("2020-01-01 America/New_York", "2020-01-01T05:00:00Z"),
+        ("2020-01-01 00:00:00 EST DST", "2020-01-01T04:00:00Z"),
+        ("2020-01-01 10:30:00 PM EST", "2020-01-02T03:30:00Z"),
+        (
+            "2020-07-01 00:00:00 America/New_York",
+            "2020-07-01T04:00:00Z",
+        ),
+        ("2020-01-01 00:00:00 PST8PDT", "2020-01-01T08:00:00Z"),
         ("2020-01-01 00:00:00 Etc/UTC", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00 Etc/GMT+2", "2020-01-01T02:00:00Z"),
         ("2020-01-01 00:00:00 GMT-01:30", "2019-12-31T22:30:00Z"),
@@ -170,7 +179,8 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
         ),
         ("2020-01-01 00:00:00.0002495Z", "2020-01-01T00:00:00.00025Z"),
         ("2020-01-01 23:59:59.9999995Z", "2020-01-02T00:00:00Z"),
-    ] {
+    ];
+    for (legacy, canonical) in equivalent_instants {
         let mut tx = db.pool.begin().await?;
         crate::audit::append(
             &mut tx,
@@ -188,15 +198,31 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
         .await?;
         tx.commit().await?;
     }
-    let mut tx = db.pool.begin().await?;
-    crate::audit::append(&mut tx, crate::audit::Entry {
-        context: crate::audit::AuditContext { actor: None, request_id },
-        action: "cms.news_updated",
-        target: "invalid",
-        before: json!({"published_at":null,"translation_published_at":null}),
-        after: json!({"published_at":"today","translation_published_at":"2020-02-30T00:00:00+0000"}),
-    }).await?;
-    tx.commit().await?;
+    let padded_zoneless = format!("2020-01-01 00:00:00{}", " at".repeat(23));
+    let unknown_instants = [
+        ("today", "2020-02-30T00:00:00+0000"),
+        ("2020-01-01 00:00:00 Mars/Olympus", "2020-01-01 00:00:00 AD"),
+        ("2020-01-01 00:00:00", "2020-01-01 00:00:00 pm"),
+        (padded_zoneless.as_str(), "2020-01-01 00:00:00 on"),
+    ];
+    for (published, translated) in unknown_instants {
+        let mut tx = db.pool.begin().await?;
+        crate::audit::append(
+            &mut tx,
+            crate::audit::Entry {
+                context: crate::audit::AuditContext {
+                    actor: None,
+                    request_id,
+                },
+                action: "cms.news_updated",
+                target: "unknown",
+                before: json!({"published_at":null,"translation_published_at":null}),
+                after: json!({"published_at":published,"translation_published_at":translated}),
+            },
+        )
+        .await?;
+        tx.commit().await?;
+    }
 
     let rows = platform_rows(
         &db.pool,
@@ -206,11 +232,14 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
         },
     )
     .await?;
-    assert_eq!(rows.len(), 12);
+    assert_eq!(
+        rows.len(),
+        equivalent_instants.len() + unknown_instants.len()
+    );
     for row in rows {
         let target = row.target.as_deref().ok_or("missing test target")?;
         let changes = changes("en", &row.action, target, &row.before, &row.after);
-        if target == "invalid" {
+        if target == "unknown" {
             assert_eq!(changes.len(), 2);
             assert!(
                 changes

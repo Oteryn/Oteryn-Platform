@@ -41,13 +41,20 @@ CROSS JOIN LATERAL (
     CROSS JOIN LATERAL (
         SELECT CASE
             WHEN field IN ('published_at', 'translation_published_at')
-            -- Restrict the cast to absolute ISO dates with an explicit offset or a fixed-offset zone.
-            -- PostgreSQL's parser handles offset variants and rounds to microseconds.
-            -- Relative legacy values such as "today" must remain unknown.
+            -- Let PostgreSQL parse the absolute ISO input and round fractions.
+            -- Test its zone suffix against an already zoned literal: a real zone conflicts
+            -- with +00, while non-zone qualifiers like AD or PM do not.
             AND jsonb_typeof(recorded.value) = 'string'
-            AND recorded.value #>> '{}' ~*
-                '^[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt]|[[:space:]]+)[0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?[[:space:]]*((Z|UTC|GMT|UT|ZULU|Etc/UTC|Etc/GMT)([+-][0-9:]+)?|[+-][0-9:]+)[[:space:]]*$'
             AND pg_input_is_valid(recorded.value #>> '{}', 'timestamp with time zone')
+            AND NOT pg_input_is_valid(
+                '2000-01-01 00:00:00+00 ' || substring(
+                    recorded.value #>> '{}' FROM
+                    '(?i)^[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                    '(?:[T[:space:]]+[0-9]{2}:?[0-9]{2}(?::?[0-9]{2}(?:[.][0-9]+)?)?(?:[[:space:]]+(?:am|pm)[[:space:]]+)?)?'
+                    '[[:space:]]*([+-][0-9:]+|[a-z][a-z0-9_/+.:-]*(?:[[:space:]]+dst)?)[[:space:]]*$'
+                ),
+                'timestamp with time zone'
+            )
             THEN to_jsonb((to_jsonb((recorded.value #>> '{}')::timestamptz AT TIME ZONE 'UTC') #>> '{}') || 'Z')
             ELSE recorded.value
         END AS value
