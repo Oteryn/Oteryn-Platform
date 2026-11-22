@@ -10,11 +10,14 @@ function decodedPath(url) {
   }
 }
 
-export function publicURL(url, origins) {
+export function credentialURL(url) {
   const path = decodedPath(url);
-  return origins.has(url.origin) && !url.username && !url.password &&
-    path !== null && !statefulPath.test(path) &&
-    ![...url.searchParams.keys()].some(key => statefulQuery.test(key));
+  return Boolean(url.username || url.password || (path !== null && statefulPath.test(path)) ||
+    [...url.searchParams.keys()].some(key => statefulQuery.test(key)));
+}
+
+export function publicURL(url, origins) {
+  return origins.has(url.origin) && decodedPath(url) !== null && !credentialURL(url);
 }
 
 export function diagnosticURL(value) {

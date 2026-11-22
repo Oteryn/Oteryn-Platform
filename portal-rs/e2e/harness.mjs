@@ -49,7 +49,11 @@ const ports = {
 
 const adminURL = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
 if (!adminURL) throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a throwaway local PostgreSQL administrator URL');
-if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(adminURL).hostname)) throw new Error('Local PostgreSQL only');
+let adminConnection;
+try { adminConnection = new URL(adminURL); } catch { throw new Error('Invalid local PostgreSQL administrator URL'); }
+if (!['postgres:', 'postgresql:'].includes(adminConnection.protocol) ||
+    !['localhost', '127.0.0.1', '[::1]'].includes(adminConnection.hostname) ||
+    adminConnection.search || adminConnection.hash) throw new Error('Local PostgreSQL only, without connection overrides');
 
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
@@ -115,6 +119,7 @@ const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
 const admin = new pg.Client({ connectionString: adminURL });
 await admin.connect();
 let databaseCreated = false;
+const creation = admin.query(`CREATE DATABASE "${dbName}"`).then(() => { databaseCreated = true; });
 const children = [];
 let closing = false;
 async function close(code = 0) {
@@ -122,6 +127,7 @@ async function close(code = 0) {
   closing = true;
   for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGINT');
   await Promise.all(children.map(child => child.exitCode !== null || child.signalCode !== null ? null : new Promise(resolve => child.once('close', resolve))));
+  await creation.catch(() => {});
   if (databaseCreated && (code !== 0 || process.env.PORTAL_E2E_KEEP_DATABASE !== '1')) {
     try {
       await admin.query(`DROP DATABASE "${dbName}" WITH (FORCE)`);
@@ -137,8 +143,8 @@ process.on('SIGINT', () => close(0));
 process.on('SIGTERM', () => close(0));
 
 try {
-  await admin.query(`CREATE DATABASE "${dbName}"`);
-  databaseCreated = true;
+  await creation;
+  if (closing) throw new Error('Harness is closing');
   const databaseURL = (() => { const url = new URL(adminURL); url.pathname = `/${dbName}`; return url.toString(); })();
   log('database', dbName);
 

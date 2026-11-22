@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isGameUnavailable } from './game-unavailable.mjs';
-import { diagnosticURL, publicURL, redactURLs } from './crawl-url.mjs';
+import { credentialURL, diagnosticURL, publicURL, redactURLs } from './crawl-url.mjs';
 
 const require = createRequire(import.meta.url);
 const { test, expect } = require('@playwright/test');
@@ -217,7 +217,7 @@ async function openPage(context, source, report, note, request, responseNote, or
     const task = (async () => {
       const { requestId, resourceType, request: intercepted } = event;
       const url = new URL(intercepted.url);
-      if (!publicURL(url, origins)) {
+      if (credentialURL(url)) {
         policyBlocks.add(url.href);
         note(source, `excluded URL ${diagnosticURL(url)}`);
         await session.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }).catch(() => {});
@@ -309,7 +309,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         if (redirects.includes(result.status) && location) {
           url = new URL(location, url);
           if (!origins.has(url.origin)) return result;
-          if (!publicURL(url, origins)) {
+          if (credentialURL(url)) {
             note(source, `excluded redirect destination ${diagnosticURL(url)}`);
             return;
           }
