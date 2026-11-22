@@ -346,22 +346,28 @@ struct CatalogueQuery {
     before: Option<String>,
 }
 impl CatalogueQuery {
-    fn cursor(&self) -> Result<Option<(OffsetDateTime, Uuid)>, StatusCode> {
+    fn cursor(&self) -> Result<Option<(OffsetDateTime, Uuid)>, Error> {
         self.before
             .as_deref()
             .map(|v| {
-                let (time, id) = v.split_once(':').ok_or(StatusCode::BAD_REQUEST)?;
+                let (time, id) = v.split_once(':').ok_or(Error::Invalid)?;
                 Ok((
                     OffsetDateTime::from_unix_timestamp_nanos(
-                        time.parse().map_err(|_| StatusCode::BAD_REQUEST)?,
+                        time.parse().map_err(|_| Error::Invalid)?,
                     )
-                    .map_err(|_| StatusCode::BAD_REQUEST)?,
-                    id.parse().map_err(|_| StatusCode::BAD_REQUEST)?,
+                    .map_err(|_| Error::Invalid)?,
+                    id.parse().map_err(|_| Error::Invalid)?,
                 ))
             })
             .transpose()
     }
 }
+fn invalid_catalogue_cursor(lang: &str) -> Response {
+    let mut response = failure(lang, Error::Invalid);
+    *response.status_mut() = StatusCode::BAD_REQUEST;
+    response
+}
+
 async fn index(
     Query(query): Query<CatalogueQuery>,
     HttpState(runtime): HttpState<Runtime>,
@@ -374,7 +380,7 @@ async fn index(
     let mut page = Page::new(&lang);
     let cursor = match query.cursor() {
         Ok(c) => c,
-        Err(status) => return status.into_response(),
+        Err(_) => return invalid_catalogue_cursor(&lang),
     };
     match runtime
         .cards(session.account_id().await, None, false, cursor)
@@ -403,7 +409,7 @@ async fn own(
     let mut page = Page::new(&lang);
     let cursor = match query.cursor() {
         Ok(c) => c,
-        Err(status) => return status.into_response(),
+        Err(_) => return invalid_catalogue_cursor(&lang),
     };
     match runtime.cards(Some(actor), None, true, cursor).await {
         Ok((cards, next)) => {
@@ -625,8 +631,9 @@ async fn candidate_page(
 #[cfg(test)]
 mod catalogue_tests {
     use super::*;
-    #[test]
-    fn malformed_catalogue_cursors_are_bad_requests() {
+    #[tokio::test]
+    async fn malformed_catalogue_cursors_are_bad_requests() -> Result<(), Box<dyn std::error::Error>>
+    {
         for before in [
             "unknown",
             "1:unknown",
@@ -635,8 +642,26 @@ mod catalogue_tests {
             let query = CatalogueQuery {
                 before: Some(before.into()),
             };
-            assert_eq!(query.cursor(), Err(StatusCode::BAD_REQUEST));
+            assert!(matches!(query.cursor(), Err(Error::Invalid)));
         }
+        for (lang, message) in [
+            (
+                "en",
+                "This request was refused. Check your account and the asset details.",
+            ),
+            (
+                "pl",
+                "Prośba została odrzucona. Sprawdź konto i dane obiektu.",
+            ),
+        ] {
+            let response = invalid_catalogue_cursor(lang);
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = axum::body::to_bytes(response.into_body(), 65536).await?;
+            let html = std::str::from_utf8(&body)?;
+            assert!(html.contains(&format!("lang=\"{lang}\"")));
+            assert!(html.contains(message));
+        }
+        Ok(())
     }
 
     #[tokio::test]

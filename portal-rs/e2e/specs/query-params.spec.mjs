@@ -158,6 +158,10 @@ const gatedListings = new Map([
 ]);
 
 const invalidRequest = {pl: 'Nieprawidłowe żądanie', en: 'Invalid request'};
+const bazaarRefusal = {
+  pl: 'Prośba została odrzucona. Sprawdź konto i dane obiektu.',
+  en: 'This request was refused. Check your account and the asset details.',
+};
 const invalidMessages = [
   [/^(?:rankings\/|\/highscores$)/, {pl: 'Nieprawidłowe zapytanie', en: 'Invalid query'}],
   [/^(?:stats\/rankings\/|atlas\/delivery$)/, {pl: 'Nieprawidłowe filtry', en: 'Invalid filters'}],
@@ -166,8 +170,8 @@ const invalidMessages = [
   [/^wiki(?:$|\/(?!places$))/, {pl: 'Nieprawidłowe filtry lub zapytanie', en: 'Invalid filters or search query'}],
 ];
 
-function expectLocalizedError(document, locale, route, label) {
-  const messages = invalidMessages.find(([pattern]) => pattern.test(route))?.[1] ?? invalidRequest;
+function expectLocalizedError(document, locale, route, label, messages) {
+  messages ??= invalidMessages.find(([pattern]) => pattern.test(route))?.[1] ?? invalidRequest;
   expect.soft(document.lang, label).toBe(locale);
   expect.soft(document.content, label).toContain(messages[locale]);
 }
@@ -299,7 +303,8 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           // The console player search also requires real browser Fetch Metadata.
           const browserNavigation = probe.name === 'HTML punctuation' || route === '/admin/console/players';
           const target = `${catalog?.origin ?? ''}${path}?${query}`;
-          const accept = route === 'shop/history' ? '*/*' : 'text/html';
+          const bazaarCursor = /^(?:account\/)?bazaar(?:\/items)?$/.test(route) && probe.name !== 'repeated';
+          const accept = route === 'shop/history' || bazaarCursor ? '*/*' : 'text/html';
           const response = await readResponse(page, target, locale, browserNavigation, accept);
           const label = `${path} ${parameter} (${probe.name})`;
           const status = expectedStatus(route, parameter, probe.name, gated);
@@ -315,7 +320,9 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
             page, browserNavigation ? null : response.body, response.url, parameter, gated?.noticeSelector,
           );
           expect.soft(document.markerCount, `${label} inert HTML marker in DOM`).toBe(0);
-          if (status === 400) expectLocalizedError(document, expectedLocale, route, label);
+          if (status === 400) {
+            expectLocalizedError(document, expectedLocale, route, label, bazaarCursor ? bazaarRefusal : undefined);
+          }
           if (status === 503) {
             expect.soft(document.lang, label).toBe(expectedLocale);
             expect.soft(document.mainCount, `${label} unavailable page`).toBe(1);
