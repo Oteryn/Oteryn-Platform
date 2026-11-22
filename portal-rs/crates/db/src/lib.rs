@@ -64,18 +64,30 @@ pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
         if applied.iter().any(|migration| migration.version == version) {
             continue;
         }
-        let invalid: bool = sqlx::query_scalar(
-            "SELECT EXISTS (
-                SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
-                WHERE c.relname = $1 AND c.relnamespace = to_regnamespace(current_schema())
-                  AND NOT i.indisvalid
-            )",
+        let valid: Option<bool> = sqlx::query_scalar(
+            "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+             WHERE c.relname = $1 AND c.relnamespace = to_regnamespace(current_schema())",
         )
         .bind(index)
-        .fetch_one(&mut *connection)
+        .fetch_optional(&mut *connection)
         .await?;
-        if invalid {
-            sqlx::query(drop_index).execute(&mut *connection).await?;
+        match valid {
+            Some(false) => {
+                sqlx::query(drop_index).execute(&mut *connection).await?;
+            }
+            Some(true) => {
+                // The build finished before its migration receipt was written.
+                // Record the original checksum without rebuilding the index.
+                migrator
+                    .run_direct(Some(version - 1), &mut *connection, false)
+                    .await?;
+                let migration = migrator
+                    .iter()
+                    .find(|migration| migration.version == version)
+                    .ok_or(MigrateError::VersionMissing(version))?;
+                connection.skip(&migrator.table_name, migration).await?;
+            }
+            None => {}
         }
     }
     migrator.run_direct(None, &mut *connection, false).await?;
