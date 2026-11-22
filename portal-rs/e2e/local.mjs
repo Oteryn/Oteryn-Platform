@@ -33,10 +33,17 @@ for(const file of [...walk(path.join(root,'crates')),...walk(path.join(root,'bin
 // Restore notice and Store delivery are mutually exclusive at startup (game_routes::validate_store_restore); keep delivery on.
 env.PORTAL_GAME_RESTORE_NOTICE_ENABLED='false';
 for(const key of ['OTERYN_ACCOUNT_LOGIN','OTERYN_ACCOUNT_MFA','OTERYN_ACCOUNT_PASSKEYS','OTERYN_ACCOUNT_PASSWORD_RESET','OTERYN_ACCOUNT_SESSIONS','OTERYN_ACCOUNT_CREDENTIALS','OTERYN_ACCOUNT_EMAIL_CHANGE','OTERYN_ACCOUNT_RECOVERY_KEYS','OTERYN_ADMIN_PANEL','OTERYN_ADMIN_CONSOLE','OTERYN_ADMIN_PLAYERS','OTERYN_ADMIN_PLAYER_CHARACTERS','OTERYN_ADMIN_COMMERCE','OTERYN_ADMIN_CONTROL','OTERYN_WORLD_ADMIN','OTERYN_BAZAAR_MODERATION','OTERYN_BAZAAR_PROFILES','OTERYN_BAZAAR_PROMOTIONS','OTERYN_SUPPORT_TICKETS','OTERYN_PLAYERDATA_HUNTS_READ','OTERYN_PLAYERDATA_PLACES_AGGREGATE']) env[key]='true';
+const nativeDeviceClient = '019b0760-0000-7000-8000-000000000002';
 Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
  OTERYN_ADMIN_ANALYTICS_INGEST:'true',OTERYN_ADMIN_ANALYTICS_PRESENT:'true',OTERYN_ADMIN_ANALYTICS_AUTHORITY:'e2e-local',OTERYN_ADMIN_ANALYTICS_PRIVACY:'e2e-local',
- PORTAL_OAUTH_CONFIG:JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
+ PORTAL_OAUTH_CONFIG:JSON.stringify({enabled:true,clients:[
+   {client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']},
+   {client_id:nativeDeviceClient,redirect_uris:['http://127.0.0.1/callback']},
+ ]}),
+ PORTAL_E2E_NATIVE_DEVICE_CLIENT:nativeDeviceClient,
+ PORTAL_E2E_NATIVE_DEVICE_ORIGIN:'https://localhost:18447',
+ PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN:'https://localhost:18448',
  OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:'localhost:18443',
  OTERYN_STATIC_DIR:path.join(root,'static'),OTERYN_DATABASE_URL:databaseURL(dbName),PORTAL_E2E_DATABASE_URL:databaseURL(dbName),PORTAL_TEST_DATABASE_URL:databaseURL(testName),
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
@@ -79,6 +86,11 @@ openssl(['req','-x509','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/ca-ke
 openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/key.pem`,'-out',`${scratch}/leaf.csr`,'-subj','/CN=localhost']);
 fs.writeFileSync(`${scratch}/extensions`,'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n');
 openssl(['x509','-req','-in',`${scratch}/leaf.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/cert.pem`,'-days','2','-extfile',`${scratch}/extensions`]);
+Object.assign(env,{
+ OTERYN_NATIVE_TLS_BIND:'127.0.0.1:18447',
+ OTERYN_NATIVE_TLS_CERT_FILE:`${scratch}/cert.pem`,
+ OTERYN_NATIVE_TLS_KEY_FILE:`${scratch}/key.pem`,
+});
 Object.assign(env,{
  OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18446',
  OTERYN_INTERNAL_TLS_CERT_FILE:`${scratch}/cert.pem`,
@@ -135,7 +147,7 @@ smtp.listen(465,'127.0.0.1');
 const starttls=new SMTPServer({...tls,secure:false,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
 starttls.on('error',error=>console.error('Local SMTP error:',error.code));
 starttls.listen(587,'127.0.0.1');
-const proxy=https.createServer(tls,(req,res)=>{
+const proxyFor=port=>https.createServer(tls,(req,res)=>{
  // Browser fixture controls invoke the producer, which makes the mTLS exchanges.
  if(req.url.startsWith('/__bazaar_game/')){
   void bazaarGame.control(req,res,req.url.slice('/__bazaar_game'.length));
@@ -146,14 +158,31 @@ const proxy=https.createServer(tls,(req,res)=>{
  const {'x-portal-e2e-login-peer':peer,...headers}=req.headers;
  const localAddress=req.method==='POST'&&/^\/(?:pl\/|en\/)?login$/.test(req.url)&&
   ['127.0.0.2','127.0.0.3'].includes(peer)?peer:'127.0.0.1';
- const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
+ const upstream=http.request({hostname:'127.0.0.1',port,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });
+const proxy=proxyFor(18080);
+const nativePanelOffProxy=proxyFor(18083);
 proxy.listen(18443,'127.0.0.1');
+nativePanelOffProxy.listen(18448,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
+// Same disposable data and browser middleware, with the panel route omitted
+// from a separately configured real portal process.
+const offLog=fs.openSync(`${scratch}/native-panel-off.log`,'a');
+children.push(spawn(binary,['serve'],{cwd:root,env:{
+ ...env,
+ OTERYN_PANEL_NATIVE_DEVICES_ENABLED:'false',
+ OTERYN_BIND:'127.0.0.1:18083',
+ OTERYN_PUBLIC_ORIGIN:env.PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN,
+ OTERYN_ADMIN_HOST:'localhost:18448',
+ OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18449',
+ PORTAL_NATIVE_ADMISSION_BIND:'127.0.0.1:18093',
+ OTERYN_NATIVE_TLS_BIND:'',OTERYN_NATIVE_TLS_CERT_FILE:'',OTERYN_NATIVE_TLS_KEY_FILE:'',
+},stdio:['ignore',offLog,offLog]}));
+fs.closeSync(offLog);
 league.start();
 await gameProducer.start();
 console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
 let closing=false;
-async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
+async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();nativePanelOffProxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
 process.on('SIGINT',close);process.on('SIGTERM',close);

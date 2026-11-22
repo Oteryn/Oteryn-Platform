@@ -15,6 +15,11 @@ node local.mjs
 
 `local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates two uniquely named databases, generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, TLS SMTP sink and HTTPS proxy on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops only its two databases; the scratch directory is retained for local investigation and should be removed after inspecting the report.
 
+The player identity spec uses a direct TLS listener on loopback port 18447 to
+issue a ticket with a remembered-device credential. A second portal process
+shares the disposable database and serves the flag-off browser case at
+`https://localhost:18448`. Both listeners use the generated local certificate.
+
 In a second shell, export the same local `PORTAL_E2E_ADMIN_DATABASE_URL` for the
 Bazaar fallback test, which creates its own disposable database. Use the scratch
 path printed by the launcher:

@@ -20,6 +20,7 @@ test('verified Game receipt finalizes deletion after grace; finalized accounts c
   await requestDeletion(page,lang,account,'Żółty Lis');
   let state=await db.query('SELECT finalized_at,scheduled_for>now() AS grace FROM account_terminations WHERE account_id=$1',[id]);expect(state.rows[0].finalized_at).toBeNull();expect(state.rows[0].grace).toBe(true);
   expect(Number((await db.query('SELECT count(*) AS n FROM plat3_closure_commands c JOIN plat3_closure_work w USING(termination_id) WHERE w.account_id=$1',[id])).rows[0].n)).toBe(0);
+  expect((await db.query('SELECT profile_display_name FROM accounts WHERE id=$1',[id])).rows[0].profile_display_name).toBe('Żółty Lis');
   await advanceGrace(db,id);
   await expect.poll(async()=>(await db.query('SELECT status FROM accounts WHERE id=$1',[id])).rows[0].status,{timeout:90_000}).toBe('closed');
   expect((await db.query('SELECT finalized_at FROM account_terminations WHERE account_id=$1',[id])).rows[0].finalized_at).not.toBeNull();

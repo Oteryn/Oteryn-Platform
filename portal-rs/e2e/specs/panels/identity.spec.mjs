@@ -1,8 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { request as httpsRequest } from 'node:https';
 import * as OTPAuth from 'otpauth';
 import { test, expect } from '../../fixtures.mjs';
 import { csrfRejected, login, pool, submit } from '../../helpers.mjs';
-import { seedAccount } from '../../security/auth-fixtures.mjs';
+import { seedAccount, seedEntity } from '../../security/auth-fixtures.mjs';
 
 test.use({ trace: 'off', screenshot: 'off' });
 
@@ -23,6 +25,95 @@ async function codes(page) {
 const totp = async page => new OTPAuth.TOTP({ secret: await page.locator('main .op-prose').innerText() });
 const codeAt = (factor, offset) => factor.generate({ timestamp: Date.now() + offset * 30_000 });
 
+async function confirmRecentAuth(page, lang, password) {
+  const path = `/${lang}/account/sudo`;
+  await page.goto(path);
+  const [response] = await Promise.all([
+    page.waitForResponse(response => response.request().isNavigationRequest()
+      && response.request().method() === 'POST' && new URL(response.url()).pathname === path),
+    submit(page, 'main form', { current_password: password }),
+  ]);
+  expect(response.status()).toBe(302);
+  expect(response.headers().location).toBe(`/${lang}/account/security`);
+  await expect(page).toHaveURL(new RegExp(`/${lang}/password/change$`));
+}
+
+const usedSteps = new WeakMap();
+const currentStep = () => Math.floor(Date.now() / 30_000);
+
+async function submitProof(page, path, password, factor, { action, status = 200 } = {}) {
+  const form = page.locator(`form[action="${path}"]`);
+  if (action) await form.locator('[name=action]').selectOption(action);
+  await csrfRejected(page, path, { action, password, code: '000000' });
+  await form.locator('[name=password]').fill(password);
+  const firstUnused = (usedSteps.get(factor) ?? -1) + 1;
+  await expect.poll(() => currentStep() + 1, { timeout: 35_000 }).toBeGreaterThanOrEqual(firstUnused);
+  const step = Math.max(currentStep(), firstUnused);
+  await form.locator('[name=code]').fill(factor.generate({ timestamp: step * 30_000 }));
+  const [response] = await Promise.all([
+    page.waitForResponse(response => response.request().isNavigationRequest()
+      && response.request().method() === 'POST' && new URL(response.url()).pathname === path),
+    form.locator('button').click(),
+  ]);
+  expect(response.status()).toBe(status);
+  usedSteps.set(factor, step);
+}
+
+async function expectProofRefusal(response, lang, status, { confirm = false } = {}) {
+  expect(response.status()).toBe(status);
+  const html = await response.text();
+  const retryLabel = lang === 'pl' ? 'Wróć do ustawień bezpieczeństwa' : 'Back to security settings';
+  expect(html.includes('role="alert"') && html.includes(retryLabel)).toBe(true);
+  expect(html.includes(`href="/${lang}/mfa"`)).toBe(true);
+  if (confirm) {
+    expect(html.includes(`action="/${lang}/mfa/replace/confirm"`)).toBe(true);
+    expect(html.includes('class="op-prose"')).toBe(false);
+  }
+}
+
+async function seedRememberedFamily(db, accountId, clientId) {
+  const id = randomUUID();
+  const credential = `otd1.${randomBytes(32).toString('base64url')}`;
+  const seeded = await db.query(
+    `INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at)
+     SELECT $1,id,$2,$1::uuid::text,game_auth_generation,native_security_generation,
+            extract(epoch FROM now())::bigint+3600,extract(epoch FROM now())::bigint+1800
+     FROM accounts WHERE id=$3`, [id, clientId, accountId]);
+  expect(seeded.rowCount).toBe(1);
+  await db.query('INSERT INTO device_session_credentials(secret_hash,family_id,sequence) VALUES($1,$2,0)',
+    [createHash('sha256').update(credential).digest(), id]);
+  return { id, credential };
+}
+
+async function requestNativeTicket(credential, clientId) {
+  const origin = new URL(process.env.PORTAL_E2E_NATIVE_DEVICE_ORIGIN);
+  expect([origin.protocol, origin.hostname]).toEqual(['https:', 'localhost']);
+  const body = JSON.stringify({ client_id: clientId, protocol_version: 1 });
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(new URL('/api/v1/game-auth/device-sessions/tickets', origin), {
+      method: 'POST',
+      ca: readFileSync(process.env.SSL_CERT_FILE),
+      minVersion: 'TLSv1.3',
+      headers: {
+        authorization: `OterynDevice ${credential}`,
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+      },
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('error', reject);
+      response.on('end', () => {
+        try { resolve({ status: response.statusCode, data: JSON.parse(Buffer.concat(chunks)) }); }
+        catch { reject(new Error('Native ticket route returned invalid JSON')); }
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(10_000, () => request.destroy(new Error('Native ticket request timed out')));
+    request.end(body);
+  });
+}
+
 test('owner edits their profile and the server refuses foreign and invalid edits', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   const path = `/${lang}/account/profile`;
@@ -40,6 +131,13 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   await expect(page.locator('[name=display_name]')).toHaveValue('Żółty Lis');
   await page.reload();
   await expect(page.locator('[name=display_name]')).toHaveValue('Żółty Lis');
+  await confirmRecentAuth(page, lang, account.password);
+  const exported = await page.request.get(`/${lang}/account/privacy/export`);
+  expect(exported.status()).toBe(200);
+  const data = await exported.json();
+  expect(data.account.id).toBe(account.id);
+  expect(data.account.display_name).toBe('Żółty Lis');
+  await page.goto(path);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
 });
 
@@ -59,7 +157,7 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
   await submit(page, 'main form', { password });
   const original = await totp(page);
-  await submit(page, `form[action="${mfa}/confirm"]`, { password, code: codeAt(original, -1) });
+  await submitProof(page, `${mfa}/confirm`, password, original);
   const originalCodes = await codes(page);
   expect(originalCodes.length).toBe(8);
 
@@ -76,21 +174,25 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   const token = await csrf(page, manage);
   const fields = { action: 'replace', password, code: 'invalid' };
   await csrfRejected(page, manage, fields);
-  expect((await post(page, manage, token, fields)).status()).toBe(400);
-  expect((await post(page, manage, token, { ...fields, password: 'wrong', code: codeAt(original, 0) })).status()).toBe(403);
-  await page.locator('[name=action]').selectOption('replace');
-  await submit(page, `form[action="${manage}"]`, { password, code: codeAt(original, 0) });
+  await expectProofRefusal(await post(page, manage, token, fields), lang, 400);
+  await expectProofRefusal(await post(page, manage, token, {
+    ...fields, password: 'wrong', code: codeAt(original, 0),
+  }), lang, 403);
+  await submitProof(page, manage, password, original, { action: 'replace' });
   const next = await totp(page);
   const replacementToken = await csrf(page, replacement);
-  expect((await post(page, replacement, replacementToken, { password, code: 'invalid' })).status()).toBe(400);
-  expect((await post(page, replacement, replacementToken, { password: 'wrong', code: codeAt(next, -1) })).status()).toBe(403);
-  await submit(page, `form[action="${replacement}"]`, { password, code: codeAt(next, -1) });
+  await expectProofRefusal(await post(page, replacement, replacementToken, {
+    password, code: 'invalid',
+  }), lang, 400, { confirm: true });
+  await expectProofRefusal(await post(page, replacement, replacementToken, {
+    password, code: codeAt(next, -3),
+  }), lang, 403, { confirm: true });
+  await submitProof(page, replacement, password, next);
   const replacementCodes = await codes(page);
   expect(replacementCodes.length).toBe(8);
 
   await signInWithRecovery(replacementCodes[0]);
-  await page.locator('[name=action]').selectOption('rotate_codes');
-  await submit(page, `form[action="${manage}"]`, { password, code: codeAt(next, 0) });
+  await submitProof(page, manage, password, next, { action: 'rotate_codes' });
   const rotatedCodes = await codes(page);
   expect(rotatedCodes.length).toBe(8);
   expect(rotatedCodes.some(code => replacementCodes.includes(code))).toBe(false);
@@ -101,8 +203,7 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
   await expect(page).not.toHaveURL(/mfa\/challenge/);
   await page.goto(mfa);
   await expect(page.locator('[data-recovery-count]')).toHaveText('7');
-  await page.locator('[name=action]').selectOption('remove');
-  await submit(page, `form[action="${manage}"]`, { password, code: codeAt(next, 1) });
+  await submitProof(page, manage, password, next, { action: 'remove', status: 302 });
   await login(page, lang, account);
   await expect(page).not.toHaveURL(/mfa\/challenge/);
 });
@@ -112,32 +213,68 @@ test('native device revocation requires recent authentication and family ownersh
   const mfa = `/${lang}/mfa`;
   const action = `${mfa}/native-devices`;
   const account = await seedAccount(lang);
-  const owned = randomUUID();
-  const foreign = randomUUID();
+  const clientId = process.env.PORTAL_E2E_NATIVE_DEVICE_CLIENT;
+  await seedEntity('oauth-native-client', { clientId });
   const db = pool();
   try {
-    const other = await seedAccount(lang);
-    for (const [family, id] of [[owned, account.id], [foreign, other.id]]) {
-      await db.query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES($1,$2,$3,$4,0,1,extract(epoch FROM now())::bigint+3600,extract(epoch FROM now())::bigint+1800)", [family, id, randomUUID(), family]);
-    }
+    const owned = await seedRememberedFamily(db, account.id, clientId);
+    const foreign = await seedRememberedFamily(db, (await seedAccount(lang)).id, clientId);
+    const used = await requestNativeTicket(owned.credential, clientId);
+    expect(used.status).toBe(200);
+    expect(used.data.family_id).toBe(owned.id);
+    expect(Boolean(used.data.ticket && used.data.device_credential)).toBe(true);
+    expect(used.data.device_credential !== owned.credential).toBe(true);
     await login(page, lang, account);
     await page.goto(mfa);
-    await expect(page.locator(`input[value="${owned}"]`)).toHaveCount(1);
-    await expect(page.locator(`input[value="${foreign}"]`)).toHaveCount(0);
+    await expect(page.locator(`input[value="${owned.id}"]`)).toHaveCount(1);
+    await expect(page.locator(`input[value="${foreign.id}"]`)).toHaveCount(0);
     const token = await csrf(page, action);
-    expect((await post(page, action, token, { family: owned })).status()).toBe(403);
-    await page.goto(`/${lang}/account/sudo`);
-    await submit(page, 'main form', { current_password: account.password });
+    expect((await post(page, action, token, { family: owned.id })).status()).toBe(403);
+    await confirmRecentAuth(page, lang, account.password);
     await page.goto(mfa);
     const fresh = await csrf(page, action);
-    await csrfRejected(page, action, { family: owned });
+    await csrfRejected(page, action, { family: owned.id });
     expect((await post(page, action, fresh, { family: 'malformed' })).status()).toBe(422);
-    expect((await post(page, action, fresh, { family: foreign })).status()).toBe(403);
+    expect((await post(page, action, fresh, { family: foreign.id })).status()).toBe(403);
     await page.locator(`form[action="${action}"] button`).click();
-    await expect(page.locator(`input[value="${owned}"]`)).toHaveCount(0);
-    const state = await db.query("SELECT id, revoked_at IS NOT NULL AS revoked FROM device_sessions WHERE id=ANY($1::uuid[])", [[owned, foreign]]);
-    expect(Object.fromEntries(state.rows.map(row => [row.id, row.revoked]))).toEqual({ [owned]: true, [foreign]: false });
+    await expect(page.locator(`input[value="${owned.id}"]`)).toHaveCount(0);
+    const refused = await requestNativeTicket(used.data.device_credential, clientId);
+    expect(refused.status).toBe(401);
+    expect(refused.data.error === 'device_authorization_unavailable' && Object.keys(refused.data).length === 1).toBe(true);
+    const tickets = await db.query('SELECT count(*)::int AS count FROM game_login_tickets WHERE device_family_id=$1', [owned.id]);
+    expect(tickets.rows[0].count).toBe(1);
+    const state = await db.query("SELECT id, revoked_at IS NOT NULL AS revoked FROM device_sessions WHERE id=ANY($1::uuid[])", [[owned.id, foreign.id]]);
+    expect(Object.fromEntries(state.rows.map(row => [row.id, row.revoked]))).toEqual({ [owned.id]: true, [foreign.id]: false });
   } finally {
     await db.end();
   }
+});
+
+test.describe('native settings flag disabled', () => {
+  test.use({ baseURL: process.env.PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN });
+
+  test('owner cannot see or post native revocation with the flag off', async ({ page }, info) => {
+    const lang = info.project.metadata.locale;
+    const mfa = `/${lang}/mfa`;
+    const action = `${mfa}/native-devices`;
+    const account = await seedAccount(lang);
+    const db = pool();
+    try {
+      const family = await seedRememberedFamily(db, account.id, process.env.PORTAL_E2E_NATIVE_DEVICE_CLIENT);
+      await login(page, lang, account);
+      await confirmRecentAuth(page, lang, account.password);
+      expect((await page.goto(mfa)).status()).toBe(200);
+      expect(new URL(page.url()).origin).toBe(process.env.PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN);
+      const heading = lang === 'pl' ? 'Zapamiętane klienty gry' : 'Remembered game clients';
+      await expect(page.getByRole('heading', { name: heading })).toHaveCount(0);
+      await expect(page.locator(`form[action="${action}"]`)).toHaveCount(0);
+      await expect(page.locator(`input[value="${family.id}"]`)).toHaveCount(0);
+      const token = await csrf(page, `${mfa}/enroll`);
+      expect((await post(page, action, token, { family: family.id })).status()).toBe(404);
+      const result = await db.query('SELECT revoked_at FROM device_sessions WHERE id=$1', [family.id]);
+      expect(result.rows[0].revoked_at).toBeNull();
+    } finally {
+      await db.end();
+    }
+  });
 });
