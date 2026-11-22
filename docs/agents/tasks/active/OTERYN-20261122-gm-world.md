@@ -30,7 +30,7 @@ checkpoint_version: 1
 updated_at: 2026-11-22T20:52:39Z
 head: ae8786651dbc41156aacd9f5c99486b5e3dad067
 branch: codex/feat-gm-world
-pr: none
+pr: 2036
 status: ready
 context_routes: []
 owned_paths:
