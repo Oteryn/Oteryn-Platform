@@ -39,6 +39,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Logout POST, both prefixes | Login page shown and only the acting session revoked | Yes | Signed-in foreign player and content editor cannot revoke the target session | CSRF-only form | Replayed token refused with unchanged state |
 | Sudo POST, both prefixes | Browser confirms the password and persists recent authorization for the acting session | Yes | Other player and content editor cannot authorize the target | Localized invalid password feedback | Fresh successful confirmation renews the session proof |
 | Password change POST and PUT, both prefixes | Real form changes the credential, transaction records the security event and revokes old sessions | Yes | Other player and content editor refused | Localized input validation | Old request cannot change the credential again |
+| Email change, confirmation and reversal POST, both prefixes | The browser requests the change and receives both capabilities through the local mail sink. Confirmation and reversal each update the stored account and security generation | Yes | Other player and content editor are refused with the owner's credentials or a forged capability | Localized form and token refusals | Each mailed capability changes account state once |
 | Forgot password POST, both prefixes | Actual form queues a capability delivered to the local mailbox | Yes | Signed-in foreign player and content editor are refused | Localized generic confirmation preserves account privacy and malformed input queues nothing | Each newly authorized request can issue a capability |
 | Reset password POST, both prefixes | Mailed form changes the password and revokes the earlier session | Yes | Signed-in foreign player and content editor are refused | Localized refusal for malformed fields and mismatched passwords | The capability is accepted once |
 | Account termination request and cancellation | The request returns the owner to login and persists one scheduled termination. A fresh owner session cancels it before finalization | Yes | Foreign player and content editor are refused | Localized confirmation and password errors | The request revokes the issuing session. Replayed cancellation leaves the cancelled row unchanged |
@@ -47,11 +48,11 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/support/tickets` | Yes | Yes | Anonymous | Yes | Request-key replay |
 | `/{lang}/support/tickets/{id}/reply` | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/support/tickets/{id}/status` (POST and PUT, close and reopen) | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
-| `/{lang}/admin/support/tickets/{id}/reply` (public reply) | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
-| `/{lang}/admin/support/tickets/{id}/status` (POST resolve and PUT reopen) | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
+| `/{lang}/admin/support/tickets/{id}/reply` | Public replies appear for both parties. Internal notes persist and remain visible to staff | Yes | Foreign player and content editor | Yes | Stale lock version |
+| `/{lang}/admin/support/tickets/{id}/status` (POST and PUT) | Resolved, open, waiting for player, waiting for staff and closed | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/support/tickets/{id}/read` | Yes | Yes | Foreign player and content editor | Yes | Unread flag clears once |
 | `/{lang}/support/reports` | Yes | Yes | Anonymous, and report stays private from another player | Yes | Request-key replay |
-| `/{lang}/shop/coins` | Yes | Yes | Anonymous | Yes | Operation replay |
+| `/{lang}/shop/coins` | Yes | Yes | Anonymous, foreign player and unrelated support staff are refused for the owner's operation | Yes | Operation replay |
 | Gift code issuance | Staff form returns a coin or premium-days batch. Exactly one code and audit record persist | Yes | Player and content editor | Localized feedback for empty, overlong, malformed and out-of-range values | Matching replay returns the same batch without issuing another code |
 | Gift code redemption | Browser JSON request followed by visible wallet credit or premium end date, backed by its ledger | Yes | A valid unused code authorizes redemption. Both a different player and content editor are refused after it is consumed | Localized feedback and unchanged ledger | Replayed operation returns the first receipt and grants value once |
 | `/{lang}/shop/transfer` | Yes | Yes | Foreign player and content editor with separate wallets | Yes | One debit and one credit |
@@ -65,7 +66,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Wiki create, update, revision restore and review actions | Visible draft, review, published and archived states. Changes persist bilingual revisions and a review history | Yes | Foreign player and support staff | Localized malformed text, slug and revision feedback | Stale edits, restores and transitions are refused |
 | Media upload and deletion (POST and DELETE) | Upload shows and serves the image. Stored bytes, dimensions, thumbnail and audit entry are verified before deletion | Yes | Foreign player and support staff | Bad metadata, image bytes and IDs are refused | Deleted bytes stay unavailable after replay |
 | Staff roles (create, set permissions, grant and revoke) | Role and membership forms are visible. Permissions, members and each audit action persist | Yes | Player and content editor | Empty, overlong and malformed values refused | Each deliberate administrative change is audited |
-| `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous | Yes | Submission replay |
+| `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous, foreign player and content editor cannot reuse the owner's submission | Yes | Submission replay |
 
 The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, daily puzzle answers, and collection PvP and set purchases. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, daily puzzle catalogue, or the collection PvP gameplay and wallet adapters. The standard matrix proves that the character creation form persists one pending command. The publisher matrix proves the terminal receipt, durable portfolio, and visible creation result.
 
@@ -121,6 +122,18 @@ control request. Game player searches also require an agent with the player
 query capability. A Game support user reaches the unavailable results page
 from a valid POST and sees no form or persisted request. The matrix verifies
 CSRF, an unrelated player and content editor, and malformed searches.
+
+Staff step-up consumes a real TOTP and stores the acting account's proof for
+the named request. The approval page and POST refuse a missing preview with
+an unchanged approval table. Approval requires the verified successful dry-run
+result from an R4 Game agent, which the harness cannot publish.
+
+The native sandbox creates paid and failed orders through its hosted form. The
+staff player panel reports no purchase hold after the paid order and exposes
+no release form. A valid request with a nonexistent hold conflicts and leaves
+the wallet and order unchanged. The sandbox signs its own pay and fail events
+with an in-process key and supplies no native provider reversal event to create
+a chargeback hold.
 
 The world catalogue panel displays no active version or mutation forms with the
 harness's pinned unsupported import candidate. Its publish, visibility, and

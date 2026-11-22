@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { TOTP } from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
 import { login, logout, mailLink, password, pool, seedPasswordRange, submit, waitForLoginBudget } from '../helpers.mjs';
 import { action, enrollMfa, loginWithRecoveryCode, player, query, rolePage } from '../staff-rbac-helpers.mjs';
@@ -226,6 +227,7 @@ test('test-provider top-up creates one checkout intent per operation', async ({ 
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
   });
+  const contexts = [anonymous];
   try {
     const owner = await player(page, lang);
     expect((await page.goto(`/${lang}/shop/coins`)).status()).toBe(200);
@@ -257,12 +259,17 @@ test('test-provider top-up creates one checkout intent per operation', async ({ 
       payment_intent_id: intent, coins: '1234', minor_units: '250', currency: 'PLN', provider: 'test',
     }];
     expect(await snapshot()).toEqual(created);
+    for (const { screen, account, csrf } of await foreignActors(browser, info.project, lang, contexts, 'support')) {
+      expect((await sendForm(screen, url, { ...fields, _csrf: csrf })).status()).toBe(409);
+      expect(await snapshot()).toEqual(created);
+      expect(await query('SELECT id FROM payment_intents WHERE account_id=$1', [account.id])).toEqual([]);
+    }
     const replay = await sendForm(page, url, fields);
     expect(replay.status()).toBe(303);
     expect(replay.headers().location).toBe(`/${lang}/shop/test-checkout/${intent}`);
     expect(await snapshot()).toEqual(created);
   } finally {
-    await anonymous.close();
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
@@ -408,6 +415,7 @@ test('character creation queues one operation and exposes the pending Game outco
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
   });
+  const contexts = [anonymous];
   try {
     const { id } = await seededPlayer(page, lang);
     const surface = `/${lang}/account/characters/new`;
@@ -461,17 +469,26 @@ test('character creation queues one operation and exposes the pending Game outco
       : 'Your request is being processed. Without a result from Game, its outcome is still unknown. Refresh this page to check again.');
     const queued = [{ id: target.split('/').at(-1), state: 'PENDING', receipt_json: null }];
     expect(await snapshot()).toEqual(queued);
+    for (const { screen, account, csrf } of await foreignActors(browser, info.project, lang, contexts, 'content_editor')) {
+      const refused = await sendForm(screen, fresh.url, { ...fresh.fields, _csrf: csrf });
+      expect(refused.status()).toBe(302);
+      expect(refused.headers().location).toBe(surface);
+      await screen.goto(surface);
+      await expect(screen.getByRole('status')).toHaveText(error);
+      expect(await snapshot()).toEqual(queued);
+      expect(await query('SELECT id FROM character_commands WHERE account_id=$1', [account.id])).toEqual([]);
+    }
     const replay = await sendForm(page, fresh.url, fresh.fields);
     expect(replay.status()).toBe(302);
     expect(replay.headers().location).toBe(target);
     expect(await snapshot()).toEqual(queued);
   } finally {
-    await anonymous.close();
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
 test('support ticket reply and resolution require the support permission', async ({ page, browser }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(360_000);
   const lang = info.project.metadata.locale;
   const contexts = [];
   const actor = async role => {
@@ -513,6 +530,14 @@ test('support ticket reply and resolution require the support permission', async
       ? 'Nie udało się wykonać żądania. Odśwież zgłoszenie i spróbuj ponownie.'
       : 'The request could not be completed. Reload the ticket and try again.';
     const verifyRefusals = async (selector, values, samples, method = 'POST') => {
+      const policy = selector.includes('/status') ? 'support-ticket-status' : 'support-ticket-reply';
+      await expect.poll(async () => {
+        const [row] = await query(
+          `SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits
+           WHERE limiter_name=$1 AND window_start=date_trunc('minute',clock_timestamp())`, [policy],
+        );
+        return row.count;
+      }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(6);
       const baseline = await snapshot();
       const { url, fields } = await prepare(support, selector, values);
       await rejected({ page: support, url, fields, snapshot, baseline, method });
@@ -595,6 +620,45 @@ test('support ticket reply and resolution require the support permission', async
     expect(await snapshot()).toEqual(open);
     expect((await sendForm(support, reopened.url, reopened.fields, 'PUT')).status()).toBe(409);
     expect(await snapshot()).toEqual(open);
+
+    const internal = 'Staff-only follow-up for this ticket';
+    const note = await verifyRefusals(replySelector, { body: internal, internal: '1' }, [
+      { name: 'empty note', patch: { body: '' } },
+      { name: 'overlong note', patch: { body: 'x'.repeat(8001) } },
+      { name: 'invalid internal flag', patch: { internal: 'bad' } },
+      { name: 'version below one', patch: { lock_version: '0' } },
+    ]);
+    await submit(support, replySelector, { body: internal, internal: true });
+    await expect(support.getByText(internal, { exact: true })).toBeVisible();
+    const noted = [
+      ...open.map(row => ({ ...row, lock_version: '5' })),
+      { ...open[0], author_kind: 'staff', body: internal, lock_version: '5' },
+    ];
+    expect(await snapshot()).toEqual(noted);
+    expect(await query("SELECT internal FROM ticket_messages WHERE ticket_id=$1 AND body=$2", [ticket, internal]))
+      .toEqual([{ internal: true }]);
+    await page.goto(ownerPath);
+    await expect(page.getByText(body, { exact: true })).toBeVisible();
+    await expect(page.getByText(internal, { exact: true })).toHaveCount(0);
+    expect((await sendForm(support, note.url, note.fields)).status()).toBe(409);
+    expect(await snapshot()).toEqual(noted);
+
+    let actual = noted;
+    for (const [status, method, label] of [
+      ['waiting_user', 'POST', lang === 'pl' ? 'Oczekuje na Ciebie' : 'Waiting for you'],
+      ['waiting_staff', 'PUT', lang === 'pl' ? 'Oczekuje na pomoc' : 'Waiting for support'],
+      ['closed', 'POST', lang === 'pl' ? 'Zamknięte' : 'Closed'],
+    ]) {
+      const update = await verifyRefusals(statusSelector, { status }, statusSamples, method);
+      await support.locator(`${statusSelector} select[name=status]`).selectOption(status);
+      await useFormMethod(support, update.url, method, () => submit(support, statusSelector));
+      await page.goto(ownerPath);
+      await expect(page.locator('main')).toContainText(label);
+      actual = actual.map(row => ({ ...row, status, lock_version: String(Number(row.lock_version) + 1) }));
+      expect(await snapshot()).toEqual(actual);
+      expect((await sendForm(support, update.url, update.fields, method)).status()).toBe(409);
+      expect(await snapshot()).toEqual(actual);
+    }
   } finally {
     await Promise.all(contexts.map(context => context.close()));
   }
@@ -1648,6 +1712,39 @@ test('native account checkout applies the locked test-provider decision only onc
       for (const action of [decision, paid ? 'fail' : 'pay']) {
         expect((await sendForm(page, url, { ...fields, action })).status()).toBe(303);
         expect(await snapshot()).toEqual(closed);
+      }
+      if (paid) {
+        const context = await browser.newContext({
+          baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        });
+        contexts.push(context);
+        const admin = await context.newPage();
+        await seededPlayer(admin, lang, 'platform_admin');
+        expect((await admin.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+        const { fields } = await prepare(admin, formSelector);
+        const review = await admin.goto(`/admin/players/${owner.id}`);
+        expect(review.status()).toBe(200);
+        await expect(admin.locator('main')).toContainText(lang === 'pl'
+          ? 'Brak blokady zakupu monet.' : 'No coin purchase hold.');
+        await expect(admin.locator('button[value="release-coin-hold"]')).toHaveCount(0);
+        const hold = async () => ({
+          order: await snapshot(),
+          active: await query('SELECT hold_id FROM coin_purchase_holds WHERE account_id=$1', [owner.id]),
+          released: await query('SELECT hold_id FROM coin_purchase_hold_releases WHERE account_id=$1', [owner.id]),
+        });
+        const before = { order: closed, active: [], released: [] };
+        const proposed = {
+          _csrf: fields._csrf, action: 'release-coin-hold', hold: uuid7(),
+          reason: 'Verify absence of a reversal hold on a local sandbox payment.',
+        };
+        expect(await hold()).toEqual(before);
+        await rejected({ page: admin, url: review.url(), fields: proposed, snapshot: hold, baseline: before });
+        for (const { other, token } of foreign) {
+          expect((await sendForm(other, review.url(), { ...proposed, _csrf: token })).status()).toBe(403);
+          expect(await hold()).toEqual(before);
+        }
+        expect((await sendForm(admin, review.url(), proposed)).status()).toBe(409);
+        expect(await hold()).toEqual(before);
       }
     }
   } finally {
@@ -3069,11 +3166,30 @@ for (const prefix of ['locale', 'unprefixed']) {
         ['confirm', { confirmed: true, applied: true }, email],
         ['revert', { confirmed: true, applied: true, reverted: true }, owner.email],
       ]) {
+        await expect.poll(async () => {
+          const [row] = await query(
+            `SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits
+             WHERE limiter_name IN ('identity-email-token','identity-anonymous-source')
+             AND window_start=date_trunc('minute',clock_timestamp())`,
+          );
+          return row.count;
+        }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(2);
         const current = await state();
         const target = delivered[operation];
         expect((await page.goto(target)).status()).toBe(200);
         const form = await prepare(page, formSelector);
         await rejected({ page, ...form, snapshot: state, baseline: current });
+        for (const actor of wrong) {
+          expect((await actor.screen.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+          const { fields } = await prepare(actor.screen, formSelector);
+          const forged = randomBytes(32).toString('hex');
+          const url = new URL(route(`/email-change/${operation}/${forged}`), form.url).href;
+          const refused = await sendForm(actor.screen, url, fields);
+          expect(refused.status()).toBe(302);
+          expect((await actor.screen.goto(refused.headers().location)).status()).toBe(200);
+          await expect(actor.screen.getByRole('status')).toHaveText(status);
+          expect(await state()).toEqual(current);
+        }
         const malformed = ['x', 'a'.repeat(65), 'z'.repeat(64), 'a'.repeat(63)];
         for (const capability of malformed) {
           const url = new URL(route(`/email-change/${operation}/${capability}`), form.url).href;
@@ -3084,7 +3200,11 @@ for (const prefix of ['locale', 'unprefixed']) {
           expect(await state()).toEqual(current);
         }
         expect((await page.goto(target)).status()).toBe(200);
+        const sent = page.waitForResponse(response => response.url() === form.url && response.request().method() === 'POST');
         await submit(page, formSelector);
+        const response = await sent;
+        expect(response.status()).toBe(302);
+        expect(response.headers().location).toBe(`/${lang}/login`);
         await expect(page).toHaveURL(new RegExp(`/${lang}/login$`));
         const applied = { email: nextEmail, generation: current[0].generation + 1,
           changes: [{ ...pending, ...changes }] };
@@ -3336,6 +3456,104 @@ test('world catalogue actions require a supported imported version and catalogue
       expect(refused.status()).toBe(404);
       expect(await snapshot()).toEqual(baseline);
     }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('admin control step-up consumes one TOTP and approval requires an accepted dry run', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const staff = await seededPlayer(page, lang);
+    expect(await query(
+      "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='content_editor' RETURNING role_id",
+      [staff.id],
+    )).toHaveLength(1);
+    expect((await page.goto(`/${lang}/mfa`)).status()).toBe(200);
+    await submit(page, 'main form[action$="/mfa/enroll"]', { password: staff.password });
+    const totp = new TOTP({ secret: await page.locator('main .op-prose').innerText(), algorithm: 'SHA1', digits: 6, period: 30 });
+    await submit(page, 'main form[action$="/mfa/confirm"]', { password: staff.password, code: totp.generate() });
+    const recovery = await page.locator('textarea[readonly]').first().inputValue();
+    await loginWithRecoveryCode(page, lang, staff, recovery);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+
+    const wrong = [];
+    for (const role of [undefined, 'game_viewer']) {
+      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      contexts.push(context);
+      const screen = await context.newPage();
+      const actor = await seededPlayer(screen, lang, role);
+      await screen.goto(`/${lang}/account/privacy`);
+      wrong.push({ screen, actor, csrf: (await prepare(screen, formSelector)).fields._csrf });
+    }
+    const state = () => query(
+      `SELECT account_id,coalesce(data ? 'admin_control_step_up',false) AS proof,
+              data#>>'{admin_control_request_step_up,request_id}' AS bound
+       FROM web_sessions WHERE account_id=ANY($1) ORDER BY account_id`,
+      [[staff.id, ...wrong.map(other => other.actor.id)]],
+    );
+    const baseline = await state();
+    expect(baseline).toHaveLength(3);
+    expect(baseline.every(row => row.proof === false && row.bound === null)).toBe(true);
+    const requestId = uuid7();
+    const stepUp = `/admin/control/step-up?request_id=${requestId}`;
+    expect((await page.goto(stepUp)).status()).toBe(200);
+    const ready = await prepare(page, formSelector, { code: '000000' });
+    await rejected({ page, ...ready, snapshot: state, baseline });
+    for (const { screen, csrf } of wrong) {
+      expect((await sendForm(screen, ready.url, { ...ready.fields, _csrf: csrf })).status()).toBe(403);
+      expect(await state()).toEqual(baseline);
+    }
+    const message = lang === 'pl' ? 'Nieprawidłowe dane' : 'Invalid input';
+    await invalid({ page, ...ready, message, snapshot: state, baseline, samples: [
+      { name: 'empty TOTP', patch: { code: '' } },
+      { name: 'overlong TOTP', patch: { code: '0'.repeat(65) } },
+      { name: 'wrong type', patch: { code: 'abcdef' } },
+      { name: 'one digit below the boundary', patch: { code: '00000' } },
+    ] });
+    const available = async () => query(
+      "SELECT last_step < floor(extract(epoch FROM clock_timestamp())/30)::bigint AS ready FROM account_mfa_totp WHERE account_id=$1",
+      [staff.id],
+    );
+    await expect.poll(available, { timeout: 35_000 }).toEqual([{ ready: true }]);
+    const code = totp.generate();
+    const result = page.waitForResponse(response => response.url() === ready.url && response.request().method() === 'POST');
+    await submit(page, formSelector, { code });
+    expect((await result).status()).toBe(200);
+    const completed = lang === 'pl'
+      ? 'Potwierdzenie zapisane. Wróć do pierwotnej operacji i wyślij ją ponownie.'
+      : 'Confirmation recorded. Return to the original operation and submit it again.';
+    await expect(page.locator('main h1')).toHaveText(completed);
+    const proved = await state();
+    expect(proved).toEqual(baseline.map(row => row.account_id === staff.id ? { ...row, proof: true, bound: requestId } : row));
+    expect((await sendForm(page, ready.url, { ...ready.fields, code })).status()).toBe(403);
+    expect(await state()).toEqual(proved);
+
+    const missing = uuid7();
+    const approval = new URL(`/admin/control/approvals/${missing}`, ready.url).href;
+    const durable = () => query('SELECT id FROM admin_control_approvals WHERE preview_id=$1', [missing]);
+    expect((await page.goto(stepUp)).status()).toBe(200);
+    const csrf = (await prepare(page, formSelector)).fields._csrf;
+    const unavailable = await page.goto(approval);
+    expect(unavailable.status()).toBe(403);
+    await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? 'Odmowa wykonania operacji' : 'This action is refused');
+    await expect(page.locator(formSelector)).toHaveCount(0);
+    await rejected({ page, url: approval, fields: { _csrf: csrf }, snapshot: durable, baseline: [] });
+    for (const { screen, csrf } of wrong) {
+      expect((await sendForm(screen, approval, { _csrf: csrf })).status()).toBe(403);
+      expect(await durable()).toEqual([]);
+    }
+    for (const id of ['-', 'x'.repeat(64), '1', missing.slice(0, -1)]) {
+      const response = await sendForm(page, approval.replace(missing, id), { _csrf: csrf });
+      expect(response.status()).toBe(422);
+      expect(await response.text()).toContain(message);
+      expect(await durable()).toEqual([]);
+    }
+    expect((await sendForm(page, approval, { _csrf: csrf })).status()).toBe(403);
+    expect(await durable()).toEqual([]);
+    expect(await state()).toEqual(proved);
   } finally {
     await Promise.all(contexts.map(context => context.close()));
   }
