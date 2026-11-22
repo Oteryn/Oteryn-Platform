@@ -458,6 +458,7 @@ async fn delete(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    method: axum::http::Method,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
@@ -536,7 +537,12 @@ async fn delete(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
+    let status = if method == axum::http::Method::DELETE {
+        StatusCode::SEE_OTHER
+    } else {
+        StatusCode::FOUND
+    };
+    Ok((status, [(header::LOCATION, "/admin/media")]).into_response())
 }
 #[cfg(test)]
 #[path = "media_tests.rs"]

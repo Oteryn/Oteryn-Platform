@@ -104,7 +104,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            axum::http::Method::POST,
         )
         .await
         .err(),
@@ -130,7 +131,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            axum::http::Method::POST,
         )
         .await
         .err(),
@@ -155,6 +157,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            axum::http::Method::POST,
         ),
     )
     .await
@@ -328,6 +331,37 @@ async fn browser_lifecycle(pool: &PgPool) {
     .await
     .unwrap();
     assert_eq!(audit_count, 1);
+    assert_eq!(
+        app.clone()
+            .oneshot(make(csrf, "Method alias"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FOUND
+    );
+    let alias: Uuid = sqlx::query_scalar("SELECT id FROM media WHERE alt_text='Method alias'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/admin/media/{alias}"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/admin/media");
+    assert_eq!(
+        read(pool, alias, false).await.err(),
+        Some(StatusCode::NOT_FOUND)
+    );
     sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT $1,'editorial_media.uploaded','test','null'::jsonb,'null'::jsonb,uuidv7() FROM generate_series(1,9)").bind(actor).execute(pool).await.unwrap();
     assert_eq!(
         app.clone()
