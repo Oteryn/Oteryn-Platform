@@ -294,8 +294,7 @@ async fn revoke_one(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
-    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
+    (peer, headers): (Option<Extension<ConnectInfo<SocketAddr>>>, HeaderMap),
     Path(id): Path<String>,
     method: Method,
 ) -> Result<Response, StatusCode> {

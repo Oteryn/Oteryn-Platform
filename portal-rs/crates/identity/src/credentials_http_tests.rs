@@ -129,7 +129,7 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
     assert!(html.contains("name=\"_csrf\""));
     let mut rotated = cookie;
     let mut hash = hash;
-    let mut next_csrf = csrf;
+    let mut next_csrf = csrf.clone();
     for (path, destination) in [
         ("/en/account/sudo", "/en/account/security"),
         (
