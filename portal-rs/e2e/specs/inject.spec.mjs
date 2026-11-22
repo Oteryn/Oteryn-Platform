@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { crc32 } from 'node:zlib';
 import { test, expect } from '../fixtures.mjs';
 import { login, register, submit, waitForWikiBudget } from '../helpers.mjs';
@@ -82,6 +83,27 @@ test('locale negotiation redirects to the relative localized homepage', async ({
   await expect(page).toHaveURL(new URL(`/${lang}/`, baseURL).href);
 });
 
+test('OAuth authorization rejects an unregistered callback without redirecting', async ({ page }) => {
+  const verifier = randomBytes(32).toString('base64url');
+  const authorization = new URLSearchParams({
+    response_type: 'code',
+    client_id: 'e2e-local',
+    redirect_uri: 'https://localhost:18443/__oauth/callback',
+    scope: 'game:ticket',
+    state: randomBytes(24).toString('hex'),
+    code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+    code_challenge_method: 'S256',
+  });
+  const registered = await page.request.get(`/oauth/authorize?${authorization}`, { maxRedirects: 0 });
+  expect(registered.status()).toBe(303);
+  expect(registered.headers().location).toMatch(/^\/(pl|en)\/login$/);
+
+  authorization.set('redirect_uri', 'https://callback.example.invalid/oauth');
+  const rejected = await page.request.get(`/oauth/authorize?${authorization}`, { maxRedirects: 0 });
+  expect(rejected.status()).toBe(400);
+  expect(rejected.headers().location).toBeUndefined();
+});
+
 test('search reflects ordinary punctuation as a single input value', async ({ page }, info) => {
   const route = `/${info.project.metadata.locale}/search`;
   await waitForWikiBudget(route, 2);
@@ -107,8 +129,31 @@ test('support tickets and reports preserve formatting examples as plain text', a
   expect((await page.goto(`${ticket}/create`)).status()).toBe(200);
   const subject = 'Label <em>subject</em> & details';
   const body = 'Formatting example <em>body</em> & details.';
+  const form = page.locator('main form');
+  const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
+  const token = await form.locator('input[name=_csrf]').inputValue();
+  const mismatchedToken = `${token[0] === '0' ? '1' : '0'}${token.slice(1)}`;
+  const origin = new URL(page.url()).origin;
+  const ticketExists = async () => (await query(
+    'SELECT EXISTS (SELECT 1 FROM tickets WHERE request_key = $1) AS present',
+    [fields.request_key],
+  ))[0].present;
+  expect(await ticketExists()).toBe(false);
+  for (const [label, csrf, requestOrigin] of [
+    ['mismatched token', mismatchedToken, origin],
+    ['untrusted origin', token, 'https://origin.example.invalid'],
+  ]) {
+    const response = await page.request.post(ticket, {
+      form: { ...fields, subject, body, _csrf: csrf },
+      headers: { origin: requestOrigin },
+      maxRedirects: 0,
+    });
+    expect(response.status(), label).toBe(403);
+    expect(await ticketExists(), label).toBe(false);
+  }
   await submit(page, 'main form', { subject, body });
   await expect(page).toHaveURL(new RegExp(`${ticket}/[a-f0-9-]+$`));
+  expect(await ticketExists()).toBe(true);
   await expect(page.locator('main h2')).toHaveText(subject);
   await expect(page.locator('main article p')).toHaveText(body);
   const reply = 'Follow-up <em>reply</em> & details.';
@@ -155,7 +200,7 @@ test('editorial media validates image format and size and serves safe image head
   expect((await page.goto(route)).status()).toBe(200);
   const form = page.locator('main form[action="/admin/media"]');
   const input = form.locator('input[type=file]');
-  const alt = 'Diagram <em>label</em> & detail';
+  const alt = 'Diagram "A" with <em>label</em> & detail';
   const origin = new URL(page.url()).origin;
   const maxFileSize = 8 * 1024 * 1024;
   for (const [label, name, mimeType, buffer, status] of [
@@ -181,6 +226,13 @@ test('editorial media validates image format and size and serves safe image head
   await submit(page, 'main form[action="/admin/media"]', { alt_text: alt });
   const image = page.getByRole('img', { name: alt, exact: true });
   await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute('alt', alt);
+  expect(await image.evaluate(element => element.getAttributeNames().sort())).toEqual(['alt', 'src', 'width']);
+  const caption = image.locator('..').locator(':scope > p');
+  await expect(caption).toBeVisible();
+  expect(await caption.textContent()).toBe(alt);
+  expect(await caption.evaluate(element => element.getAttributeNames())).toEqual([]);
+  await expect(caption.locator('*')).toHaveCount(0);
   const thumbnail = await image.getAttribute('src');
   expect(thumbnail).toMatch(/^\/admin\/media\/[a-f0-9-]+\/thumbnail$/);
   const content = thumbnail.replace(/\/thumbnail$/, '/content');
