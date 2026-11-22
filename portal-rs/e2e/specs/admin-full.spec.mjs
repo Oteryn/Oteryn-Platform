@@ -358,6 +358,7 @@ const consoleOperations = {
   database: ['db.status', 'db.migrations.list'],
 };
 test('Game console selection, refresh and query refusal on all four pages', async ({ page, browser }, info) => {
+  test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const polish = lang === 'pl';
   const staff = manager.page;

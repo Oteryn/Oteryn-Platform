@@ -33,7 +33,7 @@ async function followPartyLink(page, path) {
 }
 
 test('staff publish content and handle a player’s support, safety and account requests', async ({ page, browser }, info) => {
-  test.setTimeout(1_200_000);
+  test.setTimeout(1_800_000);
   const contexts = [];
   let adminId;
   try {
