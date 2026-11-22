@@ -66,15 +66,17 @@ async function leagueControl(operation) {
     throw new Error('Use the disposable local League producer control');
   }
   const response = await fetch(new URL(operation, origin), {
-    method: 'POST',
+    method: operation ? 'POST' : 'GET',
     signal: AbortSignal.timeout(5_000),
   });
   expect(response.status).toBe(200);
   return response.json();
 }
 
-test.beforeAll(async () => {
-  await expect.poll(() => leagueControl('/pause')).toMatchObject({ mode: 'paused', published: true });
+test.beforeAll(async ({}, info) => {
+  info.setTimeout(130_000);
+  await expect.poll(() => leagueControl(''), { timeout: 120_000 }).toMatchObject({ published: true });
+  expect(await leagueControl('/pause')).toMatchObject({ mode: 'paused', published: true });
 });
 
 test.afterAll(async () => {

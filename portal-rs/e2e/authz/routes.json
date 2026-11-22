@@ -15473,19 +15473,22 @@
           "source": "crates/bazaar/src/game/runtime/browser.rs:192",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-runtime"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:73",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:96",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15499,21 +15502,24 @@
           "guard": {
             "kind": "anonymous"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-runtime"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:73",
           "guard": {
             "kind": "anonymous"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:96",
           "guard": {
             "kind": "anonymous"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15526,13 +15532,15 @@
           "source": "crates/bazaar/src/items/web.rs:73",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:96",
           "guard": {
-            "kind": "anonymous"
-          }
+            "kind": "logged-in"
+          },
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15545,19 +15553,22 @@
           "source": "crates/bazaar/src/game/runtime/browser.rs:195",
           "guard": {
             "kind": "logged-in"
-          }
+          },
+          "profile": "bazaar-runtime"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:74",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:100",
           "guard": {
-            "kind": "anonymous"
-          }
+            "kind": "logged-in"
+          },
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15571,21 +15582,24 @@
           "guard": {
             "kind": "logged-in"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-runtime"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:74",
           "guard": {
             "kind": "anonymous"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:100",
           "guard": {
-            "kind": "anonymous"
+            "kind": "logged-in"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15598,13 +15612,15 @@
           "source": "crates/bazaar/src/items/web.rs:75",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:101",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15618,14 +15634,16 @@
           "guard": {
             "kind": "anonymous"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:101",
           "guard": {
             "kind": "anonymous"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15638,13 +15656,15 @@
           "source": "crates/bazaar/src/items/web.rs:76",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-unavailable"
         },
         {
           "source": "crates/bazaar/src/items/web.rs:102",
           "guard": {
-            "kind": "anonymous"
-          }
+            "kind": "logged-in"
+          },
+          "profile": "bazaar-qualified-embedding"
         }
       ]
     },
@@ -15657,7 +15677,8 @@
           "source": "crates/bazaar/src/game/runtime/browser.rs:197",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "bazaar-runtime"
         }
       ]
     },
@@ -15671,7 +15692,8 @@
           "guard": {
             "kind": "anonymous"
           },
-          "implicitFrom": "GET"
+          "implicitFrom": "GET",
+          "profile": "bazaar-runtime"
         }
       ]
     },

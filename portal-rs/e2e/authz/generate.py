@@ -518,6 +518,13 @@ def inventory(files, permissions):
                     if file == "crates/payments/src/coin_http.rs" and url.startswith("/native-account/coin-checkout/"):
                         profile = "unavailable" if expression.startswith("any(") else "configured"
                         guard = {"kind": "anonymous" if profile == "unavailable" else "logged-in"}
+                    if file == "crates/bazaar/src/items/web.rs":
+                        unavailable = re.search(rf'\b{dispatch}\(unavailable\)', expression)
+                        profile = "bazaar-unavailable" if unavailable else "bazaar-qualified-embedding"
+                        logged_in = not unavailable and (dispatch == "post" or url.endswith("/new"))
+                        guard = {"kind": "logged-in" if logged_in else "anonymous"}
+                    if file == "crates/bazaar/src/game/runtime/browser.rs" and url.startswith("/{locale}/bazaar/items"):
+                        profile = "bazaar-runtime"
                     row = rows.setdefault((listener, url, method), {
                         "listener": listener, "path": url, "method": method.upper(),
                         "registrations": []

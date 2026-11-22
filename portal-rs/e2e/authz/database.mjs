@@ -7,18 +7,23 @@ import { pool } from '../helpers.mjs';
 
 const identifier = value => '"' + value.replaceAll('"', '""') + '"';
 
-export function privateDatabase(reportPath, report) {
+export function privateEnvironment(reportPath, report) {
   const environment = JSON.parse(readFileSync(join(dirname(reportPath), 'secrets/env.json'), 'utf8'));
   const url = new URL(environment.OTERYN_DATABASE_URL);
   if (environment.OTERYN_ENV !== 'testing' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
       || !report.database.startsWith('portal_e2e_') || url.pathname !== `/${report.database}`) {
     throw new Error('Private listener effects can only be checked on the disposable harness database');
   }
-  return database(new pg.Pool({ connectionString: url.href, max: 1 }));
+  return environment;
+}
+
+export function privateDatabase(reportPath, report) {
+  const { OTERYN_DATABASE_URL } = privateEnvironment(reportPath, report);
+  return database(new pg.Pool({ connectionString: OTERYN_DATABASE_URL, max: 1 }));
 }
 
 export function database(db = pool()) {
-  async function snapshot(sessionHash, rateCharge) {
+  async function snapshot(sessionHash, rateCharge, trackOAuth = false) {
     const client = await db.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -39,12 +44,18 @@ export function database(db = pool()) {
                encode(sha256(convert_to((to_jsonb(t) - ARRAY['last_activity', 'updated_at'])::text, 'UTF8')), 'hex') AS stable
         FROM public.referral_activity t WHERE account_id = $1
       `, [session.account_id]) : { rows: [] };
-      const { rows: rates } = rateCharge ? await client.query(`
+      const nativeBudget = rateCharge?.table === 'native_admission_budgets';
+      const { rows: rates } = nativeBudget ? await client.query(`
+        SELECT encode(credential_hash,'hex') AS key, extract(epoch FROM window_start)::text AS window,
+               requests::int AS count FROM public.native_admission_budgets
+      `) : rateCharge ? await client.query(`
         SELECT limiter_name,encode(key_hash,'hex') AS key,window_start::text AS window,count::int
         FROM public.web_rate_limits
       `) : { rows: [] };
       const nonAuditTables = tables.filter(({ schema, name }) => schema !== 'public'
-        || (name !== 'audit_log' && (!rateCharge || name !== 'web_rate_limits')));
+        || (name !== 'audit_log'
+          && (!rateCharge || name !== (nativeBudget ? 'native_admission_budgets' : 'web_rate_limits'))
+          && (!trackOAuth || name !== 'oauth_security_events')));
       const values = [];
       const parameter = value => '$' + values.push(value);
       const statements = nonAuditTables.map(({ schema, name }) => {
@@ -75,8 +86,12 @@ export function database(db = pool()) {
         FROM public.audit_log t
       `);
       const audit = new Map(auditRows.map(({ id, action, digest }) => [id, { action, digest }]));
+      const { rows: oauthEvents } = trackOAuth ? await client.query(`
+        SELECT id, event, account_id, encode(sha256(convert_to(to_jsonb(t)::text, 'UTF8')), 'hex') AS digest
+        FROM public.oauth_security_events t
+      `) : { rows: [] };
       await client.query('COMMIT');
-      return { state, audit, session, activity, rates, rateCharge };
+      return { state, audit, session, activity, rates, rateCharge, oauthEvents };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -85,7 +100,7 @@ export function database(db = pool()) {
     }
   }
 
-  return { snapshot, close: () => db.end() };
+  return { snapshot, query: async (sql, bindings) => (await db.query(sql, bindings)).rows, close: () => db.end() };
 }
 
 export function rateKey(...parts) {
@@ -100,6 +115,21 @@ export function rateKey(...parts) {
 
 function assertRateCharge(before, after) {
   expect(after.rateCharge).toEqual(before.rateCharge);
+  if (before.rateCharge.table === 'native_admission_budgets') {
+    const { key } = before.rateCharge;
+    const other = rows => rows.filter(row => row.key !== key).sort((a, b) => a.key.localeCompare(b.key));
+    expect(other(after.rates), 'other native admission budgets').toEqual(other(before.rates));
+    const previous = before.rates.find(row => row.key === key);
+    const current = after.rates.find(row => row.key === key);
+    expect(Boolean(current), 'native gateway bucket charged').toBe(true);
+    if (previous && previous.window === current.window) {
+      expect(current.count).toBe(previous.count + 1);
+    } else {
+      expect(current.count).toBe(1);
+      if (previous) expect(Number(current.window)).toBeGreaterThanOrEqual(Number(previous.window) + 60);
+    }
+    return;
+  }
   const index = rows => new Map(rows.map(({ limiter_name, key, window, count }) =>
     [JSON.stringify([limiter_name, key, window]), count]));
   const original = index(before.rates);
@@ -113,7 +143,7 @@ function assertRateCharge(before, after) {
   expect(current.get(changed[0])).toBe((original.get(changed[0]) ?? 0) + 1);
 }
 
-export function assertRefusalState(before, after, denialActions = []) {
+export function assertRefusalState(before, after, denialActions = [], oauthDenials = []) {
   if (before.rateCharge || after.rateCharge) assertRateCharge(before, after);
   if (JSON.stringify(before.activity) !== JSON.stringify(after.activity)) {
     expect(Boolean(after.activity && after.session && before.session), 'referral write has a tracked session')
@@ -146,4 +176,10 @@ export function assertRefusalState(before, after, denialActions = []) {
     changedOrRemovedAuditRows: 0,
     addedAuditActions: [...denialActions].sort(),
   });
+  const previousEvents = new Map(before.oauthEvents.map(row => [row.id, row.digest]));
+  const currentEvents = new Map(after.oauthEvents.map(row => [row.id, row.digest]));
+  expect([...previousEvents].filter(([id, digest]) => currentEvents.get(id) !== digest)).toHaveLength(0);
+  const added = after.oauthEvents.filter(row => !previousEvents.has(row.id))
+    .map(({ event, account_id }) => [event, account_id]);
+  expect(added.sort(), 'OAuth refusal events').toEqual([...oauthDenials].sort());
 }

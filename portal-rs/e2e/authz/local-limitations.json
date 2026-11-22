@@ -1,20 +1,6 @@
 [
   {
     "listener": "public",
-    "method": "POST",
-    "path": "/oauth/authorize",
-    "source": "crates/web/src/lib.rs:226",
-    "reason": "The public OAuth boundary persists a source budget charge before it checks browser identity. The anonymous actor's refusal changes web_rate_limits as well as appending denial events."
-  },
-  {
-    "listener": "public",
-    "method": "POST",
-    "path": "/oauth/token",
-    "source": "crates/web/src/lib.rs:226",
-    "reason": "The same persistent source budget is consumed before exchanging an authorization code. A refused exchange with no grant changes web_rate_limits."
-  },
-  {
-    "listener": "public",
     "method": "GET",
     "path": "/{locale}/account/journal/{character}/deaths",
     "source": "crates/playerdata/src/deaths/http.rs:121",
@@ -390,5 +376,45 @@
     "path": "/admin/control/approvals/{id}",
     "source": "crates/admin/src/control/controls_http.rs:319",
     "reason": "A legitimate approval requires a verified Game dry-run result, catalog authorization and a second actor with request-bound step-up. The configured SessionAuthority always refuses catalog authorization."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/bazaar/items",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:96",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/bazaar/items",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:96",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/bazaar/items/new",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:100",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/bazaar/items/{id}",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:101",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/bazaar/items/{id}/{action}",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:102",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
   }
 ]

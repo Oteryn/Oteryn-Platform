@@ -12,6 +12,8 @@ const methods = routes.filter(row => row.path === '/native-account/coin-checkout
     .map(registration => ({ method: row.method, ...registration })));
 const path = '/native-account/coin-checkout/019a541b-a000-7000-8000-000000000001';
 const bazaarCases = [
+  ['GET', '/{locale}/bazaar/items'],
+  ['GET', '/{locale}/bazaar/items/new'],
   ['POST', '/{locale}/bazaar/items'],
   ['GET', '/{locale}/bazaar/items/{id}'],
   ['POST', '/{locale}/bazaar/items/{id}/{action}'],
@@ -82,11 +84,12 @@ test.describe('unconfigured checkout and marketplace authority registrations', (
         }
         for (const [method, pattern] of bazaarCases) {
           const route = routes.find(r => r.listener === 'public' && r.method === method && r.path === pattern);
-          const { guard, source } = route.registrations[0];
+          const { guard, source } = route.registrations.find(row => row.profile === 'bazaar-unavailable');
           expect(guard.kind, source).toBe('anonymous');
           const target = pattern.replace('{locale}', locale).replace('{id}', path.split('/').at(-1))
             .replace('{action}', 'buy');
           await test.step(`${method} ${pattern}`, async () => {
+            const before = method === 'POST' ? await db.snapshot(hash) : null;
             const response = await request.fetch(target, {
               method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
               ...(method === 'POST' && { form: { _csrf: token } }),
@@ -94,6 +97,7 @@ test.describe('unconfigured checkout and marketplace authority registrations', (
             try {
               expect(response.status(), 'crates/bazaar/src/items/web.rs:83').toBe(503);
               if (method === 'GET') await mirrorHead(request, pattern, target, response);
+              if (before) assertRefusalState(before, await db.snapshot(hash));
             } finally {
               await response.dispose();
             }

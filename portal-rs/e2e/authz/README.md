@@ -24,10 +24,18 @@ It has two narrowly scoped bookkeeping exclusions.
   row identity and other columns remain strict. All other accounts' rows stay
   in the fingerprint.
   [Session activity trigger](../../migrations/20261118130101_fb_referral_activity_flag.sql#L58)
-- Charged refusals for Bazaar sell/bid and store-code redemption assert the exact
-  limiter name and actor bucket. Exactly one counter increases by one. Every
+- Charged refusals for Bazaar sell/bid, store-code redemption, and OAuth assert the exact
+  limiter name and applicable bucket. Exactly one counter increases by one. Every
   other counter and business table stays in the comparison.
   [Shared rate-limit policies](../../crates/web/src/ratelimit.rs#L78)
+- OAuth protocol refusals preserve all existing `public.oauth_security_events`
+  rows and verify the exact appended `oauth_refused` and `oauth_http_refused`
+  events with their expected account binding. OAuth code and token tables stay
+  in the business-state comparison.
+- Enabled gateway refusals and idempotent revocations verify the one shared
+  admission service bucket in `public.native_admission_budgets`. The counter
+  advances once or starts at one on window rollover.
+  [Admission budget](../../crates/gameauth/src/admission/store.rs#L408)
 
 Run the browser and private harnesses on separate disposable local databases
 with distinct listener ports. Once the browser launcher reports readiness,
@@ -81,6 +89,18 @@ marketplace integrations, start another disposable browser profile with
 `authz/checkout-unavailable.config.mjs` against that profile in all four
 projects.
 
+## Enabled gateway credentials
+
+Use the dedicated private harness and suspend its worker as described above.
+Build the local recovery custody fixture with `node authz/build-gateway-custody.mjs`
+and set `PORTAL_E2E_AUTHZ_RECOVERY_CUSTODY_BINARY` to the printed executable path.
+This fixture uses the Portal keyring and publishes its public key in the recovery
+trust scope for the disposable database. Run `authz/gateway-credentials.config.mjs`
+with the same environment variables as the main matrix. The test starts an
+additional real Portal and gateway with protocol 3 enabled. Reserve four unused
+loopback ports starting at `PORTAL_E2E_AUTHZ_GATEWAY_PORT_BASE` (default `18950`).
+Run this config alone on its private database.
+
 ## Bazaar authorization with signed custody
 
 Run `authz/bazaar.config.mjs` on a **separate** disposable `local.mjs` profile
@@ -106,6 +126,10 @@ cases use 19 actors. Explicit HEAD requests check the same authorization
 outcome as GET and assert an empty body. The fallback profile separately
 exercises all nine standard methods on the unavailable checkout registration,
 including GET and POST.
+Bazaar item cases are keyed by the startup profile. The unavailable profile and
+the Game-backed browser profile have their own cases. The generic qualified item
+router is an embedding API with no Portal startup mount, recorded separately in
+the local limitations.
 
 The transport handshake is checked once on each private listener per project.
 The HTTP probes present CA-valid peers and check exact route outcomes.

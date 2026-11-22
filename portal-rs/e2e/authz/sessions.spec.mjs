@@ -190,8 +190,8 @@ test.describe('session, support and content authorization', () => {
               await exerciseReferrals(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
               await exerciseShop(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
               await exerciseParty(request, locale, token, accountId, definition, routes, snapshot, verify);
-              await exerciseNativeCheckout(request, locale, token, accountId, routes, snapshot, verify);
-              await exerciseOAuth(request, accountId, routes);
+              await exerciseNativeCheckout(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseOAuth(request, accountId, token, routes, db, sessionHash);
               await exerciseFeatureGates(request, locale, token, accountId, routes, snapshot, verify);
             }
             await exerciseBadges(request, prefix, accountId, token, snapshot, verify);

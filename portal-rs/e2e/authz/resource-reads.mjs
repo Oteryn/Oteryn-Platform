@@ -66,7 +66,7 @@ export async function exerciseResourceReads(request, accountId, locale, token, r
   const listing = await privateListing(accountId);
   for (const [method, path] of resourceReads) {
     const { guard, source } = routes.find(r => r.listener === 'public' && r.method === method && r.path === path)
-      .registrations[0];
+      .registrations.find(row => !row.profile || row.profile === 'bazaar-runtime');
     const comparison = path.endsWith('/compare');
     const share = path.endsWith('/share');
     const hunts = path.includes('/account/hunts');
@@ -95,5 +95,25 @@ export async function exerciseResourceReads(request, accountId, locale, token, r
         await response.dispose();
       }
     });
+  }
+  if (accountId) {
+    const [{ id: other }] = await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'");
+    const [foreign] = await seedHunts(other);
+    const prefix = `/${locale}/account/hunts`;
+    for (const [pattern, target] of [
+      ['/{lang}/account/hunts/{id}', `${prefix}/${foreign}`],
+      ['/{lang}/account/hunts/compare', `${prefix}/compare?ids=${ids[0]},${foreign}`],
+    ]) {
+      await test.step(`GET ${pattern} with a foreign hunt`, async () => {
+        const response = await request.get(target, { maxRedirects: 0 });
+        try {
+          expect(response.status()).toBe(404);
+          expect((await response.text()).includes(foreign), 'foreign hunt identifier exposed').toBe(false);
+          await mirrorHead(request, pattern, target, response);
+        } finally {
+          await response.dispose();
+        }
+      });
+    }
   }
 }

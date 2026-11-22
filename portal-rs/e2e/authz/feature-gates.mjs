@@ -32,6 +32,7 @@ const cases = [
 export const featureGateRoutes = cases.map(({ method, path }) => [method, path]);
 
 const puzzleImage = Buffer.from('UklGRiIAAABXRUJQVlA4TAYAAAAvAAAAAAfQ//73v/+BiOh/AAA=', 'base64');
+const puzzleSourceCommit = 'b'.repeat(40);
 
 async function puzzleTransaction(db, work) {
   const client = await db.connect();
@@ -41,11 +42,53 @@ async function puzzleTransaction(db, work) {
     await client.query('COMMIT');
     return result;
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Preserve the original error so teardown can retry a lost connection.
+    }
     throw error;
   } finally {
     client.release();
   }
+}
+
+function retryableConnection(error) {
+  return /^08/.test(error.code ?? '') || ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', '57P01', '57P02', '57P03']
+    .includes(error.code) || /connection terminated/i.test(error.message);
+}
+
+async function cleanPuzzle(db, fixture) {
+  await expect.poll(async () => {
+    try {
+      await puzzleTransaction(db, async client => {
+        await client.query(`
+          UPDATE world_active_version SET version_id=$1,previous_version_id=$2
+          WHERE singleton AND version_id=$3
+        `, [fixture.previous.version_id, fixture.previous.previous_version_id, fixture.version]);
+        const { rows: current } = await client.query(`
+          SELECT version_id,previous_version_id FROM world_active_version WHERE singleton FOR UPDATE
+        `);
+        expect(current, 'puzzle fixture restored the world pointers').toEqual([fixture.previous]);
+        // The publication is immutable while requests run. The override is
+        // confined to teardown in the disposable database and this transaction.
+        await client.query('ALTER TABLE puzzles_daily DISABLE TRIGGER puzzles_daily_immutable');
+        await client.query('DELETE FROM puzzles_answers WHERE puzzle_id=$1', [fixture.id]);
+        await client.query('DELETE FROM puzzles_daily WHERE id=$1 AND world_version=$2', [fixture.id, fixture.version]);
+        await client.query('ALTER TABLE puzzles_daily ENABLE TRIGGER puzzles_daily_immutable');
+        await client.query('DELETE FROM world_visibility WHERE kind=$1 AND key=ANY($2)', ['Creature', fixture.keys]);
+        await client.query('DELETE FROM world_entities WHERE version_id=$1', [fixture.version]);
+        await client.query('DELETE FROM world_versions WHERE id=$1', [fixture.version]);
+        const { rows: [remaining] } = await client.query(
+          'SELECT EXISTS(SELECT 1 FROM puzzles_daily WHERE id=$1) AS found', [fixture.id]);
+        expect(remaining.found, 'fixture publication removed').toBe(false);
+      });
+      return true;
+    } catch (error) {
+      if (!retryableConnection(error)) throw error;
+      return false;
+    }
+  }, { timeout: 15_000, message: 'puzzle fixture cleanup completed before the next dependent case' }).toBe(true);
 }
 
 export async function withPublishedPuzzle(run) {
@@ -55,10 +98,15 @@ export async function withPublishedPuzzle(run) {
       const { rows: [previous] } = await client.query(`
         SELECT version_id,previous_version_id FROM world_active_version WHERE singleton FOR UPDATE
       `);
+      const { rows: [pending] } = await client.query(`
+        SELECT EXISTS(SELECT 1 FROM puzzles_daily p JOIN world_versions v ON p.world_version=v.id
+          WHERE v.source_commit=$1) AS found
+      `, [puzzleSourceCommit]);
+      expect(pending.found, 'an earlier matrix puzzle still needs cleanup on this database').toBe(false);
       const { rows: [world] } = await client.query(`
         INSERT INTO world_versions(id,source_commit,status)
-        VALUES(uuidv7(),repeat('b',40),'ready') RETURNING id
-      `);
+        VALUES(uuidv7(),$1,'ready') RETURNING id
+      `, [puzzleSourceCommit]);
       const keys = ['first', 'second'].map(choice => `authz-puzzle-${world.id}-${choice}`);
       await client.query(`
         INSERT INTO world_entities(version_id,kind,key,data,publishable)
@@ -89,24 +137,7 @@ export async function withPublishedPuzzle(run) {
     try {
       return await run(fixture);
     } finally {
-      await puzzleTransaction(db, async client => {
-        const { rows: restored } = await client.query(`
-          UPDATE world_active_version SET version_id=$1,previous_version_id=$2
-          WHERE singleton AND version_id=$3 RETURNING version_id,previous_version_id
-        `, [fixture.previous.version_id, fixture.previous.previous_version_id, fixture.version]);
-        expect(restored, 'puzzle fixture restored the world pointers').toEqual([fixture.previous]);
-        // The fixture publication is immutable while requests run. The override
-        // is confined to teardown in the disposable database and to this transaction.
-        await client.query('ALTER TABLE puzzles_daily DISABLE TRIGGER puzzles_daily_immutable');
-        await client.query('DELETE FROM puzzles_answers WHERE puzzle_id=$1', [fixture.id]);
-        const deleted = await client.query('DELETE FROM puzzles_daily WHERE id=$1 AND world_version=$2',
-          [fixture.id, fixture.version]);
-        expect(deleted.rowCount, 'fixture publication removed').toBe(1);
-        await client.query('ALTER TABLE puzzles_daily ENABLE TRIGGER puzzles_daily_immutable');
-        await client.query('DELETE FROM world_visibility WHERE kind=$1 AND key=ANY($2)', ['Creature', fixture.keys]);
-        await client.query('DELETE FROM world_entities WHERE version_id=$1', [fixture.version]);
-        await client.query('DELETE FROM world_versions WHERE id=$1', [fixture.version]);
-      });
+      await cleanPuzzle(db, fixture);
     }
   } finally {
     await db.end();
@@ -137,7 +168,7 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
         .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle.id).replace('{operation}', operation);
       expect(guard.kind, path).toBe(path.includes('/sellers/') ? 'anonymous' : 'logged-in');
       await test.step(`${method} ${path}`, async () => {
-        const refused = !accountId || (status >= 400 && status !== 503);
+        const refused = !accountId || status >= 400;
         const before = method === 'POST' && refused ? await snapshot() : null;
         const response = await request.fetch(target, {
           method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,

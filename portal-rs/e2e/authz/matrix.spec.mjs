@@ -55,7 +55,9 @@ const publicReads = readFixtures.flatMap(row => {
 });
 for (const { method, path } of publicReads) {
   const route = routes.find(row => row.listener === 'public' && row.path === path && row.method === method);
-  if (!route || route.registrations[0].guard.kind !== 'anonymous') {
+  const profile = path === '/{locale}/bazaar/items' ? 'bazaar-runtime' : undefined;
+  const registration = route?.registrations.find(row => row.profile === profile);
+  if (registration?.guard.kind !== 'anonymous') {
     throw new Error(`Public read fixture has no matching public registration for ${method} ${path}`);
   }
 }
