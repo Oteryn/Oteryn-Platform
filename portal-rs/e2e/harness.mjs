@@ -136,6 +136,8 @@ if (argv.includes('--puzzle-browser')) {
     OTERYN_ACCOUNT_LOGIN: 'true',
     OTERYN_WORLD_ENABLED: 'true',
     OTERYN_DAILY_PUZZLES_ENABLED: 'true',
+    OTERYN_NOTIFY_UNSUBSCRIBE_KEY: crypto.randomBytes(32).toString('hex'),
+    OTERYN_NOTIFY_UNSUBSCRIBE_URL: new URL('/en/unsubscribe', testEnv.OTERYN_PUBLIC_ORIGIN).href,
   });
 }
 
