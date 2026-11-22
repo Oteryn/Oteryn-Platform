@@ -3,7 +3,7 @@ use crate::session::SessionLayer;
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::header,
+    http::{HeaderMap, header},
     middleware::Next,
     response::Response,
 };
@@ -14,14 +14,33 @@ use oteryn_ui::Registry;
 pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
+    pub staff_host: Option<String>,
 }
+/// The panel and its same-origin navigation use the same Host boundary.
+pub fn matches_staff_host(headers: &HeaderMap, host: &str) -> bool {
+    let values = headers.get_all(header::HOST);
+    let mut values = values.iter();
+    !host.is_empty()
+        && values
+            .next()
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.eq_ignore_ascii_case(host))
+        && values.next().is_none()
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let mut account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    if let oteryn_ui::Account::SignedIn { staff_access, .. } = &mut account {
+        *staff_access &= shell
+            .staff_host
+            .as_deref()
+            .is_some_and(|host| matches_staff_host(request.headers(), host));
+    }
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -462,6 +481,7 @@ mod response_tests {
                 Shell {
                     registry: Registry::default(),
                     sessions: SessionLayer::new(pool),
+                    staff_host: None,
                 },
                 middleware,
             ));
@@ -509,6 +529,7 @@ mod response_tests {
                 Shell {
                     registry: Registry::default(),
                     sessions: SessionLayer::new(pool),
+                    staff_host: None,
                 },
                 middleware,
             ));

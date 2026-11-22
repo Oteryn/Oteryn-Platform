@@ -118,6 +118,7 @@ fn compose(app: Router, pool: PgPool) -> Router {
     );
     app.layer(axum::middleware::from_fn_with_state(
         oteryn_web::chrome::Shell {
+            staff_host: None,
             registry: oteryn_ui::Registry::default(),
             sessions: oteryn_web::session::SessionLayer::new(pool),
         },

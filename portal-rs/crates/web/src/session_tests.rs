@@ -462,6 +462,7 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
         )
         .layer(axum::middleware::from_fn_with_state(
             crate::chrome::Shell {
+                staff_host: None,
                 registry,
                 sessions: SessionLayer::new(db.pool.clone()),
             },
@@ -480,6 +481,83 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
         assert_eq!(html.contains(&csrf), cookie.is_some());
     }
     assert_eq!(snapshot(db.pool.clone()).await?, before);
+    db.close().await
+}
+
+#[tokio::test]
+async fn staff_navigation_requires_an_enabled_panel_on_the_request_host() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
+        .bind(id).execute(&db.pool).await?;
+    let grant = sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'")
+        .bind(id).execute(&db.pool).await?;
+    assert_eq!(grant.rows_affected(), 1);
+    let browser = BrowserSession::new(
+        db.pool.clone(),
+        SessionConfig::default(),
+        None,
+        "staff menu",
+    );
+    rotate(&browser, PrivilegeChange::Login(id)).await?;
+    let cookie = {
+        let inner = browser.inner.lock().await;
+        format!(
+            "{COOKIE_NAME}={}",
+            inner.record.as_ref().ok_or("missing session")?.id
+        )
+    };
+    for (configured, host, visible) in [
+        (None, "staff.example.test:8443", false),
+        (
+            Some("staff.example.test:8443"),
+            "public.example.test:8443",
+            false,
+        ),
+        (Some("staff.example.test:8443"), "staff.example.test", false),
+        (
+            Some("staff.example.test:8443"),
+            "STAFF.example.test:8443",
+            true,
+        ),
+    ] {
+        let mut registry = oteryn_ui::Registry::default();
+        registry.account = true;
+        let app = Router::new()
+            .route(
+                "/en/",
+                get(
+                    |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
+                        oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
+                    },
+                ),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                crate::chrome::Shell {
+                    registry,
+                    sessions: SessionLayer::new(db.pool.clone()),
+                    staff_host: configured.map(str::to_owned),
+                },
+                crate::chrome::middleware,
+            ));
+        let response = app
+            .oneshot(
+                HttpRequest::get("/en/")
+                    .header(header::HOST, host)
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+        assert_eq!(
+            html.contains("href=\"/admin\""),
+            visible,
+            "{configured:?} {host}"
+        );
+    }
     db.close().await
 }
 

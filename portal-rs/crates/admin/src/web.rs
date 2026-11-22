@@ -144,7 +144,7 @@ struct Panel<I, A> {
     pool: PgPool,
 }
 
-pub(crate) fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
+pub fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
     config_from(&|key| std::env::var(key).ok())
 }
 
@@ -296,15 +296,8 @@ pub(crate) async fn host_guard(
     request: Request,
     next: Next,
 ) -> Response {
-    let hosts = request.headers().get_all(header::HOST);
     if !config.admin_panel
-        || config.host.is_empty()
-        || hosts.iter().count() != 1
-        || !hosts
-            .iter()
-            .next()
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.eq_ignore_ascii_case(&config.host))
+        || !oteryn_web::chrome::matches_staff_host(request.headers(), &config.host)
     {
         return StatusCode::NOT_FOUND.into_response();
     }
