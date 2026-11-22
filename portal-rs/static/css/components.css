@@ -8,7 +8,8 @@
 .op-theme h2 { font-size: var(--op-type-xl); }
 .op-theme h3 { font-size: var(--op-type-lg); }
 .op-theme :where(button, input, select, textarea) { font: inherit; }
-.op-theme :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: var(--op-ring) solid var(--op-focus); outline-offset: var(--op-ring-offset); }
+.op-theme :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
+.op-theme :where(input:is([type="date"], [type="datetime-local"], [type="month"], [type="time"], [type="week"])):focus-within { outline: var(--op-ring) solid var(--op-focus); outline-offset: var(--op-ring-offset); }
 .op-theme :where(a, button, summary) { touch-action: manipulation; }
 .op-stack { display: grid; gap: var(--op-space-4); min-width: var(--op-space-0); }
 .op-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--op-space-3); }

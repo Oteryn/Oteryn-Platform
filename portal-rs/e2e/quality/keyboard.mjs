@@ -1,12 +1,17 @@
 import { expect } from '@playwright/test';
 
+// Chromium exposes a single active input while Tab traverses its native date fields.
+const nativeTabSteps = { date: 3, 'datetime-local': 8, month: 2, time: 5, week: 2 };
+
 async function focusState(page) {
-  return page.evaluate(() => {
+  return page.evaluate(nativeTabSteps => {
     const element = document.activeElement;
     const style = getComputedStyle(element);
     const bounds = element.getBoundingClientRect();
     const previous = window.portalQualityFocusStyles?.get(element);
-    const visible = element.matches(':focus-visible') && (
+    const nativeFocus = element instanceof HTMLInputElement &&
+      Object.hasOwn(nativeTabSteps, element.type) && element.matches(':focus-within');
+    const visible = (element.matches(':focus-visible') || nativeFocus) && (
       (style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) > 0) ||
       (previous && [style.boxShadow, style.backgroundColor, style.borderColor, style.textDecorationLine]
         .some((value, i) => value !== previous[i]))
@@ -21,13 +26,10 @@ async function focusState(page) {
       inHeader: !!element.closest('header'),
       inScope: !!(element.form || element.closest('form, header, nav')),
     };
-  });
+  }, nativeTabSteps);
 }
 
 const soft = expect.configure({ soft: true, timeout: 1000 });
-
-// Chromium exposes a single active input while Tab traverses its native date fields.
-const nativeTabSteps = { date: 3, 'datetime-local': 8, month: 2, time: 5, week: 2 };
 
 async function tabStops(page) {
   return page.evaluate(nativeTabSteps => {
