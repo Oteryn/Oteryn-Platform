@@ -20,7 +20,7 @@ function parseRouter(router, routerIndex) {
 }
 
 export function publicRegistrations(file = process.env.PORTAL_E2E_ROUTE_REPORT) {
-  if (!file) throw new Error('Start local.mjs and give run.mjs the generated env.json');
+  if (!file) throw new Error('Run bash sec-headers/launch.sh, then pass its env.json to run.mjs');
   const { routers, legacy, mfaLoginRewrite } = JSON.parse(readFileSync(file, 'utf8'));
   if (!Array.isArray(routers) || !routers.length || !Array.isArray(legacy) || !legacy.length) {
     throw new Error('Incomplete composed public router report');

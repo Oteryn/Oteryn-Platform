@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { test, expect } from '@playwright/test';
 import { mailLink } from '../helpers.mjs';
+import { query } from '../staff-rbac-helpers.mjs';
 import { cookie, expectSession, seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
-import { atlas, checkHeaders, checkIssued, deviceCookie, matchesPortalCsp, sameOrigin, sessionCookie, shellPolicy, stylesForm, surface } from './policy.mjs';
+import { atlas, checkHeaders, checkIssued, deviceCookie, matchesPortalCsp, matchesPrivateCache, sameOrigin, sessionCookie, shellPolicy, stylesForm, surface } from './policy.mjs';
 import { withAtlasFixture } from './atlas-fixture.mjs';
 import { challengeForm, getFromPortal, loginForm, logoutForm, signIn, submitForm } from './session-actions.mjs';
 
@@ -204,6 +205,66 @@ test('CSP validator requires the full policy with unique directives', () => {
   expect(matchesPortalCsp(atlas, atlas)).toBe(false);
   expect(matchesPortalCsp(atlasWithNonce.replace(/; script-src '[^']+'/, ''), atlas)).toBe(false);
   expect(matchesPortalCsp(stylesForm, atlas)).toBe(false);
+});
+
+test('cache validator requires a complete configured directive set', () => {
+  expect(matchesPrivateCache(['private, no-store'])).toBe(true);
+  expect(matchesPrivateCache(['max-age=0', 'no-store'])).toBe(true);
+  expect(matchesPrivateCache(['max-age=600, extension="x,no-store,y"'])).toBe(false);
+  expect(matchesPrivateCache([String.raw`extension="x\",no-store,y", max-age=600`])).toBe(false);
+  expect(matchesPrivateCache(['extension="x', 'no-store'])).toBe(false);
+  expect(matchesPrivateCache(['no-store, max-age=600'])).toBe(false);
+  expect(matchesPrivateCache(['no-store, extension="x,y"'])).toBe(false);
+  expect(matchesPrivateCache(['no-store, no-store'])).toBe(false);
+});
+
+test('anonymous form refusals do not create session rows or issue cookies', async ({ request }, info) => {
+  const locale = info.project.metadata.locale;
+  const base = '/' + locale;
+  const passkeys = base + '/account/passkeys';
+  const agent = 'security-headers-media-' + randomUUID();
+  const headers = { 'user-agent': agent, accept: 'application/json' };
+  const rows = async () => (await query(
+    'SELECT count(*)::integer AS count FROM web_sessions WHERE user_agent_summary=$1',
+    [agent],
+  ))[0].count;
+  expect(await rows()).toBe(0);
+  for (const [path, policy] of [
+    [passkeys, { ...mfaPage, referrer: 'strict-origin' }],
+    [base + '/register', { ...webPolicy, referrer: 'no-referrer' }],
+    [base + '/recovery-key', { ...webPolicy, referrer: 'no-referrer' }],
+  ]) {
+    const refused = await getFromPortal(request, path, { headers, maxRedirects: 0 });
+    expect(refused.status(), path).toBe(406);
+    expect(refused.headers()['content-language']).toBe(locale);
+    expect(await checkHeaders(refused, path, policy)).toHaveLength(0);
+    expect(await rows(), path + ' refused before creating a session').toBe(0);
+  }
+
+  const accepted = await getFromPortal(request, passkeys, {
+    headers: { ...headers, accept: 'text/html' }, maxRedirects: 0,
+  });
+  expect(accepted.status()).toBe(200);
+  checkIssued(await checkHeaders(accepted, 'HTML passkey form', { ...mfaPage, referrer: 'strict-origin' }), sessionCookie);
+  expect(await rows(), 'HTML passkey form creates its anonymous session').toBe(1);
+});
+
+test('League HEAD keeps the GET content length and security headers', async ({ request }, info) => {
+  const path = '/' + info.project.metadata.locale + '/league';
+  const options = { headers: { accept: 'text/html' }, maxRedirects: 0 };
+  const get = await getFromPortal(request, path, options);
+  const head = await request.head(path, options)
+    .catch(() => { throw new Error('Portal HEAD failed for League'); });
+  expect(get.status()).toBe(200);
+  expect(head.status()).toBe(get.status());
+  const body = await get.body();
+  expect(body.length).toBeGreaterThan(0);
+  expect(get.headers()['content-length']).toBe(String(body.length));
+  expect(head.headers()['content-length']).toBe(get.headers()['content-length']);
+  expect(head.headers()['content-type']).toBe(get.headers()['content-type']);
+  expect((await head.body()).length).toBe(0);
+  await checkHeaders(get, 'League GET');
+  await checkHeaders(head, 'League HEAD');
 });
 
 test('unacceptable reset GET preserves the one-time confirmation', async ({ page }, info) => {

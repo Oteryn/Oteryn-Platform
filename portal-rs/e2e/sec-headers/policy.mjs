@@ -43,6 +43,42 @@ export function matchesPortalCsp(value, expected) {
   return signature(directives) === signature(parseCsp(expected));
 }
 
+// Complete non-cacheable policies emitted by the public listener and its
+// modules. Asset routes with intentional public caching have their own contract.
+const privateCachePolicies = [
+  'no-store',
+  'no-store, private',
+  'max-age=0, no-store',
+  'max-age=0, no-store, private',
+  'no-store, no-transform',
+];
+
+export function matchesPrivateCache(fields) {
+  const directives = [];
+  for (const field of fields) {
+    let start = 0;
+    let quoted = false;
+    let escaped = false;
+    for (let index = 0; index < field.length; index++) {
+      const char = field[index];
+      if (escaped) {
+        escaped = false;
+      } else if (quoted && char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        quoted = !quoted;
+      } else if (!quoted && char === ',') {
+        directives.push(field.slice(start, index));
+        start = index + 1;
+      }
+    }
+    if (quoted) return false;
+    directives.push(field.slice(start));
+  }
+  const policy = directives.map(value => value.trim().toLowerCase()).sort().join(', ');
+  return privateCachePolicies.includes(policy);
+}
+
 export async function checkHeaders(response, label, {
   cache, check = expect, csp = browser, referrer = 'strict-origin-when-cross-origin',
 } = {}) {
@@ -64,10 +100,7 @@ export async function checkHeaders(response, label, {
   if (cache) {
     check(values('cache-control'), label + ' configured asset cache').toEqual([cache]);
   } else {
-    const directives = values('cache-control').join(',').split(',').map(value => value.trim().toLowerCase());
-    check(directives, label + ' no-store').toContain('no-store');
-    check(directives.some(value => /^(?:public|s-maxage\s*=|immutable)/.test(value)),
-      label + ' no shared cache opt-in').toBe(false);
+    check(matchesPrivateCache(values('cache-control')), label + ' exact non-cacheable directives').toBe(true);
   }
 
   const cookies = values('set-cookie').map(parseCookie);
