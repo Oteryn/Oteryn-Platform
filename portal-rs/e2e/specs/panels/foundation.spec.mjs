@@ -81,8 +81,12 @@ test('panel navigation enforces scope and role grants require a reason', async (
   const lang = info.project.metadata.locale;
   const label = labels[lang];
   const recipient = await panelActor(page.context(), lang);
-  expect((await visit(page, '/account')).status()).toBe(200);
+  const overviewEnabled = process.env.OTERYN_ACCOUNT_OVERVIEW_ENABLED !== 'false';
+  const startPage = overviewEnabled ? '/account' : `/${lang}/account/security/email`;
+  expect((await visit(page, '/account')).status()).toBe(overviewEnabled ? 200 : 404);
+  if (!overviewEnabled) expect((await visit(page, startPage)).status()).toBe(200);
   const playerNav = page.getByRole('navigation', {name: label.player, exact: true});
+  await expect(playerNav.locator('a[href="/account"]')).toHaveCount(overviewEnabled ? 1 : 0);
   for (const [name, suffix] of [
     [label.email, 'security/email'],
     [label.export, 'privacy/export'],
@@ -103,7 +107,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
   try {
     const staff = await panelActor(staffContext, lang, true);
     const admin = await staffContext.newPage();
-    expect((await visit(admin, '/account')).status()).toBe(200);
+    expect((await visit(admin, startPage)).status()).toBe(200);
     const dashboard = admin.locator('#podglad-konta [data-staff-dashboard]');
     await expect(dashboard).toHaveText(label.staff);
     const dashboardUrl = await dashboard.getAttribute('href');
