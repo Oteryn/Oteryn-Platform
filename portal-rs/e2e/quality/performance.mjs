@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { expect } from '@playwright/test';
 
 export const budgets = Object.freeze({
@@ -9,12 +10,27 @@ export async function installVitals(page) {
     if (window !== window.top) return;
     let lcp = null;
     let lcpAsset;
+    let candidate;
+    const pathname = url => {
+      const parsed = new URL(url, location.href);
+      return parsed.origin === location.origin ? parsed.pathname : undefined;
+    };
     const shifts = [];
     let windowStart, previousShift, windowValue = 0, cls = 0;
     const consumeLcp = entries => {
       for (const entry of entries) {
         lcp = entry.startTime;
-        lcpAsset = entry.url ? new URL(entry.url).pathname : undefined;
+        lcpAsset = entry.url ? pathname(entry.url) : undefined;
+        const element = entry.element;
+        candidate = {
+          element: element && {
+            tag: element.localName, id: element.id || undefined,
+            classes: [...element.classList],
+          },
+          render: entry.renderTime,
+          load: entry.loadTime,
+          area: entry.size,
+        };
       }
     };
     const consumeShifts = entries => {
@@ -41,7 +57,20 @@ export async function installVitals(page) {
     window.portalQualityVitals = () => {
       consumeLcp(lcpObserver.takeRecords());
       consumeShifts(clsObserver.takeRecords());
-      return { lcp, lcpAsset, cls, shifts };
+      const navigation = performance.getEntriesByType('navigation')[0];
+      const resources = performance.getEntriesByType('resource')
+        .filter(resource => pathname(resource.name) &&
+          resource.startTime <= lcp)
+        .map(resource => ({
+          path: pathname(resource.name), type: resource.initiatorType,
+          start: resource.startTime, request: resource.requestStart,
+          firstByte: resource.responseStart, end: resource.responseEnd,
+          blocking: resource.renderBlockingStatus,
+        }));
+      return { lcp, lcpAsset, cls, shifts, candidate, timing: {
+        firstByte: navigation.responseStart, responseEnd: navigation.responseEnd,
+        domInteractive: navigation.domInteractive, resources,
+      } };
     };
   });
 }
@@ -55,6 +84,45 @@ export async function vitals(page) {
     message: 'Chromium reports a painted LCP candidate',
   }).not.toBeNull();
   return page.evaluate(() => window.portalQualityVitals());
+}
+
+// Keep only timing and candidate events. Raw Chromium traces can contain URLs
+// with tokens and authenticated page data.
+export async function startPaintTrace(page) {
+  if (process.env.PORTAL_QUALITY_PAINT_TRACE !== '1') return;
+  const session = await page.context().newCDPSession(page);
+  const candidates = [];
+  const tasks = [];
+  session.on('Tracing.dataCollected', ({ value }) => {
+    for (const event of value) {
+      if (event.name === 'largestContentfulPaint::Candidate') {
+        candidates.push({
+          ts: event.ts, pid: event.pid, tid: event.tid,
+          kind: event.args?.data?.type, node: event.args?.data?.nodeId,
+          size: event.args?.data?.size, mainFrame: event.args?.data?.isMainFrame,
+        });
+      }
+      if (event.name === 'RunTask' && event.dur >= 50_000) {
+        tasks.push({ ts: event.ts, pid: event.pid, tid: event.tid, durationMs: event.dur / 1000 });
+      }
+    }
+  });
+  await session.send('Tracing.start', {
+    categories: 'loading,devtools.timeline,disabled-by-default-devtools.timeline',
+  });
+  return async () => {
+    const complete = once(session, 'Tracing.tracingComplete');
+    await session.send('Tracing.end');
+    await complete;
+    await session.detach();
+    const main = candidates.filter(candidate => candidate.mainFrame !== false);
+    const last = main.at(-1);
+    return {
+      candidates: main,
+      longTasks: last ? tasks.filter(task =>
+        task.pid === last.pid && task.tid === last.tid && task.ts < last.ts) : [],
+    };
+  };
 }
 
 export function collectResponses(page) {

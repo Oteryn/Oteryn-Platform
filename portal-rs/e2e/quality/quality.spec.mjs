@@ -9,7 +9,7 @@ import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 import { maxSamples, matches, routes } from './routes.mjs';
 import { assertKeyboard } from './keyboard.mjs';
 import { publishEditorialFixtures } from './editorial-fixtures.mjs';
-import { assertBudgets, collectResponses, installVitals, vitals } from './performance.mjs';
+import { assertBudgets, collectResponses, installVitals, startPaintTrace, vitals } from './performance.mjs';
 
 const actors = ['platform_admin', 'anonymous', 'player'];
 const wcag = ['wcag2a', 'wcag2aa'];
@@ -168,9 +168,11 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
   if (record.outcome) return record;
   const { status, path: label } = record;
   const context = await browser.newContext({ ...info.project.use, baseURL: origin, storageState: state });
+  let stopTrace;
   try {
     const page = await context.newPage();
     await installVitals(page);
+    stopTrace = await startPaintTrace(page);
     const transfers = collectResponses(page);
     let response;
     let attachment;
@@ -189,6 +191,8 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
     expect(response.status(), `${label}: browser and source discovery agree on status`).toBe(status);
     expect(url.pathname, 'browser and source discovery agree on destination').toBe(label);
     const measurement = await vitals(page);
+    const paintTrace = await stopTrace?.();
+    stopTrace = undefined;
     expect.soft(await page.locator('html').getAttribute('lang'), `${label}: document language`)
       .toBe(url.pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1] ?? info.project.metadata.locale);
     await expect.soft(page.getByRole('main'), `${label}: main landmark`).toHaveCount(1);
@@ -212,10 +216,14 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
     const resources = await transfers();
     const totals = assertBudgets(measurement, resources, label);
     covered.set(key, label);
-    return { ...record, outcome: 'audited', ...measurement, ...totals,
+    return { ...record, outcome: 'audited', ...measurement, paintTrace, ...totals,
       largest: Math.max(0, ...resources.map(resource => resource.bytes)), serious, details };
   } finally {
-    await context.close();
+    try {
+      await stopTrace?.();
+    } finally {
+      await context.close();
+    }
   }
 }
 

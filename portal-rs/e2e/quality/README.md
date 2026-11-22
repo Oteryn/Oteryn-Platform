@@ -17,6 +17,12 @@ and `--grep=platform_admin` apply. For single-route diagnosis,
 `PORTAL_QUALITY_ROUTE` accepts comma-separated exact source patterns, such as
 `/{lang}/,/account`.
 
+Set `PORTAL_QUALITY_PAINT_TRACE=1` to record Chromium LCP candidate events
+and long tasks from the renderer before the final paint. Each document's
+inventory entry also identifies the candidate element and records navigation
+TTFB and resource timing, including render-blocking stylesheets. The trace
+summary omits screenshots, raw trace events and request headers.
+
 The launcher regenerates the existing Rust route inventory in scratch. The
 tests use GET registrations, navigation registry destinations and same-origin
 links rendered by the portal. Each pattern has at most three samples per
