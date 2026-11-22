@@ -203,14 +203,14 @@ async fn switch_language(Path(lang): Path<String>) -> Response {
     response
 }
 
-fn wants_json(headers: &HeaderMap) -> bool {
+fn accepts(headers: &HeaderMap, media_type: &str) -> bool {
     headers
         .get(header::ACCEPT)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|accept| {
             accept.split(',').any(|item| {
                 let mut parts = item.trim().split(';');
-                parts.next() == Some("application/json") && !parts.any(|p| p.trim() == "q=0")
+                parts.next() == Some(media_type) && !parts.any(|p| p.trim() == "q=0")
             })
         })
 }
@@ -218,7 +218,8 @@ fn wants_json(headers: &HeaderMap) -> bool {
 async fn policy(mut request: Request, next: Next) -> Response {
     let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
     let chrome = request_chrome(&request, lang);
-    let json = wants_json(request.headers());
+    let json = accepts(request.headers(), "application/json");
+    let html = accepts(request.headers(), "text/html");
     let path = request.uri().path().to_owned();
     let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
@@ -242,10 +243,10 @@ async fn policy(mut request: Request, next: Next) -> Response {
     }
     let status = response.status();
     if path != oteryn_gameauth::locator::PATH
-        && matches!(
+        && (matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
-        )
+        ) || (status == StatusCode::UNAUTHORIZED && html && !json))
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
     {
@@ -262,9 +263,11 @@ async fn policy(mut request: Request, next: Next) -> Response {
                 )
         };
         // Preserve protocol metadata, but discard internal content and entity headers.
-        for name in [header::ALLOW, header::RETRY_AFTER] {
-            if let Some(value) = response.headers().get(&name) {
-                replacement.headers_mut().insert(name, value.clone());
+        for name in [header::ALLOW, header::RETRY_AFTER, header::WWW_AUTHENTICATE] {
+            for value in response.headers().get_all(&name) {
+                replacement
+                    .headers_mut()
+                    .append(name.clone(), value.clone());
             }
         }
         for value in response.headers().get_all(header::SET_COOKIE) {
@@ -457,6 +460,50 @@ mod tests {
         assert_eq!(body.matches("<script").count(), 1);
         assert!(body.contains("src=\"/static/thais/home.js\""));
         assert!(!body.contains("style="));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unauthorized_browser_page_is_localized_and_keeps_the_challenge() -> TestResult {
+        let app = finish(Router::new().route(
+            "/account",
+            get(|| async {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::WWW_AUTHENTICATE, "Bearer")],
+                    "private detail",
+                )
+            }),
+        ));
+        for (lang, title) in [("pl", "Wymagane logowanie"), ("en", "Sign-in required")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::get("/account")
+                        .header(header::ACCEPT, "text/html")
+                        .header(header::ACCEPT_LANGUAGE, lang)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = html(response).await?;
+            assert!(body.contains("<main "));
+            assert!(body.contains(title));
+            assert!(!body.contains("private detail"));
+        }
+        let response = app
+            .oneshot(
+                HttpRequest::get("/account")
+                    .header(header::ACCEPT, "application/json")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+        assert_eq!(html(response).await?, "private detail");
         Ok(())
     }
 
