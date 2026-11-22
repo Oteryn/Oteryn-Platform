@@ -108,6 +108,11 @@ const test = base.extend({
 
 test('GM player reads use signed results from the mTLS Admin Agent', async ({page, browser, staffHarness: setup}, info) => {
   test.setTimeout(480_000);
+  await assert.rejects(startStaffConsoleHarness('postgresql://fixture@['), error => {
+    assert.match(error.message, /^Expected a local PostgreSQL URL/);
+    assert.equal(Object.hasOwn(error, 'input'), false);
+    return true;
+  });
   const lang = info.project.metadata.locale;
   const copy = lang === 'en'
     ? { player: 'Players', source: 'Game agent · observed at', unavailable: 'Unavailable', inventory: 'Inventory', sanctions: 'Sanctions', activeSanction: 'Warning · Active', inactiveSanction: 'Notation · Inactive', rejected: 'Query rejected' }

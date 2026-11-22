@@ -13,6 +13,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { SMTPServer } from 'smtp-server';
+import { localPostgresUrl } from './postgres-url.mjs';
 
 const agentId = 'staff-console-e2e';
 const worldId = '019b0760-0000-7000-8000-000000000001';
@@ -72,9 +73,8 @@ function signingBytes({ signature, ...envelope }) {
 // Start a separate harness so attaching an agent cannot change another spec.
 export async function startStaffConsoleHarness(databaseURL) {
   assert(databaseURL, 'Set PORTAL_E2E_ADMIN_AGENT_DIRECTORY or run browser qualification with a disposable database');
-  const adminURL = new URL(databaseURL);
-  assert(['localhost', '127.0.0.1', '[::1]'].includes(adminURL.hostname)
-    && adminURL.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
+  const adminURL = localPostgresUrl(databaseURL);
+  assert(adminURL.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
   adminURL.pathname = '/postgres';
   const listeners = [];
   const portEnv = {};
