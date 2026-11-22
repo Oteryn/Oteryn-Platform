@@ -12,8 +12,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  monitor:
+  preflight:
     if: github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
+    permissions:
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check production monitor environments
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            for (const name of ['production-monitor-probe', 'production-monitor-alert']) {
+              try {
+                const options = { ...context.repo, environment_name: name };
+                const { data: environment } = await github.request(
+                  'GET /repos/{owner}/{repo}/environments/{environment_name}', options);
+                if (environment.name !== name || !environment.deployment_branch_policy?.custom_branch_policies ||
+                    environment.deployment_branch_policy.protected_branches) throw new Error();
+                const { data: rules } = await github.request(
+                  'GET /repos/{owner}/{repo}/environments/{environment_name}/deployment-branch-policies', options);
+                const [rule] = rules.branch_policies;
+                if (rules.total_count !== 1 || rules.branch_policies.length !== 1 || rule?.type !== 'branch' ||
+                    rule.name !== context.payload.repository.default_branch) throw new Error();
+              } catch {
+                core.setFailed(`Repository owner must provision ${name} with a default-branch-only deployment policy.`);
+                return;
+              }
+            }
+
+  monitor:
+    needs: preflight
+    if: needs.preflight.result == 'success' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
     environment: production-monitor-probe
     permissions:
       contents: read
@@ -79,8 +109,8 @@ jobs:
           exit "$result"
 
   incident:
-    needs: monitor
-    if: ${{ !cancelled() && needs.monitor.outputs.enabled == 'true' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch }}
+    needs: [preflight, monitor]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.monitor.outputs.enabled == 'true' && github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch }}
     environment: production-monitor-alert
     permissions:
       issues: write
@@ -124,50 +154,75 @@ jobs:
             })).filter(issue => issue.title === stateTitle && !issue.pull_request);
             if (states.length > 1) throw new Error('Multiple production monitor state issues');
             const state = states[0];
-            const body = JSON.stringify({ sequence, failed });
+            const next = { sequence, failed, pending: {
+              url, step: process.env.FAILING_STEP || 'Run production monitor',
+            } };
+            async function reconcile(record) {
+              const incidents = (await github.paginate(github.rest.issues.listForRepo, {
+                ...repo, state: 'all', labels: label, per_page: 100,
+              })).filter(issue => issue.title === title && !issue.pull_request);
+              const incident = incidents.find(issue => issue.state === 'open');
+              const marker = `<!-- prod-monitor:${record.sequence} -->`;
+              if (record.failed) {
+                const body = `Failing step: ${record.pending.step}\n\nRun: ${record.pending.url}\n\n${marker}`;
+                if (incidents.some(issue => issue.body?.includes(marker))) return;
+                if (!incident) {
+                  await ensureLabel(label, 'b60205');
+                  await ensureLabel(pending('failing'), 'fbca04');
+                  await github.rest.issues.create({ ...repo, title, body, labels: [label, pending('failing')] });
+                  return;
+                }
+                const issue = { ...repo, issue_number: incident.number };
+                const comments = await github.paginate(github.rest.issues.listComments, issue);
+                if (!comments.some(comment => comment.body?.includes(marker))) {
+                  await github.rest.issues.createComment({ ...issue, body });
+                }
+              } else if (incident) {
+                const issue = { ...repo, issue_number: incident.number };
+                await ensureLabel(pending('recovered'), 'fbca04');
+                const comments = await github.paginate(github.rest.issues.listComments, issue);
+                if (!comments.some(comment => comment.body?.includes(marker))) {
+                  await github.rest.issues.createComment({
+                    ...issue, body: `recovered\n\nRun: ${record.pending.url}\n\n${marker}`,
+                  });
+                }
+                const labels = new Set(incident.labels.map(({ name }) => name));
+                labels.add(pending('recovered'));
+                await github.rest.issues.update({ ...issue, state: 'closed', labels: [...labels] });
+              }
+            }
+
+            let stateNumber;
+            async function save(record) {
+              await github.rest.issues.update({ ...repo, issue_number: stateNumber, body: JSON.stringify(record) });
+            }
+            async function complete(record) {
+              await reconcile(record);
+              await save({ sequence: record.sequence, failed: record.failed });
+            }
+
             if (state) {
+              stateNumber = state.number;
               const saved = JSON.parse(state.body);
               const [savedRun, savedAttempt] = parseSequence(saved.sequence);
+              if (saved.pending) await complete(saved);
               if (run < savedRun || (run === savedRun && attempt < savedAttempt)) {
                 core.notice('Ignored stale production monitor probe result.');
                 return;
               }
-              if (sequence !== saved.sequence) {
-                await github.rest.issues.update({ ...repo, issue_number: state.number, body });
-              } else if (saved.failed !== failed) {
-                throw new Error('Production monitor result changed for the same probe sequence');
+              if (sequence === saved.sequence) {
+                if (saved.failed !== failed) throw new Error('Production monitor result changed for the same probe sequence');
+                return;
               }
+              await save(next);
             } else {
               await ensureLabel(stateLabel, '5319e7');
-              await github.rest.issues.create({ ...repo, title: stateTitle, body, labels: [stateLabel] });
+              const { data: created } = await github.rest.issues.create({
+                ...repo, title: stateTitle, body: JSON.stringify(next), labels: [stateLabel],
+              });
+              stateNumber = created.number;
             }
-
-            const open = await github.paginate(github.rest.issues.listForRepo, {
-              ...repo, state: 'open', labels: label, per_page: 100,
-            });
-            const incident = open.find(issue => issue.title === title && !issue.pull_request);
-            if (failed) {
-              const body = `Failing step: ${process.env.FAILING_STEP || 'Run production monitor'}\n\nRun: ${url}`;
-              if (incident) {
-                await github.rest.issues.createComment({ ...repo, issue_number: incident.number, body });
-              } else {
-                await ensureLabel(label, 'b60205');
-                await ensureLabel(pending('failing'), 'fbca04');
-                await github.rest.issues.create({ ...repo, title, body, labels: [label, pending('failing')] });
-              }
-            } else if (incident) {
-              const issue = { ...repo, issue_number: incident.number };
-              await ensureLabel(pending('recovered'), 'fbca04');
-              const marker = '<!-- prod-monitor:recovered -->';
-              const comments = await github.paginate(github.rest.issues.listComments, issue);
-              if (!comments.some(comment => comment.body?.includes(marker))) {
-                await github.rest.issues.createComment({ ...issue, body: `recovered\n\nRun: ${url}\n\n${marker}` });
-              }
-              // Closing and enqueueing are one issue update.
-              const labels = new Set(incident.labels.map(({ name }) => name));
-              labels.add(pending('recovered'));
-              await github.rest.issues.update({ ...issue, state: 'closed', labels: [...labels] });
-            }
+            await complete(next);
 
       - name: Deliver pending monitor email
         if: ${{ !cancelled() }}
@@ -182,6 +237,18 @@ jobs:
               MONITOR_SMTP_PASSWORD: password } = process.env;
             if (!host || !user || !password) {
               core.notice('Production monitor SMTP is not configured.');
+              return;
+            }
+
+            let smtp;
+            try {
+              smtp = new URL(host.includes('://') ? host : `smtp://${host}`);
+              if (!['smtp:', 'smtps:'].includes(smtp.protocol) || !smtp.hostname ||
+                  smtp.username || smtp.password || !['', '/'].includes(smtp.pathname) ||
+                  smtp.search || smtp.hash || /[:\s\x00-\x1f\x7f]/.test(user)) throw new Error();
+              smtp.port ||= smtp.protocol === 'smtp:' ? '587' : '465';
+            } catch {
+              core.setFailed('Production monitor SMTP configuration is invalid.');
               return;
             }
 
@@ -209,27 +276,31 @@ jobs:
                 if (error.status !== 404) throw error;
                 await github.rest.issues.createLabel({ ...repo, name: entry.attempted, color: 'c5def5' });
               }
-              // Claim before talking to SMTP. A claimed transition is never replayed.
-              await github.rest.issues.addLabels({ ...issue, labels: [entry.attempted] });
               try {
-                await send(entry);
+                const outcome = await send(entry, () =>
+                  github.rest.issues.addLabels({ ...issue, labels: [entry.attempted] }));
+                if (outcome === 'not-submitted') {
+                  await github.rest.issues.removeLabel({ ...issue, name: entry.attempted });
+                  core.setFailed('Production monitor SMTP failed before submission. This alert remains queued.');
+                  return;
+                }
+                if (outcome !== 'accepted') {
+                  core.setFailed('Production monitor email outcome is uncertain. Check the relay before any manual resend.');
+                  continue;
+                }
               } catch {
-                core.setFailed('Production monitor email outcome is uncertain or failed. Check the SMTP relay before any manual resend.');
+                core.setFailed('Production monitor could not prepare or record the SMTP attempt.');
                 continue;
               }
               await github.rest.issues.removeLabel({ ...issue, name: entry.label });
             }
 
-            async function send({ issue, transition }) {
+            async function send({ issue, transition }, claim) {
               const { spawn } = require('node:child_process');
               const { once } = require('node:events');
               const { mkdtemp, rm, writeFile } = require('node:fs/promises');
               const { tmpdir } = require('node:os');
               const { join } = require('node:path');
-              const smtp = new URL(host.includes('://') ? host : `smtp://${host}`);
-              if (!['smtp:', 'smtps:'].includes(smtp.protocol) || smtp.username || smtp.password ||
-                  /[:\x00-\x1f]/.test(user)) throw new Error('Invalid SMTP configuration');
-              smtp.port ||= smtp.protocol === 'smtp:' ? '587' : '465';
 
               const to = 'support@oteryn.com';
               const sender = /^[^\s<>@]+@[^\s<>@]+$/.test(user) ? user : to;
@@ -247,13 +318,23 @@ jobs:
               try {
                 const message = join(scratch, 'message');
                 await writeFile(message, mail, { mode: 0o600 });
+                await claim();
                 const client = spawn('curl', ['--disable', '--silent', '--ssl-reqd', '--max-time', '25',
                   '--config', '-', '--upload-file', message, '--mail-rcpt', to],
                 { stdio: ['pipe', 'ignore', 'ignore'], env: { PATH: process.env.PATH } });
                 client.stdin.on('error', () => {});
                 client.stdin.end(`url = ${quote(smtp.href)}\nuser = ${quote(`${user}:${password}`)}\nmail-from = ${quote(sender)}\n`);
-                const [code] = await once(client, 'close');
-                if (code !== 0) throw new Error('SMTP delivery failed');
+                let code;
+                try {
+                  [code] = await once(client, 'close');
+                } catch {
+                  // No child process was started.
+                  return 'not-submitted';
+                }
+                if (code === 0) return 'accepted';
+                // curl failed to initialise, resolve, connect, validate TLS, or authenticate.
+                const beforeSubmission = [2, 3, 4, 5, 6, 7, 60, 67, 77];
+                return beforeSubmission.includes(code) ? 'not-submitted' : 'uncertain';
               } finally {
                 await rm(scratch, { recursive: true, force: true });
               }
