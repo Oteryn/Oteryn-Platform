@@ -54,4 +54,5 @@ export async function publishEditorialFixtures(page, locale) {
   await waitForWikiBudget(target);
   const response = await page.goto(target);
   expect(response.status(), 'published Wiki article opens').toBe(200);
+  return [`/${locale}/news/${news}`, `/${locale}/events/${event}`, target];
 }

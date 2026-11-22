@@ -46,6 +46,7 @@ async function actorState(browser, info, actor) {
     ...info.project.use, baseURL: process.env.PORTAL_E2E_ORIGIN,
   });
   let phase = 'sign-in';
+  let editorial = [];
   try {
     const page = await context.newPage();
     if (actor === 'platform_admin') {
@@ -65,7 +66,7 @@ async function actorState(browser, info, actor) {
     }
     if (actor === 'platform_admin' && !process.env.PORTAL_QUALITY_ROUTE) {
       phase = 'editorial publication';
-      await publishEditorialFixtures(page, locale);
+      editorial = await publishEditorialFixtures(page, locale);
     }
     phase = 'ticket creation';
     expect((await page.goto(`/${locale}/support/tickets/create`)).status()).toBe(200);
@@ -81,7 +82,7 @@ async function actorState(browser, info, actor) {
     });
     await expect(page).toHaveURL(/support\/reports\/[a-f0-9-]+$/);
     const report = new URL(page.url()).pathname.split('/').at(-1);
-    return { storage: await context.storageState(), accountId, ticket, report };
+    return { storage: await context.storageState(), accountId, ticket, report, editorial };
   } catch {
     throw new Error(`Could not prepare the ${actor} browser fixture during ${phase}`);
   } finally {
@@ -234,6 +235,8 @@ for (const actor of actors) {
     const inventory = routes(locale, {
       player: state.accountId, ticket: state.ticket, report: state.report, world: process.env.PORTAL_QUALITY_WORLD,
     });
+    const origin = new URL(process.env.PORTAL_E2E_ORIGIN);
+    addLinks(inventory, (state.editorial ?? []).map(path => new URL(path, origin)), origin);
     const covered = new Map();
     const evidence = [];
     const report = info.outputPath('quality-inventory.json');
@@ -248,22 +251,29 @@ for (const actor of actors) {
       extraHTTPHeaders: { accept: 'text/html', 'accept-language': locale },
     });
     try {
-      // Discover seeded document links from the shell and collection pages first.
-      for (const entry of inventory) {
-        if (selected.length && !selected.includes(entry.pattern)) continue;
-        for (const target of entry.paths) {
-          try {
-            evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probe));
-          } catch (error) {
-            // Browser exceptions can include full URLs. Preserve the category and route without query data.
-            const requestedPath = new URL(target, process.env.PORTAL_E2E_ORIGIN).pathname;
-            const reason = error.message.match(/net::[A-Z_0-9]+/)?.[0] ?? error.name;
-            evidence.push({ pattern: entry.pattern, requestedPath, outcome: 'audit error', error: reason });
-            expect.soft(reason, `${requestedPath}: audit completed`).toBe('');
+      const tested = new Map();
+      let addedSamples;
+      do {
+        addedSamples = false;
+        for (const entry of inventory) {
+          if (selected.length && !selected.includes(entry.pattern)) continue;
+          for (let index = tested.get(entry) ?? 0; index < entry.paths.length; index++) {
+            const target = entry.paths[index];
+            tested.set(entry, index + 1);
+            addedSamples = true;
+            try {
+              evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probe));
+            } catch (error) {
+              // Browser exceptions can include full URLs. Preserve the category and route without query data.
+              const requestedPath = new URL(target, origin).pathname;
+              const reason = error.message.match(/net::[A-Z_0-9]+/)?.[0] ?? error.name;
+              evidence.push({ pattern: entry.pattern, requestedPath, outcome: 'audit error', error: reason });
+              expect.soft(reason, `${requestedPath}: audit completed`).toBe('');
+            }
+            fs.writeFileSync(report, JSON.stringify({ actor, locale, evidence }), { mode: 0o600 });
           }
-          fs.writeFileSync(report, JSON.stringify({ actor, locale, evidence }), { mode: 0o600 });
         }
-      }
+      } while (addedSamples);
       expect(covered.size, 'rendered documents audited').toBeGreaterThan(0);
     } finally {
       await probe.dispose();
