@@ -1861,6 +1861,14 @@
         "participating"
       ],
       "submits": [
+        {
+          "name": "participating",
+          "value": "true"
+        },
+        {
+          "name": "participating",
+          "value": "false"
+        },
         {}
       ]
     },

@@ -131,8 +131,9 @@ marker creation, private reads, cross-account deletion refusal and replay,
 and creation of a pending map report. Another player and an unrelated content
 editor cannot name the owner's account in a create request or delete the
 owner's marker. Malformed JSON fields return the endpoint's 422 response.
-The places participation endpoint also saves and exposes its account-local
-choice while the `UnresolvedSource` adapter leaves its form unavailable.
+The places participation endpoint saves and exposes both account-local choices
+while the `UnresolvedSource` adapter leaves its form unavailable. Each save
+advances the stored privacy revision.
 
 The fake Bazaar runtime mounts the item catalogue as GET-only and exposes
 its own sell form. The legacy catalogue POST returns 405. The legacy

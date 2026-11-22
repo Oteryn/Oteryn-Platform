@@ -1,12 +1,14 @@
 import { test, expect } from '../fixtures.mjs';
-import { loginWithRecoveryCode } from '../staff-rbac-helpers.mjs';
+import { login, submit } from '../helpers.mjs';
 
 export async function signInWithRecoveryCode(page, lang, account, code) {
   const challengePath = `/${lang}/mfa/challenge`;
+  await login(page, lang, account);
+  await expect(page).toHaveURL(new RegExp(`${challengePath}$`));
   const [response] = await Promise.all([
     page.waitForResponse(candidate => candidate.request().method() === 'POST'
       && new URL(candidate.url()).pathname === challengePath, { timeout: 120_000 }),
-    loginWithRecoveryCode(page, lang, account, code),
+    submit(page, `form[action="${challengePath}"]`, { code }),
   ]);
   expect(response.status()).toBe(302);
   expect(response.headers().location).toBe(`/${lang}/`);

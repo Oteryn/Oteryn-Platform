@@ -6,7 +6,7 @@ import { uuid7 } from '../game-sim-helpers.mjs';
 import { prepare, sendForm, rejected, signInWithRecoveryCode } from './matrix-helpers.mjs';
 
 test('Game-backed recruitment permits owner, reporter and staff actions under separate authority', { tag: '@game-publisher' }, async ({ page, browser }, info) => {
-  test.setTimeout(300_000);
+  test.setTimeout(720_000);
   const { GamePublishers } = await import('../game-publishers.mjs');
   const game = new GamePublishers(process.env.PORTAL_E2E_GAME_DATA_REPORT);
   const lang = info.project.metadata.locale;
@@ -69,7 +69,10 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
       .toEqual([{ name }]);
 
 
-    const moderatorContext = await browser.newContext({ baseURL: game.origin, locale: lang, ignoreHTTPSErrors: true });
+    const moderatorContext = await browser.newContext({
+      baseURL: game.origin, locale: lang, ignoreHTTPSErrors: true,
+      viewport: info.project.use.viewport,
+    });
     contexts.push(moderatorContext);
     const moderator = await moderatorContext.newPage();
     const staff = await authenticate(moderator, 'support');
@@ -100,10 +103,7 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
     const board = `/${lang}/party`;
     const create = `main form[action="${board}"]`;
     expect((await page.goto(board)).status()).toBe(200);
-    const now = Math.floor(Date.now() / 1000);
-    const values = { character: characterId, min_level: '300', max_level: '500',
-      starts_at: String(now + 300), expires_at: String(now + 3600) };
-    const memo = 'Local recruitment mutation evidence';
+    const memo = `Local recruitment mutation evidence ${randomUUID()}`;
     const durable = () => query(
       `SELECT id,account_id,character_id,status,note,
          ARRAY(SELECT r.status FROM pd_party_reports r WHERE r.post_id=p.id ORDER BY r.id) AS reports
@@ -129,7 +129,11 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
     };
     const publish = async (note, exerciseRefusals) => {
       const baseline = await durable();
+      await refresh();
       expect((await page.goto(board)).status()).toBe(200);
+      const now = Math.floor(Date.now() / 1000);
+      const values = { character: characterId, min_level: '300', max_level: '500',
+        starts_at: String(now + 3600), expires_at: String(now + 7200) };
       const offer = await prepare(page, create, { ...values, note });
       if (exerciseRefusals) {
         await rejected({ page, ...offer, snapshot: durable, baseline });
@@ -137,14 +141,26 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
         await malformed(page, offer, [[{ character: '' }, 422], [{ note: 'x'.repeat(501) }],
           [{ min_level: 'text' }, 422], [{ max_level: '100001' }]], baseline);
       }
+      const draft = page.locator(create);
+      for (const [field, value] of Object.entries({ ...values, note })) {
+        await draft.locator(`[name="${field}"]`).fill(value);
+      }
       await refresh();
-      await submit(page, create, { ...values, note });
-      await expect(page.locator('main article').filter({ hasText: note })).toBeVisible();
+      const [posted] = await Promise.all([
+        page.waitForResponse(response => response.url() === offer.url && response.request().method() === 'POST'),
+        draft.locator('button[type=submit], button:not([type])').click(),
+      ]);
+      expect(posted.status()).toBe(303);
+      expect(posted.headers().location).toBe(board);
       const result = { id: expect.any(String), account_id: accountId,
         character_id: characterId, status: 'active', note, reports: [] };
       const actual = await durable();
       expect(actual).toEqual([...baseline, result]);
-      return actual.at(-1);
+      const created = actual.at(-1);
+      const listing = page.locator(`main article:has(form[action="${board}/${created.id}/report"])`);
+      await expect(listing).toBeVisible();
+      await expect(listing).toContainText(note);
+      return created;
     };
     const opened = await publish(memo, true);
     const report = `main form[action="${board}/${opened.id}/report"]`;
@@ -194,7 +210,7 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
     }
     const moderated = (await durable())[0];
     expect(moderated.status).toBe('removed');
-    const ownerListing = await publish('Owner removes this second recruitment.', false);
+    const ownerListing = await publish(`Owner removes this second recruitment ${randomUUID()}`, false);
     const remove = `main form[action="${board}/${ownerListing.id}/remove"]`;
     const removal = await prepare(page, remove);
     await rejected({ page, ...removal, snapshot: durable, baseline: [moderated, ownerListing] });

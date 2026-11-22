@@ -55,6 +55,7 @@ async function foreignActors(browser, project, lang, contexts, role) {
   for (const staffRole of [undefined, role]) {
     const context = await browser.newContext({
       baseURL: project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      viewport: project.use.viewport,
     });
     contexts.push(context);
     const screen = await context.newPage();
@@ -74,6 +75,7 @@ for (const method of ['POST', 'PUT']) {
       baseURL: info.project.use.baseURL,
       ignoreHTTPSErrors: true,
       locale: lang,
+      viewport: info.project.use.viewport,
     });
     try {
       const account = await seededPlayer(page, lang);
@@ -119,6 +121,7 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
   try {
@@ -238,6 +241,7 @@ test('test-provider top-up creates one checkout intent per operation', async ({ 
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
   try {
@@ -426,6 +430,7 @@ test('character creation queues one operation and exposes the pending Game outco
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
   try {
@@ -678,6 +683,7 @@ test('player report persists one private report for the submitted request key', 
   const lang = info.project.metadata.locale;
   const reader = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   const contexts = [reader];
   try {
@@ -753,6 +759,7 @@ test('wallet transfer binds one debit and credit to the sending actor', async ({
   const lang = info.project.metadata.locale;
   const recipientContext = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   const contexts = [recipientContext];
   try {
@@ -991,6 +998,7 @@ test('journal write boundary refuses notes without source authority and isolates
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
   try {
@@ -1062,6 +1070,7 @@ test('localized and unprefixed badge forms persist only the owner selection', as
   const lang = info.project.metadata.locale;
   const other = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   try {
     const owner = await seededPlayer(page, lang);
@@ -1108,6 +1117,7 @@ test('notification preferences and signed browser unsubscribe keep one owner pre
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   try {
     const owner = await seededPlayer(page, lang);
@@ -1255,6 +1265,7 @@ test('atlas participation API persists owner choice while the source-dependent f
   const lang = info.project.metadata.locale;
   const context = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   try {
     const owner = await seededPlayer(page, lang);
@@ -1500,6 +1511,7 @@ test('OAuth consent form approves or denies the checked client and binds its cod
   const lang = info.project.metadata.locale;
   const context = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
   });
   const contexts = [context];
   try {
@@ -1600,6 +1612,7 @@ test('localized and unprefixed login, MFA login and logout aliases rotate only t
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const other = await context.newPage();
@@ -1689,6 +1702,7 @@ test('native account checkout applies the locked test-provider decision only onc
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const other = await context.newPage();
@@ -1785,6 +1799,7 @@ test('native account checkout applies the locked test-provider decision only onc
       if (paid) {
         const context = await browser.newContext({
           baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+          viewport: info.project.use.viewport,
         });
         contexts.push(context);
         const admin = await context.newPage();
@@ -1831,6 +1846,7 @@ test('news aliases preserve bilingual publication, revision conflicts and scoped
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const reader = await context.newPage();
@@ -1948,6 +1964,7 @@ test('editorial event forms enforce publishing authority through creation, edits
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const outsider = await context.newPage();
@@ -2062,6 +2079,7 @@ test('Game player search refuses unqualified actors and exposes the unavailable 
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const outsider = await context.newPage();
@@ -2220,6 +2238,7 @@ for (const [prefix, changeMethod] of [
     const lang = info.project.metadata.locale;
     const context = await browser.newContext({
       baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      viewport: info.project.use.viewport,
     });
     try {
       const owner = await seededPlayer(page, lang);
@@ -2332,7 +2351,10 @@ test('WebAuthn browser ceremonies save, authenticate and remove only the owner c
     const owner = await seededPlayer(page, lang);
     const foreign = [];
     for (const role of [undefined, 'content_editor']) {
-      const context = await browser.newContext({ baseURL: origin, ignoreHTTPSErrors: true, locale: lang });
+      const context = await browser.newContext({
+        baseURL: origin, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
+      });
       others.push(context);
       const other = await context.newPage();
       const actor = await seededPlayer(other, lang, role);
@@ -2491,6 +2513,7 @@ test('account termination queues once and a fresh owner session cancels the pend
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const other = await context.newPage();
@@ -2532,6 +2555,7 @@ test('account termination queues once and a fresh owner session cancels the pend
     ] });
     const sampleContext = await browser.newContext({
       baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      viewport: info.project.use.viewport,
     });
     contexts.push(sampleContext);
     const sample = await sampleContext.newPage();
@@ -2587,6 +2611,7 @@ test('other players and unrelated staff cannot name an owner in account settings
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const actor = await context.newPage();
@@ -2661,6 +2686,7 @@ for (const kind of ['coins', 'premium_days']) {
       for (const role of ['platform_admin', undefined, 'content_editor']) {
         const context = await browser.newContext({
           baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+          viewport: info.project.use.viewport,
         });
         contexts.push(context);
         const screen = await context.newPage();
@@ -2802,6 +2828,7 @@ for (const prefix of ['locale', 'unprefixed']) {
     const newActor = async role => {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -2927,6 +2954,7 @@ test('wiki editorial forms persist bilingual revisions and each review action un
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -3057,6 +3085,7 @@ test('editorial media forms persist verified bytes and remove one asset through 
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const other = await context.newPage();
@@ -3174,6 +3203,7 @@ for (const prefix of ['locale', 'unprefixed']) {
     const open = async role => {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -3328,7 +3358,10 @@ for (const prefix of ['locale', 'unprefixed']) {
     try {
       const wrong = [];
       for (const role of [undefined, 'content_editor']) {
-        const context = await browser.newContext({ baseURL: origin, ignoreHTTPSErrors: true, locale: lang });
+        const context = await browser.newContext({
+          baseURL: origin, ignoreHTTPSErrors: true, locale: lang,
+          viewport: info.project.use.viewport,
+        });
         contexts.push(context);
         const actor = await context.newPage();
         await seededPlayer(actor, lang, role);
@@ -3515,6 +3548,7 @@ test('world catalogue actions require a supported imported version and catalogue
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -3581,7 +3615,10 @@ test('admin control step-up consumes one TOTP and approval requires an accepted 
 
     const wrong = [];
     for (const role of [undefined, 'game_viewer']) {
-      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
+      });
       contexts.push(context);
       const screen = await context.newPage();
       const actor = await seededPlayer(screen, lang, role);
@@ -3669,7 +3706,10 @@ test('staff refunds a real uncredited test payment through one independent appro
     const staff = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
     const reviewers = [];
     for (let index = 0; index < 2; index += 1) {
-      const context = await browser.newContext({ baseURL: origin, ignoreHTTPSErrors: true, locale: lang });
+      const context = await browser.newContext({
+        baseURL: origin, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
+      });
       contexts.push(context);
       const screen = await context.newPage();
       reviewers.push({ screen, account: await seededPlayer(screen, lang, 'platform_admin') });
@@ -3799,6 +3839,7 @@ test('editorial page forms save, refresh and delete a bilingual publication with
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -3900,6 +3941,7 @@ test('staff announcement forms keep drafts private and publish the reviewed bili
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -4013,6 +4055,7 @@ for (const prefix of ['locale', 'unprefixed']) {
       for (const role of [undefined, 'content_editor']) {
         const context = await browser.newContext({
           baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+          viewport: info.project.use.viewport,
         });
         contexts.push(context);
         const other = await context.newPage();
@@ -4149,7 +4192,10 @@ for (const [prefix, revokeMethod] of [
     const recoveryAlias = prefix === 'locale' ? recoverPath : '/recovery-key';
     const contexts = [];
     const another = async role => {
-      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
+      });
       contexts.push(context);
       const screen = await context.newPage();
       return { screen, user: await seededPlayer(screen, lang, role) };
@@ -4332,6 +4378,7 @@ test('legacy support queues preserve actor permissions, private notes and report
   const open = async role => {
     const context = await browser.newContext({
       baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      viewport: info.project.use.viewport,
     });
     contexts.push(context);
     const screen = await context.newPage();
@@ -4466,6 +4513,7 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
     const staffPage = async role => {
       const context = await browser.newContext({
         baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -4605,7 +4653,10 @@ test('enforcement forms bind sanctions and appeal decisions to staff authority a
   const lang = info.project.metadata.locale;
   const contexts = [];
   const open = async role => {
-    const context = await browser.newContext({ baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true });
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      viewport: info.project.use.viewport,
+    });
     contexts.push(context);
     const screen = await context.newPage();
     const account = await seededPlayer(screen, lang, role);
@@ -4730,7 +4781,10 @@ for (const kind of ['character', 'item']) {
     const lang = info.project.metadata.locale;
     const contexts = [];
     const open = async role => {
-      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
+      });
       contexts.push(context);
       const screen = await context.newPage();
       return { screen, account: await seededPlayer(screen, lang, role) };
@@ -4851,6 +4905,7 @@ test('staff player forms record a note, revoke sessions and require independent 
   const open = async role => {
     const context = await browser.newContext({
       baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      viewport: info.project.use.viewport,
     });
     contexts.push(context);
     const screen = await context.newPage();
@@ -4984,6 +5039,7 @@ test('referral link and invitation forms bind eligible players and preserve one 
   const open = async role => {
     const context = await browser.newContext({
       baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      viewport: info.project.use.viewport,
     });
     contexts.push(context);
     const screen = await context.newPage();
@@ -5172,6 +5228,7 @@ test('Bazaar coin bid and seller controls apply one hold, one resume and one Gam
   const open = async role => {
     const context = await browser.newContext({
       baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      viewport: info.project.use.viewport,
     });
     contexts.push(context);
     const screen = await context.newPage();
@@ -5326,6 +5383,7 @@ test('Bazaar report and promotion refuse unavailable authority even for a live G
   const open = async role => {
     const context = await browser.newContext({
       baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      viewport: info.project.use.viewport,
     });
     contexts.push(context);
     const screen = await context.newPage();
@@ -5572,7 +5630,10 @@ test('staff Bazaar forms commit review, restriction and compensated invalidation
     await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
     const [player, editor] = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
     const authorize = async () => {
-      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
+      });
       contexts.push(context);
       const screen = await context.newPage();
       return { screen, account: await seededPlayer(screen, lang, 'platform_admin') };

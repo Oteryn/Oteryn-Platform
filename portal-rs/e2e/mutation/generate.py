@@ -17,7 +17,7 @@ ATTRIBUTE = re.compile(
 FORM = re.compile(r"<form\b.*?</form\s*>", re.I | re.S)
 ACTION_FIELDS = {
     "accepted", "action", "allowed", "currency", "decision", "kind", "op",
-    "operation", "publication_state", "severity", "status",
+    "operation", "participating", "publication_state", "severity", "status",
 }
 INLINE_METHOD = re.compile(r"MethodFilter::(POST|PUT|PATCH|DELETE)\b")
 CONSTANT = re.compile(r'\bconst (\w+)\s*:\s*&str\s*=\s*"([^"]+)"')
