@@ -48,7 +48,9 @@ export async function isolatedAdmin(browser,info){
   const codes=await enrollMfa(page,lang,account);
   const mainCodes=page.locator('main textarea[readonly]');
   await expect(mainCodes.first()).toBeVisible();
-  expect(await mainCodes.allTextContents()).toEqual(codes);
+  const shownCodes=await mainCodes.allTextContents();
+  expect(shownCodes.length===codes.length && shownCodes.every((code,index)=>code===codes[index]),
+    'recovery codes are displayed in the main content').toBe(true);
   await loginWithRecoveryCode(page,lang,account,codes[0]);
   return {context,page,account,password:account.password,codes};
  }catch(error){await context.close();throw error;}
