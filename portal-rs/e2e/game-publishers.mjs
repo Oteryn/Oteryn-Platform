@@ -7,6 +7,7 @@ import https from 'node:https';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {expect} from '@playwright/test';
+import {localPostgresUrl} from './postgres-url.mjs';
 
 const json = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const fixture = file => json(new URL(`../../docs/contracts/fixtures/${file}`, import.meta.url));
@@ -25,13 +26,14 @@ export class GamePublishers {
     this.env = json(path.join(this.report.outputDirectory, 'secrets', 'env.json'));
     this.internal = new URL(this.report.baseUrls.internal);
     this.origin = this.env.OTERYN_PUBLIC_ORIGIN;
+    const database = localPostgresUrl(this.env.OTERYN_DATABASE_URL);
     if (this.internal.protocol !== 'https:' || this.internal.hostname !== '127.0.0.1' ||
         !['127.0.0.1', 'localhost'].includes(new URL(this.origin).hostname) ||
         this.env.OTERYN_ENV !== 'testing' ||
-        !/^\/portal_e2e_[a-f0-9]+$/.test(new URL(this.env.OTERYN_DATABASE_URL).pathname) ||
-        !['localhost', '127.0.0.1', '[::1]'].includes(new URL(this.env.OTERYN_DATABASE_URL).hostname)) {
+        !/^\/portal_e2e_[a-f0-9]+$/.test(database.pathname)) {
       throw new Error('Game publishers require a disposable local harness');
     }
+    this.env.OTERYN_DATABASE_URL = database.href;
   }
 
   seed(entity, input) {
@@ -249,7 +251,10 @@ export async function startGameDataBrowser({server, caFile, publicPort, authorit
     async close() {
       await Promise.all([
         new Promise(resolve => smtp.close(resolve)),
-        new Promise(resolve => browserProxy.close(resolve)),
+        new Promise((resolve, reject) => {
+          browserProxy.close(error => error ? reject(error) : resolve());
+          browserProxy.closeAllConnections();
+        }),
       ]);
     },
   };

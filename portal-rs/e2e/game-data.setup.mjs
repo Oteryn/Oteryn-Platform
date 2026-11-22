@@ -28,9 +28,15 @@ export default async function setup() {
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   const stopped = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
-  const stop = () => {
+  const stop = async () => {
     child.kill('SIGTERM');
-    return stopped;
+    // The harness first terminates its process groups and reconciles PostgreSQL.
+    const deadline = setTimeout(() => child.kill('SIGKILL'), 105_000);
+    try {
+      return await stopped;
+    } finally {
+      clearTimeout(deadline);
+    }
   };
 
   const lines = createInterface({ input: child.stdout });
@@ -54,8 +60,9 @@ export default async function setup() {
     await access(reportFile);
     process.env.PORTAL_E2E_GAME_DATA_REPORT = reportFile;
   } catch (error) {
-    await stop();
-    throw new Error(`Game-data startup failed. Harness logs are in ${path.join(output, 'logs')}`, { cause: error });
+    const { code, signal } = await stop();
+    const status = signal ? `signal ${signal}` : `exit code ${code}`;
+    throw new Error(`Game-data startup failed (${status}). Harness logs are in ${path.join(output, 'logs')}`, { cause: error });
   } finally {
     clearTimeout(readinessTimeout);
     lines.close();

@@ -94,8 +94,9 @@ The default config also discovers the legacy Bazaar, authentication, and mutatio
 
 With `PORTAL_E2E_BINARY` pointing to the built binary, run
 `node --test harness.test.mjs` to verify disposable database cleanup and
-retained diagnostics when startup is interrupted, migration fails, or PostgreSQL
-refuses database cleanup.
+retained diagnostics when a migration stalls or fails, startup is interrupted,
+or PostgreSQL refuses database cleanup. The tests also verify that the harness
+and Game-data publishers reject PostgreSQL URL destination overrides.
 
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 
@@ -155,7 +156,9 @@ default one `Entry` scope). Ports come from `PORTAL_E2E_HTTP_PORT`,
 `PORTAL_E2E_GATEWAY_PORT`. `PORTAL_E2E_BINARY` skips the build and accepts an
 absolute path or a path relative to `portal-rs`.
 `--exit-after-ready` stops after the report. Ctrl-C or SIGTERM stops the
-services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
+active build, migration, or services before dropping the database
+(`PORTAL_E2E_KEEP_DATABASE=1` keeps it). Supply a loopback PostgreSQL URL with an
+explicit database path. The launcher rejects query parameters and fragments.
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
