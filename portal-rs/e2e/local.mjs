@@ -142,10 +142,17 @@ const proxy=https.createServer(tls,(req,res)=>{
   return;
  }
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
- // Select actual loopback peers for source-limit checks on the local login route.
- const {'x-portal-e2e-login-peer':peer,...headers}=req.headers;
- const localAddress=req.method==='POST'&&/^\/(?:pl\/|en\/)?login$/.test(req.url)&&
-  ['127.0.0.2','127.0.0.3'].includes(peer)?peer:'127.0.0.1';
+ // Select actual loopback peers for source-limit checks on the local auth routes.
+ const {'x-portal-e2e-login-peer':loginPeer,'x-portal-e2e-invite-peer':invitePeer,...headers}=req.headers;
+ let localAddress='127.0.0.1';
+ if(req.method==='POST'){
+  if(/^\/(?:pl\/|en\/)?login$/.test(req.url)&&['127.0.0.2','127.0.0.3'].includes(loginPeer)){
+   localAddress=loginPeer;
+  }else if(/^\/(?:admin\/staff-invites|(?:pl|en)\/staff-invite)$/.test(req.url)
+   && /^127\.0\.0\.(?:[2-9]\d|1\d{2}|2[0-4]\d)$/.test(invitePeer)){
+   localAddress=invitePeer;
+  }
+ }
  const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });

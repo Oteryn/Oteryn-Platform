@@ -23,8 +23,8 @@ Allow staff role managers to send and revoke email invitations. Accept only from
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T16:00:01Z
-head: 4c2729a595abfebe2385cb7d6ebbddd71ba3a08c
+updated_at: 2026-11-22T17:15:13Z
+head: 2c80adef294c5e7d002a67c0f0e84645251084c4
 branch: codex/feat-staff-invite
 pr: none
 status: ready
@@ -81,6 +81,12 @@ validation:
   - command: Staff invite Playwright in pl-1440 and en-390 after merging main
     result: PASS
     evidence: Both browsers saw HTTP 429 on management and redemption across forwarded source addresses. The launcher started from /tmp using a portal-root-relative binary path.
+  - command: Focused invite, migration, transaction guard and registration delivery tests
+    result: PASS
+    evidence: Twenty Rust tests passed. The stale-approval regression replaces an approver who lost the invited role while retaining management permissions. The PostgreSQL upgrade regression rejects renewal and acknowledgement from the original claim.
+  - command: Staff invite and login throttle Playwright in pl-1440 and en-390
+    result: PASS
+    evidence: Six cases passed. Both invite cases matched the UTC expiry against captured mail and proved account-wide HTTP 429 using distinct loopback peers. The launcher ran with its default proxy trust behavior.
 blockers: []
 next_action: Deliver the verified feature branch for owner review.
 ```

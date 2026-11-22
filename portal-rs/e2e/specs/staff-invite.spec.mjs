@@ -41,7 +41,14 @@ async function send(page,email,role) {
 
 async function invitation(page,email,lang) {
   const match=new RegExp(`${origin().replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}/${lang}/staff-invite\\?token=(?:3D)?[a-f0-9]{64}`);
-  return mailLink(page,email,match);
+  const link=await mailLink(page,email,match);
+  const [{expiry}]=await query(
+    "SELECT to_char(expires_at AT TIME ZONE 'UTC',$2) AS expiry FROM staff_invites WHERE email=$1",
+    [email,`${lang==='pl'?'DD.MM.YYYY':'YYYY-MM-DD'} HH24:MI:SS "UTC"`],
+  );
+  const stamp=new RegExp(expiry.replace(/\./g,'\\.'));
+  expect(await mailLink(page,email,stamp)).toBe(expiry);
+  return link;
 }
 
 async function visit(page,link,status) {
@@ -58,12 +65,20 @@ async function memberships(email) {
   )).map(row=>row.key);
 }
 
-async function expectInviteQuota(page,path,form,unlimitedStatus) {
-  let host=0;
+async function expectInviteQuota(page,path,form,unlimitedStatus,policy) {
+  const snapshot=async()=>(await query(
+    `SELECT count(DISTINCT key_hash) FILTER (WHERE limiter_name=$1)::int AS source_keys,
+            count(*) FILTER (WHERE limiter_name=$1 AND count>12)::int AS source_denials,
+            count(*) FILTER (WHERE limiter_name=$2 AND count>12)::int AS account_denials
+     FROM web_rate_limits WHERE limiter_name IN ($1,$2)`,
+    [policy,`${policy}-account`],
+  ))[0];
+  const before=await snapshot();
+  let attempts=0;
   await expect.poll(async()=>{
     for(let attempt=0;attempt<13;attempt++){
       const response=await page.request.post(path,{
-        form,headers:{origin:origin(),'x-forwarded-for':`192.0.2.${++host}`},maxRedirects:0,
+        form,headers:{origin:origin(),'x-portal-e2e-invite-peer':`127.0.0.${19+(++attempts)}`},maxRedirects:0,
       });
       if(response.status()===429){
         expect(Number(response.headers()['retry-after'])).toBeGreaterThan(0);
@@ -73,6 +88,10 @@ async function expectInviteQuota(page,path,form,unlimitedStatus) {
     }
     return null;
   }).toBe(429);
+  const after=await snapshot();
+  expect(after.source_keys-before.source_keys,'each request used a distinct source budget').toBe(attempts);
+  expect(after.source_denials,'the source policy did not refuse the request').toBe(before.source_denials);
+  expect(after.account_denials,'the account policy refused the request').toBe(before.account_denials+1);
 }
 
 test('staff invitations reach verified registered and existing accounts through email and MFA',async({browser,page},info)=>{
@@ -175,10 +194,10 @@ test('staff invitations reach verified registered and existing accounts through 
     await audit(admin,'staff.invite.revoked',revokedId);
     expect((await admin.goto(manage)).status()).toBe(200);
     const manageCsrf=await admin.locator(`form[action="${manage}"] input[name="_csrf"]`).inputValue();
-    await expectInviteQuota(admin,manage,{_csrf:manageCsrf},400);
+    await expectInviteQuota(admin,manage,{_csrf:manageCsrf},400,"staff-invite-manage");
     expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
     const redeemCsrf=await page.locator('main input[name="_csrf"]').first().inputValue();
-    await expectInviteQuota(page,`/${lang}/staff-invite`,{_csrf:redeemCsrf,token:'invalid'},403);
+    await expectInviteQuota(page,`/${lang}/staff-invite`,{_csrf:redeemCsrf,token:'invalid'},403,'staff-invite-accept');
   } finally {
     await staff.close();
   }
