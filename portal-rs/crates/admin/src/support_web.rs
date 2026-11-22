@@ -15,6 +15,7 @@ struct Panel<A, B> {
     pool: PgPool,
     auth: Authorizer<A>,
     backend: B,
+    tickets_mounted: bool,
 }
 const MAX_PAGE: u32 = 10000;
 
@@ -65,6 +66,7 @@ pub fn configured_router_from<B: Backend>(
                 web::PortalIdentity::configured_from(pool.clone(), lookup),
             ),
             backend: backend.clone(),
+            tickets_mounted: lookup("OTERYN_SUPPORT_TICKETS").as_deref() == Some("true"),
         });
         routes = routes.merge(web::configured_guard_from(
             area_routes(area, state),
@@ -89,6 +91,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + Clone + 'static, B: Backe
             pool: pool.clone(),
             auth: Authorizer::new(pool.clone(), accounts.clone()),
             backend: backend.clone(),
+            tickets_mounted: true,
         });
         routes = routes.merge(web::guarded(
             area_routes(area, state),
@@ -249,6 +252,7 @@ async fn show<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
     Extension(area): Extension<Area>,
     Extension(session): Extension<BrowserSession>,
+    Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     Query(paging): Query<MessagePaging>,
     headers: HeaderMap,
@@ -263,7 +267,13 @@ async fn show<A: AccountStateReader, B: Backend>(
     if record.id != id || !valid_record(area, &record) {
         return status(Error::Unavailable);
     }
-    render_record(area, record, session, headers, false).await
+    let can_open_tickets = area == Area::Reports
+        && s.tickets_mounted
+        && s.auth
+            .check(context, Area::Tickets.permission())
+            .await
+            .is_ok();
+    render_record(area, record, session, headers, false, can_open_tickets).await
 }
 async fn create_page(
     Extension(session): Extension<BrowserSession>,
@@ -277,7 +287,7 @@ async fn create_page(
         messages: vec![],
         next_message: None,
     };
-    render_record(Area::Enforcement, record, session, headers, true).await
+    render_record(Area::Enforcement, record, session, headers, true, false).await
 }
 async fn render_record(
     area: Area,
@@ -285,6 +295,7 @@ async fn render_record(
     session: BrowserSession,
     headers: HeaderMap,
     create: bool,
+    can_open_tickets: bool,
 ) -> Response {
     let csrf = match session.csrf_token().await {
         Ok(v) => v,
@@ -296,6 +307,13 @@ async fn render_record(
         escape(&record.title),
         escape(&text(lang, &record.status))
     );
+    if can_open_tickets {
+        body.push_str(&format!(
+            "<p><a class=\"op-link\" href=\"{}\">{}</a></p>",
+            base(Area::Tickets),
+            text(lang, "tickets")
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",

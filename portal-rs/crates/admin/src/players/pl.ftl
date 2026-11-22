@@ -28,3 +28,4 @@ coin-hold-none = Brak blokady zakupu monet.
 coin-hold-released = Blokada zakupu monet została zdjęta.
 coin-hold-absent = Nie było blokady zakupu monet do zdjęcia.
 coin-debt = Zaległy dług w monetach (spłacany najpierw z każdego zasilenia)
+audit = Audyt
