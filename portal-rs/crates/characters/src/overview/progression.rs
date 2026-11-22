@@ -1,3 +1,4 @@
+use crate::ownership::{self, Ownership, Unavailable};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -12,11 +13,27 @@ pub(super) struct Facts {
 /// Read only the two public progression fields, joined to the viewer's own
 /// character IDs. The profile projection has its own epoch and freshness fence.
 pub(super) async fn load(pool: &PgPool, account: Uuid) -> HashMap<Uuid, Facts> {
+    load_owned(pool, account).await.unwrap_or_default()
+}
+
+async fn load_owned(pool: &PgPool, account: Uuid) -> Result<HashMap<Uuid, Facts>, Unavailable> {
+    let mut tx = pool.begin().await?;
+    let active: Option<String> =
+        sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(account)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if active.as_deref() != Some("active") {
+        return Ok(HashMap::new());
+    }
+    // Match the journal's lock order and keep transfers and portfolio updates
+    // fenced from the facts query through the final ownership proof.
+    ownership::shared_fences(&mut tx).await?;
+    let feed = ownership::live_feed(&mut tx).await?;
     let rows = sqlx::query_as::<_, (Uuid, String, Uuid, String, String)>(
         r#"SELECT c.character_id, c.name, c.world_id,
                   p.payload->'profile'->0->>'level', p.payload->'profile'->0->>'vocation'
            FROM account_characters c
-           JOIN accounts a ON a.id = c.account_id AND a.status = 'active'
            JOIN public_snapshots p ON p.subject = c.character_id::text
              AND p.family = 'character_profile' AND NOT p.is_watermark
            JOIN public_projection_state s ON s.id = 1 AND s.highest_epoch = p.epoch
@@ -32,15 +49,19 @@ pub(super) async fn load(pool: &PgPool, account: Uuid) -> HashMap<Uuid, Facts> {
              )"#,
     )
     .bind(account)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    .fetch_all(&mut *tx)
+    .await?;
 
-    rows.into_iter()
-        .filter_map(|(id, name, world, level, vocation)| {
-            let level = level.parse().ok()?;
-            let vocation = vocation.parse().ok()?;
-            Some((
+    let mut facts = HashMap::new();
+    for (id, name, world, level, vocation) in rows {
+        let (Ok(level), Ok(vocation)) = (level.parse(), vocation.parse()) else {
+            continue;
+        };
+        if let Ok(Ownership::Owner(cut)) =
+            ownership::ownership_with_feed(&mut tx, account, id, &feed).await
+            && cut.world == world
+        {
+            facts.insert(
                 id,
                 Facts {
                     name,
@@ -48,7 +69,9 @@ pub(super) async fn load(pool: &PgPool, account: Uuid) -> HashMap<Uuid, Facts> {
                     level,
                     vocation,
                 },
-            ))
-        })
-        .collect()
+            );
+        }
+    }
+    tx.commit().await?;
+    Ok(facts)
 }

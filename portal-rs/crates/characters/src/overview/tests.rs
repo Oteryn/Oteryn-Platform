@@ -101,6 +101,8 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     let world = Uuid::now_v7();
     sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(id).bind(character).bind(world).execute(&pool).await?;
     for migration in [
+        include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
+        include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql"),
         include_str!("../../../../migrations/20261105180000_t24_public_snapshots.sql"),
         include_str!("../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
     ] {
@@ -109,7 +111,17 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1 WHERE id=1")
         .execute(&pool)
         .await?;
-    let profile = serde_json::json!({"profile":[{"name":"Aldric","world_id":world,"level":"412","vocation":4}]});
+    let create = Uuid::now_v7();
+    let mut created: serde_json::Value =
+        serde_json::from_str(include_str!("../commands/fixtures/create-receipt.json"))?;
+    created["operation_id"] = serde_json::json!(create);
+    created["account_id"] = serde_json::json!(id);
+    created["character_id"] = serde_json::json!(character);
+    created["world_id"] = serde_json::json!(world);
+    created["projection_revision"] = serde_json::json!("1");
+    sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$1,$2,'CreateCharacter',$3,'{}','',$4,'TERMINAL')")
+        .bind(create).bind(create.to_string()).bind(id).bind(created.to_string()).execute(&pool).await?;
+    let profile = serde_json::json!({"profile":[{"name":"Aldric","world_id":world,"level":"412","vocation":4,"guild":[],"guild_visible":false}]});
     sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('character_profile',$1,false,1,1,0,$2), ('character_profile','',true,1,1,floor(extract(epoch FROM now()))::bigint,'{}')")
         .bind(character.to_string()).bind(profile).execute(&pool).await?;
     let facts = progression::load(&pool, id).await;
@@ -120,6 +132,30 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
         .execute(&pool)
         .await?;
     assert!(progression::load(&pool, id).await.is_empty());
+    sqlx::query("UPDATE public_snapshots SET watermark=floor(extract(epoch FROM now()))::bigint WHERE is_watermark")
+        .execute(&pool)
+        .await?;
+    let buyer = Uuid::now_v7();
+    let transfer = Uuid::now_v7();
+    let mut committed: serde_json::Value =
+        serde_json::from_str(include_str!("../commands/fixtures/transfer-receipt.json"))?;
+    committed["operation_id"] = serde_json::json!(transfer);
+    committed["character_id"] = serde_json::json!(character);
+    committed["from_account_id"] = serde_json::json!(id);
+    committed["to_account_id"] = serde_json::json!(buyer);
+    sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$1,$2,'TransferCharacterOwnership',$3,$4,json_build_object('character_id',$5::text)::text,'',$6,'TERMINAL')")
+        .bind(transfer).bind(transfer.to_string()).bind(id).bind(buyer).bind(character.to_string())
+        .bind(committed.to_string()).execute(&pool).await?;
+
+    // The committed receipt changes authority before the seller portfolio is republished.
+    let projection_owner: Uuid =
+        sqlx::query_scalar("SELECT account_id FROM account_characters WHERE character_id=$1")
+            .bind(character)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(projection_owner, id);
+    assert!(progression::load(&pool, id).await.is_empty());
+
     let settings = Settings {
         enabled: true,
         environment: oteryn_core::Environment::Testing,

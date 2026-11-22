@@ -8,6 +8,7 @@ pub mod badges;
 pub mod bootstrap;
 pub mod create_web;
 pub mod overview;
+pub mod ownership;
 
 pub mod profile;
 pub mod services;
