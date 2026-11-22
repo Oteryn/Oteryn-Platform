@@ -389,7 +389,7 @@ async fn render_record(
         }
         body.push_str(&format!(
             "<button class=\"op-button\" type=\"submit\">{}</button></form>",
-            text(lang, action)
+            text(lang, if create { "create" } else { action })
         ));
     }
     shell(lang, body)
