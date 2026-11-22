@@ -222,7 +222,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .to_vec(),
     )
     .unwrap();
-    assert!(!body.contains("href=\"/admin/roles\""));
+    assert!(!body.contains("href=\"/admin/roles"));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),
@@ -290,7 +290,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .to_vec(),
     )
     .unwrap();
-    assert!(body.contains("href=\"/admin/roles\""));
+    assert!(body.contains("href=\"/admin/roles?lang=pl\""));
     let csrf = body
         .split("name=\"_csrf\" value=\"")
         .nth(1)
