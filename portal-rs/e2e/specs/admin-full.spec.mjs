@@ -2,6 +2,7 @@ import * as OTPAuth from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login, submit } from '../helpers.mjs';
 import { loginWithRecoveryCode, query, rolePage } from '../staff-rbac-helpers.mjs';
+import { withSoleRoleHolder } from '../staff-fixture-database.mjs';
 import { accountRoles, adminContext, builtInPermissions, expectAuditEntry, permissionCatalog, postAdmin, roleAction, roleAudit, seedAdminAccount, seedAdminMfa } from '../admin-helpers.mjs';
 
 const platformRoles = ['platform_admin', 'security_admin', 'content_editor', 'moderator', 'support', 'operations'];
@@ -91,23 +92,12 @@ test('roles page labels, validation, self-grant and last administrator protectio
   await staff.locator('main details summary').click();
   expect((await staff.locator('main details code').allTextContents()).sort()).toEqual(permissionCatalog);
   expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
-  // Other specs can leave signed-in administrators in the disposable database.
-  // Preserve their grants while exercising the last-admin guard against the real panel.
-  const otherGrants = await query(
-    'DELETE FROM account_roles WHERE role_id=$1 AND account_id<>$2 RETURNING to_jsonb(account_roles) AS membership',
-    [role, manager.id],
-  );
-  try {
+  await withSoleRoleHolder(role, manager.id, async () => {
     const [{ count }] = await query('SELECT count(*)::int AS count FROM account_roles WHERE role_id=$1', [role]);
     expect(count).toBe(1);
     await roleAction(staff, 'revoke', { account: manager.id, role }, 403);
     expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
-  } finally {
-    await query(
-      'INSERT INTO account_roles SELECT * FROM jsonb_populate_recordset(NULL::account_roles,$1::jsonb)',
-      [JSON.stringify(otherGrants.map(row => row.membership))],
-    );
-  }
+  });
   await roleAudit(staff, lang, {
     action: 'admin.access.denied', actor: manager.id, target: '/admin/roles',
     before: null, after: { allowed: false },

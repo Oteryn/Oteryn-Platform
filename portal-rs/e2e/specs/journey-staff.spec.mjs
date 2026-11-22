@@ -5,7 +5,7 @@ import { action, audit, expectLoginRedirect, loginWithRecoveryCode, membership, 
 import { actorContext, denied, open, portalCommand, publishEditorial, responseForForm, signInWithMfa, staffActor } from '../journey-staff-helpers.mjs';
 import { post as gamePost } from '../game-sim-helpers.mjs';
 import { paidTopup, uuid7 } from '../staff-commerce-helpers.mjs';
-import { fixtureDatabase } from '../staff-fixture-database.mjs';
+import { fixtureDatabase, withSoleRoleHolder } from '../staff-fixture-database.mjs';
 
 async function openAccountMenu(page) {
   if (await page.locator('#portal-header.om-interior').count()) {
@@ -166,9 +166,11 @@ test('staff publish content and handle a player’s support, safety and account 
       await denied(admin, membershipForm, self, page, visitor, 'grant');
       expect((await responseForForm(admin, membershipForm, self, admin, 'grant')).status()).toBe(403);
       expect((await responseForForm(admin, membershipForm, { ...self, account: 'bad-id' }, admin, 'grant')).status()).toBe(422);
-      expect((await responseForForm(admin, membershipForm, {
-        account: adminId, role: roles.platform_admin,
-      }, admin, 'revoke')).status()).toBe(403);
+      await withSoleRoleHolder(roles.platform_admin, adminId, async () => {
+        expect((await responseForForm(admin, membershipForm, {
+          account: adminId, role: roles.platform_admin,
+        }, admin, 'revoke')).status()).toBe(403);
+      });
     });
 
     await test.step('The editor publishes news, an event, legal policies and a wiki guide for both languages', async () => {
