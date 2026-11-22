@@ -881,8 +881,7 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
     let (cookie, csrf) = browser(&db).await?;
     let edit = format!("action=set-permissions&role={extra}&permissions=admin.roles.grant");
     let confirmed = format!("{edit}&reason=role_assignment");
-    let create =
-        "action=create&key=delegation_new&permissions=admin.roles.grant&reason=role_assignment";
+    let create = "action=create-grant-role&key=delegation_new&permissions=admin.roles.grant&reason=role_assignment";
     let escrow = "DELETE FROM role_permissions WHERE role_id=(SELECT id FROM roles WHERE key='platform_admin') AND permission='admin.roles.grant'";
     sqlx::query(escrow).execute(&db.pool).await?;
     crate::test_staff::recent_password(&db.pool, &cookie).await?;
@@ -1071,5 +1070,64 @@ async fn widening_an_assigned_role_requires_the_direct_grant_controls() -> TestR
             .await,
         Err(super::Error::Denied)
     ));
+    db.close().await
+}
+
+#[tokio::test]
+async fn narrowing_a_held_role_commits_before_revoking_the_staff_session() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Fixture::open(3).await?;
+    insert_account(&db, db.actor.account, "active").await?;
+    let role: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES ('secondary_finance') RETURNING id")
+            .fetch_one(&db.pool)
+            .await?;
+    sqlx::query(
+        "INSERT INTO role_permissions(role_id,permission) VALUES ($1,'payments.reconcile')",
+    )
+    .bind(role)
+    .execute(&db.pool)
+    .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(db.actor.account)
+        .bind(role)
+        .execute(&db.pool)
+        .await?;
+    let (cookie, csrf) = browser(&db).await?;
+    crate::test_staff::recent_password(&db.pool, &cookie).await?;
+    sqlx::query("DELETE FROM role_permissions WHERE role_id=(SELECT id FROM roles WHERE key='platform_admin') AND permission='admin.roles.grant'")
+        .execute(&db.pool).await?;
+
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
+            &csrf,
+            format!("action=set-permissions&role={role}&permissions=&reason=role_assignment")
+        )
+        .await?,
+        StatusCode::SEE_OTHER
+    );
+    let audit: Vec<(serde_json::Value, serde_json::Value, Option<String>)> = sqlx::query_as(
+        "SELECT before,after,staff_reason FROM audit_log WHERE action='rbac.role.permissions_changed' AND target=$1",
+    ).bind(role.to_string()).fetch_all(&db.pool).await?;
+    assert_eq!(
+        audit,
+        [(
+            serde_json::json!({"permissions": ["payments.reconcile"]}),
+            serde_json::json!({"permissions": []}),
+            None
+        )]
+    );
+    let remaining: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM role_permissions WHERE role_id=$1),
+                (SELECT count(*) FROM web_sessions WHERE account_id=$2),
+                (SELECT count(*) FROM account_mfa_tokens WHERE account_id=$2)",
+    )
+    .bind(role)
+    .bind(db.actor.account)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(remaining, (0, 0, 0));
     db.close().await
 }

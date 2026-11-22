@@ -111,6 +111,13 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     assert_eq!(data["account"]["id"], id.to_string());
     assert_eq!(data["sessions"].as_array().map(Vec::len), Some(1));
     use tower::ServiceExt;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        header::COOKIE,
+        format!("__Host-oteryn_session={token}").parse()?,
+    );
+    assert!(link_available(&pool, &headers, id, false).await);
+    assert!(!link_available(&pool, &headers, uuid::Uuid::nil(), true).await);
     for password_confirmation in [true, false] {
         for locale in ["pl", "en"] {
             let response = configured_browser_router(pool.clone(), true, password_confirmation)
@@ -159,6 +166,11 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
         assert_eq!(
             stream_download(&pool, &config, &token).await.err(),
             Some(StatusCode::FORBIDDEN)
+        );
+        assert!(!link_available(&pool, &headers, id, false).await);
+        assert_eq!(
+            link_available(&pool, &headers, id, true).await,
+            query.ends_with("sudo_until=NULL")
         );
         for locale in ["en", "pl"] {
             let response = router(pool.clone(), config.clone())

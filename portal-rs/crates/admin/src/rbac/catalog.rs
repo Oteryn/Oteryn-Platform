@@ -530,26 +530,32 @@ pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
     ),
 ];
 
-pub const GM_PANEL_SECTIONS: &[(&str, &str, Permission)] = &[
+use crate::console::Operation;
+
+pub const GM_PANEL_SECTIONS: &[(&str, &str, Permission, Operation)] = &[
     (
         "/console/dashboard?lang={lang}",
         "panel-game-overview",
         Permission::GameOpsRead,
+        Operation::Overview,
     ),
     (
         "/console/worlds?lang={lang}",
         "panel-worlds",
         Permission::GameWorldRead,
+        Operation::Worlds,
     ),
     (
         "/console/nodes?lang={lang}",
         "panel-nodes",
         Permission::GameNodeRead,
+        Operation::Nodes,
     ),
     (
         "/console/database?lang={lang}",
         "panel-database",
         Permission::GameDbRead,
+        Operation::Database,
     ),
 ];
 
@@ -569,6 +575,9 @@ mod panel_permissions {
                 permission.as_str().parse::<Permission>().ok(),
                 Some(permission)
             );
+        }
+        for &(_, _, permission, operation) in GM_PANEL_SECTIONS {
+            assert_eq!(permission.as_str(), operation.permission());
         }
         assert_ne!(Permission::GrantRoles, Permission::ManageRoles);
         for role in BuiltInRole::ALL {

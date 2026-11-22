@@ -69,9 +69,11 @@ async fn prepare_download(
         .execute(&mut *tx)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let id: Option<uuid::Uuid> = sqlx::query_scalar("SELECT a.id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND s.sudo_until>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
-        .bind(Sha256::digest(session.as_bytes()).to_vec()).fetch_optional(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let id = id.ok_or(StatusCode::FORBIDDEN)?;
+    let (id, _) = export_owner(&mut tx, session)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .filter(|(_, confirmed)| *confirmed)
+        .ok_or(StatusCode::FORBIDDEN)?;
     let account: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'email',email,'email_verified_at',email_verified_at,'status',status,'locale',locale,'public_account_association',public_account_association,'public_status_visible',public_status_visible,'created_at',created_at,'updated_at',updated_at) FROM accounts WHERE id=$1")
         .bind(id).fetch_one(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
@@ -182,6 +184,43 @@ fn session_cookie(headers: &HeaderMap) -> Option<&str> {
     found
 }
 
+async fn export_owner(
+    connection: &mut sqlx::PgConnection,
+    session: &str,
+) -> Result<Option<(uuid::Uuid, bool)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT a.id, COALESCE(s.sudo_until>now(),false)
+         FROM web_sessions s JOIN accounts a ON a.id=s.account_id
+         WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
+           AND a.status='active' AND a.email_verified_at IS NOT NULL",
+    )
+    .bind(Sha256::digest(session.as_bytes()).to_vec())
+    .fetch_optional(connection)
+    .await
+}
+
+async fn browser_owner(
+    pool: &PgPool,
+    session: &str,
+) -> Result<Option<(uuid::Uuid, bool)>, sqlx::Error> {
+    export_owner(&mut *pool.acquire().await?, session).await
+}
+
+/// The owner can reach the download or its mounted confirmation page.
+pub async fn link_available(
+    pool: &PgPool,
+    headers: &HeaderMap,
+    account: uuid::Uuid,
+    password_confirmation: bool,
+) -> bool {
+    let Some(session) = session_cookie(headers) else {
+        return false;
+    };
+    browser_owner(pool, session).await.is_ok_and(|owner| {
+        owner.is_some_and(|(id, confirmed)| id == account && (confirmed || password_confirmation))
+    })
+}
+
 async fn handler(
     State(state): State<ExportState>,
     uri: axum::http::Uri,
@@ -199,17 +238,8 @@ async fn handler(
         )
             .into_response(),
         Err(StatusCode::FORBIDDEN) if state.password_confirmation => {
-            let needs_sudo: Result<bool, _> = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id
-                 WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
-                   AND a.status='active' AND a.email_verified_at IS NOT NULL
-                   AND (s.sudo_until IS NULL OR s.sudo_until<=now()))",
-            )
-            .bind(Sha256::digest(session.as_bytes()).to_vec())
-            .fetch_one(&state.pool)
-            .await;
-            match needs_sudo {
-                Ok(true) => {
+            match browser_owner(&state.pool, session).await {
+                Ok(Some((_, false))) => {
                     let lang = if uri.path().starts_with("/en/") {
                         "en"
                     } else {
@@ -218,7 +248,7 @@ async fn handler(
                     axum::response::Redirect::to(&format!("/{lang}/account/sudo?return_to=export"))
                         .into_response()
                 }
-                Ok(false) => StatusCode::FORBIDDEN.into_response(),
+                Ok(_) => StatusCode::FORBIDDEN.into_response(),
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
             }
         }

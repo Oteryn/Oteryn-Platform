@@ -33,6 +33,30 @@ impl std::fmt::Debug for StaffDashboard {
     }
 }
 
+pub type OwnerAccess = std::sync::Arc<
+    dyn for<'a> Fn(
+            sqlx::types::Uuid,
+            &'a axum::http::HeaderMap,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct OwnerLink {
+    pub route: &'static str,
+    pub allows: OwnerAccess,
+}
+
+impl std::fmt::Debug for OwnerLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnerLink")
+            .field("route", &self.route)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The GM console accepts an explicit locale before its guard runs.
 fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
     #[derive(serde::Deserialize)]
@@ -99,6 +123,19 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         && (staff.allows)(id).await
     {
         chrome.staff_dashboard = Some(staff.url.clone());
+    }
+    if let (Some(id), Some(links)) = (account_id, request.extensions().get::<Vec<OwnerLink>>()) {
+        for rule in links {
+            let url = format!("/{lang}/{}", rule.route);
+            if let Some(index) = chrome
+                .player_navigation
+                .iter()
+                .position(|link| link.url == url)
+                && !(rule.allows)(id, request.headers()).await
+            {
+                chrome.player_navigation.remove(index);
+            }
+        }
     }
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;

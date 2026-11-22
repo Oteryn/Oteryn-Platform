@@ -1,7 +1,7 @@
 import {expect, test} from '../../fixtures.mjs';
 import {createHash, randomBytes} from 'node:crypto';
-import {pool} from '../../helpers.mjs';
-import {query, rolePage, unique} from '../../staff-rbac-helpers.mjs';
+import {csrfRejected, pool} from '../../helpers.mjs';
+import {confirmStaffPassword, isolatedAdmin, membership, player, query, role, rolePage, unique} from '../../staff-rbac-helpers.mjs';
 
 const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
 const visit = (page, url) => page.goto(url, {waitUntil: 'domcontentloaded'});
@@ -121,8 +121,8 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await expect(adminNav.getByRole('link', {name: labels[alternate].bazaar}))
       .toHaveAttribute('href', `/admin/${alternate}/bazaar`);
     await expect(admin.getByLabel(labels[alternate].reason, {exact: true}).first()).toBeVisible();
-    await expect(admin.locator('main a[href*="return_to=roles"]'))
-      .toHaveAttribute('href', `/${alternate}/account/sudo?return_to=roles`);
+    await expect(admin.locator('main a[href$="/admin/roles/confirm"]'))
+      .toHaveAttribute('href', `/${alternate}/admin/roles/confirm`);
     for (const locale of ['pl', 'en']) {
       await staffContext.addCookies([{name: 'portal_language', value: locale === 'pl' ? 'en' : 'pl', url: origin}]);
       expect((await visit(admin, `/console/dashboard?lang=${locale}`)).status()).toBe(403);
@@ -203,4 +203,69 @@ test('panel navigation enforces scope and role grants require a reason', async (
   } finally {
     await staffContext.close();
   }
+});
+
+test('staff confirmation and role creation keep their own credentials boundary', async ({page, browser}, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const staff = await isolatedAdmin(browser, info);
+  try {
+    const owner = await player(page, lang);
+    expect((await visit(page, `/${lang}/admin/roles/confirm`)).status()).toBe(403);
+    const playerCredentials = process.env.OTERYN_ACCOUNT_CREDENTIALS === 'true';
+    expect((await visit(staff.page, `/${lang}/password/change`)).status()).toBe(playerCredentials ? 200 : 404);
+    await confirmStaffPassword(staff.page, lang, staff.account.password);
+
+    const ordinary = staff.page.locator('form:has(button[value=create])');
+    const privileged = staff.page.locator('form:has(button[value=create-grant-role])');
+    await expect(ordinary.locator('[name=reason]')).toHaveCount(0);
+    await expect(privileged.getByLabel(labels[lang].reason)).toBeVisible();
+    const key = unique();
+    const token = await privileged.locator('[name=_csrf]').inputValue();
+    const fields = {action: 'create-grant-role', key, permissions: 'admin.roles.grant'};
+    await csrfRejected(staff.page, '/admin/roles', {...fields, reason: 'role_assignment'});
+    const post = (form) => staff.page.request.post('/admin/roles', {
+      form: {...form, _csrf: token}, headers: {origin}, maxRedirects: 0,
+    });
+    expect((await post(fields)).status()).toBe(422);
+    expect(await query('SELECT id FROM roles WHERE key=$1', [key])).toEqual([]);
+    expect((await post({...fields, reason: 'role_assignment'})).status()).toBe(303);
+    expect(await query(`SELECT staff_reason FROM audit_log JOIN roles ON target=roles.id::text
+      WHERE action='rbac.role.created' AND roles.key=$1`, [key]))
+      .toEqual([{staff_reason: 'role_assignment'}]);
+
+    const ordinaryRole = await role(staff.page);
+    await membership(staff.page, owner.id, ordinaryRole, 'grant');
+  } finally {
+    await staff.context.close();
+  }
+});
+
+test('owner panel links follow export and cancellation eligibility', async ({page}, info) => {
+  const lang = info.project.metadata.locale;
+  const owner = await panelActor(page.context(), lang);
+  const credentials = process.env.OTERYN_ACCOUNT_CREDENTIALS === 'true';
+  const intake = process.env.PORTAL_ACCOUNT_TERMINATION_ENABLED === 'true';
+  const exportPath = `/${lang}/account/privacy/export`;
+  const deletePath = `/${lang}/account/privacy/delete`;
+  const nav = page.getByRole('navigation', {name: labels[lang].player, exact: true});
+  const exportLink = nav.getByRole('link', {name: labels[lang].export, exact: true});
+  const deleteLink = nav.getByRole('link', {name: labels[lang].deletion, exact: true});
+  expect((await visit(page, '/account')).status()).toBe(200);
+  await expect(exportLink).toHaveCount(credentials ? 1 : 0);
+  await expect(deleteLink).toHaveCount(intake ? 1 : 0);
+  expect((await page.request.get(exportPath, {maxRedirects: 0})).status()).toBe(credentials ? 303 : 403);
+  expect((await page.request.get(deletePath, {maxRedirects: 0})).status()).toBe(intake ? 200 : 404);
+
+  await query("UPDATE web_sessions SET sudo_until=clock_timestamp()+interval '15 minutes' WHERE account_id=$1", [owner]);
+  await query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '7 days')", [owner]);
+  expect((await visit(page, '/account')).status()).toBe(200);
+  await expect(exportLink).toHaveAttribute('href', exportPath);
+  await expect(deleteLink).toHaveAttribute('href', deletePath);
+  const exported = await page.request.get(exportPath, {maxRedirects: 0});
+  expect(exported.status()).toBe(200);
+  expect((await exported.json()).account.id).toBe(owner);
+  await deleteLink.click();
+  await expect(page).toHaveURL(new URL(deletePath, origin).href);
+  await expect(page.locator(`main form[action="${deletePath}/cancel"]`)).toBeVisible();
 });

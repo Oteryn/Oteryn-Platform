@@ -619,7 +619,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
                 enabled: true,
                 deploy: false,
             });
-        for &(_, _, permission) in crate::rbac::GM_PANEL_SECTIONS {
+        for &(_, _, permission, _) in crate::rbac::GM_PANEL_SECTIONS {
             if game_auth.check(context, permission).await.is_ok() {
                 registry.register(
                     true,
@@ -707,7 +707,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
         step_up: staff_actions::StepUp::RecentPassword,
     };
     let result = match form.action.as_str() {
-        "create" | "set-permissions" => {
+        "create" | "create-grant-role" | "set-permissions" => {
             let permissions: Result<Vec<Permission>, _> = form
                 .permissions
                 .split(|c: char| c.is_whitespace() || c == ',')
@@ -717,22 +717,20 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
             let Ok(permissions) = permissions else {
                 return StatusCode::BAD_REQUEST.into_response();
             };
-            let change = if form.action == "create" {
-                Change::CreateRole {
-                    key: &form.key,
-                    permissions: &permissions,
-                }
-            } else {
-                Change::SetPermissions {
-                    role: form.role,
-                    permissions: &permissions,
-                }
-            };
-            // A reason selects the confirmed edit flow. The ordinary path
-            // still rejects additions to assigned roles under the writer fence.
-            if (form.action == "set-permissions" && !form.reason.is_empty())
-                || (form.action == "create" && permissions.contains(&Permission::GrantRoles))
-            {
+            if form.action == "set-permissions" {
+                let result = s
+                    .auth
+                    .edit_permissions_from_panel(
+                        guard,
+                        grant_action,
+                        s.grant_confirmation,
+                        form.role,
+                        permissions,
+                    )
+                    .await;
+                return staff_action_response(result, chrome);
+            }
+            if form.action == "create-grant-role" {
                 if !s.grant_confirmation {
                     return staff_actions::Error::Forbidden.response(chrome);
                 }
@@ -741,23 +739,13 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                     &s.pool,
                     guard,
                     grant_action,
-                    || Ok((Vec::new(), (form.action, form.key, form.role, permissions))),
-                    move |connection, (action, key, role, permissions)| {
+                    || Ok((Vec::new(), (form.key, permissions))),
+                    move |connection, (key, permissions)| {
                         Box::pin(async move {
-                            let change = if action == "create" {
-                                Change::CreateRole {
-                                    key: &key,
-                                    permissions: &permissions,
-                                }
-                            } else {
-                                Change::SetPermissions {
-                                    role,
-                                    permissions: &permissions,
-                                }
-                            };
-                            Ok(auth
-                                .edit_role_with_grant_controls(connection, context, change)
-                                .await?)
+                            Ok(Some(
+                                auth.create_grant_role(connection, context, &key, &permissions)
+                                    .await?,
+                            ))
                         })
                     },
                 )
@@ -765,7 +753,14 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 return staff_action_response(result, chrome);
             }
             s.auth
-                .change_from_panel(context, Uuid::now_v7(), change)
+                .change_from_panel(
+                    context,
+                    Uuid::now_v7(),
+                    Change::CreateRole {
+                        key: &form.key,
+                        permissions: &permissions,
+                    },
+                )
                 .await
                 .map(|_| ())
         }

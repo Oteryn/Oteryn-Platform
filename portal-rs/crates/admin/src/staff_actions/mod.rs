@@ -1,13 +1,13 @@
 //! Transactional staff form mutations. Mount routes behind the existing staff guard.
 use crate::{
     audit::{self, AuditContext, Entry},
-    rbac::{self, CheckContext, MutationAuthorization, MutationCheck, Permission},
+    rbac::{self, Change, CheckContext, MutationAuthorization, MutationCheck, Permission},
 };
 use axum::{http::StatusCode, response::Response};
 use oteryn_ui::Chrome;
 use oteryn_web::csrf::Verified;
 use serde_json::{Value, json};
-use sqlx::{PgConnection, PgPool};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use std::{future::Future, pin::Pin};
 use uuid::Uuid;
 
@@ -203,6 +203,19 @@ pub async fn run<T, F>(
 where
     F: for<'a> FnOnce(&'a mut PgConnection, T) -> Mutation<'a>,
 {
+    let reason = validated_reason(&guard, &action)?;
+    let (mut accounts, input) = validate()?;
+    accounts.push(guard.actor.account);
+    let mut tx = pool.begin().await?;
+    rbac::lock_accounts_and_mutation(&mut tx, &accounts).await?;
+    run_locked(tx, guard, action, reason, input, mutate).await
+}
+
+/// Validate the request proof and reason before making a staff change.
+pub(crate) fn validated_reason(
+    guard: &Guard<'_>,
+    action: &Action<'_>,
+) -> Result<&'static str, Error> {
     let same_session = guard
         .csrf
         .zip(guard.actor.session_proof)
@@ -214,45 +227,43 @@ where
     {
         return Err(Error::Forbidden);
     }
-    let reason = action
+    action
         .reason_codes
         .iter()
         .copied()
-        // Match the audit table's char_length constraint before opening a transaction.
         .find(|code| *code == action.reason && (8..=500).contains(&code.chars().count()))
-        .ok_or(Error::Reason)?;
-    let (accounts, input) = validate()?;
-    let mut tx = pool.begin().await?;
-    rbac::mutation_budget(&mut tx).await?;
+        .ok_or(Error::Reason)
+}
+
+/// Execute a validated action while retaining the caller's account and role locks.
+pub(crate) async fn run_locked<T, F>(
+    mut tx: Transaction<'_, Postgres>,
+    guard: Guard<'_>,
+    action: Action<'_>,
+    reason: &'static str,
+    input: T,
+    mutate: F,
+) -> Result<(), Error>
+where
+    F: for<'a> FnOnce(&'a mut PgConnection, T) -> Mutation<'a>,
+{
     let permissions = [Permission::Access, action.permission];
-    rbac::authorize_mutation(
-        &mut tx,
-        &accounts,
-        guard.authority,
-        guard.actor,
-        &permissions,
-    )
-    .await?;
+    for permission in permissions {
+        guard
+            .authority
+            .check(&mut tx, guard.actor, permission)
+            .await?;
+    }
     check_step_up(&mut tx, guard.actor, action.step_up).await?;
     let change = mutate(&mut tx, input).await?;
+    let affected = match &change {
+        Some(AuditChange::RoleGrant { account, .. }) => Some((Some(*account), None)),
+        Some(AuditChange::RolePermissions { role, .. }) => Some((None, Some(*role))),
+        _ => None,
+    };
     let changed = change.is_some();
     if let Some(change) = change {
-        let (event, target, before, after) = change.project();
-        audit::append_with_reason(
-            &mut tx,
-            Entry {
-                context: AuditContext {
-                    actor: Some(guard.actor.account),
-                    request_id: Uuid::now_v7(),
-                },
-                action: event,
-                target: &target.to_string(),
-                before,
-                after,
-            },
-            Some(reason),
-        )
-        .await?;
+        record(&mut tx, guard.actor, Uuid::now_v7(), change, Some(reason)).await?;
     }
     for permission in permissions {
         guard
@@ -262,10 +273,40 @@ where
     }
     check_step_up(&mut tx, guard.actor, action.step_up).await?;
     if changed {
+        if let Some((account, role)) = affected {
+            Change::revoke_affected_browser_credentials(&mut tx, guard.actor, account, role)
+                .await?;
+        }
         tx.commit().await?;
     } else {
         tx.rollback().await?;
     }
+    Ok(())
+}
+
+pub(crate) async fn record(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: CheckContext,
+    request_id: Uuid,
+    change: AuditChange,
+    reason: Option<&str>,
+) -> Result<(), rbac::Error> {
+    let (event, target, before, after) = change.project();
+    audit::append_with_reason(
+        tx,
+        Entry {
+            context: AuditContext {
+                actor: Some(actor.account),
+                request_id,
+            },
+            action: event,
+            target: &target.to_string(),
+            before,
+            after,
+        },
+        reason,
+    )
+    .await?;
     Ok(())
 }
 

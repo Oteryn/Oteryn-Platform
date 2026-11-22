@@ -1,7 +1,7 @@
 use super::{AccountState, AccountStateReader, Authorizer, CheckContext, Error, Permission};
 use crate::{
     audit::{self, AuditContext, Entry},
-    staff_actions::AuditChange,
+    staff_actions::{self, Action, AuditChange, Guard},
 };
 use serde_json::{Value, json};
 use sqlx::PgConnection;
@@ -40,6 +40,15 @@ impl Change<'_> {
             Self::SetPermissions { role, .. } => (None, Some(*role)),
             Self::Grant { account, .. } | Self::Revoke { account, .. } => (Some(*account), None),
         };
+        Self::revoke_affected_browser_credentials(connection, context, account, role).await
+    }
+
+    pub(crate) async fn revoke_affected_browser_credentials(
+        connection: &mut PgConnection,
+        context: CheckContext,
+        account: Option<Uuid>,
+        role: Option<Uuid>,
+    ) -> Result<(), Error> {
         let expiry = super::SessionExpiry::capture(connection, context).await?;
         sqlx::query("WITH affected AS (SELECT $1::uuid AS id WHERE $1 IS NOT NULL UNION ALL SELECT account_id FROM account_roles WHERE role_id=$2),
             revoked_sessions AS (DELETE FROM web_sessions WHERE account_id IN (SELECT id FROM affected))
@@ -84,61 +93,100 @@ impl<A: AccountStateReader> Authorizer<A> {
         self.check_in(connection, context, Permission::ManageRoles)
             .await?;
         ensure_panel_role_grant(connection, role).await?;
-        if !grant_membership(connection, &self.accounts, context.account, account, role).await? {
-            return Ok(false);
-        }
-        Change::Grant { account, role }
-            .revoke_browser_credentials(connection, context)
-            .await?;
-        Ok(true)
+        grant_membership(connection, &self.accounts, context.account, account, role).await
     }
 
-    /// Apply a role edit under the staff-action transaction's authorization and locks.
-    pub(crate) async fn edit_role_with_grant_controls(
+    pub(crate) async fn create_grant_role(
         &self,
         connection: &mut PgConnection,
         context: CheckContext,
-        change: Change<'_>,
-    ) -> Result<Option<AuditChange>, Error> {
+        key: &str,
+        permissions: &[Permission],
+    ) -> Result<AuditChange, Error> {
         self.check_in(connection, context, Permission::ManageRoles)
             .await?;
-        let (permissions, role) = match &change {
-            Change::CreateRole { permissions, .. } => (*permissions, None),
-            Change::SetPermissions { role, permissions } => (*permissions, Some(*role)),
-            _ => return Err(Error::InvalidInput),
-        };
-        if permissions.contains(&Permission::ManageRoles) {
+        if permissions.contains(&Permission::ManageRoles)
+            || !permissions.contains(&Permission::GrantRoles)
+        {
             return Err(Error::Denied);
         }
-        let audit = match (&change, role) {
-            (Change::CreateRole { key, .. }, None) => AuditChange::RoleCreated {
-                role: create_role(connection, key, permissions).await?,
-                permissions: permissions.to_vec(),
-            },
-            (_, Some(role)) => {
-                ensure_panel_role_grant(connection, role).await?;
-                let Some(before) =
-                    set_role_permissions(connection, context, role, permissions, true).await?
-                else {
-                    return Ok(None);
-                };
-                AuditChange::RolePermissions {
-                    role,
-                    before: before
-                        .iter()
-                        .map(|permission| permission.parse())
-                        .collect::<Result<_, _>>()?,
-                    after: permissions.to_vec(),
-                }
-            }
-            _ => return Err(Error::InvalidInput),
+        Ok(AuditChange::RoleCreated {
+            role: create_role(connection, key, permissions).await?,
+            permissions: permissions.to_vec(),
+        })
+    }
+
+    /// Choose the required authorization from the durable permission diff while
+    /// the writer fence excludes concurrent role edits and assignments.
+    pub(crate) async fn edit_permissions_from_panel(
+        &self,
+        guard: Guard<'_>,
+        action: Action<'_>,
+        grant_confirmation: bool,
+        role: Uuid,
+        permissions: Vec<Permission>,
+    ) -> Result<(), staff_actions::Error> {
+        use staff_actions::Error::Forbidden;
+        let actor = guard.actor;
+        let mut tx = self.pool.begin().await?;
+        super::authorize_mutation(
+            &mut tx,
+            &[],
+            self,
+            actor,
+            &[Permission::Access, Permission::ManageRoles],
+        )
+        .await?;
+        if permissions.contains(&Permission::ManageRoles) {
+            return Err(Forbidden);
+        }
+        ensure_panel_role_grant(&mut tx, role).await?;
+        let Some((before, protected)) =
+            prepare_permission_edit(&mut tx, actor, role, &permissions).await?
+        else {
+            return Ok(());
         };
-        self.check_in(connection, context, Permission::ManageRoles)
+        let snapshot = AuditChange::RolePermissions {
+            role,
+            before: before
+                .iter()
+                .map(|permission| permission.parse())
+                .collect::<Result<_, _>>()?,
+            after: permissions.clone(),
+        };
+        if protected {
+            if !grant_confirmation || action.reason.is_empty() {
+                return Err(Forbidden);
+            }
+            let reason = staff_actions::validated_reason(&guard, &action)?;
+            return staff_actions::run_locked(
+                tx,
+                guard,
+                action,
+                reason,
+                (permissions, snapshot),
+                move |connection, (permissions, snapshot)| {
+                    Box::pin(async move {
+                        write_permission_edit(connection, role, &permissions).await?;
+                        Ok(Some(snapshot))
+                    })
+                },
+            )
+            .await;
+        }
+        write_permission_edit(&mut tx, role, &permissions).await?;
+        staff_actions::record(&mut tx, actor, Uuid::now_v7(), snapshot, None).await?;
+        self.check_in(&mut tx, actor, Permission::ManageRoles)
             .await?;
-        change
-            .revoke_browser_credentials(connection, context)
-            .await?;
-        Ok(Some(audit))
+        self.check_in(&mut tx, actor, Permission::Access).await?;
+        Change::SetPermissions {
+            role,
+            permissions: &permissions,
+        }
+        .revoke_browser_credentials(&mut tx, actor)
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn change_impl(
@@ -215,8 +263,8 @@ impl<A: AccountStateReader> Authorizer<A> {
                 )
             }
             Change::SetPermissions { role, permissions } => {
-                let Some(before) =
-                    set_role_permissions(&mut tx, context, role, permissions, !panel).await?
+                let Some((before, protected)) =
+                    prepare_permission_edit(&mut tx, context, role, permissions).await?
                 else {
                     self.check_in(&mut tx, context, Permission::ManageRoles)
                         .await?;
@@ -226,6 +274,10 @@ impl<A: AccountStateReader> Authorizer<A> {
                     tx.commit().await?;
                     return Ok(None);
                 };
+                if protected && panel {
+                    return Err(Error::Denied);
+                }
+                write_permission_edit(&mut tx, role, permissions).await?;
                 let after = permission_ids(permissions);
                 (
                     "rbac.role.permissions_changed",
@@ -322,13 +374,12 @@ async fn create_role(
 
 /// Call with the role-writer fence held. Widening an assigned role confers
 /// permissions on its holders, so it requires the same controls as a grant.
-async fn set_role_permissions(
+async fn prepare_permission_edit(
     connection: &mut PgConnection,
     actor: CheckContext,
     role: Uuid,
     permissions: &[Permission],
-    may_grant_permissions: bool,
-) -> Result<Option<Vec<String>>, Error> {
+) -> Result<Option<(Vec<String>, bool)>, Error> {
     validate_permissions(permissions)?;
     require_role(connection, role).await?;
     let (key, built_in): (String, bool) =
@@ -348,7 +399,7 @@ async fn set_role_permissions(
         return Ok(None);
     }
     let additions = after.iter().filter(|p| !before.iter().any(|b| b == *p));
-    if additions.clone().next().is_some() {
+    let protected = if additions.clone().next().is_some() {
         let (assigned, held): (bool, bool) = sqlx::query_as(
             "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1),
                     EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
@@ -357,16 +408,24 @@ async fn set_role_permissions(
         .bind(actor.account)
         .fetch_one(&mut *connection)
         .await?;
-        if held
-            || (!may_grant_permissions
-                && (assigned
-                    || additions
-                        .into_iter()
-                        .any(|p| *p == Permission::GrantRoles.as_str())))
-        {
+        if held {
             return Err(Error::Denied);
         }
-    }
+        assigned
+            || additions
+                .into_iter()
+                .any(|p| *p == Permission::GrantRoles.as_str())
+    } else {
+        false
+    };
+    Ok(Some((before, protected)))
+}
+
+async fn write_permission_edit(
+    connection: &mut PgConnection,
+    role: Uuid,
+    permissions: &[Permission],
+) -> Result<(), Error> {
     sqlx::query("DELETE FROM role_permissions WHERE role_id = $1")
         .bind(role)
         .execute(&mut *connection)
@@ -376,7 +435,7 @@ async fn set_role_permissions(
         .bind(role)
         .execute(connection)
         .await?;
-    Ok(Some(before))
+    Ok(())
 }
 
 fn validate_key(key: &str) -> Result<(), Error> {

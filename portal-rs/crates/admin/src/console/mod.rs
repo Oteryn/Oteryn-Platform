@@ -373,23 +373,13 @@ pub(super) fn configured_routes(pool: PgPool, enabled: bool, channel: StoredChan
         pool,
     })
 }
-/// Embedders must wrap these routes with web::guarded (trusted staff context + CSRF).
-const GM_NAV_OPERATIONS: [Operation; 4] = [
-    Operation::Overview,
-    Operation::Worlds,
-    Operation::Nodes,
-    Operation::Database,
-];
-
 async fn navigation<P: Permissions>(
     permissions: &P,
     context: CheckContext,
     language: &str,
 ) -> Vec<panels::Link> {
     let mut registry = panels::Registry::default();
-    for (&(route, label, permission), operation) in
-        rbac::GM_PANEL_SECTIONS.iter().zip(GM_NAV_OPERATIONS)
-    {
+    for &(route, label, permission, operation) in rbac::GM_PANEL_SECTIONS {
         registry.register(
             permissions.check(context, operation).await.is_ok(),
             panels::Entry {
@@ -419,9 +409,10 @@ async fn landing<P: Permissions, C: Channel>(
     Ok(Redirect::to(&first.url).into_response())
 }
 
+/// Embedders must wrap these routes with web::guarded (trusted staff context + CSRF).
 fn routes<P: Permissions, C: Channel>(console: Console<P, C>) -> Router {
     Router::new()
-        .route(Panel::Gm.root(), get(landing::<P, C>))
+        .route("/console", get(landing::<P, C>))
         .route(
             "/console/dashboard",
             get(dashboard_page::<P, C>).post(submit::<P, C>),

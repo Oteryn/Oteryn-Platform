@@ -176,11 +176,26 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
             let credentials = credentials_http::configured_router(db.clone());
-            let password_confirmation = credentials.has_routes();
+            let player_confirmation = credentials.has_routes();
+            let staff_confirmation = if std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
+            {
+                credentials_http::staff_confirmation_routes(db.clone())
+            } else {
+                axum::Router::new()
+            };
             let app = app.merge(oteryn_admin::web::configured_router(
                 db.clone(),
-                password_confirmation,
+                staff_confirmation.has_routes(),
             )?);
+            let app = if staff_confirmation.has_routes() {
+                app.merge(oteryn_admin::web::configured_guard(
+                    staff_confirmation,
+                    db.clone(),
+                    oteryn_admin::rbac::Permission::GrantRoles,
+                )?)
+            } else {
+                app
+            };
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
                 db.clone(),
@@ -245,8 +260,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
             let app = app.merge(credentials);
             let export =
-                oteryn_identity::export::configured_router(db.clone(), password_confirmation);
-            let export_enabled = export.has_routes() && password_confirmation;
+                oteryn_identity::export::configured_router(db.clone(), player_confirmation);
+            let export_enabled = export.has_routes();
             let app = app.merge(export);
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
@@ -403,7 +418,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 ),
                 (export_enabled, "account/privacy/export", "panel-export"),
                 (
-                    closure.terminations.accepts_requests(),
+                    true, // The owner check includes pending cancellations.
                     "account/privacy/delete",
                     "panel-delete",
                 ),
@@ -425,6 +440,37 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 },
                 oteryn_web::chrome::middleware,
             ));
+            let terminations = closure.terminations.clone();
+            let export_pool = db.clone();
+            let app = app.layer(axum::Extension(vec![
+                oteryn_web::chrome::OwnerLink {
+                    route: "account/privacy/export",
+                    allows: std::sync::Arc::new(move |account, headers| {
+                        let pool = export_pool.clone();
+                        Box::pin(async move {
+                            oteryn_identity::export::link_available(
+                                &pool,
+                                headers,
+                                account,
+                                player_confirmation,
+                            )
+                            .await
+                        })
+                    }),
+                },
+                oteryn_web::chrome::OwnerLink {
+                    route: "account/privacy/delete",
+                    allows: std::sync::Arc::new(move |account, _| {
+                        let terminations = terminations.clone();
+                        Box::pin(async move {
+                            terminations
+                                .deletion_page(account)
+                                .await
+                                .is_ok_and(|page| page.is_some())
+                        })
+                    }),
+                },
+            ]));
             let app = if let Some(dashboard) =
                 oteryn_admin::web::configured_dashboard_link(db.clone())?
             {

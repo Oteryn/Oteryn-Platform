@@ -231,7 +231,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:424"
+        "crates/admin/src/console/mod.rs:415"
       ]
     },
     {
@@ -4253,6 +4253,21 @@
       ],
       "sources": [
         "crates/admin/src/analytics/web.rs"
+      ]
+    },
+    {
+      "route": "/{lang}/admin/roles/confirm",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/staff_confirmation_http.rs:16",
+        "crates/identity/src/staff_confirmation_http.rs:17"
       ]
     }
   ],

@@ -210,6 +210,14 @@
     "reason": "page, redirect alias or resource read"
   },
   {
+    "crate": "identity",
+    "route": "/{lang}/admin/roles/confirm",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "staff password confirmation requires grant access"
+  },
+  {
     "crate": "atlas",
     "route": "/{lang}/atlas/bestiary/{character}",
     "actor": "player",
