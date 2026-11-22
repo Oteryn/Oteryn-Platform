@@ -13,7 +13,7 @@ use image::{GenericImageView, ImageFormat, ImageReader};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{CheckContext, MutationAuthorization, Permission},
-    web::StaffPreflight,
+    web::{StaffPreflight, UploadPreflight},
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -479,18 +479,29 @@ async fn multipart_csrf(
             .cloned()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
         let short_deadline = started + ANONYMOUS_FORM_UPLOAD_TIMEOUT;
-        let authorized = timeout_at(
+        let preflight = timeout_at(
             short_deadline,
-            staff.permits_long_body(request.headers(), request.uri().path()),
+            staff.upload_body_access(request.headers(), request.uri().path()),
         )
         .await
         .map_err(|_| StatusCode::REQUEST_TIMEOUT)?;
-        let deadline = match authorized {
-            Ok(true) => started + SIGNED_IN_FORM_UPLOAD_TIMEOUT,
-            Ok(false) => short_deadline,
+        let access = match preflight {
+            Ok(access) => access,
             Err(response) => return Ok(response),
         };
-        let bytes = checked_body(&mut request, deadline).await?;
+        let deadline = match access {
+            UploadPreflight::Long => started + SIGNED_IN_FORM_UPLOAD_TIMEOUT,
+            UploadPreflight::Short | UploadPreflight::Denied => short_deadline,
+        };
+        let bytes = checked_body(&mut request, deadline)
+            .await
+            .map_err(|status| {
+                if access == UploadPreflight::Denied && status == StatusCode::REQUEST_TIMEOUT {
+                    StatusCode::FORBIDDEN
+                } else {
+                    status
+                }
+            })?;
         let mut copy = axum::http::Request::new(axum::body::Body::from(bytes.clone()));
         copy.extensions_mut().extend(request.extensions().clone());
         copy.headers_mut()

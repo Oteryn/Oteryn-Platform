@@ -198,6 +198,13 @@ pub struct StaffPreflight {
     sessions: SessionLayer,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum UploadPreflight {
+    Short,
+    Long,
+    Denied,
+}
+
 impl std::fmt::Debug for StaffPreflight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StaffPreflight").finish_non_exhaustive()
@@ -230,15 +237,15 @@ impl StaffPreflight {
 
     /// A matching Origin and a live authorized staff session qualify for a
     /// longer body deadline. The full guard still checks CSRF after the read.
-    pub async fn permits_long_body(
+    pub async fn upload_body_access(
         &self,
         headers: &axum::http::HeaderMap,
         path: &str,
-    ) -> Result<bool, Response> {
+    ) -> Result<UploadPreflight, Response> {
         oteryn_web::csrf::verify_origin(headers, &self.sessions.csrf.trusted_origins)
             .map_err(IntoResponse::into_response)?;
         if !headers.contains_key(header::ORIGIN) || !headers.contains_key(header::COOKIE) {
-            return Ok(false);
+            return Ok(UploadPreflight::Short);
         }
         let mut tx = self.state.pool.begin().await.map_err(preflight_error)?;
         // Let PostgreSQL finish or cancel its work before the HTTP preflight
@@ -251,10 +258,10 @@ impl StaffPreflight {
             .await
             .map_err(preflight_error)?;
         let Some(session) = session else {
-            return Ok(false);
+            return Ok(UploadPreflight::Short);
         };
         let Some(account) = session.account_id().await else {
-            return Ok(false);
+            return Ok(UploadPreflight::Short);
         };
         let grant = session
             .get_in(&mut tx, mfa_grant_key())
@@ -282,15 +289,13 @@ impl StaffPreflight {
                 Err(Error::Storage(error)) => return Err(preflight_error(error)),
                 Err(_) => {
                     tx.commit().await.map_err(preflight_error)?;
-                    return Err(match refusal(&self.state.pool, account, path).await {
-                        Ok(()) => StatusCode::FORBIDDEN.into_response(),
-                        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-                    });
+                    // The normal guard audits a denied actor only after CSRF verification.
+                    return Ok(UploadPreflight::Denied);
                 }
             }
         }
         tx.commit().await.map_err(preflight_error)?;
-        Ok(true)
+        Ok(UploadPreflight::Long)
     }
 }
 

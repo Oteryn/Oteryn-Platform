@@ -879,11 +879,31 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap();
     let unauthorized = with_stalled_body(make(csrf, "Support stalled upload", "image/png")).await;
-    let refusal = tokio::time::timeout(Duration::from_secs(8), app.oneshot(unauthorized))
+    let refusal = tokio::time::timeout(Duration::from_secs(8), app.clone().oneshot(unauthorized))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
+    let refusal_audits = || {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target='/admin/media'",
+        )
+        .bind(support)
+        .fetch_one(pool)
+    };
+    let unsigned = app
+        .clone()
+        .oneshot(make("", "Unsigned support upload", "image/png"))
+        .await
+        .unwrap();
+    assert_eq!(unsigned.status(), StatusCode::FORBIDDEN);
+    assert_eq!(refusal_audits().await.unwrap(), 0);
+    let signed = app
+        .oneshot(make(csrf, "Signed support upload", "image/png"))
+        .await
+        .unwrap();
+    assert_eq!(signed.status(), StatusCode::FORBIDDEN);
+    assert_eq!(refusal_audits().await.unwrap(), 1);
 }
 
 #[tokio::test]

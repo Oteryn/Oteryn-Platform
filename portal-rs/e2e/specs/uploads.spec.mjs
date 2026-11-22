@@ -338,6 +338,12 @@ test('MFA-authenticated support staff cannot upload editorial media', async ({ b
     const alt = mediaLabel();
     expect((await page.goto(`/${locale}/`)).status()).toBe(200);
     const csrf = await page.locator('form[action$="/logout"] input[name=_csrf]').first().inputValue();
+    expect((await postImage(page, png, alt)).status()).toBe(403);
+    await expectNoMedia(alt);
+    expect(await query(
+      "SELECT target FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target=$2",
+      [support.accountId, route],
+    )).toEqual([]);
     expect((await postImage(page, png, alt, csrf)).status()).toBe(403);
     await expectNoMedia(alt);
     expect(await query(
