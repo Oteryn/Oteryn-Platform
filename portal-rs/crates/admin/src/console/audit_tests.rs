@@ -160,6 +160,8 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
         ("2020-01-01 00:00:00 UTC", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00 gmt", "2020-01-01T00:00:00Z"),
         ("2020-01-01 00:00:00 Etc/UTC", "2020-01-01T00:00:00Z"),
+        ("2020-01-01 00:00:00 Etc/GMT+2", "2020-01-01T02:00:00Z"),
+        ("2020-01-01 00:00:00 GMT-01:30", "2019-12-31T22:30:00Z"),
         ("2020-01-01 00:00:00-0230", "2020-01-01T02:30:00Z"),
         ("2020-01-01 00:00:00+01:30:59", "2019-12-31T22:29:01Z"),
         (
@@ -204,7 +206,7 @@ async fn postgres_audit_normalizes_timestamp_offsets_and_fractional_seconds()
         },
     )
     .await?;
-    assert_eq!(rows.len(), 10);
+    assert_eq!(rows.len(), 12);
     for row in rows {
         let target = row.target.as_deref().ok_or("missing test target")?;
         let changes = changes("en", &row.action, target, &row.before, &row.after);

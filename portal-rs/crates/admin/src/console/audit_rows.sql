@@ -41,12 +41,12 @@ CROSS JOIN LATERAL (
     CROSS JOIN LATERAL (
         SELECT CASE
             WHEN field IN ('published_at', 'translation_published_at')
-            -- Restrict the cast to absolute ISO dates with an explicit offset or UTC-equivalent zone.
+            -- Restrict the cast to absolute ISO dates with an explicit offset or a fixed-offset zone.
             -- PostgreSQL's parser handles offset variants and rounds to microseconds.
             -- Relative legacy values such as "today" must remain unknown.
             AND jsonb_typeof(recorded.value) = 'string'
             AND recorded.value #>> '{}' ~*
-                '^[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt]|[[:space:]]+)[0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?[[:space:]]*(Z|UTC|GMT|UT|ZULU|Etc/UTC|Etc/GMT|[+-]([0-9]{3,4}|[0-9]{1,2}(:[0-9]{1,2}(:[0-9]{1,2})?)?))[[:space:]]*$'
+                '^[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt]|[[:space:]]+)[0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?[[:space:]]*((Z|UTC|GMT|UT|ZULU|Etc/UTC|Etc/GMT)([+-][0-9:]+)?|[+-][0-9:]+)[[:space:]]*$'
             AND pg_input_is_valid(recorded.value #>> '{}', 'timestamp with time zone')
             THEN to_jsonb((to_jsonb((recorded.value #>> '{}')::timestamptz AT TIME ZONE 'UTC') #>> '{}') || 'Z')
             ELSE recorded.value
