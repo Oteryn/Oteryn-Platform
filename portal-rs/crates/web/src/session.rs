@@ -514,9 +514,10 @@ pub async fn signed_in_session(
         return Ok(None);
     };
     let row: Option<(Uuid, String, Uuid)> = sqlx::query_as(
-        "SELECT session_id, csrf_token, account_id FROM web_sessions
-         WHERE id_hash=$1 AND account_id IS NOT NULL
-         AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()",
+        "SELECT s.session_id, s.csrf_token, s.account_id FROM web_sessions s
+         JOIN accounts a ON a.id=s.account_id AND a.native_security_generation=s.authorization_generation
+         WHERE s.id_hash=$1 AND s.idle_expires_at>clock_timestamp()
+         AND s.absolute_expires_at>clock_timestamp()",
     )
     .bind(hash(id))
     .fetch_optional(&layer.pool)

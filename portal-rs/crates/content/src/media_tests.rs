@@ -707,6 +707,32 @@ async fn browser_lifecycle(pool: &PgPool) {
             .unwrap()
     );
 
+    // A kick advances the account generation without removing the browser cookie or MFA grant.
+    sqlx::query("UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1")
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
+    let stale = with_stalled_body(make(csrf, "Kicked editor stalled upload", "image/png")).await;
+    let refusal = tokio::time::timeout(Duration::from_secs(8), app.clone().oneshot(stale))
+        .await
+        .expect("a stale generation must keep the short deadline")
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM media WHERE alt_text='Kicked editor stalled upload')"
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    );
+    sqlx::query("UPDATE web_sessions SET authorization_generation=(SELECT native_security_generation FROM accounts WHERE id=$1) WHERE account_id=$1")
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
+
     sqlx::query("UPDATE web_sessions SET data=data - 'mfa_grant' WHERE account_id=$1")
         .bind(actor)
         .execute(pool)
