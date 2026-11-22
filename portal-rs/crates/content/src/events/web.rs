@@ -430,37 +430,40 @@ async fn save<A: AccountStateReader>(
     c: CheckContext,
     id: Option<Uuid>,
     f: EventForm,
+    headers: &axum::http::HeaderMap,
 ) -> Response {
     let draft = match f.draft() {
         Ok(v) => v,
-        Err(e) => return response(e),
+        Err(e) => return mutation_error(e, headers),
     };
     let existing = match id {
         Some(id) => match f.lock_version {
             Some(v) => Some((id, v)),
-            None => return response(Error::Invalid),
+            None => return mutation_error(Error::Invalid, headers),
         },
         None => None,
     };
     match s.events.save(&s.auth, c, existing, draft).await {
         Ok(id) => Redirect::to(&format!("/admin/events/{id}/edit")).into_response(),
-        Err(e) => response(e),
+        Err(e) => mutation_error(e, headers),
     }
 }
 async fn save_new<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
+    headers: axum::http::HeaderMap,
     Form(f): Form<EventForm>,
 ) -> Response {
-    save(&s, c, None, f).await
+    save(&s, c, None, f, &headers).await
 }
 async fn save_existing<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
     Path(id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
     Form(f): Form<EventForm>,
 ) -> Response {
-    save(&s, c, Some(id), f).await
+    save(&s, c, Some(id), f, &headers).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -474,6 +477,7 @@ async fn status<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
     Path(id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
     Form(f): Form<StatusForm>,
 ) -> Response {
     match s
@@ -482,6 +486,21 @@ async fn status<A: AccountStateReader>(
         .await
     {
         Ok(()) => Redirect::to(&format!("/admin/events/{id}/edit")).into_response(),
-        Err(e) => response(e),
+        Err(e) => mutation_error(e, &headers),
     }
+}
+fn mutation_error(error: Error, headers: &axum::http::HeaderMap) -> Response {
+    if matches!(error, Error::Invalid) {
+        let language = if lang(headers) == "en" {
+            oteryn_web::Language::En
+        } else {
+            oteryn_web::Language::Pl
+        };
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            language.text("error-422-description"),
+        )
+            .into_response();
+    }
+    response(error)
 }
