@@ -119,6 +119,9 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     const gm = seedAccount(setup, lang);
     const support = seedAccount(setup, lang);
     const second = seedAccount(setup, lang, false);
+    const subject = seedAccount(setup, lang, false);
+    expect(await query("UPDATE accounts SET status='suspended' WHERE id=$1 AND status='active' RETURNING status",
+      [subject.accountId])).toEqual([{status: 'suspended'}]);
     // Seed has no role command. Bootstrap the initial administrator as in isolatedAdmin.
     expect(await query(`INSERT INTO account_roles(account_id,role_id)
       SELECT $1,id FROM roles WHERE key='platform_admin' RETURNING account_id`,
@@ -202,16 +205,17 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     await expect(page.locator('main')).toContainText('42, 27, 7');
     await expectReadAudit(dossier[0], gm.accountId, {character_id: characterId});
 
-    const publishPortfolio = async () => {
+    const publishPortfolios = async (...portfolios) => {
       const [{epoch}] = await query("SELECT (COALESCE(highest_epoch::numeric, 0)+1)::text epoch FROM account_character_feed WHERE id=1");
-      await publishStaffPortfolio(setup, gm.accountId, epoch);
+      await publishStaffPortfolio(setup, portfolios, epoch);
     };
-    await publishPortfolio();
+    const subjectPortfolio = {account: subject.accountId, character: characterId};
+    await publishPortfolios(subjectPortfolio);
     const childRequests = await agent.poll(3);
     expect(childRequests.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
     for (const request of childRequests) {
       expectRequest(request, request.operation, gm.accountId, characterId);
-      await agent.answer(request, 'success', request.operation === 'sanction.list' ? gm.accountId : undefined);
+      await agent.answer(request, 'success', request.operation === 'sanction.list' ? subject.accountId : undefined);
     }
     expect((await page.reload()).status()).toBe(200);
     const section = name => page.locator('main section').filter({has: page.getByRole('heading', {name, exact: true})});
@@ -221,6 +225,16 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     for (const request of childRequests) {
       await expectReadAudit(request, gm.accountId, {character_id: characterId});
     }
+    const sanctionReads = () => query("SELECT id FROM audit_log WHERE request_id=$1 AND outcome='succeeded' ORDER BY id",
+      [childRequests[1].request_id]);
+    const priorSanctionReads = await sanctionReads();
+    await publishPortfolios(subjectPortfolio, {account: gm.accountId, character: characterId});
+    expect((await page.reload()).status()).toBe(200);
+    await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
+    await expect(section(copy.sanctions)).toContainText(copy.unavailable);
+    await expect(section(copy.sanctions)).not.toContainText(accountSanctionId);
+    expect(await sanctionReads()).toEqual(priorSanctionReads);
+    expect(await agent.poll()).toEqual([]);
 
     expect((await secondPage.goto(url(lang, {character: characterId}))).status()).toBe(200);
     await expect(secondPage.locator('main')).not.toContainText(characterName);
@@ -275,7 +289,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
       expect((await navigate(page, 'POST', () => submit(page, `form[data-operation="${operation}"]`))).status()).toBe(303);
       const requests = await agent.poll(3);
       expect(requests).toHaveLength(1);
-      expectRequest(requests[0], operation, gm.accountId, wrongSanctionCharacterId);
+      expectRequest(requests[0], operation, gm.accountId, previous.target.character_id);
       expect(requests[0].request_id).not.toBe(previous.request_id);
       expect((await send({})).status()).toBe(409);
       expect(await agent.poll()).toEqual([]);
@@ -293,7 +307,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expect((await page.reload()).status()).toBe(200);
     await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
 
-    await agent.answer(sanctions, 'success');
+    await agent.answer(sanctions, 'success', undefined, characterId);
     const wrongSanction = await page.reload();
     expect(wrongSanction.status()).toBe(503);
     expect(await wrongSanction.text()).not.toContain(sanctionId);
@@ -322,15 +336,17 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expect((await page.reload()).status()).toBe(200);
     const accountChildren = await agent.poll(3);
     expect(accountChildren.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
-    await publishPortfolio();
+    await publishPortfolios(subjectPortfolio, {account: gm.accountId, character: wrongAccountSanctionCharacterId});
     const [, wrongAccountSanction] = accountChildren;
     for (const request of accountChildren) {
       expectRequest(request, request.operation, gm.accountId, wrongAccountSanctionCharacterId);
-      await agent.answer(request, 'success', request === wrongAccountSanction ? gm.accountId : undefined);
+      await agent.answer(request, 'success', request === wrongAccountSanction ? subject.accountId : undefined);
     }
     const wrongAccount = await page.reload();
-    expect(wrongAccount.status()).toBe(503);
-    expect(await wrongAccount.text()).not.toContain(accountSanctionId);
+    expect(wrongAccount.status()).toBe(200);
+    await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
+    await expect(section(copy.sanctions)).toContainText(copy.unavailable);
+    await expect(section(copy.sanctions)).not.toContainText(accountSanctionId);
     expect(await query("SELECT id FROM audit_log WHERE request_id=$1 AND outcome='succeeded'",
       [wrongAccountSanction.request_id])).toEqual([]);
     expect(await agent.poll()).toEqual([]);
@@ -353,11 +369,33 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     const [newInventory, refusedSanction] = reconnectedChildren;
     await agent.answer(newInventory, 'success');
     await agent.answer(refusedSanction, 'refusal');
+    const acceptedRetry = await retryQuery('sanction.list', refusedSanction);
+    expect(await query(`SELECT a.actor, a.target, a.before, a.after
+      FROM audit_log a JOIN admin_control_agents g ON g.agent_id=a.target
+      WHERE a.request_id=$1 AND a.action='console.query.admitted'
+        AND a.after->>'owner_epoch'=g.owner_epoch::text`, [acceptedRetry.request_id]))
+      .toEqual([{actor: gm.accountId, target: 'staff-console-e2e', before: null, after: {owner_epoch: expect.any(Number)}}]);
+    await agent.answer(acceptedRetry, 'success');
+    expect((await page.reload()).status()).toBe(200);
+    await expect(section(copy.sanctions)).toContainText(`${sanctionId} · ${copy.activeSanction}`);
+    await expectReadAudit(acceptedRetry, gm.accountId, {character_id: wrongSanctionCharacterId});
+
+    expect((await page.goto(url(lang, {character: wrongAccountSanctionCharacterId}))).status()).toBe(200);
+    const latestDossiers = await agent.poll(3);
+    expect(latestDossiers).toHaveLength(1);
+    expectRequest(latestDossiers[0], 'player.character.get', gm.accountId, wrongAccountSanctionCharacterId);
+    await agent.answer(latestDossiers[0], 'success');
+    expect((await page.reload()).status()).toBe(200);
+    const latestChildren = await agent.poll(3);
+    expect(latestChildren.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
+    const [latestInventory, latestSanctions] = latestChildren;
+    await agent.answer(latestInventory, 'success');
+    await agent.answer(latestSanctions, 'refusal');
     expect((await page.reload()).status()).toBe(200);
     const sanctionRetry = page.locator('form[data-operation="sanction.list"]');
     await expect(sanctionRetry.getByRole('status')).toContainText(copy.rejected);
     const ownSanctionRetry = await sanctionRetry.evaluate(form => Object.fromEntries(new FormData(form)));
-    expect(ownSanctionRetry.request).toBe(refusedSanction.request_id);
+    expect(ownSanctionRetry.request).toBe(latestSanctions.request_id);
     await membership(managerPage, gm.accountId, playerReadRole, 'grant');
     await membership(managerPage, gm.accountId, seniorRole, 'revoke');
     await loginWithRecoveryCode(page, lang, gm, gm.nextCode);
@@ -365,11 +403,14 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expect((await page.goto(url(lang))).status()).toBe(200);
     await expect(page.locator(dossierForm)).toBeVisible();
     const playerReadCsrf = await page.locator(searchForm).locator('[name=_csrf]').inputValue();
+    const sanctionRequests = () => query("SELECT request_id FROM admin_control_requests WHERE actor=$1 AND operation='sanction.list' ORDER BY request_id", [gm.accountId]);
+    const admittedBeforeRefusal = await sanctionRequests();
     const forbidden = await page.request.post(retryRoute, {
       form: {...ownSanctionRetry, _csrf: playerReadCsrf}, maxRedirects: 0, headers: {origin: setup.origin},
     });
     expect(forbidden.status()).toBe(403);
     expect(await agent.poll()).toEqual([]);
+    expect(await sanctionRequests()).toEqual(admittedBeforeRefusal);
   } finally {
     agent.close();
     await secondContext.close();

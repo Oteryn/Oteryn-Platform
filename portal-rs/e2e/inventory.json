@@ -165,6 +165,20 @@
       ]
     },
     {
+      "route": "/admin/console/players/retry",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_CONSOLE",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/console/access.rs:505"
+      ]
+    },
+    {
       "route": "/admin/console/players",
       "crate": "admin",
       "flags": [

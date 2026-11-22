@@ -27,8 +27,9 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
     matches = list(re.finditer(r'\.route\(\s*(?:&format!\()?"([^"\n]+)"', source))
     # Routes whose path variable comes from a literal array in the same router.
     if re.search(r'\.route\(\s*(?:path|&format!\("\{path\}/data")', source):
+        explicit_literals = {m.start(1) for m in matches}
         for m in re.finditer(r'"(/(?:admin|console)[^"\s]*)"', source):
-            if source[max(0,m.start()-250):m.start()].find('href=') < 0:
+            if m.start(1) not in explicit_literals and source[max(0,m.start()-250):m.start()].find('href=') < 0:
                 matches.append(m)
     for m in matches:
         path = m[1]

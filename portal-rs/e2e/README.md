@@ -379,7 +379,10 @@ PORTAL_E2E_ADMIN_AGENT_DIRECTORY=.harness/run npm test -- gm-player-console.spec
 The spec uses the seed CLI for accounts and MFA, uses the browser RBAC workflow
 to grant roles, and polls the real `/internal/v1/admin-control/channel` with a
 verified client certificate. It verifies the Platform request signature and
-sends signed results on `/internal/v1/admin-control/results`. Test fixtures cover
-player search, character detail, inventory, sanctions, a refused search and a
-dossier whose signed payload names another character. Staff writes remain
-disabled. Stop the harness with Ctrl-C to drop its disposable database.
+sends signed results on `/internal/v1/admin-control/results`. The spec covers
+player search, character detail, inventory, and sanctions. It publishes LCFA
+snapshots over mTLS to verify account-scoped sanctions for a suspended owner,
+conflicting ownership during a transfer, and a signed result naming the wrong
+account. It also checks successful retry and its admission audit, plus refusal
+after the GM loses sanction-read permission. Staff writes remain disabled.
+Stop the harness with Ctrl-C to drop its disposable database.

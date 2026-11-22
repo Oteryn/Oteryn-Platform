@@ -89,6 +89,14 @@
   },
   {
     "crate": "admin",
+    "route": "/admin/console/players/retry",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before retry admission"
+  },
+  {
+    "crate": "admin",
     "route": "/admin/console/audit",
     "actor": "staff",
     "method": "GET",

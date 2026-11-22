@@ -42,10 +42,10 @@ const results = {
   'player.inventory.get': () => ({
     items: [{ instance_id: itemId, type_id: 42, parent_id: null, location: 'bag', count: '2' }],
   }),
-  'sanction.list': ({ target }, accountRef) => ({
+  'sanction.list': ({ target }, accountRef, sanctionCharacter = target.character_id) => ({
     sanctions: [{
       sanction_id: sanctionId, account_ref: null,
-      character_id: target.character_id === wrongSanctionCharacterId ? characterId : target.character_id,
+      character_id: sanctionCharacter,
       kind: 'warning', active: true, starts_at: '2026-11-15T00:00:00Z', expires_at: null,
     }, ...(accountRef ? [{
       sanction_id: accountSanctionId, account_ref: accountRef, character_id: null,
@@ -211,7 +211,7 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
   };
 }
 
-export async function publishStaffPortfolio({ internalPort, caFile, lcfaClient, lcfaAuthority }, account, epoch) {
+export async function publishStaffPortfolio({ internalPort, caFile, lcfaClient, lcfaAuthority }, portfolios, epoch) {
   const peer = new https.Agent({
     ca: fs.readFileSync(caFile), cert: fs.readFileSync(lcfaClient.cert), key: fs.readFileSync(lcfaClient.key),
     servername: 'localhost', minVersion: 'TLSv1.3',
@@ -234,11 +234,13 @@ export async function publishStaffPortfolio({ internalPort, caFile, lcfaClient, 
     request.end(body);
   });
   try {
-    assert.equal(await publish('', {
-      ...common, operation: 'PublishAccountCharactersV1', account_id: account,
-      projection_revision: '1', source_observed_at: timestamp,
-      characters: [{ character_id: characterId, world_id: worldId, name: characterName, availability: 'AVAILABLE' }],
-    }), 200);
+    for (const { account, character } of portfolios) {
+      assert.equal(await publish('', {
+        ...common, operation: 'PublishAccountCharactersV1', account_id: account,
+        projection_revision: '1', source_observed_at: timestamp,
+        characters: [{ character_id: character, world_id: worldId, name: characterName, availability: 'AVAILABLE' }],
+      }), 200);
+    }
     assert.equal(await publish('/watermark', {
       ...common, operation: 'PublishProjectionWatermarkV1', complete_through: timestamp, observed_at: timestamp,
     }), 200);
@@ -298,7 +300,7 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
       }
       return requests;
     },
-    async answer(request, outcome, accountRef) {
+    async answer(request, outcome, accountRef, sanctionCharacter) {
       assert(['success', 'refusal'].includes(outcome));
       const success = outcome === 'success';
       const clock = new Date().toISOString();
@@ -307,7 +309,7 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
         request_id: request.request_id, admin_operation_id: request.admin_operation_id,
         status: success ? 'succeeded' : 'rejected',
         error: success ? null : { code: 'ADM_FORBIDDEN', message: 'AdmForbidden', retryable: false },
-        result: success ? results[request.operation](request, accountRef) : null,
+        result: success ? results[request.operation](request, accountRef, sanctionCharacter) : null,
         dry_run_preview: null, game_ledger_id: 'gm-e2e-ledger-' + request.request_id, audit_event_ids: [],
         effective_revision: success ? 'gm-e2e-revision' : null, progress: null,
         completed_at: completed, agent_id: agentId, agent_build: build,
