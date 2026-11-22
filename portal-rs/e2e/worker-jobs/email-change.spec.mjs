@@ -209,9 +209,23 @@ test('two workers deliver one referral invitation and the recipient opens it', a
   const inviter = await seededPlayer(page, lang);
   const email = inviter.email.replace('outbox-', 'referral-');
   const delivered = [];
+  let held = false;
+  let releaseInvitation;
   const sink = catcher(jobs.env, (message, callback) => {
-    if (message.to.includes(email)) delivered.push(message);
-    callback();
+    if (!message.to.includes(email)) {
+      callback();
+      return;
+    }
+    const accept = () => {
+      delivered.push(message);
+      callback();
+    };
+    if (held) {
+      accept();
+    } else {
+      held = true;
+      releaseInvitation = accept;
+    }
   });
   const port = await listen(sink, 0);
   const recipient = await browser.newContext({
@@ -226,12 +240,34 @@ test('two workers deliver one referral invitation and the recipient opens it', a
       [inviter.id, email],
     );
     expect(Boolean(invitation)).toBe(true);
+    await jobs.parkRecurring('referrals.process', 60);
+    const smtp = { OTERYN_SMTP_PORT: String(port) };
     const first = await enqueue('referrals.process');
+    const firstWorker = jobs.start(smtp);
+    await firstWorker.ready;
+    await expect.poll(() => Boolean(releaseInvitation)).toBe(true);
     const replay = await enqueue('referrals.process');
-    const workers = [jobs.start({ OTERYN_SMTP_PORT: String(port) }), jobs.start({ OTERYN_SMTP_PORT: String(port) })];
-    await Promise.all(workers.map(worker => worker.ready));
+    const replayWorker = jobs.start(smtp);
+    await replayWorker.ready;
+    // The replay may complete or wait on the first worker's delivery lock.
+    // Its job is enqueued after the first worker reaches SMTP DATA.
+    await expect.poll(async () => (await query(
+      `SELECT state='done' OR state='running' AND EXISTS (
+         SELECT FROM pg_stat_activity waiter
+         JOIN pg_stat_activity holder ON holder.pid=ANY(pg_blocking_pids(waiter.pid))
+         WHERE waiter.datname=current_database()
+           AND waiter.application_name=$2 AND holder.application_name=$3
+           AND waiter.wait_event='advisory' AND strpos(holder.query,'referral_email_attempts')>0
+       ) AS ran FROM outbox WHERE id=$1 AND attempts=1`,
+      [replay, replayWorker.name, firstWorker.name],
+    ))[0]?.ran).toBe(true);
+    expect(delivered).toHaveLength(0);
+    expect(await status(first)).toMatchObject({ state: 'running', attempts: 1, released: false });
+    releaseInvitation();
+    releaseInvitation = undefined;
     await waitForJob(first, 'done', 1);
     await waitForJob(replay, 'done', 1);
+    const workers = [firstWorker, replayWorker];
     for (const worker of workers) worker.child.kill('SIGTERM');
     for (const worker of workers) expect(await worker.exited).toEqual([0, null]);
     expect(await query(
@@ -247,6 +283,7 @@ test('two workers deliver one referral invitation and the recipient opens it', a
     await submit(landing);
     await expect(landing).toHaveURL(new RegExp(`/${lang}/register$`));
   } finally {
+    releaseInvitation?.();
     await recipient.close();
     await close(sink);
     await query('UPDATE referral_campaign_settings SET enabled=false WHERE singleton');
