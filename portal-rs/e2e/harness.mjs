@@ -164,6 +164,7 @@ if (!binary) {
 }
 log('migrate');
 run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a'), fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a')] });
+run(binary, ['install-legal-pages']);
 
 // ---- services ----------------------------------------------------------------
 const children = [];

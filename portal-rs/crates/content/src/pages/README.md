@@ -26,11 +26,25 @@ docker compose -p oteryn-portal -f /opt/oteryn-portal/compose.yml run --rm -T po
 The installer publishes the paired Markdown files in `legal/` and records
 the initial legal versions. It skips any slug
 with locale content or publication history, including drafts and unpublished
-documents. Rerunning it is safe. Replace the fictional operator block in
-`legal/operator.md` and remove the draft notices before installing for launch.
-If the drafts were already installed, publish replacements in the CMS under a
-new legal version and save English before Polish. Coordinate the launch versions
-with the versions recorded by account registration.
+documents. Rerunning it is safe. The fictional operator block is in
+`legal/operator.md`. Existing placeholder editions stay at their original
+version when the defaults package changes.
+
+Signup uses `OTERYN_TERMS_VERSION` and `OTERYN_PRIVACY_VERSION`. Both default
+to the bundled placeholder version. The server checks that both versions match
+the published, current editions linked in the signup locale when displaying
+the form and again in the account-creation transaction. A missing, stale or
+mismatched document makes signup unavailable and logs the locale and reason.
+Local and testing deployments can use matching placeholder editions. When
+reusing a local database with earlier placeholder editions, set both variables
+to the published versions or publish the revised editions. Production
+and preproduction reject versions beginning with `placeholder` and documents
+that retain the bundled draft notices or temporary operator marker. To enable
+live signup, replace the fictional details and remove the draft notices in
+the final copies. Publish final Terms and Privacy editions under new versions
+in the CMS, saving English before Polish. Configure the exact versions in the
+two environment variables and restart the portal. The refusal appears in the operator log as
+`sign-up blocked by legal document configuration`.
 
 The editor is `/admin/pages`. Its create form opens
 `/admin/pages/{slug}/{locale}`, which supports GET and CSRF-protected POST.

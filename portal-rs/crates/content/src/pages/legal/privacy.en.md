@@ -18,6 +18,8 @@ The operator is the controller of personal data processed through Oteryn. For pr
 
 Required account or purchase data let us provide the feature you request. Without them we may be unable to open the account, verify access or fulfill the order. We receive data from you and your device, generate records as you use the service, and receive transaction and game records from the relevant systems.
 
+When you register, change your password or reset it, we check whether the password appears in known breaches to protect accounts (Art. 6(1)(f) GDPR). If the relevant range is missing from the cache, we send the configured breach-range provider (Have I Been Pwned by default) the first five hexadecimal characters of the password’s SHA-1 hash. The provider receives only that prefix from the hash. We compare the rest of the hash locally and cache the returned range for 30 days.
+
 ## Retention
 
 Account and character records are kept while needed to provide the account and handle its closure. Sessions and short-lived challenges have idle or fixed expiry periods as applicable. We keep registered credentials while they are in use and apply the relevant expiration or revocation rules to tokens and trusted devices. Resolved or closed support tickets are subject to a 180-day cleanup window. Financial records are kept for the applicable statutory period. Security logs, audit records and records needed for disputes are retained as long as necessary for investigation, legal obligations or claims, taking applicable limitation periods into account.

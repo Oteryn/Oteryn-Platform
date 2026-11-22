@@ -18,13 +18,10 @@ fn input_boundaries() {
     assert!(!text("pl", "unavailable").is_empty());
     assert!(!text("en", "unavailable").is_empty());
 }
-#[tokio::test]
-async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn std::error::Error>> {
-    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
-    let started = std::time::Instant::now();
+async fn pages_database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error::Error>> {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("skipping PostgreSQL pages test: PORTAL_TEST_DATABASE_URL unset");
-        return Ok(());
+        return Ok(None);
     };
     let root = PgPool::connect(&url).await?;
     let schema = format!("pages_{}", Uuid::now_v7().simple());
@@ -43,6 +40,101 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
+    Ok(Some((root, pool, schema)))
+}
+async fn drop_pages_schema(root: PgPool, pool: PgPool, schema: &str) -> Result<(), sqlx::Error> {
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_installer_preserves_preexisting_draft_and_history_and_audits_once()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some((root, pool, schema)) = pages_database().await? else {
+        return Ok(());
+    };
+    let draft: Uuid = sqlx::query_scalar(
+        "INSERT INTO pages(id,slug) VALUES (uuidv7(),'terms-of-service') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO editorial_pages(page_id,locale,title,body)
+         VALUES ($1,'en','Staff draft','Staff draft body')",
+    )
+    .bind(draft)
+    .execute(&pool)
+    .await?;
+    let history: Uuid = sqlx::query_scalar(
+        "INSERT INTO pages(id,slug) VALUES (uuidv7(),'privacy-policy') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await?;
+    let snapshot = serde_json::json!({"title":"Archived privacy notice","body":"Prior staff content","effective":"2026-11-05"});
+    sqlx::query(
+        "INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES ($1,'pl','staff-v1',$2)",
+    )
+    .bind(history)
+    .bind(&snapshot)
+    .execute(&pool)
+    .await?;
+
+    for installed in [1, 0, 0] {
+        assert_eq!(legal::install(&pool).await?, installed);
+        let editions: Vec<(String, String, String, bool)> = sqlx::query_as(
+            "SELECT locale,title,body,published_at IS NULL FROM editorial_pages
+             WHERE page_id IN ($1,$2)",
+        )
+        .bind(draft)
+        .bind(history)
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            editions,
+            [(
+                "en".to_owned(),
+                "Staff draft".to_owned(),
+                "Staff draft body".to_owned(),
+                true
+            )]
+        );
+        let versions: Vec<(Uuid, String, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT page_id,locale,version,content FROM page_legal_versions WHERE page_id IN ($1,$2)",
+        )
+        .bind(draft)
+        .bind(history)
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            versions,
+            [(
+                history,
+                "pl".to_owned(),
+                "staff-v1".to_owned(),
+                snapshot.clone()
+            )]
+        );
+        let audited: Vec<String> = sqlx::query_scalar(
+            "SELECT target FROM audit_log WHERE action='cms.legal.defaults_installed'",
+        )
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(audited, ["cookie-policy"]);
+    }
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+#[tokio::test]
+async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let started = std::time::Instant::now();
+    let Some((root, pool, schema)) = pages_database().await? else {
+        return Ok(());
+    };
     let slug = format!("page-{}", Uuid::now_v7());
     let mut ctx = oteryn_admin::rbac::CheckContext {
         account: Uuid::now_v7(),
@@ -133,6 +225,15 @@ Updated English source",
         .await?;
     assert_eq!(legal::install(&pool).await?, 3);
     assert_eq!(legal::install(&pool).await?, 0);
+    let audited: Vec<String> = sqlx::query_scalar(
+        "SELECT target FROM audit_log WHERE action='cms.legal.defaults_installed' ORDER BY target",
+    )
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(
+        audited,
+        ["cookie-policy", "privacy-policy", "terms-of-service"]
+    );
     for (lang, note, titles) in [
         (
             "en",
@@ -442,10 +543,7 @@ Updated English source",
             .status(),
         StatusCode::NOT_FOUND
     );
-    pool.close().await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&root)
-        .await?;
+    drop_pages_schema(root, pool, &schema).await?;
     eprintln!(
         "postgres_pages_publication_and_legal_history duration: {:?}",
         started.elapsed()

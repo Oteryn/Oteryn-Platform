@@ -6,7 +6,7 @@ Obowiązuje od 22 listopada 2026 r.
 
 {{operator}}
 
-Regulamin określa zasady korzystania z portalu Oteryn i konta umożliwiającego dostęp do gry MMO. Czytanie publicznych stron nie wymaga konta. Do założenia konta potrzebujesz działającego adresu e-mail i akceptacji regulaminu. Umowa o prowadzenie konta jest zawierana na czas nieokreślony. Do gry potrzebujesz zgodnego klienta i połączenia z internetem. Możesz zrezygnować z konta przez ustawienia konta lub kontakt z operatorem.
+Regulamin określa zasady korzystania z portalu Oteryn i konta umożliwiającego dostęp do gry MMO. Czytanie publicznych stron nie wymaga konta. Do założenia konta potrzebujesz działającego adresu e-mail i akceptacji regulaminu. Umowa o prowadzenie konta jest zawierana na czas nieokreślony. Do gry potrzebujesz zgodnego klienta i połączenia z internetem. Jeśli funkcja zamknięcia konta jest dostępna w ustawieniach, możesz tam złożyć wniosek. W przeciwnym razie zwróć się w tej sprawie do operatora.
 
 ## Konto i osoby małoletnie
 
@@ -18,7 +18,7 @@ Zabronione są m.in. oszustwa, boty i niedozwolona automatyzacja, wykorzystywani
 
 ## Przedmioty i monety wirtualne
 
-Przedmioty, monety i inne dobra wirtualne dają ograniczoną licencję na korzystanie w grze, zgodnie z jej zasadami. Nie są pieniądzem, nie mają wartości pieniężnej, nie podlegają wymianie na gotówkę i można je przekazywać wyłącznie w ramach przewidzianych funkcji gry. Zakończenie dostępu do konta może zakończyć możliwość korzystania z tych dóbr, z zachowaniem ustawowych praw konsumenta.
+Przedmioty, monety i inne dobra wirtualne dają ograniczoną licencję na korzystanie z nich w ramach dozwolonych funkcji gry i portalu, zgodnie z obowiązującymi zasadami. Nie są pieniądzem, nie mają wartości pieniężnej i nie podlegają wymianie na gotówkę. Można je przekazywać wyłącznie za pomocą przewidzianych do tego funkcji gry lub portalu, w tym funkcji przekazywania monet w portalu, jeśli jest włączona i spełniasz warunki korzystania z niej. Zakończenie dostępu do konta może zakończyć możliwość korzystania z tych dóbr, z zachowaniem ustawowych praw konsumenta.
 
 ## Zakupy i odstąpienie od umowy
 

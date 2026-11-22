@@ -2,12 +2,12 @@ use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::Error,
 };
+use oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION as VERSION;
 use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 const OPERATOR: &str = include_str!("legal/operator.md");
-const VERSION: &str = "placeholder-2026-11-22";
 const EFFECTIVE: &str = "2026-11-22";
 
 type Edition = (&'static str, &'static str, &'static str);

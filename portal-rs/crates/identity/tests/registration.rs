@@ -90,8 +90,8 @@ fn input() -> Registration {
         email: "New@Example.test".into(),
         password: "registration test password".into(),
         password_confirmation: "registration test password".into(),
-        terms: Some("2026-11-05".into()),
-        privacy: Some("2026-11-05".into()),
+        terms: Some(oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION.into()),
+        privacy: Some(oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION.into()),
     }
 }
 async fn create(db: &Database) -> Result<uuid::Uuid> {
@@ -195,8 +195,14 @@ async fn submit(
         ("email", "New@Example.test"),
         ("password", "registration test password"),
         ("password_confirmation", "registration test password"),
-        ("terms", "2026-11-05"),
-        ("privacy", "2026-11-05"),
+        (
+            "terms",
+            oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION,
+        ),
+        (
+            "privacy",
+            oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION,
+        ),
         ("_csrf", csrf),
     ];
     if let Some((token, nonce)) = &proof {
@@ -706,5 +712,147 @@ async fn resend_queues_existing_unexpired_link() -> Result {
         verify::consume(&db.pool, &token(&db).await?).await?,
         Some(id)
     );
+    db.close().await
+}
+
+#[tokio::test]
+async fn registration_requires_current_localized_legal_versions_and_refuses_live_placeholders()
+-> Result {
+    use oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION;
+
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let version = PLACEHOLDER_LEGAL_VERSION;
+    let config = |terms: &str, allow_placeholders| {
+        ConsentConfig::published(terms.into(), version.into(), allow_placeholders)
+    };
+    let app = db.app().layer(axum::Extension(config(version, true)));
+    let load = |app: Router, locale| async move {
+        app.oneshot(Request::get(format!("/{locale}/register")).body(Body::empty())?)
+            .await
+            .map_err(Into::<Box<dyn std::error::Error>>::into)
+    };
+    assert_eq!(
+        load(app.clone(), "en").await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    for slug in ["terms-of-service", "privacy-policy"] {
+        let page: uuid::Uuid =
+            sqlx::query_scalar("INSERT INTO pages(id,slug) VALUES(uuidv7(),$1) RETURNING id")
+                .bind(slug)
+                .fetch_one(&db.pool)
+                .await?;
+        let source: i64 = sqlx::query_scalar(
+            "INSERT INTO editorial_pages(page_id,locale,title,body,legal_version,legal_effective_date,published_at)
+             VALUES($1,'en',$2,'Draft policy',$3,'2026-11-22',now()) RETURNING revision",
+        )
+        .bind(page)
+        .bind(slug)
+        .bind(version)
+        .fetch_one(&db.pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO editorial_pages(page_id,locale,title,body,legal_version,legal_effective_date,published_at,source_revision)
+             VALUES($1,'pl',$2,'Draft policy',$3,'2026-11-22',now(),$4)",
+        )
+        .bind(page)
+        .bind(slug)
+        .bind(version)
+        .bind(source)
+        .execute(&db.pool)
+        .await?;
+    }
+    assert_eq!(load(app.clone(), "pl").await?.status(), StatusCode::OK);
+    let (cookie, csrf, html) = credentials(&app).await?;
+    for name in ["terms", "privacy"] {
+        assert!(html.contains(&format!("name=\"{name}\" value=\"{version}\"")));
+    }
+    let mismatched = db
+        .app()
+        .layer(axum::Extension(config("different-version", true)));
+    assert_eq!(
+        load(mismatched, "en").await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let live = db.app().layer(axum::Extension(config(version, false)));
+    assert_eq!(
+        load(live.clone(), "en").await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        submit(&live, &cookie, &csrf, &[]).await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert!(
+        register::register(&db.pool, input(), &config(version, false), "en", None)
+            .await
+            .is_err()
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM accounts")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 0);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM account_consents")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 0);
+
+    sqlx::query(
+        "UPDATE editorial_pages SET source_revision=0
+         WHERE locale='pl' AND page_id=(SELECT id FROM pages WHERE slug='terms-of-service')",
+    )
+    .execute(&db.pool)
+    .await?;
+    assert_eq!(
+        load(app.clone(), "pl").await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        submit(&app, &cookie, &csrf, &[]).await?.status(),
+        StatusCode::SEE_OTHER
+    );
+    let records: Vec<(String, String)> = sqlx::query_as(
+        "SELECT document_kind,document_version FROM account_consents ORDER BY document_kind",
+    )
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(
+        records,
+        [
+            ("privacy".to_owned(), version.to_owned()),
+            ("terms".to_owned(), version.to_owned())
+        ]
+    );
+    sqlx::query(
+        "UPDATE editorial_pages SET legal_version='final-v1', body='[DANE TYMCZASOWE]'
+         WHERE locale='en'",
+    )
+    .execute(&db.pool)
+    .await?;
+    let final_config = ConsentConfig::published("final-v1".into(), "final-v1".into(), false);
+    let live = db.app().layer(axum::Extension(final_config.clone()));
+    assert_eq!(
+        load(live.clone(), "en").await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+
+    sqlx::query("UPDATE editorial_pages SET body='Approved legal text' WHERE locale='en'")
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(load(live, "en").await?.status(), StatusCode::OK);
+    let mut final_input = input();
+    final_input.email = "Final@Example.test".into();
+    final_input.terms = Some("final-v1".into());
+    final_input.privacy = Some("final-v1".into());
+    let id = register::register(&db.pool, final_input, &final_config, "en", None)
+        .await?
+        .ok_or("account missing")?;
+    let versions: Vec<String> =
+        sqlx::query_scalar("SELECT document_version FROM account_consents WHERE account_id=$1")
+            .bind(id)
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(versions, ["final-v1", "final-v1"]);
     db.close().await
 }

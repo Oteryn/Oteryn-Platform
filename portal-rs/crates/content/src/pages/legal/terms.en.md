@@ -6,7 +6,7 @@ Effective 22 November 2026.
 
 {{operator}}
 
-These terms govern use of the Oteryn portal and the account used to access its MMO. You can read public pages without an account. An account requires a working email address and acceptance of these terms. The account agreement runs for an indefinite period. Playing requires a compatible client and internet access. You can close your account in account settings or by contacting the operator.
+These terms govern use of the Oteryn portal and the account used to access its MMO. You can read public pages without an account. An account requires a working email address and acceptance of these terms. The account agreement runs for an indefinite period. Playing requires a compatible client and internet access. You can request account closure in account settings when the feature is enabled. Otherwise, contact the operator to request closure.
 
 ## Accounts and minors
 
@@ -14,11 +14,11 @@ Keep your details current, protect your sign-in credentials and report suspected
 
 ## Conduct and enforcement
 
-Prohibited conduct includes cheating, bots or unauthorized automation, abusing bugs for an advantage, impersonation, harassment, threats, unlawful disclosure of other people's data, real-money trading outside authorized features, and evading restrictions. Depending on the severity and frequency of a breach, the operator may warn you, restrict features, suspend access, or terminate the agreement and ban the account for serious or repeated violations. In urgent cases the operator may temporarily restrict access to protect the account or service during an investigation. The operator will explain the reason and scope where the law permits. You can appeal through the complaints process.
+Prohibited conduct includes cheating, bots or unauthorized automation, abusing bugs for an advantage, impersonation, harassment, threats, unlawful disclosure of other people's data, real-money trading outside authorized features, and evading restrictions. Depending on the severity and frequency of a breach, the operator may warn you, restrict features, suspend access, or terminate the agreement and ban the account for serious or persistent violations. In urgent cases the operator may temporarily restrict access to protect the account or service during an investigation. The operator will explain the reason and scope where the law permits. You can appeal through the complaints process.
 
 ## Virtual items and coins
 
-Virtual items, coins and other virtual goods come with a limited licence to use them in the game under its rules. They have no cash value, cannot be redeemed for money, and may only be transferred through features provided for that purpose. Losing access to the account can end access to these goods, subject to statutory consumer rights.
+Virtual items, coins and other virtual goods come with a limited licence to use them through authorized game and portal features under the applicable rules. They have no cash value and cannot be redeemed for money. You may transfer them only through authorized game or portal features, such as the portal’s coin transfer feature when it is enabled and you are eligible to use it. Losing access to the account can end access to these goods, subject to statutory consumer rights.
 
 ## Purchases and withdrawal
 

@@ -18,6 +18,8 @@ Operator jest administratorem danych osobowych przetwarzanych w portalu Oteryn. 
 
 Bez danych wymaganych do działania wybranej funkcji możemy nie móc utworzyć konta, zweryfikować dostępu lub zrealizować zamówienia. Dane otrzymujemy od Ciebie i Twojego urządzenia, zapisujemy je w toku korzystania z usługi oraz otrzymujemy informacje o transakcjach i grze z odpowiednich systemów.
 
+Przy rejestracji, zmianie lub resetowaniu hasła sprawdzamy, czy hasło pojawiło się w znanych wyciekach, aby chronić konta (art. 6 ust. 1 lit. f RODO). Jeśli odpowiedniego zakresu nie ma w pamięci podręcznej, wysyłamy skonfigurowanemu dostawcy usługi sprawdzania wycieków (domyślnie Have I Been Pwned) pięć pierwszych znaków szesnastkowych skrótu SHA-1 hasła. Dostawca otrzymuje tylko ten fragment skrótu. Pozostałą część porównujemy lokalnie, a zwrócony zakres zapisujemy w pamięci podręcznej na 30 dni.
+
 ## Okres przechowywania
 
 Dane konta i postaci przechowujemy przez czas potrzebny do obsługi konta i jego zamknięcia. Sesje i krótkotrwałe wyzwania wygasają po określonym czasie lub po okresie bezczynności, zależnie od mechanizmu. Dane zarejestrowanych metod logowania przechowujemy w okresie ich używania, a tokeny i dane zaufanych urządzeń podlegają regułom wygasania i unieważniania. Rozwiązane i zamknięte zgłoszenia podlegają usuwaniu po 180 dniach. Dokumentację finansową przechowujemy przez okres wymagany przepisami. Dane dotyczące bezpieczeństwa, wpisy audytowe i dane związane ze sporami przechowujemy przez czas potrzebny do wyjaśnienia sprawy, wykonania obowiązków prawnych lub obsługi roszczeń, z uwzględnieniem terminów przedawnienia.

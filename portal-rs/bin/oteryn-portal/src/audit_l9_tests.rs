@@ -115,6 +115,9 @@ async fn fixture(name: &str, mode: &str) -> Result {
     command
         .args(["--exact", &format!("audit_l9_tests::{name}"), "--nocapture"])
         .env("L9_CHILD", "true")
+        .env("OTERYN_ENV", "testing")
+        .env_remove("OTERYN_TERMS_VERSION")
+        .env_remove("OTERYN_PRIVACY_VERSION")
         .env("TRUSTED_PROXIES", "10.0.0.1")
         .env("OTERYN_SMTP_HOST", "localhost")
         .env("OTERYN_SMTP_PORT", port.to_string())
@@ -204,9 +207,11 @@ async fn fixture(name: &str, mode: &str) -> Result {
     Ok(())
 }
 async fn database() -> Result<crate::reset_http::tests::db::Database> {
-    crate::reset_http::tests::db::Database::open()
+    let db = crate::reset_http::tests::db::Database::open()
         .await?
-        .ok_or_else(|| "PORTAL_TEST_DATABASE_URL required; no skipped audit tests".into())
+        .ok_or("PORTAL_TEST_DATABASE_URL required; no skipped audit tests")?;
+    oteryn_content::pages::legal::install(&db.pool).await?;
+    Ok(db)
 }
 fn app(pool: sqlx::PgPool) -> axum::Router {
     oteryn_web::register::configured(oteryn_web::router(

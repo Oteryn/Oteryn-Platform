@@ -263,8 +263,8 @@ async fn browser_submit(
         ("email", "abuse@example.test"),
         ("password", password),
         ("password_confirmation", password),
-        ("terms", "2026-11-05"),
-        ("privacy", "2026-11-05"),
+        ("terms", crate::consents::PLACEHOLDER_LEGAL_VERSION),
+        ("privacy", crate::consents::PLACEHOLDER_LEGAL_VERSION),
     ];
     Ok(app
         .clone()
@@ -471,8 +471,8 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
             ("email", "registration-budget@example.test"),
             ("password", "a fresh registration passphrase"),
             ("password_confirmation", "a fresh registration passphrase"),
-            ("terms", "2026-11-05"),
-            ("privacy", "2026-11-05"),
+            ("terms", crate::consents::PLACEHOLDER_LEGAL_VERSION),
+            ("privacy", crate::consents::PLACEHOLDER_LEGAL_VERSION),
         ])?;
         forms.push((app, cookie, body));
     }

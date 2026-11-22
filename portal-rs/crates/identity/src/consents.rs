@@ -1,21 +1,106 @@
 //! Versioned legal acceptance recorded in the registration transaction.
 use crate::accounts::AccountId;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgExecutor};
 use std::net::IpAddr;
+/// Version of the repository's bilingual placeholder package.
+pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
+
 #[derive(Debug, Clone)]
 pub struct ConsentConfig {
     pub terms_version: String,
     pub privacy_version: String,
+    publication: Option<PublicationPolicy>,
 }
+#[derive(Debug, Clone, Copy)]
+enum PublicationPolicy {
+    AllowPlaceholders,
+    FinalOnly,
+}
+
 impl Default for ConsentConfig {
     fn default() -> Self {
         Self {
-            terms_version: "2026-11-05".into(),
-            privacy_version: "2026-11-05".into(),
+            terms_version: PLACEHOLDER_LEGAL_VERSION.into(),
+            privacy_version: PLACEHOLDER_LEGAL_VERSION.into(),
+            publication: None,
         }
     }
 }
 impl ConsentConfig {
+    /// Require the same published CMS editions for display and consent recording.
+    pub fn published(
+        terms_version: String,
+        privacy_version: String,
+        allow_placeholders: bool,
+    ) -> Self {
+        Self {
+            terms_version,
+            privacy_version,
+            publication: Some(if allow_placeholders {
+                PublicationPolicy::AllowPlaceholders
+            } else {
+                PublicationPolicy::FinalOnly
+            }),
+        }
+    }
+
+    /// In a registration transaction the row locks hold through consent recording.
+    pub async fn check_publication<'e>(
+        &self,
+        db: impl PgExecutor<'e>,
+        locale: &str,
+    ) -> Result<(), sqlx::Error> {
+        let Some(policy) = self.publication else {
+            // Unconfigured adapters use an isolated registration fixture.
+            return Ok(());
+        };
+        let documents: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT p.slug,e.legal_version,e.body
+             FROM pages p
+             JOIN editorial_pages e ON e.page_id=p.id
+             JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
+             WHERE p.slug IN ('terms-of-service','privacy-policy') AND e.locale=$1
+                AND e.published_at<=now() AND source.published_at<=now()
+                AND (e.locale='en' OR e.source_revision=source.revision)
+                AND e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL
+             ORDER BY p.slug FOR SHARE OF e,source",
+        )
+        .bind(locale)
+        .fetch_all(db)
+        .await
+        .inspect_err(|_| {
+            tracing::error!(
+                locale,
+                "sign-up blocked: cannot read published legal documents"
+            )
+        })?;
+        for (slug, expected) in [
+            ("terms-of-service", &self.terms_version),
+            ("privacy-policy", &self.privacy_version),
+        ] {
+            let document = documents.iter().find(|(name, _, _)| name == slug);
+            let reason = match document {
+                None => "published legal document missing for signup locale",
+                Some((_, version, body))
+                    if matches!(policy, PublicationPolicy::FinalOnly)
+                        && (version.to_ascii_lowercase().starts_with("placeholder")
+                            || body.contains("Draft — operator details are placeholders.")
+                            || body.contains("Wersja robocza — dane operatora są tymczasowe.")
+                            || body.contains("[DANE TYMCZASOWE")) =>
+                {
+                    "placeholder legal document must be replaced before live signup"
+                }
+                Some((_, version, _)) if version != expected => {
+                    "configured consent version does not match published legal document"
+                }
+                Some(_) => continue,
+            };
+            tracing::error!(locale, slug, expected, published = ?document.map(|(_, version, _)| version), reason, "sign-up blocked by legal document configuration");
+            return Err(sqlx::Error::Protocol(reason.into()));
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> bool {
         [&self.terms_version, &self.privacy_version]
             .into_iter()
