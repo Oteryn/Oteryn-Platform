@@ -126,7 +126,8 @@ test('unprefixed news renders the announcement in the resolved page locale', asy
    expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${expected}"`));
    expect(html).toContain(t(expected, polish, english));
    expect(html).not.toContain(t(expected, english, polish));
-   expect(html).toMatch(new RegExp(String.raw`<header\b[^>]*id="portal-header"[\s\S]*?href="/${expected}/news"`));
+   const header = html.match(/<header\b[^>]*id="portal-header"[\s\S]*?<\/header>/)?.[0];
+   expect(header).toContain(`href="/${expected}/news"`);
   }
  } finally {
   await db.query('DELETE FROM announcements WHERE id=$1', [id]);
