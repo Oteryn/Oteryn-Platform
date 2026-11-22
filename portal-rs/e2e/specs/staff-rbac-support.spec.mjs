@@ -38,7 +38,6 @@ test('report moderation issues and lifts a persisted sanction and publishes the 
   await audit(s.page,'support.enforcement_created',sanction);
   await s.page.goto(`/admin/moderation/reports/${report}`);await action(s.page,'form:has(input[value=moderate])',{status:'actioned',public_outcome:outcome,moderator_notes:`Sanction ${sanction}`});
   await page.goto(playerPath);await expect(page.locator('main'),'player sees public enforcement outcome').toContainText(outcome);
-  // No player sanction-history HTTP router is composed; Appeals is domain-only.
   // No local fake producer supplies enforcement results. Do not invent a Game receipt:
   // this proves Platform sanction state and public report outcome, not Game execution.
   await s.page.goto(`/admin/moderation/enforcement/${sanction}`);await action(s.page,'form:has(input[value=sanction])',{...values,status:'revoked',public_reason:lift});

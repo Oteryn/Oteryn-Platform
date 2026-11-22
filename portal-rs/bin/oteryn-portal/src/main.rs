@@ -287,9 +287,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
-            let app = app.merge(oteryn_support::tickets::configured_staff_router(
-                db.clone(),
-            )?);
             let app = app.merge(oteryn_atlas::spawns::configured_router(db.clone()));
             let app = app.layer(axum::middleware::from_fn(
                 oteryn_atlas::spawns::viewer_policy,
@@ -307,6 +304,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 db.clone(),
             ));
             let app = mfa_http::configured(app, db.clone())?;
+            // Match appeals before shared chrome so its session lookup uses the request deadline.
+            let app = app.merge(oteryn_support::tickets::configured_support_router(
+                db.clone(),
+                &origin,
+            )?);
             let app = app.merge(oteryn_web::search::routes(
                 oteryn_web::search::SearchState {
                     pool: db.clone(),
@@ -487,6 +489,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 app
             };
+            let app = oteryn_support::appeals::web::with_browser_deadline(app);
+            let app = oteryn_admin::support::web::with_browser_deadline(app);
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);

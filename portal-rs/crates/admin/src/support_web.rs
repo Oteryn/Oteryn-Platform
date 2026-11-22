@@ -3,12 +3,12 @@ use super::*;
 use crate::web::{self, PanelConfig, StaffSession};
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
+    extract::{FromRequest, Path, Query, Request, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_web::session::BrowserSession;
+use oteryn_web::session::{BrowserSession, SessionMutationDeadline, with_post_deadline};
 use std::sync::Arc;
 
 struct Panel<A, B> {
@@ -108,6 +108,14 @@ fn base(area: Area) -> &'static str {
         Area::Enforcement => "/admin/moderation/enforcement",
     }
 }
+
+/// Apply outside shared chrome to cover enforcement submissions from their first session read.
+pub fn with_browser_deadline(app: Router) -> Router {
+    with_post_deadline(app, |path| {
+        path.strip_suffix("/{id}") == Some(base(Area::Enforcement))
+    })
+}
+
 fn area_routes<A: AccountStateReader + 'static, B: Backend>(
     area: Area,
     state: Arc<Panel<A, B>>,
@@ -230,11 +238,23 @@ async fn list<A: AccountStateReader, B: Backend>(
     }
     for record in records {
         body.push_str(&format!(
-            "<li><a href=\"{}/{}\">{}</a></li>",
+            "<li><a href=\"{}/{}\">{}</a>",
             base(area),
             record.id,
             escape(&record.title)
         ));
+        if let Some(appeal) = record
+            .appeal_status
+            .as_deref()
+            .filter(|status| *status != "none")
+        {
+            body.push_str(&format!(
+                " · {} · {}",
+                text(lang, "appeal_status"),
+                text(lang, appeal)
+            ));
+        }
+        body.push_str("</li>");
     }
     body.push_str("</ul>");
     if has_next {
@@ -277,6 +297,7 @@ async fn create_page(
         title: text(language(&headers), "create"),
         status: "active".into(),
         messages: vec![],
+        appeal_status: None,
         next_message: None,
     };
     render_record(Area::Enforcement, record, session, headers, true).await
@@ -298,6 +319,17 @@ async fn render_record(
         escape(&record.title),
         escape(&text(lang, &record.status))
     );
+    if let Some(appeal) = record
+        .appeal_status
+        .as_deref()
+        .filter(|status| *status != "none")
+    {
+        body.push_str(&format!(
+            "<p>{} · {}</p>",
+            text(lang, "appeal_status"),
+            text(lang, appeal)
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",
@@ -344,7 +376,13 @@ async fn render_record(
         ],
     };
     for (action, fields) in actions {
-        if create && *action != "sanction" {
+        if (create && *action != "sanction")
+            || (*action == "appeal"
+                && !matches!(
+                    record.appeal_status.as_deref(),
+                    Some("requested" | "reviewing")
+                ))
+        {
             continue;
         }
         body.push_str(&format!("<form method=\"post\" action=\"{}/{}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"lock_version\" value=\"{}\"><input type=\"hidden\" name=\"action\" value=\"{action}\">",base(area),record.id,escape(&csrf),record.version));
@@ -366,21 +404,46 @@ async fn render_record(
                     &["submitted", "reviewing", "actioned", "rejected", "closed"]
                 }
                 ("status", Area::Enforcement) => &["active", "expired", "revoked"],
-                ("appeal_status", _) => &["reviewing", "accepted", "rejected"],
+                ("appeal_status", _) => &["accepted", "rejected"],
                 ("category", _) => &["warning", "restriction", "suspension"],
                 _ => &[],
             };
             if choices.is_empty() {
-                body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"8000\"></textarea></label></p>",text(lang,field)));
+                let (max_length, required) = if *field == "appeal_outcome" {
+                    (MAX_APPEAL_OUTCOME_LENGTH, " required")
+                } else {
+                    (8000, "")
+                };
+                body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"{max_length}\"{required}></textarea></label></p>",text(lang,field)));
             } else {
+                let required = if *field == "appeal_status" {
+                    " required"
+                } else {
+                    ""
+                };
                 body.push_str(&format!(
-                    "<p><label>{}<select class=\"op-input\" name=\"{field}\">",
+                    "<p><label>{}<select class=\"op-input\" name=\"{field}\"{required}>",
                     text(lang, field)
                 ));
+                if *field == "appeal_status" {
+                    body.push_str(&format!(
+                        "<option value=\"\" selected disabled>{}</option>",
+                        text(lang, "choose_decision")
+                    ));
+                }
                 for choice in choices {
                     body.push_str(&format!(
                         "<option value=\"{choice}\">{}</option>",
-                        text(lang, choice)
+                        text(
+                            lang,
+                            if *field == "appeal_status" && *choice == "accepted" {
+                                "overturn"
+                            } else if *field == "appeal_status" {
+                                "uphold"
+                            } else {
+                                choice
+                            }
+                        )
                     ));
                 }
                 body.push_str("</select></label></p>");
@@ -401,23 +464,58 @@ async fn change<A: AccountStateReader, B: Backend>(
     Extension(area): Extension<Area>,
     Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
-    Form(input): Form<Input>,
+    headers: HeaderMap,
+    deadline: Option<Extension<SessionMutationDeadline>>,
+    request: Request,
 ) -> Response {
+    let deadline = deadline.as_ref().map(|Extension(deadline)| deadline);
+    if area == Area::Enforcement && deadline.is_none() {
+        return status(Error::Unavailable);
+    }
+    let mut input =
+        match web::read_request(deadline, Form::<Input>::from_request(request, &s)).await {
+            Ok(Ok(Form(input))) => input,
+            Ok(Err(rejection)) => return rejection.into_response(),
+            Err(status) => return status.into_response(),
+        };
     if input.command.area() != area {
         return status(Error::Invalid);
     }
-    match execute(
+    if let Command::Appeal { appeal_outcome, .. } = &mut input.command {
+        *appeal_outcome = oteryn_web::normalize_textarea(appeal_outcome);
+    }
+    match execute_with_deadline(
         &s.pool,
         &s.auth,
         &s.backend,
         context,
-        id,
-        input.lock_version,
+        (id, input.lock_version),
         &input.command,
+        deadline,
     )
     .await
     {
         Ok(()) => Redirect::to(&format!("{}/{id}", base(area))).into_response(),
+        Err(Error::Conflict) => {
+            let lang = language(&headers);
+            let body = format!(
+                "<p>{}</p><a href=\"{}/{id}\">{}</a>",
+                escape(&text(lang, "conflict")),
+                base(area),
+                escape(&text(lang, "reload"))
+            );
+            (StatusCode::CONFLICT, shell(lang, body)).into_response()
+        }
+        Err(Error::Invalid) if matches!(input.command, Command::Appeal { .. }) => {
+            let lang = language(&headers);
+            let body = format!(
+                "<p>{}</p><a href=\"{}/{id}\">{}</a>",
+                escape(&text(lang, "appeal_invalid")),
+                base(area),
+                escape(&text(lang, "appeal_return"))
+            );
+            (StatusCode::UNPROCESSABLE_ENTITY, shell(lang, body)).into_response()
+        }
         Err(error) => {
             use oteryn_web::chrome::TicketConflict;
             let reason = match error {

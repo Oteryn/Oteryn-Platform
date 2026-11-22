@@ -411,8 +411,8 @@ struct ErrorPage<'a> {
     chrome: &'a Chrome,
     title: String,
     description: String,
-    recovery_path: Option<&'a str>,
     status: u16,
+    link: Option<(&'a str, &'a str)>,
 }
 /// Plain, translated refusal detail supplied by a module's existing decision.
 #[derive(Clone, Debug)]
@@ -438,15 +438,26 @@ pub fn stale_form(chrome: &Chrome, recovery_path: &str) -> Response {
         chrome,
         StatusCode::CONFLICT,
         &chrome.text("error-409-stale-description"),
-        Some(recovery_path),
+        Some((recovery_path, &chrome.text("error-409-open-form"))),
     )
+}
+
+/// Render a refusal with a link to the current page for recovery from a stale form.
+pub fn error_with_link(
+    chrome: &Chrome,
+    status: StatusCode,
+    message: &str,
+    href: &str,
+    label: &str,
+) -> Response {
+    render_error(chrome, status, message, Some((href, label)))
 }
 
 fn render_error(
     chrome: &Chrome,
     status: StatusCode,
     message: &str,
-    recovery_path: Option<&str>,
+    link: Option<(&str, &str)>,
 ) -> Response {
     let mut title = chrome.text(&format!("error-{}-title", status.as_u16()));
     if title.is_empty() {
@@ -463,7 +474,7 @@ fn render_error(
             status: status.as_u16(),
             title,
             description,
-            recovery_path,
+            link,
         },
         status,
     )
@@ -961,6 +972,7 @@ mod tests {
                     description: String::new(),
                     recovery_path: None,
                     status: status.as_u16(),
+                    link: None,
                 }
                 .render()?;
                 assert!(html.contains("<body class=\"op-theme op-shell\">"));

@@ -1,7 +1,11 @@
 # Explicit always-on route registrations. S denotes a service.
 internal P /internal/v1/game-public/house
 internal P /internal/v1/game-public/world-online
+internal G /{lang}/support/appeals/{id}
+native G /{lang}/support/appeals/{id}
 public G /
+public G /{lang}/support/appeals
+public G /{lang}/support/appeals/{id}
 public G /announcements/ticker
 public G /api/v1/account/summary
 public G /api/v1/feed

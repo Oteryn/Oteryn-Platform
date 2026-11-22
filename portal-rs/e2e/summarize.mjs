@@ -12,12 +12,13 @@ function walk(suites){for(const suite of suites){for(const spec of suite.specs||
 walk(raw.suites||[]);
 const projects=raw.config.projects.map(p=>p.name);
 const counts=Object.fromEntries(projects.map(project=>{const set=cases.filter(c=>c.project===project);return [project,{passed:set.filter(c=>c.status==='passed').length,failed:set.filter(c=>!['passed','skipped'].includes(c.status)).length,skipped:set.filter(c=>c.status==='skipped').length,retries:set.reduce((n,c)=>n+Math.max(0,c.attempts-1),0)}];}));
-const routes=inventory.routes.map(row=>{
+const routes=inventory.routes.flatMap(row=>{
  const expected=expectations.filter(e=>e.crate===row.crate&&e.route===row.route);
- const titles=(expected.length ? expected : [row]).map(e=>routeCaseTitle(e, expectations));
- const actor=expected.map(e=>e.actor).join(', ') || undefined;
- const evidence=expected.map(e=>`${e.actor}: ${e.method} ${e.status}; ${e.reason}`).join(' / ');
- return {...row,actor,method:expected[0]?.method,status:expected[0]?.status,reason:expected[0]?.reason,evidence,case:titles.join(' / '),result:routesPassed(cases,projects,titles)?(row.notApplicable?'NOT_APPLICABLE':'PASS'):'UNCOVERED'};
+ return (expected.length ? expected : [row]).map(entry=>{
+  const title=routeCaseTitle(entry,expectations);
+  const evidence=`${entry.actor}: ${entry.method} ${entry.status}; ${entry.reason}`;
+  return {...row,actor:entry.actor,method:entry.method,status:entry.status,reason:entry.reason,evidence,case:title,result:routesPassed(cases,projects,[title])?(row.notApplicable?'NOT_APPLICABLE':'PASS'):'UNCOVERED'};
+ });
 });
 const sections=inventory.sections.map(row=>({...row,result:projects.every(project=>cases.some(c=>c.project===project&&c.case===`registry ${row.section}: destination and shared shell`&&c.status==='passed'&&c.attempts===1))?'PASS':'UNCOVERED'}));
 const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','portal-rs'],{cwd:path.dirname(root),encoding:'utf8'}).trim().split('\n').filter(f=>!['portal-rs/e2e/REPORT.md','portal-rs/e2e/qualification.json','portal-rs/e2e/COVERAGE.md'].includes(f)).sort();

@@ -1,9 +1,10 @@
 //! Server-side browser sessions. Raw identifiers are never persisted or logged.
 
 use axum::{
-    extract::{Request, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
-    middleware::Next,
+    Router,
+    extract::{MatchedPath, Request, State},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -373,11 +374,123 @@ fn cookie(id: &str) -> String {
     format!("{COOKIE_NAME}={id}; Secure; HttpOnly; SameSite=Lax; Path=/")
 }
 
+/// Monotonic request deadline shared by chrome and bounded session refresh.
+#[derive(Clone, Copy, Debug)]
+pub struct BrowserMutationDeadline(tokio::time::Instant);
+
+/// Start a browser POST's budget before shared chrome looks up the session.
+pub fn with_post_deadline(app: Router, matches_path: fn(&str) -> bool) -> Router {
+    app.layer(middleware::from_fn(
+        move |mut request: Request, next: Next| async move {
+            if request.method() == Method::POST
+                && request
+                    .extensions()
+                    .get::<MatchedPath>()
+                    .is_some_and(|path| matches_path(path.as_str()))
+            {
+                request
+                    .extensions_mut()
+                    .insert(BrowserMutationDeadline::start());
+            }
+            next.run(request).await
+        },
+    ))
+}
+
+impl BrowserMutationDeadline {
+    pub fn start() -> Self {
+        Self(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
+    }
+
+    async fn read<T>(
+        self,
+        read: impl std::future::Future<Output = Result<T, sqlx::Error>>,
+    ) -> Result<T, sqlx::Error> {
+        self.within(read).await.ok_or(sqlx::Error::PoolTimedOut)?
+    }
+
+    pub(crate) async fn within<T>(self, work: impl std::future::Future<Output = T>) -> Option<T> {
+        if tokio::time::Instant::now() >= self.0 {
+            return None;
+        }
+        tokio::time::timeout_at(self.0, work).await.ok()
+    }
+
+    async fn calibrate(
+        self,
+        tx: &mut sqlx::PgConnection,
+    ) -> Result<SessionMutationDeadline, sqlx::Error> {
+        let database_now: OffsetDateTime = self
+            .read(sqlx::query_scalar("SELECT clock_timestamp()").fetch_one(tx))
+            .await?;
+        // Sample the remaining time after the reply. Round-trip latency can only
+        // shorten the resulting deadline on PostgreSQL's clock.
+        let remaining = self
+            .0
+            .checked_duration_since(tokio::time::Instant::now())
+            .ok_or(sqlx::Error::PoolTimedOut)?;
+        Ok(SessionMutationDeadline {
+            database: database_now + remaining,
+            request: self,
+        })
+    }
+}
+
+/// Same request deadline calibrated once to the database clock at session refresh.
+#[derive(Clone, Debug)]
+pub struct SessionMutationDeadline {
+    database: OffsetDateTime,
+    request: BrowserMutationDeadline,
+}
+
+impl SessionMutationDeadline {
+    /// Bound request body reads without dropping a future that can commit a mutation.
+    pub async fn read_request<T>(
+        &self,
+        read: impl std::future::Future<Output = T>,
+    ) -> Result<T, StatusCode> {
+        self.request
+            .within(read)
+            .await
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+    }
+
+    /// Bound admission work that cannot write, including its pool wait.
+    pub async fn read<T>(
+        &self,
+        read: impl std::future::Future<Output = Result<T, sqlx::Error>>,
+    ) -> Result<T, sqlx::Error> {
+        self.request.read(read).await
+    }
+
+    async fn configure(&self, tx: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
+        self.read(async {
+            sqlx::query("SELECT set_config('oteryn.mutation_deadline', extract(epoch FROM $1::timestamptz)::text, true)")
+                .bind(self.database)
+                .execute(&mut *tx)
+                .await?;
+            oteryn_db::mutation_budget(tx).await?;
+            oteryn_db::transaction::arm_timeout(tx, 0).await
+        }).await
+    }
+
+    /// Acquire a transaction before the request deadline and carry the database budget into it.
+    pub async fn begin(
+        &self,
+        pool: &PgPool,
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, sqlx::Error> {
+        let mut tx = self.read(pool.begin()).await?;
+        self.configure(&mut tx).await?;
+        Ok(tx)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct SessionLayer {
     pub pool: PgPool,
     pub config: SessionConfig,
     pub csrf: crate::csrf::CsrfConfig,
+    bounded_refresh: bool,
 }
 impl SessionLayer {
     pub fn new(pool: PgPool) -> Self {
@@ -385,7 +498,14 @@ impl SessionLayer {
             pool,
             config: SessionConfig::default(),
             csrf: crate::csrf::CsrfConfig::default(),
+            bounded_refresh: false,
         }
+    }
+
+    /// Start the mutation budget before refreshing the session for an unsafe method.
+    pub fn with_bounded_refresh(mut self) -> Self {
+        self.bounded_refresh = true;
+        self
     }
 }
 /// Attach after route matching. Deployment overrides can be supplied as outer
@@ -434,11 +554,24 @@ pub async fn middleware(
             .unwrap_or(layer.config),
         csrf,
         pool: layer.pool,
+        bounded_refresh: layer.bounded_refresh,
     };
     match run(&layer, &mut request).await {
         Ok(session) => {
             request.extensions_mut().insert(session.clone());
-            if let Err(status) = crate::csrf::verify(&layer.csrf, &session, &mut request).await {
+            let deadline = request
+                .extensions()
+                .get::<SessionMutationDeadline>()
+                .cloned();
+            let verification = crate::csrf::verify(&layer.csrf, &session, &mut request);
+            let verified = match deadline {
+                Some(deadline) => deadline
+                    .read_request(verification)
+                    .await
+                    .and_then(std::convert::identity),
+                None => verification.await,
+            };
+            if let Err(status) = verified {
                 if status == StatusCode::FORBIDDEN
                     && request
                         .extensions()
@@ -470,9 +603,39 @@ pub async fn middleware(
         Err(sqlx::Error::Protocol(message)) if message == "invalid session cookie" => {
             StatusCode::BAD_REQUEST.into_response()
         }
+        Err(error) if layer.bounded_refresh && refresh_timed_out(&error) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
+
+fn refresh_timed_out(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::PoolTimedOut)
+        || error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .is_some_and(|code| matches!(code.as_ref(), "55P03" | "57014" | "25P04"))
+}
+
+async fn refresh_session<'e>(
+    db: impl sqlx::PgExecutor<'e>,
+    id_hash: Vec<u8>,
+    idle_seconds: i32,
+) -> Result<Option<(Uuid, String, Option<Uuid>)>, sqlx::Error> {
+    sqlx::query_as(
+        "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
+            idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
+         WHERE id_hash=$1 AND idle_expires_at>clock_timestamp()
+            AND absolute_expires_at>clock_timestamp()
+         RETURNING session_id,csrf_token,account_id",
+    )
+    .bind(id_hash)
+    .bind(f64::from(idle_seconds))
+    .fetch_optional(db)
+    .await
+}
+
 async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSession, sqlx::Error> {
     layer.config.validate()?;
     let ip = request
@@ -488,17 +651,35 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         .unwrap_or_default();
     let session = BrowserSession::new(layer.pool.clone(), layer.config, ip, agent);
     if let Some(id) = cookie_id(request.headers())? {
-        let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
-            "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
-                idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
-             WHERE id_hash=$1 AND idle_expires_at>clock_timestamp()
-                AND absolute_expires_at>clock_timestamp()
-             RETURNING session_id,csrf_token,account_id",
-        )
-        .bind(hash(id))
-        .bind(f64::from(layer.config.idle_seconds))
-        .fetch_optional(&layer.pool)
-        .await?;
+        let id_hash = hash(id);
+        let (row, deadline) = if layer.bounded_refresh && !request.method().is_safe() {
+            let request_deadline = request
+                .extensions()
+                .get::<BrowserMutationDeadline>()
+                .copied()
+                .unwrap_or_else(BrowserMutationDeadline::start);
+            let mut tx = request_deadline.read(layer.pool.begin()).await?;
+            let deadline = request_deadline.calibrate(&mut tx).await?;
+            deadline.configure(&mut tx).await?;
+            // Evaluate expiry in the refresh statement after the row lock is acquired.
+            sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
+                .bind(&id_hash)
+                .execute(&mut *tx)
+                .await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
+            let row = refresh_session(&mut *tx, id_hash, layer.config.idle_seconds).await?;
+            oteryn_db::mutation_budget(&mut tx).await?;
+            if !oteryn_db::transaction::arm_commit(&mut tx, None).await? {
+                return Err(sqlx::Error::PoolTimedOut);
+            }
+            tx.commit().await?;
+            (row, Some(deadline))
+        } else {
+            (
+                refresh_session(&layer.pool, id_hash, layer.config.idle_seconds).await?,
+                None,
+            )
+        };
         if let Some((session_id, csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
                 session_id,
@@ -506,6 +687,9 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
                 csrf,
                 account_id,
             });
+        }
+        if let Some(deadline) = deadline {
+            request.extensions_mut().insert(deadline);
         }
     }
     Ok(session)

@@ -304,12 +304,9 @@ impl Reports {
         command.transition(&row.0)?;
         sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=nullif(btrim($4),''),assigned_to=$5,lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
             .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
-        crate::tickets::staff::notify(
-            tx,
-            notifications,
-            owner,
-            format!("{status}: {}", public_outcome.trim()),
-        )
+        crate::tickets::staff::notify(tx, notifications, owner, |_| {
+            format!("{status}: {}", public_outcome.trim())
+        })
         .await?;
         Ok((
             serde_json::json!({"status":row.0,"lock_version":version}),

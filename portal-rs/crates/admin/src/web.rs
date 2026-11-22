@@ -17,7 +17,7 @@ use axum::{
     routing::get,
 };
 use oteryn_ui::panels::{self, Panel as PanelKind};
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_web::session::{BrowserSession, SessionLayer, SessionMutationDeadline};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -219,6 +219,9 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     permission: Permission,
 ) -> Router {
     let mut session = SessionLayer::new(pool.clone());
+    if permission == Permission::ManageSupportEnforcement {
+        session = session.with_bounded_refresh();
+    }
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
@@ -373,8 +376,11 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let Some(session) = request.extensions().get::<BrowserSession>() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let Some(identity) = s.identity.resolve(session).await else {
-        return Redirect::to("/login").into_response();
+    let deadline = request.extensions().get::<SessionMutationDeadline>();
+    let identity = match read_request(deadline, s.identity.resolve(session)).await {
+        Ok(Some(identity)) => identity,
+        Ok(None) => return Redirect::to("/login").into_response(),
+        Err(status) => return status.into_response(),
     };
     if !identity.mfa_satisfied {
         let locale = request.extensions().get::<oteryn_ui::Chrome>().map_or_else(
@@ -383,14 +389,18 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         );
         return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{locale}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(locale, "mfa")))).into_response();
     }
-    let proof = match (
-        session.identity_hash().await,
-        session
-            .get(oteryn_web::session::SessionKey::<String>::new(
-                oteryn_identity::mfa::SESSION_GRANT_KEY,
-            ))
-            .await,
-    ) {
+    let grant = match read_request(
+        deadline,
+        session.get(oteryn_web::session::SessionKey::<String>::new(
+            oteryn_identity::mfa::SESSION_GRANT_KEY,
+        )),
+    )
+    .await
+    {
+        Ok(grant) => grant,
+        Err(status) => return status.into_response(),
+    };
+    let proof = match (session.identity_hash().await, grant) {
         (Some(hash), Ok(Some(grant))) => {
             use sha2::{Digest, Sha256};
             hash.try_into()
@@ -416,11 +426,15 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
             Permission::Access
         });
     for required in [Permission::Access, permission] {
-        if let Err(error) = s.auth.check(context, required).await {
+        let checked = match read_request(deadline, s.auth.check(context, required)).await {
+            Ok(checked) => checked,
+            Err(status) => return status.into_response(),
+        };
+        if let Err(error) = checked {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
-            return match refusal(&s.pool, context.account, request.uri().path()).await {
+            return match refusal(&s.pool, context.account, request.uri().path(), deadline).await {
                 Ok(()) => {
                     let fallback = oteryn_ui::Registry::default().chrome(
                         language(request.headers()),
@@ -476,8 +490,26 @@ pub fn configured_dashboard_link(
     }))
 }
 
-async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> {
-    let mut tx = pool.begin().await?;
+pub(crate) async fn read_request<T>(
+    deadline: Option<&SessionMutationDeadline>,
+    read: impl Future<Output = T>,
+) -> Result<T, StatusCode> {
+    match deadline {
+        Some(deadline) => deadline.read_request(read).await,
+        None => Ok(read.await),
+    }
+}
+
+async fn refusal(
+    pool: &PgPool,
+    actor: Uuid,
+    target: &str,
+    deadline: Option<&SessionMutationDeadline>,
+) -> Result<(), Error> {
+    let mut tx = match deadline {
+        Some(deadline) => deadline.begin(pool).await?,
+        None => pool.begin().await?,
+    };
     audit::append(
         &mut tx,
         Entry {
@@ -492,6 +524,9 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
         },
     )
     .await?;
+    if deadline.is_some() && !oteryn_db::transaction::arm_commit(&mut tx, None).await? {
+        return Err(sqlx::Error::PoolTimedOut.into());
+    }
     tx.commit().await?;
     Ok(())
 }
@@ -829,7 +864,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
     };
     match result {
         Ok(()) => Redirect::to("/admin/roles").into_response(),
-        Err(Error::Denied) => match refusal(&s.pool, context.account, "/admin/roles").await {
+        Err(Error::Denied) => match refusal(&s.pool, context.account, "/admin/roles", None).await {
             Ok(()) => StatusCode::FORBIDDEN.into_response(),
             Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         },
@@ -846,7 +881,7 @@ async fn staff_action_response(
     match result {
         Ok(()) => Redirect::to("/admin/roles").into_response(),
         Err(error @ (staff_actions::Error::Forbidden | staff_actions::Error::StepUp)) => {
-            match refusal(pool, actor, "/admin/roles").await {
+            match refusal(pool, actor, "/admin/roles", None).await {
                 Ok(()) => error.response(chrome),
                 Err(_) => staff_actions::Error::Unavailable.response(chrome),
             }

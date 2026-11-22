@@ -705,15 +705,31 @@ impl Service {
             }
             _ => return Err(StaffError::Invalid),
         };
-        let body = match command {
-            Command::Sanction { public_reason, .. } => public_reason.trim().to_owned(),
+        let (reason, decision) = match command {
+            Command::Sanction { public_reason, .. } => (public_reason, None),
             Command::Appeal {
                 appeal_status,
                 appeal_outcome,
-            } => format!("{appeal_status}: {}", appeal_outcome.trim()),
+            } => (appeal_outcome, Some(appeal_status.as_str())),
             _ => return Err(StaffError::Invalid),
         };
-        crate::tickets::staff::notify(tx, notifications, target, body).await?;
+        crate::tickets::staff::notify(tx, notifications, target, |locale| {
+            let reason = reason.trim();
+            let Some(decision) = decision else {
+                return reason.to_owned();
+            };
+            use oteryn_notify::Locale;
+            let label = match (locale, decision) {
+                (Locale::Pl, "accepted") => "Odwołanie uwzględnione",
+                (Locale::En, "accepted") => "Appeal accepted",
+                (Locale::Pl, "rejected") => "Odwołanie odrzucone",
+                (Locale::En, "rejected") => "Appeal rejected",
+                (Locale::Pl, _) => "Odwołanie w trakcie rozpatrywania",
+                (Locale::En, _) => "Appeal under review",
+            };
+            format!("{label}: {reason}")
+        })
+        .await?;
         let (category, effective_at_ms, expires_at_ms) = if let Some(row) = &current {
             (row.3.as_str(), row.4, row.5)
         } else if let Command::Sanction {

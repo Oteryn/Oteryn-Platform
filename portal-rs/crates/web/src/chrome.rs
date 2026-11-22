@@ -1,5 +1,8 @@
 //! Read the existing browser session for presentation without adding a CSRF gate.
-use crate::{session::SessionLayer, surface::Language};
+use crate::{
+    session::{BrowserMutationDeadline, SessionLayer},
+    surface::Language,
+};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -107,7 +110,18 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
-    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let deadline = request
+        .extensions()
+        .get::<BrowserMutationDeadline>()
+        .copied();
+    let account = crate::session::chrome_account(&shell.sessions, &mut request);
+    let (account, account_id) = match deadline {
+        Some(deadline) => deadline
+            .within(account)
+            .await
+            .unwrap_or((oteryn_ui::Account::Anonymous, None)),
+        None => account.await,
+    };
     let uri = request.uri().clone();
     let path = uri.path();
     let local = path

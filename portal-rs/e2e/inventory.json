@@ -3317,6 +3317,29 @@
       ]
     },
     {
+      "route": "/{lang}/support/appeals",
+      "crate": "support",
+      "flags": [],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/support/src/appeals/web.rs:32"
+      ]
+    },
+    {
+      "route": "/{lang}/support/appeals/{id}",
+      "crate": "support",
+      "flags": [],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/support/src/appeals/web.rs:36"
+      ]
+    },
+    {
       "route": "/{lang}/support/reports",
       "crate": "support",
       "flags": [
@@ -4860,6 +4883,15 @@
       "section": "tickets",
       "label": "shell-tickets",
       "path": "support/tickets",
+      "crate": "support",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/support/src/navigation.rs"
+    },
+    {
+      "section": "appeals",
+      "label": "shell-appeals",
+      "path": "support/appeals",
       "crate": "support",
       "group": "Account",
       "footer": false,

@@ -48,6 +48,24 @@ fn transitions_success_refusal_and_bad_input() {
     assert_eq!(appeal.transition("none"), Err(Error::Conflict));
 }
 #[test]
+fn terminal_appeal_decisions_require_an_outcome_within_the_limit() {
+    for status in ["accepted", "rejected"] {
+        let validate = |appeal_outcome| {
+            Command::Appeal {
+                appeal_status: status.into(),
+                appeal_outcome,
+            }
+            .validate()
+        };
+        assert_eq!(validate(String::new()), Err(Error::Invalid));
+        assert_eq!(validate("a".repeat(MAX_APPEAL_OUTCOME_LENGTH)), Ok(()));
+        assert_eq!(
+            validate("a".repeat(MAX_APPEAL_OUTCOME_LENGTH + 1)),
+            Err(Error::Invalid)
+        );
+    }
+}
+#[test]
 fn temporary_sanctions_only() {
     let command = Command::Sanction {
         create: false,

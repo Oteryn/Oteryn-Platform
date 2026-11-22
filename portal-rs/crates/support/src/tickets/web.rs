@@ -158,7 +158,7 @@ pub fn staff_router<
         oteryn_admin::rbac::Permission::ManageSupportTickets,
     )
 }
-async fn private(request: Request, next: Next) -> Response {
+pub(crate) async fn private(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
         header::CACHE_CONTROL,
