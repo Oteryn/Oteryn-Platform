@@ -18,6 +18,10 @@ pub struct Shell {
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
+    // Static assets must remain available when the presentation session is blocked.
+    if request.uri().path().starts_with("/static/") {
+        return next.run(request).await;
+    }
     let lang = crate::surface::Language::for_request(&request).code();
     let account = match crate::session::chrome_account(&shell.sessions, &mut request).await {
         Ok(account) => account,
