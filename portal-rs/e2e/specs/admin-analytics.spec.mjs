@@ -2,6 +2,7 @@
 // Test launcher: presentation=true with synthetic authority/privacy; no fence or baseline.
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool} from '../helpers.mjs';
+import { loginWithRecoveryCode } from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -20,9 +21,12 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const codes=await page.locator('textarea[readonly]').allTextContents();
- await login(page,lang,staff);
- await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
+ const recoveryCode = page.locator('main textarea[readonly]').first();
+ await expect(recoveryCode).toBeVisible();
+ await expect.poll(async () => Boolean((await recoveryCode.inputValue()).trim()), {
+  message: 'MFA enrollment must display a nonempty recovery code',
+ }).toBe(true);
+ await loginWithRecoveryCode(page, lang, staff, await recoveryCode.inputValue());
  for(const suffix of ['', '/creatures','/activity','/levels','/health','/economy']) {
   const path=`/admin/analytics${suffix}`;
   const response=await page.goto(path);
@@ -72,7 +76,19 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  } finally {await seed.end();}
  const response=await page.goto(`/admin/analytics/economy?world=${fixture.world_id}&start=${fixture.bucket_start}&end=${fixture.bucket_end}`);
  expect(response.status()).toBe(200);
- for(const text of ['48210377','4500','low-n (below five)','depot source coverage not yet delivered by Game','spent_in_game/coin','Platform wallet ledger'])await expect(page.locator('main')).toContainText(text);
+ for(const text of ['48210377','4500',lang==='pl'?'mała liczebność (poniżej pięciu)':'low-n (below five)',lang==='pl'?'depot — Gra nie dostarczyła jeszcze danych z tego źródła':'depot source coverage not yet delivered by Game' ,'spent_in_game/coin',lang==='pl'?'rejestr portfela Platformy':'Platform wallet ledger'])await expect(page.locator('main')).toContainText(text);
+ const sample = lang === 'pl' ? 'mała liczebność (poniżej pięciu)' : 'low-n (below five)';
+ const lowSample = page.locator('tr[data-state="low_n"]');
+ await expect(lowSample).toHaveCount(3);
+ await expect(lowSample.getByRole('cell', { name: sample, exact: true })).toHaveCount(3);
+ await expect(lowSample.getByRole('cell', { name: lang === 'pl' ? 'Gra' : 'Game', exact: true })).toHaveCount(3);
+ const purchases = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'purchased/coins', exact: true }) });
+ await expect(purchases.getByRole('cell', { name: lang === 'pl' ? 'Platforma' : 'Platform', exact: true })).toBeVisible();
+ const wire = await page.request.get(`/admin/analytics/economy/data?world=${fixture.world_id}&start=${fixture.bucket_start}&end=${fixture.bucket_end}`);
+ expect(wire.status()).toBe(200);
+ const { groups } = await wire.json();
+ expect(groups.some(group => group.source === 'Game' && group.cells.some(cell => cell.state === 'low_n'))).toBe(true);
+ expect(groups.some(group => group.source === 'Platform')).toBe(true);
  await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
  expect((await page.request.get('/admin/analytics/export')).status()).toBe(404);
 });

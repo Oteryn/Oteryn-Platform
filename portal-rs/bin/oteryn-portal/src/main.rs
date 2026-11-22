@@ -438,7 +438,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             }
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
-                    registry: navigation,
+                    registry: navigation.clone(),
                     sessions: oteryn_web::session::SessionLayer::new(db.clone()),
                 },
                 oteryn_web::chrome::middleware,
@@ -458,7 +458,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = with_proxy_policy(app, db.clone(), proxies);
             let (public_app, app) =
                 coin_listener_apps(app, oteryn_wallet::wire::configured_router(db.clone()));
-            let public_app = oteryn_minigames::with_browser_deadlines(public_app);
+            let public_app = oteryn_minigames::with_browser_deadlines(public_app).layer(
+                axum::middleware::from_fn_with_state(
+                    navigation,
+                    oteryn_web::chrome::unavailable_response,
+                ),
+            );
             let public_app = oteryn_web::secure_public(public_app);
             let public_app = if let Some(path) = route_report {
                 // Axum's Debug route slots also back the flag-boundary registration audit.

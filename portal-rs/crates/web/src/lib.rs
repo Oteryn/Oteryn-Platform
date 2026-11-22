@@ -18,6 +18,27 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+/// Shares the landing page's absolute deadline with its browser and SQL layers.
+#[derive(Clone, Copy, Debug)]
+pub struct BoundedBrowserRead(pub tokio::time::Instant);
+
+async fn bounded_browser_query<T>(
+    pool: &PgPool,
+    deadline: BoundedBrowserRead,
+    query: impl AsyncFnOnce(&mut sqlx::PgConnection) -> Result<T, sqlx::Error>,
+) -> Result<T, sqlx::Error> {
+    use std::time::Duration;
+    use tokio::time::Instant;
+    oteryn_db::with_transaction_deadline(
+        pool,
+        deadline.0.min(Instant::now() + Duration::from_secs(1)),
+        Duration::from_millis(400),
+        Duration::from_millis(750),
+        async |tx| query(tx).await,
+    )
+    .await
+}
+
 /// Largest request body accepted by the public surface.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 

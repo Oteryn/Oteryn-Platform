@@ -420,6 +420,167 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
     assert_eq!(receipts, 4);
     db.close().await
 }
+fn current_settlement() -> std::result::Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let now = runtime::now()?;
+    let end = now
+        .checked_sub(5)
+        .ok_or("settlement requires a valid clock")?;
+    let mut snapshot: schema::EventSnapshot = serde_json::from_slice(&wire("settlement")?)?;
+    snapshot.source_observed_at = end.to_string();
+    let event = snapshot
+        .event
+        .first_mut()
+        .ok_or("settlement event missing")?;
+    event.scheduled_start = (end - 100).to_string();
+    event.scheduled_end = end.to_string();
+    event.lock_at = (end - 110).to_string();
+    event.decided_at = vec![end.to_string()];
+    Ok(serde_json::to_vec(&snapshot)?)
+}
+
+#[tokio::test]
+async fn concurrent_league_requests_wait_for_read_slots() -> TestResult {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required")?;
+    let dir = tempfile::tempdir()?;
+    let config = real_config(dir.path());
+    write_recovery(&config, "1")?;
+    enqueue_publication(
+        &db,
+        &config,
+        &publication(&config, admission::EVENT, current_settlement()?)?,
+    )
+    .await?;
+    advance_watermarks(&db, &config, "3").await?;
+    let app = web::router(League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(config),
+    ));
+    let mut publisher = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
+        .execute(&mut *publisher)
+        .await?;
+    // Schedule more simultaneous reads than the four admitted PostgreSQL reads.
+    let mut requests = tokio::task::JoinSet::new();
+    for lang in ["pl", "en"].into_iter().cycle().take(12) {
+        let request = Request::get(format!("/{lang}/league")).body(Body::empty())?;
+        requests.spawn(app.clone().oneshot(request));
+    }
+    // Observe an actual reader waiting past the previous 100 ms lock limit.
+    // Use the admin pool because readers may occupy the entire serving pool.
+    let relation = format!("{}.league_subjects", db.schema);
+    let waited = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT FROM pg_locks
+                 WHERE locktype='advisory' AND NOT granted AND mode='ShareLock'
+                 AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                 AND classid=to_regclass($1)::oid AND objid=94000003
+                 AND clock_timestamp()-waitstart > interval '100 milliseconds')",
+            )
+            .bind(&relation)
+            .fetch_one(&db.admin)
+            .await?;
+            if waiting {
+                return Ok::<(), sqlx::Error>(());
+            }
+        }
+    })
+    .await;
+    publisher.commit().await?;
+    waited??;
+
+    let mut statuses = Vec::new();
+    while let Some(response) = requests.join_next().await {
+        statuses.push(response??.status());
+    }
+    db.close().await?;
+    assert_eq!(statuses, vec![StatusCode::OK; 12]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn league_samples_clock_after_pool_admission_and_still_rejects_skew() -> TestResult {
+    use std::{cell::Cell, future::Future, task::Poll};
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required")?;
+    let dir = tempfile::tempdir()?;
+    let config = real_config(dir.path());
+    write_recovery(&config, "1")?;
+    enqueue_publication(
+        &db,
+        &config,
+        &publication(&config, admission::EVENT, current_settlement()?)?,
+    )
+    .await?;
+    advance_watermarks(&db, &config, "3").await?;
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(config),
+    );
+
+    let expired = tokio::time::Instant::now();
+    let sampled = Cell::new(false);
+    assert!(
+        league
+            .read_with_clock(expired, || {
+                sampled.set(true);
+                runtime::now()
+            })
+            .await
+            .is_err()
+    );
+    assert!(!sampled.get());
+
+    let mut held = Vec::new();
+    for _ in 0..db.pool.options().get_max_connections() {
+        held.push(db.pool.acquire().await?);
+    }
+    let sampled = Cell::new(false);
+    let mut read = std::pin::pin!(league.read_with_clock(
+        crate::browser::landing_deadline(),
+        || {
+            sampled.set(true);
+            runtime::now()
+        }
+    ));
+    std::future::poll_fn(|cx| {
+        assert!(matches!(read.as_mut().poll(cx), Poll::Pending));
+        Poll::Ready(())
+    })
+    .await;
+    assert!(
+        !sampled.get(),
+        "the clock must not run while the pool is occupied"
+    );
+
+    drop(held);
+    assert_eq!(read.await?.len(), 1);
+    assert!(sampled.get());
+    assert!(matches!(
+        league
+            .read_with_clock(crate::browser::landing_deadline(), || Ok(
+                runtime::now()?.saturating_sub(5)
+            ))
+            .await,
+        Err(Error::Invalid)
+    ));
+    db.close().await
+}
+
 #[tokio::test]
 async fn league_quota_isolated_by_trusted_client_source() -> TestResult {
     use axum::{
@@ -454,6 +615,19 @@ async fn league_quota_isolated_by_trusted_client_source() -> TestResult {
             .header("x-forwarded-for", forwarded)
             .body(Body::empty())
     };
+
+    let mut expired = request("pl", "198.51.100.1")?;
+    expired
+        .extensions_mut()
+        .insert(oteryn_web::BoundedBrowserRead(tokio::time::Instant::now()));
+    let refused = app.clone().oneshot(expired).await?;
+    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let charged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM web_rate_limits WHERE limiter_name='public-game-data'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(charged, 0);
 
     for _ in 0..120 {
         let response = app.clone().oneshot(request("pl", "198.51.100.1")?).await?;

@@ -548,6 +548,32 @@ pub async fn supply(
     next.run(request).await
 }
 
+impl RateLimiter {
+    /// Charge a League browser request within its existing admission deadline.
+    pub async fn check_public_game_data(
+        &self,
+        key: Keys,
+        deadline: crate::BoundedBrowserRead,
+    ) -> Result<(), Denial> {
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
+        let policy = NamedPolicy::PublicGameData;
+        let hash = key.hash(policy)?;
+        let (count, retry_after) =
+            crate::bounded_browser_query(&self.pool, deadline, async |connection| {
+                charge(connection, policy, hash, None).await
+            })
+            .await
+            .map_err(|_| self.unavailable(policy))?;
+        if count > policy.limit() {
+            Err(Denial::Limited { retry_after })
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod proxy_configuration_tests {
     use super::*;

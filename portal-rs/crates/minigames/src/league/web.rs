@@ -10,13 +10,13 @@ use axum::{
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
-use oteryn_web::ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter};
+use oteryn_web::{
+    BoundedBrowserRead,
+    ratelimit::{self, ClientSource, Keys, RateLimiter},
+};
 use sqlx::PgPool;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
-
-// The portal pool has 16 connections. Leave capacity for other routes.
-const MAX_CONCURRENT_READS: usize = 4;
 
 #[derive(Template)]
 #[template(
@@ -149,15 +149,8 @@ impl Page {
 struct Surface<A> {
     league: League<A>,
     read_slots: Semaphore,
-    clock: fn() -> i64,
 }
 pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
-    router_with_clock(league, || time::OffsetDateTime::now_utc().unix_timestamp())
-}
-pub(super) fn router_with_clock<A: Authority + 'static>(
-    league: League<A>,
-    clock: fn() -> i64,
-) -> Router {
     if !league.flags.enabled || !league.flags.public {
         return Router::new();
     }
@@ -167,10 +160,18 @@ pub(super) fn router_with_clock<A: Authority + 'static>(
         .layer(from_fn_with_state(limiter, ratelimit::supply))
         .with_state(Arc::new(Surface {
             league,
-            read_slots: Semaphore::new(MAX_CONCURRENT_READS),
-            clock,
+            read_slots: Semaphore::new(crate::browser::LEAGUE_READ_SLOTS),
         }))
 }
+#[cfg(test)]
+pub(super) fn router_with_clock<A: Authority + 'static>(
+    league: League<A>,
+    _request_clock: fn() -> i64,
+) -> Router {
+    // Compatibility for the projection-lock test: the store owns the read clock.
+    router(league)
+}
+
 pub fn configured_router(pool: PgPool) -> Router {
     let flags = super::config::owner_flags(super::config::enabled());
     let authority = super::runtime::GameAuthority::configured();
@@ -181,6 +182,7 @@ async fn page<A: Authority>(
     Path(lang): Path<String>,
     State(state): State<Arc<Surface<A>>>,
     Extension(limiter): Extension<RateLimiter>,
+    budget: Option<Extension<BoundedBrowserRead>>,
     source: std::result::Result<Option<ClientSource>, StatusCode>,
 ) -> Response {
     if !matches!(lang.as_str(), "pl" | "en") {
@@ -190,27 +192,25 @@ async fn page<A: Authority>(
         Ok(source) => source,
         Err(status) => return Page::new(&lang, None).response(status),
     };
-    let Ok(now) = u64::try_from((state.clock)()) else {
+    let deadline = budget
+        .map(|Extension(budget)| budget.0)
+        .unwrap_or_else(crate::browser::landing_deadline);
+    if oteryn_db::check_deadline(deadline).is_err() {
+        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let Ok(Ok(slot)) = tokio::time::timeout_at(deadline, state.read_slots.acquire()).await else {
         return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
-    if let Some(ClientSource(ip)) = source {
-        let keys = [Keys::source(ip)];
-        match tokio::time::timeout(
-            Duration::from_secs(1),
-            limiter.check(NamedPolicy::PublicGameData, &keys),
-        )
-        .await
-        {
-            Ok(Ok(())) => {}
-            Ok(Err(denial)) => return Page::new(&lang, None).response(denial.status()),
-            Err(_) => return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
-        }
+    if let Some(ClientSource(ip)) = source
+        && let Err(denial) = limiter
+            .check_public_game_data(Keys::source(ip), BoundedBrowserRead(deadline))
+            .await
+    {
+        return Page::new(&lang, None).response(denial.status());
     }
-    let Ok(slot) = state.read_slots.try_acquire() else {
-        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
-    };
-    let snapshots = state.league.read(now).await;
+
+    let snapshots = state.league.read_before(deadline).await;
     drop(slot);
     match snapshots {
         Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),

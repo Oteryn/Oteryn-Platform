@@ -753,25 +753,43 @@ pub(crate) fn text_with_args(
     key: &str,
     args: Option<&fluent_bundle::FluentArgs<'_>>,
 ) -> String {
-    let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
+    translated_with_args(translations(lang).as_ref(), key, args)
+}
+pub(crate) fn translations(
+    lang: &str,
+) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
+    let locale = lang.parse().ok()?;
     let mut bundle = fluent_bundle::FluentBundle::new(vec![locale]);
     let source = if lang == "en" {
         include_str!("../../../templates/admin/en.ftl")
     } else {
         include_str!("../../../templates/admin/pl.ftl")
     };
-    let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
-    }
+    let resource = fluent_bundle::FluentResource::try_new(source.to_owned()).ok()?;
+    bundle.add_resource(resource).ok()?;
+    Some(bundle)
+}
+pub(crate) fn translated(
+    bundle: Option<&fluent_bundle::FluentBundle<fluent_bundle::FluentResource>>,
+    key: &str,
+) -> String {
+    translated_with_args(bundle, key, None)
+}
+
+fn translated_with_args(
+    bundle: Option<&fluent_bundle::FluentBundle<fluent_bundle::FluentResource>>,
+    key: &str,
+    args: Option<&fluent_bundle::FluentArgs<'_>>,
+) -> String {
     bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, args, &mut vec![]).into_owned())
+        .and_then(|bundle| {
+            let pattern = bundle.get_message(key)?.value()?;
+            Some(
+                bundle
+                    .format_pattern(pattern, args, &mut vec![])
+                    .into_owned(),
+            )
+        })
         .unwrap_or_default()
 }
 #[derive(Template)]

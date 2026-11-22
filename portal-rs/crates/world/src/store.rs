@@ -320,6 +320,16 @@ impl WorldStore {
     /// Hidden, missing and inactive entities all return None. Each read joins
     /// the active pointer and allow-list in the same database statement.
     pub async fn get_entity(&self, kind: &str, key: &str) -> Result<Option<Entity>, WorldError> {
+        self.get_entity_using(&self.pool, kind, key).await
+    }
+
+    /// Resolve visible data on the caller's already-budgeted connection.
+    pub async fn get_entity_using<'e>(
+        &self,
+        executor: impl sqlx::PgExecutor<'e>,
+        kind: &str,
+        key: &str,
+    ) -> Result<Option<Entity>, WorldError> {
         self.check_enabled()?;
         let kind = crate::canonical_kind(kind);
         validate_label(kind, "kind")?;
@@ -332,7 +342,7 @@ impl WorldStore {
         )
         .bind(kind)
         .bind(key)
-        .fetch_optional(&self.pool)
+        .fetch_optional(executor)
         .await?)
     }
 
