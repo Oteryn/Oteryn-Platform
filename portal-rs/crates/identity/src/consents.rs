@@ -34,11 +34,14 @@ pub fn is_placeholder_edition(version: &str, body: &str) -> bool {
         .any(|marker| compact.contains(marker))
 }
 
+/// Existing production defaults, also used when no web configuration is installed.
+pub const DEFAULT_LEGAL_VERSION: &str = "2026-11-05";
+
 #[derive(Debug, Clone)]
 pub struct ConsentConfig {
     pub terms_version: String,
     pub privacy_version: String,
-    publication: Option<PublicationPolicy>,
+    publication: PublicationPolicy,
 }
 #[derive(Debug, Clone, Copy)]
 enum PublicationPolicy {
@@ -49,9 +52,9 @@ enum PublicationPolicy {
 impl Default for ConsentConfig {
     fn default() -> Self {
         Self {
-            terms_version: PLACEHOLDER_LEGAL_VERSION.into(),
-            privacy_version: PLACEHOLDER_LEGAL_VERSION.into(),
-            publication: None,
+            terms_version: DEFAULT_LEGAL_VERSION.into(),
+            privacy_version: DEFAULT_LEGAL_VERSION.into(),
+            publication: PublicationPolicy::FinalOnly,
         }
     }
 }
@@ -65,11 +68,11 @@ impl ConsentConfig {
         Self {
             terms_version,
             privacy_version,
-            publication: Some(if allow_placeholders {
+            publication: if allow_placeholders {
                 PublicationPolicy::AllowPlaceholders
             } else {
                 PublicationPolicy::FinalOnly
-            }),
+            },
         }
     }
 
@@ -79,15 +82,17 @@ impl ConsentConfig {
         db: impl PgExecutor<'e>,
         locale: &str,
     ) -> Result<(), sqlx::Error> {
-        let Some(policy) = self.publication else {
-            // Unconfigured adapters use an isolated registration fixture.
-            return Ok(());
-        };
-        let documents: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT p.slug,e.legal_version,e.body
+        let documents: Vec<(String, String, String, bool)> = sqlx::query_as(
+            "SELECT p.slug,e.legal_version,e.body,
+                    COALESCE(v.content @> jsonb_build_object(
+                        'final_approved',true,'title',e.title,'body',e.body,
+                        'effective',e.legal_effective_date::text
+                    ),false)
              FROM pages p
              JOIN editorial_pages e ON e.page_id=p.id
              JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
+             LEFT JOIN page_legal_versions v
+                ON v.page_id=e.page_id AND v.locale=e.locale AND v.version=e.legal_version
              WHERE p.slug IN ('terms-of-service','privacy-policy') AND e.locale=$1
                 AND e.published_at<=now() AND source.published_at<=now()
                 AND (e.locale='en' OR e.source_revision=source.revision)
@@ -107,21 +112,26 @@ impl ConsentConfig {
             ("terms-of-service", &self.terms_version),
             ("privacy-policy", &self.privacy_version),
         ] {
-            let document = documents.iter().find(|(name, _, _)| name == slug);
+            let document = documents.iter().find(|(name, _, _, _)| name == slug);
             let reason = match document {
                 None => "published legal document missing for signup locale",
-                Some((_, version, body))
-                    if matches!(policy, PublicationPolicy::FinalOnly)
+                Some((_, version, body, _))
+                    if matches!(self.publication, PublicationPolicy::FinalOnly)
                         && is_placeholder_edition(version, body) =>
                 {
                     "placeholder legal document must be replaced before live signup"
                 }
-                Some((_, version, _)) if version != expected => {
+                Some((_, _, _, false))
+                    if matches!(self.publication, PublicationPolicy::FinalOnly) =>
+                {
+                    "published legal edition requires explicit final approval"
+                }
+                Some((_, version, _, _)) if version != expected => {
                     "configured consent version does not match published legal document"
                 }
                 Some(_) => continue,
             };
-            tracing::error!(locale, slug, expected, published = ?document.map(|(_, version, _)| version), reason, "sign-up blocked by legal document configuration");
+            tracing::error!(locale, slug, expected, published = ?document.map(|(_, version, _, _)| version), reason, "sign-up blocked by legal document configuration");
             return Err(sqlx::Error::Protocol(reason.into()));
         }
         Ok(())
@@ -133,7 +143,7 @@ impl ConsentConfig {
             .all(|v| !v.trim().is_empty() && v.chars().count() <= 128)
     }
 }
-pub async fn record(
+pub(crate) async fn record(
     conn: &mut PgConnection,
     id: AccountId,
     config: &ConsentConfig,

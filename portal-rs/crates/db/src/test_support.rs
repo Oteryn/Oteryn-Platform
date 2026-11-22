@@ -60,3 +60,36 @@ pub async fn coin_chargeback_hold(
         .bind(account).bind(order).execute(&mut *tx).await?;
     tx.commit().await
 }
+
+/// Seed published bilingual, approved legal editions in an isolated registration fixture.
+pub async fn seed_final_signup_editions(
+    pool: &sqlx::PgPool,
+    version: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "WITH documents AS (
+             INSERT INTO pages(id,slug)
+             VALUES (uuidv7(),'terms-of-service'),(uuidv7(),'privacy-policy')
+             RETURNING id,slug
+         ), sources AS (
+             INSERT INTO editorial_pages
+                 (page_id,locale,title,body,published_at,legal_version,legal_effective_date)
+             SELECT id,'en',slug,'Accepted English fixture edition.',now(),$1,'2026-11-22'
+             FROM documents RETURNING *
+         ), translations AS (
+             INSERT INTO editorial_pages
+                 (page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision)
+             SELECT page_id,'pl',title,'Zatwierdzony dokument testowy.',now(),legal_version,
+                    legal_effective_date,revision
+             FROM sources RETURNING *
+         )
+         INSERT INTO page_legal_versions(page_id,locale,version,content)
+         SELECT page_id,locale,legal_version,jsonb_build_object(
+             'title',title,'body',body,'effective',legal_effective_date::text,'final_approved',true)
+         FROM (SELECT * FROM sources UNION ALL SELECT * FROM translations) editions",
+    )
+    .bind(version)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

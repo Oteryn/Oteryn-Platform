@@ -116,8 +116,14 @@ async fn fixture(name: &str, mode: &str) -> Result {
         .args(["--exact", &format!("audit_l9_tests::{name}"), "--nocapture"])
         .env("L9_CHILD", "true")
         .env("OTERYN_ENV", "testing")
-        .env_remove("OTERYN_TERMS_VERSION")
-        .env_remove("OTERYN_PRIVACY_VERSION")
+        .env(
+            "OTERYN_TERMS_VERSION",
+            oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+        )
+        .env(
+            "OTERYN_PRIVACY_VERSION",
+            oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+        )
         .env("TRUSTED_PROXIES", "10.0.0.1")
         .env("OTERYN_SMTP_HOST", "localhost")
         .env("OTERYN_SMTP_PORT", port.to_string())
@@ -210,7 +216,11 @@ async fn database() -> Result<crate::reset_http::tests::db::Database> {
     let db = crate::reset_http::tests::db::Database::open()
         .await?
         .ok_or("PORTAL_TEST_DATABASE_URL required; no skipped audit tests")?;
-    oteryn_content::pages::legal::install(&db.pool).await?;
+    oteryn_db::test_support::seed_final_signup_editions(
+        &db.pool,
+        oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+    )
+    .await?;
     Ok(db)
 }
 fn app(pool: sqlx::PgPool) -> axum::Router {

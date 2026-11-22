@@ -422,7 +422,22 @@ Updated English source",
             .is_err()
     );
     form.legal_version = "test-v2".into();
+    form.final_approved = "yes".into();
+    form.body = "KRS 0000000000".into();
+    assert!(matches!(
+        persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await,
+        Err(oteryn_admin::rbac::Error::InvalidInput)
+    ));
+    form.body = "Changed legal text".into();
     persist_current(&pool, &auth, ctx, "terms-of-service", "en", &form).await?;
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT content @> '{\"final_approved\":true}'::jsonb
+         FROM page_legal_versions WHERE locale='en' AND version='test-v2'",
+        )
+        .fetch_one(&pool)
+        .await?
+    );
     let versions: i64 = sqlx::query_scalar("SELECT count(*) FROM page_legal_versions")
         .fetch_one(&pool)
         .await?;

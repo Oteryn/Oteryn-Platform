@@ -50,6 +50,7 @@ struct Editor {
     locale: String,
     form: PageForm,
     labels: Vec<String>,
+    legal: bool,
 }
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(super) struct PageForm {
@@ -65,6 +66,8 @@ pub(super) struct PageForm {
     pub legal_version: String,
     #[serde(default)]
     pub legal_effective_date: String,
+    #[serde(default)]
+    pub final_approved: String,
     #[serde(default)]
     pub action: String,
 }
@@ -89,6 +92,15 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
         && form.body.chars().count() <= 100000
         && form.legal_version.len() <= 80
         && matches!(form.action.as_str(), "save" | "delete")
+        && (form.final_approved.is_empty()
+            || (form.final_approved == "yes"
+                && legal(slug)
+                && !form.published_at.is_empty()
+                && !oteryn_identity::consents::is_placeholder_edition(
+                    &form.legal_version,
+                    &form.body,
+                )
+                && !oteryn_identity::consents::is_placeholder_edition("", &form.title)))
         && (!legal(slug)
             || form.published_at.is_empty()
             || (!form.legal_version.trim().is_empty() && !form.legal_effective_date.is_empty()))
@@ -181,6 +193,7 @@ async fn edit(
                 .get::<Option<sqlx::types::time::Date>, _>("legal_effective_date")
                 .map(|v| v.to_string())
                 .unwrap_or_default(),
+            final_approved: String::new(),
             action: String::new(),
         },
         Ok(None) => PageForm::default(),
@@ -204,11 +217,13 @@ async fn edit(
             "effective",
             "save",
             "delete",
+            "final-approval",
         ]
         .map(|k| text(&locale, k))
         .to_vec(),
         lang: locale.clone(),
         locale,
+        legal: legal(&slug),
         slug,
         csrf,
         form,
@@ -313,8 +328,11 @@ pub(super) async fn persist(
                 return Err(Error::InvalidInput);
             }
         }
-        let content =
+        let mut content =
             json!({"title":form.title,"body":form.body,"effective":form.legal_effective_date});
+        if form.final_approved == "yes" {
+            content["final_approved"] = json!(true);
+        }
         if legal(slug) && !form.published_at.is_empty() {
             let old:Option<serde_json::Value>=sqlx::query_scalar("SELECT content FROM page_legal_versions WHERE page_id=$1 AND locale=$2 AND version=$3").bind(id).bind(locale).bind(&form.legal_version).fetch_optional(&mut *tx).await?;
             if old.is_some_and(|v| v != content) {
@@ -339,7 +357,7 @@ pub(super) async fn persist(
             },
             target: slug,
             before: before.unwrap_or(json!(null)),
-            after: json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date}),
+            after: json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date,"final_approved":form.final_approved == "yes"}),
         },
     )
     .await?;

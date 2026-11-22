@@ -15,36 +15,33 @@ makes prior Polish revisions unavailable until reviewed and saved again.
 Markdown is rendered and sanitized; titles and editor fields remain escaped.
 Public responses are not cached, so unpublication has no stale response window.
 
-After migrations, run `oteryn-portal install-legal-pages` with the portal's
-migration database configuration. The live Oracle composition uses the
-following command.
+After migrations, run the placeholder installer on a local or testing database.
 
 ```sh
-docker compose -p oteryn-portal -f /opt/oteryn-portal/compose.yml run --rm -T portal install-legal-pages
+OTERYN_ENV=local oteryn-portal install-legal-pages
 ```
 
 The installer publishes the paired Markdown files in `legal/` and records
-the initial legal versions. It skips any slug
-with locale content or publication history, including drafts and unpublished
-documents. Rerunning it is safe. The fictional operator block is in
-`legal/operator.md`. Existing placeholder editions stay at their original
-version when the defaults package changes.
+the initial legal versions. It preserves slugs with content or publication
+history, including drafts and unpublished documents. Published placeholder
+editions remain visible with a localized draft notice, including on live
+profiles. The bundled fictional operator fields are in `legal/operator.md`.
 
 Signup uses `OTERYN_TERMS_VERSION` and `OTERYN_PRIVACY_VERSION`. Both default
-to the bundled placeholder version. The server checks that both versions match
-the published, current editions linked in the signup locale when displaying
-the form and again in the account-creation transaction. A missing, stale or
-mismatched document makes signup unavailable and logs the locale and reason.
-Local and testing deployments can use matching placeholder editions. When
-reusing a local database with earlier placeholder editions, set both variables
-to the published versions or publish the revised editions. Production
-and preproduction reject versions beginning with `placeholder` and documents
-that retain the bundled draft notices or temporary operator marker. To enable
-live signup, replace the fictional details and remove the draft notices in
-the final copies. Publish final Terms and Privacy editions under new versions
-in the CMS, saving English before Polish. Configure the exact versions in the
-two environment variables and restart the portal. The refusal appears in the operator log as
-`sign-up blocked by legal document configuration`.
+to `2026-11-05` in live or unconfigured operation and to the bundled draft
+version under explicit local/testing configuration. The server checks the
+published locale and exact versions at form display and again inside the
+registration transaction. Live signup requires immutable, explicitly approved
+editions and rejects known fictional operator values, including after a
+version is renamed. Missing, stale, mismatched or unapproved editions make
+signup unavailable and log the locale and reason.
+
+To enable live signup, replace the fictional operator details and publish
+final editions under new versions. Select **Approve this legal edition as
+final** when publishing each required edition, saving English before Polish.
+Set the two signup version variables to the exact published values. Each
+approval belongs to the immutable edition, including its locale and content.
+Previously published versions require a new version for approval.
 
 The editor is `/admin/pages`. Its create form opens
 `/admin/pages/{slug}/{locale}`, which supports GET and CSRF-protected POST.

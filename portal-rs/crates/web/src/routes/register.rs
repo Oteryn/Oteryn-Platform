@@ -162,14 +162,18 @@ async fn inbox(
 /// OTERYN_TERMS_VERSION and OTERYN_PRIVACY_VERSION when publishing new documents.
 /// Without a configured origin, browser requests carrying Origin remain refused.
 pub fn configured(app: Router) -> Router {
-    let defaults = ConsentConfig::default();
     let allow_placeholders = matches!(
         std::env::var("OTERYN_ENV").as_deref(),
-        Ok("local" | "testing") | Err(std::env::VarError::NotPresent)
+        Ok("local" | "testing")
     );
+    let default_version = if allow_placeholders {
+        oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION
+    } else {
+        oteryn_identity::consents::DEFAULT_LEGAL_VERSION
+    };
     let consents = ConsentConfig::published(
-        std::env::var("OTERYN_TERMS_VERSION").unwrap_or(defaults.terms_version),
-        std::env::var("OTERYN_PRIVACY_VERSION").unwrap_or(defaults.privacy_version),
+        std::env::var("OTERYN_TERMS_VERSION").unwrap_or_else(|_| default_version.into()),
+        std::env::var("OTERYN_PRIVACY_VERSION").unwrap_or_else(|_| default_version.into()),
         allow_placeholders,
     );
     let csrf = crate::csrf::CsrfConfig {

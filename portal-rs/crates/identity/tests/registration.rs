@@ -22,6 +22,17 @@ struct Database {
 }
 impl Database {
     async fn new() -> Result<Option<Self>> {
+        let db = Self::empty_legal().await?;
+        if let Some(db) = &db {
+            oteryn_db::test_support::seed_final_signup_editions(
+                &db.pool,
+                oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+            )
+            .await?;
+        }
+        Ok(db)
+    }
+    async fn empty_legal() -> Result<Option<Self>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIPPED identity database test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -90,8 +101,8 @@ fn input() -> Registration {
         email: "New@Example.test".into(),
         password: "registration test password".into(),
         password_confirmation: "registration test password".into(),
-        terms: Some(oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION.into()),
-        privacy: Some(oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION.into()),
+        terms: Some(oteryn_identity::consents::DEFAULT_LEGAL_VERSION.into()),
+        privacy: Some(oteryn_identity::consents::DEFAULT_LEGAL_VERSION.into()),
     }
 }
 async fn create(db: &Database) -> Result<uuid::Uuid> {
@@ -195,14 +206,8 @@ async fn submit(
         ("email", "New@Example.test"),
         ("password", "registration test password"),
         ("password_confirmation", "registration test password"),
-        (
-            "terms",
-            oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION,
-        ),
-        (
-            "privacy",
-            oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION,
-        ),
+        ("terms", oteryn_identity::consents::DEFAULT_LEGAL_VERSION),
+        ("privacy", oteryn_identity::consents::DEFAULT_LEGAL_VERSION),
         ("_csrf", csrf),
     ];
     if let Some((token, nonce)) = &proof {
@@ -720,10 +725,27 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
 -> Result {
     use oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION;
 
-    let Some(db) = Database::new().await? else {
+    let Some(db) = Database::empty_legal().await? else {
         return Ok(());
     };
+    assert_eq!(
+        db.app()
+            .oneshot(Request::get("/en/register").body(Body::empty())?)
+            .await?
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert!(
+        register::register(&db.pool, input(), &ConsentConfig::default(), "en", None)
+            .await
+            .is_err()
+    );
+
     let version = PLACEHOLDER_LEGAL_VERSION;
+    let placeholder_fields = [("terms", version), ("privacy", version)];
+    let mut placeholder_input = input();
+    placeholder_input.terms = Some(version.into());
+    placeholder_input.privacy = Some(version.into());
     let config = |terms: &str, allow_placeholders| {
         ConsentConfig::published(terms.into(), version.into(), allow_placeholders)
     };
@@ -781,13 +803,21 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert_eq!(
-        submit(&live, &cookie, &csrf, &[]).await?.status(),
+        submit(&live, &cookie, &csrf, &placeholder_fields)
+            .await?
+            .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert!(
-        register::register(&db.pool, input(), &config(version, false), "en", None)
-            .await
-            .is_err()
+        register::register(
+            &db.pool,
+            placeholder_input,
+            &config(version, false),
+            "en",
+            None
+        )
+        .await
+        .is_err()
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM accounts")
         .fetch_one(&db.pool)
@@ -809,7 +839,9 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert_eq!(
-        submit(&app, &cookie, &csrf, &[]).await?.status(),
+        submit(&app, &cookie, &csrf, &placeholder_fields)
+            .await?
+            .status(),
         StatusCode::SEE_OTHER
     );
     let records: Vec<(String, String)> = sqlx::query_as(
@@ -825,21 +857,49 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
         ]
     );
     sqlx::query(
-        "UPDATE editorial_pages SET legal_version='final-v1', body='[DANE TYMCZASOWE]'
+        "UPDATE editorial_pages SET legal_version='relabeled-v1', body='KRS 0000000000'
          WHERE locale='en'",
     )
     .execute(&db.pool)
     .await?;
+    sqlx::query(
+        "INSERT INTO page_legal_versions(page_id,locale,version,content)
+         SELECT page_id,locale,legal_version,jsonb_build_object(
+             'title',title,'body',body,'effective',legal_effective_date::text,'final_approved',true)
+         FROM editorial_pages WHERE locale='en'",
+    )
+    .execute(&db.pool)
+    .await?;
+    let relabeled = db.app().layer(axum::Extension(ConsentConfig::published(
+        "relabeled-v1".into(),
+        "relabeled-v1".into(),
+        false,
+    )));
+    assert_eq!(
+        load(relabeled, "en").await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+
     let final_config = ConsentConfig::published("final-v1".into(), "final-v1".into(), false);
     let live = db.app().layer(axum::Extension(final_config.clone()));
+    sqlx::query(
+        "UPDATE editorial_pages SET legal_version='final-v1',body='Approved legal text'
+         WHERE locale='en'",
+    )
+    .execute(&db.pool)
+    .await?;
     assert_eq!(
         load(live.clone(), "en").await?.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-
-    sqlx::query("UPDATE editorial_pages SET body='Approved legal text' WHERE locale='en'")
-        .execute(&db.pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO page_legal_versions(page_id,locale,version,content)
+         SELECT page_id,locale,legal_version,jsonb_build_object(
+             'title',title,'body',body,'effective',legal_effective_date::text,'final_approved',true)
+         FROM editorial_pages WHERE locale='en'",
+    )
+    .execute(&db.pool)
+    .await?;
     assert_eq!(load(live, "en").await?.status(), StatusCode::OK);
     let mut final_input = input();
     final_input.email = "Final@Example.test".into();

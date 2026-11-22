@@ -35,6 +35,11 @@ impl Database {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
+        oteryn_db::test_support::seed_final_signup_editions(
+            &pool,
+            crate::consents::DEFAULT_LEGAL_VERSION,
+        )
+        .await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -263,8 +268,8 @@ async fn browser_submit(
         ("email", "abuse@example.test"),
         ("password", password),
         ("password_confirmation", password),
-        ("terms", crate::consents::PLACEHOLDER_LEGAL_VERSION),
-        ("privacy", crate::consents::PLACEHOLDER_LEGAL_VERSION),
+        ("terms", crate::consents::DEFAULT_LEGAL_VERSION),
+        ("privacy", crate::consents::DEFAULT_LEGAL_VERSION),
     ];
     Ok(app
         .clone()
@@ -471,8 +476,8 @@ async fn audit02_registration_dispatch_charges_before_work_across_fresh_sessions
             ("email", "registration-budget@example.test"),
             ("password", "a fresh registration passphrase"),
             ("password_confirmation", "a fresh registration passphrase"),
-            ("terms", crate::consents::PLACEHOLDER_LEGAL_VERSION),
-            ("privacy", crate::consents::PLACEHOLDER_LEGAL_VERSION),
+            ("terms", crate::consents::DEFAULT_LEGAL_VERSION),
+            ("privacy", crate::consents::DEFAULT_LEGAL_VERSION),
         ])?;
         forms.push((app, cookie, body));
     }
