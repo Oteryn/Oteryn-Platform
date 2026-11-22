@@ -25,6 +25,7 @@ enum Scope {
     Source,
     EmailSource,
     AccountSource,
+    Account,
     TokenSource,
     PendingSource,
     Pending,
@@ -68,6 +69,8 @@ policies! {
     IdentitySecurityMutation, "identity-security-mutation", 10, 60, AccountSource;
     IdentityRecoveryKeyManage, "identity-recovery-key-manage", 5, 3600, AccountSource;
     IdentityRecoveryKeyUse, "identity-recovery-key-use", 5, 3600, EmailSource;
+    IdentityDataExport, "identity-data-export", 3, 900, Account;
+    IdentityDataExportSource, "identity-data-export-source", 12, 900, Source;
     IdentityTermination, "identity-termination", 3, 3600, AccountSource;
     IdentityMfaChallenge, "identity-mfa-challenge", 5, 60, PendingSource;
     IdentityMfaChallengeIdentity, "identity-mfa-challenge-identity", 10, 60, Pending;
@@ -75,6 +78,8 @@ policies! {
     IdentityMfaEnrollment, "identity-mfa-enrollment", 5, 60, AccountSource;
     IdentityMfaDisable, "identity-mfa-disable", 5, 60, AccountSource;
     CharacterCreate, "character-create", 5, 60, AccountSource;
+    CharacterProfileUpdate, "character-profile-update", 10, 60, Account;
+    CharacterProfileUpdateSource, "character-profile-update-source", 30, 60, Source;
     CharacterCreateStatus, "character-create-status", 60, 60, AccountSource;
     MarketplaceListing, "marketplace-listing", 3, 60, AccountSource;
     MarketplaceBid, "marketplace-bid", 20, 60, AccountSource;
@@ -135,7 +140,7 @@ impl Keys {
         part(&mut digest, policy.name());
         match policy.scope() {
             Scope::EmailSource => part(&mut digest, &required(&self.email)?.trim().to_lowercase()),
-            Scope::AccountSource => part(&mut digest, required(&self.account)?),
+            Scope::Account | Scope::AccountSource => part(&mut digest, required(&self.account)?),
             Scope::TokenSource => part(&mut digest, required(&self.token)?),
             Scope::Pending | Scope::PendingSource => {
                 part(&mut digest, required(&self.pending_account)?)
@@ -146,7 +151,10 @@ impl Keys {
             Scope::LocaleSource => part(&mut digest, self.locale.ok_or(Denial::BadInput)?.code()),
             Scope::Source => {}
         }
-        if !matches!(policy.scope(), Scope::Pending | Scope::Credential) {
+        if !matches!(
+            policy.scope(),
+            Scope::Account | Scope::Pending | Scope::Credential
+        ) {
             part(&mut digest, &self.source.to_string());
         }
         Ok(digest.finalize().to_vec())
@@ -235,18 +243,6 @@ impl RateLimiter {
             ),
         }
     }
-    pub async fn check(&self, policy: NamedPolicy, keys: &[Keys]) -> Result<(), Denial> {
-        if !self.configuration_valid {
-            return Err(Denial::Unavailable);
-        }
-        if matches!(
-            policy,
-            NamedPolicy::IdentityEmailToken | NamedPolicy::IdentityRecoveryKeyUse
-        ) {
-            check(self, NamedPolicy::IdentityAnonymousSource, keys).await?;
-        }
-        check(self, policy, keys).await
-    }
     /// Charge an appeal against the budget started before refreshing its browser session.
     pub async fn check_appeal(
         &self,
@@ -262,7 +258,7 @@ impl RateLimiter {
             .begin(&self.pool)
             .await
             .map_err(|_| self.unavailable(policy))?;
-        let (count, delay) = charge(&mut *tx, policy, hash)
+        let (count, delay) = charge(&mut *tx, policy, hash, None)
             .await
             .map_err(|_| self.unavailable(policy))?;
         if !oteryn_db::transaction::arm_commit(&mut tx, None)
@@ -276,6 +272,58 @@ impl RateLimiter {
             return Err(Denial::Limited { retry_after: delay });
         }
         Ok(())
+    }
+
+    pub async fn check(&self, policy: NamedPolicy, keys: &[Keys]) -> Result<(), Denial> {
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
+        if matches!(
+            policy,
+            NamedPolicy::IdentityEmailToken | NamedPolicy::IdentityRecoveryKeyUse
+        ) {
+            check(self, NamedPolicy::IdentityAnonymousSource, keys).await?;
+        }
+        let source = match policy {
+            NamedPolicy::IdentityDataExport => NamedPolicy::IdentityDataExportSource,
+            NamedPolicy::CharacterProfileUpdate => NamedPolicy::CharacterProfileUpdateSource,
+            _ => return check(self, policy, keys).await,
+        };
+        self.check_pair(policy, source, keys).await
+    }
+
+    async fn check_pair(
+        &self,
+        account: NamedPolicy,
+        source: NamedPolicy,
+        keys: &[Keys],
+    ) -> Result<(), Denial> {
+        let mut account_hashes = hashes(account, keys)?;
+        let mut source_hashes = hashes(source, keys)?;
+        // Lock rows in the same order for concurrent batches.
+        account_hashes.sort_unstable();
+        source_hashes.sort_unstable();
+        let failure = |_| self.unavailable(account);
+        let mut tx = self.pool.begin().await.map_err(failure)?;
+        // Both budgets use the same database instant, including at rollover.
+        let epoch: f64 = sqlx::query_scalar(
+            "SELECT extract(epoch FROM statement_timestamp())::double precision",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(failure)?;
+        for (policy, hashes) in [(account, account_hashes), (source, source_hashes)] {
+            for hash in hashes {
+                let (count, retry_after) = charge(&mut *tx, policy, hash, Some(epoch))
+                    .await
+                    .map_err(|_| self.unavailable(policy))?;
+                if count > policy.limit() {
+                    tx.rollback().await.map_err(failure)?;
+                    return Err(Denial::Limited { retry_after });
+                }
+            }
+        }
+        tx.commit().await.map_err(failure)
     }
 
     pub(crate) async fn check_recovery_submission(&self, keys: Keys) -> Result<(), Denial> {
@@ -306,16 +354,9 @@ pub async fn check(
     policy: NamedPolicy,
     keys: &[Keys],
 ) -> Result<(), Denial> {
-    if keys.is_empty() || keys.len() > 32 {
-        return Err(Denial::BadInput);
-    }
-    let hashes = keys
-        .iter()
-        .map(|k| k.hash(policy))
-        .collect::<Result<Vec<_>, _>>()?;
     let mut retry = 0_i64;
-    for hash in hashes {
-        let (count, delay) = charge(&limiter.pool, policy, hash)
+    for hash in hashes(policy, keys)? {
+        let (count, delay) = charge(&limiter.pool, policy, hash, None)
             .await
             .map_err(|_| limiter.unavailable(policy))?;
         if count > policy.limit() {
@@ -328,15 +369,22 @@ pub async fn check(
         Ok(())
     }
 }
+fn hashes(policy: NamedPolicy, keys: &[Keys]) -> Result<Vec<Vec<u8>>, Denial> {
+    if keys.is_empty() || keys.len() > 32 {
+        return Err(Denial::BadInput);
+    }
+    keys.iter().map(|key| key.hash(policy)).collect()
+}
+
 async fn charge<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+    executor: impl sqlx::PgExecutor<'e>,
     policy: NamedPolicy,
     hash: Vec<u8>,
+    epoch: Option<f64>,
 ) -> Result<(i64, i64), sqlx::Error> {
-    // One atomic upsert using the database clock across all processes.
-    // Saturate refusals to prevent overflow under sustained abuse.
-    sqlx::query_as(
-            "WITH clock AS MATERIALIZED (SELECT statement_timestamp() AS now), \
+    // Saturate counters to prevent overflow under sustained abuse.
+    sqlx::query_as::<_, (i64, i64)>(
+            "WITH clock AS MATERIALIZED (SELECT coalesce(to_timestamp($5), statement_timestamp()) AS now), \
              bucket AS (SELECT to_timestamp((floor(extract(epoch FROM now) / $3::bigint) * $3::bigint)::double precision) AS start, \
              greatest(1, ceil($3::bigint - mod(extract(epoch FROM now), $3::bigint)))::bigint AS retry FROM clock), \
              charged AS (INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count) \
@@ -344,9 +392,8 @@ async fn charge<'e>(
              ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE \
              SET count = least(web_rate_limits.count + 1, $4 + 1) RETURNING count) \
              SELECT count, retry FROM charged CROSS JOIN bucket"
-        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit()).fetch_one(db).await
+        ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit()).bind(epoch).fetch_one(executor).await
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Denial {
     Limited { retry_after: i64 },
