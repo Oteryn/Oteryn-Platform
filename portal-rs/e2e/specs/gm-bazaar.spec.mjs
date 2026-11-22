@@ -20,10 +20,11 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
     const buyerPage = await newPage();
     const seller = await seededMfaAccount(lang);
     const buyer = await seededAccount(lang);
+    await login(buyerPage, lang, buyer);
     await loginWithRecoveryCode(sellerPage, lang, seller, seller.recoveryCode);
     await sellerPage.goto(`/${lang}/account/sudo`);
     await submit(sellerPage, 'main form', {current_password: seller.password});
-    await login(buyerPage, lang, buyer);
+    await expect(sellerPage).toHaveURL(new RegExp(`/${lang}/account/security$`));
 
     const {id} = await listing({page: sellerPage, id: seller.id}, {page: buyerPage, id: buyer.id}, lang);
     expect((await sellerPage.request.get(route, {maxRedirects: 0})).status()).toBe(403);
