@@ -48,7 +48,16 @@ svg {
 .eyebrow::before { content: ""; width: 30px; height: 2px; background-color: var(--gilt-edge); background-image: var(--gilt-surface); }
 
 /* Keep the gate panorama behind the bar at the top of the homepage. */
-.om-mast:is(.is-enhanced, :has(.om-fallback-menu)) { margin-bottom: calc(-1 * var(--om-bar-height)); }
+.om-mast { margin-bottom: calc(-1 * var(--om-bar-height)); }
+.om-mast:not(.is-enhanced):not(:has(.om-fallback-menu)) {
+  height: var(--om-bar-height);
+  overflow: visible;
+}
+.om-mast:not(.is-enhanced):not(:has(.om-fallback-menu)) .om-bar {
+  max-height: min(32dvh, 15rem);
+  overflow: auto;
+  background-color: var(--surface);
+}
 
 .hero, .feature, .start { position: relative; isolation: isolate; overflow: hidden; }
 .hero {

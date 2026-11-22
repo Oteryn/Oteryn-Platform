@@ -511,6 +511,16 @@ mod tests {
     }
 
     #[test]
+    fn home_navigation_fallback_reserves_the_enhanced_bar_height() {
+        let css = include_str!("../../../static/thais/home.css");
+        assert!(css.contains(".om-mast { margin-bottom: calc(-1 * var(--om-bar-height)); }"));
+        assert!(css.contains(concat!(
+            ".om-mast:not(.is-enhanced):not(:has(.om-fallback-menu)) {\n",
+            "  height: var(--om-bar-height);\n"
+        )));
+    }
+
+    #[test]
     fn desktop_home_panorama_fits_the_request_budget() -> Result<(), askama::Error> {
         const PANORAMA: &str = "brama-panorama-f4db61b9.webp";
         let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
