@@ -261,6 +261,7 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
   await login(page, lang, reporter);
   const ticketTeam = await staff(browser, info, ['support']);
   const moderator = await staff(browser, info, ['moderator']);
+  const dualRole = await staff(browser, info, ['support', 'moderator']);
   try {
     const evidence = unique();
     const report = await submitReport(page, lang, target.id, evidence);
@@ -332,19 +333,15 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     expect(unprivilegedLink.status()).toBe(403);
     expect(await query('SELECT status,lock_version::int FROM player_reports WHERE id=$1', [linkedReport.id]))
       .toEqual([{ status: 'submitted', lock_version: 1 }]);
-    expect(await query(
-      "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support' RETURNING role_id",
-      [moderator.id],
-    )).toHaveLength(1);
-    await visit(moderator.page, reportPath, lang);
+    await visit(dualRole.page, reportPath, lang);
     const closure = { status: 'closed', public_outcome: unique(), moderator_notes: unique() };
-    await mutate(moderator.page, 'moderate', closure);
-    await audit(report.id, 'support.report_status_changed', moderator.id, closure.moderator_notes,
+    await mutate(dualRole.page, 'moderate', closure);
+    await audit(report.id, 'support.report_status_changed', dualRole.id, closure.moderator_notes,
       reportAuditState('rejected', 3, {
         assignee: ticketTeam.id, outcome: dismiss.public_outcome, notes: dismiss.moderator_notes,
       }),
       reportAuditState('closed', 4, {
-        assignee: moderator.id, outcome: closure.public_outcome, notes: closure.moderator_notes,
+        assignee: dualRole.id, outcome: closure.public_outcome, notes: closure.moderator_notes,
       }));
     const history = await query(
       "SELECT before,after FROM audit_log WHERE target=$1 AND action='support.report_status_changed'",
@@ -354,19 +351,19 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
       expect(JSON.stringify(history)).not.toContain(text);
     }
     const unrelated = await submitReport(page, lang, reporter.id, unique());
-    await visit(moderator.page, `${reports}/${unrelated.id}`, lang);
-    await refused(moderator.page, 'link_sanction', linking, 422);
-    await visit(moderator.page, linkedPath, lang);
-    await refused(moderator.page, 'link_sanction', { ...linking, sanction: 'bad-id' }, 422);
-    await refused(moderator.page, 'link_sanction', { ...linking, reason: ' ' }, 422);
-    await refused(moderator.page, 'link_sanction', { ...linking, lock_version: '2' }, 409);
-    await mutate(moderator.page, 'link_sanction', linking);
-    await expect(moderator.page.locator('main')).toContainText(sanction);
+    await visit(dualRole.page, `${reports}/${unrelated.id}`, lang);
+    await refused(dualRole.page, 'link_sanction', linking, 422);
+    await visit(dualRole.page, linkedPath, lang);
+    await refused(dualRole.page, 'link_sanction', { ...linking, sanction: 'bad-id' }, 422);
+    await refused(dualRole.page, 'link_sanction', { ...linking, reason: ' ' }, 422);
+    await refused(dualRole.page, 'link_sanction', { ...linking, lock_version: '2' }, 409);
+    await mutate(dualRole.page, 'link_sanction', linking);
+    await expect(dualRole.page.locator('main')).toContainText(sanction);
     expect(await query('SELECT sanction_id FROM player_reports WHERE id=$1', [linkedReport.id]))
       .toEqual([{ sanction_id: sanction }]);
-    await audit(linkedReport.id, 'support.report_sanction_linked', moderator.id, linking.reason,
+    await audit(linkedReport.id, 'support.report_sanction_linked', dualRole.id, linking.reason,
       reportAuditState('submitted', 1),
-      reportAuditState('actioned', 2, { assignee: moderator.id, sanction, outcome: linking.public_outcome }));
+      reportAuditState('actioned', 2, { assignee: dualRole.id, sanction, outcome: linking.public_outcome }));
     await visit(page, linkedReport.path, lang, linking.public_outcome);
     await expect(page.locator('main')).not.toContainText(sanction);
     await expect(page.locator('main')).not.toContainText(linking.reason);
@@ -391,8 +388,8 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     expect((await page.goto(report.path)).status()).toBe(404);
     expect((await page.goto(sanctionPath)).status()).toBe(403);
     const namedReport = await submitReport(page, lang, 'Unresolved Player', unique());
-    await visit(moderator.page, `${reports}/${namedReport.id}`, lang);
-    await refused(moderator.page, 'link_sanction', linking, 422);
+    await visit(dualRole.page, `${reports}/${namedReport.id}`, lang);
+    await refused(dualRole.page, 'link_sanction', linking, 422);
     expect(await query(
       'SELECT status,lock_version::int,public_outcome FROM player_reports WHERE id=$1', [namedReport.id],
     )).toEqual([{ status: 'submitted', lock_version: 1, public_outcome: null }]);
@@ -401,6 +398,7 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     )).toEqual([]);
     expect((await query('SELECT operation_id FROM support_enforcement_commands WHERE account_id=$1', [target.id]))).toEqual([]);
   } finally {
+    await dualRole.context.close();
     await moderator.context.close();
     await ticketTeam.context.close();
   }
