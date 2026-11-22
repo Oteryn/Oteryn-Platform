@@ -53,12 +53,15 @@ async fn private(request: Request, next: Next) -> Response {
     for (name, value) in [
         (header::CACHE_CONTROL, "no-store"),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        (header::REFERRER_POLICY, "no-referrer"),
     ] {
         response
             .headers_mut()
             .insert(name, HeaderValue::from_static(value));
     }
+    response
+        .headers_mut()
+        .entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static("no-referrer"));
     response
 }
 
@@ -194,6 +197,17 @@ struct CheckoutPage {
     awaiting: bool,
 }
 
+impl CheckoutPage {
+    fn response(&self) -> Response {
+        let mut response = oteryn_web::render(self);
+        // Chromium sends Origin: null on form POSTs from a no-referrer page.
+        response
+            .headers_mut()
+            .insert(header::REFERRER_POLICY, HeaderValue::from_static("same-origin"));
+        response
+    }
+}
+
 #[derive(Deserialize)]
 struct Decision {
     action: String,
@@ -223,14 +237,15 @@ async fn page(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    oteryn_web::render(&CheckoutPage {
+    CheckoutPage {
         csrf,
         order_id: order.order_id,
         coins: order.coins,
         price: order.price.display(),
         state: order.state.as_str(),
         awaiting: order.state == OrderState::AwaitingPayment,
-    })
+    }
+    .response()
 }
 
 /// CSRF is verified by the session layer before this runs.
@@ -254,5 +269,25 @@ async fn act(
     match service.sandbox_complete(account, order, paid).await {
         Ok(_) => Redirect::to(&format!("{CHECKOUT_PATH}{order}")).into_response(),
         Err(error) => refusal(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checkout_form_keeps_the_origin_for_csrf_verification() {
+        let response = CheckoutPage {
+            csrf: "local-test-value".into(),
+            order_id: Uuid::now_v7(),
+            coins: 1,
+            price: "1.00 PLN".into(),
+            state: OrderState::AwaitingPayment.as_str(),
+            awaiting: true,
+        }
+        .response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
     }
 }
