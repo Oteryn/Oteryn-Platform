@@ -4,12 +4,36 @@ import crypto from 'node:crypto';
 import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
-export const pool = (connectionString = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL) => {
- if(!connectionString)throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
- const url=new URL(connectionString);
- if(!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!url.pathname.startsWith('/portal_e2e_'))throw new Error('Fixtures require a local portal_e2e_ database');
- return new pg.Pool({connectionString});
-};
+function validateDisposableDatabaseUrl(value) {
+ if (!value) throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
+ let url;
+ try {
+   url = new URL(value);
+ } catch {
+   throw new Error('Fixtures require a valid PostgreSQL URL');
+ }
+ if (!['postgres:', 'postgresql:'].includes(url.protocol)
+     || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+     || !/^\/portal_e2e_[a-zA-Z0-9_]+$/.test(url.pathname)) {
+   throw new Error('Fixtures require a local portal_e2e_ database');
+ }
+ const sslmode = url.searchParams.getAll('sslmode');
+ if (url.hash || [...url.searchParams.keys()].some(key => key !== 'sslmode')
+     || sslmode.length > 1
+     || (sslmode.length && !['disable', 'prefer', 'require', 'verify-ca', 'verify-full'].includes(sslmode[0]))) {
+   throw new Error('Fixture PostgreSQL URLs may only specify one SSL mode and no destination overrides');
+ }
+ url.port ||= '5432';
+ return url.href;
+}
+export function disposableDatabaseUrl(env = process.env) {
+ return validateDisposableDatabaseUrl(env.PORTAL_E2E_DATABASE_URL || env.OTERYN_DATABASE_URL);
+}
+export const pool = (connectionString) => new pg.Pool({
+ connectionString: connectionString === undefined
+   ? disposableDatabaseUrl()
+   : validateDisposableDatabaseUrl(connectionString),
+});
 export async function csrfRejected(page, action, fields={}) {
   const clean=Object.fromEntries(Object.entries(fields).filter(([key,value])=>!['_csrf','csrf'].includes(key) && value!==undefined));
   const payload=new URL(action,page.url()).pathname==='/admin/media'?{multipart:{alt_text:'Local test image',image:{name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAHklEQVR4nGNQzrP5T03MMGrgqIGjBo4aOGrgSDUQANpkzt/P0xIDAAAAAElFTkSuQmCC','base64')}}}:{form:clean};
@@ -105,16 +129,16 @@ export async function waitForWikiBudget(target, needed=1) {
     await db.end();
   }
 }
-export async function waitForLoginBudget(needed=1) {
- const db=pool();
+export async function waitForLoginBudget(needed=1,databaseURL) {
+ const db=pool(databaseURL);
  try {
   if(needed>=6) await expect.poll(async()=>Number((await db.query("SELECT extract(second FROM clock_timestamp()) AS second")).rows[0].second),{timeout:65000,intervals:[1000]}).toBeLessThan(50);
   await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-login-source' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThanOrEqual(20-needed);
  } finally {await db.end();}
 }
-export async function login(page,lang,account) {
+export async function login(page,lang,account,databaseURL) {
  await logout(page,lang);
  await page.goto(`/${lang}/login`);
- await waitForLoginBudget();
+ await waitForLoginBudget(1,databaseURL);
  await submit(page,'main form',{email:account.email,password:account.password});
 }

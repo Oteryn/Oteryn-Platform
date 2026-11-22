@@ -1,5 +1,6 @@
 //! Season passes use verified journal/portal facts and cosmetic entitlements only.
 //! Definitions are immutable; browser requests cannot submit progress or prices.
+mod platform;
 mod repository;
 pub mod web;
 pub use repository::Passes;
@@ -140,12 +141,18 @@ pub struct Claim {
     pub delivery: Uuid,
 }
 
-/// Trusted adapters must validate current account eligibility and hold the
+/// Trusted adapters validate account eligibility. Mutations must hold the
 /// ownership/erasure/restore fence until the caller transaction ends. Unknown
 /// authority denies. Progress adapters verify immutable source bytes, custody,
 /// completion, catalog revision and event identity, never browser assertions.
 pub trait Authority: Send + Sync {
     fn account(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> impl Future<Output = Result<()>> + Send;
+    /// Apply account eligibility to the overview's read-only snapshot.
+    fn account_snapshot(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         account: Uuid,
@@ -223,9 +230,15 @@ impl<
                 &format!("store-purchase:{operation}"),
             )
             .await
-            .map_err(|_| Error::Denied)?;
+            .map_err(|error| match error {
+                oteryn_wallet::Error::Refused(oteryn_wallet::Refusal::IdempotencyConflict) => {
+                    Error::Conflict
+                }
+                oteryn_wallet::Error::Storage(error) => Error::Database(error),
+                _ => Error::Denied,
+            })?;
         if receipt.replayed {
-            return Err(Error::Denied);
+            return Err(Error::Conflict);
         }
         Ok(())
     }
@@ -234,6 +247,9 @@ impl<
 pub struct Unavailable;
 impl Authority for Unavailable {
     async fn account(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {
+        Err(Error::Unavailable)
+    }
+    async fn account_snapshot(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {
         Err(Error::Unavailable)
     }
     async fn publish(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {

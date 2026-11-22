@@ -15,3 +15,4 @@ scheduled = Zaplanowane
 published = Opublikowane
 archived = Zarchiwizowane
 apply = Zmień status
+next = Następna

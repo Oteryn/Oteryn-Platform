@@ -213,13 +213,17 @@ impl<A: Accounts, V: PublicViews, L: PromotionLedger> Moderation<A, V, L> {
         tx.commit().await?;
         Ok(input.id)
     }
-    pub async fn promotion_quote(&self) -> Result<PromotionQuote, Error> {
+    pub async fn promotion_quote(
+        &self,
+        actor: Uuid,
+        listing: Uuid,
+    ) -> Result<PromotionQuote, Error> {
         self.enabled()?;
         if !self.flags.promotions {
             return Err(Error::Disabled);
         }
-        sqlx::query_as("SELECT id AS revision,promotion_price AS amount FROM bazaar_fee_revisions ORDER BY created_at DESC,id DESC LIMIT 1")
-            .fetch_optional(&self.pool).await?.ok_or(Error::Denied)
+        sqlx::query_as("SELECT id AS revision,promotion_price AS amount FROM bazaar_fee_revisions WHERE EXISTS (SELECT 1 FROM bazaar_listings WHERE id=$1 AND owner=$2) ORDER BY created_at DESC,id DESC LIMIT 1")
+            .bind(listing).bind(actor).fetch_optional(&self.pool).await?.ok_or(Error::Denied)
     }
     pub async fn promote(
         &self,

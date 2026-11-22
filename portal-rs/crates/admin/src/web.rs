@@ -496,15 +496,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     Ok(())
 }
 fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
-    }
+    oteryn_web::negotiate(headers).code()
 }
 fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
@@ -736,41 +728,41 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                     permissions: &permissions,
                 }
             };
-            if permissions.contains(&Permission::GrantRoles) {
+            // A reason selects the confirmed edit flow. The ordinary path
+            // still rejects additions to assigned roles under the writer fence.
+            if (form.action == "set-permissions" && !form.reason.is_empty())
+                || (form.action == "create" && permissions.contains(&Permission::GrantRoles))
+            {
                 if !s.grant_confirmation {
                     return staff_actions::Error::Forbidden.response(chrome);
                 }
-                // A plain edit may retain or remove an existing grant permission.
-                // Storage rejects any new assignment on the plain edit path.
-                if !form.reason.is_empty() || form.action == "create" {
-                    let auth = s.auth.clone();
-                    let result = staff_actions::run(
-                        &s.pool,
-                        guard,
-                        grant_action,
-                        || Ok((Vec::new(), (form.action, form.key, form.role, permissions))),
-                        move |connection, (action, key, role, permissions)| {
-                            Box::pin(async move {
-                                let change = if action == "create" {
-                                    Change::CreateRole {
-                                        key: &key,
-                                        permissions: &permissions,
-                                    }
-                                } else {
-                                    Change::SetPermissions {
-                                        role,
-                                        permissions: &permissions,
-                                    }
-                                };
-                                Ok(auth
-                                    .edit_grant_permission(connection, context, change)
-                                    .await?)
-                            })
-                        },
-                    )
-                    .await;
-                    return staff_action_response(result, chrome);
-                }
+                let auth = s.auth.clone();
+                let result = staff_actions::run(
+                    &s.pool,
+                    guard,
+                    grant_action,
+                    || Ok((Vec::new(), (form.action, form.key, form.role, permissions))),
+                    move |connection, (action, key, role, permissions)| {
+                        Box::pin(async move {
+                            let change = if action == "create" {
+                                Change::CreateRole {
+                                    key: &key,
+                                    permissions: &permissions,
+                                }
+                            } else {
+                                Change::SetPermissions {
+                                    role,
+                                    permissions: &permissions,
+                                }
+                            };
+                            Ok(auth
+                                .edit_role_with_grant_controls(connection, context, change)
+                                .await?)
+                        })
+                    },
+                )
+                .await;
+                return staff_action_response(result, chrome);
             }
             s.auth
                 .change_from_panel(context, Uuid::now_v7(), change)

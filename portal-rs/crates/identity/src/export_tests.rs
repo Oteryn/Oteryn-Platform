@@ -27,12 +27,12 @@ async fn disabled_and_bad_input() -> TestResult {
     Ok(())
 }
 #[tokio::test]
-async fn browser_export_requires_mounted_password_confirmation() -> TestResult {
+async fn browser_export_mounting_is_independent_of_password_confirmation() -> TestResult {
     let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     for (enabled, password_confirmation, mounted) in [
         (false, false, false),
         (false, true, false),
-        (true, false, false),
+        (true, false, true),
         (true, true, true),
     ] {
         assert_eq!(
@@ -111,26 +111,28 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     assert_eq!(data["account"]["id"], id.to_string());
     assert_eq!(data["sessions"].as_array().map(Vec::len), Some(1));
     use tower::ServiceExt;
-    for locale in ["pl", "en"] {
-        let response = router(pool.clone(), config.clone())
-            .oneshot(
-                axum::http::Request::get(format!("/{locale}/account/privacy/export"))
-                    .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
-                    .body(axum::body::Body::empty())?,
-            )
-            .await?;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers()[header::CACHE_CONTROL],
-            "no-store, private"
-        );
-        assert_eq!(
-            response.headers()[header::CONTENT_DISPOSITION],
-            "attachment; filename=\"account-data.json\""
-        );
-        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
-        let exported: Value = serde_json::from_slice(&body)?;
-        assert_eq!(exported, data);
+    for password_confirmation in [true, false] {
+        for locale in ["pl", "en"] {
+            let response = configured_browser_router(pool.clone(), true, password_confirmation)
+                .oneshot(
+                    axum::http::Request::get(format!("/{locale}/account/privacy/export"))
+                        .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                        .body(axum::body::Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "no-store, private"
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_DISPOSITION],
+                "attachment; filename=\"account-data.json\""
+            );
+            let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
+            let exported: Value = serde_json::from_slice(&body)?;
+            assert_eq!(exported, data);
+        }
     }
     assert_eq!(data["consents"].as_array().map(Vec::len), Some(194));
     assert!(include_str!("export.rs").contains("FETCH FORWARD 64"));
@@ -175,6 +177,20 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
             } else {
                 assert_eq!(response.status(), StatusCode::FORBIDDEN);
             }
+            let without_confirmation = configured_browser_router(pool.clone(), true, false)
+                .oneshot(
+                    axum::http::Request::get(format!("/{locale}/account/privacy/export"))
+                        .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                        .body(axum::body::Body::empty())?,
+                )
+                .await?;
+            assert_eq!(without_confirmation.status(), StatusCode::FORBIDDEN);
+            assert!(
+                without_confirmation
+                    .headers()
+                    .get(header::LOCATION)
+                    .is_none()
+            );
         }
     }
     eprintln!(

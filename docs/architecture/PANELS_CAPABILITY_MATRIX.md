@@ -165,6 +165,13 @@ Every staff mutation follows #2010's typed form, CSRF, distinct least-privilege 
 | Platform operations | Platform statistics, analytics, rate-limit export, effective flags and health. Own `portal-rs/crates/admin/src/analytics/**`, `portal-rs/templates/admin/analytics*.html`, and new `portal-rs/crates/admin/src/operations/**`. Consume identity budget data and console status through their interfaces. |
 | GM console and commands | Finish all ADM-01 rows and alerts/access, qualify accepted enforcement exchange, and expose character authority operations once their required wire and staff semantics are accepted. Own `portal-rs/crates/admin/src/console/**` except `audit.rs` and `templates/audit_details.html`, `portal-rs/crates/admin/src/control/**`, `portal-rs/crates/support/src/sanctions/enforcement.rs` and new `portal-rs/crates/admin/src/gm/**`. Consume player character and Platform audit interfaces. |
 
+### Foundation integration for #2002
+
+The foundation branch carries two coordinated changes needed to qualify the shared interfaces:
+
+- **Accounts and access** owns the role-write policy and tests. The foundation grant reference and permission additions to assigned roles use the same authorization, reason, confirmation and audit controls. The owning slice continues follow-on account editing and staff invites.
+- **Player identity** owns export and password confirmation. The foundation export link uses localized confirmation when available. The export feature flag still controls route availability, and a recently confirmed owner can use the route with credential pages disabled.
+
 ## Needs Game contract
 
 Each entry is a contract proposal and a Game task only. The inputs below describe the authority Game would need to validate. Bounded mutations also need stable operation IDs, a reason, actor scope and an authoritative result or refusal. ADM-01, MUTE/JAIL and existing character semantic profiles already supply the authority described in their accepted scope. The open items below cover additional semantics, unratified wire or Game-owned coverage.

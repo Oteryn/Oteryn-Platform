@@ -3,12 +3,11 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {confirmStaffPassword} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,recoveryCodes} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
- // This sweeps each real staff destination with its shell and accessibility checks.
- test.setTimeout(720_000);
+ test.setTimeout(300_000);
  const lang=info.project.metadata.locale;
  const staff=await register(page,lang);
  const db=pool();
@@ -23,9 +22,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const recoveryFields=page.locator('main textarea[readonly]');
- await expect(recoveryFields.first()).toBeVisible({timeout:30_000});
- const codes=await recoveryFields.allTextContents();
+ const codes=await recoveryCodes(page, {timeout:30_000});
  expect(codes.length).toBeGreaterThan(0);
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
@@ -33,19 +30,8 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
  expect(new URL(response.url()).pathname).toBe('/admin');
- // The Foundation-owned GM route has a distinct permission from the Admin panel.
- const gm=await page.context().newPage();
- try {
-   const denied=await gm.goto(`/console/dashboard?lang=${lang}`);
-   expect(new URL(denied.url()).pathname,'terminal GM route').toBe('/console/dashboard');
-   expect(denied.status()).toBe(403);
-   await expect(gm.locator('html')).toHaveAttribute('lang',lang);
-   await assertShell(gm,{status:403});
- } finally {
-   await gm.close();
- }
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(link=>link.split('?')[0]!=='/console/dashboard');
+ const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
@@ -62,10 +48,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
            const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
            const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
            const status=response.status();
-           if(status===200) {
+           const expected=path==='/console/dashboard'?403:200;
+           if(new URL(response.url()).pathname!==new URL(path,screen.url()).pathname) failures.push(`${path}: wrong terminal route`);
+           if(status===expected) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
-             await assertShell(screen);
+             await assertShell(screen,{status:expected});
            } else {
              failures.push(`${path}: HTTP ${status}`);
              const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));

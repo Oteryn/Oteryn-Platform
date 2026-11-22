@@ -221,6 +221,20 @@
       ]
     },
     {
+      "route": "/console",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_CONSOLE",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/console/mod.rs:424"
+      ]
+    },
+    {
       "route": "/console/dashboard",
       "crate": "admin",
       "flags": [

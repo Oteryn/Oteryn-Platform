@@ -21,7 +21,7 @@
         {% endif %}
       </div></li>
       <li><span class="number" aria-hidden="true">2</span><div>
-        {% if let Some(link) = chrome.link("create-character") %}
+        {% if let Some(link) = chrome.link("create-character") && (chrome.signed_in() || chrome.login_mounted) %}
           <a href="{{ link.url }}">{{ chrome.text("home-step2-title") }}</a>
           <p>{{ chrome.text("home-step2-text") }}</p>
         {% else %}

@@ -54,6 +54,11 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("commerce-refunds-reconcile") {
         return refund_reconcile_cli::main().await;
     }
+    if std::env::args().nth(1).as_deref() == Some("migrate") && std::env::args_os().nth(2).is_some()
+    {
+        eprintln!("usage: oteryn-portal migrate");
+        return ExitCode::from(2);
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -241,7 +246,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(credentials);
             let export =
                 oteryn_identity::export::configured_router(db.clone(), password_confirmation);
-            let export_enabled = export.has_routes();
+            let export_enabled = export.has_routes() && password_confirmation;
             let app = app.merge(export);
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(

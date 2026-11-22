@@ -16,9 +16,9 @@ export async function audit(page,operation,target){const rows=await query('SELEC
 
 export async function rolePage(page,id){await page.goto('/admin/roles');for(let n=0;n<10000;n++){if(await page.locator(`select[name=role] option[value="${id}"]`).count())return;const next=page.locator('a[href^="/admin/roles?after="]');expect(await next.count(),'role remains discoverable through keyset pagination').toBe(1);await next.click();}throw new Error('role pagination exceeded bound');}
 
-export async function recoveryCodes(page){
+export async function recoveryCodes(page, options){
  const codes=page.locator('main textarea[readonly]');
- await expect(codes.first()).toBeVisible();
+ await expect(codes.first()).toBeVisible(options);
  return codes.allTextContents();
 }
 

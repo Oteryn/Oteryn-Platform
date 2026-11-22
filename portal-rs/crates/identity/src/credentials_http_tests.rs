@@ -127,41 +127,51 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
     )?;
     assert!(html.contains("Change password"));
     assert!(html.contains("name=\"_csrf\""));
-    let response = app
-        .clone()
-        .oneshot(request(
-            "POST",
+    let mut rotated = cookie;
+    let mut hash = hash;
+    let mut next_csrf = csrf;
+    for (path, destination) in [
+        ("/en/account/sudo", "/en/account/security"),
+        (
             "/en/account/sudo?return_to=export",
-            &cookie,
-            &csrf,
-            "current_password=test+password",
-        )?)
-        .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
-    assert_eq!(
-        response.headers()[header::LOCATION],
-        "/en/account/privacy/export"
-    );
-    let rotated = response
-        .headers()
-        .get(header::SET_COOKIE)
-        .ok_or("missing cookie")?
-        .to_str()?
-        .split(';')
-        .next()
-        .ok_or("missing cookie")?
-        .to_owned();
-    assert_ne!(rotated, cookie);
-    assert_eq!(service.require_sudo(&hash).await?, None);
-    let raw = rotated.split_once('=').ok_or("invalid cookie")?.1;
-    let hash = Sha256::digest(raw.as_bytes()).to_vec();
-    assert_eq!(service.require_sudo(&hash).await?, Some(id));
-    let next_csrf: String =
-        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
-            .bind(&hash)
-            .fetch_one(&pool)
+            "/en/account/privacy/export",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                path,
+                &rotated,
+                &next_csrf,
+                "current_password=test+password",
+            )?)
             .await?;
-    assert_ne!(csrf, next_csrf);
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[header::LOCATION], destination);
+        let new_cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .ok_or("missing cookie")?
+            .to_str()?
+            .split(';')
+            .next()
+            .ok_or("missing cookie")?
+            .to_owned();
+        assert_ne!(new_cookie, rotated);
+        assert_eq!(service.require_sudo(&hash).await?, None);
+        rotated = new_cookie;
+        let raw = rotated.split_once('=').ok_or("invalid cookie")?.1;
+        hash = Sha256::digest(raw.as_bytes()).to_vec();
+        assert_eq!(service.require_sudo(&hash).await?, Some(id));
+        let new_csrf: String =
+            sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
+                .bind(&hash)
+                .fetch_one(&pool)
+                .await?;
+        assert_ne!(new_csrf, next_csrf);
+        next_csrf = new_csrf;
+    }
     assert_eq!(app.clone().oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=next+password&password_confirmation=next+password")?).await?.status(),StatusCode::SERVICE_UNAVAILABLE);
     sqlx::query("UPDATE web_sessions SET sudo_until=now() WHERE id_hash=$1")
         .bind(&hash)

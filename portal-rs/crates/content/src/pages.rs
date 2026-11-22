@@ -71,6 +71,9 @@ struct Page {
     title: String,
     body: String,
     version: String,
+    help_links: bool,
+    tickets_label: String,
+    password_label: String,
 }
 pub fn router(pool: PgPool) -> Router {
     let mut app = Router::new();
@@ -112,6 +115,7 @@ async fn custom(
 }
 async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
     let result = sqlx::query("SELECT e.title,e.body,COALESCE(e.legal_version,'') AS version,COALESCE(e.legal_effective_date::text,'') AS effective FROM pages p JOIN editorial_pages e ON e.page_id=p.id JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en' WHERE p.slug=$1 AND e.locale=$2 AND e.published_at<=now() AND source.published_at<=now() AND (e.locale='en' OR e.source_revision=source.revision) AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))").bind(slug).bind(lang).fetch_optional(pool).await;
+    let help_links = matches!(&result, Ok(None)) && matches!(slug, "support" | "report-a-bug");
     let (status, title, body, version) = match result {
         Ok(Some(row)) => {
             let body: String = row.get("body");
@@ -136,7 +140,9 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
             },
             text(
                 lang,
-                if reserved(slug) {
+                if help_links {
+                    slug
+                } else if reserved(slug) {
                     "not-published"
                 } else {
                     "unavailable"
@@ -152,6 +158,9 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
         title,
         body,
         version,
+        help_links,
+        tickets_label: text(lang, "help-tickets"),
+        password_label: text(lang, "help-password"),
     });
     *response.status_mut() = status;
     response.headers_mut().insert(

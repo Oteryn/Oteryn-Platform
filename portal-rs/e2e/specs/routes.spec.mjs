@@ -31,29 +31,37 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
    await context.addCookies(staff.cookies);
  }else await context.addCookies(cookies);
  const target=sample(row.route,lang);
+ const disabled = row.disabled && process.env[row.disabled.flag] === 'false';
+ const expectedStatus = disabled ? row.disabled.status : row.status;
+ const redirect = disabled ? null : row.redirect;
+ if (redirect) {
+   const initial = await page.request.get(target, {headers: {'accept-language': lang}, maxRedirects: 0});
+   expect(initial.status()).toBe(redirect.status);
+   expect(initial.headers().location).toBe(sample(redirect.location, lang));
+ }
  const errors=[];
  let documentPath=new URL(target,'https://localhost:18443').pathname;
  page.on('pageerror',e=>errors.push(e.message));
  page.on('console',m=>{
    if(m.type()!=='error')return;
    const expected=documentPath;
-   if(new URL(m.location().url||'https://localhost/').pathname===expected&&m.text()===`Failed to load resource: the server responded with a status of ${row.status} (${({400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',422:'Unprocessable Entity',503:'Service Unavailable'})[row.status]})`)return;
+   if(new URL(m.location().url||'https://localhost/').pathname===expected&&m.text()===`Failed to load resource: the server responded with a status of ${expectedStatus} (${({400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',422:'Unprocessable Entity',503:'Service Unavailable'})[expectedStatus]})`)return;
    errors.push(m.text());
  });
  if (row.method === 'GET') await waitForWikiBudget(target, 2);
  const response=await page.request.fetch(target,{method:row.method,headers:{accept:'text/html',origin:'https://localhost:18443','accept-language':lang},...(row.method==='GET'?{}:{form:row.route==='/oauth/token'?{client_id:'e2e-local'}:{}})});
- expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
- if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');
+ expect(response.status(),`${target}: ${row.reason}`).toBe(expectedStatus);
+ if(expectedStatus===503)expect(response.headers()['cache-control']).toContain('no-store');
  documentPath=new URL(response.url()).pathname;
  if (row.method === 'GET' && ['staff', 'gm'].includes(row.actor)) {
-   expect(documentPath, 'terminal staff route').toBe(new URL(target, response.url()).pathname);
+   expect(documentPath, 'terminal staff route').toBe(new URL(redirect ? sample(redirect.location, lang) : target, response.url()).pathname);
  }
  const text=await response.text();
  if(row.method==='GET'&&response.headers()['content-type']?.startsWith('text/html')&&/<html[\s>]/i.test(text)) {
-   expect((await page.goto(target)).status()).toBe(row.status);
+   expect((await page.goto(target)).status()).toBe(expectedStatus);
    if (row.route.endsWith('/privacy/export')) expect(new URL(page.url()).searchParams.get('return_to')).toBe('export');
    expect(new URL(page.url()).pathname).toBe(documentPath);
-   await assertShell(page,{status:row.status});
+   await assertShell(page,{status:expectedStatus});
  }
  if(row.route==='/oauth/token') {
    const anonymousClient=await page.request.post(target,{form:{}});
