@@ -558,12 +558,27 @@ async fn postgres_binding_alerts_require_the_dedicated_permission() {
         .await,
     )
     .await;
-    for label in ["Źródło danych", "Rodzina", "Rekord", "Powiązanie"] {
-        assert_eq!(
-            polish.matches(&format!(">{label}<")).count(),
-            2,
-            "Polish field label {label}"
-        );
+    let alerts: Vec<_> = polish
+        .split("<h3>IMMUTABLE_BINDING</h3>")
+        .skip(1)
+        .filter_map(|tail| tail.split_once("</article>").map(|(fields, _)| fields))
+        .collect();
+    assert_eq!(alerts.len(), 2);
+    for alert in alerts {
+        for label in [
+            "Alarm",
+            "UTC",
+            "Źródło danych",
+            "Rodzina",
+            "Rekord",
+            "Powiązanie",
+        ] {
+            assert_eq!(
+                alert.matches(&format!("<dt>{label}</dt>")).count(),
+                1,
+                "Polish alert label {label}"
+            );
+        }
     }
     assert!(!polish.contains(">Authority<"));
     assert!(!polish.contains(">Binding<"));
