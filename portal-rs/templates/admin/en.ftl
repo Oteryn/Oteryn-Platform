@@ -7,6 +7,7 @@ grant = Assign role
 revoke = Revoke role
 mfa = Multi-factor authentication required
 
+invite-password = Confirm password
 invite-reason = Reason
 invite-title = Staff invitations
 invite-heading = Staff invitation

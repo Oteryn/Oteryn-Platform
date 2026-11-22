@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {test,expect} from '../fixtures.mjs';
 import {csrfRejected,login,mailLink,password,register,submit} from '../helpers.mjs';
-import {audit,enrollMfa,loginWithRecoveryCode,query} from '../staff-rbac-helpers.mjs';
+import {audit,confirmStaffPassword,enrollMfa,loginWithRecoveryCode,query} from '../staff-rbac-helpers.mjs';
 import {cookie,deviceCookie,hash} from '../security/auth-fixtures.mjs';
 
 test.use({trace:'off',screenshot:'off'});
@@ -30,8 +30,10 @@ function seedAccount(lang) {
   return {...account,id:result.accountId};
 }
 
-async function send(page,email,roles,lang,checkRequiredReason=false) {
+async function send(page,email,roles,lang,staffPassword,checkRequiredReason=false) {
+  await confirmStaffPassword(page,lang,staffPassword);
   const action=`${manage}?lang=${lang}`;
+  expect((await page.goto(action)).status()).toBe(200);
   const form=page.locator(`form[action="${action}"]`);
   await csrfRejected(page,action,{email,role:roles[0].id});
   await form.locator('[name="email"]').fill(email);
@@ -149,7 +151,7 @@ test('staff invitations reach verified registered and existing accounts through 
       name:lang==='pl' ? 'Zaproszenia do zespołu' : 'Staff invitations',exact:true,
     })).toBeVisible();
     const fresh=address();
-    const freshId=await send(admin,fresh,[support],lang);
+    const freshId=await send(admin,fresh,[support],lang,manager.password);
     const freshLink=await invitation(page,fresh,lang);
     await visit(page,freshLink,200);
     await expect(page.locator(`main a[href="/${lang}/register"]`)).toBeVisible();
@@ -180,7 +182,7 @@ test('staff invitations reach verified registered and existing accounts through 
     expect(await memberships(fresh)).toEqual(['support']);
     await visit(page,freshLink,403);
 
-    const existingId=await send(admin,existing.email,[support],lang);
+    const existingId=await send(admin,existing.email,[support],lang,manager.password);
     const existingLink=await invitation(page,existing.email,lang);
     await visit(page,existingLink,403);
     expect(await memberships(existing.email)).toEqual([]);
@@ -219,7 +221,7 @@ test('staff invitations reach verified registered and existing accounts through 
     expect((await page.goto('/admin/roles')).status()).toBe(403);
 
     const revokedEmail=address();
-    const revokedId=await send(admin,revokedEmail,[support],lang);
+    const revokedId=await send(admin,revokedEmail,[support],lang,manager.password);
     const revokedLink=await invitation(page,revokedEmail,lang);
     const revokePath=`${manage}/${revokedId}/revoke`;
     const revoked=admin.waitForResponse(r=>r.request().method()==='POST'
@@ -272,7 +274,7 @@ test('protected invitations retain queued mail until current authority and indep
       await loginWithRecoveryCode(actorPage,lang,account,codes[0]);
     }
     expect((await issuerPage.goto(localized)).status()).toBe(200);
-    const invite=await send(issuerPage,recipient.email,roles,lang,true);
+    const invite=await send(issuerPage,recipient.email,roles,lang,issuer.password,true);
     const pending=issuerPage.locator('article').filter({hasText:recipient.email});
     const approvalLink=pending.locator('a[href*="?approval="]');
     await expect(approvalLink).toBeVisible();
@@ -309,6 +311,7 @@ test('protected invitations retain queued mail until current authority and indep
     await query('INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)',[issuer.id,support.id]);
     await claimBeforeApproval();
 
+    await confirmStaffPassword(approverPage,lang,approver.password);
     expect((await approverPage.goto(approvalPath)).status()).toBe(200);
     const approvalForm=`form[action="${localized}"]:has(input[name="approve"])`;
     await expect(approverPage.locator(approvalForm)).toBeVisible();

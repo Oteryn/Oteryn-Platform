@@ -115,6 +115,7 @@ pub fn mail_text(locale: &str, expires_at: OffsetDateTime) -> (String, String) {
 }
 
 const MANAGE: [Permission; 2] = [Permission::Access, Permission::ManageRoles];
+const ISSUE: [Permission; 3] = [MANAGE[0], MANAGE[1], Permission::GrantRoles];
 
 // Membership implies possession of the role's permissions. Require membership
 // in each selected role, including an explicit built-in platform_admin grant.
@@ -194,9 +195,9 @@ fn current_manager_sql(account_predicate: &'static str) -> String {
         "EXISTS (
             SELECT 1 FROM accounts a WHERE {account_predicate}
             AND a.status='active' AND a.email_verified_at IS NOT NULL
-            AND 2=(SELECT count(DISTINCT rp.permission)
+            AND 3=(SELECT count(DISTINCT rp.permission)
                    FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
-                   WHERE ar.account_id=a.id AND rp.permission IN ('{access}','{manage}'))
+                   WHERE ar.account_id=a.id AND rp.permission IN ('{access}','{manage}','{grant}'))
             AND NOT EXISTS (
               SELECT 1 FROM unnest(i.role_ids) AS requested(id)
               WHERE NOT EXISTS (
@@ -206,7 +207,8 @@ fn current_manager_sql(account_predicate: &'static str) -> String {
             )
           )",
         access = MANAGE[0].as_str(),
-        manage = MANAGE[1].as_str(),
+        manage = ISSUE[1].as_str(),
+        grant = ISSUE[2].as_str(),
     )
 }
 
@@ -278,7 +280,8 @@ impl<A: AccountStateReader> Invites<A> {
         }
         let mut tx = self.pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
-        rbac::authorize_mutation(&mut tx, &[], &self.auth, actor, &MANAGE).await?;
+        rbac::authorize_mutation(&mut tx, &[], &self.auth, actor, &ISSUE).await?;
+        require_recent_password(&mut tx, actor).await?;
         if let Some((id, original_email, original_roles, original_locale)) = sqlx::query_as::<
             _,
             (Uuid, String, Vec<Uuid>, String),
@@ -327,6 +330,7 @@ impl<A: AccountStateReader> Invites<A> {
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
+        require_recent_password(&mut tx, actor).await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -338,7 +342,8 @@ impl<A: AccountStateReader> Invites<A> {
         let observed = Pending::by_id(&mut tx, id).await?;
         let mut participants = vec![observed.invited_by];
         participants.extend(observed.approved_by);
-        rbac::authorize_mutation(&mut tx, &participants, &self.auth, actor, &MANAGE).await?;
+        rbac::authorize_mutation(&mut tx, &participants, &self.auth, actor, &ISSUE).await?;
+        require_recent_password(&mut tx, actor).await?;
         let invite = observed.recheck_locked(&mut tx).await?;
         self.check_approver(&mut tx, actor.account, &invite).await?;
         self.check_manager(&mut tx, invite.invited_by, &invite.role_ids)
@@ -367,6 +372,7 @@ impl<A: AccountStateReader> Invites<A> {
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
+        require_recent_password(&mut tx, actor).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -399,7 +405,7 @@ impl<A: AccountStateReader> Invites<A> {
         actor: Uuid,
         roles: &[Uuid],
     ) -> Result<(), Error> {
-        for permission in MANAGE {
+        for permission in ISSUE {
             self.auth.check_subject_in(conn, actor, permission).await?;
         }
         check_roles(conn, actor, roles).await
@@ -513,6 +519,17 @@ impl<A: AccountStateReader> Invites<A> {
             reissue_in_transaction(&mut tx, actor.account, &proof.session_hash, None).await?;
         tx.commit().await?;
         Ok(rotation)
+    }
+}
+
+async fn require_recent_password(
+    connection: &mut PgConnection,
+    actor: CheckContext,
+) -> Result<(), Error> {
+    if crate::staff_actions::recent_password_in(connection, actor).await? {
+        Ok(())
+    } else {
+        Err(Error::Denied)
     }
 }
 

@@ -100,6 +100,7 @@ struct Management {
     lang: &'static str,
     csrf: String,
     mail_configured: bool,
+    can_issue: bool,
     roles: Vec<(Uuid, String)>,
     pending: Vec<Listing>,
     request_key: Uuid,
@@ -173,6 +174,12 @@ async fn manage(
             lang,
             csrf,
             mail_configured: app.key.is_some(),
+            can_issue: app
+                .invites
+                .auth
+                .check(actor, Permission::GrantRoles)
+                .await
+                .is_ok(),
             roles,
             pending,
             next,

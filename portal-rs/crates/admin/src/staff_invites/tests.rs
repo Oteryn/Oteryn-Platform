@@ -139,7 +139,12 @@ async fn account(pool: &PgPool, email: &str) -> TestResult<CheckContext> {
         .bind(id).bind(email).execute(pool).await?;
     let mut context = CheckContext::new(id);
     context.mfa_verified = true;
-    context.session_proof = Some(crate::test_staff::proof(pool, id).await?);
+    let proof = crate::test_staff::proof(pool, id).await?;
+    sqlx::query("UPDATE web_sessions SET sudo_until=now()+interval '1 hour' WHERE id_hash=$1")
+        .bind(proof.session_hash.as_slice())
+        .execute(pool)
+        .await?;
+    context.session_proof = Some(proof);
     Ok(context)
 }
 
@@ -265,7 +270,7 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
         sqlx::query_scalar("INSERT INTO roles(key) VALUES('invite_manager') RETURNING id")
             .fetch_one(&f.invites.pool)
             .await?;
-    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage'),($1,'admin.access')")
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage'),($1,'admin.roles.grant'),($1,'admin.roles.grant'),($1,'admin.access')")
         .bind(manager).execute(&f.invites.pool).await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
         .bind(f.inviter.account)
@@ -514,6 +519,15 @@ async fn issuance_retry_and_visibility_are_scoped_to_the_issuer() -> TestResult 
             request(request_key),
         )
     };
+    sqlx::query("UPDATE web_sessions SET sudo_until=NULL WHERE account_id=$1")
+        .bind(f.inviter.account)
+        .execute(pool)
+        .await?;
+    assert!(matches!(issue().await, Err(Error::Denied)));
+    sqlx::query("UPDATE web_sessions SET sudo_until=now()+interval '1 hour' WHERE account_id=$1")
+        .bind(f.inviter.account)
+        .execute(pool)
+        .await?;
     let (first, retry) = tokio::join!(issue(), issue());
     let id = first?;
     assert_eq!(retry?, id);
@@ -614,7 +628,7 @@ async fn pending_invite_follows_role_reclassification() -> TestResult {
             .fetch_one(pool)
             .await?;
     assert!(!pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
-    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage')")
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage'),($1,'admin.roles.grant')")
         .bind(f.role)
         .execute(pool)
         .await?;
@@ -650,7 +664,7 @@ async fn stale_approval_blocks_delivery_and_can_be_replaced() -> TestResult {
     let f = Fixture::open().await?;
     let (id, token) = f.create().await?;
     let pool = &f.invites.pool;
-    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage')")
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage'),($1,'admin.roles.grant')")
         .bind(f.role)
         .execute(pool)
         .await?;

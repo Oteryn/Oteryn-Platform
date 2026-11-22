@@ -18,15 +18,17 @@
     <ul>{% for key in invite.roles %}<li>{{ key }}</li>{% endfor %}</ul>
     <form method="post" action="/admin/staff-invites?lang={{ lang }}">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <a href="/{{ lang }}/account/sudo?return_to=roles">{{ self.tr("invite-password") }}</a>
       <input type="hidden" name="approve" value="{{ invite.id }}">
       <label for="approve-reason">{{ self.tr("invite-reason") }}</label>
       <input class="op-input" id="approve-reason" name="reason" maxlength="500" required>
       <button class="op-button">{{ self.tr("invite-approve") }}</button>
     </form>
   </section>
-  {% elif mail_configured %}
+  {% elif mail_configured && can_issue %}
   <form class="op-stack" method="post" action="/admin/staff-invites?lang={{ lang }}">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <a href="/{{ lang }}/account/sudo?return_to=roles">{{ self.tr("invite-password") }}</a>
     <input type="hidden" name="request_key" value="{{ request_key }}">
     <label for="invite-email">{{ self.tr("invite-email") }}</label>
     <input class="op-input" id="invite-email" name="email" type="email" maxlength="254" required>
@@ -41,7 +43,7 @@
     <p>{{ self.tr("invite-expiry") }}</p>
     <div><button class="op-button">{{ self.tr("invite-send") }}</button></div>
   </form>
-  {% else %}
+  {% elif !mail_configured %}
   <p>{{ self.tr("invite-mail-unavailable") }}</p>
   {% endif %}
   <section class="op-stack">

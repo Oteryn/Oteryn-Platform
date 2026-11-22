@@ -22,22 +22,30 @@ async fn check_step_up(
     actor: CheckContext,
     requirement: StepUp,
 ) -> Result<(), Error> {
-    if matches!(requirement, StepUp::RecentPassword) {
-        let proof = actor.session_proof.ok_or(Error::StepUp)?;
-        // RBAC has already locked and verified the durable session and MFA grant.
-        let fresh: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM web_sessions
-             WHERE account_id=$1 AND id_hash=$2 AND sudo_until>clock_timestamp())",
-        )
-        .bind(actor.account)
-        .bind(proof.session_hash.as_slice())
-        .fetch_one(connection)
-        .await?;
-        if !fresh {
-            return Err(Error::StepUp);
-        }
+    if matches!(requirement, StepUp::RecentPassword)
+        && !recent_password_in(connection, actor).await?
+    {
+        return Err(Error::StepUp);
     }
     Ok(())
+}
+
+/// Check the password-confirmation deadline on the already authorized session.
+pub(crate) async fn recent_password_in(
+    connection: &mut PgConnection,
+    actor: CheckContext,
+) -> Result<bool, sqlx::Error> {
+    let Some(proof) = actor.session_proof else {
+        return Ok(false);
+    };
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM web_sessions
+         WHERE account_id=$1 AND id_hash=$2 AND sudo_until>clock_timestamp())",
+    )
+    .bind(actor.account)
+    .bind(proof.session_hash.as_slice())
+    .fetch_one(connection)
+    .await
 }
 
 #[derive(Debug)]
