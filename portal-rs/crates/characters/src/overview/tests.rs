@@ -113,6 +113,9 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     )?;
     assert!(html.contains("/characters/Aldric"));
     assert!(html.contains("Current game connection"));
+    assert!(html.contains("1970-01-01 00:00:00 UTC"));
+    assert!(html.contains("Ownership transfer"));
+    assert!(!html.contains("/services"));
     sqlx::query("UPDATE account_character_feed SET complete_through=0 WHERE id=1")
         .execute(&pool)
         .await?;
@@ -124,6 +127,8 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     )?;
     assert!(!html.contains("Aldric"));
     assert!(html.contains("nieaktualne"));
+    assert!(html.contains("1970-01-01 00:00:00 UTC"));
+    assert!(html.contains("Przywrócenie postaci"));
     sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
         .bind(id)
         .execute(&pool)

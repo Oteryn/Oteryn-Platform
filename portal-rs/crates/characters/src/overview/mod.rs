@@ -1,5 +1,6 @@
 //! Private account overview. Missing producer facts remain explicitly unavailable.
 use crate::lcfa::{AccountId, AccountState, AccountStateLookup, Projection, ReadState, Settings};
+mod progression;
 mod wallet;
 use askama::Template;
 use axum::{
@@ -46,7 +47,11 @@ struct Page {
     main_label: String,
     preferences_label: String,
     state: String,
-    characters: Vec<(String, String, String, String, bool)>,
+    characters: Vec<Character>,
+    create: bool,
+    outfit: bool,
+    updated: String,
+    lifecycle: Vec<String>,
     world: String,
     availability: String,
     level: String,
@@ -57,6 +62,22 @@ struct Page {
     premium: String,
     balance: String,
 }
+struct Character {
+    segment: String,
+    name: String,
+    world: String,
+    availability: String,
+    main: bool,
+    level: String,
+    profession: String,
+}
+
+impl Page {
+    fn label(&self, key: &str) -> String {
+        oteryn_ui::text(self.lang, key)
+    }
+}
+
 fn text(lang: &str, key: &str) -> String {
     let source = if lang == "en" {
         include_str!("../../../../templates/account/overview.en.ftl")
@@ -181,6 +202,15 @@ async fn load(
         Some(now) => profiles.main_character(account, now).await,
         None => None,
     };
+    let updated = view
+        .as_ref()
+        .and_then(|view| view.observed_at.clone())
+        .unwrap_or_else(|| t("unavailable"));
+    let progression = if read_state == Some(ReadState::Ready) {
+        progression::load(pool, account).await
+    } else {
+        Default::default()
+    };
     let characters = view
         .filter(|v| v.state == ReadState::Ready)
         .map(|v| {
@@ -193,13 +223,29 @@ async fn load(
                         } else {
                             "unavailable"
                         });
-                    (
-                        segment(&c.name),
-                        c.name,
-                        c.world_id.to_string(),
+                    let facts = progression.get(&c.character_id.as_uuid()).filter(|facts| {
+                        facts.name == c.name && facts.world == c.world_id.as_uuid()
+                    });
+                    Character {
+                        segment: segment(&c.name),
+                        name: c.name,
+                        world: c.world_id.to_string(),
                         availability,
-                        main == Some(c.character_id.as_uuid()),
-                    )
+                        main: main == Some(c.character_id.as_uuid()),
+                        level: facts
+                            .map(|facts| facts.level.to_string())
+                            .unwrap_or_else(|| t("unavailable")),
+                        profession: facts
+                            .map(|facts| match facts.vocation {
+                                0 => oteryn_ui::text(lang, "panel-characters-no-vocation"),
+                                1..=5 => oteryn_ui::text(
+                                    lang,
+                                    &format!("rankings-vocation-{}", facts.vocation),
+                                ),
+                                vocation => vocation.to_string(),
+                            })
+                            .unwrap_or_else(|| t("unavailable")),
+                    }
                 })
                 .collect()
         })
@@ -219,6 +265,19 @@ async fn load(
             _ => "unavailable",
         }),
         characters,
+        create: crate::navigation::creation_enabled(),
+        outfit: crate::navigation::outfit_enabled(),
+        updated,
+        lifecycle: [
+            "panel-characters-rename",
+            "panel-characters-world-transfer",
+            "panel-characters-owner-transfer",
+            "panel-characters-delete",
+            "panel-characters-restore",
+            "panel-characters-outfit-edit",
+        ]
+        .map(|key| oteryn_ui::text(lang, key))
+        .into(),
         world: t("world"),
         availability: t("availability"),
         level: t("level"),

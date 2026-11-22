@@ -354,3 +354,15 @@ staff-action-reason = Powód działania
 staff-action-reason-invalid = Podaj powód liczący od 8 do 500 znaków.
 error-409-title = Konflikt zmian
 error-409-description = Rekord został zmieniony lub działanie jest sprzeczne z jego bieżącym stanem.
+
+panel-characters = Postacie
+panel-characters-outfit = Zobacz strój
+panel-characters-services = Usługi postaci
+panel-characters-updated = Ostatnia aktualizacja z gry
+panel-characters-rename = Zmiana imienia
+panel-characters-world-transfer = Przeniesienie świata lub kanału
+panel-characters-owner-transfer = Przeniesienie własności
+panel-characters-delete = Usunięcie postaci
+panel-characters-restore = Przywrócenie postaci
+panel-characters-outfit-edit = Zmiana stroju
+panel-characters-no-vocation = Bez profesji

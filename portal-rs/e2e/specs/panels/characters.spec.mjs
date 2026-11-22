@@ -1,0 +1,200 @@
+import {execFileSync} from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import https from 'node:https';
+import os from 'node:os';
+import path from 'node:path';
+import {test, expect} from '../../fixtures.mjs';
+import {actor, uuid7} from '../../game-sim-helpers.mjs';
+import {csrfRejected, pool, submit} from '../../helpers.mjs';
+
+const authority = process.env.OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY;
+const stamp = () => String(Math.floor(Date.now() / 1000));
+const gamePrefix = '/internal/v1/game-auth';
+const receiptFixture = new URL('../../../crates/characters/src/commands/fixtures/create-receipt.json', import.meta.url);
+const outfitFixture = new URL('../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-outfit.json', import.meta.url);
+
+async function gamePost(route, payload, identity) {
+  const origin = new URL(process.env.PORTAL_ACCOUNT_CLOSURE_BASE_URL);
+  expect(origin.hostname).toBe('127.0.0.1');
+  const directory = path.dirname(process.env.OTERYN_INTERNAL_TLS_CERT_FILE);
+  const raw = JSON.stringify(payload);
+
+  return new Promise((resolve, reject) => {
+    const request = https.request(new URL(gamePrefix + route, origin), {
+      method: 'POST',
+      ca: fs.readFileSync(process.env.OTERYN_INTERNAL_TLS_CLIENT_CA_FILE),
+      cert: fs.readFileSync(identity.cert ?? path.join(directory, identity + '.pem')),
+      key: fs.readFileSync(identity.key ?? path.join(directory, identity + '-key.pem')),
+      minVersion: 'TLSv1.3',
+      maxVersion: 'TLSv1.3',
+      ALPNProtocols: ['http/1.1'],
+      headers: {'content-type': 'application/json', 'content-length': Buffer.byteLength(raw)},
+      timeout: 5000,
+    }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => resolve({status: response.statusCode, body}));
+    });
+    request.on('error', reject);
+    request.on('timeout', () => request.destroy(new Error('Local Game exchange timed out')));
+    request.end(raw);
+  });
+}
+
+// Start local.mjs with the dedicated SAN in PORTAL_CHARACTER_COMMAND_IDENTITIES
+// and the LCFA authority in PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY.
+// The closure certificate is purpose-bound and cannot issue a Create receipt.
+async function publishCreation(operation, account, character, world, name) {
+  const san = 'panels-characters.e2e';
+  expect(JSON.parse(process.env.PORTAL_CHARACTER_COMMAND_IDENTITIES || '{}')).toHaveProperty([san]);
+  const directory = path.dirname(process.env.OTERYN_INTERNAL_TLS_CERT_FILE);
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'panels-characters-peer-'));
+  const identity = {cert: path.join(scratch, 'peer.pem'), key: path.join(scratch, 'peer-key.pem')};
+  try {
+    const csr = path.join(scratch, 'peer.csr');
+    const extensions = path.join(scratch, 'peer.ext');
+    fs.writeFileSync(extensions, `subjectAltName=DNS:${san}\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n`);
+    const openssl = args => execFileSync('openssl', args, {stdio: 'ignore'});
+    openssl(['req', '-newkey', 'rsa:2048', '-nodes', '-keyout', identity.key, '-out', csr, '-subj', `/CN=${san}`]);
+    openssl(['x509', '-req', '-in', csr, '-CA', path.join(directory, 'ca.pem'),
+      '-CAkey', path.join(directory, 'ca-key.pem'), '-set_serial', '0x' + crypto.randomBytes(16).toString('hex'),
+      '-out', identity.cert, '-days', '1', '-extfile', extensions]);
+    const result = await gamePost('/character-commands/read', {
+      contract_version: 1, operation: 'ReadCharacterCommandIntentV1', source_authority: authority,
+      issuer_authority: 'OTERYN_PLATFORM_CHARACTER_AUTHORITY', command: 'CreateCharacter',
+      operation_id: operation,
+    }, identity);
+    expect(result.status).toBe(200);
+    expect(JSON.parse(result.body)).toMatchObject({
+      operation_id: operation, account_id: account, target_world_id: world, requested_name: name,
+    });
+    const receipt = JSON.parse(fs.readFileSync(receiptFixture, 'utf8'));
+    Object.assign(receipt, {
+      source_authority: authority, operation_id: operation, account_id: account, character_id: character,
+      world_id: world, name, projection_epoch: '3', projection_revision: '1', decided_at: stamp(),
+    });
+    expect((await gamePost('/character-commands/receipt', receipt, identity)).status).toBe(200);
+  } finally {
+    fs.rmSync(scratch, {recursive: true, force: true});
+  }
+}
+
+async function publishPortfolio(account, character, world, name) {
+  const time = stamp();
+  expect((await gamePost('/native-account-characters', {
+    contract_version: 1, operation: 'PublishAccountCharactersV1', source_authority: authority,
+    account_id: account, projection_epoch: '3', projection_revision: '1', source_observed_at: time,
+    characters: [{character_id: character, world_id: world, name, availability: 'AVAILABLE'}],
+  }, 'closure-portfolio')).status).toBe(200);
+  expect((await gamePost('/native-account-characters/watermark', {
+    contract_version: 1, operation: 'PublishProjectionWatermarkV1', source_authority: authority,
+    projection_epoch: '3', complete_through: time, observed_at: time,
+  }, 'closure-portfolio')).status).toBe(200);
+}
+
+async function seedPublicReadModels(db, character, world, name) {
+  // The transaction seeds the accepted read models in the disposable E2E DB.
+  // The community Rust ingestion tests exercise the separate publisher boundary.
+  const source = process.env.PORTAL_PUBLIC_PROJECTIONS_AUTHORITY;
+  const time = stamp();
+  const connection = await db.connect();
+  try {
+    await connection.query('BEGIN');
+    const {rows: [state]} = await connection.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1 FOR UPDATE');
+    const epoch = state.highest_epoch ?? '1';
+    await connection.query('UPDATE public_projection_state SET highest_epoch=$1 WHERE id=1', [epoch]);
+    await connection.query(
+      "INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,$2,1,$3,$4)",
+      [character, epoch, time, {profile: [{name, world_id: world, level: '412', vocation: 4}]}],
+    );
+    await connection.query(
+      `INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload)
+       VALUES('character_profile','',true,$1,1,$2,$3) ON CONFLICT(family,subject,is_watermark)
+       DO UPDATE SET epoch=excluded.epoch,watermark=excluded.watermark,payload=excluded.payload`,
+      [epoch, time, {source_authority: source}],
+    );
+    const {outfit} = JSON.parse(fs.readFileSync(outfitFixture, 'utf8'));
+    Object.assign(outfit[0], {world_id: world, character_revision: '1'});
+    await connection.query(
+      `INSERT INTO public_character_families_v2(family,character_id,source_authority,epoch,revision,observed,body)
+       VALUES('character_outfit',$1,$2,$3,1,$4,$5)`,
+      [character, source, epoch, time, JSON.stringify(outfit)],
+    );
+    await connection.query(
+      `INSERT INTO public_character_families_v2_watermarks(family,source_authority,epoch,complete_through)
+       VALUES('character_outfit',$1,$2,$3) ON CONFLICT(family)
+       DO UPDATE SET source_authority=excluded.source_authority,epoch=excluded.epoch,complete_through=excluded.complete_through`,
+      [source, epoch, time],
+    );
+    await connection.query('COMMIT');
+  } finally {
+    await connection.query('ROLLBACK');
+    connection.release();
+  }
+}
+
+test('owner creates a character, sees Game results and reads their outfit', async ({browser, page}, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const owner = await actor(browser, info);
+  const db = pool();
+  let other;
+  try {
+    other = await actor(browser, info);
+    const create = `/${lang}/account/characters/new`;
+    expect((await page.goto(create)).status()).toBe(403);
+    expect((await owner.page.goto('/account')).status()).toBe(200);
+    await owner.page.locator(`#characters ~ a[href="${create}"]`).click();
+    const form = owner.page.locator('main form[method=post]');
+    const world = await form.locator('select[name=world] option').evaluateAll(options => options.find(option => option.value)?.value);
+    expect(world).toBeTruthy();
+    await form.locator('select[name=world]').selectOption(world);
+    await form.locator('input[name=sex]').first().check();
+    await form.locator('input[name=vocation]').first().check();
+
+    await submit(owner.page, 'main form[method=post]', {name: '123'});
+    await expect(owner.page.locator('[role=status]')).toContainText(lang === 'en' ? 'Check the name rules' : 'Sprawdź reguły imion');
+    const name = 'Panel ' + Array.from(crypto.randomBytes(9), byte => String.fromCharCode(97 + byte % 26)).join('');
+    await submit(owner.page, 'main form[method=post]', {name});
+    await expect(owner.page).toHaveURL(/\/characters\/requests\/[a-f0-9-]+$/);
+    const request = new URL(owner.page.url()).pathname;
+    const operation = request.split('/').at(-1);
+    await expect(owner.page.locator('[role=status]')).toContainText(lang === 'en' ? 'outcome is still unknown' : 'rezultat pozostaje nieznany');
+    expect((await other.page.request.get(request)).status()).toBe(404);
+    expect((await owner.page.request.get(`/${lang}/account/characters/requests/bad-id`)).status()).toBe(404);
+
+    const character = uuid7();
+    await publishCreation(operation, owner.id, character, world, name);
+    await owner.page.reload();
+    await expect(owner.page.locator('[role=status]')).toContainText(lang === 'en' ? 'Game confirmed' : 'Gra potwierdziła');
+    await publishPortfolio(owner.id, character, world, name);
+    await seedPublicReadModels(db, character, world, name);
+
+    const overview = await owner.page.goto('/account');
+    expect(overview.status()).toBe(200);
+    expect(overview.headers()['cache-control']).toContain('no-store');
+    const row = owner.page.locator('main li').filter({hasText: name});
+    await expect(row).toContainText('412');
+    expect(await owner.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(owner.page.locator('main')).toContainText(lang === 'en' ? 'Ownership transfer' : 'Przeniesienie własności');
+    await expect(owner.page.locator('main')).toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC/);
+    await expect(owner.page.locator('main form[method=post]')).toHaveCount(0);
+    const outfit = `/${lang}/account/characters/${encodeURIComponent(name)}/outfit`;
+    await row.locator(`[href="${outfit}"]`).click();
+    await expect(owner.page.locator('main')).toContainText('outfit.citizen');
+    expect((await other.page.request.get(outfit)).status()).toBe(404);
+    expect((await page.request.get(outfit)).status()).toBe(403);
+    expect((await owner.page.request.get(`/${lang}/account/characters/%22/outfit`)).status()).toBe(400);
+
+    const services = `/${lang}/account/characters/${character}/services`;
+    expect((await owner.page.request.get(services)).status()).toBe(404);
+    await csrfRejected(owner.page, services, {action: 'rename'});
+    expect(await owner.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  } finally {
+    await db.end();
+    await owner.context.close();
+    await other?.context.close();
+  }
+});

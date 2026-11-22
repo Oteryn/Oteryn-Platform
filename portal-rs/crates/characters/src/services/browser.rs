@@ -76,6 +76,15 @@ fn error(lang: &str, e: Error) -> Response {
             .into_response(),
     )
 }
+// The existing exchange can still drain historical orders. Browser admission
+// stays closed until the Game services wire is accepted.
+fn browser_settings() -> Settings {
+    Settings {
+        enabled: false,
+        ..configured()
+    }
+}
+
 /// Called from the web router after session authentication; no account is read from input.
 pub async fn show(
     pool: &PgPool,
@@ -85,7 +94,7 @@ pub async fn show(
     csrf: String,
 ) -> Response {
     show_with(
-        &Services::new(pool.clone(), configured()),
+        &Services::new(pool.clone(), browser_settings()),
         actor,
         character,
         lang,
@@ -154,7 +163,7 @@ pub async fn submit(
     fields: Vec<(String, String)>,
 ) -> Response {
     submit_with(
-        &Services::new(pool.clone(), configured()),
+        &Services::new(pool.clone(), browser_settings()),
         actor,
         character,
         lang,
