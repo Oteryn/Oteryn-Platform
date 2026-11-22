@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { login, submit } from '../helpers.mjs';
-import { expectLoginRedirect, query } from '../staff-rbac-helpers.mjs';
+import { query } from '../staff-rbac-helpers.mjs';
 import { actor, copy, labels, mutation, open, submitForm } from '../support-helpers.mjs';
 
 const staffTickets = '/admin/support/tickets';
@@ -331,7 +331,9 @@ test('support searches players, adds notes, revokes sessions and requests a two-
       await submitForm(playerForm(staff, 'logout'), { reason: 'Verified player requests session revocation' }, {
         bad: { reason: ' ', expected: 400 },
       });
-      await expectLoginRedirect(player, `/${lang}/account/sessions`);
+      const revoked = await player.request.get(`/${lang}/account/sessions`, { maxRedirects: 0 });
+      expect(revoked.status()).toBe(303);
+      expect(revoked.headers().location).toBe(`/${lang}/login`);
 
       const attest = playerForm(staff, 'verify-identity');
       await expect(attest.locator('button')).toHaveText(lang === 'pl' ? 'Potwierdź weryfikację' : 'Attest verification');
@@ -420,6 +422,21 @@ test('anonymous request gates for support and moderation', async ({ page }, info
     ...[staffTickets, staffReports, enforcement, players].map(base => `${base}/${id}`),
   ]) await mutation(page, path, {}, 403);
   await mutation(page, `${tickets}/${id}/status`, {}, 403, 'PUT');
+
+  await open(page, `/${lang}/login`);
+  const _csrf = await page.locator('main form [name=_csrf]').inputValue();
+  await mutation(page, tickets, { _csrf }, 403);
+  await mutation(page, `${tickets}/${id}/reply`, { _csrf, lock_version: 1, body: 'Anonymous reply' }, 403);
+  await mutation(page, `${tickets}/${id}/read`, { _csrf, reply: id }, 403);
+  for (const method of ['POST', 'PUT']) {
+    await mutation(page, `${tickets}/${id}/status`, { _csrf, lock_version: 1, status: 'closed' }, 403, method);
+  }
+  const report = await mutation(page, reports, { _csrf }, 302);
+  expect(report.headers().location).toBe(`/${lang}/login`);
+  for (const base of [staffTickets, staffReports, enforcement, players]) {
+    const staff = await mutation(page, `${base}/${id}`, { _csrf }, 303);
+    expect(staff.headers().location).toBe('/login');
+  }
 });
 
 test('ticket and report history pagination, including ticket message cursors', async ({ browser }, info) => {
