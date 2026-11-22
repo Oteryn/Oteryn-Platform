@@ -53,7 +53,10 @@ impl AccountView {
 enum FeedEpoch {
     Unavailable,
     Stale,
-    Live(String),
+    Live {
+        epoch: String,
+        complete_through: i64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -167,37 +170,52 @@ impl Projection {
         let watermark: Option<String> = feed.try_get("watermark_epoch")?;
         let authority: Option<String> = feed.try_get("source_authority")?;
         let complete: Option<i64> = feed.try_get("complete_through")?;
-        let live = watermark.as_deref() == Some(highest.as_str())
-            && authority.as_deref() == Some(&self.settings.source_authority)
-            && complete.is_some_and(|complete| {
-                complete <= now.saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
-                    && now
-                        .saturating_sub(complete)
-                        .saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
-                        <= i64::from(self.settings.freshness_seconds)
-            });
-        Ok(if live {
-            FeedEpoch::Live(highest)
-        } else {
-            FeedEpoch::Stale
-        })
+        let uncertainty = i64::from(self.settings.clock_uncertainty_seconds);
+        Ok(
+            if watermark.as_deref() == Some(highest.as_str())
+                && authority.as_deref() == Some(&self.settings.source_authority)
+                && let Some(complete_through) = complete
+                && complete_through <= now.saturating_add(uncertainty)
+                && now
+                    .saturating_sub(complete_through)
+                    .saturating_add(uncertainty)
+                    <= i64::from(self.settings.freshness_seconds)
+            {
+                FeedEpoch::Live {
+                    epoch: highest,
+                    complete_through,
+                }
+            } else {
+                FeedEpoch::Stale
+            },
+        )
     }
 
-    /// Corroborate character ownership for an already authorized staff read.
-    /// Account login status does not gate this lookup. A projection match
-    /// cannot authorize an action or establish ownership for enforcement.
+    /// Corroborate ownership for an authorized staff read, including suspended accounts.
+    /// The watermark must cover the result's completion, rounded up to a
+    /// whole second, plus the configured clock uncertainty.
     pub async fn staff_character_owner(
         &self,
         character: CharacterId,
+        completed_at: i64,
         now: i64,
     ) -> Result<Option<AccountId>, Error> {
-        if !self.settings.available() || now < 0 {
+        if !self.settings.available() || completed_at < 0 || now < 0 {
             return Ok(None);
         }
         let mut tx = self.pool.begin().await?;
-        let FeedEpoch::Live(epoch) = self.feed_epoch(&mut tx, now).await? else {
+        let FeedEpoch::Live {
+            epoch,
+            complete_through,
+        } = self.feed_epoch(&mut tx, now).await?
+        else {
             return Ok(None);
         };
+        if complete_through
+            < completed_at.saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
+        {
+            return Ok(None);
+        }
         let owners = sqlx::query_as::<_, (uuid::Uuid, bool)>(
             "SELECT c.account_id, s.invalid
              FROM account_characters c JOIN account_character_snapshots s USING (account_id)
@@ -231,7 +249,7 @@ impl Projection {
         }
         let mut tx = self.pool.begin().await?;
         let highest = match self.feed_epoch(&mut tx, now).await? {
-            FeedEpoch::Live(highest) => highest,
+            FeedEpoch::Live { epoch, .. } => epoch,
             FeedEpoch::Unavailable => return Ok(AccountView::empty(ReadState::Unavailable)),
             FeedEpoch::Stale => return Ok(AccountView::empty(ReadState::Stale)),
         };

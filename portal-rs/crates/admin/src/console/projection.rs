@@ -210,6 +210,7 @@ fn sanction_account(v: &Value) -> Result<Option<oteryn_characters::lcfa::Account
 pub(super) async fn verify_sanction_account(
     projection: &oteryn_characters::lcfa::Projection,
     character: &str,
+    completed_at: &str,
     value: &Value,
 ) -> Result<(), Error> {
     use oteryn_characters::lcfa::CharacterId;
@@ -218,8 +219,16 @@ pub(super) async fn verify_sanction_account(
         return Ok(());
     };
     let character = CharacterId::parse(character).map_err(|_| unavailable)?;
+    let completed =
+        time::OffsetDateTime::parse(completed_at, &time::format_description::well_known::Rfc3339)
+            .map_err(|_| unavailable)?;
+    let completed_at = completed.unix_timestamp() + i64::from(completed.nanosecond() != 0);
     let owner = projection
-        .staff_character_owner(character, time::OffsetDateTime::now_utc().unix_timestamp())
+        .staff_character_owner(
+            character,
+            completed_at,
+            time::OffsetDateTime::now_utc().unix_timestamp(),
+        )
         .await
         .map_err(|_| unavailable)?;
     if owner != Some(account) {

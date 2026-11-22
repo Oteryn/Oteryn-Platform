@@ -618,10 +618,16 @@ async fn db_staff_character_owner_requires_one_current_valid_snapshot() -> TestR
     let staff = db.with_account(AccountState::Denied);
     let account = AccountId::parse(ACCOUNT)?;
     let other = AccountId::parse(OTHER)?;
+    let covered_completion = NOW - 6;
     let snapshot = Snapshot::decode(SNAPSHOT.as_bytes())?;
     let character = snapshot.characters[0].character_id;
     staff.snapshot(snapshot, NOW).await?;
-    assert_eq!(staff.staff_character_owner(character, NOW).await?, None);
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion, NOW)
+            .await?,
+        None
+    );
     staff
         .watermark(Watermark::decode(WATERMARK.as_bytes())?, NOW)
         .await?;
@@ -629,12 +635,24 @@ async fn db_staff_character_owner_requires_one_current_valid_snapshot() -> TestR
         staff.list_characters(account, NOW).await?.state,
         ReadState::Denied
     );
+    // This watermark is fresh, but its cut does not cover the completion
+    // once the one-second clock uncertainty is included.
     assert_eq!(
-        staff.staff_character_owner(character, NOW).await?,
+        staff
+            .staff_character_owner(character, covered_completion + 1, NOW)
+            .await?,
+        None
+    );
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion, NOW)
+            .await?,
         Some(account)
     );
     assert_eq!(
-        staff.staff_character_owner(character, NOW + 25).await?,
+        staff
+            .staff_character_owner(character, covered_completion, NOW + 25)
+            .await?,
         None
     );
 
@@ -642,7 +660,12 @@ async fn db_staff_character_owner_requires_one_current_valid_snapshot() -> TestR
     staff
         .snapshot(Snapshot::decode(competing.as_bytes())?, NOW)
         .await?;
-    assert_eq!(staff.staff_character_owner(character, NOW).await?, None);
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion, NOW)
+            .await?,
+        None
+    );
     assert!(matches!(
         staff
             .snapshot(
@@ -652,7 +675,12 @@ async fn db_staff_character_owner_requires_one_current_valid_snapshot() -> TestR
             .await,
         Err(Error::Conflict)
     ));
-    assert_eq!(staff.staff_character_owner(character, NOW).await?, None);
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion, NOW)
+            .await?,
+        None
+    );
 
     staff
         .snapshot(Snapshot::decode(epoch(&competing, "2").as_bytes())?, NOW)
@@ -661,7 +689,9 @@ async fn db_staff_character_owner_requires_one_current_valid_snapshot() -> TestR
         .watermark(Watermark::decode(epoch(WATERMARK, "2").as_bytes())?, NOW)
         .await?;
     assert_eq!(
-        staff.staff_character_owner(character, NOW).await?,
+        staff
+            .staff_character_owner(character, covered_completion, NOW)
+            .await?,
         Some(other)
     );
     db.close().await

@@ -270,6 +270,7 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> StoredMetadata<A> {
             super::projection::verify_sanction_account(
                 &self.character_projection,
                 input.character.as_deref().ok_or(Error::BadInput)?,
+                &snapshot.observed_at,
                 &value,
             )
             .await?;
