@@ -125,7 +125,9 @@ impl Definition {
                 }
             }
             if self.choices[..index].iter().any(|other| {
-                (other.source.kind == choice.source.kind && other.source.key == choice.source.key)
+                (oteryn_world::canonical_kind(&other.source.kind)
+                    == oteryn_world::canonical_kind(&choice.source.kind)
+                    && other.source.key == choice.source.key)
                     || other
                         .label
                         .pl

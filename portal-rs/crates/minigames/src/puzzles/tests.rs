@@ -263,6 +263,16 @@ fn definitions_refuse_ambiguous_or_bad_input_and_badges_are_durable() {
 }
 
 #[test]
+fn choice_aliases_cannot_reference_the_same_entity() {
+    let mut quiz = definition(Uuid::now_v7(), Kind::Quiz);
+    quiz.choices[0].source.kind = "Creature".into();
+    quiz.choices[1].source.kind = "creatures".into();
+    assert!(quiz.validate().is_ok());
+    quiz.choices[1].source.key = quiz.choices[0].source.key.clone();
+    assert!(matches!(quiz.validate(), Err(Error::Invalid)));
+}
+
+#[test]
 fn media_are_verified_and_monster_pixels_are_silhouettes() -> TestResult {
     let dir = tempfile::tempdir()?;
     let bytes = webp();
