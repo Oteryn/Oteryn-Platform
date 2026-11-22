@@ -360,7 +360,11 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         return Redirect::to("/login").into_response();
     };
     if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
+        let locale = request.extensions().get::<oteryn_ui::Chrome>().map_or_else(
+            || language(request.headers()),
+            |chrome| chrome.lang.as_str(),
+        );
+        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{locale}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(locale, "mfa")))).into_response();
     }
     let proof = match (
         session.identity_hash().await,
@@ -518,6 +522,8 @@ struct Page {
     grant: String,
     can_grant: bool,
     reason_label: String,
+    reason_assignment: String,
+    step_up_label: String,
     navigation: Vec<panels::Link>,
     revoke: String,
     csrf: String,
@@ -628,6 +634,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         grant: text(lang, "grant"),
         can_grant: manage && s.auth.check(context, Permission::GrantRoles).await.is_ok(),
         reason_label: oteryn_ui::text(lang, "staff-action-reason"),
+        reason_assignment: oteryn_ui::text(lang, "staff-action-role-assignment"),
+        step_up_label: oteryn_ui::text(lang, "staff-action-step-up"),
         navigation: registry.links(PanelKind::Admin, lang, |_| true),
         revoke: text(lang, "revoke"),
         csrf,
@@ -717,6 +725,8 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                     permission: Permission::GrantRoles,
                     action: "rbac.role.granted",
                     reason: &form.reason,
+                    reason_codes: &["role_assignment"],
+                    step_up: staff_actions::StepUp::RecentPassword,
                 },
                 || {
                     if form.account.is_nil() || form.role.is_nil() {

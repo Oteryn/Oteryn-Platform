@@ -114,34 +114,34 @@
   {
     "crate": "admin",
     "route": "/console/dashboard",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/worlds",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/database",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
@@ -1012,8 +1012,8 @@
     "route": "/{lang}/account/privacy/export",
     "actor": "player",
     "method": "GET",
-    "status": 403,
-    "reason": "authorization required"
+    "status": 200,
+    "reason": "redirects to localized password confirmation before export"
   },
   {
     "crate": "identity",
@@ -1106,6 +1106,14 @@
   {
     "crate": "identity",
     "route": "/{lang}/account/passkeys",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/manage",
     "actor": "player",
     "method": "GET",
     "status": 200,

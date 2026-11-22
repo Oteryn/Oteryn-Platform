@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {recoveryCodes} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,recoveryCodes} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -56,9 +56,9 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    try {
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-     await page.goto('/admin/roles');
+     await confirmStaffPassword(page,lang,staff.password);
      const token=await page.locator('input[name=_csrf]').first().inputValue();
-     const fields={account:target,role,action:'grant',reason:'Assign privileged workflow role'};
+     const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);
      const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
      expect(refused.status()).toBe(403);
