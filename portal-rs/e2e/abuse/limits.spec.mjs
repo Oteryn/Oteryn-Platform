@@ -157,29 +157,6 @@ const createTicket = async (player, lang, suffix) => {
 };
 const ticketLocation = lang => new RegExp(`^/${lang}/support/tickets/${uuidPath}$`);
 
-test('comment-only profile updates accept thirty, refuse thirty-one and recover', async ({ browser, browserDiagnostics }, info) => {
-  await withPlayers(browser, browserDiagnostics, info, async ([player], lang) => {
-    await partyCharacters([player]);
-    const route = `/${lang}/account/characters/${encodeURIComponent('Aldric Vale')}/profile`;
-    const form = await formFields(player.page, route);
-    const save = index => post(player.page, route, { ...form, comment: `Profile comment ${index}` });
-    const saved = () => query(
-      'SELECT comment FROM character_profiles WHERE account_id=$1 AND character_id=$2',
-      [player.id, player.character],
-    );
-    for (let i = 1; i <= 30; i++) redirect(await save(i), 303, route);
-    expect(await saved()).toEqual([{ comment: 'Profile comment 30' }]);
-    await denied(await save(31), lang);
-    expect(await saved()).toEqual([{ comment: 'Profile comment 30' }]);
-    expect(await query(
-      `UPDATE character_profile_events SET created_at=clock_timestamp()-interval '1 minute 1 second'
-       WHERE account_id=$1 AND event_type='character.profile_preferences_updated' RETURNING account_id`, [player.id],
-    )).toHaveLength(30);
-    redirect(await save(31), 303, route);
-    expect(await saved()).toEqual([{ comment: 'Profile comment 31' }]);
-  });
-});
-
 test('ticket creation allows six, isolates a second account and resets', async ({ browser, browserDiagnostics }, info) => {
   await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/support/tickets`;

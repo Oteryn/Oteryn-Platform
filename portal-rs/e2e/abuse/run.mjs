@@ -82,7 +82,6 @@ try {
     PORTAL_PARTY_ENABLED: 'true',
     OTERYN_CHARACTER_PROFILES_ENABLED: 'true',
     PORTAL_REFERRALS_ENABLED: 'true',
-    OTERYN_ACCOUNT_EXPORT_ENABLED: 'true',
     OTERYN_NOTIFY_UNSUBSCRIBE_KEY: randomBytes(32).toString('hex'),
     OTERYN_NOTIFY_UNSUBSCRIBE_URL: `${origin}/pl/unsubscribe`,
     OTERYN_BAZAAR_ENABLED: 'true',
