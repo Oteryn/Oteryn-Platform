@@ -3,8 +3,8 @@
 The smoke manifest assigns the `@smoke` tag outside the specs. The runner
 escapes the titles for Playwright's `--grep` and checks discovery for exactly
 one match per title and project. The registration journey covers both the
-registration form render and successful login. The staff bootstrap checks the
-landing page and supplies the session for the force-logout mutation.
+registration form render and successful login. The staff case verifies the
+landing page before creating a role and checking its audit record.
 
 For a local run, follow the Node, Chromium and disposable PostgreSQL setup in
 [the harness instructions](../README.md), then run these commands from

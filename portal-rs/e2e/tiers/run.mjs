@@ -23,7 +23,9 @@ if (tier === 'smoke' && !project && !shard) {
 } else if (tier === 'nightly' && project && ['1', '2', '3'].includes(shard)) {
   const specs = (await readdir(join(cwd, 'specs'), { recursive: true, withFileTypes: true }))
     .filter(file => file.isFile() && /\.(spec|test)\.[cm]?[jt]sx?$/.test(file.name))
-    .map(file => relative(cwd, join(file.parentPath, file.name))).sort();
+    .map(file => relative(cwd, join(file.parentPath, file.name)));
+  specs.push('tiers/smoke.spec.mjs');
+  specs.sort();
   // Keep the staff bootstrap with consumers of its browser storage state.
   const usesStaffState = file => /^(?:admin\.|content\.|routes\.|staff-)/.test(basename(file));
   const files = shard === '1'
@@ -93,7 +95,7 @@ try {
     await pollInterval(250);
   }
 
-  const args = [join(scratch, 'env.json'), 'test', ...selection];
+  const args = [join(scratch, 'env.json'), 'test', '--config=tiers/playwright.config.mjs', ...selection];
   const listing = await launch('run.mjs', [...args, '--list', '--reporter=list'], 'list.log').done;
   const list = await readFile(join(scratch, 'list.log'), 'utf8');
   const count = Number(/^Total: (\d+) tests? in /m.exec(list)?.[1]);
