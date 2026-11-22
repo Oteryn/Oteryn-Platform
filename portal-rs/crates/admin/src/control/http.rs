@@ -467,14 +467,17 @@ async fn results(
     .bind(e.request_id)
     .fetch_one(&mut *tx)
     .await?;
-    if operation_id != e.admin_operation_id
-        || (status == store::Status::Succeeded
-            && !result_schema::valid_success(&operation, version, &e.result.0))
-    {
+    if operation_id != e.admin_operation_id {
         return Err(HttpError::invalid());
     }
     let duplicate:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_results WHERE request_id=$1 AND agent_id=$2 AND payload=$3)").bind(e.request_id).bind(&e.agent_id).bind(&payload).fetch_one(&mut *tx).await?;
     if !duplicate {
+        if status == store::Status::Succeeded
+            && catalog::READ_OPERATIONS.contains(&operation.as_str())
+            && !result_schema::valid_success(&operation, version, &e.result.0)
+        {
+            return Err(HttpError::invalid());
+        }
         ctx.store
             .record_result_in(
                 &mut tx,

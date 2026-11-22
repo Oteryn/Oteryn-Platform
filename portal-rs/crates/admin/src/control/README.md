@@ -61,11 +61,12 @@ framing ratified by the owner on 2026-11-19
   evidence. A configured result key verifies the signature before storage. The
   result is bound to the epoch its request was delivered under; if that agent no
   longer owns the request at that epoch (a newer epoch, its own included, or no
-  recorded delivery) it is refused with 409 `ADM_AGENT_SUPERSEDED`. Successful
-  results must match the pinned read schema for the stored operation and version.
-  Missing schemas and invalid payloads return 400 `ADM_INVALID_PARAMS`. Valid
-  exact retries succeed without another result or audit row. Conflicting
-  transitions are refused.
+  recorded delivery) it is refused with 409 `ADM_AGENT_SUPERSEDED`. After
+  ownership checks, exact stored retries are acknowledged without another
+  result or audit row. New successful read results must match the pinned schema
+  for the stored operation and version. Missing read schemas and invalid read
+  payloads return 400 `ADM_INVALID_PARAMS`. Commands use the existing receipt
+  path. Conflicting transitions are refused.
 - `stream`: `agent_id`, `owner_epoch`, `request_id`, nonempty `chunks` array of
   `index` (0–63) and `data` (unpadded base64url). Decoded chunks are at most 1 MiB;
   the primary key and index bound limit the complete request to 64 chunks across
