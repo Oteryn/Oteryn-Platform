@@ -112,6 +112,17 @@ class AuthorityBoundary(unittest.TestCase):
             with self.subTest(component=component, command=command), self.assertRaises(ValueError):
                 deploy.parse(component, command)
 
+    def test_platform_deploy_requires_the_signup_legal_capability(self):
+        sha = 'a' * 40
+        for verb in ('deploy', 'deploy-signup-legal', 'deploy-signup-legal-v2'):
+            with self.subTest(verb=verb), self.assertRaisesRegex(ValueError, 'signup-legal-v1'):
+                deploy.parse('platform', f'{verb} {sha} 100 1')
+        self.assertEqual(deploy.parse('platform', f'deploy-signup-legal-v1 {sha} 100 1'),
+                         ('deploy', sha, 100, 1, None))
+        self.assertEqual(deploy.parse('platform', 'status'), ('status', None, None, None, None))
+        with self.assertRaises(ValueError):
+            deploy.parse('game', f'deploy-signup-legal-v1 {sha} 100 1')
+
     def test_exact_current_main_and_aggregate_success_are_independent(self):
         sha = 'a' * 40
         good = {'id': 10, 'name': 'game-gate', 'head_sha': sha,
@@ -250,7 +261,8 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual(build, ['docker', 'build', '--label', 'org.opencontainers.image.revision=' + self.sha,
                                      '-f', 'deploy/oracle/portal.Dockerfile', '-t', 'oteryn-portal:fedcba98-arm64', 'portal-rs'])
             self.assertEqual(build_kwargs, {'cwd': Path('/archive'), 'timeout': 7200})
-            self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none', 'oteryn-portal:fedcba98-arm64', 'check-image'])
+            self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none',
+                                      'oteryn-portal:fedcba98-arm64', 'check-image', 'signup-legal-v1'])
             migrate = argv.index(compose + ['run', '--rm', '-T', 'portal', 'migrate'])
             up = argv.index(compose + ['up', '-d', 'portal', 'portal-worker', 'portal-gateway'])
             check = ['run', '--rm', '-T', '--no-deps', 'portal', 'check-signup-legal']
@@ -290,6 +302,19 @@ class LivePortalDeployment(unittest.TestCase):
             argv = [args for args, _ in raised.exception.calls]
             self.assertEqual(argv[-1][-len(check):], check)
             self.assertFalse(any('backup' in args or 'migrate' in args or 'up' in args for args in argv))
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+            self.assertEqual(list(state.iterdir()), [])
+
+    def test_missing_image_capability_stops_before_any_deployment_effects(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            check = ['check-image', 'signup-legal-v1']
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                self.deploy(portal, state, fail=check)
+            argv = [args for args, _ in raised.exception.calls]
+            self.assertEqual(len(argv), 2)
+            self.assertEqual(argv[-1][-len(check):], check)
             self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
             self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
             self.assertEqual(list(state.iterdir()), [])
@@ -564,6 +589,7 @@ class LivePortalDeployment(unittest.TestCase):
         for expected in ('FROM ubuntu:26.04', 'useradd -r -u 10001 portal', 'WORKDIR /app',
                          'COPY --from=build /out/oteryn-portal /app/oteryn-portal', 'static /app/static',
                          'migrations /app/migrations', 'USER portal', 'EXPOSE 8080 8091',
+                         'ENV OTERYN_ORACLE_DEPLOY_IMAGE=1',
                          'ENTRYPOINT ["/app/oteryn-portal"]'):
             self.assertIn(expected, recipe)
         builder = (checkout / 'portal-rs/Dockerfile').read_text().split(' AS build', 1)[0].rsplit('FROM ', 1)[1]
@@ -706,7 +732,7 @@ class GameBranchUnchanged(unittest.TestCase):
     # serves the Game forced command, so a Platform change must not move these.
     # Updated deliberately for the Game image artifact path (deploy-image).
     REVIEWED = {
-        'parse': '5c4f83672f01a4e1a3fe88fb0357de1187ca23db13168a7399aa53768dd26f70',
+        'parse': '442915a5e8807393d0c49a5e2d93d7beab7da70ace18c27bb2b2bae620754a50',
         'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
         'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
         'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',

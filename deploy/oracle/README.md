@@ -271,7 +271,7 @@ secret. A local SSH key has a root-owned forced command restricted to its single
 component, no shell/PTY/forwarding, with independently pinned SSH host identity.
 
 Install `actions-deploy.py` root-owned under `/opt/oteryn-oracle`, not in a runner
-writable mount. `status` only reads readiness. `deploy <40-character SHA>` requires
+writable mount. `status` only reads readiness. A Platform release requires
 exact current protected main and its latest GitHub Actions aggregate success,
 rechecks after build, builds native ARM64, backs up, preserves root-owned private
 configuration and migrates through the existing owner connection. Platform keeps
@@ -335,6 +335,16 @@ The `platform` branch of `actions-deploy.py` deploys the live portal layout on
 oteryn-vps. It does not create or migrate that layout; it only replaces the app
 image of an installed one.
 
+The Platform forced command for releases is
+`deploy-signup-legal-v1 <40-character SHA> <run ID> <run attempt>`. Before
+enabling releases, install the reviewed root-owned helper and have the workflow
+owner update `.github/workflows/oracle-operations.yml`: replace the `deploy)`
+arm's command assignment with
+`command="deploy-signup-legal-v1 $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT"`.
+Keep the SHA validation, bounded SSH invocation, and `status` arm. A predecessor
+helper rejects the new command. The candidate Oracle image also rejects the
+predecessor's unversioned image check before backup or migration.
+
 ### Game image artifact (deploy-image)
 
 The `game` forced command accepts only `status` and
@@ -363,7 +373,8 @@ journal, stop, migrate, image swap and supervisor start.
   `docker build -f deploy/oracle/portal.Dockerfile portal-rs` (timeout 2 h),
   tagged `oteryn-portal:<sha8>-arm64` and labelled with the full revision. The
   recipe keeps the live runtime: Ubuntu 26.04, uid 10001, `/app/oteryn-portal`,
-  `/app/static`, `/app/migrations`. It must be arm64 and pass `check-image`.
+  `/app/static`, `/app/migrations`. It must be arm64 and pass
+  `check-image signup-legal-v1` with networking disabled.
 - Preflight: the running release must already pass the container and
   `/readyz` checks below, so a host the probe cannot reach is refused before
   any effect instead of rolling back a good release after migration.

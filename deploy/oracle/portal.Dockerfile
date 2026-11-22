@@ -36,4 +36,5 @@ COPY --chown=0:0 static /app/static
 COPY --chown=0:0 migrations /app/migrations
 USER portal
 EXPOSE 8080 8091
+ENV OTERYN_ORACLE_DEPLOY_IMAGE=1
 ENTRYPOINT ["/app/oteryn-portal"]

@@ -40,7 +40,15 @@ fn legal_install_requires_an_explicit_disposable_profile() {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    if std::env::args().nth(1).as_deref() == Some("check-image") {
+    let mut args = std::env::args().skip(1);
+    let arg = args.next();
+    if arg.as_deref() == Some("check-image") {
+        if std::env::var_os("OTERYN_ORACLE_DEPLOY_IMAGE").is_some()
+            && (args.next().as_deref() != Some("signup-legal-v1") || args.next().is_some())
+        {
+            eprintln!("Oracle image check requires the signup-legal-v1 deployment helper");
+            return ExitCode::FAILURE;
+        }
         let directory = std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "/app/static".into());
         return if std::fs::metadata(directory).is_ok_and(|metadata| metadata.is_dir()) {
             println!(
@@ -77,7 +85,6 @@ async fn main() -> ExitCode {
         .json()
         .init();
 
-    let arg = std::env::args().nth(1);
     if arg.as_deref() == Some("downloads-publish") {
         return oteryn_downloads::command::run().await;
     }

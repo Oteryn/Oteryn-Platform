@@ -78,6 +78,36 @@ fn serve_starts_and_answers_health_and_legacy_redirects() -> Result<(), Box<dyn 
     Ok(())
 }
 
+#[test]
+fn oracle_candidate_refuses_predecessor_image_check() -> Result<(), Box<dyn std::error::Error>> {
+    let check = |args: &[&str], oracle: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_oteryn-portal"));
+        command
+            .env_clear()
+            .env(
+                "OTERYN_STATIC_DIR",
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../../static"),
+            )
+            .arg("check-image")
+            .args(args);
+        if oracle {
+            command.env("OTERYN_ORACLE_DEPLOY_IMAGE", "1");
+        }
+        command.output()
+    };
+    for args in [&[][..], &["signup-legal-v2"], &["signup-legal-v1", "extra"]] {
+        let refused = check(args, true)?;
+        assert!(!refused.status.success());
+        assert!(
+            String::from_utf8(refused.stderr)?
+                .contains("requires the signup-legal-v1 deployment helper")
+        );
+    }
+    assert!(check(&["signup-legal-v1"], true)?.status.success());
+    assert!(check(&[], false)?.status.success());
+    Ok(())
+}
+
 #[tokio::test]
 async fn live_signup_preflight_requires_staged_bilingual_editions_before_migration()
 -> Result<(), Box<dyn std::error::Error>> {

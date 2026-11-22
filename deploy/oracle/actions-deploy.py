@@ -28,6 +28,7 @@ STATE = ROOT / 'state/actions'
 BUILD = Path('/opt/oteryn-build')
 REPOS = {'platform': 'Oteryn-Platform', 'game': 'Oteryn-Game'}
 SHA = r'[0-9a-f]{40}'
+PLATFORM_DEPLOY_CAPABILITY = 'signup-legal-v1'
 # The Game runtime image (Debian slim plus three release binaries) is a few
 # hundred MiB as `docker save` output. 1 GiB of zip stream and 3 GiB unpacked
 # leave several times that headroom while bounding what one transfer may write
@@ -48,9 +49,10 @@ def parse(component, command):
         if not match:
             raise ValueError('only status or deploy-image <full protected-main SHA> <run> <attempt> <artifact> is allowed')
         return 'deploy', match[1], int(match[2]), int(match[3]), int(match[4])
-    match = re.fullmatch(r'deploy (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
+    match = re.fullmatch(r'deploy-' + PLATFORM_DEPLOY_CAPABILITY + r' (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
     if not match:
-        raise ValueError('only status or deploy <full protected-main SHA> is allowed')
+        raise ValueError('only status or deploy-' + PLATFORM_DEPLOY_CAPABILITY
+                         + ' <full protected-main SHA> <run> <attempt> is allowed')
     return 'deploy', match[1], int(match[2]), int(match[3]), None
 
 
@@ -357,7 +359,8 @@ def platform_deploy(directory, sha, run_id, attempt):
     info = inspect_image(image)
     if info['Architecture'] != 'arm64' or info['Config']['Labels'].get(REVISION) != sha:
         raise ValueError('portal image provenance differs')
-    run(['docker', 'run', '--rm', '--network', 'none', image, 'check-image'], timeout=120)
+    run(['docker', 'run', '--rm', '--network', 'none', image, 'check-image',
+         PLATFORM_DEPLOY_CAPABILITY], timeout=120)
     texts = portal_texts(sha)
     # Prove the readiness probe works against the running release before any
     # effect, so a host that cannot be probed never rolls back a good release.
