@@ -24,6 +24,7 @@ test('the staff dashboard survives sign-in and MFA on a separate host', async ({
   await expect(dashboard).toHaveAttribute('href', dashboardUrl);
   await dashboard.click();
   await expect(page).toHaveURL(`${staffOrigin}/login?return_to=/admin`);
+  await expect(page.locator('main form')).toHaveAttribute('action', `/${lang}/login?return_to=/admin`);
 
   await waitForLoginBudget();
   await submit(page, 'main form', credentials);

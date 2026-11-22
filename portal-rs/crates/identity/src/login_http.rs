@@ -68,6 +68,7 @@ struct LoginPage {
     language: Language,
     csrf: String,
     failed: bool,
+    login_path: &'static str,
 }
 impl LoginPage {
     fn text(&self, key: &str) -> String {
@@ -102,6 +103,7 @@ async fn page(
     language: Language,
     session: &BrowserSession,
     failed: bool,
+    staff_dashboard: bool,
 ) -> Result<Response, StatusCode> {
     let page = LoginPage {
         lang: language.code(),
@@ -111,6 +113,7 @@ async fn page(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
         failed,
+        login_path: login_path(staff_dashboard),
     };
     Ok(oteryn_web::render(&page))
 }
@@ -120,7 +123,6 @@ async fn show(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    remember_staff_dashboard(&session, query.as_deref(), &headers).await?;
     if session.account_id().await.is_some() {
         return Ok(redirect(&format!("/{}/", language.code())));
     }
@@ -135,7 +137,13 @@ async fn show(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     }
-    page(language, &session, failed).await
+    page(
+        language,
+        &session,
+        failed,
+        staff_dashboard_requested(query.as_deref(), &headers),
+    )
+    .await
 }
 async fn submit(
     State(pool): State<PgPool>,
@@ -144,6 +152,7 @@ async fn submit(
     Extension(limiter): Extension<RateLimiter>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
+    RawQuery(query): RawQuery,
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
     let Some(Extension(ConnectInfo(peer))) = peer else {
@@ -160,11 +169,12 @@ async fn submit(
     {
         return Ok(e.response(language, false));
     }
+    let staff_dashboard = staff_dashboard_requested(query.as_deref(), &headers);
     let Ok(Form(input)) = form else {
-        return refuse(language, &session).await;
+        return refuse(language, &session, staff_dashboard).await;
     };
     if !input.valid() {
-        return refuse(language, &session).await;
+        return refuse(language, &session, staff_dashboard).await;
     }
     keys.email = Some(oteryn_identity::accounts::normalize_email(&input.email));
     if let Err(e) = limiter.check(NamedPolicy::IdentityLogin, &[keys]).await {
@@ -177,9 +187,9 @@ async fn submit(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if let Some(proof) = account {
-        establish(&pool, language, &session, proof).await
+        establish(&pool, language, &session, proof, staff_dashboard).await
     } else {
-        refuse(language, &session).await
+        refuse(language, &session, staff_dashboard).await
     }
 }
 /// The proof remains immutable while credential mutations may commit before rotation.
@@ -188,6 +198,7 @@ async fn establish(
     language: Language,
     session: &BrowserSession,
     proof: login::Authorization,
+    staff_dashboard: bool,
 ) -> Result<Response, StatusCode> {
     let id = proof.account;
     session
@@ -208,15 +219,27 @@ async fn establish(
         if valid.is_err() {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
-        return refuse(language, session).await;
+        return refuse(language, session, staff_dashboard).await;
     }
     crate::sessions_http::complete_login(pool, session, id).await?;
+    login_redirect(language, session, staff_dashboard).await
+}
+
+pub(crate) async fn login_redirect(
+    language: Language,
+    session: &BrowserSession,
+    staff_dashboard: bool,
+) -> Result<Response, StatusCode> {
     let target = take_return(session)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(redirect(
-        &target.unwrap_or_else(|| format!("/{}/", language.code())),
-    ))
+    if staff_dashboard {
+        Ok(redirect("/admin"))
+    } else {
+        Ok(redirect(
+            &target.unwrap_or_else(|| format!("/{}/", language.code())),
+        ))
+    }
 }
 async fn logout(
     Extension(language): Extension<Language>,
@@ -238,8 +261,7 @@ mod tests;
 const LOGIN_FAILED: SessionKey<bool> = SessionKey::new("login_failed");
 const RETURN: SessionKey<Option<String>> = SessionKey::new(login::RETURN_KEY);
 /// The stored post-login target, read and cleared once a login has succeeded.
-/// Accept only the native OAuth authorize route, exact coin checkout path, or
-/// exact staff dashboard path.
+/// Accept only the native OAuth authorize route or exact coin checkout path.
 pub(crate) async fn take_return(session: &BrowserSession) -> Result<Option<String>, sqlx::Error> {
     let Some(target) = session.get(RETURN).await?.flatten() else {
         return Ok(None);
@@ -248,26 +270,24 @@ pub(crate) async fn take_return(session: &BrowserSession) -> Result<Option<Strin
     Ok(Some(target).filter(|t| accepted(t)))
 }
 fn accepted(target: &str) -> bool {
-    target == "/admin"
-        || login::authorize_return(target)
-        || oteryn_payments::coin::is_checkout_return(target)
+    login::authorize_return(target) || oteryn_payments::coin::is_checkout_return(target)
 }
-/// A dashboard return is selected only by an exact marker on the configured staff host.
-pub(crate) async fn remember_staff_dashboard(
-    session: &BrowserSession,
-    query: Option<&str>,
-    headers: &HeaderMap,
-) -> Result<(), StatusCode> {
-    if std::env::var("OTERYN_ADMIN_PANEL").as_deref() != Ok("true") {
-        return Ok(());
+/// Select the dashboard only from the current request on the configured staff host.
+pub(crate) fn staff_dashboard_requested(query: Option<&str>, headers: &HeaderMap) -> bool {
+    std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
+        && dashboard_return(
+            query,
+            headers,
+            std::env::var("OTERYN_ADMIN_HOST").ok().as_deref(),
+        )
+}
+
+pub(crate) fn login_path(staff_dashboard: bool) -> &'static str {
+    if staff_dashboard {
+        "/login?return_to=/admin"
+    } else {
+        "/login"
     }
-    let admin_host = std::env::var("OTERYN_ADMIN_HOST").ok();
-    if dashboard_return(query, headers, admin_host.as_deref()) {
-        keep_return(session, Some("/admin".into()))
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    }
-    Ok(())
 }
 
 fn dashboard_return(query: Option<&str>, headers: &HeaderMap, admin_host: Option<&str>) -> bool {
@@ -304,10 +324,18 @@ fn redirect(path: &str) -> Response {
     *response.status_mut() = StatusCode::FOUND;
     response
 }
-async fn refuse(language: Language, session: &BrowserSession) -> Result<Response, StatusCode> {
+async fn refuse(
+    language: Language,
+    session: &BrowserSession,
+    staff_dashboard: bool,
+) -> Result<Response, StatusCode> {
     session
         .set(LOGIN_FAILED, &true)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(redirect(&format!("/{}/login", language.code())))
+    Ok(redirect(&format!(
+        "/{}{}",
+        language.code(),
+        login_path(staff_dashboard)
+    )))
 }

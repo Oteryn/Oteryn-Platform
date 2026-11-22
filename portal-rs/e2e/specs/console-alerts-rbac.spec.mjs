@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
-import { csrfRejected, login } from '../helpers.mjs';
+import { csrfRejected, login, submit, waitForLoginBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query, seedAccount, unique } from '../staff-rbac-helpers.mjs';
 
 async function signIn(page, lang, role) {
@@ -29,9 +29,18 @@ async function visit(page, path, expected) {
   return response;
 }
 
-test('the player account menu links passkeys and excludes the staff dashboard', async ({ page }, { project }) => {
+test('an ordinary player login ignores an abandoned dashboard form and links passkeys', async ({ page }, { project }) => {
   const lang = project.metadata.locale;
-  await signIn(page, lang);
+  const { credentials } = await seedAccount(lang);
+  await visit(page, '/admin', 200);
+  await expect(page).toHaveURL('/login?return_to=/admin');
+  await expect(page.locator('main form')).toHaveAttribute('action', `/${lang}/login?return_to=/admin`);
+
+  await visit(page, `/${lang}/login`, 200);
+  await expect(page.locator('main form')).toHaveAttribute('action', `/${lang}/login`);
+  await waitForLoginBudget();
+  await submit(page, 'main form', credentials);
+  await expect(page).toHaveURL(`/${lang}/`);
   const menu = await accountMenu(page);
   await expect(menu.locator('a[href="/admin"]')).toHaveCount(0);
   const passkeys = menu.locator(`a[href="/${lang}/account/passkeys"]`);
@@ -40,6 +49,26 @@ test('the player account menu links passkeys and excludes the staff dashboard', 
   await passkeys.click();
   expect((await navigation).status()).toBe(200);
   await visit(page, '/admin/moderation/reports', 403);
+});
+
+test('a new ordinary MFA challenge ignores an abandoned dashboard challenge', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const { credentials, recoveryCodes } = await seedAccount(lang, 'moderator');
+
+  await visit(page, '/admin', 200);
+  await expect(page).toHaveURL('/login?return_to=/admin');
+  await waitForLoginBudget();
+  await submit(page, 'main form', credentials);
+  await expect(page).toHaveURL(`/${lang}/mfa/challenge`);
+
+  await visit(page, `/${lang}/login`, 200);
+  await expect(page.locator('main form')).toHaveAttribute('action', `/${lang}/login`);
+  await waitForLoginBudget();
+  await submit(page, 'main form', credentials);
+  await expect(page).toHaveURL(`/${lang}/mfa/challenge`);
+  await submit(page, 'form[action$="/mfa/challenge"]', { code: recoveryCodes[0] });
+  await expect(page).toHaveURL(`/${lang}/`);
+  expect((await page.goto('/admin')).status()).toBe(200);
 });
 
 test('a moderator reaches the dashboard and reports with MFA, and passkeys stay hidden', async ({ page }, { project }) => {

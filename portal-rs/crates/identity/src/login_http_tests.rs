@@ -458,7 +458,7 @@ async fn audit02_paused_password_completion_refuses_reset_even_after_anonymous_g
                 let pool = pool.clone();
                 async move {
                     let proof = proof.lock().await.take().ok_or(StatusCode::UNAUTHORIZED)?;
-                    establish(&pool, Language::En, &session, proof).await
+                    establish(&pool, Language::En, &session, proof, false).await
                 }
             }),
         )
@@ -703,6 +703,6 @@ fn staff_dashboard_return_is_exact_and_bound_to_the_staff_host() {
         &headers,
         Some("staff.test")
     ));
-    assert!(accepted("/admin"));
+    assert!(!accepted("/admin"));
     assert!(!accepted("/admin/roles"));
 }
