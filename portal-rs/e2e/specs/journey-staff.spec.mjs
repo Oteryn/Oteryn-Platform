@@ -135,8 +135,8 @@ test('staff publish content and handle a player’s support, safety and account 
         ['content_editor', ''],
         ['support', ''],
         ['moderator', 'support.reports.manage'],
-        ['game_admin', 'admin.access account.security.kick'],
-        ['game_support', 'admin.access products.premium.manage payments.reconcile'],
+        ['game_admin', 'account.security.kick'],
+        ['game_support', 'products.premium.manage payments.reconcile'],
       ];
       for (const [key, permissions] of assignments) {
         const assigned = [roles[key]];

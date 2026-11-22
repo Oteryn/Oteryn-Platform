@@ -11,6 +11,10 @@ const gameRoles = [
 ];
 const roleManagers = ['platform_admin', 'security_admin'];
 const consolePages = ['dashboard', 'worlds', 'nodes', 'database'];
+const consolePermissions = {
+  dashboard: 'game.ops.read', worlds: 'game.world.read',
+  nodes: 'game.node.read', database: 'game.db.read',
+};
 const readConsole = ['players', 'audit', 'access', 'approvals'];
 const analyticsPages = ['', '/creatures', '/activity', '/levels', '/health', '/economy'];
 const mfaHeading = { pl: 'Wymagane uwierzytelnianie wieloskładnikowe', en: 'Multi-factor authentication required' };
@@ -167,34 +171,33 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
     await submit(page, 'form[action$="/mfa/challenge"]', { code });
     await expect(page).not.toHaveURL(/mfa\/challenge/);
 
-    const hasAccess = platformRoles.includes(key);
+    const permissions = builtInPermissions[key].split(/\s+/);
+    const has = permission => permissions.includes(permission);
     const managesRoles = roleManagers.includes(key);
-    expect((await page.goto('/admin')).status()).toBe(hasAccess ? 200 : 403);
-    if (hasAccess) {
-      await expect(page.getByRole('heading', { name: panelHeading[lang], exact: true })).toBeVisible();
-      await expect(page.locator('main nav a')).toHaveCount(managesRoles ? 1 : 0);
-      await expect(page.locator('main form button')).toHaveCount(managesRoles ? 4 : 0);
-    }
+    expect((await page.goto('/admin')).status()).toBe(200);
+    await expect(page.getByRole('heading', { name: panelHeading[lang], exact: true })).toBeVisible();
+    await expect(page.locator('main nav a')).toHaveCount(managesRoles ? 1 : 0);
+    await expect(page.locator('main form button')).toHaveCount(managesRoles ? 4 : 0);
     const canOpenReadConsole = {
-      players: ['platform_admin', 'support'].includes(key),
-      audit: managesRoles,
+      players: has('game.player.read') || has('support.tickets.manage'),
+      audit: has('audit.view') || has('game.audit.read'),
       access: managesRoles,
       approvals: managesRoles,
     };
     const routes = [
       ['/admin/roles', managesRoles],
-      ['/admin/control/step-up', hasAccess],
-      ['/admin/players', canOpenReadConsole.players],
-      ['/admin/support/tickets', canOpenReadConsole.players],
-      ['/admin/moderation/reports', canOpenReadConsole.players],
-      ['/admin/moderation/enforcement', ['platform_admin', 'moderator'].includes(key)],
-      ['/admin/moderation/enforcement/create', ['platform_admin', 'moderator'].includes(key)],
+      ['/admin/control/step-up', true],
+      ['/admin/players', ['platform_admin', 'support'].includes(key)],
+      ['/admin/support/tickets', has('support.tickets.manage')],
+      ['/admin/moderation/reports', has('support.reports.manage')],
+      ['/admin/moderation/enforcement', has('support.enforcement.manage')],
+      ['/admin/moderation/enforcement/create', has('support.enforcement.manage')],
       [`/admin/${lang}/bazaar`, ['platform_admin', 'moderator'].includes(key)],
-      ['/admin/commerce', hasAccess],
-      ...consolePages.map(name => [`/console/${name}`, hasAccess]),
+      ['/admin/commerce', ['platform_admin', 'moderator'].includes(key)],
+      ...consolePages.map(name => [`/console/${name}`, true]),
       ...readConsole.map(name => [`/admin/console/${name}?lang=${lang}`, canOpenReadConsole[name]]),
       ...analyticsPages.flatMap(suffix => ['', '/data'].map(data =>
-        [`/admin/analytics${suffix}${data}`, key === 'platform_admin'])),
+        [`/admin/analytics${suffix}${data}`, key === 'platform_admin' || has('game.analytics.read')])),
     ];
     for (const [path, allowed] of routes) {
       const screen = allowed && ['/admin/commerce', '/console/dashboard'].includes(path);
@@ -210,10 +213,13 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
       }
       if (allowed && path.startsWith('/console/')) {
         if (screen) {
-          await expect(page.locator('header nav.op-tabs a')).toHaveCount(0);
+          await expect(page.locator('header nav.op-tabs a')).toHaveCount(
+            Object.values(consolePermissions).filter(has).length,
+          );
           await expect(page.locator('main form[method=post]')).toHaveCount(0);
         }
-        expect((await page.request.get(`${path}?agent=disconnected`)).status()).toBe(403);
+        expect((await page.request.get(`${path}?agent=disconnected`)).status())
+          .toBe(has(consolePermissions[path.split('/').at(-1)]) ? 200 : 403);
       }
     }
 
@@ -236,11 +242,11 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
         const response = await postAdmin(page, `/console/${section}`, {
           operation, target, agent: 'disconnected', lang, _csrf: token,
         });
-        expect(response.status(), `${key} POST ${operation}`).toBe(403);
+        expect(response.status(), `${key} POST ${operation}`).toBe(has(consolePermissions[section]) ? 503 : 403);
       }
     }
     const search = await postAdmin(page, '/admin/console/players', { q: 'Example', lang, _csrf: token });
-    expect(search.status(), `${key} POST player search`).toBe(403);
+    expect(search.status(), `${key} POST player search`).toBe(has('game.player.read') ? 303 : 403);
 
     await rolePage(staff, role);
     await roleAction(staff, 'revoke', { account: account.id, role }, 303);

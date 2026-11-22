@@ -129,17 +129,17 @@ export const builtInPermissions = {
   operations: `admin.access downloads.manage portal.access portal.settings.manage game_catalog.access
     game_catalog.snapshots.view game_catalog.snapshots.import game_catalog.snapshots.activate
     game_catalog.profiles.manage game_catalog.translations.manage game_catalog.overrides.manage`,
-  game_viewer: `${viewer}`,
-  game_support: `${viewer} ${gameSupport}`,
-  game_master_senior: `${viewer} ${gameSupport} game.player.manage game.player.value.write game.sanction.ban game.world.events
+  game_viewer: `admin.access ${viewer}`,
+  game_support: `admin.access ${viewer} ${gameSupport}`,
+  game_master_senior: `admin.access ${viewer} ${gameSupport} game.player.manage game.player.value.write game.sanction.ban game.world.events
     game.economy.moderate`,
-  game_operator: `${viewer} ${operator}`,
-  game_admin: `${viewer} ${operator} game.world.admin game.node.admin game.db.admin game.staff.admin`,
-  game_dba: `game.db.read game.db.backup game.db.query game.analytics.sql`,
-  game_analyst: `game.analytics.read game.analytics.player game.analytics.sql game.analytics.export`,
-  game_security: `game.analytics.read game.analytics.player game.analytics.sql game.analytics.export game.analytics.relink
+  game_operator: `admin.access ${viewer} ${operator}`,
+  game_admin: `admin.access ${viewer} ${operator} game.world.admin game.node.admin game.db.admin game.staff.admin`,
+  game_dba: `admin.access game.db.read game.db.backup game.db.query game.analytics.sql`,
+  game_analyst: `admin.access game.analytics.read game.analytics.player game.analytics.sql game.analytics.export`,
+  game_security: `admin.access game.analytics.read game.analytics.player game.analytics.sql game.analytics.export game.analytics.relink
     game.audit.read game.sanction.read`,
-  game_release: `game.node.deploy`,
+  game_release: `admin.access game.node.deploy`,
 };
 
 export const permissionCatalog = [...new Set(

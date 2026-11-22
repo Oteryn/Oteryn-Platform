@@ -3,7 +3,8 @@ import {expect} from './fixtures.mjs';
 import {csrfRejected,login,register,submit,waitForLoginBudget} from './helpers.mjs';
 import {enrollMfa,query} from './staff-rbac-helpers.mjs';
 
-export const seniorPermissions = [
+const seniorPermissions = [
+  'admin.access',
   'game.analytics.read',
   'game.audit.read',
   'game.db.read',
@@ -52,9 +53,9 @@ export async function grantSeniorRole(admin, accountId) {
   expect(assigned).toEqual(seniorPermissions.map(permission => ({key:'game_master_senior', permission})));
 }
 
-export async function grantJourneyRole(admin, accountId, lang) {
+export async function grantPlatformAuditRole(admin, accountId, lang) {
   const key = `e2e_gm_${randomBytes(8).toString('hex')}`;
-  const permissions = [...seniorPermissions, 'admin.access', 'support.tickets.manage', 'audit.view'].sort();
+  const permissions = ['audit.view'];
   const creation = 'main form:has(button[value="create"])';
   await submit(admin, creation, {key, permissions:permissions.join(' ')});
   await expect(admin.locator(`${creation} input[name=key]`)).toHaveValue('');

@@ -2,7 +2,7 @@ import {uuid7} from '../staff-commerce-helpers.mjs';
 import {test,expect} from '../fixtures.mjs';
 import {csrfRejected,register,submit,waitForLoginBudget} from '../helpers.mjs';
 import {audit,query} from '../staff-rbac-helpers.mjs';
-import {bootstrapAdmin,completeEnrollment,grantJourneyRole,grantSeniorRole,requestForm} from '../journey-gamemaster-helpers.mjs';
+import {bootstrapAdmin,completeEnrollment,grantPlatformAuditRole,grantSeniorRole,requestForm} from '../journey-gamemaster-helpers.mjs';
 
 const operations = [
   {path:'dashboard', operation:'ops.overview.get', label:['Pulpit','Dashboard']},
@@ -49,8 +49,8 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
       return id;
     });
 
-    const role = await test.step('Platform admin creates and grants the journey role through the Roles form', async () => {
-      return grantJourneyRole(admin.page, accountId, lang);
+    const role = await test.step('Platform admin creates and grants the Platform audit role through the Roles form', async () => {
+      return grantPlatformAuditRole(admin.page, accountId, lang);
     });
 
     await test.step('GM sees the localized mandatory MFA refusal, enrolls, and completes login', async () => {
@@ -101,9 +101,9 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
       return tokens;
     });
 
-    await test.step('The commerce shell hides and refuses actions outside the GM role', async () => {
+    await test.step('The commerce shell and its actions refuse the GM role', async () => {
       const shell = await get('/admin/commerce');
-      expect(shell.status()).toBe(200);
+      expect(shell.status()).toBe(403);
       expect(await shell.text()).not.toMatch(/<form[^>]*action="\/admin\/commerce\//);
       const form = {request_id:uuid7(), target:accountId, reason:'Journey permission check'};
       for (const [action, fields] of [
@@ -213,13 +213,17 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
       expect((await get(`/admin/console/audit?lang=${lang}&request_id=bad`)).status()).toBe(400);
     });
 
-    await test.step('Check the Platform-admin-only analytics pages and cold data responses', async () => {
+    await test.step('Compare Game and Platform analytics access and cold data responses', async () => {
       const analyticsPage = admin.page;
       expect((await analyticsPage.goto('/admin/analytics')).status()).toBe(200);
       for (const section of analytics) {
         const path = `/admin/analytics${section}`;
-        expect((await get(path)).status(), path).toBe(403);
-        expect((await get(`${path}/data`)).status(), path).toBe(403);
+        expect((await get(path)).status(), path).toBe(200);
+        const gameData = await get(`${path}/data`);
+        expect(gameData.status(), path).toBe(200);
+        const gameBody = await gameData.json();
+        expect(gameBody.state).toBe('unavailable');
+        if (section === '/economy') expect(gameBody.groups).toHaveLength(5);
         await analyticsPage.locator(`main nav a[href="${path}"]`).click();
         await expect(analyticsPage.locator('html')).toHaveAttribute('lang', lang);
         await expect(analyticsPage.locator('main [data-state="unavailable"]')).toHaveCount(section === '/economy' ? 5 : 1);
