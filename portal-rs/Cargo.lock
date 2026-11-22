@@ -3292,6 +3292,7 @@ dependencies = [
  "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-notify",
+ "oteryn-playerdata",
  "oteryn-ui",
  "oteryn-web",
  "serde",
@@ -3303,6 +3304,7 @@ dependencies = [
  "time",
  "tokio",
  "tower",
+ "tracing",
  "uuid",
 ]
 

@@ -752,6 +752,7 @@ fn game_roles_have_exact_contract_permissions() {
                 "game.player.read",
                 "game.player.moderate",
                 "game.sanction.write",
+                "game.sanction.enforce",
                 "game.player.manage",
                 "game.player.value.write",
                 "game.sanction.ban",
@@ -866,7 +867,7 @@ fn game_roles_have_exact_contract_permissions() {
             .iter()
             .filter(|p| p.as_str().starts_with("game."))
             .count(),
-        32
+        33
     );
 }
 

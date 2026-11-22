@@ -337,6 +337,13 @@ pub struct Record {
     pub status: String,
     pub messages: Vec<Message>,
     pub next_message: Option<Uuid>,
+    pub character_enforcement: Option<CharacterEnforcement>,
+}
+#[derive(Debug, Clone)]
+pub struct CharacterEnforcement {
+    pub profile: crate::console::enforcement::Profile,
+    pub request: crate::console::enforcement::StateLabel,
+    pub current: crate::console::enforcement::StateLabel,
 }
 #[derive(Debug, Clone)]
 pub struct Message {

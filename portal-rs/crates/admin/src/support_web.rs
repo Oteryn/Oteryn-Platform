@@ -425,6 +425,7 @@ async fn create_page(
         status: "active".into(),
         messages: vec![],
         next_message: None,
+        character_enforcement: None,
     };
     render_record(
         Area::Enforcement,
@@ -503,6 +504,28 @@ async fn render_record(
             text(lang, "tickets")
         ));
     }
+    if let Some(game) = &record.character_enforcement {
+        use crate::console::enforcement::Language;
+        let locale = if lang == "en" {
+            Language::En
+        } else {
+            Language::Pl
+        };
+        body.push_str(&format!(
+            "<dl><dt>{}</dt><dd data-enforcement-profile>{}</dd>
+             <dt>{}</dt><dd data-platform-decision>{}</dd>
+             <dt>{}</dt><dd data-game-request>{}</dd>
+             <dt>{}</dt><dd data-game-confirmed>{}</dd></dl>",
+            escape(&text(lang, "enforcement-profile")),
+            game.profile.name(),
+            escape(&text(lang, "platform-decision")),
+            escape(&text(lang, &record.status)),
+            escape(&text(lang, "game-request")),
+            escape(locale.state(&game.request)),
+            escape(&text(lang, "game-confirmed")),
+            escape(locale.state(&game.current)),
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",
@@ -563,7 +586,8 @@ async fn render_record(
         if (matches!(*action, "assign_ticket" | "reply") && !open_ticket)
             || (*action == "link_sanction"
                 && !matches!(form, RecordForm::Detail { can_link: true, .. }))
-            || (*action == "revoke_sanction" && record.status != "active")
+            || (*action == "revoke_sanction"
+                && (record.status != "active" || record.character_enforcement.is_some()))
             || (*action == "moderate" && record.status == "closed")
             || (*action == "verify_report_target"
                 && !matches!(

@@ -100,6 +100,16 @@ pub fn configured_staff_router(
 ) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
     configured_staff_router_from(pool, &|key| std::env::var(key).ok())
 }
+/// Wire game-backed appeal decisions to the same validated exchange as the GM panel.
+pub fn configured_staff_router_with_game(
+    pool: PgPool,
+    profiles: crate::sanctions::enforcement::Profiles,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    let lookup = |key: &str| std::env::var(key).ok();
+    let mut backend = StaffSupport::configured_from(pool.clone(), &lookup)?;
+    backend.sanctions = backend.sanctions.with_game_enforcement(profiles);
+    oteryn_admin::support::web::configured_router_from(pool, backend, &lookup)
+}
 /// [`configured_staff_router`] reading its configuration through `lookup`.
 pub fn configured_staff_router_from(
     pool: PgPool,
@@ -291,6 +301,7 @@ impl Backend for StaffSupport {
                 status,
                 messages: vec![],
                 next_message: None,
+                character_enforcement: None,
             })
             .collect())
     }
@@ -349,6 +360,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                character_enforcement: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -369,7 +381,7 @@ impl Backend for StaffSupport {
             }
             _ => {
                 "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,
-                 CASE WHEN status='active' AND expires_at<=statement_timestamp() THEN 'expired' ELSE status END AS status,
+                 CASE WHEN status='active' AND expires_at<=statement_timestamp() THEN 'expired' ELSE status END AS status,enforcement_profile,
                  (SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
             }
         };
@@ -379,6 +391,23 @@ impl Backend for StaffSupport {
             .await
             .map_err(|_| StaffError::Unavailable)?
             .ok_or(StaffError::NotFound)?;
+        let platform_status = row.try_get("status").map_err(|_| StaffError::Unavailable)?;
+        let character = if area == Area::Enforcement {
+            row.try_get::<Option<String>, _>("enforcement_profile")
+                .map_err(|_| StaffError::Unavailable)?
+        } else {
+            None
+        };
+        let (status, character_enforcement) = if let Some(profile) = character {
+            let (status, state) =
+                crate::sanctions::enforcement::moderation_state(&self.pool, id, &profile)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?
+                    .ok_or(StaffError::Unavailable)?;
+            (status, Some(state))
+        } else {
+            (platform_status, None)
+        };
         let decode = || -> std::result::Result<Record, sqlx::Error> {
             let mut messages = vec![];
             for (column, internal) in [("public_message", false), ("private_message", true)] {
@@ -394,7 +423,8 @@ impl Backend for StaffSupport {
                 id: row.try_get("id")?,
                 version: row.try_get("lock_version")?,
                 title: row.try_get("title")?,
-                status: row.try_get("status")?,
+                status,
+                character_enforcement,
                 messages,
                 next_message: None,
             })

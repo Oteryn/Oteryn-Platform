@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -83,6 +84,20 @@ export async function startOutboxBrowser({ upstreamPort, certificate, caFile, en
     OTERYN_SMTP_TLS_MODE: 'starttls',
     OTERYN_PUBLIC_ORIGIN: configureBrowserOrigin(env, proxy.address().port),
   });
+  if (env.PORTAL_E2E_GM_ENFORCE === '1') {
+    Object.assign(env, {
+      OTERYN_ADMIN_CONSOLE: 'true',
+      OTERYN_ADMIN_PANEL: 'true',
+      OTERYN_ADMIN_HOST: new URL(env.OTERYN_PUBLIC_ORIGIN).host,
+      OTERYN_ACCOUNT_MFA: 'true',
+      OTERYN_NOTIFY_UNSUBSCRIBE_KEY: crypto.randomBytes(32).toString('hex'),
+      OTERYN_NOTIFY_UNSUBSCRIBE_URL: new URL('/en/unsubscribe', env.OTERYN_PUBLIC_ORIGIN).href,
+      PORTAL_GAME_ENFORCEMENT_ENABLED: 'true',
+      PORTAL_GAME_ENFORCEMENT_PROFILES: '["MUTE","JAIL"]',
+      // The accepted contract keeps results off on a restore-enabled stack.
+      PORTAL_GAME_RESTORE_NOTICE_ENABLED: 'false',
+    });
+  }
   return () => {
     proxy.close();
     sink.close();

@@ -8,7 +8,8 @@ use sqlx::{PgPool, Row};
 use std::future::Future;
 use uuid::Uuid;
 
-const STEP_UP: SessionKey<StepUp> = SessionKey::new("admin_control_step_up");
+const STEP_UP_NAME: &str = "admin_control_step_up";
+const STEP_UP: SessionKey<StepUp> = SessionKey::new(STEP_UP_NAME);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RiskClass {

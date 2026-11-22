@@ -75,3 +75,9 @@ dismiss-report = Odrzuć zgłoszenie
 tickets = Zgłoszenia pomocy
 
 moderator_reason = Prywatne uzasadnienie
+
+
+enforcement-profile = Sankcja postaci
+platform-decision = Decyzja Platformy
+game-request = Ostatnie żądanie do gry
+game-confirmed = Ostatni potwierdzony stan w grze

@@ -75,3 +75,9 @@ dismiss-report = Dismiss report
 tickets = Support tickets
 
 moderator_reason = Private reason
+
+
+enforcement-profile = Character restriction
+platform-decision = Platform decision
+game-request = Latest Game request
+game-confirmed = Last confirmed Game state

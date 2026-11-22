@@ -179,6 +179,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
+            let app = app.merge(oteryn_support::sanctions::enforcement::configured_browser(
+                db.clone(),
+                internal_configuration.enforcement_browser_available()
+                    && internal_tls::Config::from_env()?.is_some(),
+            )?);
             let credentials = credentials_http::configured_router(db.clone());
             let password_confirmation = credentials.has_routes();
             let app = app.merge(oteryn_admin::web::configured_router(
@@ -278,8 +283,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             ));
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
-            let app = app.merge(oteryn_support::tickets::configured_staff_router(
+            let app = app.merge(oteryn_support::tickets::configured_staff_router_with_game(
                 db.clone(),
+                internal_configuration.enforcement_profiles()?,
             )?);
             let app = app.merge(oteryn_atlas::spawns::configured_router(db.clone()));
             let app = app.layer(axum::middleware::from_fn(

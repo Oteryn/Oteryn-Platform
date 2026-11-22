@@ -646,3 +646,33 @@ mod tests;
 #[cfg(test)]
 #[path = "game_routes_store_tests.rs"]
 mod store_tests;
+
+impl Configuration {
+    pub fn enforcement_profiles(
+        &self,
+    ) -> Result<enforcement::Profiles, Box<dyn std::error::Error>> {
+        if self.enforcement_browser_available()
+            && crate::internal_tls::Config::from_env()?.is_some()
+        {
+            Ok(enforcement::Settings::from_lookup(|key| self.values.get(key).cloned()).profiles)
+        } else {
+            Ok(enforcement::Profiles::default())
+        }
+    }
+
+    pub fn enforcement_browser_available(&self) -> bool {
+        let settings = enforcement::Settings::from_lookup(|key| self.values.get(key).cloned());
+        settings.reader_enabled
+            && settings.results_enabled
+            && self
+                .values
+                .get("PORTAL_GAME_RESTORE_NOTICE_ENABLED")
+                .map(String::as_str)
+                != Some("true")
+            && self.registry.as_ref().is_ok_and(|bindings| {
+                [enforcement::READER_GROUP, enforcement::RESULTS_GROUP]
+                    .into_iter()
+                    .all(|group| bindings.iter().any(|binding| binding.group == group))
+            })
+    }
+}
