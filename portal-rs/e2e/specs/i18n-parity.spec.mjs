@@ -57,8 +57,14 @@ function keysForPage(pathname) {
   const page = pathname.replace(/^\/(?:pl|en)(?=\/|$)/u, '');
   const [family] = page.split('/').filter(Boolean);
   const roots = ['crates/ui/'];
-  if (own) roots.push(`crates/${own}/`);
-  if (family) roots.push(`templates/${family}/`);
+  if (page === '/account/passkeys') {
+    // The passkeys renderer uses this catalog. Atlas owns the separate
+    // "sign-in" key, which is ordinary English prose on the passkeys page.
+    roots.push('templates/account/passkeys/');
+  } else {
+    if (own) roots.push(`crates/${own}/`);
+    if (family) roots.push(`templates/${family}/`);
+  }
   if (family === 'native-account') roots.push('crates/payments/templates/coin/');
   if (page.startsWith('/admin/announcements')) roots.push('crates/content/');
   if (page === '' || page === '/' || ['legal', 'help', 'rules', 'server-information'].includes(family)) {
@@ -68,8 +74,9 @@ function keysForPage(pathname) {
     roots.some((root) => file.startsWith(root)) ? [...keys] : []));
 }
 
-function rawKey(label, keys) {
-  return /^[a-z][\w]*(?:-[\w]+)+$/u.test(label) && keys.has(label);
+function rawKeysIn(text, keys) {
+  const tokens = text.match(/(?<![\w/-])[a-z][\w]*(?:-[\w]+)+(?![\w/-])/gu) ?? [];
+  return tokens.filter((token) => keys.has(token));
 }
 
 
@@ -112,7 +119,7 @@ function catalogText(path, key) {
 
 function assertText(value, locale, scope, keys, title = false) {
   const text = normalize(value);
-  expect.soft(rawKey(text, keys), `${scope}: rendered Fluent key`).toBe(false);
+  expect.soft(rawKeysIn(text, keys), `${scope}: rendered Fluent keys`).toEqual([]);
   expect.soft(/\{\{\s*[\w.]|\{\s*\$[\w-]+/u.test(text), `${scope}: unresolved interpolation`).toBe(false);
   expect.soft(wrongLocale(text, locale, title), `${scope}: opposite-locale catalog marker`).toBeUndefined();
 }
@@ -152,7 +159,7 @@ async function assertDocument(page, locale, target) {
   for (const { value, label, checkLocale } of values) {
     const text = normalize(value);
     const wholeLabel = normalize(label);
-    if (rawKey(wholeLabel, keys)) rawKeys.add(wholeLabel);
+    for (const token of [...rawKeysIn(text, keys), ...rawKeysIn(wholeLabel, keys)]) rawKeys.add(token);
     const leak = checkLocale && wrongLocale(text, locale);
     if (leak) leaks.add(leak);
     interpolation ||= /\{\{\s*[\w.]|\{\s*\$[\w-]+/u.test(text);
@@ -309,9 +316,12 @@ async function serverValidation(page, locale, actor, target, targets) {
     targets.set(new URL(page.url()).pathname, 200);
   }
   if (actor === 'staff' && target === '/admin/announcements/create') {
+    const valid = { starts_at: new Date().toISOString(), title: 'Parity fixture', body: 'Parity fixture' };
     for (const fields of [
       { starts_at: '', title: '', body: '' },
-      { starts_at: 'invalid-date', title: 'Parity fixture', body: 'Parity fixture' },
+      { ...valid, starts_at: 'invalid-date' },
+      { ...valid, title: '' },
+      { ...valid, body: '' },
     ]) {
       expect((await page.goto(target)).status()).toBe(200);
       const [response] = await Promise.all([
@@ -325,6 +335,7 @@ async function serverValidation(page, locale, actor, target, targets) {
   }
 }
 
+const ownedCharacterName = 'Parity Fixture';
 const missingProfile = /^\/(?:pl\/|en\/)?account\/characters\/missing-e2e\/profile$/u;
 const checkoutPrefix = '/native-account/coin-checkout/';
 
@@ -367,13 +378,18 @@ async function publishOwnershipFixture(route, fields) {
 
 const unixSeconds = () => String(Math.floor(Date.now() / 1000));
 
-async function publishOwnership(accountId) {
+async function publishOwnership(order) {
   await publishOwnershipFixture('', {
     operation: 'PublishAccountCharactersV1',
-    account_id: accountId,
+    account_id: order.payer_account_id,
     projection_revision: '1',
     source_observed_at: unixSeconds(),
-    characters: [],
+    characters: [{
+      character_id: order.character_id,
+      world_id: order.world_id,
+      name: ownedCharacterName,
+      availability: 'AVAILABLE',
+    }],
   });
 }
 
@@ -408,7 +424,11 @@ async function seedCheckout(page, email) {
       RETURNING id, payer_account_id
     `, [email, new URL(checkoutPrefix, page.url()).href]);
     expect(order, 'disposable order belongs to the registered player').toBeDefined();
-    return order;
+    const { rows: [character] } = await db.query(
+      "SELECT uuidv7() AS character_id, id AS world_id FROM world_status WHERE name = 'Local Bazaar World' ORDER BY id LIMIT 1",
+    );
+    expect(character, 'local harness world for the ownership fixture').toBeDefined();
+    return { ...order, ...character };
   } finally {
     await db.end();
   }
@@ -476,7 +496,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
       await login(page, locale, account);
       const order = await seedCheckout(page, account.email);
       checkout = checkoutPrefix + order.id;
-      await publishOwnership(order.payer_account_id);
+      await publishOwnership(order);
     }
     if (actor === 'anonymous') await assertAnonymousCheckoutRedirects(page);
     const origin = new URL(`/${locale}/`, process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
@@ -486,6 +506,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
     const documents = new Set();
     const checked = new Set();
     const uncovered = new Set();
+    let ownedProfileChecked = false;
     for (const [target, status] of targets) {
       if (target.startsWith('/language/')) continue;
       await test.step(target, async () => {
@@ -496,7 +517,19 @@ for (const actor of ['anonymous', 'player', 'staff']) {
           url.searchParams.set('lang', locale);
         }
         await waitForWikiBudget(target, 2);
-        if (actor === 'player' && missingProfile.test(url.pathname)) await refreshOwnership();
+        if (actor === 'player' && missingProfile.test(url.pathname)) {
+          await refreshOwnership();
+          if (!ownedProfileChecked) {
+            const ownedProfile = `/${locale}/account/characters/${encodeURIComponent(ownedCharacterName)}/profile`;
+            expect((await page.goto(ownedProfile)).status(), 'owned character profile is enabled').toBe(200);
+            await expect(page.locator('main')).toContainText(ownedCharacterName);
+            await expect(page.locator('main textarea[name=comment]')).toBeVisible();
+            await assertDocument(page, locale, ownedProfile);
+            documents.add(ownedProfile);
+            ownedProfileChecked = true;
+            await refreshOwnership();
+          }
+        }
         const probe = await page.request.get(url.href, { headers: { accept: 'text/html', 'accept-language': locale } });
         if (target === checkout) {
           expect(probe.status()).toBe(200);
@@ -526,6 +559,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         }
       });
     }
+    if (actor === 'player') expect(ownedProfileChecked, 'owned profile checked before missing profiles').toBe(true);
     expect(documents.size, `${actor}: HTML documents visited`).toBeGreaterThan(0);
     await info.attach('i18n-coverage', {
       body: JSON.stringify({ documents: [...documents].map((url) => new URL(url, origin).pathname),
@@ -543,4 +577,12 @@ test('invalid sign-in submits a localized server error', async ({ page }, info) 
     catalogText(`templates/account/mfa/${locale}.ftl`, 'mfa-error'),
   );
   await assertDocument(page, locale, 'sign-in refusal');
+});
+
+
+test('raw Fluent tokens distinguish leaks from passkey prose', () => {
+  const passkeys = keysForPage('/en/account/passkeys');
+  expect(rawKeysIn('Help: passkeys-help', passkeys)).toEqual(['passkeys-help']);
+  expect(rawKeysIn(catalogText('templates/account/passkeys/en.ftl', 'passkeys-revoke'), passkeys)).toEqual([]);
+  expect(rawKeysIn('Help: sign-in', keysForPage('/en/atlas'))).toEqual(['sign-in']);
 });
