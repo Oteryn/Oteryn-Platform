@@ -99,14 +99,33 @@ export function createGameClosureProducer({baseURL,ca,character,portfolio,author
  const control=http.createServer((req,res)=>{
   if(req.method==='GET'&&req.url==='/fixtures/account-deletion/closure.json'){res.setHeader('content-type','application/json');res.end(fixtureBytes);return;}
   if(req.method==='POST'&&req.url==='/fault'){let body='';req.on('data',part=>{body+=part;if(body.length>512)req.destroy();});req.on('end',()=>{try{const input=JSON.parse(body);if(!['wrong_identity','missing_lcfa','hold','valid'].includes(input.mode))throw new Error('mode');faults.set(input.account_id,input.mode);res.end('{}');}catch{res.writeHead(400);res.end();}});return;}
+  if(req.method==='POST'&&req.url==='/portfolio'){
+   let body='';
+   req.on('data',part=>{body+=part;if(body.length>512)req.destroy();});
+   req.on('end',async()=>{
+    let input;
+    try{input=JSON.parse(body);}catch{res.writeHead(400).end();return;}
+    const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    if(!input||!['account_id','character_id','world_id'].every(key=>uuid.test(input[key]))){
+     res.writeHead(400).end();return;
+    }
+    try{
+     await publishCharacter(input);
+     res.setHeader('content-type','application/json');
+     res.end(JSON.stringify({name:fixtureName(input.character_id)}));
+    }catch{res.writeHead(503).end();}
+   });
+   return;
+  }
   if(req.method==='GET'&&req.url==='/health'){res.end('ok');return;}
   res.writeHead(404);res.end();
  });
  // Publishes a synthetic character in the account's LCFA portfolio and waits for one
  // complete exchange, so the portal holds a fresh snapshot and watermark for it.
+ const fixtureName=characterId=>`Fixture ${characterId.slice(-12)}`;
  async function publishCharacter({account_id,character_id,world_id}) {
   const state=portfolios.get(account_id)||{revision:0,characters:new Map()};
-  state.characters.set(character_id,{character_id,world_id,name:`Fixture ${character_id.slice(-12)}`,availability:'AVAILABLE'});
+  state.characters.set(character_id,{character_id,world_id,name:fixtureName(character_id),availability:'AVAILABLE'});
   state.revision+=1;state.accepted=false;state.published=false;
   state.raw=JSON.stringify({contract_version:1,operation:'PublishAccountCharactersV1',source_authority:authority,account_id,projection_epoch:'3',projection_revision:String(state.revision),source_observed_at:String(Math.floor(Date.now()/1000)),characters:[...state.characters.values()].sort((a,b)=>a.character_id<b.character_id?-1:1)});
   portfolios.set(account_id,state);

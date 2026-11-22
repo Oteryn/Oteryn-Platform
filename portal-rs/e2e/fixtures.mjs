@@ -2,7 +2,7 @@ import {test as base,expect} from '@playwright/test';
 export {expect};
 
 export const test=base.extend({
- browserDiagnostics:[async({context,page},use,info)=>{
+ browserDiagnostics:[async({page},use,info)=>{
    const errors=[];
    const diagnostics=[];
    const watch=screen=>{
@@ -20,8 +20,12 @@ export const test=base.extend({
        }else errors.push(message.text());
      });
    };
-   watch(page);context.on('page',watch);
-   await use();
+   const watchContext=actorContext=>{
+     actorContext.on('page',watch);
+     actorContext.pages().forEach(watch);
+   };
+   watchContext(page.context());
+   await use(watchContext);
    await info.attach('browser-diagnostics',{body:JSON.stringify({errors,expectedHttpDiagnostics:diagnostics}),contentType:'application/json'});
    expect(errors,'unexpected browser console/script/server errors').toEqual([]);
  },{auto:true}],

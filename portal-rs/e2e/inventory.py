@@ -20,7 +20,11 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
     if crate in {'gateway', 'internal-api'} or str(file.relative_to(ROOT)) in {'crates/admin/src/control/http.rs', 'crates/gameauth/src/health.rs', 'crates/store/src/purchase_http.rs', 'crates/store/src/delivery_http.rs', 'crates/gameauth/src/runtime.rs'}:
         continue
     flag_source = source
-    for related in [file.parent/'config.rs', file.parent/'mod.rs', file.parent.parent/(file.parent.name+'.rs')]:
+    related_files = [file.parent/'config.rs', file.parent/'mod.rs', file.parent.parent/(file.parent.name+'.rs')]
+    if file.relative_to(ROOT) == Path('crates/identity/src/export_http.rs'):
+        # The export adapter receives the flag through ExportConfig in its companion.
+        related_files.append(file.with_name('export.rs'))
+    for related in related_files:
         if related.is_file() and related != file:
             flag_source += related.read_text()
     flags = sorted(set(re.findall(r'"((?:OTERYN|PORTAL|PANEL)_[A-Z_]+(?:ENABLED|READ|MFA|LOGIN|PASSKEYS|TICKETS|CONSOLE|PANEL|CREDENTIALS|SESSIONS|RECOVERY_KEYS|EMAIL_CHANGE|PASSWORD_RESET|PAYMENTS|PRESENT|INGEST))"', flag_source)))

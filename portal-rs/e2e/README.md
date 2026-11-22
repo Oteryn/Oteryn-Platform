@@ -48,6 +48,12 @@ continues to use the default portal listener and pinned native fixture.
 node run.mjs /absolute/scratch/env.json test specs/query-params.spec.mjs specs/wiki-world.spec.mjs --workers=1
 ```
 
+To run just the export and profile quota checks in all four projects, append
+`specs/rate-limits-export-profile.spec.mjs` to that command. The spec uses the
+seed CLI for disposable accounts and the local mTLS producer for character
+ownership. The loopback HTTPS proxy forwards the synthetic client addresses used
+to exhaust the IP quotas across distinct accounts.
+
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and

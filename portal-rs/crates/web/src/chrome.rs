@@ -58,6 +58,8 @@ fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
         _ => None,
     }
 }
+/// CSP for portal HTML that only loads same-origin scripts and styles.
+pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
@@ -151,10 +153,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .append(header::SET_COOKIE, value.clone());
             }
             for (name, value) in [
-                (
-                    "content-security-policy",
-                    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-                ),
+                ("content-security-policy", PORTAL_CONTENT_SECURITY_POLICY),
                 (
                     "strict-transport-security",
                     "max-age=63072000; includeSubDomains",

@@ -304,15 +304,36 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
          axum::Extension(session): axum::Extension<session::BrowserSession>,
          axum::Extension(lang): axum::Extension<Language>,
          axum::extract::Path(name): axum::extract::Path<String>,
+         axum::Extension(limiter): axum::Extension<ratelimit::RateLimiter>,
+         source: Option<ratelimit::ClientSource>,
          body: axum::body::Bytes| async move {
-            oteryn_characters::profile::update(
-                &state.db,
-                session.account_id().await,
-                lang.code(),
-                &name,
-                body,
-            )
-            .await
+            let account = session.account_id().await;
+            if std::env::var("OTERYN_CHARACTER_PROFILES_ENABLED").as_deref() == Ok("true")
+                && let Some(account) = account
+            {
+                if let Err(response) = oteryn_characters::profile::authorize_update(
+                    &state.db,
+                    account,
+                    lang.code(),
+                    &name,
+                )
+                .await
+                {
+                    return *response;
+                }
+                let Some(ratelimit::ClientSource(source)) = source else {
+                    return ratelimit::Denial::Unavailable.response(lang, false);
+                };
+                let mut keys = ratelimit::Keys::source(source);
+                keys.account = Some(account.to_string());
+                if let Err(error) = limiter
+                    .check(ratelimit::NamedPolicy::CharacterProfileUpdate, &[keys])
+                    .await
+                {
+                    return error.response(lang, false);
+                }
+            }
+            oteryn_characters::profile::update(&state.db, account, lang.code(), &name, body).await
         },
     );
     let badge_routes = get(

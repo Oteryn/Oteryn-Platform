@@ -1,28 +1,24 @@
 //! Owner-only JSON export. T08 integration seam: existing browser sessions with sudo.
 //! Only explicitly selected fields are exported; credentials and session data never are.
-use axum::{
-    Router,
-    extract::State,
-    http::{HeaderMap, StatusCode, header},
-    response::{IntoResponse, Response},
-    routing::get,
-};
+use axum::http::StatusCode;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool};
+use uuid::Uuid;
 
-const PRODUCER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+pub const PRODUCER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, Default)]
 pub struct ExportConfig {
     pub enabled: bool,
 }
 
-#[derive(Clone)]
-struct ExportState {
-    pool: PgPool,
-    config: ExportConfig,
-    password_confirmation: bool,
+impl ExportConfig {
+    pub fn configured() -> Self {
+        Self {
+            enabled: std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED").as_deref() == Ok("true"),
+        }
+    }
 }
 
 /// No account identifier is accepted from the caller. Ownership comes from the session.
@@ -31,7 +27,22 @@ pub async fn stream_download(
     config: &ExportConfig,
     session: &str,
 ) -> Result<axum::body::Body, StatusCode> {
-    let deadline = tokio::time::Instant::now() + PRODUCER_DEADLINE;
+    stream_download_until(
+        pool,
+        config,
+        session,
+        tokio::time::Instant::now() + PRODUCER_DEADLINE,
+    )
+    .await
+}
+
+/// Stream an owner snapshot with the deadline already established by the browser adapter.
+pub async fn stream_download_until(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+    deadline: tokio::time::Instant,
+) -> Result<axum::body::Body, StatusCode> {
     tokio::time::timeout_at(deadline, prepare_download(pool, config, session, deadline))
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
@@ -43,16 +54,7 @@ async fn prepare_download(
     session: &str,
     deadline: tokio::time::Instant,
 ) -> Result<axum::body::Body, StatusCode> {
-    if !config.enabled {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    if session.len() != 64
-        || !session
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
+    validate_request(config, session)?;
     let mut tx = pool
         .begin()
         .await
@@ -69,9 +71,7 @@ async fn prepare_download(
         .execute(&mut *tx)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let id: Option<uuid::Uuid> = sqlx::query_scalar("SELECT a.id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND s.sudo_until>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
-        .bind(Sha256::digest(session.as_bytes()).to_vec()).fetch_optional(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let id = id.ok_or(StatusCode::FORBIDDEN)?;
+    let id = authorized_account(&mut *tx, session).await?;
     let account: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'email',email,'display_name',profile_display_name,'email_verified_at',email_verified_at,'status',status,'locale',locale,'public_account_association',public_account_association,'public_status_visible',public_status_visible,'created_at',created_at,'updated_at',updated_at) FROM accounts WHERE id=$1")
         .bind(id).fetch_one(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
@@ -167,105 +167,61 @@ async fn prepare_download(
     )))
 }
 
-fn session_cookie(headers: &HeaderMap) -> Option<&str> {
-    let mut found = None;
-    for header in headers.get_all(header::COOKIE) {
-        for part in header.to_str().ok()?.split(';') {
-            if let Some(("__Host-oteryn_session", value)) = part.trim().split_once('=') {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some(value);
-            }
-        }
+fn validate_request(config: &ExportConfig, session: &str) -> Result<(), StatusCode> {
+    if !config.enabled {
+        return Err(StatusCode::NOT_FOUND);
     }
-    found
+    if session.len() != 64
+        || !session
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(())
 }
 
-async fn handler(
-    State(state): State<ExportState>,
-    uri: axum::http::Uri,
-    headers: HeaderMap,
-) -> Response {
-    let session = session_cookie(&headers).unwrap_or_default();
-    let response = match stream_download(&state.pool, &state.config, session).await {
-        Ok(value) => (
-            [(
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=\"account-data.json\"",
-            )],
-            [(header::CONTENT_TYPE, "application/json")],
-            value,
-        )
-            .into_response(),
-        Err(StatusCode::FORBIDDEN) if state.password_confirmation => {
-            let needs_sudo: Result<bool, _> = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id
-                 WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
-                   AND a.status='active' AND a.email_verified_at IS NOT NULL
-                   AND (s.sudo_until IS NULL OR s.sudo_until<=now()))",
-            )
-            .bind(Sha256::digest(session.as_bytes()).to_vec())
-            .fetch_one(&state.pool)
-            .await;
-            match needs_sudo {
-                Ok(true) => {
-                    let lang = if uri.path().starts_with("/en/") {
-                        "en"
-                    } else {
-                        "pl"
-                    };
-                    axum::response::Redirect::to(&format!("/{lang}/account/sudo?return_to=export"))
-                        .into_response()
-                }
-                Ok(false) => StatusCode::FORBIDDEN.into_response(),
-                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            }
-        }
-        Err(status) => status.into_response(),
-    };
-    let mut response = response;
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-store, private"),
-    );
-    response.headers_mut().insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        axum::http::HeaderValue::from_static("nosniff"),
-    );
-    response
+async fn authorized_account<'e>(
+    executor: impl PgExecutor<'e>,
+    session: &str,
+) -> Result<Uuid, StatusCode> {
+    let id: Option<Uuid> = sqlx::query_scalar("SELECT a.id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND s.sudo_until>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
+        .bind(Sha256::digest(session.as_bytes()).to_vec()).fetch_optional(executor).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    id.ok_or(StatusCode::FORBIDDEN)
 }
 
-pub fn router(pool: PgPool, config: ExportConfig) -> Router {
-    browser_router(pool, config, true)
+/// Resolve the same sudo-authorized account used by the streaming snapshot.
+pub async fn export_account(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+) -> Result<Uuid, StatusCode> {
+    validate_request(config, session)?;
+    authorized_account(pool, session).await
 }
 
-fn browser_router(pool: PgPool, config: ExportConfig, password_confirmation: bool) -> Router {
-    Router::new()
-        .route("/pl/account/privacy/export", get(handler))
-        .route("/en/account/privacy/export", get(handler))
-        .with_state(ExportState {
-            pool,
-            config,
-            password_confirmation,
-        })
-}
-
-pub fn configured_router(pool: PgPool, password_confirmation: bool) -> Router {
-    configured_browser_router(
-        pool,
-        std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED").as_deref() == Ok("true"),
-        password_confirmation,
+/// An active account with a live session can be sent to password confirmation.
+pub async fn needs_password_confirmation(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+) -> Result<bool, StatusCode> {
+    validate_request(config, session)?;
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id
+         WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
+           AND a.status='active' AND a.email_verified_at IS NOT NULL
+           AND (s.sudo_until IS NULL OR s.sudo_until<=now()))",
     )
+    .bind(Sha256::digest(session.as_bytes()).to_vec())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
-fn configured_browser_router(pool: PgPool, enabled: bool, password_confirmation: bool) -> Router {
-    if enabled {
-        browser_router(pool, ExportConfig { enabled }, password_confirmation)
-    } else {
-        Router::new()
-    }
-}
+#[cfg(test)]
+#[path = "export_http.rs"]
+mod http;
 
 #[cfg(test)]
 #[path = "export_tests.rs"]
