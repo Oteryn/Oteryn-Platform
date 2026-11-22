@@ -1,0 +1,15 @@
+coin-checkout-title = Zakup monet w trybie testowym
+coin-checkout-description = To płatność testowa. Żadne pieniądze nie zostaną pobrane. Monety zostaną przyznane po weryfikacji płatności.
+coin-checkout-order = Zamówienie
+coin-checkout-coins = Monety
+coin-checkout-price = Cena
+coin-checkout-status = Status
+coin-checkout-pay = Zakończ płatność testową
+coin-checkout-fail = Odrzuć płatność testową
+coin-checkout-return = Możesz wrócić do gry. Gra pobierze status zamówienia i saldo monet z Oteryn.
+coin-checkout-awaiting_payment = Oczekuje na płatność
+coin-checkout-processing = W trakcie przetwarzania
+coin-checkout-paid = Opłacono
+coin-checkout-failed = Niepowodzenie
+coin-checkout-refunded = Zwrócono
+coin-checkout-chargeback = Obciążenie zwrotne

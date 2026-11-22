@@ -1,0 +1,15 @@
+coin-checkout-title = Sandbox coin checkout
+coin-checkout-description = Test payment only. No real money is charged. Coins are credited only after the payment is verified.
+coin-checkout-order = Order
+coin-checkout-coins = Coins
+coin-checkout-price = Price
+coin-checkout-status = Status
+coin-checkout-pay = Complete test payment
+coin-checkout-fail = Fail test payment
+coin-checkout-return = You can return to the game. It reads the order status and your coin balance from Oteryn.
+coin-checkout-awaiting_payment = Awaiting payment
+coin-checkout-processing = Processing
+coin-checkout-paid = Paid
+coin-checkout-failed = Failed
+coin-checkout-refunded = Refunded
+coin-checkout-chargeback = Chargeback
