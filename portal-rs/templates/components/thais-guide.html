@@ -1,7 +1,7 @@
 <section class="section start" id="jak-zaczac" aria-labelledby="start-title">
   <picture>
     <source media="(prefers-reduced-motion: no-preference)" srcset="/static/thais/szczur.webp">
-    <img class="guide-art" src="/static/thais/atlas.webp" alt="{{ chrome.text("thais-home-guide-alt") }}" loading="lazy">
+    <img class="guide-art" src="/static/thais/atlas.webp" alt="{{ chrome.text("thais-home-guide-alt") }}" loading="lazy" fetchpriority="low" decoding="async">
   </picture>
   <div class="wrap">
     <p class="eyebrow">{{ chrome.text("thais-home-guide") }}</p>

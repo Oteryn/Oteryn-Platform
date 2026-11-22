@@ -537,6 +537,21 @@ mod tests {
     }
 
     #[test]
+    fn home_prioritizes_panorama_over_below_fold_art() -> Result<(), askama::Error> {
+        let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
+        let html = Home::new(&chrome, &HomeData::default()).render()?;
+        let deferred = html.matches(r#"loading="lazy""#).count();
+        assert!(deferred > 0);
+        assert_eq!(
+            html.matches(r#"loading="lazy" fetchpriority="low" decoding="async""#)
+                .count(),
+            deferred
+        );
+        assert_eq!(html.matches(r#"fetchpriority="high""#).count(), 1);
+        Ok(())
+    }
+
+    #[test]
     fn home_panorama_offers_viewport_sized_sources() -> Result<(), askama::Error> {
         let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
         let html = Home::new(&chrome, &HomeData::default()).render()?;
