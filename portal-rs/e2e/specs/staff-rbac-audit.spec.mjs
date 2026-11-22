@@ -84,6 +84,12 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     await expect(summary).toContainText('rbac.role.revoked');
     await expect(change.getByRole('cell')).toHaveText([yes, no]);
 
+    expect(await query(
+      `INSERT INTO account_roles(account_id,role_id)
+       SELECT a.id,r.id FROM accounts a CROSS JOIN roles r
+       WHERE a.email=$1 AND r.key='game_viewer' AND r.built_in RETURNING account_id`,
+      [staff.account.email],
+    )).toHaveLength(1);
     const gameRole = await role(staff.page, 'admin.access game.audit.read');
     await confirmStaffPassword(staff.page, lang, staff.account.password);
     await membership(staff.page, account.id, gameRole, 'grant');
