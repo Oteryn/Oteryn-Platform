@@ -291,6 +291,9 @@ async fn postgres_filters_search_pagination_and_invalid_input() {
     let (status, body) = db.get("/en/wiki/items?category=weapon&q=Sword", true).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Sword 23"));
+    assert!(body.contains(r##"class="op-skip" href="#main""##));
+    assert!(body.contains(r#"<nav class="op-card" aria-label="World wiki""#));
+    assert!(!body.contains("<header"));
     assert!(!body.contains("Sword 24"));
     assert!(body.contains("Next page"));
     let (_, body) = db
@@ -427,6 +430,8 @@ async fn entity_refusals_are_localized_documents_with_unchanged_status() {
             assert!(body.starts_with("<!doctype html>"));
             assert!(body.contains(&format!("<html lang=\"{lang}\">")));
             assert!(body.contains("<title>Wiki · Oteryn</title>"));
+            assert!(body.contains(r#"<nav class="op-card" aria-label="Oteryn Wiki""#));
+            assert!(!body.contains("<header"));
             assert!(body.contains("<main"));
             let key = if status == StatusCode::NOT_FOUND {
                 "missing"
