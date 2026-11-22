@@ -451,12 +451,40 @@ async fn concurrent_league_requests_wait_for_read_slots() -> TestResult {
         flags(),
         runtime::GameAuthority::new(config),
     ));
+    let mut publisher = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
+        .execute(&mut *publisher)
+        .await?;
     // Schedule more simultaneous reads than the four admitted PostgreSQL reads.
     let mut requests = tokio::task::JoinSet::new();
     for lang in ["pl", "en"].into_iter().cycle().take(12) {
         let request = Request::get(format!("/{lang}/league")).body(Body::empty())?;
         requests.spawn(app.clone().oneshot(request));
     }
+    // Observe an actual reader waiting past the previous 100 ms lock limit.
+    // Use the admin pool because readers may occupy the entire serving pool.
+    let relation = format!("{}.league_subjects", db.schema);
+    let waited = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT FROM pg_locks
+                 WHERE locktype='advisory' AND NOT granted AND mode='ShareLock'
+                 AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                 AND classid=to_regclass($1)::oid AND objid=94000003
+                 AND clock_timestamp()-waitstart > interval '100 milliseconds')",
+            )
+            .bind(&relation)
+            .fetch_one(&db.admin)
+            .await?;
+            if waiting {
+                return Ok::<(), sqlx::Error>(());
+            }
+        }
+    })
+    .await;
+    publisher.commit().await?;
+    waited??;
+
     let mut statuses = Vec::new();
     while let Some(response) = requests.join_next().await {
         statuses.push(response??.status());

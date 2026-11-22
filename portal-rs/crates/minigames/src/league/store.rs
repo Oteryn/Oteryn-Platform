@@ -209,10 +209,13 @@ impl<A: Authority> League<A> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
-        // Public reads already have a total deadline. Let cold connections
-        // use that budget while preserving the database lock and query limits.
+        // The read deadline bounds pool admission, and the statement timeout
+        // bounds the shared lock wait. A publishing worker may briefly hold
+        // the fence exclusively, so readers do not use the writer's 100 ms limit.
         let mut tx = self.pool.begin().await?;
-        set_transaction_limits(&mut tx).await?;
+        sqlx::raw_sql("SET LOCAL lock_timeout = '0'; SET LOCAL statement_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "SELECT pg_advisory_xact_lock_shared('league_subjects'::regclass::oid::int, 94000003)",
         )
