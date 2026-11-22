@@ -17,6 +17,7 @@ import https from 'node:https';
 import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { crawlDatabase as createCrawlDatabase } from './crawl/database.mjs';
 import { localPostgresUrl } from './postgres-url.mjs';
 import { withDeadline } from './support/harness-deadline.mjs';
 import { fixtureDatabaseClaim, lockDatabaseName, removeDatabase, withAdminConnection } from './support/harness-database.mjs';
@@ -49,6 +50,10 @@ const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const outbox = argv.includes('--outbox');
 const fixtureOwned = argv.includes('--fixture-owned');
+const crawl = argv.includes('--browser-crawl');
+if (crawl && (outbox || fixtureOwned || argv.includes('--puzzle-browser') || seedPlanFile || process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
+  throw new Error('The crawl requires its own disposable fixture');
+}
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -99,6 +104,10 @@ const ports = {
 };
 
 const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+// Build and certificate tools do not need the crawl's administrative connection.
+const toolEnv = crawl
+  ? Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^PG|DATABASE_URL$/.test(name)))
+  : process.env;
 
 // The isolated puzzle app uses the existing local SMTP sink for real login.
 if (argv.includes('--puzzle-browser')) {
@@ -126,7 +135,7 @@ fs.writeFileSync(path.join(out, '.portal-e2e-harness'), '');
 
 // ---- certificates (openssl, as local.mjs) ----------------------------------
 function openssl(args) {
-  const result = spawnSync('openssl', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  const result = spawnSync('openssl', args, { env: toolEnv, stdio: ['ignore', 'ignore', 'pipe'] });
   if (result.status !== 0) throw new Error(`openssl ${args[0]} failed: ${result.stderr}`);
 }
 const caKey = path.join(dirs.secrets, 'ca-key.pem');
@@ -177,6 +186,7 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
+const crawlDatabase = crawl ? createCrawlDatabase(dbName, adminURL) : undefined;
 const children = new Set();
 // A browser fixture starts the entire harness in its own process group.
 const useProcessGroups = process.platform !== 'win32' && !fixtureOwned;
@@ -219,7 +229,7 @@ async function stopChild({ child, closed }) {
   }
 }
 let closing = false;
-let outboxBrowser;
+let browserNetwork;
 let createRequested = false;
 let creation;
 async function close(code = 0) {
@@ -231,19 +241,32 @@ async function close(code = 0) {
     creation,
     withDeadline(Promise.all([
       ...[...children].map(stopChild),
-      Promise.resolve(outboxBrowser).then(closeBrowser => closeBrowser?.()),
+      browserNetwork?.then(closeBrowser => closeBrowser?.(), () => {}),
     ]), 6_000, 'service shutdown timed out'),
   ]);
   if (services.status === 'rejected') {
     log('failed to stop services for database', dbName);
     code = 1;
   }
-  if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+  if ((createRequested || crawlDatabase?.roleRequested) && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
-      await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName));
+      await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName), {
+        dropDatabase: createRequested,
+        afterDrop: crawlDatabase?.dropRole,
+      });
     } catch {
       log('failed to reconcile disposable database', dbName);
       code = 1;
+    }
+  }
+  if (crawl) {
+    for (const directory of [dirs.secrets, dirs.certs]) {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        log('failed to remove crawl credentials');
+        code = 1;
+      }
     }
   }
   if (code !== 0) log('harness failed for database', dbName);
@@ -260,12 +283,14 @@ async function createDatabase() {
     const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
     if (closing) return;
     if (existing.rowCount !== 0) throw new Error('Disposable database name already exists');
+    await crawlDatabase?.createRole(admin);
+    if (closing) return;
     // Persist ownership under the same lock before CREATE can have an effect.
     const claim = path.join(out, fixtureDatabaseClaim);
     if (fixtureOwned) fs.writeFileSync(claim, dbName, { flag: 'wx', mode: 0o600 });
     createRequested = true;
     try {
-      await admin.query('CREATE DATABASE "' + dbName + '"');
+      await admin.query('CREATE DATABASE "' + dbName + '"' + (crawlDatabase?.ownerClause ?? ''));
     } catch (error) {
       // A definite name collision belongs to the existing database owner.
       if (error.code === '42P04') {
@@ -274,6 +299,7 @@ async function createDatabase() {
       }
       throw error;
     }
+    await crawlDatabase?.restrictAccess(admin);
   });
 }
 log('database', dbName);
@@ -282,7 +308,7 @@ creation = createDatabase();
 async function start() {
   await creation;
   if (closing) return;
-  const databaseURL = new URL(`/${dbName}`, adminURL).href;
+  const databaseURL = crawlDatabase?.url ?? new URL(`/${dbName}`, adminURL).href;
 
   // Gateway service token for the native admission listener (sha256 hex on the portal side).
   const token = crypto.randomBytes(32).toString('base64url');
@@ -338,8 +364,10 @@ async function start() {
   let binary = process.env.PORTAL_E2E_BINARY;
   if (!binary) {
     log('cargo build --locked -p oteryn-portal');
-    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], commandEnv: process.env });
-    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: process.env, maxBuffer: 64 << 20 })).stdout);
+    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], {
+      stdio: ['ignore', 'inherit', 'inherit'], commandEnv: toolEnv, reportPid: crawl,
+    });
+    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: toolEnv, maxBuffer: 64 << 20 })).stdout);
     // A private copy: a shared target directory may be rebuilt by another checkout.
     binary = path.join(dirs.bin, 'oteryn-portal');
     fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
@@ -359,8 +387,15 @@ async function start() {
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
     if (closing) return;
-    outboxBrowser = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
-    await outboxBrowser;
+    browserNetwork = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    await browserNetwork;
+    if (closing) return;
+  }
+  if (crawl) {
+    const { startCrawlBrowser } = await import('./crawl/profile.mjs');
+    if (closing) return;
+    browserNetwork = startCrawlBrowser({ upstreamPort: ports.http, certificate: server, caFile, env, out });
+    await browserNetwork;
     if (closing) return;
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });

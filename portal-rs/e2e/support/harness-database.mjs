@@ -35,14 +35,20 @@ export function lockDatabaseName(admin, dbName) {
   return admin.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [dbName]);
 }
 
-export async function removeDatabase(adminURL, dbName, onRetry = () => {}) {
+export async function removeDatabase(adminURL, dbName, onRetry = () => {}, {
+  dropDatabase = true,
+  afterDrop,
+} = {}) {
   if (!/^portal_e2e_[a-f0-9]{12}$/.test(dbName)) throw new Error('Invalid disposable database name');
   const signal = AbortSignal.timeout(24_000);
   const drop = statementTimeout => withAdminConnection(adminURL, async admin => {
     await lockDatabaseName(admin, dbName);
-    await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
-    const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
-    if (existing.rowCount !== 0) throw new Error('Disposable database still exists');
+    if (dropDatabase) {
+      await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
+      if (existing.rowCount !== 0) throw new Error('Disposable database still exists');
+    }
+    await afterDrop?.(admin);
   }, { signal, statementTimeout });
   try {
     await drop(5_000);
