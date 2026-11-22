@@ -99,11 +99,13 @@ async function profileForm(page, lang, account) {
   return {target, form, options};
 }
 
+const QUOTA_ROLLOVER_TIMEOUT = 35_000;
+
 async function startQuotaWindow(seconds) {
   await expect.poll(async () => (await query(
     'SELECT mod(floor(extract(epoch FROM clock_timestamp()))::bigint, $1)::int AS elapsed',
     [seconds],
-  ))[0].elapsed, {timeout: 35_000, intervals: [1000]}).toBeLessThan(seconds - 25);
+  ))[0].elapsed, {timeout: QUOTA_ROLLOVER_TIMEOUT, intervals: [1000]}).toBeLessThan(seconds - 25);
 }
 
 test('personal export requires sudo and throttles repeat downloads', async ({page}, info) => {
@@ -189,77 +191,96 @@ test('profile comment validates submissions and refuses writes over quota', asyn
   await expect(form.locator('[name=comment]')).toHaveValue('Allowed comment 9');
 });
 
-test('the same IP exhausts each budget across distinct authenticated accounts', async ({browser}, info) => {
-  test.setTimeout(240_000);
+const sharedIpTest = test.extend({
+  openActor: async ({browser}, use, info) => {
+    const contexts = [];
+    const lang = info.project.metadata.locale;
+    try {
+      await use(async () => {
+        const context = await browser.newContext({
+          baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true,
+          locale: lang, viewport: info.project.use.viewport,
+        });
+        contexts.push(context);
+        const page = await context.newPage();
+        const account = seedAccount(lang);
+        await waitForLoginBudget();
+        expect(await postAuthForm(page, `/${lang}/login`, {
+          email: account.email, password: account.password,
+        })).toBe(`/${lang}/`);
+        return {page, account};
+      });
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  },
+});
+
+sharedIpTest('the same IP exhausts the export budget across distinct authenticated accounts', async ({openActor}, info) => {
+  test.setTimeout(240_000 + QUOTA_ROLLOVER_TIMEOUT);
   const lang = info.project.metadata.locale;
   const exportTarget = `/${lang}/account/privacy/export`;
   const sharedSource = testSource();
-  const contexts = [];
-
-  try {
-    const actors = [];
-    for (let index = 0; index < 5; index++) {
-      const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true,
-        locale: lang, viewport: info.project.use.viewport,
-      });
-      contexts.push(context);
-      const page = await context.newPage();
-      const account = seedAccount(lang);
-      await waitForLoginBudget();
-      expect(await postAuthForm(page, `/${lang}/login`, {
-        email: account.email, password: account.password,
-      })).toBe(`/${lang}/`);
-      expect(await postAuthForm(page, `/${lang}/account/sudo`, {
-        current_password: account.password,
-      })).toBe(`/${lang}/account/security`);
-      const profile = index < 4 ? await profileForm(page, lang, account) : null;
-      actors.push({page, account, profile, exportPost: await exportOptions(page, lang)});
-    }
-
-    const attemptExport = ({page, exportPost}, source) => page.request.post(exportTarget, {
-      ...exportPost, headers: {...exportPost.headers, ...source},
-    });
-    await startQuotaWindow(900);
-    for (const actor of actors.slice(0, 4)) {
-      for (let index = 0; index < 3; index++) {
-        const response = await attemptExport(actor, sharedSource);
-        expect(response.status()).toBe(200);
-        expect((await response.json()).account.id).toBe(actor.account.id);
-      }
-    }
-    const exporter = actors[4];
-    const freeExportSource = testSource();
-    for (let index = 0; index < 2; index++) {
-      expect((await attemptExport(exporter, freeExportSource)).status()).toBe(200);
-    }
-    await expectThrottle(await attemptExport(exporter, sharedSource), lang, 900);
-    const exportFromAnotherSource = await attemptExport(exporter, freeExportSource);
-    expect(exportFromAnotherSource.status()).toBe(200);
-    expect((await exportFromAnotherSource.json()).account.id).toBe(exporter.account.id);
-
-    const foreignActor = actors[3];
-    const foreignCounters = () => quotaCounters('character-profile-update', foreignActor.account, sharedSource);
-    const beforeForeign = await foreignCounters();
-    const otherTarget = actors[0].profile.target;
-    expect((await foreignActor.page.request.post(otherTarget,
-      foreignActor.profile.options('Foreign edit', sharedSource))).status()).toBe(404);
-    expect(await foreignCounters()).toEqual(beforeForeign);
-
-    await startQuotaWindow(60);
-    for (const {page, profile: {target, options}} of actors.slice(0, 3)) {
-      for (let index = 0; index < 10; index++) {
-        expect((await page.request.post(target, options(`Comment ${index}`, sharedSource))).status()).toBe(303);
-      }
-    }
-    const {page, profile: {target, options, form}} = actors[3];
-    await expectThrottle(await page.request.post(target, options('Refused by IP', sharedSource)), lang, 60);
-    expect((await page.goto(target)).status()).toBe(200);
-    await expect(form.locator('[name=comment]')).toHaveValue('');
-    expect((await page.request.post(target, options('Allowed from another IP', testSource()))).status()).toBe(303);
-    expect((await page.reload()).status()).toBe(200);
-    await expect(form.locator('[name=comment]')).toHaveValue('Allowed from another IP');
-  } finally {
-    await Promise.all(contexts.map(context => context.close()));
+  const actors = [];
+  for (let index = 0; index < 5; index++) {
+    const {page, account} = await openActor();
+    expect(await postAuthForm(page, `/${lang}/account/sudo`, {
+      current_password: account.password,
+    })).toBe(`/${lang}/account/security`);
+    actors.push({page, account, exportPost: await exportOptions(page, lang)});
   }
+
+  const attemptExport = ({page, exportPost}, source) => page.request.post(exportTarget, {
+    ...exportPost, headers: {...exportPost.headers, ...source},
+  });
+  await startQuotaWindow(900);
+  for (const actor of actors.slice(0, 4)) {
+    for (let index = 0; index < 3; index++) {
+      const response = await attemptExport(actor, sharedSource);
+      expect(response.status()).toBe(200);
+      expect((await response.json()).account.id).toBe(actor.account.id);
+    }
+  }
+  const exporter = actors[4];
+  const freeExportSource = testSource();
+  for (let index = 0; index < 2; index++) {
+    expect((await attemptExport(exporter, freeExportSource)).status()).toBe(200);
+  }
+  await expectThrottle(await attemptExport(exporter, sharedSource), lang, 900);
+  const exportFromAnotherSource = await attemptExport(exporter, freeExportSource);
+  expect(exportFromAnotherSource.status()).toBe(200);
+  expect((await exportFromAnotherSource.json()).account.id).toBe(exporter.account.id);
+});
+
+sharedIpTest('the same IP exhausts the profile budget across distinct authenticated accounts', async ({openActor}, info) => {
+  test.setTimeout(240_000 + QUOTA_ROLLOVER_TIMEOUT);
+  const lang = info.project.metadata.locale;
+  const sharedSource = testSource();
+  const actors = [];
+  for (let index = 0; index < 4; index++) {
+    const {page, account} = await openActor();
+    actors.push({page, account, profile: await profileForm(page, lang, account)});
+  }
+
+  const foreignActor = actors[3];
+  const foreignCounters = () => quotaCounters('character-profile-update', foreignActor.account, sharedSource);
+  const beforeForeign = await foreignCounters();
+  const otherTarget = actors[0].profile.target;
+  expect((await foreignActor.page.request.post(otherTarget,
+    foreignActor.profile.options('Foreign edit', sharedSource))).status()).toBe(404);
+  expect(await foreignCounters()).toEqual(beforeForeign);
+
+  await startQuotaWindow(60);
+  for (const {page, profile: {target, options}} of actors.slice(0, 3)) {
+    for (let index = 0; index < 10; index++) {
+      expect((await page.request.post(target, options(`Comment ${index}`, sharedSource))).status()).toBe(303);
+    }
+  }
+  const {page, profile: {target, options, form}} = actors[3];
+  await expectThrottle(await page.request.post(target, options('Refused by IP', sharedSource)), lang, 60);
+  expect((await page.goto(target)).status()).toBe(200);
+  await expect(form.locator('[name=comment]')).toHaveValue('');
+  expect((await page.request.post(target, options('Allowed from another IP', testSource()))).status()).toBe(303);
+  expect((await page.reload()).status()).toBe(200);
+  await expect(form.locator('[name=comment]')).toHaveValue('Allowed from another IP');
 });
