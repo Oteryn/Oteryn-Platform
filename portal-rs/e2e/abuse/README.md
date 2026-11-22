@@ -11,6 +11,8 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts
 node abuse/run.mjs
 ```
 
+The runner locates the debug binary using Cargo metadata, including when `CARGO_TARGET_DIR` or Cargo configuration selects a custom target directory. Set `PORTAL_E2E_BINARY` to use an existing executable directly. The runner validates the executable before launching the harness.
+
 The runner uses `harness.mjs` to migrate and start the portal and selects the abuse spec with the shared Playwright project configuration. The seed CLI creates verified browser actors with generated credentials. Reset checks age only the saturated actor's rows in PostgreSQL and require the next real request to pass the limit. The party fixture seeds persisted ownership and public profile inputs, following `crates/community/src/party/party_tests.rs:672`. The production ownership and profile readers still run. Fixed-window checks use real proxy-to-portal connections from two loopback addresses and verify that the same account receives separate source buckets. SMTP terminates at the local sink. The referral assertions inspect the committed queue. Traces and any retained private harness logs belong on the local machine.
 
 | Surface | Configured policy and browser contract |

@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, constants, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,30 @@ import { SMTPServer } from 'smtp-server';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const e2e = path.dirname(here);
-const binary = path.resolve(process.env.PORTAL_E2E_BINARY || path.join(e2e, '../target/debug/oteryn-portal'));
+
+async function findPortalBinary() {
+  let binary = process.env.PORTAL_E2E_BINARY;
+  if (!binary) {
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--no-deps', '--locked'], {
+      cwd: path.dirname(e2e), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.status !== 0) {
+      throw new Error('Could not resolve the portal build directory with cargo metadata. Put Cargo on PATH or set PORTAL_E2E_BINARY.');
+    }
+    const { target_directory: target } = JSON.parse(result.stdout);
+    binary = path.join(target, 'debug', 'oteryn-portal');
+  }
+  binary = path.resolve(binary);
+  try {
+    if (!(await stat(binary)).isFile()) throw new Error('Expected a regular file');
+    await access(binary, constants.X_OK);
+  } catch {
+    throw new Error(`Portal binary is missing or not executable at ${binary}. Build oteryn-portal or set PORTAL_E2E_BINARY.`);
+  }
+  return binary;
+}
+
+const binary = await findPortalBinary();
 const scratch = await mkdtemp(path.join(tmpdir(), 'portal-abuse-'));
 const out = path.join(scratch, 'harness');
 const port = Number(process.env.PORTAL_E2E_ABUSE_HTTPS_PORT || '18443');

@@ -211,38 +211,55 @@ test('ticket replies allow twelve, isolate a second account and reset', async ({
        INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,internal,body)
        SELECT id,$1,'user',false,'Existing ticket message.' FROM inserted RETURNING ticket_id`, [a.id],
     );
-    const aTickets = existing.map(({ ticket_id }) => `${route}/${ticket_id}`);
+    const selector = 'main form[action$="/reply"]';
+    const prepared = [];
+    for (const { ticket_id: id } of existing) {
+      const ticket = `${route}/${id}`;
+      prepared.push({ id, ticket, fields: await formFields(a.page, ticket, selector) });
+    }
     const bTicket = redirect(await createTicket(b, lang, 'B'), 302, ticketLocation(lang));
-    const reply = async (player, ticket, index, source) => {
-      const fields = await formFields(player.page, ticket, 'main form[action$="/reply"]');
-      return post(player.page, `${ticket}/reply`, { ...fields, body: `Local browser reply ${index}.` }, source);
-    };
+    const bFields = await formFields(b.page, bTicket, selector);
+    const reply = (player, ticket, fields, index, source) =>
+      post(player.page, `${ticket}/reply`, { ...fields, body: `Local browser reply ${index}.` }, source);
+    const changeStatus = (ticket, fields, status, offset) =>
+      post(a.page, `${ticket}/status`, {
+        _csrf: fields._csrf, lock_version: String(Number(fields.lock_version) + offset), status,
+      });
+
+    // Reuse four tickets after closing and reopening them to stay within the
+    // ten-open-ticket cap. Each successful mutation advances the lock version.
+    const reopened = prepared.slice(0, 4).map(({ ticket, fields }) => ({
+      ticket, fields: { ...fields, lock_version: String(Number(fields.lock_version) + 3) },
+    }));
+    const [eleventh, twelfth, refused, secondary] = reopened;
+
     await startMinute();
-    for (const [i, ticket] of aTickets.entries()) redirect(await reply(a, ticket, i), 302, ticket);
-    for (const ticket of aTickets.slice(0, 4)) {
-      const fields = await formFields(a.page, ticket, 'main form[action$="/status"]');
-      redirect(await post(a.page, `${ticket}/status`, { ...fields, status: 'closed' }), 302, ticket);
+    for (const [i, { ticket, fields }] of prepared.entries()) {
+      redirect(await reply(a, ticket, fields, i + 1), 302, ticket);
     }
-    for (let i = 10; i < 12; i++) {
-      const ticket = redirect(await createTicket(a, lang, i), 302, ticketLocation(lang));
-      redirect(await reply(a, ticket, i), 302, ticket);
-      aTickets.push(ticket);
+    for (const { ticket, fields } of prepared.slice(0, 4)) {
+      redirect(await changeStatus(ticket, fields, 'closed', 1), 302, ticket);
+      redirect(await changeStatus(ticket, fields, 'open', 2), 302, ticket);
     }
-    const last = redirect(await createTicket(a, lang, 12), 302, ticketLocation(lang));
-    await denied(await reply(a, last, 12), lang, { retry: 'minute-bucket' });
-    const secondary = redirect(await createTicket(a, lang, 'secondary'), 302, ticketLocation(lang));
-    redirect(await reply(a, secondary, 1, 'secondary'), 302, secondary);
-    await verifySecondaryBucket('support-ticket-reply', a.id);
-    redirect(await reply(b, bTicket, 1), 302, bTicket);
-    await denied(await reply(a, last, 12), lang, { retry: 'minute-bucket' });
+    redirect(await reply(a, eleventh.ticket, eleventh.fields, 11), 302, eleventh.ticket);
+    redirect(await reply(a, twelfth.ticket, twelfth.fields, 12), 302, twelfth.ticket);
+    await denied(await reply(a, refused.ticket, refused.fields, 13), lang, { retry: 'minute-bucket' });
+    redirect(await reply(a, secondary.ticket, secondary.fields, 14, 'secondary'), 302, secondary.ticket);
+    redirect(await reply(b, bTicket, bFields, 1), 302, bTicket);
+    await denied(await reply(a, refused.ticket, refused.fields, 13), lang, { retry: 'minute-bucket' });
     await expireBucket('support-ticket-reply', a.id, 12);
-    redirect(await reply(a, last, 12), 302, last);
-    const ticketIds = [...aTickets, last, secondary, bTicket].map(ticket => ticket.split('/').at(-1));
+    redirect(await reply(a, refused.ticket, refused.fields, 13), 302, refused.ticket);
+    await verifySecondaryBucket('support-ticket-reply', a.id);
+
+    const bId = bTicket.split('/').at(-1);
     const counts = await query(
-      'SELECT count(*)::int AS count FROM ticket_messages WHERE ticket_id=ANY($1) GROUP BY ticket_id',
-      [ticketIds],
+      'SELECT ticket_id, count(*)::int AS count FROM ticket_messages WHERE ticket_id=ANY($1) GROUP BY ticket_id',
+      [[...prepared.map(({ id }) => id), bId]],
     );
-    expect(counts).toEqual(ticketIds.map(() => ({ count: 2 })));
+    expect(Object.fromEntries(counts.map(row => [row.ticket_id, row.count]))).toEqual({
+      ...Object.fromEntries(prepared.map(({ id }, i) => [id, i < 4 ? 3 : 2])),
+      [bId]: 2,
+    });
   });
 });
 
