@@ -54,6 +54,7 @@ impl StaffSupport {
                 notifications: notifications.clone().ok_or("notifications unavailable")?,
                 enabled: true,
                 open_limit: 10,
+                public_origin: lookup("OTERYN_PUBLIC_ORIGIN").ok_or("missing public origin")?,
             })
         } else {
             None

@@ -43,6 +43,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
             .env("OTERYN_ADMIN_PANEL", "true")
             .env("OTERYN_ADMIN_HOST", "staff.test")
             .env("OTERYN_SUPPORT_TICKETS", "true")
+            .env("OTERYN_PUBLIC_ORIGIN", "https://portal.test")
             .env("OTERYN_REPORTS_ENABLED", "true")
             .env("OTERYN_MFA_KEY", "07".repeat(32))
             .env("OTERYN_NOTIFY_UNSUBSCRIBE_KEY", "07".repeat(32))
@@ -112,6 +113,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         // Synthetic test keys; grant checks never decrypt the fixture secret.
         "OTERYN_MFA_KEY" => Some("ab".repeat(32)),
         "OTERYN_NOTIFY_UNSUBSCRIBE_KEY" => Some("k".repeat(32)),
+        "OTERYN_PUBLIC_ORIGIN" => Some("https://portal.test".to_owned()),
         "OTERYN_NOTIFY_UNSUBSCRIBE_URL" => Some("https://portal.test/unsubscribe".to_owned()),
         _ => None,
     };
@@ -680,6 +682,7 @@ async fn postgres_ticket_preparation_and_player_note_share_account_order() -> Te
     let lookup = |key: &str| match key {
         "OTERYN_SUPPORT_TICKETS" => Some("true".to_owned()),
         "OTERYN_NOTIFY_UNSUBSCRIBE_KEY" => Some("x".repeat(32)),
+        "OTERYN_PUBLIC_ORIGIN" => Some("https://portal.test".to_owned()),
         "OTERYN_NOTIFY_UNSUBSCRIBE_URL" => Some("https://portal.test/unsubscribe".to_owned()),
         _ => None,
     };

@@ -66,6 +66,7 @@ pub struct Tickets {
     pub notifications: Arc<Notifications>,
     pub enabled: bool,
     pub open_limit: u32,
+    pub public_origin: String,
 }
 fn valid_text(value: &str, max: usize) -> bool {
     !value.trim().is_empty() && value.chars().count() <= max && !value.contains('\0')
@@ -372,7 +373,7 @@ impl Tickets {
                     .ok_or(Error::Denied)?
                     .locale;
             let body = format!(
-                "{} /{}/support/tickets/{}",
+                "{} {}/{}/support/tickets/{}",
                 text::text(
                     &owner_locale,
                     if reply {
@@ -381,6 +382,7 @@ impl Tickets {
                         "notification-status"
                     }
                 ),
+                self.public_origin.trim_end_matches('/'),
                 owner_locale,
                 id
             );

@@ -78,6 +78,7 @@ impl Database {
             }),
             enabled: true,
             open_limit: limit,
+            public_origin: "https://portal.example.test/".into(),
         })
     }
     async fn finish(self) -> TestResult {
@@ -428,6 +429,13 @@ async fn postgres_notification_failure_rolls_back_and_preferences_apply() -> Tes
         .fetch_one(&db.pool)
         .await?;
     assert_eq!(emails, 1);
+    let body: String = sqlx::query_scalar("SELECT text_body FROM email_outbox")
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(body.contains(&format!(
+        "https://portal.example.test/en/support/tickets/{}",
+        ticket.id
+    )));
     let notices: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
         .fetch_one(&db.pool)
         .await?;
