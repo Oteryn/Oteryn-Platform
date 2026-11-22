@@ -136,6 +136,7 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   await expect(page.locator('[name=display_name]')).toHaveValue('Żółty Lis');
   await page.reload();
   await expect(page.locator('[name=display_name]')).toHaveValue('Żółty Lis');
+  await page.goto(`/${lang}/account/privacy`);
   const exportPath = `/${lang}/account/privacy/export`;
   const [stepUp] = await Promise.all([
     page.waitForResponse(response => new URL(response.url()).pathname === exportPath),
@@ -149,6 +150,7 @@ test('owner edits their profile and the server refuses foreign and invalid edits
     submit(page, 'main form', { current_password: account.password }),
   ]);
   expect(download.suggestedFilename()).toBe('account-data.json');
+  expect((await page.request.get(exportPath)).status()).toBe(200);
   const data = JSON.parse(readFileSync(await download.path(), 'utf8'));
   expect(data.account.id).toBe(account.id);
   expect(data.account.display_name).toBe('Żółty Lis');
@@ -196,7 +198,7 @@ test('owner replaces and removes TOTP and rotates one-time recovery codes', asyn
     ...fields, password: 'wrong', code: codeAt(original, 0),
   }), lang, 403);
   const peer = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true,
+    baseURL: new URL(page.url()).origin, ignoreHTTPSErrors: true,
     locale: lang, viewport: info.project.use.viewport,
   });
   const db = pool();
