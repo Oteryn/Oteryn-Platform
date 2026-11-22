@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -127,11 +127,38 @@ for (const image of [
       });
       expect((await response.body()).length).toBeGreaterThan(0);
     }
-    await submit(page, `main form[action="${media}/delete"]`);
+    const localeQuery = lang === 'en' ? '?lang=en' : '';
+    await submit(page, `main form[action="${media}/delete${localeQuery}"]`);
+    await expect(page).toHaveURL(`${route}${localeQuery}`);
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(thumbnail).toHaveCount(0);
     expect((await page.request.get(`${media}/content`)).status()).toBe(404);
   });
 }
+
+test('media pagination uses the selected language', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  const hash = createHash('sha256').update(png.buffer).digest();
+  const seeded = await query(
+    `INSERT INTO media (id, alt_text, mime_type, width, height, content, sha256)
+     SELECT uuidv7(), $1, 'image/png', 640, 160, $2, $3 FROM generate_series(1, 101)
+     RETURNING id`,
+    [alt, png.buffer, hash],
+  );
+  try {
+    await openMedia(page, lang);
+    await expect(page.locator('main ul > li')).toHaveCount(100);
+    const next = page.getByRole('link', { name: lang === 'en' ? 'Next' : 'Następna', exact: true });
+    await expect(next).toHaveAttribute('href', `?page=1&lang=${lang}`);
+    await next.click();
+    await expect(page).toHaveURL(`${route}?page=1&lang=${lang}`);
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page.getByRole('img', { name: alt, exact: true })).toHaveCount(1);
+  } finally {
+    await query('DELETE FROM media WHERE id = ANY($1::uuid[])', [seeded.map(row => row.id)]);
+  }
+});
 
 function oversizedPng() {
   // Add a valid text chunk before IEND so the only violation is the file size.
