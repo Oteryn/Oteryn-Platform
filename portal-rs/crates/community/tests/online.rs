@@ -358,6 +358,21 @@ async fn missing_feed_signal_requires_successful_database_reads() -> TestResult 
     assert_eq!(missing.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(missing.headers()["x-oteryn-game-data"], "unavailable");
 
+    sqlx::query(
+        r#"INSERT INTO public_snapshots (family, subject, is_watermark, epoch, version, watermark, payload)
+         VALUES ('world_online', '', true, 1, 1, extract(epoch FROM now())::bigint, 'null'),
+                ('world_online', '11111111-1111-7111-8111-111111111111', false, 1, 1,
+                 extract(epoch FROM now())::bigint, '{"characters":[]}')"#,
+    )
+    .execute(&db)
+    .await?;
+    let partial = get().await?;
+    assert_eq!(partial.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!partial.headers().contains_key("x-oteryn-game-data"));
+
+    sqlx::query("DELETE FROM public_snapshots")
+        .execute(&db)
+        .await?;
     sqlx::query("ALTER TABLE account_character_feed RENAME TO broken_character_feed")
         .execute(&db)
         .await?;

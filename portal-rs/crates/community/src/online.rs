@@ -269,7 +269,11 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
                 })
             })
             .collect::<Result<Vec<_>, Unavailable>>()?;
-        let hidden = state.visibility.hidden_batch(&refs).await?;
+        let hidden = state
+            .visibility
+            .hidden_batch(&refs)
+            .await
+            .map_err(|_| Unavailable::Failure)?;
         if hidden.len() != entries.len() {
             return Err(Unavailable::Failure);
         }
@@ -322,7 +326,11 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
         }
         return Err(Unavailable::Failure);
     }
-    let final_hidden = state.visibility.hidden_batch(&visible_refs).await?;
+    let final_hidden = state
+        .visibility
+        .hidden_batch(&visible_refs)
+        .await
+        .map_err(|_| Unavailable::Failure)?;
     if final_hidden.len() != visible_refs.len() || final_hidden.into_iter().any(|hidden| hidden) {
         return Err(Unavailable::Failure);
     }
