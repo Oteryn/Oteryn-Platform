@@ -1,5 +1,5 @@
 import {test, expect} from '../fixtures.mjs';
-import {login, register, submit} from '../helpers.mjs';
+import {login, pool, register, submit} from '../helpers.mjs';
 import {action, enrollMfa, loginWithRecoveryCode, query, unique} from '../staff-rbac-helpers.mjs';
 
 async function grantRole(account, role) {
@@ -51,6 +51,47 @@ test('cold atlas sends no-store for document and direct GET requests', async ({r
     const atlas = await request.get(`/${lang}/atlas`, {headers: {accept}});
     expect(atlas.status()).toBe(503);
     expect(atlas.headers()['cache-control']).toBe('no-store');
+  }
+});
+
+test('browser preserves private cache directives on a non-HTML analytics 503', async ({page}, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  const staff = await register(page, lang);
+  await grantRole(staff, 'platform_admin');
+  await login(page, lang, staff);
+  await signInWithMfa(page, lang, staff);
+  expect((await page.goto('/admin/analytics')).status()).toBe(200);
+  const endpoint = '/admin/analytics/data';
+
+  const db = pool();
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    // Hold the real ingestion fence so the analytics data route refuses the read immediately.
+    await client.query('SELECT pg_advisory_xact_lock(71140001)');
+    const response = await page.evaluate(async path => {
+      const result = await fetch(path, {headers: {accept: 'application/json'}, redirect: 'manual'});
+      return {
+        status: result.status,
+        cacheControl: result.headers.get('cache-control'),
+        contentType: result.headers.get('content-type') ?? '',
+      };
+    }, endpoint);
+    expect(response.status).toBe(503);
+    expect(response.contentType).not.toContain('text/html');
+    expect(response.cacheControl).toBe('no-store, private');
+    const document = await page.goto(endpoint);
+    expect(document.status()).toBe(503);
+    expect(document.headers()['content-type']).toContain('text/html');
+    expect(document.headers()['cache-control']).toBe('no-store, private');
+  } finally {
+    try {
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+      await db.end();
+    }
   }
 });
 
