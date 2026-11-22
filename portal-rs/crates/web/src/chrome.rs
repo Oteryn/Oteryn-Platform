@@ -34,13 +34,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let mut account = crate::session::chrome_account(&shell.sessions, &mut request).await;
-    if let oteryn_ui::Account::SignedIn { staff_access, .. } = &mut account {
-        *staff_access &= shell
-            .staff_host
-            .as_deref()
-            .is_some_and(|host| matches_staff_host(request.headers(), host));
-    }
+    let on_staff_host = shell
+        .staff_host
+        .as_deref()
+        .is_some_and(|host| matches_staff_host(request.headers(), host));
+    let account =
+        crate::session::chrome_account(&shell.sessions, &mut request, on_staff_host).await;
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")

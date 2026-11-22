@@ -495,14 +495,24 @@ async fn staff_navigation_requires_eligible_account_on_enabled_panel_host() -> T
     let grant = sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'")
         .bind(id).execute(&db.pool).await?;
     assert_eq!(grant.rows_affected(), 1);
+    let generation: Uuid = sqlx::query_scalar(
+        "INSERT INTO account_mfa_totp(account_id,secret,confirmed)
+         VALUES($1,$2,true) RETURNING generation",
+    )
+    .bind(id)
+    .bind(&[0u8; 48][..])
+    .fetch_one(&db.pool)
+    .await?;
+    let mfa_grant = random_token()?;
     let staff_host = "staff.example.test:8443";
-    for (configured, host, status, verified, visible) in [
-        (None, staff_host, "active", true, false),
+    for (configured, host, status, verified, grant_seconds, visible) in [
+        (None, staff_host, "active", true, 300.0, false),
         (
             Some(staff_host),
             "public.example.test:8443",
             "active",
             true,
+            300.0,
             false,
         ),
         (
@@ -510,6 +520,7 @@ async fn staff_navigation_requires_eligible_account_on_enabled_panel_host() -> T
             "staff.example.test",
             "active",
             true,
+            300.0,
             false,
         ),
         (
@@ -517,14 +528,35 @@ async fn staff_navigation_requires_eligible_account_on_enabled_panel_host() -> T
             "STAFF.example.test:8443",
             "active",
             true,
+            300.0,
             true,
         ),
-        (Some(staff_host), staff_host, "suspended", true, false),
-        (Some(staff_host), staff_host, "active", false, false),
+        (Some(staff_host), staff_host, "active", true, -1.0, false),
+        (
+            Some(staff_host),
+            staff_host,
+            "suspended",
+            true,
+            300.0,
+            false,
+        ),
+        (Some(staff_host), staff_host, "active", false, 300.0, false),
     ] {
         // Seed durable sessions after the state update because it normally revokes them.
         sqlx::query("UPDATE accounts SET status=$1,email_verified_at=CASE WHEN $2 THEN clock_timestamp() ELSE NULL END WHERE id=$3")
             .bind(status).bind(verified).bind(id).execute(&db.pool).await?;
+        sqlx::query(
+            "INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at)
+             SELECT $1,id,$2,sha256(convert_to(password_hash,'UTF8')),'grant',clock_timestamp()+make_interval(secs=>$3)
+             FROM accounts WHERE id=$4
+             ON CONFLICT(token_hash) DO UPDATE SET expires_at=EXCLUDED.expires_at",
+        )
+        .bind(hash(&mfa_grant))
+        .bind(generation)
+        .bind(grant_seconds)
+        .bind(id)
+        .execute(&db.pool)
+        .await?;
         let browser = BrowserSession::new(
             db.pool.clone(),
             SessionConfig::default(),
@@ -532,6 +564,9 @@ async fn staff_navigation_requires_eligible_account_on_enabled_panel_host() -> T
             "staff menu",
         );
         rotate(&browser, PrivilegeChange::Login(id)).await?;
+        browser
+            .set(SessionKey::new("mfa_grant"), &mfa_grant)
+            .await?;
         let cookie = {
             let inner = browser.inner.lock().await;
             format!(
@@ -576,7 +611,7 @@ async fn staff_navigation_requires_eligible_account_on_enabled_panel_host() -> T
         assert_eq!(
             html.contains("href=\"/admin\""),
             visible,
-            "{configured:?} {host} {status} verified={verified}"
+            "{configured:?} {host} {status} verified={verified} grant_seconds={grant_seconds}"
         );
     }
     db.close().await

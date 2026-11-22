@@ -379,11 +379,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             oteryn_payments::navigation::register(&mut navigation);
             oteryn_support::navigation::register(&mut navigation);
             oteryn_bazaar::navigation::register(&mut navigation);
-            let staff_panel = oteryn_admin::web::config_from_env()?;
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
                     registry: navigation,
-                    staff_host: staff_panel.admin_panel.then_some(staff_panel.host),
+                    staff_host: oteryn_admin::web::navigation_host(db.clone())?,
                     sessions: oteryn_web::session::SessionLayer::new(db.clone()),
                 },
                 oteryn_web::chrome::middleware,

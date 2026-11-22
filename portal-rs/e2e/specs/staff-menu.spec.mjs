@@ -26,7 +26,8 @@ test('staff link opens the localized panel and disappears when the account is su
   await grantRole(account, 'game_viewer');
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
   const title = lang === 'pl' ? 'Panel zespołu' : 'Staff panel';
-  await expect(link).toHaveText(title);
+  await expect(link).toHaveCount(0);
+  expect((await page.request.get('/admin', {maxRedirects: 0})).status()).toBe(403);
 
   const [code] = await enrollMfa(page, lang, account);
   await loginWithRecoveryCode(page, lang, account, code);
@@ -34,6 +35,7 @@ test('staff link opens the localized panel and disappears when the account is su
   const menuToggle = page.locator('#portal-menu-toggle');
   if (await menuToggle.isVisible()) await menuToggle.click();
   await page.locator('[data-account-link]').click();
+  await expect(link).toHaveText(title);
   await expect(link).toBeVisible();
   const panelURL = new URL('/admin', page.url()).href;
   const [response] = await Promise.all([

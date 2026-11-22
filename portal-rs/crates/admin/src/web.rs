@@ -144,8 +144,14 @@ struct Panel<I, A> {
     pool: PgPool,
 }
 
-pub fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
+pub(crate) fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
     config_from(&|key| std::env::var(key).ok())
+}
+
+/// The account menu can offer the same-origin panel when its auth is configured.
+pub fn navigation_host(pool: PgPool) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let panel = config_from_env()?;
+    Ok((panel.admin_panel && PortalIdentity::configured(pool).mfa.is_some()).then_some(panel.host))
 }
 
 pub(crate) fn config_from(

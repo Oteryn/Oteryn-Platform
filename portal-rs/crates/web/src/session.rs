@@ -504,6 +504,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
+    on_staff_host: bool,
 ) -> oteryn_ui::Account {
     let config = request
         .extensions()
@@ -528,19 +529,28 @@ pub(crate) async fn chrome_account(
     if identifiers.next().is_some() {
         return oteryn_ui::Account::Anonymous;
     }
+    // Mirror the panel's GET eligibility in a read-only snapshot. The panel
+    // authenticates and authorizes its own requests independently.
     let row: Result<Option<(String, bool)>, _> = sqlx::query_as(
-        "SELECT s.csrf_token, EXISTS (
+        "SELECT s.csrf_token, $2 AND EXISTS (
             SELECT 1 FROM account_roles ar
             JOIN role_permissions rp ON rp.role_id = ar.role_id
             JOIN accounts a ON a.id = ar.account_id
+            JOIN account_mfa_totp m ON m.account_id = a.id AND m.confirmed
+            JOIN account_mfa_tokens t ON t.account_id = a.id AND t.generation = m.generation
             WHERE ar.account_id = s.account_id AND rp.permission = 'admin.access'
                 AND a.status = 'active' AND a.email_verified_at IS NOT NULL
+                AND t.token_hash = sha256(convert_to(s.data->>'mfa_grant', 'UTF8'))
+                AND t.credential_hash = sha256(convert_to(a.password_hash, 'UTF8'))
+                AND t.purpose = 'grant' AND t.expires_at > clock_timestamp()
+                AND t.created_at <= clock_timestamp()
         )
         FROM web_sessions s
         WHERE s.id_hash = $1 AND s.account_id IS NOT NULL
             AND s.idle_expires_at > clock_timestamp() AND s.absolute_expires_at > clock_timestamp()",
     )
     .bind(hash(id))
+    .bind(on_staff_host)
     .fetch_optional(&layer.pool)
     .await;
     match row {
