@@ -125,6 +125,12 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
             let response = app.clone().oneshot(request(method)?).await?;
             assert_eq!(response.status(), StatusCode::OK);
             assert!(!response.headers().contains_key(header::CONTENT_DISPOSITION));
+            assert!(
+                response.headers()[header::CONTENT_SECURITY_POLICY]
+                    .to_str()?
+                    .split(';')
+                    .any(|directive| directive.trim() == "frame-ancestors 'none'")
+            );
             assert_eq!(count().await?, before);
         }
         let mut post = request(axum::http::Method::POST)?;

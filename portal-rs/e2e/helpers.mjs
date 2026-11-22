@@ -124,7 +124,10 @@ export async function login(page,lang,account) {
 // Read the token from the same confirmation form a browser uses for downloads.
 export async function exportOptions(page, lang) {
  const target=`/${lang}/account/privacy/export`;
- expect((await page.goto(target)).status()).toBe(200);
+ const confirmation=await page.goto(target);
+ expect(confirmation.status()).toBe(200);
+ expect(confirmation.headers()['content-security-policy']?.split(';').map(directive=>directive.trim()))
+  .toContain("frame-ancestors 'none'");
  const csrf=await page.locator('main form[method=post] [name=_csrf]').inputValue();
  return {form:{_csrf:csrf},headers:{origin:new URL(page.url()).origin},maxRedirects:0};
 }

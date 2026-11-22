@@ -130,6 +130,10 @@ async fn handler(
 
 fn private_response(mut response: Response) -> Response {
     response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        axum::http::HeaderValue::from_static(oteryn_web::chrome::PORTAL_CONTENT_SECURITY_POLICY),
+    );
+    response.headers_mut().insert(
         header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-store, private"),
     );
