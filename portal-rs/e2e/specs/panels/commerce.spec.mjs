@@ -124,6 +124,8 @@ test('staff stage an immutable price diff and explicitly activate it', async ({p
     await open(admin, '/admin');
     await expect(admin.locator(`nav[data-panel=admin] a[href="${offers}"]`)).toBeVisible();
     await expect(admin.locator(`nav[data-panel=admin] a[href="${activation}"]`)).toBeVisible();
+    await open(admin, `${offers}&unexpected=true`, 400);
+    await open(admin, `${activation}&unexpected=true`, 400);
     await open(admin, offers);
     await expect(admin.locator('main')).toContainText(offer);
     await width(admin);

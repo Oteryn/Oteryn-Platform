@@ -2712,6 +2712,14 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
         );
     }
     for (route, status) in [
+        (
+            "/admin/store-catalog?unexpected=true",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/admin/store-activation?unexpected=true",
+            StatusCode::BAD_REQUEST,
+        ),
         ("/admin/store-catalog?lang=en", StatusCode::OK),
         ("/admin/store-activation?lang=en", StatusCode::OK),
         ("/admin/payment-review?lang=en&queue=true", StatusCode::OK),
