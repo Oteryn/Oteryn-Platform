@@ -3,6 +3,7 @@
 use std::process::ExitCode;
 
 use oteryn_core::Config;
+use oteryn_identity::export;
 use oteryn_web::AppState;
 use tracing_subscriber::EnvFilter;
 
@@ -244,8 +245,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
             let app = app.merge(credentials);
-            let export =
-                oteryn_identity::export::configured_router(db.clone(), password_confirmation);
+            let export = export_http::router(
+                db.clone(),
+                export::ExportConfig::configured(),
+                password_confirmation,
+            );
             let export_enabled = export.has_routes() && password_confirmation;
             let app = app.merge(export);
             let app = app.merge(oteryn_content::today::router(db.clone()));
@@ -634,6 +638,8 @@ mod login_http;
 mod credentials_http;
 #[path = "../../../crates/identity/src/email_change_http.rs"]
 mod email_change_http;
+#[path = "../../../crates/identity/src/export_http.rs"]
+mod export_http;
 #[path = "../../../crates/identity/src/passkeys_http.rs"]
 mod passkeys_http;
 #[path = "../../../crates/identity/src/privacy_web.rs"]
