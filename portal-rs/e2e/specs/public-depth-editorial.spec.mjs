@@ -128,10 +128,13 @@ test('Today renders editorial sections and its data and widget refuse missing Ga
       liveops: pl ? 'Status świata' : 'World status',
     })) await expect(page.locator(`main h2#${id}`)).toHaveText(title);
   }
-  const ticker = await page.request.get(`/${lang}/announcements/ticker`);
-  expect(ticker.status()).toBe(200);
-  expect(ticker.headers()['cache-control']).toContain('no-store');
-  expect(await ticker.text()).toBe('');
+  for (const path of [`/${lang}/announcements/ticker`, `/announcements/ticker?lang=${lang}`]) {
+    const ticker = await page.request.get(path);
+    expect(ticker.status()).toBe(200);
+    expect(ticker.headers()['cache-control']).toContain('no-store');
+    expect(await ticker.text()).toBe('');
+  }
+  expect((await page.request.get('/announcements/ticker?lang=invalid')).status()).toBe(404);
   await visit(page, '/today?lang=invalid', 404);
   for (const [prefix, query, status] of [
     [`/${lang}/today`, '', 503],

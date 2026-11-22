@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
-import { messages, missingId, seedPlayer, visit } from '../public-depth-helpers.mjs';
+import { messages, missingId, probe, seedPlayer, visit } from '../public-depth-helpers.mjs';
 
 const entityKinds = ['items', 'creatures', 'npcs', 'spells', 'quests', 'loot', 'achievements', 'areas'];
 
@@ -9,15 +9,15 @@ test('wiki entity routes enforce catalogue availability and validate search filt
   const lang = info.project.metadata.locale;
   const t = messages('crates/wiki/src/entities', lang);
   const prefix = `/${lang}/wiki`;
-  for (const route of ['', '/search', ...entityKinds.flatMap(kind => [`/${kind}`, `/${kind}/absent-e2e`])]) {
-    await visit(page, prefix + route, 503, { lang, message: t.unavailable });
-    await expect(page.locator('main tbody tr')).toHaveCount(0);
+  await visit(page, prefix, 503, { lang, message: t.unavailable });
+  for (const route of ['/search', ...entityKinds.flatMap(kind => [`/${kind}`, `/${kind}/absent-e2e`])]) {
+    await probe(page, prefix + route, 503, { lang, message: t.unavailable, empty: 'main tbody tr' });
   }
-  await visit(page, `${prefix}/search?q=health+potion&kind=items&category=consumable&classification=common&page=1000`,
+  await probe(page, `${prefix}/search?q=health+potion&kind=items&category=consumable&classification=common&page=1000`,
     503, { lang, message: t.unavailable });
   for (const query of ['q=x', 'page=0', 'page=1001', 'page=1&page=2', 'kind=unknown',
     'category=%00', 'classification=%00', 'sort=name']) {
-    await visit(page, `${prefix}/search?${query}`, 422, { lang, message: t.invalid });
+    await probe(page, `${prefix}/search?${query}`, 422, { lang, message: t.invalid });
   }
   await visit(page, `${prefix}/not-a-kind`, 404, { lang, message: t.missing });
 });
@@ -84,13 +84,13 @@ test('atlas routes validate coordinates, viewport and delivery filters before pu
     await expect(page.locator('main img')).toHaveCount(0);
   }
   for (const query of ['x=-1', 'y=4294967296', 'z=256', 'zoom=no', 'floor=7']) {
-    await visit(page, `${path}?${query}`, 400);
+    await probe(page, `${path}?${query}`, 400);
   }
   await visit(page, `${path}/delivery?item=rope&creature=rat&q=rat&level=10&floor=7&city=thais&rarity=10&count=2&tab=creatures`,
     503, { lang, message: delivery.unavailable });
   for (const query of ['item=%00', 'creature=%00', 'q=%00', 'city=%00', 'level=0', 'floor=128',
     'rarity=1000001', 'count=0', 'count=100001', 'tab=invalid', 'sort=profit']) {
-    await visit(page, `${path}/delivery?${query}`, 400, { lang, message: delivery.invalid });
+    await probe(page, `${path}/delivery?${query}`, 400, { lang, message: delivery.invalid });
   }
   const css = await page.request.get('/atlas/delivery.css');
   expect(css.status()).toBe(200);
@@ -120,7 +120,7 @@ test('wiki places filters reject unsupported options and keep recommendations un
     await visit(page, `${path}?purpose=${purpose}&sort=${sort}&party=${party}`, 503, { lang });
   }
   for (const query of ['sort=level', 'purpose=unknown', 'party=3', 'page=2']) {
-    await visit(page, `${path}?${query}`, 400);
+    await probe(page, `${path}?${query}`, 400);
   }
 });
 

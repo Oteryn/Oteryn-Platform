@@ -74,8 +74,8 @@ test('league withholds outcomes and standings when the producer watermark expire
   const path = `/${lang}/league`;
   const control = process.env.PORTAL_E2E_LEAGUE_CONTROL;
   expect(control, 'existing league harness control').toBeTruthy();
-  expect((await request.post(`${control}/resume`)).status()).toBe(200);
-  await expect.poll(async () => (await request.get(path)).status(), { timeout: 45_000 }).toBe(200);
+  // The full browser launcher normally refreshes this lease. Stop refreshes
+  // while testing the real portal's missing-authority response.
   try {
     expect((await request.post(`${control}/pause`)).status()).toBe(200);
     await expect.poll(async () => (await request.get(path)).status(), {

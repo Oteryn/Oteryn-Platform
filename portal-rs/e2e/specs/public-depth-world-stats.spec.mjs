@@ -1,9 +1,10 @@
 import { test, expect } from '../fixtures.mjs';
-import { messages, missingId, seedWorld, visit } from '../public-depth-helpers.mjs';
+import { messages, missingId, probe, redirect, seedWorld, visit } from '../public-depth-helpers.mjs';
 
 test('world registry refreshes browser rows and conditionally validates API snapshots', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   const t = messages('crates/ui/i18n', lang);
+  await redirect(page.request, '/servers', '/pl/worlds', 301);
   const api = '/api/v1/worlds';
   const first = await page.request.get(api);
   expect(first.status()).toBe(200);
@@ -43,26 +44,28 @@ test('rankings validate categories, filters and pagination before reading Game s
   const growth = messages('templates/stats/rankings', lang);
   const scores = `/${lang}/rankings`;
   const stats = `/${lang}/stats/rankings`;
+  await redirect(page.request, '/highscores?page=2&vocation=1&sort=name',
+    '/pl/rankings/level?page=2&vocation=1', 301);
+  await visit(page, `${scores}/experience`, 503, { lang, message: t['rankings-unavailable'] });
+  await expect(page.getByRole('table')).toHaveCount(0);
   for (const kind of ['level', 'experience', 'magic', 'fist', 'club', 'sword', 'axe', 'distance', 'shielding', 'fishing']) {
-    await visit(page, `${scores}/${kind}`, 503, { lang, message: t['rankings-unavailable'] });
-    await expect(page.getByRole('table')).toHaveCount(0);
+    await probe(page, `${scores}/${kind}`, 503, { lang, message: t['rankings-unavailable'], empty: 'table' });
   }
   for (const kind of ['yesterday', 'week', 'month', 'record', 'oldest', 'anniversaries', 'name-changes', 'transfers', 'sold']) {
-    await visit(page, `${stats}/${kind}`, 503, { lang, message: growth.unavailable });
-    await expect(page.locator('main tbody tr')).toHaveCount(0);
+    await probe(page, `${stats}/${kind}`, 503, { lang, message: growth.unavailable, empty: 'main tbody tr' });
   }
-  await visit(page, `${stats}/yesterday?world=${missingId}&vocation=5&pvp=hardcore&page=20000`, 503,
+  await probe(page, `${stats}/yesterday?world=${missingId}&vocation=5&pvp=hardcore&page=20000`, 503,
     { lang, message: growth.unavailable });
   for (const query of ['page=0', 'page=01', 'page=1&page=2', 'sort=name', 'page=%GG']) {
-    await visit(page, `${scores}/experience?${query}`, 400, { lang, message: t['rankings-bad-query'] });
+    await probe(page, `${scores}/experience?${query}`, 400, { lang, message: t['rankings-bad-query'] });
   }
   for (const query of ['world=bad', 'vocation=6']) {
-    await visit(page, `${scores}/experience?${query}`, 404, { lang, message: t['rankings-not-found'] });
+    await probe(page, `${scores}/experience?${query}`, 404, { lang, message: t['rankings-not-found'] });
   }
   await visit(page, `${scores}/unknown`, 404, { lang, message: t['rankings-not-found'] });
   await visit(page, `${stats}/unknown`, 404, { lang, message: growth['not-found'] });
   for (const query of ['world=bad', 'vocation=6', 'pvp=closed', 'page=0', 'page=20001', 'page=1&page=2', 'sort=name']) {
-    await visit(page, `${stats}/yesterday?${query}`, 400, { lang, message: growth.invalid });
+    await probe(page, `${stats}/yesterday?${query}`, 400, { lang, message: growth.invalid });
   }
 });
 
@@ -89,34 +92,34 @@ test('statistics exercise the world picker and bounded guild, character and comp
   });
   await expect(page.locator('main')).toContainText(worldText['world-unavailable']);
   for (const [start, end] of [['2026-02-29', '2026-03-01'], ['2026-10-31', '2026-10-01'], ['2026-10-01', '2026-11-01']]) {
-    await visit(page, `${prefix}/world?world=${world.id}&start=${start}&end=${end}`, 400);
+    await probe(page, `${prefix}/world?world=${world.id}&start=${start}&end=${end}`, 400);
   }
-  await visit(page, `${prefix}/world?world=unknown&start=2026-10-01&end=2026-10-01`, 400);
+  await probe(page, `${prefix}/world?world=unknown&start=2026-10-01&end=2026-10-01`, 400);
   for (const query of ['', '?guild=First&compare=Second&days=31']) {
     await visit(page, `${prefix}/guilds${query}`, 503, { lang, message: guildText['guild-unavailable'] });
   }
   for (const query of ['days=0', 'days=32', 'guild=%00', 'compare=%00', 'compare=Second', 'sort=level']) {
-    await visit(page, `${prefix}/guilds?${query}`, 400);
+    await probe(page, `${prefix}/guilds?${query}`, 400);
   }
 
   const dates = 'start=2026-10-01&end=2026-10-02';
   const character = `${prefix}/characters/${missingId}`;
   for (const tab of ['history', 'experience', 'rankings', 'deaths', 'progress', 'online']) {
-    await visit(page, `${character}/${tab}?${dates}&target=10`, 503, { lang, message: characterText.unavailable });
+    await probe(page, `${character}/${tab}?${dates}&target=10`, 503, { lang, message: characterText.unavailable });
   }
   for (const query of ['start=2026-02-29', 'end=2099-01-01', 'target=01', 'metric=level', 'ids=unknown']) {
-    await visit(page, `${character}/history?${query}`, 400, { lang, message: characterText.invalid });
+    await probe(page, `${character}/history?${query}`, 400, { lang, message: characterText.invalid });
   }
-  await visit(page, `${character}/unknown`, 404, { lang });
+  await probe(page, `${character}/unknown`, 404, { lang });
   const compare = `${prefix}/compare`;
   await visit(page, compare, 200, { lang });
   const ids = `${missingId},${missingId.slice(0, -1)}e`;
   for (const metric of ['level', 'experience', 'magic_level', 'fist_level', 'club_level', 'sword_level',
     'axe_level', 'distance_level', 'shielding_level', 'fishing_level']) {
-    await visit(page, `${compare}?${dates}&ids=${ids}&metric=${metric}`, 503, { lang, message: characterText.unavailable });
+    await probe(page, `${compare}?${dates}&ids=${ids}&metric=${metric}`, 503, { lang, message: characterText.unavailable });
   }
   for (const query of [`ids=${missingId}`, `ids=${missingId},${missingId}`, `ids=${ids}&metric=unknown`, `ids=${ids}&target=1`]) {
-    await visit(page, `${compare}?${query}`, 400, { lang, message: characterText.invalid });
+    await probe(page, `${compare}?${query}`, 400, { lang, message: characterText.invalid });
   }
 });
 

@@ -17,7 +17,7 @@ export function messages(directory, lang) {
 
 export async function visit(page, path, status, { lang, message, noStore = true } = {}) {
   await waitForWikiBudget(path);
-  const response = await page.goto(path);
+  const response = await page.goto(path, { waitUntil: "domcontentloaded" });
   expect(response.status(), path).toBe(status);
   if (noStore) expect(response.headers()['cache-control'], path).toContain('no-store');
   if (lang) await expect(page.locator('html')).toHaveAttribute('lang', lang);
@@ -26,6 +26,31 @@ export async function visit(page, path, status, { lang, message, noStore = true 
     await expect(page.locator('main'), path).toContainText(message);
   }
   return response;
+}
+
+// Exercise read-only query permutations without fetching the same browser assets.
+export async function probe(page, path, status, { lang, message, empty } = {}) {
+  await waitForWikiBudget(path);
+  const response = await page.request.get(path, { headers: { accept: 'text/html' } });
+  expect(response.status(), path).toBe(status);
+  expect(response.headers()['cache-control'], path).toContain('no-store');
+  if (lang || message || empty) {
+    expect(response.headers()['content-type'], path).toContain('text/html');
+    const result = await page.evaluate(({ html, empty }) => {
+      const document = new DOMParser().parseFromString(html, 'text/html');
+      return {
+        lang: document.documentElement.lang,
+        text: document.querySelector('main')?.textContent?.replace(/\s+/g, ' ').trim(),
+        count: empty ? document.querySelectorAll(empty).length : 0,
+      };
+    }, { html: await response.text(), empty });
+    if (lang) expect(result.lang, path).toBe(lang);
+    if (message !== undefined) {
+      expect(message, path).toBeTruthy();
+      expect(result.text, path).toContain(message);
+    }
+    if (empty) expect(result.count, path).toBe(0);
+  }
 }
 
 export async function redirect(request, path, location, status = 303) {
