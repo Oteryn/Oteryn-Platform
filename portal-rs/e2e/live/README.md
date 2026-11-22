@@ -37,7 +37,7 @@ unavailable or excluded coverage. The JSON report for each project is attached
 to the Playwright result in the run's temporary directory.
 
 While the Game feed is pending, a known public Game-data route with HTTP 503
-is report-only when it serves HTML with the route's localized unavailable view
-and both `Cache-Control: no-store` and the explicit `X-Oteryn-Game-Data: unavailable` signal. The check requires the matching
-document language and the specific heading and refusal markers in the main
-content. Unexpected error responses and failing assets remain hard findings.
+is report-only when it serves its localized unavailable view with
+`Cache-Control: no-store` and `X-Oteryn-Game-Data: unavailable`. The check requires
+the matching document language and the specific heading and refusal markers in
+the main content. Unexpected error responses and failing assets remain hard findings.

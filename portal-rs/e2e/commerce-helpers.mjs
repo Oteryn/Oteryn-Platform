@@ -97,6 +97,7 @@ export async function withUnpublishedDownloads(browser, locale, check) {
       PORTAL_E2E_BINARY: binary,
       PORTAL_E2E_OUT: out,
       PORTAL_E2E_KEEP_DATABASE: '0',
+      PORTAL_E2E_SEED_PLAN: '',
       OTERYN_PUBLIC_ORIGIN: origin,
       OTERYN_ACCOUNT_LOGIN: 'true',
       OTERYN_DOWNLOADS_ENABLED: 'true',
