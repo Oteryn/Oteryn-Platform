@@ -227,7 +227,9 @@ async fn save(
     match persist(&pool, &auth, context, &slug, &locale, &form).await {
         Ok(()) => Redirect::to("/admin/pages").into_response(),
         Err(Error::Denied) => StatusCode::FORBIDDEN.into_response(),
-        Err(Error::InvalidInput) => StatusCode::CONFLICT.into_response(),
+        Err(Error::InvalidInput) => {
+            (StatusCode::CONFLICT, text(&locale, "edit-conflict")).into_response()
+        }
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }

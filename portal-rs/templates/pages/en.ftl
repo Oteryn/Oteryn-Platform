@@ -10,5 +10,6 @@ delete = Delete
 slug = Page slug
 locale = Language
 create = Create or edit
+edit-conflict = This change conflicts with the current page. Reload the editor and review your changes.
 
 not-published = This page has not been published yet.

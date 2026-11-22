@@ -10,5 +10,6 @@ delete = Usuń
 slug = Adres strony
 locale = Język
 create = Utwórz lub edytuj
+edit-conflict = Ta zmiana koliduje z aktualną wersją strony. Odśwież edytor i sprawdź swoje zmiany.
 
 not-published = Ta strona nie została jeszcze opublikowana.

@@ -342,7 +342,7 @@ Updated English source",
             "English one"
         )
         .await?,
-        StatusCode::SEE_OTHER
+        (StatusCode::SEE_OTHER, String::new())
     );
     assert_eq!(
         browser_page_submit(
@@ -355,7 +355,11 @@ Updated English source",
             "Stale English"
         )
         .await?,
-        StatusCode::CONFLICT
+        (
+            StatusCode::CONFLICT,
+            "This change conflicts with the current page. Reload the editor and review your changes."
+                .into()
+        )
     );
     let polish = browser_page_hidden(staff.clone(), &cookie, "pl").await?;
     let reviewed_source = page_hidden(&polish, "reviewed_source_revision")?;
@@ -373,7 +377,7 @@ Updated English source",
             "English two"
         )
         .await?,
-        StatusCode::SEE_OTHER
+        (StatusCode::SEE_OTHER, String::new())
     );
     assert_eq!(
         browser_page_submit(
@@ -386,7 +390,11 @@ Updated English source",
             "Polska strona"
         )
         .await?,
-        StatusCode::CONFLICT
+        (
+            StatusCode::CONFLICT,
+            "Ta zmiana koliduje z aktualną wersją strony. Odśwież edytor i sprawdź swoje zmiany."
+                .into()
+        )
     );
     assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug='new-page' AND e.locale='pl'").fetch_one(&pool).await?,0);
     assert_eq!(
@@ -524,8 +532,11 @@ async fn browser_page_submit(
     version: &str,
     source: &str,
     title: &str,
-) -> Result<StatusCode, Box<dyn std::error::Error>> {
+) -> Result<(StatusCode, String), Box<dyn std::error::Error>> {
     let version = version.replace('+', "%2B").replace(' ', "%20");
-    Ok(app.oneshot(Request::post(format!("/admin/pages/new-page/{locale}")).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
-        .body(Body::from(format!("_csrf={csrf}&expected_revision={version}&reviewed_source_revision={source}&title={title}&body={title}&action=save&published_at=2020-01-01T00:00:00Z")))?).await?.status())
+    let response = app.oneshot(Request::post(format!("/admin/pages/new-page/{locale}")).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
+        .body(Body::from(format!("_csrf={csrf}&expected_revision={version}&reviewed_source_revision={source}&title={title}&body={title}&action=save&published_at=2020-01-01T00:00:00Z")))?).await?;
+    let status = response.status();
+    let body = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+    Ok((status, body))
 }
