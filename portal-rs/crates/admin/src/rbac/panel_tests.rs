@@ -269,7 +269,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=grant&account={target}&role={role}")
+            format!("action=grant&account={target}&role={role}&reason=Assign+staff+workflow+role")
         )
         .await?,
         StatusCode::SEE_OTHER

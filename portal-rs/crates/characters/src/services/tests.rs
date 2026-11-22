@@ -1095,21 +1095,51 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         },
         "static",
     );
-    let public_post = || {
+    let public_post = |csrf: &str| {
         HttpRequest::post(format!("/en/account/characters/{c}/services"))
             .header("origin", "https://portal.example.test")
             .header("content-type", "application/x-www-form-urlencoded")
             .header("cookie", format!("__Host-oteryn_session={token}"))
-            .body(Body::from(fields(&csrf)))
+            .body(Body::from(fields(csrf)))
             .unwrap()
     };
+    let public_get = HttpRequest::get(format!("/en/account/characters/{c}/services"))
+        .header("cookie", format!("__Host-oteryn_session={token}"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_get)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_post(&"0".repeat(64)))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
     oteryn_db::test_support::coin_chargeback_hold(&db.pool, a)
         .await
         .unwrap();
     assert_eq!(
         public_app
             .clone()
-            .oneshot(public_post())
+            .oneshot(public_post(&csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(post(fields(&csrf)))
             .await
             .unwrap()
             .status(),
@@ -1123,7 +1153,15 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
     assert_eq!(
         public_app
             .clone()
-            .oneshot(public_post())
+            .oneshot(public_post(&csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(post(fields(&csrf)))
             .await
             .unwrap()
             .status(),
@@ -1150,7 +1188,22 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(
-        public_app.oneshot(public_post()).await.unwrap().status(),
+        public_app
+            .oneshot(public_post(&csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let effects: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM wallet_reservations), (SELECT count(*) FROM character_commands)",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(effects, (0, 0));
+    assert_eq!(
+        app.oneshot(post(fields(&csrf))).await.unwrap().status(),
         StatusCode::ACCEPTED
     );
     assert_eq!(balance(&s, a).await, (30, 70));

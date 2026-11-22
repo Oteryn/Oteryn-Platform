@@ -43,12 +43,17 @@ export async function expectLoginRedirect(page,path){
 }
 
 export async function isolatedAdmin(browser,info){
+ return isolatedStaff(browser,info,'platform_admin');
+}
+
+export async function isolatedStaff(browser,info,roleKey){
  const lang=info.project.metadata.locale;
  const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang});
  try{
   const page=await context.newPage();
   const account=await register(page,lang);
-  await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",[account.email]);
+  const grants=await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key=$2 RETURNING role_id",[account.email,roleKey]);
+  expect(grants).toHaveLength(1);
   await login(page,lang,account);
   const codes=await enrollMfa(page,lang,account);
   await loginWithRecoveryCode(page,lang,account,codes[0]);

@@ -1,8 +1,6 @@
-import {execFileSync} from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import https from 'node:https';
-import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from '../../fixtures.mjs';
 import {uuid7} from '../../game-sim-helpers.mjs';
@@ -11,7 +9,6 @@ import {otherBrowser, seedAccount} from '../../security/auth-fixtures.mjs';
 
 const authority = process.env.OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY;
 const stamp = () => String(Math.floor(Date.now() / 1000));
-const gamePrefix = '/internal/v1/game-auth';
 const receiptFixture = new URL('../../../crates/characters/src/commands/fixtures/create-receipt.json', import.meta.url);
 const outfitFixture = new URL('../../../../docs/contracts/fixtures/public-game-families-v2/valid-character-outfit.json', import.meta.url);
 
@@ -22,11 +19,11 @@ async function gamePost(route, payload, identity) {
   const raw = JSON.stringify(payload);
 
   return new Promise((resolve, reject) => {
-    const request = https.request(new URL(gamePrefix + route, origin), {
+    const request = https.request(new URL(route, origin), {
       method: 'POST',
       ca: fs.readFileSync(process.env.OTERYN_INTERNAL_TLS_CLIENT_CA_FILE),
-      cert: fs.readFileSync(identity.cert ?? path.join(directory, identity + '.pem')),
-      key: fs.readFileSync(identity.key ?? path.join(directory, identity + '-key.pem')),
+      cert: fs.readFileSync(path.join(directory, identity + '.pem')),
+      key: fs.readFileSync(path.join(directory, identity + '-key.pem')),
       minVersion: 'TLSv1.3',
       maxVersion: 'TLSv1.3',
       ALPNProtocols: ['http/1.1'],
@@ -44,96 +41,66 @@ async function gamePost(route, payload, identity) {
   });
 }
 
-// Start local.mjs with the dedicated SAN in PORTAL_CHARACTER_COMMAND_IDENTITIES
-// and the LCFA authority in PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY.
-// The closure certificate is purpose-bound and cannot issue a Create receipt.
 async function publishCreation(operation, account, character, world, name) {
-  const san = 'panels-characters.e2e';
-  expect(JSON.parse(process.env.PORTAL_CHARACTER_COMMAND_IDENTITIES || '{}')).toHaveProperty([san]);
-  const directory = path.dirname(process.env.OTERYN_INTERNAL_TLS_CERT_FILE);
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'panels-characters-peer-'));
-  const identity = {cert: path.join(scratch, 'peer.pem'), key: path.join(scratch, 'peer-key.pem')};
-  try {
-    const csr = path.join(scratch, 'peer.csr');
-    const extensions = path.join(scratch, 'peer.ext');
-    fs.writeFileSync(extensions, `subjectAltName=DNS:${san}\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n`);
-    const openssl = args => execFileSync('openssl', args, {stdio: 'ignore'});
-    openssl(['req', '-newkey', 'rsa:2048', '-nodes', '-keyout', identity.key, '-out', csr, '-subj', `/CN=${san}`]);
-    openssl(['x509', '-req', '-in', csr, '-CA', path.join(directory, 'ca.pem'),
-      '-CAkey', path.join(directory, 'ca-key.pem'), '-set_serial', '0x' + crypto.randomBytes(16).toString('hex'),
-      '-out', identity.cert, '-days', '1', '-extfile', extensions]);
-    const result = await gamePost('/character-commands/read', {
-      contract_version: 1, operation: 'ReadCharacterCommandIntentV1', source_authority: authority,
-      issuer_authority: 'OTERYN_PLATFORM_CHARACTER_AUTHORITY', command: 'CreateCharacter',
-      operation_id: operation,
-    }, identity);
-    expect(result.status).toBe(200);
-    expect(JSON.parse(result.body)).toMatchObject({
-      operation_id: operation, account_id: account, target_world_id: world, requested_name: name,
-    });
-    const receipt = JSON.parse(fs.readFileSync(receiptFixture, 'utf8'));
-    Object.assign(receipt, {
-      source_authority: authority, operation_id: operation, account_id: account, character_id: character,
-      world_id: world, name, projection_epoch: '3', projection_revision: '1', decided_at: stamp(),
-    });
-    expect((await gamePost('/character-commands/receipt', receipt, identity)).status).toBe(200);
-  } finally {
-    fs.rmSync(scratch, {recursive: true, force: true});
-  }
+  const peer = 'panel-character-commands';
+  const result = await gamePost('/internal/v1/game-auth/character-commands/read', {
+    contract_version: 1, operation: 'ReadCharacterCommandIntentV1', source_authority: authority,
+    issuer_authority: 'OTERYN_PLATFORM_CHARACTER_AUTHORITY', command: 'CreateCharacter',
+    operation_id: operation,
+  }, peer);
+  expect(result.status).toBe(200);
+  expect(JSON.parse(result.body)).toMatchObject({
+    operation_id: operation, account_id: account, target_world_id: world, requested_name: name,
+  });
+  const receipt = JSON.parse(fs.readFileSync(receiptFixture, 'utf8'));
+  Object.assign(receipt, {
+    source_authority: authority, operation_id: operation, account_id: account, character_id: character,
+    world_id: world, name, projection_epoch: '3', projection_revision: '1', decided_at: stamp(),
+  });
+  expect((await gamePost('/internal/v1/game-auth/character-commands/receipt', receipt, peer)).status).toBe(200);
 }
 
 async function publishPortfolio(account, character, world, name) {
   const time = stamp();
-  expect((await gamePost('/native-account-characters', {
+  expect((await gamePost('/internal/v1/game-auth/native-account-characters', {
     contract_version: 1, operation: 'PublishAccountCharactersV1', source_authority: authority,
     account_id: account, projection_epoch: '3', projection_revision: '1', source_observed_at: time,
     characters: [{character_id: character, world_id: world, name, availability: 'AVAILABLE'}],
   }, 'closure-portfolio')).status).toBe(200);
-  expect((await gamePost('/native-account-characters/watermark', {
+  expect((await gamePost('/internal/v1/game-auth/native-account-characters/watermark', {
     contract_version: 1, operation: 'PublishProjectionWatermarkV1', source_authority: authority,
     projection_epoch: '3', complete_through: time, observed_at: time,
   }, 'closure-portfolio')).status).toBe(200);
 }
 
-async function seedPublicReadModels(db, character, world, name) {
-  // The transaction seeds the accepted read models in the disposable E2E DB.
-  // The community Rust ingestion tests exercise the separate publisher boundary.
+async function publishPublicReadModels(db, character, world, name) {
   const source = process.env.PORTAL_PUBLIC_PROJECTIONS_AUTHORITY;
+  const {rows: [state]} = await db.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1');
+  const epoch = state.highest_epoch ?? '1';
   const time = stamp();
-  const connection = await db.connect();
-  try {
-    await connection.query('BEGIN');
-    const {rows: [state]} = await connection.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1 FOR UPDATE');
-    const epoch = state.highest_epoch ?? '1';
-    await connection.query('UPDATE public_projection_state SET highest_epoch=$1 WHERE id=1', [epoch]);
-    await connection.query(
-      "INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,$2,1,$3,$4)",
-      [character, epoch, time, {profile: [{name, world_id: world, level: '412', vocation: 4}]}],
-    );
-    await connection.query(
-      `INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload)
-       VALUES('character_profile','',true,$1,1,$2,$3) ON CONFLICT(family,subject,is_watermark)
-       DO UPDATE SET epoch=excluded.epoch,watermark=excluded.watermark,payload=excluded.payload`,
-      [epoch, time, {source_authority: source}],
-    );
-    const {outfit} = JSON.parse(fs.readFileSync(outfitFixture, 'utf8'));
-    Object.assign(outfit[0], {world_id: world, character_revision: '1'});
-    await connection.query(
-      `INSERT INTO public_character_families_v2(family,character_id,source_authority,epoch,revision,observed,body)
-       VALUES('character_outfit',$1,$2,$3,1,$4,$5)`,
-      [character, source, epoch, time, JSON.stringify(outfit)],
-    );
-    await connection.query(
-      `INSERT INTO public_character_families_v2_watermarks(family,source_authority,epoch,complete_through)
-       VALUES('character_outfit',$1,$2,$3) ON CONFLICT(family)
-       DO UPDATE SET source_authority=excluded.source_authority,epoch=excluded.epoch,complete_through=excluded.complete_through`,
-      [source, epoch, time],
-    );
-    await connection.query('COMMIT');
-  } finally {
-    await connection.query('ROLLBACK');
-    connection.release();
-  }
+  const publish = async (version, endpoint, operation, fields) => {
+    const result = await gamePost(`/internal/v${version}/game-public/${endpoint}`, {
+      contract_version: version, operation, source_authority: source, ...fields,
+    }, 'panel-public-projections');
+    expect(result.status, `Game publication accepted: ${operation}`).toBe(200);
+  };
+  const snapshot = {
+    character_id: character, projection_epoch: epoch, projection_revision: '1', source_observed_at: time,
+  };
+  const watermark = {projection_epoch: epoch, complete_through: time, observed_at: time};
+  await publish(1, 'character-profile', 'PublishCharacterProfileV1', {
+    ...snapshot,
+    profile: [{world_id: world, name, vocation: 4, level: '412', guild: [], guild_visible: false}],
+  });
+  await publish(1, 'watermark', 'PublishPublicProjectionWatermarkV1', {
+    family: 'character_profile', ...watermark,
+  });
+  const {outfit} = JSON.parse(fs.readFileSync(outfitFixture, 'utf8'));
+  Object.assign(outfit[0], {world_id: world, character_revision: '1'});
+  await publish(2, 'character-outfit', 'PublishCharacterOutfitV2', {...snapshot, outfit});
+  await publish(2, 'watermark', 'PublishPublicProjectionWatermarkV2', {
+    family: 'character_outfit', ...watermark,
+  });
 }
 
 async function expectLoginRedirect(page, target, locale) {
@@ -194,7 +161,7 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
     await owner.page.reload();
     await expect(owner.page.locator('[role=status]')).toContainText(lang === 'en' ? 'Game confirmed' : 'Gra potwierdziła');
     await publishPortfolio(owner.id, character, world, name);
-    await seedPublicReadModels(db, character, world, name);
+    await publishPublicReadModels(db, character, world, name);
 
     const overview = await owner.page.goto('/account');
     expect(overview.status()).toBe(200);
