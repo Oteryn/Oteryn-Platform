@@ -1,5 +1,5 @@
 import {test, expect} from '../fixtures.mjs';
-import {login, pool, register, submit} from '../helpers.mjs';
+import {login, logout, pool, register, submit} from '../helpers.mjs';
 import {action, enrollMfa, loginWithRecoveryCode, query, unique} from '../staff-rbac-helpers.mjs';
 
 async function grantRole(account, role) {
@@ -98,17 +98,22 @@ test('browser preserves private cache directives on a non-HTML analytics 503', a
 test('moderator can review reports and is refused Platform admin areas', async ({page}, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
-  const account = await register(page, lang);
-  await login(page, lang, account);
-  const [{id: accountId}] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
+  const reporter = await register(page, lang);
+  await login(page, lang, reporter);
+  const [{id: reporterId}] = await query('SELECT id FROM accounts WHERE email=$1', [reporter.email]);
   expect((await page.goto(`/${lang}/support/reports/create`)).status()).toBe(200);
   const evidence = unique();
-  await submit(page, 'main form', {target_reference: accountId, evidence_summary: evidence});
+  await submit(page, 'main form', {target_reference: reporterId, evidence_summary: evidence});
   await expect(page).toHaveURL(/support\/reports\/[a-f0-9-]+$/);
   const reportId = new URL(page.url()).pathname.split('/').at(-1);
+  await logout(page, lang);
 
-  await grantRole(account, 'moderator');
-  await signInWithMfa(page, lang, account);
+  const moderator = await register(page, lang);
+  const [{id: moderatorId}] = await query('SELECT id FROM accounts WHERE email=$1', [moderator.email]);
+  expect(moderatorId).not.toBe(reporterId);
+  await grantRole(moderator, 'moderator');
+  await login(page, lang, moderator);
+  await signInWithMfa(page, lang, moderator);
   expect((await page.request.get('/admin')).status()).toBe(200);
 
   for (const path of ['/admin/roles', '/admin/console/access', '/admin/news', '/admin/analytics']) {
@@ -125,7 +130,10 @@ test('moderator can review reports and is refused Platform admin areas', async (
     status: 'actioned', public_outcome: outcome, moderator_notes: evidence,
   });
   await expect.poll(() => query(
-    'SELECT status, public_outcome, moderator_notes FROM player_reports WHERE id=$1',
+    'SELECT status, public_outcome, moderator_notes, assigned_to, reporter_account_id FROM player_reports WHERE id=$1',
     [reportId],
-  )).toEqual([{status: 'actioned', public_outcome: outcome, moderator_notes: evidence}]);
+  )).toEqual([{
+    status: 'actioned', public_outcome: outcome, moderator_notes: evidence,
+    assigned_to: moderatorId, reporter_account_id: reporterId,
+  }]);
 });
