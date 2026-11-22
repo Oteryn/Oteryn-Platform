@@ -1380,6 +1380,20 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
     })
     .await??;
     assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    let clock_sampled = std::cell::Cell::new(false);
+    assert!(
+        league
+            .read_with_clock(|| {
+                clock_sampled.set(true);
+                Ok(NOW)
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        !clock_sampled.get(),
+        "sample only after acquiring the projection lock"
+    );
     let dir = tempfile::tempdir()?;
     let c = real_config(dir.path());
     write_recovery(&c, "1")?;
@@ -1394,6 +1408,16 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
     );
     blocker.rollback().await?;
     assert!(league.read(NOW).await?.is_empty());
+    assert!(
+        league
+            .read_with_clock(|| {
+                clock_sampled.set(true);
+                Ok(NOW)
+            })
+            .await?
+            .is_empty()
+    );
+    assert!(clock_sampled.get());
     db.close().await
 }
 

@@ -34,7 +34,7 @@ impl GameAuthority {
         let c = self.config.as_ref().ok_or(Error::Unavailable)?;
         let recovery = c.recovery()?;
         let database_now: i64 =
-            sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
                 .fetch_one(&mut **tx)
                 .await?;
         schema::ensure(database_now > 0 && (database_now as u64).abs_diff(clock) <= 1)?;
