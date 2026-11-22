@@ -22,6 +22,11 @@ for (const requiresMfa of [false, true]) {
     await expectSession(await cookie(context), account.id);
     await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
 
+    expect((await page.goto('/account')).status()).toBe(200);
+    const panel = page.locator('nav[data-panel="player"]');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator(`a[href="${route}"]`)).toHaveCount(requiresMfa ? 0 : 1);
+
     if (info.project.use.viewport.width <= 960) await page.locator('#portal-menu-toggle').click();
     await page.locator('[data-account-link]').click();
     const menu = page.getByRole('dialog');
@@ -39,9 +44,5 @@ for (const requiresMfa of [false, true]) {
       expect((await navigation).status()).toBe(200);
       await expect(page.locator('[data-passkey=register]')).toBeVisible();
     }
-    expect((await page.goto('/account')).status()).toBe(200);
-    const panel = page.locator('nav[data-panel="player"]');
-    await expect(panel).toBeVisible();
-    await expect(panel.locator(`a[href="${route}"]`)).toHaveCount(requiresMfa ? 0 : 1);
   });
 }

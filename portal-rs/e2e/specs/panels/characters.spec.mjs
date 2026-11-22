@@ -68,6 +68,11 @@ async function publishPortfolio(account, character, world, name) {
     account_id: account, projection_epoch: '3', projection_revision: '1', source_observed_at: time,
     characters: [{character_id: character, world_id: world, name, availability: 'AVAILABLE'}],
   }, 'closure-portfolio')).status).toBe(200);
+  await publishPortfolioWatermark();
+}
+
+async function publishPortfolioWatermark() {
+  const time = stamp();
   expect((await gamePost('/internal/v1/game-auth/native-account-characters/watermark', {
     contract_version: 1, operation: 'PublishProjectionWatermarkV1', source_authority: authority,
     projection_epoch: '3', complete_through: time, observed_at: time,
@@ -198,6 +203,7 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
     const profileForm = owner.page.locator('main form[method=post]');
     const profileCsrf = await profileForm.locator('[name=_csrf]').inputValue();
     const saved = 'Seller comment before transfer';
+    await publishPortfolioWatermark();
     await submit(owner.page, 'main form[method=post]', {comment: saved});
     await expect(owner.page.locator('main [name=comment]')).toHaveValue(saved);
 
@@ -228,6 +234,7 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
           issued_at_source: String(now), expires_at_source: String(now + 300),
         }), source_revision],
       );
+      await publishPortfolioWatermark();
       expect((await owner.page.request.get(profile)).status()).toBe(404);
       const forged = {comment: 'Seller comment after transfer'};
       await csrfRejected(owner.page, profile, forged);
