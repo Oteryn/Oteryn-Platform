@@ -388,6 +388,38 @@ async fn browser_lifecycle(pool: &PgPool) {
             .unwrap()
         );
     }
+    let mut stalled = make(csrf, "Stalled upload", "image/png");
+    stalled
+        .headers_mut()
+        .insert("x-csrf-token", csrf.parse().unwrap());
+    let body = to_bytes(
+        std::mem::replace(stalled.body_mut(), Body::empty()),
+        MAX_BYTES + 16384,
+    )
+    .await
+    .unwrap();
+    // Deliver a partial frame and keep the connection open without EOF.
+    use futures_util::StreamExt;
+    let first_frame = Ok::<_, std::convert::Infallible>(body.slice(..body.len() / 2));
+    *stalled.body_mut() = Body::from_stream(
+        futures_util::stream::iter([first_frame]).chain(futures_util::stream::pending()),
+    );
+    let start = tokio::time::Instant::now();
+    let refusal = tokio::time::timeout(Duration::from_secs(20), app.clone().oneshot(stalled))
+        .await
+        .expect("the authenticated body deadline must respond within the test budget")
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
+    assert!(start.elapsed() >= Duration::from_secs(15));
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM media WHERE alt_text='Stalled upload')"
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    );
+
     let uploaded = app
         .clone()
         .oneshot(make(csrf, "Image", "image/png"))
