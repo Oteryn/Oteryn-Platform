@@ -264,6 +264,7 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
             operation,
             request_id,
             observed_at,
+            input.character.as_deref(),
             &value,
         )?))
     }

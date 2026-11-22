@@ -192,6 +192,7 @@ pub(super) fn snapshot(
     operation: &str,
     request_id: Uuid,
     observed_at: String,
+    target_character: Option<&str>,
     v: &Value,
 ) -> Result<players::Snapshot, Error> {
     let mut snapshot = players::Snapshot {
@@ -210,7 +211,13 @@ pub(super) fn snapshot(
                     .collect::<Result<_, _>>()?,
             )
         }
-        "player.character.get" => snapshot.characters = Some(vec![character(v, true)?]),
+        "player.character.get" => {
+            let dossier = character(v, true)?;
+            if target_character != Some(dossier.id.as_str()) {
+                return Err(bad());
+            }
+            snapshot.characters = Some(vec![dossier]);
+        }
         "player.inventory.get" => {
             snapshot.inventory = Some(
                 array(v, "items")?
@@ -295,4 +302,36 @@ pub(super) fn preview(v: &Value) -> Result<Vec<String>, Error> {
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn character_dossier_requires_an_exact_character_target() {
+        let result = json!({
+            "character_id": "character-a", "name": "Verified Knight", "world_id": "world-a",
+            "level": 42, "vocation": "knight", "skills": [],
+            "position": {"x": 1, "y": 2, "z": 3}, "online": true,
+            "premium": true, "bank_balance": "123", "last_logins": [], "sanctions": [],
+        });
+        let project = |target| {
+            snapshot(
+                "player.character.get",
+                Uuid::now_v7(),
+                "2026-11-22T15:00:00Z".into(),
+                target,
+                &result,
+            )
+        };
+        let dossier = project(Some("character-a")).unwrap().characters.unwrap();
+        assert_eq!(dossier[0].id, "character-a");
+        assert!(matches!(
+            project(Some("character-b")),
+            Err(Error::Unavailable)
+        ));
+        assert!(matches!(project(None), Err(Error::Unavailable)));
+    }
 }
