@@ -9,8 +9,9 @@ use axum::{
 };
 use oteryn_web::ratelimit::NamedPolicy;
 use serde::Deserialize;
-use sqlx::PgPool;
-use std::time::Duration;
+use sqlx::{PgConnection, PgPool};
+use std::{future::Future, pin::Pin, time::Duration};
+use tokio::time::Instant;
 
 type Rows = Vec<Vec<String>>;
 type ReadResult = Result<Response, StatusCode>;
@@ -117,12 +118,47 @@ fn no_query(raw: Option<&str>) -> Result<(), StatusCode> {
     Ok(())
 }
 
-async fn bounded<T>(future: impl Future<Output = Result<T, sqlx::Error>>) -> Result<T, StatusCode> {
-    tokio::time::timeout(Duration::from_secs(3), future)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+const READ_BUDGET: Duration = Duration::from_millis(2500);
+const HTTP_BUDGET: Duration = Duration::from_secs(3);
+
+async fn bounded<T>(
+    pool: &PgPool,
+    read: impl for<'a> FnOnce(
+        &'a mut PgConnection,
+    ) -> Pin<Box<dyn Future<Output = Result<T, sqlx::Error>> + Send + 'a>>,
+) -> Result<T, StatusCode> {
+    let start = Instant::now();
+    tokio::time::timeout_at(start + HTTP_BUDGET, async {
+        let mut tx = read_transaction(pool, start + READ_BUDGET).await?;
+        let result = read(&mut tx).await?;
+        tx.commit().await?;
+        Ok::<_, sqlx::Error>(result)
+    })
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+}
+
+async fn read_transaction(
+    pool: &PgPool,
+    deadline: Instant,
+) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *tx)
+        .await?;
+    let remaining = deadline
+        .saturating_duration_since(Instant::now())
+        .as_millis();
+    if remaining == 0 {
+        return Err(sqlx::Error::PoolTimedOut);
+    }
+    sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+        .bind(format!("{remaining}ms"))
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
 }
 
 const STATISTICS_SQL: &str =
@@ -148,19 +184,6 @@ const STATISTICS_SQL: &str =
          FROM dates LEFT JOIN registrations USING(day) LEFT JOIN logins USING(day)
          ORDER BY dates.day DESC";
 
-async fn statistics_transaction(
-    pool: &PgPool,
-) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    sqlx::query("SET TRANSACTION READ ONLY")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("SET LOCAL statement_timeout = '2500ms'")
-        .execute(&mut *tx)
-        .await?;
-    Ok(tx)
-}
-
 async fn statistics(
     State(pool): State<PgPool>,
     RawQuery(raw): RawQuery,
@@ -168,14 +191,12 @@ async fn statistics(
     chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> ReadResult {
     let days = range(raw.as_deref())?;
-    let rows = bounded(async {
-        let mut tx = statistics_transaction(&pool).await?;
-        let rows = sqlx::query_as::<_, (String, i64, i64)>(STATISTICS_SQL)
-            .bind(i32::from(days))
-            .fetch_all(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(rows)
+    let rows = bounded(&pool, |connection| {
+        Box::pin(
+            sqlx::query_as::<_, (String, i64, i64)>(STATISTICS_SQL)
+                .bind(i32::from(days))
+                .fetch_all(connection),
+        )
     })
     .await?;
     let mut page = Page::new(
@@ -209,19 +230,21 @@ async fn rate_rows(pool: &PgPool) -> Result<Rows, StatusCode> {
     let thresholds: Vec<_> = policies.iter().map(|policy| policy.1).collect();
     // The counter saturates at limit + 1. Each saturated window proves at least
     // one denied key charge, but cannot tell us how many later charges it denied.
-    let counts = bounded(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT count(r.limiter_name)
+    let counts = bounded(pool, |connection| {
+        Box::pin(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(r.limiter_name)
          FROM unnest($1::text[], $2::bigint[]) WITH ORDINALITY AS p(name, threshold, ord)
          LEFT JOIN web_rate_limits r ON r.limiter_name = p.name AND r.count > p.threshold
            AND r.window_start >= statement_timestamp() - interval '1 hour'
            AND r.window_start <= statement_timestamp()
          GROUP BY p.ord ORDER BY p.ord",
+            )
+            .bind(names)
+            .bind(thresholds)
+            .fetch_all(connection),
         )
-        .bind(names)
-        .bind(thresholds)
-        .fetch_all(pool),
-    )
+    })
     .await?;
     Ok(policies
         .iter()
@@ -330,16 +353,21 @@ async fn system_health(
     page.rows
         .push(vec![page.text("ops-http"), page.text("ops-available")]);
     let (database, queue, incidents) = tokio::join!(
-        bounded(sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&pool)),
-        bounded(sqlx::query_as::<_, (i64, i64, bool)>(
+        bounded(&pool, |connection| Box::pin(
+            sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(connection)
+        )),
+        bounded(&pool, |connection| {
+            Box::pin(sqlx::query_as::<_, (i64, i64, bool)>(
             "SELECT count(*) FILTER (WHERE state = 'pending' AND run_after <= statement_timestamp()),
                     count(*) FILTER (WHERE state = 'running' AND leased_until <= statement_timestamp()),
                     coalesce(bool_or(kind = 'cleanup.rate-limits' AND state = 'done'
                       AND updated_at > statement_timestamp() - interval '5 minutes'), false)
              FROM outbox WHERE state IN ('pending', 'running')
                 OR (kind = 'cleanup.rate-limits' AND state = 'done')",
-        ).fetch_one(&pool)),
-        bounded(sqlx::query_as::<_, (String, bool)>(
+        ).fetch_one(connection))
+        }),
+        bounded(&pool, |connection| {
+            Box::pin(sqlx::query_as::<_, (String, bool)>(
             "SELECT to_char(observed AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), binding_conflict
              FROM (
                SELECT created_at AS observed, true AS binding_conflict FROM audit_log
@@ -349,7 +377,8 @@ async fn system_health(
              ) AS incidents
              WHERE observed > statement_timestamp() - interval '7 days'
              ORDER BY observed DESC LIMIT 50",
-        ).fetch_all(&pool)),
+        ).fetch_all(connection))
+        }),
     );
     let database_status = page.text(if database.is_ok() {
         "ops-available"

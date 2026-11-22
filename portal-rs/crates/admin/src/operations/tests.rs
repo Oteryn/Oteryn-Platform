@@ -41,9 +41,19 @@ async fn reads_success_and_bad_input() {
         eprintln!("Set PORTAL_TEST_DATABASE_URL to run operations database tests");
         return;
     };
-    let pool = PgPool::connect(&url)
+    let root = PgPool::connect(&url)
         .await
-        .expect("connect to disposable PostgreSQL");
+        .expect("connect to test database");
+    let name = format!("operations_test_{}", uuid::Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
+        .execute(&root)
+        .await
+        .expect("create isolated operations database");
+    let options: sqlx::postgres::PgConnectOptions = url.parse().expect("PostgreSQL options");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_with(options.database(&name))
+        .await
+        .expect("connect to isolated operations database");
     oteryn_db::migrate(&pool)
         .await
         .expect("migrate disposable PostgreSQL");
@@ -66,14 +76,16 @@ async fn reads_success_and_bad_input() {
         .execute(&pool)
         .await
         .expect("statistics history planner estimates");
-    let mut tx = statistics_transaction(&pool)
+    let mut tx = read_transaction(&pool, Instant::now() + READ_BUDGET)
         .await
         .expect("statistics transaction");
-    let timeout: String = sqlx::query_scalar("SHOW statement_timeout")
-        .fetch_one(&mut *tx)
-        .await
-        .expect("transaction-local statement timeout");
-    assert_eq!(timeout, "2500ms");
+    let timeout: i32 = sqlx::query_scalar(
+        "SELECT setting::integer FROM pg_settings WHERE name = 'statement_timeout'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("transaction-local statement timeout");
+    assert!((1..=2500).contains(&timeout));
     let plan =
         sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(format!("EXPLAIN {STATISTICS_SQL}")))
             .bind(1_i32)
@@ -102,7 +114,18 @@ async fn reads_success_and_bad_input() {
         .execute(&mut *lock)
         .await
         .expect("lock registrations table");
-    let mut reader = statistics_transaction(&pool).await.expect("bounded reader");
+    // A shorter remaining budget models time already spent waiting for a pool
+    // connection. PostgreSQL must cancel the blocked statement within that budget.
+    let mut reader = read_transaction(&pool, Instant::now() + Duration::from_millis(500))
+        .await
+        .expect("bounded reader");
+    let timeout: i32 = sqlx::query_scalar(
+        "SELECT setting::integer FROM pg_settings WHERE name = 'statement_timeout'",
+    )
+    .fetch_one(&mut *reader)
+    .await
+    .expect("remaining statement budget");
+    assert!((1..=500).contains(&timeout));
     let blocked = sqlx::query(STATISTICS_SQL)
         .bind(1_i32)
         .fetch_all(&mut *reader)
@@ -152,7 +175,7 @@ async fn reads_success_and_bad_input() {
         .route(ROUTES[2].0, get(rate_export))
         .route(ROUTES[3].0, get(effective_flags))
         .route(ROUTES[4].0, get(system_health))
-        .with_state(pool)
+        .with_state(pool.clone())
         .layer(Extension(IngestAvailability(false)));
     for &(path, query, expected) in ROUTES {
         let response = send(app.clone(), path, query).await;
@@ -173,6 +196,12 @@ async fn reads_success_and_bad_input() {
             "{path}"
         );
     }
+    drop(app);
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP DATABASE {name}")))
+        .execute(&root)
+        .await
+        .expect("drop isolated operations database");
 }
 
 #[tokio::test]
