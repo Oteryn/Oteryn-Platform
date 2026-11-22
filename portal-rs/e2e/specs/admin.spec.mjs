@@ -71,8 +71,8 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    if(result.status==='rejected') failures.push(`worker ${index+1}: ${result.reason.message}`);
  }
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
- expect(attempted.toSorted()).toEqual(paths.toSorted());
- expect(failures).toEqual([]);
+ expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
+ expect.soft(failures).toEqual([]);
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);

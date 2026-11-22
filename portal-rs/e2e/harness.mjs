@@ -15,6 +15,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
+import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -23,6 +24,23 @@ import { localPostgresUrl } from './postgres-url.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const log = (...line) => console.error('[harness]', ...line);
+
+// Pass through only validation text whose fields and format are known. Some
+// seed errors include rejected input, such as an unknown argument name.
+function seedDiagnostic(output) {
+  if (output?.error === 'conflict') return 'conflicts with existing seed data';
+  if (output?.error !== 'bad_input') return 'seed command unavailable or invalid response';
+  const reason = output.reason;
+  if (typeof reason === 'string') {
+    if (reason.startsWith('unknown argument ')) return 'unknown argument (name omitted)';
+    if (reason.startsWith('unknown entity ')) return 'unknown seed entity';
+    if (/^(?:name|region) must be 1\.\.=96 characters, trimmed$/.test(reason) ||
+        /^(?:name|region|worldId|channelId|accountId|email|password|locale|operationId|directory) (?:is required|must be a string|is not a UUID|must be a lower-case RFC 4122 UUIDv7)$/.test(reason)) {
+      return reason;
+    }
+  }
+  return 'invalid seed arguments';
+}
 
 // ---- arguments and test.env -------------------------------------------------
 const argv = process.argv.slice(2);
@@ -110,7 +128,33 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-const admin = new pg.Client({ connectionString: adminURL.href });
+async function withAdminConnection(operation) {
+  const socket = new Socket();
+  const admin = new pg.Client({
+    connectionString: adminURL.href,
+    stream: socket,
+    connectionTimeoutMillis: 3_000,
+    statement_timeout: 5_000,
+    query_timeout: 6_500,
+  });
+  // A disconnect can arrive between queries. An active operation rejects
+  // through its own promise, and the socket is always closed before returning.
+  admin.on('error', () => {});
+  try {
+    await admin.connect();
+    return await operation(admin);
+  } finally {
+    const ended = admin.end();
+    socket.destroy();
+    await ended;
+  }
+}
+
+// Hold the same session lock for CREATE and reconciliation. A disconnected
+// creator can still be finishing its statement when the cleanup client connects.
+function lockDatabaseName(admin) {
+  return admin.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [dbName]);
+}
 const children = new Set();
 const useProcessGroups = process.platform !== 'win32';
 const shutdownGraceMs = 2_000;
@@ -152,7 +196,7 @@ async function stopChild({ child, closed }) {
   }
 }
 let closing = false;
-let created = false;
+let createRequested = false;
 let creation;
 async function close(code = 0) {
   if (closing) return;
@@ -160,19 +204,16 @@ async function close(code = 0) {
   // A signal can arrive while CREATE DATABASE is in flight.
   await creation.catch(() => {});
   await Promise.all([...children].map(stopChild));
-  if (created && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+  if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
-      await admin.query(`DROP DATABASE "${dbName}" WITH (FORCE)`);
+      await withAdminConnection(async admin => {
+        await lockDatabaseName(admin);
+        await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      });
     } catch {
-      log('failed to drop disposable database', dbName);
+      log('failed to reconcile disposable database', dbName);
       code = 1;
     }
-  }
-  try {
-    await admin.end();
-  } catch {
-    log('failed to close PostgreSQL administrator connection');
-    code = 1;
   }
   process.exit(code);
 }
@@ -180,9 +221,22 @@ process.on('SIGINT', () => close(0));
 process.on('SIGTERM', () => close(0));
 
 async function createDatabase() {
-  await admin.connect();
-  await admin.query(`CREATE DATABASE "${dbName}"`);
-  created = true;
+  await withAdminConnection(async admin => {
+    if (closing) return;
+    await lockDatabaseName(admin);
+    if (closing) return;
+    const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
+    if (closing) return;
+    if (existing.rowCount !== 0) throw new Error('Disposable database name already exists');
+    createRequested = true;
+    try {
+      await admin.query('CREATE DATABASE "' + dbName + '"');
+    } catch (error) {
+      // A definite name collision belongs to the existing database owner.
+      if (error.code === '42P04') createRequested = false;
+      throw error;
+    }
+  });
 }
 creation = createDatabase();
 
@@ -224,7 +278,7 @@ async function start() {
   // ---- build, migrate ----------------------------------------------------------
   async function run(program, args, {
     commandEnv = env, stdio = ['ignore', 'pipe', 'ignore'],
-    maxBuffer = 1 << 20, allowed = [0], reportPid = false,
+    maxBuffer = 1 << 20, allowed = [0], reportPid = false, label,
   } = {}) {
     const { child, closed } = launch(program, args, { env: commandEnv, stdio });
     const command = `${path.basename(program)} ${args[0] ?? ''}`;
@@ -239,7 +293,7 @@ async function start() {
     const { status, signal } = await closed;
     if (closing) throw new Error('Harness is shutting down');
     if (!allowed.includes(status) || bytes > maxBuffer) {
-      log(`${command} failed (${signal ?? status})`);
+      log(`${label ?? command} failed (${signal ?? status})`);
       throw new Error('Harness command failed');
     }
     return { status, stdout: Buffer.concat(output).toString('utf8') };
@@ -311,14 +365,24 @@ async function start() {
   const pending = [];
   if (seedPlanFile) {
     const plan = JSON.parse(fs.readFileSync(seedPlanFile, 'utf8'));
-    for (const step of plan.steps ?? plan) {
+    for (const [index, step] of (plan.steps ?? plan).entries()) {
+      const name = typeof step.name === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(step.name)
+        ? step.name : '#' + (index + 1);
+      const label = 'seed step ' + name;
       const args = JSON.parse(JSON.stringify(step.args ?? {}), (key, value) => typeof value !== 'string' ? value : value.replace(/\$\{([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\}/g, (_, name, field) => {
-        if (seed[name]?.[field] === undefined) throw new Error(`seed step ${step.name}: unknown reference ${name}.${field}`);
+        if (seed[name]?.[field] === undefined) {
+          log(label + ' failed: unknown seed reference');
+          throw new Error('Harness seed reference failed');
+        }
         return String(seed[name][field]);
       }));
-      const result = await run(binary, ['seed', step.entity, JSON.stringify(args)], { allowed: [0, 3] });
+      const result = await run(binary, ['seed', step.entity, JSON.stringify(args)], { allowed: [0, 1, 2, 3], label });
       let output;
       try { output = JSON.parse(result.stdout); } catch { output = { error: 'unavailable', reason: 'no JSON output' }; }
+      if (result.status === 1 || result.status === 2) {
+        log(label + ' failed (' + result.status + '): ' + seedDiagnostic(output));
+        throw new Error('Harness seed step failed');
+      }
       if (result.status === 3) { pending.push({ step: step.name, entity: step.entity, ...output }); seed[step.name] = output; continue; }
       seed[step.name ?? step.entity] = output;
     }
