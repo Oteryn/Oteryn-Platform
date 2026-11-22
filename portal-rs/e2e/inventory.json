@@ -28,8 +28,8 @@
       ],
       "sources": [
         "crates/admin/src/analytics/web.rs:122",
-        "crates/admin/src/analytics/web.rs:420",
-        "crates/admin/src/analytics/web.rs:421"
+        "crates/admin/src/analytics/web.rs:417",
+        "crates/admin/src/analytics/web.rs:418"
       ]
     },
     {
@@ -45,8 +45,8 @@
       ],
       "sources": [
         "crates/admin/src/analytics/web.rs:123",
-        "crates/admin/src/analytics/web.rs:422",
-        "crates/admin/src/analytics/web.rs:423"
+        "crates/admin/src/analytics/web.rs:419",
+        "crates/admin/src/analytics/web.rs:420"
       ]
     },
     {
@@ -62,8 +62,8 @@
       ],
       "sources": [
         "crates/admin/src/analytics/web.rs:124",
-        "crates/admin/src/analytics/web.rs:424",
-        "crates/admin/src/analytics/web.rs:425"
+        "crates/admin/src/analytics/web.rs:421",
+        "crates/admin/src/analytics/web.rs:422"
       ]
     },
     {
@@ -79,8 +79,8 @@
       ],
       "sources": [
         "crates/admin/src/analytics/web.rs:125",
-        "crates/admin/src/analytics/web.rs:426",
-        "crates/admin/src/analytics/web.rs:427"
+        "crates/admin/src/analytics/web.rs:423",
+        "crates/admin/src/analytics/web.rs:424"
       ]
     },
     {

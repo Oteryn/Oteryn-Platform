@@ -1,38 +1,41 @@
 {
-  "source_commit": "355926bbb5396e20735975de524027499759053c",
-  "source_tree": "35ca8519ef1e8323beed4492f3155cb7bde0ed5b",
+  "source_commit": "e114f50f1ada66ffd4592e0122f56826bf398032",
+  "source_tree": "ed433a038a9613baf353c278fe8d25e9863f2055",
   "source_parents": [
-    "fe24307188ea605c45e89e3b7b3050e7cacf8c7d",
-    "06ff98c7cb82393b4379b6d964c396320ac69dd0"
+    "0be6b7de699da665bef8a8ce96220d6af04b2302"
   ],
   "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
   "playwright": {
     "projects": {
       "en-1440": {
-        "not_run": 460
+        "passed": 494,
+        "failed": 1,
+        "timedOut": 1
       },
       "en-390": {
-        "not_run": 460
+        "passed": 494,
+        "failed": 1,
+        "timedOut": 1
       },
       "pl-1440": {
-        "passed": 363,
-        "failed": 90,
-        "interrupted": 1,
-        "not_run": 6
+        "passed": 496
       },
       "pl-390": {
-        "not_run": 460
+        "passed": 496
       }
     },
     "executed_projects": [
-      "pl-1440"
+      "en-1440",
+      "en-390",
+      "pl-1440",
+      "pl-390"
     ],
-    "exit_code": 130,
+    "exit_code": 1,
     "runner_errors": 0,
-    "expected": 363,
-    "unexpected": 90,
+    "expected": 1980,
+    "unexpected": 4,
     "flaky": 0,
-    "skipped": 1387
+    "skipped": 0
   },
   "profraw": {
     "serve": 1,
@@ -73,104 +76,104 @@
   "crates": {
     "admin": {
       "lines": {
-        "covered": 1097,
-        "count": 11104,
-        "percent": 9.88
+        "covered": 4779,
+        "count": 11193,
+        "percent": 42.7
       },
       "functions": {
-        "covered": 117,
-        "count": 1121,
-        "percent": 10.44
+        "covered": 519,
+        "count": 1127,
+        "percent": 46.05
       },
       "regions": {
-        "covered": 1443,
-        "count": 17240,
-        "percent": 8.37
+        "covered": 6762,
+        "count": 17354,
+        "percent": 38.97
       }
     },
     "atlas": {
       "lines": {
-        "covered": 393,
+        "covered": 449,
         "count": 2169,
-        "percent": 18.12
+        "percent": 20.7
       },
       "functions": {
-        "covered": 59,
+        "covered": 64,
         "count": 227,
-        "percent": 25.99
+        "percent": 28.19
       },
       "regions": {
-        "covered": 536,
+        "covered": 626,
         "count": 3350,
-        "percent": 16.0
+        "percent": 18.69
       }
     },
     "bazaar": {
       "lines": {
-        "covered": 7237,
-        "count": 13275,
-        "percent": 54.52
+        "covered": 7457,
+        "count": 13426,
+        "percent": 55.54
       },
       "functions": {
-        "covered": 517,
-        "count": 994,
-        "percent": 52.01
+        "covered": 544,
+        "count": 1008,
+        "percent": 53.97
       },
       "regions": {
-        "covered": 11668,
-        "count": 23944,
-        "percent": 48.73
+        "covered": 12011,
+        "count": 24187,
+        "percent": 49.66
       }
     },
     "characters": {
       "lines": {
-        "covered": 2964,
+        "covered": 3031,
         "count": 5682,
-        "percent": 52.16
+        "percent": 53.34
       },
       "functions": {
-        "covered": 361,
+        "covered": 365,
         "count": 623,
-        "percent": 57.95
+        "percent": 58.59
       },
       "regions": {
-        "covered": 4343,
+        "covered": 4446,
         "count": 9852,
-        "percent": 44.08
+        "percent": 45.13
       }
     },
     "community": {
       "lines": {
-        "covered": 3019,
-        "count": 8132,
-        "percent": 37.12
+        "covered": 3308,
+        "count": 8172,
+        "percent": 40.48
       },
       "functions": {
-        "covered": 357,
+        "covered": 388,
         "count": 855,
-        "percent": 41.75
+        "percent": 45.38
       },
       "regions": {
-        "covered": 4443,
-        "count": 13994,
-        "percent": 31.75
+        "covered": 4755,
+        "count": 14015,
+        "percent": 33.93
       }
     },
     "content": {
       "lines": {
-        "covered": 785,
-        "count": 2889,
-        "percent": 27.17
+        "covered": 2554,
+        "count": 2920,
+        "percent": 87.47
       },
       "functions": {
-        "covered": 123,
+        "covered": 285,
         "count": 331,
-        "percent": 37.16
+        "percent": 86.1
       },
       "regions": {
-        "covered": 1180,
-        "count": 4347,
-        "percent": 27.15
+        "covered": 3710,
+        "count": 4385,
+        "percent": 84.61
       }
     },
     "core": {
@@ -192,9 +195,9 @@
     },
     "db": {
       "lines": {
-        "covered": 252,
+        "covered": 253,
         "count": 393,
-        "percent": 64.12
+        "percent": 64.38
       },
       "functions": {
         "covered": 26,
@@ -202,33 +205,33 @@
         "percent": 50.0
       },
       "regions": {
-        "covered": 227,
+        "covered": 229,
         "count": 429,
-        "percent": 52.91
+        "percent": 53.38
       }
     },
     "downloads": {
       "lines": {
         "covered": 100,
-        "count": 640,
-        "percent": 15.62
+        "count": 642,
+        "percent": 15.58
       },
       "functions": {
         "covered": 18,
-        "count": 56,
-        "percent": 32.14
+        "count": 57,
+        "percent": 31.58
       },
       "regions": {
         "covered": 142,
-        "count": 1143,
-        "percent": 12.42
+        "count": 1145,
+        "percent": 12.4
       }
     },
     "gameauth": {
       "lines": {
-        "covered": 1151,
+        "covered": 1160,
         "count": 7906,
-        "percent": 14.56
+        "percent": 14.67
       },
       "functions": {
         "covered": 125,
@@ -236,9 +239,9 @@
         "percent": 12.35
       },
       "regions": {
-        "covered": 1536,
+        "covered": 1551,
         "count": 13650,
-        "percent": 11.25
+        "percent": 11.36
       }
     },
     "gateway": {
@@ -261,120 +264,120 @@
     "hirelings": {
       "lines": {
         "covered": 90,
-        "count": 256,
-        "percent": 35.16
+        "count": 486,
+        "percent": 18.52
       },
       "functions": {
         "covered": 11,
-        "count": 32,
-        "percent": 34.38
+        "count": 57,
+        "percent": 19.3
       },
       "regions": {
         "covered": 153,
-        "count": 390,
-        "percent": 39.23
+        "count": 716,
+        "percent": 21.37
       }
     },
     "identity": {
       "lines": {
-        "covered": 4146,
+        "covered": 4594,
         "count": 6391,
-        "percent": 64.87
+        "percent": 71.88
       },
       "functions": {
-        "covered": 495,
+        "covered": 533,
         "count": 782,
-        "percent": 63.3
+        "percent": 68.16
       },
       "regions": {
-        "covered": 6246,
+        "covered": 6954,
         "count": 10588,
-        "percent": 58.99
+        "percent": 65.68
       }
     },
     "internal-api": {
       "lines": {
         "covered": 305,
-        "count": 1462,
-        "percent": 20.86
+        "count": 1472,
+        "percent": 20.72
       },
       "functions": {
         "covered": 46,
-        "count": 146,
-        "percent": 31.51
+        "count": 147,
+        "percent": 31.29
       },
       "regions": {
         "covered": 452,
-        "count": 3428,
-        "percent": 13.19
+        "count": 3452,
+        "percent": 13.09
       }
     },
     "minigames": {
       "lines": {
-        "covered": 2435,
-        "count": 4835,
-        "percent": 50.36
+        "covered": 2488,
+        "count": 5000,
+        "percent": 49.76
       },
       "functions": {
-        "covered": 267,
-        "count": 495,
-        "percent": 53.94
+        "covered": 275,
+        "count": 504,
+        "percent": 54.56
       },
       "regions": {
-        "covered": 4354,
-        "count": 9084,
-        "percent": 47.93
+        "covered": 4429,
+        "count": 9332,
+        "percent": 47.46
       }
     },
     "notify": {
       "lines": {
-        "covered": 274,
-        "count": 386,
-        "percent": 70.98
+        "covered": 307,
+        "count": 390,
+        "percent": 78.72
       },
       "functions": {
-        "covered": 34,
-        "count": 50,
-        "percent": 68.0
+        "covered": 35,
+        "count": 51,
+        "percent": 68.63
       },
       "regions": {
-        "covered": 447,
-        "count": 677,
-        "percent": 66.03
+        "covered": 510,
+        "count": 694,
+        "percent": 73.49
       }
     },
     "oteryn-portal": {
       "lines": {
-        "covered": 1774,
+        "covered": 1908,
         "count": 4094,
-        "percent": 43.33
+        "percent": 46.6
       },
       "functions": {
-        "covered": 173,
+        "covered": 194,
         "count": 465,
-        "percent": 37.2
+        "percent": 41.72
       },
       "regions": {
-        "covered": 3073,
+        "covered": 3263,
         "count": 6824,
-        "percent": 45.03
+        "percent": 47.82
       }
     },
     "payments": {
       "lines": {
-        "covered": 582,
-        "count": 2302,
-        "percent": 25.28
+        "covered": 645,
+        "count": 2346,
+        "percent": 27.49
       },
       "functions": {
-        "covered": 68,
-        "count": 241,
-        "percent": 28.22
+        "covered": 76,
+        "count": 247,
+        "percent": 30.77
       },
       "regions": {
-        "covered": 896,
-        "count": 3805,
-        "percent": 23.55
+        "covered": 988,
+        "count": 3885,
+        "percent": 25.43
       }
     },
     "player-api": {
@@ -396,155 +399,155 @@
     },
     "playerdata": {
       "lines": {
-        "covered": 1496,
-        "count": 8394,
-        "percent": 17.82
+        "covered": 1591,
+        "count": 8596,
+        "percent": 18.51
       },
       "functions": {
-        "covered": 198,
-        "count": 865,
-        "percent": 22.89
+        "covered": 211,
+        "count": 885,
+        "percent": 23.84
       },
       "regions": {
-        "covered": 2153,
-        "count": 15298,
-        "percent": 14.07
+        "covered": 2284,
+        "count": 15605,
+        "percent": 14.64
       }
     },
     "stats": {
       "lines": {
-        "covered": 981,
-        "count": 3354,
-        "percent": 29.25
+        "covered": 1091,
+        "count": 3356,
+        "percent": 32.51
       },
       "functions": {
-        "covered": 117,
+        "covered": 138,
         "count": 388,
-        "percent": 30.15
+        "percent": 35.57
       },
       "regions": {
-        "covered": 1417,
+        "covered": 1581,
         "count": 5702,
-        "percent": 24.85
+        "percent": 27.73
       }
     },
     "store": {
       "lines": {
-        "covered": 976,
+        "covered": 1362,
         "count": 5128,
-        "percent": 19.03
+        "percent": 26.56
       },
       "functions": {
-        "covered": 111,
+        "covered": 140,
         "count": 524,
-        "percent": 21.18
+        "percent": 26.72
       },
       "regions": {
-        "covered": 1379,
+        "covered": 2020,
         "count": 8835,
-        "percent": 15.61
+        "percent": 22.86
       }
     },
     "support": {
       "lines": {
-        "covered": 1153,
-        "count": 3337,
-        "percent": 34.55
+        "covered": 1770,
+        "count": 3931,
+        "percent": 45.03
       },
       "functions": {
-        "covered": 122,
-        "count": 350,
-        "percent": 34.86
+        "covered": 174,
+        "count": 394,
+        "percent": 44.16
       },
       "regions": {
-        "covered": 1628,
-        "count": 5172,
-        "percent": 31.48
+        "covered": 2577,
+        "count": 6224,
+        "percent": 41.4
       }
     },
     "ui": {
       "lines": {
-        "covered": 193,
-        "count": 201,
-        "percent": 96.02
+        "covered": 242,
+        "count": 249,
+        "percent": 97.19
       },
       "functions": {
-        "covered": 33,
-        "count": 34,
-        "percent": 97.06
+        "covered": 39,
+        "count": 40,
+        "percent": 97.5
       },
       "regions": {
-        "covered": 281,
-        "count": 294,
-        "percent": 95.58
+        "covered": 375,
+        "count": 387,
+        "percent": 96.9
       }
     },
     "wallet": {
       "lines": {
-        "covered": 487,
-        "count": 1509,
-        "percent": 32.27
+        "covered": 490,
+        "count": 1663,
+        "percent": 29.46
       },
       "functions": {
         "covered": 59,
-        "count": 144,
-        "percent": 40.97
+        "count": 156,
+        "percent": 37.82
       },
       "regions": {
-        "covered": 684,
-        "count": 2642,
-        "percent": 25.89
+        "covered": 689,
+        "count": 2895,
+        "percent": 23.8
       }
     },
     "web": {
       "lines": {
-        "covered": 2049,
-        "count": 2746,
-        "percent": 74.62
+        "covered": 2174,
+        "count": 2715,
+        "percent": 80.07
       },
       "functions": {
-        "covered": 270,
-        "count": 358,
-        "percent": 75.42
+        "covered": 283,
+        "count": 355,
+        "percent": 79.72
       },
       "regions": {
-        "covered": 3203,
-        "count": 4390,
-        "percent": 72.96
+        "covered": 3361,
+        "count": 4319,
+        "percent": 77.82
       }
     },
     "wiki": {
       "lines": {
-        "covered": 619,
-        "count": 2054,
-        "percent": 30.14
+        "covered": 1213,
+        "count": 2081,
+        "percent": 58.29
       },
       "functions": {
-        "covered": 82,
-        "count": 229,
-        "percent": 35.81
+        "covered": 151,
+        "count": 232,
+        "percent": 65.09
       },
       "regions": {
-        "covered": 934,
-        "count": 3270,
-        "percent": 28.56
+        "covered": 1757,
+        "count": 3296,
+        "percent": 53.31
       }
     },
     "world": {
       "lines": {
-        "covered": 619,
+        "covered": 717,
         "count": 2720,
-        "percent": 22.76
+        "percent": 26.36
       },
       "functions": {
-        "covered": 74,
+        "covered": 85,
         "count": 295,
-        "percent": 25.08
+        "percent": 28.81
       },
       "regions": {
-        "covered": 929,
+        "covered": 1079,
         "count": 4371,
-        "percent": 21.25
+        "percent": 24.69
       }
     }
   }
