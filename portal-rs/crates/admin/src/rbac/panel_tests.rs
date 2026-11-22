@@ -269,7 +269,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=grant&account={target}&role={role}")
+            format!("action=grant&account={target}&role={role}&reason=Assign+editor+role")
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -320,6 +320,39 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
     let protected: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
         .fetch_one(&db.pool)
         .await?;
+    let refusals = || {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log
+             WHERE action='admin.access.denied' AND actor=$1 AND target='/admin/roles'",
+        )
+        .bind(db.actor.account)
+        .fetch_one(&db.pool)
+    };
+    let before = refusals().await?;
+    for (index, (recipient, rejected_role)) in [(db.actor.account, role), (target, protected)]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            post(
+                &db,
+                &cookie,
+                &csrf,
+                format!("action=grant&account={recipient}&role={rejected_role}&reason=Review+role+assignment"),
+            )
+            .await?,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(refusals().await?, before + index as i64 + 1);
+        let assigned: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+        )
+        .bind(recipient)
+        .bind(rejected_role)
+        .fetch_one(&db.pool)
+        .await?;
+        assert!(!assigned);
+    }
     assert_eq!(
         post(
             &db,

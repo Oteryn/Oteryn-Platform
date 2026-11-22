@@ -138,45 +138,52 @@ where
     }
     let (accounts, input) = validate()?;
     let mut tx = pool.begin().await?;
-    rbac::mutation_budget(&mut tx).await?;
-    let permissions = [Permission::Access, action.permission];
-    rbac::authorize_mutation(
-        &mut tx,
-        &accounts,
-        guard.authority,
-        guard.actor,
-        &permissions,
-    )
-    .await?;
-    let change = mutate(&mut tx, input).await?;
-    let changed = change.is_some();
-    if let Some(change) = change {
-        audit::append_with_reason(
+    let result = async {
+        rbac::mutation_budget(&mut tx).await?;
+        let permissions = [Permission::Access, action.permission];
+        rbac::authorize_mutation(
             &mut tx,
-            Entry {
-                context: AuditContext {
-                    actor: Some(guard.actor.account),
-                    request_id: Uuid::now_v7(),
-                },
-                action: action.action,
-                target: &change.target.to_string(),
-                before: serde_json::to_value(change.before).map_err(|_| Error::Unavailable)?,
-                after: serde_json::to_value(change.after).map_err(|_| Error::Unavailable)?,
-            },
-            Some(reason),
+            &accounts,
+            guard.authority,
+            guard.actor,
+            &permissions,
         )
         .await?;
-    }
-    for permission in permissions {
-        guard
-            .authority
-            .check(&mut tx, guard.actor, permission)
+        let change = mutate(&mut tx, input).await?;
+        let changed = change.is_some();
+        if let Some(change) = change {
+            audit::append_with_reason(
+                &mut tx,
+                Entry {
+                    context: AuditContext {
+                        actor: Some(guard.actor.account),
+                        request_id: Uuid::now_v7(),
+                    },
+                    action: action.action,
+                    target: &change.target.to_string(),
+                    before: serde_json::to_value(change.before).map_err(|_| Error::Unavailable)?,
+                    after: serde_json::to_value(change.after).map_err(|_| Error::Unavailable)?,
+                },
+                Some(reason),
+            )
             .await?;
+        }
+        for permission in permissions {
+            guard
+                .authority
+                .check(&mut tx, guard.actor, permission)
+                .await?;
+        }
+        Ok::<_, Error>(changed)
     }
-    if changed {
-        tx.commit().await?;
-    } else {
-        tx.rollback().await?;
+    .await;
+    match result {
+        Ok(true) => tx.commit().await?,
+        Ok(false) => tx.rollback().await?,
+        Err(error) => {
+            tx.rollback().await?;
+            return Err(error);
+        }
     }
     Ok(())
 }
