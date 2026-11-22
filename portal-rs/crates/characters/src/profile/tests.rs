@@ -103,6 +103,18 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         off.edit(account, "Aldric", 1000).await,
         Err(Error::NotFound)
     );
+    assert_eq!(
+        service.authorize_update(account, "aldric", 1000).await,
+        Ok(())
+    );
+    assert_eq!(
+        service.authorize_update(other, "Aldric", 1000).await,
+        Err(Error::NotFound)
+    );
+    assert_eq!(
+        service.authorize_update(account, "", 1000).await,
+        Err(Error::BadInput)
+    );
     assert!(!off.guild_visible(one, true, 1000).await);
     assert_eq!(
         service.edit(other, "Aldric", 1000).await,
@@ -262,6 +274,10 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .bind(account)
         .execute(&pool)
         .await?;
+    assert_eq!(
+        service.authorize_update(account, "Aldric", 1000).await,
+        Err(Error::NotFound)
+    );
     assert_eq!(
         service
             .update(account, "Aldric", selected.clone(), 1000)

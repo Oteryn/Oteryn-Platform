@@ -289,6 +289,16 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             if std::env::var("OTERYN_CHARACTER_PROFILES_ENABLED").as_deref() == Ok("true")
                 && let Some(account) = account
             {
+                if let Err(response) = oteryn_characters::profile::authorize_update(
+                    &state.db,
+                    account,
+                    lang.code(),
+                    &name,
+                )
+                .await
+                {
+                    return *response;
+                }
                 let Some(ratelimit::ClientSource(source)) = source else {
                     return ratelimit::Denial::Unavailable.response(lang, false);
                 };

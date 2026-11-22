@@ -249,6 +249,22 @@ pub(super) async fn save_form(
         .update_with_account_hide(account, name, form.preferences, account_hide, now)
         .await
 }
+/// Verify ownership before spending a shared HTTP quota. The save transaction
+/// checks ownership again after the quota admission has completed.
+pub async fn authorize_update(
+    pool: &PgPool,
+    account: Uuid,
+    lang: &str,
+    name: &str,
+) -> Result<(), Box<Response>> {
+    let result = async {
+        let now = now()?;
+        service(pool).authorize_update(account, name, now).await
+    }
+    .await;
+    result.map_err(|error| Box::new(private(failure(error, lang))))
+}
+
 /// The mounting router must enforce session CSRF before this browser mutation.
 pub async fn update(
     pool: &PgPool,
