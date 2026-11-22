@@ -11,7 +11,7 @@ import { commerceRoutes, exerciseCommerce } from './commerce.mjs';
 import { consoleRoutes, exerciseConsole } from './console.mjs';
 import { assertRefusalState, database } from './database.mjs';
 import { downloadRoutes, exerciseDownloads } from './downloads.mjs';
-import { exerciseFeatureGates, featureGateRoutes } from './feature-gates.mjs';
+import { exerciseFeatureGates, featureGateRoutes, withPublishedPuzzle } from './feature-gates.mjs';
 import { exerciseGateway } from './gateway.mjs';
 import { exerciseJournal, journalRoutes } from './journal.mjs';
 import { exerciseNativeCheckout, nativeCheckoutRoutes } from './native-checkout.mjs';
@@ -239,5 +239,35 @@ test.describe('session, support and content authorization', () => {
         await db.close();
       }
     });
+  }
+});
+
+test('puzzle world fixture leaves the next project atlas and puzzle state intact', async () => {
+  const polish = await openActor('pl', { key: 'player', permissions: [] });
+  try {
+    await withPublishedPuzzle(async ({ id }) => {
+      const image = await polish.request.get(`/pl/puzzles/${id}/image`, { maxRedirects: 0 });
+      try {
+        expect(image.status()).toBe(200);
+        expect(image.headers()['content-type']).toBe('image/webp');
+      } finally {
+        await image.dispose();
+      }
+    });
+    const english = await openActor('en', { key: 'player', permissions: [] });
+    try {
+      for (const [path, status] of [['/atlas/tiles/fixture/0/0/0/0', 503], ['/en/puzzles', 200]]) {
+        const response = await english.request.get(path, { maxRedirects: 0 });
+        try {
+          expect(response.status(), path).toBe(status);
+        } finally {
+          await response.dispose();
+        }
+      }
+    } finally {
+      await english.request.dispose();
+    }
+  } finally {
+    await polish.request.dispose();
   }
 });

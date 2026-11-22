@@ -39,7 +39,15 @@ async function paused(producers, run) {
     }
     return await run();
   } finally {
-    for (const pid of stopped.reverse()) process.kill(pid, 'SIGCONT');
+    const errors = [];
+    for (const pid of stopped.reverse()) {
+      try {
+        process.kill(pid, 'SIGCONT');
+      } catch (error) {
+        if (error.code !== 'ESRCH') errors.push(error);
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Could not resume the disposable fixture processes');
   }
 }
 

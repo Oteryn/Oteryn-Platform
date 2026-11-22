@@ -1,6 +1,7 @@
 import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
+import { pool } from '../helpers.mjs';
 
 const fixture = '019a541b-a000-7000-8000-000000000001';
 const cases = [
@@ -32,35 +33,84 @@ export const featureGateRoutes = cases.map(({ method, path }) => [method, path])
 
 const puzzleImage = Buffer.from('UklGRiIAAABXRUJQVlA4TAYAAAAvAAAAAAfQ//73v/+BiOh/AAA=', 'base64');
 
-async function publishedPuzzle() {
-  const today = "(clock_timestamp() AT TIME ZONE 'UTC')::date";
-  const [existing] = await query(`SELECT id,world_version FROM puzzles_daily WHERE day=${today} AND kind='monster'`);
-  if (existing) return existing;
-  const [world] = await query(`
-    INSERT INTO world_versions(id,source_commit,status)
-    VALUES(uuidv7(),repeat('b',40),'ready') RETURNING id
-  `);
-  const keys = ['authz-puzzle-first', 'authz-puzzle-second'];
-  await query(`
-    INSERT INTO world_entities(version_id,kind,key,data,publishable)
-    SELECT $1,'Creature',key,'{}'::jsonb,true FROM unnest($2::text[]) fixture(key)
-  `, [world.id, keys]);
-  await query(`
-    INSERT INTO world_visibility(kind,key,allowed)
-    SELECT 'Creature',key,true FROM unnest($1::text[]) fixture(key)
-    ON CONFLICT(kind,key) DO UPDATE SET allowed=true
-  `, [keys]);
-  const label = text => ({ pl: text, en: text });
-  const definition = {
-    kind: 'monster', world_version: world.id, question: label('Choose a monster'), clue: label('Local puzzle clue'),
-    choices: keys.map(key => ({ label: label(key), source: { kind: 'Creature', key } })),
-    correct_choice: 0,
-  };
-  const [row] = await query(`
-    INSERT INTO puzzles_daily(day,kind,world_version,definition,image)
-    VALUES(${today},'monster',$1,$2,$3) RETURNING id,world_version
-  `, [world.id, definition, puzzleImage]);
-  return row;
+async function puzzleTransaction(db, work) {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function withPublishedPuzzle(run) {
+  const db = pool();
+  try {
+    const fixture = await puzzleTransaction(db, async client => {
+      const { rows: [previous] } = await client.query(`
+        SELECT version_id,previous_version_id FROM world_active_version WHERE singleton FOR UPDATE
+      `);
+      const { rows: [world] } = await client.query(`
+        INSERT INTO world_versions(id,source_commit,status)
+        VALUES(uuidv7(),repeat('b',40),'ready') RETURNING id
+      `);
+      const keys = ['first', 'second'].map(choice => `authz-puzzle-${world.id}-${choice}`);
+      await client.query(`
+        INSERT INTO world_entities(version_id,kind,key,data,publishable)
+        SELECT $1,'Creature',key,'{}'::jsonb,true FROM unnest($2::text[]) fixture(key)
+      `, [world.id, keys]);
+      await client.query(`
+        INSERT INTO world_visibility(kind,key,allowed)
+        SELECT 'Creature',key,true FROM unnest($1::text[]) fixture(key)
+      `, [keys]);
+      const label = (pl, en) => ({ pl, en });
+      const definition = {
+        kind: 'monster', world_version: world.id,
+        question: label('Wybierz potwora', 'Choose a monster'),
+        clue: label('Wskazówka testowa', 'Local puzzle clue'),
+        choices: keys.map((key, index) => ({
+          label: label(`Potwór ${index + 1}`, `Monster ${index + 1}`),
+          source: { kind: 'Creature', key },
+        })),
+        correct_choice: 0,
+      };
+      const { rows: [puzzle] } = await client.query(`
+        INSERT INTO puzzles_daily(day,kind,world_version,definition,image)
+        VALUES((clock_timestamp() AT TIME ZONE 'UTC')::date,'monster',$1,$2,$3) RETURNING id
+      `, [world.id, definition, puzzleImage]);
+      await client.query('UPDATE world_active_version SET version_id=$1,previous_version_id=NULL WHERE singleton', [world.id]);
+      return { id: puzzle.id, version: world.id, keys, previous };
+    });
+    try {
+      return await run(fixture);
+    } finally {
+      await puzzleTransaction(db, async client => {
+        const { rows: restored } = await client.query(`
+          UPDATE world_active_version SET version_id=$1,previous_version_id=$2
+          WHERE singleton AND version_id=$3 RETURNING version_id,previous_version_id
+        `, [fixture.previous.version_id, fixture.previous.previous_version_id, fixture.version]);
+        expect(restored, 'puzzle fixture restored the world pointers').toEqual([fixture.previous]);
+        // The fixture publication is immutable while requests run. The override
+        // is confined to teardown in the disposable database and to this transaction.
+        await client.query('ALTER TABLE puzzles_daily DISABLE TRIGGER puzzles_daily_immutable');
+        await client.query('DELETE FROM puzzles_answers WHERE puzzle_id=$1', [fixture.id]);
+        const deleted = await client.query('DELETE FROM puzzles_daily WHERE id=$1 AND world_version=$2',
+          [fixture.id, fixture.version]);
+        expect(deleted.rowCount, 'fixture publication removed').toBe(1);
+        await client.query('ALTER TABLE puzzles_daily ENABLE TRIGGER puzzles_daily_immutable');
+        await client.query('DELETE FROM world_visibility WHERE kind=$1 AND key=ANY($2)', ['Creature', fixture.keys]);
+        await client.query('DELETE FROM world_entities WHERE version_id=$1', [fixture.version]);
+        await client.query('DELETE FROM world_versions WHERE id=$1', [fixture.version]);
+      });
+    }
+  } finally {
+    await db.end();
+  }
 }
 
 export async function exerciseFeatureGates(request, locale, token, accountId, routes, snapshot, verifyRefusal) {
@@ -74,12 +124,7 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
     SELECT uuidv7() AS submission, id AS world FROM world_status ORDER BY id LIMIT 1
   `);
   let operation = fixture;
-  const puzzle = await publishedPuzzle();
-  const [previous] = await query('SELECT version_id,previous_version_id FROM world_active_version WHERE singleton');
-  await query(`
-    UPDATE world_active_version SET version_id=$1,previous_version_id=NULL WHERE singleton
-  `, [puzzle.world_version]);
-  try {
+  await withPublishedPuzzle(async puzzle => {
     for (const row of cases) {
       const { method, path } = row;
       const { guard } = routes.find(r => r.listener === 'public' && r.method === method && r.path === path)
@@ -126,11 +171,5 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
         }
       });
     }
-  } finally {
-    const restored = await query(`
-      UPDATE world_active_version SET version_id=$1,previous_version_id=$2
-      WHERE singleton AND version_id=$3 RETURNING version_id,previous_version_id
-    `, [previous.version_id, previous.previous_version_id, puzzle.world_version]);
-    expect(restored, 'puzzle fixture restored the world pointers').toEqual([previous]);
-  }
+  });
 }
