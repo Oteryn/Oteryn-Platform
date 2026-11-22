@@ -331,6 +331,15 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     await login(page, lang, target);
     expect((await page.goto(report.path)).status()).toBe(404);
     expect((await page.goto(sanctionPath)).status()).toBe(403);
+    const namedReport = await submitReport(page, lang, 'Unresolved Player', unique());
+    await visit(moderator.page, `${reports}/${namedReport.id}`, lang);
+    await refused(moderator.page, 'link_sanction', linking, 422);
+    expect(await query(
+      'SELECT status,lock_version::int,public_outcome FROM player_reports WHERE id=$1', [namedReport.id],
+    )).toEqual([{ status: 'submitted', lock_version: 1, public_outcome: null }]);
+    expect(await query(
+      "SELECT id FROM audit_log WHERE target=$1 AND action='support.report_sanction_linked'", [namedReport.id],
+    )).toEqual([]);
     expect((await query('SELECT operation_id FROM support_enforcement_commands WHERE account_id=$1', [target.id]))).toEqual([]);
   } finally {
     await moderator.context.close();

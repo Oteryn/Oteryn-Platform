@@ -325,9 +325,9 @@ impl Reports {
             .await
             .map_err(|_| StaffError::Unavailable)?
             .ok_or(StaffError::NotFound)?;
-            // When the report supplies a Platform account UUID, the link must
-            // match it. A player name remains a reference for staff to verify.
-            if row.3.parse::<Uuid>().is_ok_and(|target| target != account) {
+            // A display name does not establish ownership. The report must
+            // identify the same Platform account as the stored sanction.
+            if row.3.parse::<Uuid>() != Ok(account) {
                 return Err(StaffError::Invalid);
             }
         }
