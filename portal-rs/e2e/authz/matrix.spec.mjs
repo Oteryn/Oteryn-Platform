@@ -190,6 +190,7 @@ function internalRequest(harness, route, client) {
       ca: readFileSync(harness.caFile),
       ...(client && { cert: readFileSync(client.cert), key: readFileSync(client.key) }),
       minVersion: 'TLSv1.3',
+      ALPNProtocols: ['http/1.1'],
       headers: route.method === 'GET' ? {} : { 'content-type': 'application/json', 'content-length': 2 },
     }, response => {
       response.resume();

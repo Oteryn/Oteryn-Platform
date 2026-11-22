@@ -22,6 +22,8 @@ const cases = [
     source: 'crates/minigames/src/puzzles/store.rs:39' },
   { method: 'POST', path: '/{lang}/puzzles/{id}/answer', anonymous: 303, signed: 503,
     source: 'crates/minigames/src/puzzles/store.rs:166', form: { choice: '0' } },
+  { method: 'POST', path: '/{lang}/account/characters/new', anonymous: 403, signed: 302,
+    source: 'crates/characters/src/create_web/http.rs:124', characterCreation: true },
   { method: 'GET', path: '/{lang}/account/characters/requests/{operation}', anonymous: 303, signed: 200,
     source: 'crates/characters/src/create_web/service.rs:269' },
 ];
@@ -54,24 +56,23 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
     VALUES(uuidv7(),$1,1000,250,0,1,'Local authorization fixture') RETURNING id
   `, [seller]);
   const puzzle = await unpublishedPuzzle();
-  const [operation] = await query(`
-    INSERT INTO character_commands(id, issuer_decision_id, request_key, command, account_id, binding_json, intent_json)
-    SELECT id, uuidv7(), 'authz-status:' || id, 'CreateCharacter', $1, '{}',
-           jsonb_build_object('account_id', $1::uuid)::text
-    FROM (SELECT uuidv7() AS id) fixture
-    RETURNING id
-  `, [accountId || seller]);
+  const [{ submission, world }] = await query(`
+    SELECT uuidv7() AS submission, id AS world FROM world_status ORDER BY id LIMIT 1
+  `);
+  let operation = fixture;
   for (const row of cases) {
     const { method, path } = row;
     const { guard } = routes.find(r => r.listener === 'public' && r.method === method && r.path === path)
       .registrations[0];
     const status = accountId ? row.signed : row.anonymous;
-    const form = row.promotion ? { id: fixture, fee_revision: fee.id, amount: '1' } : row.form;
+    const form = row.characterCreation
+      ? { submission, world, name: 'Aldric Stone', sex: 'Female', vocation: 'Druid' }
+      : row.promotion ? { id: fixture, fee_revision: fee.id, amount: '1' } : row.form;
     const target = path.replace('{lang}', locale).replace('{season}', fixture)
-      .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle).replace('{operation}', operation.id);
+      .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle).replace('{operation}', operation);
     expect(guard.kind, path).toBe(path.includes('/sellers/') ? 'anonymous' : 'logged-in');
     await test.step(`${method} ${path}`, async () => {
-      const before = method === 'POST' && status !== 503 ? await snapshot() : null;
+      const before = method === 'POST' && status !== 503 && status !== 302 ? await snapshot() : null;
       const response = await request.fetch(target, {
         method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
         ...(form && { form: { ...form, _csrf: token } }),
@@ -79,6 +80,15 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
       try {
         expect(response.status(), row.source).toBe(status);
         if (status === 303) expect(response.headers().location).toBe(`/${locale}/login`);
+        if (row.characterCreation && accountId) {
+          const [created] = await query(
+            "SELECT id FROM character_commands WHERE account_id=$1 AND request_key=$2 AND command='CreateCharacter'",
+            [accountId, `web-create:${accountId}:${submission}`],
+          );
+          expect(Boolean(created), 'character request was durably queued for the actor').toBe(true);
+          operation = created.id;
+          expect(response.headers().location).toBe(`/${locale}/account/characters/requests/${operation}`);
+        }
         if (before) await verifyRefusal(before);
       } finally {
         await response.dispose();

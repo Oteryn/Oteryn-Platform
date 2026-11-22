@@ -80,8 +80,8 @@ projects.
 ## Executable coverage
 
 The inventory records 672 listener/path/method entries. The executable matrix
-covers 612 of these entries for each of the 19 actors, for 11,628 cells per
-project. The fixtures expect 7,520 allowed and 4,108 refused cells. The
+covers 613 of these entries for each of the 19 actors, for 11,647 cells per
+project. The fixtures expect 7,538 allowed and 4,109 refused cells. The
 browser cases cover public reads, staff reads and mutations, player support,
 sessions and recovery keys, and the missing signatures on both payment
 webhooks. The isolated private listener covers Bazaar, account closure, and
@@ -90,7 +90,7 @@ port. The mTLS scope assignment and revocation probes also present a CA-valid ce
 assigned to a different route identity and expects HTTP refusal. The native
 admission listener checks its service token independently.
 
-[Local limitations](local-limitations.json) records the other 60 entries.
+[Local limitations](local-limitations.json) records the other 59 entries.
 Each entry identifies its source and the condition preventing a local matrix
 case, including pre-authorization writes that conflict with the strict
 refusal invariant.
