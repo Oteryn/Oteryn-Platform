@@ -122,6 +122,14 @@ async fn page(
             return finish(StatusCode::SERVICE_UNAVAILABLE, body);
         }
     };
+    if filters
+        .item
+        .as_deref()
+        .is_some_and(|item| snapshot.get("Item", item).is_none())
+    {
+        body += &t.text("invalid");
+        return finish(StatusCode::BAD_REQUEST, body);
+    }
     body += &format!(
         "<p>{}: {}</p><p>{}</p><nav aria-label=\"{}\">",
         t.text("version"),

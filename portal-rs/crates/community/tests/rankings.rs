@@ -35,12 +35,7 @@ async fn disabled_unknown_and_bad_input() -> TestResult {
         StatusCode::NOT_FOUND
     );
     let app = rankings::router(db, true, Arc::new(Visible));
-    for path in [
-        "/en/rankings/unknown",
-        "/en/rankings/level?world=no",
-        "/en/rankings/level?vocation=6",
-        "/fr/rankings/level",
-    ] {
+    for path in ["/en/rankings/unknown", "/fr/rankings/level"] {
         assert_eq!(
             send(app.clone(), path).await?.0,
             StatusCode::NOT_FOUND,
@@ -48,6 +43,10 @@ async fn disabled_unknown_and_bad_input() -> TestResult {
         );
     }
     for query in [
+        "world=no",
+        "vocation=6",
+        "page=21",
+        "page=2147483647",
         "page=0",
         "page=-1",
         "page=abc",

@@ -13,7 +13,7 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --cache /tmp/portal-b
 node local.mjs
 ```
 
-`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates two uniquely named databases for the main suite and Rust acceptance, generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, TLS SMTP sink and HTTPS proxy on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops the databases created for this run; the scratch directory is retained for local investigation and should be removed after inspecting the report.
+`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates uniquely named disposable databases for the portal, Rust tests and query catalog. It generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, TLS SMTP sink and HTTPS proxies on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. The query catalog listener uses ports 18083 and 18448. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops their databases. The scratch directory is retained for local investigation and should be removed after inspecting the report.
 
 In a second shell, export the same local `PORTAL_E2E_ADMIN_DATABASE_URL` for the
 Bazaar fallback test, which creates its own disposable database. Use the scratch
@@ -31,9 +31,25 @@ automatically, and the main suite keeps its own Store catalogue and character fe
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
+Start the query-parameter matrix from the same default `node local.mjs` stack.
+The matrix selects its catalog listener and quota database from `env.json` for
+Wiki, Atlas and portal catalog searches. The listener serves the checked-in
+WorldStore fixture imported by `seed query-catalog '{}'` from the launcher's
+checkout. A prebuilt `PORTAL_E2E_BINARY` can live outside that checkout.
+`wiki-world.spec.mjs`
+continues to use the default portal listener and pinned native fixture.
+
+```sh
+node run.mjs /absolute/scratch/env.json test specs/query-params.spec.mjs specs/wiki-world.spec.mjs --workers=1
+```
+
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
-For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. The Bazaar legacy spec also needs the matching
+For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and
+`PORTAL_E2E_DATABASE_URL`. To include the query matrix in `npm test`, also set
+`PORTAL_E2E_QUERY_ORIGIN` and `PORTAL_E2E_QUERY_DATABASE_URL` to the separate
+local listener and disposable database seeded with the query catalog. The
+Bazaar legacy spec also needs the matching
 `OTERYN_DATABASE_URL`, the built `PORTAL_E2E_BINARY`, and the local administrator
 URL for the fallback harness. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
 

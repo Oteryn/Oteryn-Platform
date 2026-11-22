@@ -60,15 +60,7 @@ impl WorldStore {
         config: ImportConfig,
     ) -> Result<ImportReport, WorldError> {
         self.check_enabled()?;
-        if !matches!(source_commit.len(), 40 | 64)
-            || !source_commit
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            return Err(WorldError::InvalidInput(
-                "a full lowercase hexadecimal commit hash is required".into(),
-            ));
-        }
+        validate_source_commit(source_commit)?;
         let id = Uuid::now_v7();
         sqlx::query("INSERT INTO world_versions (id, source_commit) VALUES ($1, $2)")
             .bind(id)
@@ -135,7 +127,101 @@ impl WorldStore {
         // Acquire the singleton lock before reading its predecessor. Import and
         // rollback share this lock, including when no active version exists yet.
         let (previous, _) = lock_active(&mut tx).await?;
-        for document in &documents {
+        Self::write_publication(&mut tx, id, previous, &documents).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Ensures an initial catalog and its explicit visibility grants together.
+    /// The trusted caller supplies immutable validated source bytes. An active
+    /// catalog from a different revision is never replaced.
+    pub async fn ensure_directory_with_visibility(
+        &self,
+        root: impl AsRef<Path>,
+        source_commit: &str,
+        mappings: Vec<ImportMapping>,
+        allowed: &[(&str, &str)],
+    ) -> Result<Uuid, WorldError> {
+        self.check_enabled()?;
+        validate_source_commit(source_commit)?;
+        let root = root.as_ref().to_owned();
+        let id = Uuid::now_v7();
+        let documents = tokio::task::spawn_blocking(move || {
+            import::validate_config(
+                root,
+                ImportConfig {
+                    mappings,
+                    ..ImportConfig::default()
+                },
+            )
+        })
+        .await?
+        .map_err(|issues| WorldError::ImportFailed {
+            version_id: id,
+            issues,
+        })?;
+
+        let mut tx = self.pool.begin().await?;
+        let (active, _) = lock_active(&mut tx).await?;
+        let version = if let Some(active) = active {
+            let revision: String =
+                sqlx::query_scalar("SELECT source_commit FROM world_versions WHERE id = $1")
+                    .bind(active)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if revision != source_commit {
+                return Err(WorldError::InvalidInput(
+                    "another world catalog is active".into(),
+                ));
+            }
+            active
+        } else {
+            sqlx::query("INSERT INTO world_versions (id, source_commit) VALUES ($1, $2)")
+                .bind(id)
+                .bind(source_commit)
+                .execute(&mut *tx)
+                .await?;
+            Self::write_publication(&mut tx, id, None, &documents).await?;
+            id
+        };
+        for &(kind, key) in allowed {
+            let kind = crate::canonical_kind(kind);
+            validate_label(kind, "kind")?;
+            validate_label(key, "key")?;
+            let valid: bool = sqlx::query_scalar(
+                "WITH entity AS (
+                    SELECT kind, key FROM world_entities
+                    WHERE version_id = $1 AND kind = $2 AND key = $3 AND publishable
+                 ), granted AS (
+                    INSERT INTO world_visibility (kind, key, allowed)
+                    SELECT kind, key, true FROM entity
+                    ON CONFLICT (kind, key) DO UPDATE SET allowed = true, updated_at = now()
+                    WHERE NOT world_visibility.allowed
+                 )
+                 SELECT EXISTS (SELECT 1 FROM entity)",
+            )
+            .bind(version)
+            .bind(kind)
+            .bind(key)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !valid {
+                return Err(WorldError::InvalidInput(
+                    "visibility grant has no publishable entity".into(),
+                ));
+            }
+        }
+        tx.commit().await?;
+        Ok(version)
+    }
+
+    async fn write_publication(
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        previous: Option<Uuid>,
+        documents: &[Document],
+    ) -> Result<(), WorldError> {
+        for document in documents {
             sqlx::query(
                 "INSERT INTO world_entities (version_id, kind, key, data, publishable) VALUES ($1, $2, $3, $4, $5)",
             )
@@ -144,14 +230,13 @@ impl WorldStore {
             .bind(&document.key)
             .bind(&document.data)
             .bind(document.publishable)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
         sqlx::query("UPDATE world_versions SET status = 'ready', document_count = $2, updated_at = now() WHERE id = $1")
-            .bind(id).bind(documents.len() as i64).execute(&mut *tx).await?;
+            .bind(id).bind(documents.len() as i64).execute(&mut **tx).await?;
         sqlx::query("UPDATE world_active_version SET version_id = $1, previous_version_id = $2, updated_at = now() WHERE singleton")
-            .bind(id).bind(previous).execute(&mut *tx).await?;
-        tx.commit().await?;
+            .bind(id).bind(previous).execute(&mut **tx).await?;
         Ok(())
     }
 
@@ -305,6 +390,20 @@ impl WorldStore {
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
         .await?)
+    }
+}
+
+fn validate_source_commit(source_commit: &str) -> Result<(), WorldError> {
+    if matches!(source_commit.len(), 40 | 64)
+        && source_commit
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        Ok(())
+    } else {
+        Err(WorldError::InvalidInput(
+            "a full lowercase hexadecimal commit hash is required".into(),
+        ))
     }
 }
 

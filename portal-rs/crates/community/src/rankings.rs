@@ -76,6 +76,9 @@ pub fn router(db: PgPool, enabled: bool, visibility: Arc<dyn PublicVisibility>) 
             visibility,
         })
 }
+const MAX_ROWS: usize = 1000;
+const PAGE_SIZE: usize = 50;
+
 // Level and experience are two presentations of the same producer ordering.
 const KINDS: &[(&str, u8)] = &[
     ("level", 1),
@@ -241,19 +244,19 @@ async fn handle(
     let Ok(number) = page_number.parse::<usize>() else {
         return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     };
-    if number == 0 || page_number != number.to_string() {
+    if !(1..=MAX_ROWS.div_ceil(PAGE_SIZE)).contains(&number) || page_number != number.to_string() {
         return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     }
     let vocation = filters.vocation.as_deref().unwrap_or("0");
     if !matches!(vocation, "0" | "1" | "2" | "3" | "4" | "5") {
-        return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
+        return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     }
     if filters
         .world
         .as_ref()
         .is_some_and(|w| uuid::Uuid::parse_str(w).map_or(true, |id| id.to_string() != *w))
     {
-        return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
+        return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     }
     match load(
         &state,
@@ -309,7 +312,7 @@ async fn load(
     if snapshot.world_id != world
         || snapshot.category != category
         || snapshot.filter.to_string() != vocation
-        || snapshot.rows.len() > 1000
+        || snapshot.rows.len() > MAX_ROWS
     {
         return Err(unavailable);
     }
@@ -336,7 +339,7 @@ async fn load(
         .zip(hidden)
         .filter_map(|(r, hidden)| (!hidden).then_some(r))
         .collect();
-    if number > visible.len().div_ceil(50).max(1) {
+    if number > visible.len().div_ceil(PAGE_SIZE).max(1) {
         return Err(StatusCode::NOT_FOUND);
     }
     let mut page = Page::new(lang);
@@ -361,13 +364,13 @@ async fn load(
     if number > 1 {
         page.previous_url = url(number - 1);
     }
-    if number * 50 < visible.len() {
+    if number * PAGE_SIZE < visible.len() {
         page.next_url = url(number + 1);
     }
     page.rows = visible
         .into_iter()
-        .skip((number - 1) * 50)
-        .take(50)
+        .skip((number - 1) * PAGE_SIZE)
+        .take(PAGE_SIZE)
         .map(|r| {
             vec![
                 r.rank,
@@ -428,7 +431,7 @@ pub async fn home_top(
     if snapshot.world_id != world
         || snapshot.category != 1
         || snapshot.filter != 0
-        || snapshot.rows.len() > 1000
+        || snapshot.rows.len() > MAX_ROWS
     {
         return Err(VisibilityUnavailable);
     }

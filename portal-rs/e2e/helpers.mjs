@@ -114,10 +114,10 @@ export async function logout(page,lang) {
  await submit(page, formSelector);
 }
 // Wiki entities and the portal search share the 30/minute WikiSearch policy.
-export async function waitForWikiBudget(target, needed=1) {
+export async function waitForWikiBudget(target, needed=1, connectionString) {
   const path = new URL(target, 'https://localhost').pathname;
   if (!/^\/(?:pl\/|en\/)?(?:wiki(?:\/|$)|search$)/.test(path)) return;
-  const db = pool();
+  const db = pool(connectionString);
   try {
     await expect.poll(async () => {
       const result = await db.query(

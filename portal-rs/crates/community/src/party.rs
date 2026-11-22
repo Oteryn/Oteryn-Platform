@@ -412,6 +412,9 @@ async fn page(
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
 ) -> Result<Response, Error> {
     language(&lang)?;
+    if !filter.valid() {
+        return Ok(StatusCode::BAD_REQUEST.into_response());
+    }
     let rows = board.list(&filter).await?;
     let token = session.csrf_token().await?;
     party_view::page(

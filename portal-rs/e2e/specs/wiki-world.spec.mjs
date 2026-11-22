@@ -40,7 +40,7 @@ test('wiki lists and search show the designed unavailable view before admission'
 test('wiki rejects invalid search and list input before consulting the catalog', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   for (const suffix of ['search?q=x', 'items?page=0', 'spells?page=not-a-number', 'creatures?kind=items']) {
-    await expectWikiNotice(page, `/${lang}/wiki/${suffix}`, 422, notices[lang].invalid);
+    await expectWikiNotice(page, `/${lang}/wiki/${suffix}`, 400, notices[lang].invalid);
   }
 });
 

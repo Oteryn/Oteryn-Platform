@@ -326,22 +326,39 @@ async fn postgres_pages_authentication_flags_and_pagination() -> TestResult {
             assert!(html.contains("width=device-width"));
         }
     }
-    for query in [
-        "before=bad",
-        "before=00000000-0000-0000-0000-000000000000",
-        "account=other",
+    let browser = app.layer(axum::middleware::from_fn_with_state(
+        oteryn_web::chrome::Shell {
+            registry: Default::default(),
+            sessions: oteryn_web::session::SessionLayer::new(db.pool.clone()),
+        },
+        oteryn_web::chrome::middleware,
+    ));
+    for (lang, message) in [
+        ("en", "Check the submitted values."),
+        ("pl", "Sprawdź przesłane wartości."),
     ] {
-        assert_eq!(
-            app.clone()
-                .oneshot(
-                    HttpRequest::get(format!("/en/shop/history?{query}"))
-                        .header(header::COOKIE, &cookie)
-                        .body(Body::empty())?
-                )
-                .await?
-                .status(),
-            StatusCode::UNPROCESSABLE_ENTITY
-        );
+        for query in [
+            "before=bad",
+            "before=00000000-0000-0000-0000-000000000000",
+            "before=019b0760-0000-7000-8000-000000000001&before=019b0760-0000-7000-8000-000000000002",
+            "account=other",
+        ] {
+            for accept in ["*/*", "text/html"] {
+                let response = browser
+                    .clone()
+                    .oneshot(
+                        HttpRequest::get(format!("/{lang}/shop/history?{query}"))
+                            .header(header::ACCEPT, accept)
+                            .header(header::COOKIE, &cookie)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                let html = body(response).await?;
+                assert!(html.contains(&format!("lang=\"{lang}\"")));
+                assert!(html.contains(message));
+            }
+        }
     }
     db.close().await
 }

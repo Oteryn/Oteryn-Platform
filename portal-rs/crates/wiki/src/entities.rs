@@ -143,16 +143,16 @@ struct Filters {
 impl Filters {
     fn validate(&mut self) -> Result<(), StatusCode> {
         if self.q.len() > 1024 || self.q.chars().any(char::is_control) {
-            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            return Err(StatusCode::BAD_REQUEST);
         }
-        self.q = domain::search(&self.q, self.page.unwrap_or(1))
-            .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+        self.q =
+            domain::search(&self.q, self.page.unwrap_or(1)).map_err(|_| StatusCode::BAD_REQUEST)?;
         if [&self.category, &self.classification]
             .iter()
             .any(|v| v.len() > 80 || v.chars().any(char::is_control))
             || (!self.kind.is_empty() && !KINDS.contains(&self.kind.as_str()))
         {
-            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            return Err(StatusCode::BAD_REQUEST);
         }
         Ok(())
     }
@@ -200,7 +200,7 @@ fn t(lang: &str, key: &str) -> String {
 fn error(status: StatusCode, lang: &str) -> Response {
     let key = match status {
         StatusCode::NOT_FOUND => "missing",
-        StatusCode::UNPROCESSABLE_ENTITY => "invalid",
+        StatusCode::BAD_REQUEST => "invalid",
         _ => "unavailable",
     };
     crate::web::notice(status, lang, t(lang, key))
@@ -498,10 +498,10 @@ async fn list(
     }
     let mut filters = match query {
         Ok(Query(v)) => v,
-        Err(_) => return error(StatusCode::UNPROCESSABLE_ENTITY, lang),
+        Err(_) => return error(StatusCode::BAD_REQUEST, lang),
     };
     if !filters.kind.is_empty() && filters.kind != kind {
-        return error(StatusCode::UNPROCESSABLE_ENTITY, lang);
+        return error(StatusCode::BAD_REQUEST, lang);
     }
     filters.kind = kind;
     listing(&state, lang, filters, false).await
@@ -590,7 +590,7 @@ async fn dispatch_listing(
 ) -> Response {
     let filters = match Query::<Filters>::try_from_uri(request.uri()) {
         Ok(Query(v)) => v,
-        Err(_) => return error(StatusCode::UNPROCESSABLE_ENTITY, lang),
+        Err(_) => return error(StatusCode::BAD_REQUEST, lang),
     };
     let mut response = listing(&state, lang, filters, search).await;
     response.headers_mut().insert(

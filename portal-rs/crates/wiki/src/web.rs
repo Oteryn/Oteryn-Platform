@@ -190,7 +190,7 @@ async fn index(
     };
     let Query(query) = match query {
         Ok(value) => value,
-        Err(_) => return failure(Error::Invalid, lang),
+        Err(_) => return notice(StatusCode::BAD_REQUEST, lang, text(lang, "invalid")),
     };
     let number = query.page.unwrap_or(1);
     match repo
@@ -215,6 +215,7 @@ async fn index(
                 next: number + 1,
             })
         }
+        Err(Error::Invalid) => notice(StatusCode::BAD_REQUEST, lang, text(lang, "invalid")),
         Err(e) => failure(e, lang),
     }
 }

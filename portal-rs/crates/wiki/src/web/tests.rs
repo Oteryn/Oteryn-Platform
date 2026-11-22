@@ -522,7 +522,7 @@ async fn database_browser_create_review_publish_and_csrf() {
         get(app.clone(), "/en/wiki/search?q=dragon&page=bad")
             .await
             .status(),
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         post(
@@ -538,7 +538,7 @@ async fn database_browser_create_review_publish_and_csrf() {
     );
     assert_eq!(
         get(app.clone(), "/en/wiki/search?q=x").await.status(),
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         post(

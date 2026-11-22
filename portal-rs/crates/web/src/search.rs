@@ -55,7 +55,7 @@ struct Filters {
 impl Filters {
     fn validate(&mut self) -> Result<(), StatusCode> {
         if self.q.len() > 1024 || self.q.chars().any(char::is_control) {
-            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            return Err(StatusCode::BAD_REQUEST);
         }
         self.q = self.q.split_whitespace().collect::<Vec<_>>().join(" ");
         if (!self.q.is_empty() && !(2..=80).contains(&self.q.chars().count()))
@@ -63,7 +63,7 @@ impl Filters {
             || !["", "news", "pages", "events", "wiki", "world", "characters"]
                 .contains(&self.kind.as_str())
         {
-            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            return Err(StatusCode::BAD_REQUEST);
         }
         Ok(())
     }
@@ -199,10 +199,10 @@ async fn show(
 ) -> Response {
     let lang = language.code();
     let Ok(Query(mut filters)) = query else {
-        return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, "invalid")).into_response();
+        return (StatusCode::BAD_REQUEST, text(lang, "invalid")).into_response();
     };
-    if filters.validate().is_err() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, "invalid")).into_response();
+    if let Err(status) = filters.validate() {
+        return (status, text(lang, "invalid")).into_response();
     }
     let mut hits = vec![];
     let mut unavailable = false;

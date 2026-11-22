@@ -494,6 +494,31 @@ async fn postgres_bad_item_and_disabled_world() {
         return;
     };
     let store = WorldStore::new(pool.clone(), oteryn_world::WorldOptions { enabled: true });
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    for (lang, notice) in [("en", "Invalid filters"), ("pl", "Nieprawidłowe filtry")] {
+        let response = super::http::router(
+            pool.clone(),
+            Options { enabled: true },
+            oteryn_world::WorldOptions { enabled: true },
+        )
+        .oneshot(
+            Request::get(format!("/{lang}/atlas/delivery?item=missing"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap();
+        assert!(std::str::from_utf8(&body).unwrap().contains(notice));
+    }
     let s = load(&store).await.unwrap();
     assert_eq!(
         s.discover(

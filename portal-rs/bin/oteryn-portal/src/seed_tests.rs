@@ -83,6 +83,60 @@ impl Database {
     }
 }
 
+#[tokio::test]
+async fn query_catalog_seed_serializes_and_publishes_visibility_atomically() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(QUERY_CATALOG_FIXTURE);
+    let seed = || seed_query_catalog_fixture(&db.pool, &root);
+    let refuse_beta =
+        "ALTER TABLE world_visibility ADD CONSTRAINT refuse_beta CHECK (key <> 'fixture.beta')";
+    let remove_refusal = "ALTER TABLE world_visibility DROP CONSTRAINT refuse_beta";
+    sqlx::query(refuse_beta).execute(&db.pool).await?;
+    assert!(seed().await.is_err());
+    for sql in [
+        "SELECT count(*) FROM world_active_version WHERE version_id IS NOT NULL OR previous_version_id IS NOT NULL",
+        "SELECT count(*) FROM world_versions",
+        "SELECT count(*) FROM world_entities",
+        "SELECT count(*) FROM world_visibility",
+    ] {
+        assert_eq!(db.count(sql).await?, 0, "{sql}");
+    }
+    sqlx::query(remove_refusal).execute(&db.pool).await?;
+
+    let (first, second) = tokio::join!(seed(), seed());
+    let version = first?;
+    assert_eq!(version, second?);
+    assert_eq!(db.count("SELECT count(*) FROM world_versions").await?, 1);
+    let visible = "SELECT count(*) FROM world_visibility WHERE kind = 'Item'
+                   AND key IN ('fixture.alpha', 'fixture.beta') AND allowed";
+    assert_eq!(db.count(visible).await?, 2);
+    let grant_timestamps = "SELECT updated_at::text FROM world_visibility ORDER BY kind, key";
+    let before: Vec<String> = sqlx::query_scalar(grant_timestamps)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(seed().await?, version);
+    let after: Vec<String> = sqlx::query_scalar(grant_timestamps)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(after, before);
+
+    sqlx::query("DELETE FROM world_visibility")
+        .execute(&db.pool)
+        .await?;
+    sqlx::query(refuse_beta).execute(&db.pool).await?;
+    assert!(seed().await.is_err());
+    assert_eq!(db.count(visible).await?, 0);
+
+    sqlx::query(remove_refusal).execute(&db.pool).await?;
+    assert_eq!(seed().await?, version);
+    assert_eq!(db.count(visible).await?, 2);
+    db.close().await
+}
+
 fn is_bad(result: Result<Value, SeedError>) -> bool {
     matches!(result, Err(SeedError::BadInput(_)))
 }

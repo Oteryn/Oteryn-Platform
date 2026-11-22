@@ -44,7 +44,11 @@ use oteryn_gameauth::{
 use oteryn_identity::mfa::Mfa;
 use serde_json::{Map, Value, json};
 use sqlx::{PgPool, Row};
-use std::{fmt, path::PathBuf, process::ExitCode};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 use uuid::Uuid;
 
 /// Witness directory shared with the native evidence producer.
@@ -175,6 +179,7 @@ pub async fn execute(
     match entity {
         "account" => account(pool, &args).await,
         "world" => world(pool, &args).await,
+        "query-catalog" => query_catalog(pool, &args).await,
         "oauth-native-client" => oauth_native_client(pool, &args).await,
         "signing-trust" => signing_trust(pool, settings, &args).await,
         "signing-custody" => signing_custody(pool, settings, &args).await,
@@ -187,6 +192,63 @@ pub async fn execute(
         )),
         _ => Err(bad(format!("unknown entity {entity:?}"))),
     }
+}
+
+/// Import the existing schema-validated WorldStore fixture for browser queries.
+async fn query_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+    args.only(&[])?;
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await?;
+    if !database.starts_with("portal_e2e_") {
+        return Err(bad(
+            "query-catalog requires a disposable portal_e2e_ database",
+        ));
+    }
+    let version = seed_query_catalog_fixture(pool, Path::new(QUERY_CATALOG_FIXTURE)).await?;
+    Ok(json!({"versionId": version}))
+}
+
+// Both E2E launchers set the seed command's working directory to portal-rs.
+const QUERY_CATALOG_FIXTURE: &str = "e2e/fixtures/query-catalog";
+
+async fn seed_query_catalog_fixture(pool: &PgPool, root: &Path) -> Result<Uuid, SeedError> {
+    use oteryn_world::{ImportMapping, SchemaScope, WorldError, WorldOptions, WorldStore};
+
+    WorldStore::new(pool.clone(), WorldOptions { enabled: true })
+        .ensure_directory_with_visibility(
+            root,
+            "0000000000000000000000000000000000000002",
+            [
+                ("items", "Item"),
+                ("creatures", "Creature"),
+                ("loot", "Loot"),
+            ]
+            .into_iter()
+            .map(|(file, kind)| ImportMapping {
+                path_glob: format!("content/{file}.json"),
+                schema_file: "tools/content-schema/envelope.schema.json".into(),
+                kind: kind.into(),
+                key_field: "code".into(),
+                records_pointer: "/payload".into(),
+                schema_scope: SchemaScope::Document,
+                hidden_when_true: Vec::new(),
+            })
+            .collect(),
+            &[
+                ("Item", "fixture.alpha"),
+                ("Item", "fixture.beta"),
+                ("Creature", "fixture.rat"),
+                ("Creature", "fixture.wolf"),
+                ("Loot", "fixture.rat-loot"),
+                ("Loot", "fixture.wolf-loot"),
+            ],
+        )
+        .await
+        .map_err(|error| match error {
+            WorldError::InvalidInput(message) => SeedError::Conflict(message),
+            _ => SeedError::Unavailable("query catalog import or publication"),
+        })
 }
 
 /// A JSON object whose keys are checked against each command's allow-list.
