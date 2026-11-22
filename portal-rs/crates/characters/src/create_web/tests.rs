@@ -117,6 +117,8 @@ async fn pages_escape_input_localize_and_use_accessible_components() -> TestResu
         assert!(!body.contains("<script>"));
         for marker in [
             "width=device-width",
+            r##"class="op-skip" href="#main""##,
+            "<nav aria-label=",
             "for=\"name\"",
             "for=\"world\"",
             "aria-describedby=\"rules\"",
@@ -131,6 +133,7 @@ async fn pages_escape_input_localize_and_use_accessible_components() -> TestResu
         ] {
             assert!(body.contains(marker), "{marker}");
         }
+        assert!(!body.contains("<header"));
         for vocation in ["Knight", "Paladin", "Sorcerer", "Druid", "Monk"] {
             let radio = format!("name=\"vocation\" value=\"{vocation}\" required");
             assert!(body.contains(&radio), "{radio}");
