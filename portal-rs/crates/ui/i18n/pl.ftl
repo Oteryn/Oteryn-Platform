@@ -394,3 +394,4 @@ bazaar-activity-settlement_completed = Rozliczenie zapisane jako zakończone
 bazaar-activity-settlement_cancelled = Rozliczenie anulowane
 bazaar-activity-suspended = Wstrzymana
 bazaar-activity-settlement_refused = Dostawa odrzucona
+bazaar-activity-settlement_payout_refused = Wypłata złota odrzucona

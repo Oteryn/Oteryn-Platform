@@ -1140,6 +1140,56 @@ async fn bid_activity(db: &BrowserFixture, account: Uuid) -> (String, time::Offs
 }
 
 #[tokio::test]
+async fn seller_activity_hides_private_maximum_increase_on_the_same_listing() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    let listing = uid("20");
+    let seller = uid("11");
+    let buyer = uid("13");
+    fund_buyer(&db).await;
+    fund_buyer(&db).await;
+    db.runtime
+        .bid(buyer, listing, 10000, uid("14"), Uuid::now_v7())
+        .await
+        .unwrap();
+    let read_listing = || {
+        sqlx::query_as::<_, (i64, time::OffsetDateTime, time::OffsetDateTime)>(
+            "SELECT price, ends_at, updated_at FROM bazaar_listings WHERE id=$1",
+        )
+        .bind(listing)
+        .fetch_one(&db.pool)
+    };
+    let read_activity = |actor| {
+        sqlx::query(include_str!("../activity.sql"))
+            .bind(actor)
+            .bind(listing)
+            .bind(0_i64)
+            .bind(20_i64)
+            .fetch_all(&db.pool)
+    };
+    let (price, ends_at, listing_updated_at) = read_listing().await.unwrap();
+    let before = read_activity(seller).await.unwrap();
+    db.runtime
+        .bid(buyer, listing, 15000, uid("14"), Uuid::now_v7())
+        .await
+        .unwrap();
+    let (after_price, after_ends_at, after_listing_updated_at) = read_listing().await.unwrap();
+    assert_eq!((after_price, after_ends_at), (price, ends_at));
+    assert!(after_listing_updated_at > listing_updated_at);
+    let after = read_activity(seller).await.unwrap();
+    assert_eq!((before.len(), after.len()), (1, 1));
+    assert_eq!(after[0].get::<i32, _>("section"), 0);
+    assert_eq!(
+        after[0].get::<time::OffsetDateTime, _>("updated_at"),
+        before[0].get::<time::OffsetDateTime, _>("updated_at")
+    );
+    let bids = read_activity(buyer).await.unwrap();
+    assert_eq!(bids.len(), 2);
+    assert_eq!(bids[0].get::<i64, _>("amount"), 15000);
+    db.end().await;
+}
+
+#[tokio::test]
 async fn gold_activity_hides_previous_leader_release() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;

@@ -115,11 +115,11 @@ test('activity reports recorded delivery refusal and the latest cancellation req
     seller = await actor(db, page.context(), lang);
     buyer = await actor(db, page.context(), lang);
     await db.query(
-      `INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at,state,updated_at)
-       VALUES ($1,$5,'character','auction','coins',100,false,now(),'awaiting_delivery','2026-01-01'),
-              ($2,$5,'item','auction','gold',100,false,now(),'awaiting_delivery','2026-01-01'),
-              ($3,$5,'item','auction','coins',100,false,now(),'active','2026-01-01'),
-              ($4,$5,'item','auction','coins',100,false,now(),'active','2026-02-02')`,
+      `INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,ends_at,state,created_at,updated_at)
+       VALUES ($1,$5,'character','auction','coins',100,false,now(),'awaiting_delivery','2026-01-01','2026-01-01'),
+              ($2,$5,'item','auction','gold',100,false,now(),'awaiting_delivery','2026-01-01','2026-01-01'),
+              ($3,$5,'item','auction','coins',100,false,now(),'active','2026-01-01','2026-01-01'),
+              ($4,$5,'item','auction','coins',100,false,now(),'active','2026-02-02','2026-02-02')`,
       [coins, gold, cancelled, other, seller.id],
     );
     await db.query(
