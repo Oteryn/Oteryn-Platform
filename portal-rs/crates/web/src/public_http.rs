@@ -110,13 +110,7 @@ async fn policy(request: Request, next: Next) -> Response {
         .or_insert(HeaderValue::from_static(REFERRER));
     headers.insert("permissions-policy", HeaderValue::from_static(PERMISSIONS));
 
-    let no_store = headers
-        .get_all(header::CACHE_CONTROL)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(','))
-        .any(|directive| directive.trim().eq_ignore_ascii_case("no-store"));
-    if !no_store
+    if !has_no_store(headers)
         && ((html && !static_asset) || !(status.is_success() || status == StatusCode::NOT_MODIFIED))
     {
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -126,6 +120,38 @@ async fn policy(request: Request, next: Next) -> Response {
             .or_insert(HeaderValue::from_static("no-store"));
     }
     response
+}
+
+fn has_no_store(headers: &HeaderMap) -> bool {
+    let mut no_store = false;
+    for value in headers.get_all(header::CACHE_CONTROL) {
+        let Ok(value) = value.to_str() else {
+            return false;
+        };
+        let mut start = 0;
+        let mut quoted = false;
+        let mut escaped = false;
+        for (index, byte) in value.bytes().enumerate() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match byte {
+                b'\\' if quoted => escaped = true,
+                b'"' => quoted = !quoted,
+                b',' if !quoted => {
+                    no_store |= value[start..index].trim().eq_ignore_ascii_case("no-store");
+                    start = index + 1;
+                }
+                _ => {}
+            }
+        }
+        if quoted {
+            return false;
+        }
+        no_store |= value[start..].trim().eq_ignore_ascii_case("no-store");
+    }
+    no_store
 }
 
 fn oversized(headers: &HeaderMap) -> bool {
@@ -204,6 +230,45 @@ mod tests {
     use super::*;
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn dynamic_pages_require_a_real_no_store_directive()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases: [(&[&str], bool); 6] = [
+            (&[r#"max-age=600, extension="x,no-store,y""#], false),
+            (&[r#"extension="x\",no-store,y", max-age=600"#], false),
+            (&[r#"extension="x,no-store,y", No-Store"#], true),
+            (&[r#"extension="x,y""#, "private, no-store"], true),
+            (&[r#"extension="x"#, "no-store"], false),
+            (&["max-age=600, no-store=1"], false),
+        ];
+        for (fields, keep) in cases {
+            let app = secure_public(Router::new().route(
+                "/en/example",
+                get(move || async move {
+                    use axum::response::IntoResponse;
+                    let mut response = axum::response::Html("<p>Example</p>").into_response();
+                    for field in fields {
+                        response
+                            .headers_mut()
+                            .append(header::CACHE_CONTROL, HeaderValue::from_static(field));
+                    }
+                    response
+                }),
+            ));
+            let response = app
+                .oneshot(Request::get("/en/example").body(Body::empty())?)
+                .await?;
+            let actual = response
+                .headers()
+                .get_all(header::CACHE_CONTROL)
+                .iter()
+                .map(HeaderValue::to_str)
+                .collect::<Result<Vec<_>, _>>()?;
+            assert_eq!(actual, if keep { fields } else { &["no-store"] });
+        }
+        Ok(())
+    }
 
     #[tokio::test]
     async fn head_preserves_get_metadata_with_both_policy_layers()
