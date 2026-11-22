@@ -43,6 +43,16 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       await page.getByRole('link', { name: reason, exact: true }).click();
       await expect(page).toHaveURL(playerPath);
       await expect(page.locator('main')).not.toContainText(privateNote);
+      if (decision === 'accepted') {
+        const fields = await page.locator('main form').evaluate(form => Object.fromEntries(new FormData(form)));
+        const invalid = await page.request.post(playerPath, {
+          form: { ...fields, message: '   ' },
+          headers: { origin: new URL(page.url()).origin },
+          maxRedirects: 0,
+        });
+        expect(invalid.status()).toBe(422);
+        expect(await invalid.text()).toContain(lang === 'pl' ? 'Sprawdź wprowadzone dane' : 'Please check your input');
+      }
       await submit(page, 'main form', { message });
       await expect(page.locator('main')).toContainText(message);
       await expect(page.locator('main')).toContainText(lang === 'pl' ? 'Oczekuje na rozpatrzenie' : 'Awaiting review');
@@ -52,6 +62,16 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       expect((await staff.page.goto(staffPath)).status()).toBe(200);
       await expect(staff.page.locator('main')).toContainText(message);
       const form = staff.page.locator('form:has(input[value=appeal])');
+      const selector = form.locator('[name=appeal_status]');
+      await expect(selector).toHaveValue('');
+      await expect(selector.locator('option:checked')).toBeDisabled();
+      await form.locator('[name=appeal_outcome]').fill(outcome);
+      await form.locator('button[type=submit]').click();
+      expect(await selector.evaluate(field => field.validity.valueMissing)).toBe(true);
+      expect(await query(
+        'SELECT action FROM audit_log WHERE action=$1 AND target=$2',
+        ['support.enforcement_appeal_updated', id],
+      )).toHaveLength(0);
       const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
       await action(staff.page, 'form:has(input[value=appeal])', { appeal_status: decision, appeal_outcome: outcome });
       await expect(staff.page.locator('main')).toContainText(outcome);

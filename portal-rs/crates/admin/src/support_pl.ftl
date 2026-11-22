@@ -38,3 +38,4 @@ create = Utwórz karę tymczasową
 requested = Oczekuje na rozpatrzenie
 overturn = Uchylenie sankcji
 uphold = Utrzymanie sankcji
+choose_decision = Wybierz decyzję

@@ -2,13 +2,14 @@ use super::{Entry, Error, player_entries, submit_player};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, rejection::FormRejection},
     http::{StatusCode, header},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
 use oteryn_web::{
+    Language,
     ratelimit::{ClientSource, Keys, NamedPolicy, RateLimiter},
     session::{BrowserSession, SessionLayer},
 };
@@ -171,18 +172,44 @@ async fn submit(
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<ClientSource>,
-    Form(input): Form<Input>,
-) -> Result<Redirect, StatusCode> {
-    let actor = actor(&pool, &session, &lang).await?;
-    let peer = peer.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    form: Result<Form<Input>, FormRejection>,
+) -> Result<Redirect, Response> {
+    let language = match lang.as_str() {
+        "pl" => Language::Pl,
+        "en" => Language::En,
+        _ => return Err(StatusCode::NOT_FOUND.into_response()),
+    };
+    let path = format!("/{lang}/support/appeals/{id}");
+    let error = |status| {
+        let chrome = oteryn_ui::Registry::default().chrome(
+            language.code(),
+            &path,
+            oteryn_ui::Account::Anonymous,
+        );
+        oteryn_ui::error(&chrome, status)
+    };
+    let Form(input) = form.map_err(|rejection| error(rejection.status()))?;
+    let actor = actor(&pool, &session, &lang).await.map_err(error)?;
+    let session_hash = session
+        .identity_hash()
+        .await
+        .ok_or_else(|| error(StatusCode::FORBIDDEN))?;
+    let peer = peer.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let mut keys = Keys::source(peer.0);
     keys.account = Some(actor.to_string());
     RateLimiter::new(pool.clone())
         .check(NamedPolicy::SupportEnforcementAppeal, &[keys])
         .await
-        .map_err(|error| error.status())?;
-    submit_player(&pool, actor, id, input.version, &input.message)
-        .await
-        .map_err(status)?;
-    Ok(Redirect::to(&format!("/{lang}/support/appeals/{id}")))
+        .map_err(|denial| denial.response(language, false))?;
+    submit_player(
+        &pool,
+        actor,
+        &session_hash,
+        id,
+        input.version,
+        &input.message,
+    )
+    .await
+    .map_err(|failure| error(status(failure)))?;
+    Ok(Redirect::to(&path))
 }

@@ -38,3 +38,4 @@ create = Create temporary sanction
 requested = Awaiting review
 overturn = Overturn sanction
 uphold = Uphold sanction
+choose_decision = Choose a decision

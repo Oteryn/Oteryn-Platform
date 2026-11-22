@@ -401,10 +401,21 @@ async fn render_record(
             if choices.is_empty() {
                 body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"8000\"></textarea></label></p>",text(lang,field)));
             } else {
+                let required = if *field == "appeal_status" {
+                    " required"
+                } else {
+                    ""
+                };
                 body.push_str(&format!(
-                    "<p><label>{}<select class=\"op-input\" name=\"{field}\">",
+                    "<p><label>{}<select class=\"op-input\" name=\"{field}\"{required}>",
                     text(lang, field)
                 ));
+                if *field == "appeal_status" {
+                    body.push_str(&format!(
+                        "<option value=\"\" selected disabled>{}</option>",
+                        text(lang, "choose_decision")
+                    ));
+                }
                 for choice in choices {
                     body.push_str(&format!(
                         "<option value=\"{choice}\">{}</option>",

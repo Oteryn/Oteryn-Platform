@@ -18,6 +18,8 @@ pub enum Error {
     Disabled,
     #[error("not found")]
     NotFound,
+    #[error("session is no longer authorized")]
+    SessionRevoked,
     #[error("invalid input")]
     Invalid,
     #[error("stale version or invalid transition")]
@@ -31,6 +33,7 @@ impl Error {
     pub fn status_code(&self) -> u16 {
         match self {
             Self::Disabled | Self::NotFound => 404,
+            Self::SessionRevoked => 403,
             Self::Invalid => 422,
             Self::Conflict => 409,
             Self::Database(_) | Self::AuditUnavailable => 503,
@@ -413,6 +416,7 @@ async fn player_entries(
 async fn submit_player(
     pool: &sqlx::PgPool,
     actor: Uuid,
+    session_hash: &[u8],
     id: Uuid,
     version: i64,
     message: &str,
@@ -432,6 +436,23 @@ async fn submit_player(
             .await?;
     if !matches!(account.as_deref(), Some("active" | "suspended")) {
         return Err(Error::NotFound);
+    }
+    // Revalidate the exact server-derived session after acquiring the account lock.
+    // Retain the session row lock through commit so logout serializes with submission.
+    let live = sqlx::query_scalar::<_, bool>(
+        "SELECT true FROM web_sessions s JOIN accounts a ON a.id = s.account_id
+         WHERE s.id_hash = $1 AND s.account_id = $2
+           AND s.authorization_generation = a.native_security_generation
+           AND s.idle_expires_at > clock_timestamp()
+           AND s.absolute_expires_at > clock_timestamp()
+         FOR UPDATE OF s",
+    )
+    .bind(session_hash)
+    .bind(actor)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if live.is_none() {
+        return Err(Error::SessionRevoked);
     }
     let query = format!(
         "WITH locked AS MATERIALIZED (

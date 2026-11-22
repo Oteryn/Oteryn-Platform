@@ -68,11 +68,11 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .await?;
     let path = schema.clone();
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
+        .max_connections(if scenario == Some("appeals") { 8 } else { 1 })
         .after_connect(move |c, _| {
             let path = path.clone();
             Box::pin(async move {
-                sqlx::query("SELECT set_config('search_path',$1,false)")
+                sqlx::query("SELECT set_config('search_path',$1,false),set_config('application_name',$1,false)")
                     .bind(path)
                     .execute(c)
                     .await?;
@@ -119,6 +119,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         configured_staff_router_from(pool.clone(), &lookup).map_err(|error| error.to_string())?;
     if scenario == Some("appeals") {
         browser_appeals(&pool, app.clone(), owner, staff, &cookie, &csrf).await?;
+        appeal_decision_race(&pool, app, owner, staff, sanction, &cookie, &csrf).await?;
         pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
             .execute(&root)
@@ -829,40 +830,62 @@ async fn browser_appeals(
     assert!(html.contains("Submit appeal"));
     assert!(!html.contains("Private note"));
 
-    let send = |cookie: &str, form: &str| {
-        let origin = origin.clone();
-        let app = player_app.clone();
-        let request = Request::post(&path)
+    let request = |cookie: &str, lang: &str, id: Uuid, form: &str, source: u8| {
+        Request::post(format!("/{lang}/support/appeals/{id}"))
             .header("host", host)
             .header("cookie", cookie)
-            .header("origin", origin)
+            .header("origin", &origin)
             .header("content-type", "application/x-www-form-urlencoded")
-            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))))
-            .body(Body::from(form.to_owned()));
-        async move {
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?.status())
-        }
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, source], 12345))))
+            .body(Body::from(form.to_owned()))
+    };
+    let send = |cookie: &str, form: &str| {
+        let request = request(cookie, "en", sanction, form, 1);
+        let app = player_app.clone();
+        async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?) }
     };
     let valid = format!("_csrf={csrf}&version=1&message=Please+review");
     assert_eq!(
-        send(&owner_cookie, "version=1&message=Please+review").await?,
+        send(&owner_cookie, "version=1&message=Please+review")
+            .await?
+            .status(),
         StatusCode::FORBIDDEN
     );
-    assert_eq!(send(staff_cookie, &valid).await?, StatusCode::NOT_FOUND);
     assert_eq!(
-        send(
-            &owner_cookie,
-            &format!("_csrf={csrf}&version=1&message=+++")
-        )
-        .await?,
-        StatusCode::UNPROCESSABLE_ENTITY
+        send(staff_cookie, &valid).await?.status(),
+        StatusCode::NOT_FOUND
     );
-    assert_eq!(send(&owner_cookie, &valid).await?, StatusCode::SEE_OTHER);
-    assert_eq!(send(&owner_cookie, &valid).await?, StatusCode::CONFLICT);
+    let invalid = format!("_csrf={csrf}&version=1&message=+++");
+    let response = send(&owner_cookie, &invalid).await?;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("Please check your input"));
     assert_eq!(
-        send(&owner_cookie, &valid).await?,
-        StatusCode::TOO_MANY_REQUESTS
+        send(&owner_cookie, &valid).await?.status(),
+        StatusCode::SEE_OTHER
     );
+    assert_eq!(
+        send(&owner_cookie, &valid).await?.status(),
+        StatusCode::CONFLICT
+    );
+    // Align with the real fixed-window counter, even if an earlier request crossed the minute.
+    let mut limited = false;
+    for _ in 0..4 {
+        let response = player_app
+            .clone()
+            .oneshot(request(&owner_cookie, "pl", sanction, &valid, 1)?)
+            .await?;
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            let retry = response.headers()["retry-after"].to_str()?.parse::<u32>()?;
+            assert!((1..=60).contains(&retry));
+            let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+            assert!(html.contains("Zbyt wiele żądań"));
+            limited = true;
+            break;
+        }
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+    assert!(limited);
 
     let decide = |cookie: &str, form: String| {
         let app = staff_app.clone();
@@ -925,5 +948,141 @@ async fn browser_appeals(
     let html = String::from_utf8(to_bytes(page.into_body(), 100000).await?.to_vec())?;
     assert!(html.contains("Overturned"));
     assert!(!html.contains("Submit appeal"));
+
+    let fresh: Uuid = sqlx::query_scalar("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by) VALUES($1,'restriction','active','Revocation test',now(),now()+interval '1 hour',$2) RETURNING id")
+        .bind(owner).bind(staff).fetch_one(pool).await?;
+    let application: String = sqlx::query_scalar("SELECT current_setting('application_name')")
+        .fetch_one(pool)
+        .await?;
+    let mut lock = lock_appeal_owner(pool, owner).await?;
+    let pending = tokio::spawn(player_app.oneshot(request(&owner_cookie, "en", fresh, &valid, 2)?));
+    wait_staff_locks(pool, &application, 1).await?;
+    sqlx::query("DELETE FROM web_sessions WHERE id_hash=$1")
+        .bind(oteryn_identity::mfa::digest(&bearer))
+        .execute(&mut *lock)
+        .await?;
+    lock.commit().await?;
+    assert_eq!(pending.await??.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM support_appeal_workflows WHERE sanction_id=$1"
+        )
+        .bind(fresh)
+        .fetch_one(pool)
+        .await?,
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1 AND action='support.enforcement_appeal_submitted'")
+            .bind(fresh.to_string()).fetch_one(pool).await?, 0
+    );
+    Ok(())
+}
+
+async fn lock_appeal_owner(pool: &PgPool, owner: Uuid) -> Result<Transaction<'static, Postgres>> {
+    let mut lock = pool.begin().await?;
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(owner)
+        .execute(&mut *lock)
+        .await?;
+    Ok(lock)
+}
+
+async fn appeal_decision_race(
+    pool: &PgPool,
+    app: Router,
+    owner: Uuid,
+    staff: Uuid,
+    sanction: Uuid,
+    cookie: &str,
+    csrf: &str,
+) -> TestResult {
+    let accepted = "lock_version=1&action=appeal&appeal_status=accepted&appeal_outcome=Overturned";
+    let rejected = "lock_version=1&action=appeal&appeal_status=rejected&appeal_outcome=Upheld";
+    let host = "staff.test";
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1 AND role_id=(SELECT id FROM roles WHERE key='moderator')")
+        .bind(staff).execute(pool).await?;
+    let allowed = app
+        .clone()
+        .oneshot(
+            Request::get("/admin/support/tickets")
+                .header("host", host)
+                .header("cookie", cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(
+        allowed.status(),
+        StatusCode::OK,
+        "the support actor has a live MFA staff session"
+    );
+    assert_eq!(
+        staff_post(
+            app.clone(),
+            host,
+            cookie,
+            csrf,
+            "moderation/enforcement",
+            sanction,
+            accepted
+        )
+        .await?,
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator'")
+        .bind(staff).execute(pool).await?;
+
+    let lock = lock_appeal_owner(pool, owner).await?;
+    let start = |form: &'static str| {
+        let app = app.clone();
+        let cookie = cookie.to_owned();
+        let csrf = csrf.to_owned();
+        tokio::spawn(async move {
+            staff_post(
+                app,
+                host,
+                &cookie,
+                &csrf,
+                "moderation/enforcement",
+                sanction,
+                form,
+            )
+            .await
+        })
+    };
+    let accept = start(accepted);
+    let reject = start(rejected);
+    let application: String = sqlx::query_scalar("SELECT current_setting('application_name')")
+        .fetch_one(pool)
+        .await?;
+    wait_staff_locks(pool, &application, 2).await?;
+    lock.commit().await?;
+    let (accept, reject) = (accept.await??, reject.await??);
+    assert!(
+        matches!(
+            (accept, reject),
+            (StatusCode::SEE_OTHER, StatusCode::CONFLICT)
+                | (StatusCode::CONFLICT, StatusCode::SEE_OTHER)
+        ),
+        "opposing decisions returned {accept} and {reject}"
+    );
+    let (sanction_status, appeal_status): (String, String) = sqlx::query_as(
+        "SELECT s.status,a.status FROM sanctions s JOIN support_appeal_workflows a ON a.sanction_id=s.id WHERE s.id=$1"
+    ).bind(sanction).fetch_one(pool).await?;
+    if accept == StatusCode::SEE_OTHER {
+        assert_eq!(
+            (sanction_status.as_str(), appeal_status.as_str()),
+            ("revoked", "accepted")
+        );
+    } else {
+        assert_eq!(
+            (sanction_status.as_str(), appeal_status.as_str()),
+            ("active", "rejected")
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1 AND action='support.enforcement_appeal_updated'")
+            .bind(sanction.to_string()).fetch_one(pool).await?, 1
+    );
     Ok(())
 }
