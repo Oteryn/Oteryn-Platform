@@ -54,13 +54,19 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
    expect(challenge.headers().location).toBe(sudo);
    expect((await page.goto(sudo)).status()).toBe(200);
    await csrfRejected(page, sudo, {current_password: account.password});
-   const token = await page.locator('main input[name=_csrf]').inputValue();
-   const confirmed = await page.request.post(sudo, {
-     form: {_csrf: token, current_password: account.password},
-     headers: {origin: new URL(page.url()).origin}, maxRedirects: 0,
-   });
+   const form = page.locator('main form');
+   await form.locator('[name=current_password]').fill(account.password);
+   const [confirmed, download] = await Promise.all([
+     page.waitForResponse(response => response.request().method() === 'POST'
+       && new URL(response.url()).pathname === new URL(sudo, page.url()).pathname),
+     page.waitForEvent('download'),
+     form.locator('button[type=submit], button:not([type])').first().click(),
+   ]);
    expect(confirmed.status()).toBe(302);
    expect(confirmed.headers().location).toBe(target);
+   const chunks = [];
+   for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+   expect(Buffer.concat(chunks).toString('utf8')).toContain(account.email);
    const exported=await page.request.get(target);
    expect(exported.status()).toBe(200);
    expect(exported.headers()['content-type']).toContain('json');
