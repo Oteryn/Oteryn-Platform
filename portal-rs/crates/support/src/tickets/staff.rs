@@ -182,16 +182,14 @@ impl Backend for StaffSupport {
             },
             &auth,
             context,
-            &[
-                oteryn_admin::rbac::Permission::Access,
-                command.area().permission(),
-            ],
+            &[oteryn_admin::rbac::Permission::Access],
         )
         .await
         .map_err(|error| match error {
             oteryn_admin::rbac::Error::Storage(_) => StaffError::Unavailable,
             _ => StaffError::Denied,
         })?;
+        command.area().check_in(tx, &auth, context).await?;
         // Include implicit author FK locks and RBAC's actor SHARE lock. Every
         // domain uses the same UUID order before joining the role-writer fence.
         if matches!(

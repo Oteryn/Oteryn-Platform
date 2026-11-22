@@ -29,6 +29,22 @@ impl Area {
             Self::Enforcement => &[Permission::ManageSupportEnforcement],
         }
     }
+
+    /// Check an area grant after locking the resources and authorizing panel access.
+    pub async fn check_in<A: AccountStateReader>(
+        self,
+        tx: &mut Transaction<'_, Postgres>,
+        auth: &Authorizer<A>,
+        context: CheckContext,
+    ) -> Result<(), Error> {
+        for &permission in self.permissions() {
+            match auth.check_in(tx, context, permission).await {
+                Err(crate::rbac::Error::Denied) => continue,
+                result => return result.map_err(authorization_error),
+            }
+        }
+        Err(Error::Denied)
+    }
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -266,13 +282,7 @@ async fn authorize_area_in<A: AccountStateReader>(
     crate::rbac::authorize_mutation(tx, &[context.account], auth, context, &[Permission::Access])
         .await
         .map_err(authorization_error)?;
-    for &permission in area.permissions() {
-        match auth.check_in(tx, context, permission).await {
-            Err(crate::rbac::Error::Denied) => continue,
-            result => return result.map_err(authorization_error),
-        }
-    }
-    Err(Error::Denied)
+    area.check_in(tx, auth, context).await
 }
 
 /// Authorization is rechecked while holding the role-writer lock. Domain writes and
