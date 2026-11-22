@@ -182,9 +182,15 @@ for path, source in sources.items():
     for args in route_calls(source):
         route_crates.add(crate)
         for match in registrations.finditer(args):
-            handlers[crate].add(match["handler"].split("::")[-1])
+            reference = match["handler"].split("::")
+            if len(reference) == 1 or reference[-2] in ("crate", "self", "super"):
+                handlers[path].add(reference[-1])
+            else:
+                for candidate in (path.parent / (reference[-2] + ".rs"),
+                                  path.parent / reference[-2] / "mod.rs"):
+                    handlers[candidate].add(reference[-1])
 # The coin router constructs a MethodRouter before passing it to .route().
-handlers["wallet"].add("handle")
+handlers[Path("crates/wallet/src/wire.rs")].add("handle")
 
 route_crates = sorted(route_crates)
 missing = [crate for crate in route_crates if not totals[crate]["functions"]["count"]]
@@ -225,7 +231,7 @@ for path, line in sorted(entries.keys() | polls.keys()):
         continue
     decl = declarations[path][line]
     crate = path.parts[1]
-    category = "Axum handler" if decl["name"] in handlers[crate] else "pub" if decl["public"] else "private"
+    category = "Axum handler" if decl["name"] in handlers[path] else "pub" if decl["public"] else "private"
     uncovered[crate].append((str(path), line, decl["name"], category))
 
 # These dispatch sites choose a mutation or permission from an action supplied
