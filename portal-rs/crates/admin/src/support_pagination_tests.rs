@@ -90,7 +90,7 @@ async fn pagination_admin_queue_caps_and_empty() -> Result<(), Box<dyn std::erro
             HeaderMap::new(),
         )
         .await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
     Ok(())
 }
