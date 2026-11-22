@@ -373,6 +373,15 @@ async fn db_reports_moderation_audit_and_caps() {
         .unwrap();
     assert!(db.board.reports().await.unwrap().is_empty());
     assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    assert!(matches!(
+        db.moderate(db.trusted.staff, id, "remove", "spam").await,
+        Err(Error::Missing)
+    ));
+    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    db.board
+        .report(db.trusted.staff, id, "new report")
+        .await
+        .unwrap();
     db.moderate(db.trusted.staff, id, "remove", "spam")
         .await
         .unwrap();
@@ -1376,11 +1385,12 @@ async fn r7_moderation_preserves_reports_filed_after_page_load() {
         form.push_str(ids);
     }
     let response = app
+        .clone()
         .oneshot(
             Request::post(format!("/admin/en/party/{id}/moderate"))
                 .header(header::HOST, "staff.example.test")
-                .header(header::COOKIE, cookie)
-                .header("x-csrf-token", csrf)
+                .header(header::COOKIE, &cookie)
+                .header("x-csrf-token", &csrf)
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .body(Body::from(form))
                 .unwrap(),
@@ -1388,6 +1398,22 @@ async fn r7_moderation_preserves_reports_filed_after_page_load() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let stale = app
+        .oneshot(
+            Request::post(format!("/admin/en/party/{id}/moderate"))
+                .header(header::HOST, "staff.example.test")
+                .header(header::COOKIE, cookie)
+                .header("x-csrf-token", csrf)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "action=remove&reason=reviewed&report_ids={shown}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::NOT_FOUND);
+    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
     let statuses: Vec<(String, String)> = sqlx::query_as(
         "SELECT reason,status FROM pd_party_reports WHERE post_id=$1 ORDER BY reason",
     )
