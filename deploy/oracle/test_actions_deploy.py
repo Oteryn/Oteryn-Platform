@@ -63,6 +63,40 @@ class NightlyAuthorization(unittest.TestCase):
             deploy.qualify_platform_nightly()
 
 
+    def test_authority_is_rechecked_after_nightly_lookup(self):
+        window = datetime.fromisoformat('2026-11-21T02:17:00+00:00')
+        next_window = datetime.fromisoformat('2026-11-22T02:17:00+00:00')
+        for rejection, expected_calls in [
+            ('workflow canceled', ['nightly', 'workflow']),
+            ('protected main advanced', ['nightly', 'workflow', 'head']),
+            ('window changed', ['nightly', 'workflow', 'head', 'window']),
+        ]:
+            calls = []
+            def nightly():
+                calls.append('nightly')
+                return window
+            def workflow(*_):
+                calls.append('workflow')
+                if rejection == 'workflow canceled':
+                    raise ValueError(rejection)
+            def head(*_):
+                calls.append('head')
+                if rejection == 'protected main advanced':
+                    raise ValueError(rejection)
+            def current_window():
+                calls.append('window')
+                return next_window
+
+            with self.subTest(rejection=rejection), \
+                 patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly), \
+                 patch.object(deploy, 'qualify_workflow', side_effect=workflow), \
+                 patch.object(deploy, 'qualify', side_effect=head), \
+                 patch.object(deploy, 'nightly_window', side_effect=current_window), \
+                 self.assertRaisesRegex(ValueError, rejection):
+                deploy.reauthorize_platform('a' * 40, 100, 1)
+            self.assertEqual(calls, expected_calls)
+
+
 class SourceArtifactPermissions(unittest.TestCase):
     def test_private_operator_umask_does_not_make_public_build_inputs_unreadable(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -285,8 +319,9 @@ class LivePortalDeployment(unittest.TestCase):
              patch.object(deploy, 'portal_ready', side_effect=probe or (lambda: calls.append((['probe'], {})))), \
              patch.object(deploy, 'contract', return_value='portal-rs-1'), \
              patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
-             patch.object(deploy, 'reauthorize', side_effect=reauthorize), \
-             patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly), \
+             patch.object(deploy, 'qualify_workflow', side_effect=reauthorize), \
+             patch.object(deploy, 'qualify'), \
+             patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly or deploy.nightly_window), \
              patch.object(deploy, 'wait_platform', side_effect=ready or (lambda image_id: calls.append((['ready', image_id], {})))):
             try:
                 return deploy.platform_deploy(Path('/archive'), self.sha, 100, 1), calls, compose
@@ -369,7 +404,7 @@ class LivePortalDeployment(unittest.TestCase):
                      patch.object(deploy, 'api', side_effect=[
                          {'workflow_runs': [green]}, {'workflow_runs': [green]}, {'workflow_runs': runs},
                      ]) as api, self.assertRaisesRegex(ValueError, 'nightly E2E') as raised:
-                    clock.now.side_effect = [previous, previous, previous, previous, current, current]
+                    clock.now.side_effect = [previous] * 6 + [current, current]
                     self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
                 self.assertEqual(api.call_count, 3)
                 self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))

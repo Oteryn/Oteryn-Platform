@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
-import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { get } from 'node:https';
 import { tmpdir } from 'node:os';
-import { basename, join, relative } from 'node:path';
+import { join } from 'node:path';
+import { discoveredCases, planNightly } from './nightly-plan.mjs';
 import { createInterface } from 'node:readline';
 import { setTimeout as pollInterval } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -22,18 +23,7 @@ if (tier === 'smoke' && !shard && smokeProjects.every(name => manifest.projects.
     '--grep', ` (?:${manifest.titles.map(escape).join('|')})$`,
   ];
 } else if (tier === 'nightly' && project && ['1', '2', '3'].includes(shard)) {
-  const specs = (await readdir(join(cwd, 'specs'), { recursive: true, withFileTypes: true }))
-    .filter(file => file.isFile() && /\.(spec|test)\.[cm]?[jt]sx?$/.test(file.name))
-    .map(file => relative(cwd, join(file.parentPath, file.name)));
-  specs.push('tiers/smoke.spec.mjs');
-  specs.sort();
-  // Keep the staff bootstrap with consumers of its browser storage state.
-  const usesStaffState = file => /^(?:admin\.|content\.|game-sim-bazaar\.|routes\.|staff-)/.test(basename(file));
-  const files = shard === '1'
-    ? specs.filter(usesStaffState)
-    : specs.filter(file => !usesStaffState(file)).filter((_, index) => index % 2 === Number(shard) - 2);
-  if (!files.length) throw new Error('Empty nightly shard');
-  selection = [`--project=${project}`, ...files.map(file => `/${escape(file)}$`)];
+  selection = [`--project=${project}`];
 } else {
   throw new Error('Usage: node tiers/run.mjs smoke [PROJECT] | nightly PROJECT SHARD');
 }
@@ -58,9 +48,9 @@ const probe = () => new Promise(resolve => {
   request.on('error', () => resolve(false));
 });
 
-function launch(script, args, log) {
+function launch(script, args, log, childEnv = env) {
   const output = createWriteStream(join(scratch, log), { mode: 0o600 });
-  const child = spawn(process.execPath, [script, ...args], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [script, ...args], { cwd, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.pipe(output, { end: false });
   child.stderr.pipe(output, { end: false });
   child.on('close', () => output.end());
@@ -97,11 +87,25 @@ try {
   }
 
   const args = [join(scratch, 'env.json'), 'test', '--config=tiers/playwright.config.mjs', ...selection];
-  const listing = await launch('run.mjs', [...args, '--list', '--reporter=list'], 'list.log').done;
-  const list = await readFile(join(scratch, 'list.log'), 'utf8');
-  const count = Number(/^Total: (\d+) tests? in /m.exec(list)?.[1]);
-  if (listing !== 0 || !count) throw new Error('Playwright discovery failed or selected no tests');
-  if (tier === 'smoke') {
+  let count;
+  let nightlyCases;
+  if (tier === 'nightly') {
+    const plans = await planNightly(async (filters, label) => {
+      const logfile = `discovery-${label}.json`;
+      const status = await launch('run.mjs', [...args, ...filters, '--list', '--reporter=json'], logfile,
+        { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: '' }).done;
+      if (status !== 0) throw new Error(`Playwright discovery failed for ${label}`);
+      return discoveredCases(JSON.parse(await readFile(join(scratch, logfile), 'utf8')).suites);
+    });
+    const plan = plans[Number(shard) - 1];
+    args.push(...plan.filters);
+    nightlyCases = plan.cases;
+    count = nightlyCases.length;
+  } else {
+    const listing = await launch('run.mjs', [...args, '--list', '--reporter=list'], 'list.log').done;
+    const list = await readFile(join(scratch, 'list.log'), 'utf8');
+    count = Number(/^Total: (\d+) tests? in /m.exec(list)?.[1]);
+    if (listing !== 0 || !count) throw new Error('Playwright discovery failed or selected no tests');
     for (const name of smokeProjects) {
       for (const title of manifest.titles) {
         const matches = list.split('\n').filter(line => line.trimStart().startsWith(`[${name}] `) && line.endsWith(` › ${title}`));
@@ -133,6 +137,10 @@ try {
   }
   suites.forEach(collect);
   if (tier === 'nightly') {
+    const completed = discoveredCases(suites);
+    if (JSON.stringify(completed) !== JSON.stringify(nightlyCases)) {
+      throw new Error('Nightly execution differs from the discovered shard');
+    }
     await writeFile(join(cwd, 'tier-report.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Portal E2E</title><h1>Portal E2E</h1><p>${summary}</p><table><thead><tr><th>Source</th><th>Outcome</th></tr></thead><tbody>${rows.join('\n')}</tbody></table></html>\n`);
   }
   if (status !== 0 || stats.expected !== count || stats.unexpected || stats.flaky || stats.skipped) {
