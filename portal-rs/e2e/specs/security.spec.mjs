@@ -60,6 +60,7 @@ test('login rate limit refuses the sixth wrong password and supplies Retry-After
 
 
 test('recovery key: one-time reset revokes sessions; regenerate and revoke',async({page,browser},info)=>{
+ test.setTimeout(180_000); // Real password hashing and quota waits run in the instrumented portal.
  const lang=info.project.metadata.locale, account=await register(page,lang);
  await login(page,lang,account);
  await page.goto(`/${lang}/account/recovery-key`);
