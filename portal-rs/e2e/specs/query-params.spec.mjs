@@ -48,7 +48,7 @@ const publicRoutes = {
     ...rankings.map(kind => [`rankings/${kind}`, {page: '1', vocation: '0', world}]),
     ['/highscores', {page: '1', vocation: '0', world}, {}, '/pl/rankings/level'],
     ['online', {world, sort: 'level'}],
-    ['deaths', {world}],
+    ['deaths', {world: 'Example'}],
     ['houses', {world}],
     ['guilds', {q: 'e2e control query', page: '1'}],
     ['party', {world, purpose: '', level: '100', profession: ''}],
@@ -60,7 +60,7 @@ const publicRoutes = {
   statistics: [
     ...growth.map(kind => [`stats/rankings/${kind}`, {world, vocation: '0', pvp: 'open', page: '1'}]),
     ['stats/world', statsDates, statsDates],
-    ['stats/guilds', {guild: world, compare: world, days: '7'}],
+    ['stats/guilds', {guild: 'Rose', compare: 'Second', days: '7'}, {guild: 'Rose'}],
     ['stats/compare', {ids: world, metric: 'level', start: statsDates.start, end: statsDates.end}],
   ],
 };
@@ -95,6 +95,21 @@ const auditRoute = ['/admin/console/audit', {
   admin: world, request_id: world, operation: 'rbac.role.created', target: world, lang: 'pl',
 }];
 
+const gatedListings = new Map([
+  ['deaths', {
+    textParameters: ['world'],
+    notice: {pl: 'Dane o zgonach są obecnie niedostępne.', en: 'Death records are currently unavailable.'},
+  }],
+  ['guilds', {
+    textParameters: ['q'],
+    notice: {pl: 'Informacje o gildiach są niedostępne.', en: 'Guild information is unavailable.'},
+  }],
+  ['stats/guilds', {
+    textParameters: ['guild', 'compare'],
+    notice: {pl: 'Niedostępne', en: 'Unavailable'},
+  }],
+]);
+
 const invalidRequest = {pl: 'Nieprawidłowe żądanie', en: 'Invalid request'};
 const invalidMessages = [
   [/^(?:rankings\/|\/highscores$)/, {pl: 'Nieprawidłowe zapytanie', en: 'Invalid query'}],
@@ -117,6 +132,7 @@ async function inspectDocument(page, html, url, parameter) {
     return {
       lang: doc.documentElement.lang,
       mainCount: doc.querySelectorAll('main').length,
+      notices: [...doc.querySelectorAll('main [role=status]')].map(element => element.textContent.trim()),
       content: doc.querySelector('main')?.textContent ?? '',
       markerCount: doc.querySelectorAll('query-probe, [data-query-probe="marker"]').length,
       effectiveValues: controls.flatMap(element => {
@@ -175,10 +191,16 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
   const path = route.startsWith('/') ? route : `/${locale}/${route}`;
   const expectedPath = destination ?? path;
   const expectedLocale = destination ? 'pl' : locale;
+  const gated = gatedListings.get(route);
   let slowest = 0;
   await test.step(path, async () => {
     for (const [parameter, valid] of Object.entries(parameters)) {
-      for (const probe of cases(parameter, valid, locale)) {
+      const probes = cases(parameter, valid, locale);
+      if (gated) probes.unshift({name: 'valid', values: [valid]});
+      if (route === 'stats/guilds' && parameter === 'days') {
+        probes.push({name: 'under minimum', values: ['0']}, {name: 'over maximum', values: ['32']});
+      }
+      for (const probe of probes) {
         await test.step(`${parameter}: ${probe.name}`, async () => {
           const query = new URLSearchParams(required);
           if (route.startsWith('/admin') && 'lang' in parameters) query.set('lang', locale);
@@ -191,7 +213,14 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           const response = await readResponse(page, `${path}?${query}`, locale, browserNavigation);
           const label = `${path} ${parameter} (${probe.name})`;
           expect.soft(new URL(response.url).pathname, label).toBe(expectedPath);
-          expect.soft([200, 400], `${label} HTTP status`).toContain(response.status);
+          if (gated) {
+            // Punctuation and Unicode are well-formed in these bounded text fields.
+            const wellFormed = probe.name === 'valid' || gated.textParameters.includes(parameter)
+              && !['overlong', 'repeated'].includes(probe.name);
+            expect.soft(response.status, `${label} HTTP status`).toBe(wellFormed ? 503 : 400);
+          } else {
+            expect.soft([200, 400], `${label} HTTP status`).toContain(response.status);
+          }
 
           slowest = Math.max(slowest, response.elapsed);
           expect.soft(response.elapsed, `${label} response timing recorded`).toBeGreaterThanOrEqual(0);
@@ -203,6 +232,11 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           );
           expect.soft(document.markerCount, `${label} inert HTML marker in DOM`).toBe(0);
           if (response.status === 400) expectLocalizedError(document, expectedLocale, route, label);
+          if (gated && response.status === 503) {
+            expect.soft(document.lang, label).toBe(expectedLocale);
+            expect.soft(document.mainCount, `${label} unavailable page`).toBe(1);
+            expect.soft(document.notices, `${label} unavailable message`).toEqual([gated.notice[expectedLocale]]);
+          }
           if (response.status === 200) {
             expect.soft(document.mainCount, `${label} listing content`).toBe(1);
           }
