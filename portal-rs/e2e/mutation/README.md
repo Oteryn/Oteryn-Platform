@@ -34,6 +34,8 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Session sign-out-others POST and DELETE, both prefixes | Only the current session remains | Yes | Anonymous refused. Authenticated actors cannot target another account | CSRF-only forms | Each successful self-action records its own event |
 | Session sign-out-all POST, both prefixes | Login shown and all sessions removed | Yes | Anonymous refused. Authenticated actors cannot target another account | CSRF-only form | Replayed token refused with unchanged state |
 | Login and MFA login POST, both prefixes | Login lands on the account homepage and persists a session and login event | Yes | Signed-in foreign player and content editor retain their own sessions | Localized validation | Login intentionally rotates the acting session |
+| Registration and work challenge, both prefixes | The real browser solves the work challenge and registration stores one pending account | Yes | Signed-in player and content editor cannot register a second account from their active session. Work is bound to the issuing form | Registration has localized field errors. Challenge issuance has a CSRF header and no user fields | Successful registration consumes the work challenge |
+| Verification and resend POST, both prefixes | The local mail sink receives verification and resend messages. Submitting the mailed form activates the account | Yes | Signed-in player and content editor cannot resend for a different account. Verification is authorized by possession of the mailed capability | Malformed capabilities show localized validation. Resend gives generic feedback to preserve account privacy | Activation consumes one token. Resend cooldown preserves the mail and token counts on replay |
 | Logout POST, both prefixes | Login page shown and only the acting session revoked | Yes | Signed-in foreign player and content editor cannot revoke the target session | CSRF-only form | Replayed token refused with unchanged state |
 | Sudo POST, both prefixes | Browser confirms the password and persists recent authorization for the acting session | Yes | Other player and content editor cannot authorize the target | Localized invalid password feedback | Fresh successful confirmation renews the session proof |
 | Password change POST and PUT, both prefixes | Real form changes the credential, transaction records the security event and revokes old sessions | Yes | Other player and content editor refused | Localized input validation | Old request cannot change the credential again |
@@ -61,6 +63,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | News deletion (POST and DELETE) | Editor index and public 404, durable row removed and audited | Yes | Foreign player and support staff | Missing, overlength, malformed and stale revisions conflict | Repeat returns 404 with one deletion |
 | Event create, update and status (POST and PUT) | Draft, edit, schedule, publish, archive and return to draft. Status, version, translation and staff IDs checked | Yes | Foreign player and support staff | Localized validation of dates, titles and states | Stale revisions refused on updates and status changes |
 | Wiki create, update, revision restore and review actions | Visible draft, review, published and archived states. Changes persist bilingual revisions and a review history | Yes | Foreign player and support staff | Localized malformed text, slug and revision feedback | Stale edits, restores and transitions are refused |
+| Media upload and deletion (POST and DELETE) | Upload shows and serves the image. Stored bytes, dimensions, thumbnail and audit entry are verified before deletion | Yes | Foreign player and support staff | Bad metadata, image bytes and IDs are refused | Deleted bytes stay unavailable after replay |
 | Staff roles (create, set permissions, grant and revoke) | Role and membership forms are visible. Permissions, members and each audit action persist | Yes | Player and content editor | Empty, overlong and malformed values refused | Each deliberate administrative change is audited |
 | `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous | Yes | Submission replay |
 
@@ -118,6 +121,14 @@ control request. Game player searches also require an agent with the player
 query capability. A Game support user reaches the unavailable results page
 from a valid POST and sees no form or persisted request. The matrix verifies
 CSRF, an unrelated player and content editor, and malformed searches.
+
+The world catalogue panel displays no active version or mutation forms with the
+harness's pinned unsupported import candidate. Its publish, visibility, and
+name submissions with a missing version return 404 for a platform admin and
+403 for an unrelated player or content editor. The test verifies that the
+legacy and native pointers and world audit records stay unchanged. The
+publisher helper supplies character projections and receipts. The world
+panel requires an accepted catalogue artifact that this harness cannot publish.
 
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 

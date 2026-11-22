@@ -2867,3 +2867,476 @@ test('wiki editorial forms persist bilingual revisions and each review action un
     await Promise.all(contexts.map(context => context.close()));
   }
 });
+
+test('editorial media forms persist verified bytes and remove one asset through each alias', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const editor = await seededPlayer(page, lang, 'content_editor');
+    const outsiders = [];
+    for (const role of [undefined, 'support']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const other = await context.newPage();
+      await seededPlayer(other, lang, role);
+      await other.goto(`/${lang}/account/privacy`);
+      outsiders.push({ other, token: (await prepare(other, formSelector)).fields._csrf });
+    }
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAZAAAAAUCAYAAACj6Wu2AAAAaUlEQVR4nO3VMQ0AIQDAQMxh5LXhEzR8F0Jyw+3dOua3NgD8NW4HAPAmAwEgMRAAEgMBIDEQABIDASAxEAASAwEgMRAAEgMBIDEQABIDASAxEAASAwEgMRAAEgMBIDEQABIDASAxEACSAymFjKpAKJtZAAAAAElFTkSuQmCC', 'base64');
+    const image = { name: 'local.png', mimeType: 'image/png', buffer: png };
+    const path = `/admin/media?lang=${lang}`;
+    const upload = 'main form[action="/admin/media"]';
+    const origin = new URL(info.project.use.baseURL).origin;
+    const target = new URL('/admin/media', origin).href;
+    for (const method of ['POST', 'DELETE']) {
+      expect((await page.goto(path)).status()).toBe(200);
+      const alt = `Matrix verified image ${randomUUID()}`;
+      const snapshot = () => query(
+        'SELECT id,alt_text,mime_type,width,height,octet_length(content)>0 AS stored,thumbnail IS NOT NULL AS thumb FROM media WHERE alt_text=$1',
+        [alt],
+      );
+      const token = await page.locator(`${upload} [name=_csrf]`).inputValue();
+      const send = (screen, csrf, multipart) => screen.request.post(target, {
+        multipart, headers: { origin, ...(csrf === undefined ? {} : { 'x-csrf-token': csrf }) }, maxRedirects: 0,
+      });
+      const uploadAudit = () => query(
+        "SELECT target FROM audit_log WHERE actor=$1 AND action='editorial_media.uploaded' ORDER BY created_at,id",
+        [editor.id],
+      );
+      const before = await uploadAudit();
+      expect(await snapshot()).toEqual([]);
+      for (const badToken of [undefined, 'invalid']) {
+        expect((await send(page, badToken, { image, alt_text: alt })).status()).toBe(403);
+        expect(await snapshot()).toEqual([]);
+        expect(await uploadAudit()).toEqual(before);
+      }
+      for (const { other, token } of outsiders) {
+        expect((await send(other, token, { image, alt_text: alt })).status()).toBe(403);
+        expect(await snapshot()).toEqual([]);
+        expect(await uploadAudit()).toEqual(before);
+      }
+      for (const input of [
+        { image, alt_text: '' }, { image, alt_text: 'a'.repeat(501) },
+        { image: { ...image, name: 'local.jpeg', mimeType: 'image/jpeg' }, alt_text: alt },
+        { image: { ...image, buffer: Buffer.alloc(0) }, alt_text: alt },
+      ]) {
+        expect((await send(page, token, input)).status()).toBe(422);
+        expect(await snapshot()).toEqual([]);
+        expect(await uploadAudit()).toEqual(before);
+      }
+
+      await page.locator(`${upload} [name=image]`).setInputFiles(image);
+      await page.locator(`${upload} [name=alt_text]`).fill(alt);
+      await page.locator(`${upload} button`).click();
+      const visible = page.getByRole('img', { name: alt, exact: true });
+      await expect(visible).toBeVisible();
+      const [stored] = await snapshot();
+      expect(stored).toEqual({
+        id: expect.any(String), alt_text: alt, mime_type: 'image/png',
+        width: 400, height: 20, stored: true, thumb: true,
+      });
+      expect(await uploadAudit()).toEqual([...before, { target: stored.id }]);
+      const thumb = await visible.getAttribute('src');
+      const content = thumb.replace(/\/thumbnail$/, '/content');
+      const fetched = await page.request.get(content);
+      expect(fetched.status()).toBe(200);
+      expect(fetched.headers()['content-type']).toBe('image/png');
+      expect((await fetched.body()).length).toBeGreaterThan(0);
+
+      const selector = `main form[action="/admin/media/${stored.id}/delete"]`;
+      const deletion = await prepare(page, selector);
+      const revoke = method === 'DELETE' ? new URL(`/admin/media/${stored.id}`, origin).href : deletion.url;
+      await rejected({ page, url: revoke, fields: deletion.fields, snapshot, baseline: [stored], method });
+      for (const { other, token } of outsiders) {
+        expect((await sendForm(other, revoke, { ...deletion.fields, _csrf: token }, method)).status()).toBe(403);
+        expect(await snapshot()).toEqual([stored]);
+      }
+      const malformed = new URL(`/admin/media/not-an-id${method === 'POST' ? '/delete' : ''}`, origin);
+      expect((await sendForm(page, malformed.href, deletion.fields, method)).status()).toBe(400);
+      expect(await snapshot()).toEqual([stored]);
+      await useFormMethod(page, deletion.url, method, () => submit(page, selector), revoke);
+      await expect(page).toHaveURL(new URL('/admin/media', origin).href);
+      await expect(visible).toHaveCount(0);
+      expect(await snapshot()).toEqual([]);
+      expect((await sendForm(page, revoke, deletion.fields, method)).status()).toBe(404);
+      expect((await page.request.get(content)).status()).toBe(404);
+      expect(await snapshot()).toEqual([]);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+for (const prefix of ['locale', 'unprefixed']) {
+  test(`email change and delivered capabilities use the ${prefix} aliases exactly once`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const contexts = [];
+    const route = path => prefix === 'locale' ? `/${lang}${path}` : path;
+    const open = async role => {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      });
+      contexts.push(context);
+      const screen = await context.newPage();
+      return { screen, account: await seededPlayer(screen, lang, role) };
+    };
+    const activateRecovery = async (screen, owner) => {
+      expect((await screen.goto(`/${lang}/account/recovery-key`)).status()).toBe(200);
+      await submit(screen, formSelector, { current_password: owner.password });
+      const key = (await screen.locator('main .op-code').innerText()).trim();
+      expect(key.length).toBeGreaterThan(0);
+      await submit(screen, formSelector, { current_password: owner.password, recovery_key: key });
+      return key;
+    };
+    const status = lang === 'pl' ? 'Odmowa lub nieprawidłowe dane.' : 'Request refused or invalid input.';
+    const pendingStatus = lang === 'pl'
+      ? 'Sprawdź oba adresy e-mail, aby potwierdzić lub anulować zmianę.'
+      : 'Check both email addresses for confirmation and cancellation links.';
+    const requestPath = '/account/security/email';
+    try {
+      const owner = await seededPlayer(page, lang);
+      const wrong = [await open(), await open('content_editor')];
+      const sample = await open();
+      const key = await activateRecovery(page, owner);
+      const sampleKey = await activateRecovery(sample.screen, sample.account);
+      const state = (account = owner) => query(
+        `SELECT a.email,a.native_security_generation::int AS generation,
+           (SELECT jsonb_agg(jsonb_build_object('id',e.id,'email',e.new_email,'kind',e.kind,
+               'immediate',e.immediate,'confirmed',e.confirmed_at IS NOT NULL,
+               'applied',e.applied_at IS NOT NULL,'reverted',e.reverted_at IS NOT NULL,
+               'cancelled',e.cancelled_at IS NOT NULL)
+               ORDER BY e.id) FROM account_email_changes e WHERE e.account_id=a.id) AS changes
+         FROM accounts a WHERE a.id=$1`,
+        [account.id],
+      );
+      const email = `matrix-changed-${randomUUID()}@local.test`;
+      const values = { email, email_confirmation: email, current_password: owner.password, proof: key, recovery: true };
+      const opening = async (screen, fields) => {
+        expect((await screen.goto(route(requestPath))).status()).toBe(200);
+        return prepare(screen, formSelector, fields);
+      };
+      const before = await state();
+      expect(before).toEqual([{ email: owner.email, generation: expect.any(Number), changes: null }]);
+      const request = await opening(page, values);
+      await rejected({ page, ...request, snapshot: state, baseline: before });
+      for (const actor of wrong) {
+        const theirBefore = await state(actor.account);
+        const theirForm = await opening(actor.screen, {});
+        const refused = await sendForm(actor.screen, request.url, { ...request.fields, _csrf: theirForm.fields._csrf });
+        expect(refused.status()).toBe(302);
+        await actor.screen.goto(new URL(refused.headers().location, request.url).href);
+        await expect(actor.screen.getByRole('status')).toHaveText(status);
+        expect(await state()).toEqual(before);
+        expect(await state(actor.account)).toEqual(theirBefore);
+      }
+      const samples = [
+        { fields: { email: '', email_confirmation: '' }, main: true },
+        { fields: { email: `${'a'.repeat(255)}@local.test` } },
+        { fields: { recovery: 'broken' } },
+        { fields: { email_confirmation: `mismatch-${email}` }, main: true },
+      ];
+      for (const { fields, main } of samples) {
+        const screen = main ? page : sample.screen;
+        const actor = main ? owner : sample.account;
+        const actorBefore = await state(actor);
+        const offer = await opening(screen, {
+          ...values, current_password: actor.password, proof: main ? key : sampleKey, ...fields,
+        });
+        const refused = await sendForm(screen, offer.url, offer.fields);
+        expect(refused.status()).toBe(302);
+        await screen.goto(new URL(refused.headers().location, offer.url).href);
+        await expect(screen.getByRole('status')).toHaveText(status);
+        expect(await state(actor)).toEqual(actorBefore);
+      }
+      // The owner has three allowed submissions in this hour, including the two validation cases above.
+      await opening(page, values);
+      await submit(page, formSelector, values);
+      await expect(page.getByRole('status')).toHaveText(pendingStatus);
+      const pending = { id: expect.any(String), email, kind: 'primary', immediate: true,
+        confirmed: false, applied: false, reverted: false, cancelled: false };
+      expect(await state()).toEqual([{ ...before[0], changes: [pending] }]);
+      const delivered = {};
+      for (const [operation, mailbox] of [['confirm', email], ['revert', owner.email]]) {
+        const pattern = new RegExp(`https://localhost:\\d+/email-change/${operation}/[a-f0-9]{64}`);
+        const mailed = new URL(await mailLink(page, mailbox, pattern, 120_000));
+        delivered[operation] = route(mailed.pathname);
+      }
+      for (const [operation, changes, nextEmail] of [
+        ['confirm', { confirmed: true, applied: true }, email],
+        ['revert', { confirmed: true, applied: true, reverted: true }, owner.email],
+      ]) {
+        const current = await state();
+        const target = delivered[operation];
+        expect((await page.goto(target)).status()).toBe(200);
+        const form = await prepare(page, formSelector);
+        await rejected({ page, ...form, snapshot: state, baseline: current });
+        const malformed = ['x', 'a'.repeat(65), 'z'.repeat(64), 'a'.repeat(63)];
+        for (const capability of malformed) {
+          const url = new URL(route(`/email-change/${operation}/${capability}`), form.url).href;
+          const refused = await sendForm(page, url, form.fields);
+          expect(refused.status()).toBe(302);
+          await page.goto(encodeURI(refused.headers().location));
+          await expect(page.getByRole('status')).toHaveText(status);
+          expect(await state()).toEqual(current);
+        }
+        expect((await page.goto(target)).status()).toBe(200);
+        await submit(page, formSelector);
+        await expect(page).toHaveURL(new RegExp(`/${lang}/login$`));
+        const applied = { email: nextEmail, generation: current[0].generation + 1,
+          changes: [{ ...pending, ...changes }] };
+        expect(await state()).toEqual([applied]);
+        expect((await page.goto(target)).status()).toBe(200);
+        await submit(page, formSelector);
+        await expect(page.getByRole('status')).toHaveText(status);
+        expect(await state()).toEqual([applied]);
+      }
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
+
+for (const prefix of ['locale', 'unprefixed']) {
+  test(`registration and verification ${prefix} aliases create one verified account through the real work challenge`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const alias = prefix === 'locale' ? `/${lang}` : '';
+    const origin = new URL(info.project.use.baseURL).origin;
+    const contexts = [];
+    try {
+      const wrong = [];
+      for (const role of [undefined, 'content_editor']) {
+        const context = await browser.newContext({ baseURL: origin, ignoreHTTPSErrors: true, locale: lang });
+        contexts.push(context);
+        const actor = await context.newPage();
+        await seededPlayer(actor, lang, role);
+        await actor.goto(`/${lang}/account/privacy`);
+        wrong.push({ actor, token: (await prepare(actor, formSelector)).fields._csrf });
+      }
+      const budget = async (name, remaining) => {
+        await expect.poll(async () => {
+          const [row] = await query(
+            "SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits WHERE limiter_name=$1 AND window_start=date_trunc('minute',clock_timestamp())",
+            [name],
+          );
+          return row.count;
+        }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(remaining);
+      };
+      const email = `matrix-registration-${randomUUID()}@local.test`;
+      const secret = password();
+      await seedPasswordRange(secret);
+      const state = () => query(
+        'SELECT id,status,email_verified_at IS NOT NULL AS verified FROM accounts WHERE lower(email)=$1',
+        [email],
+      );
+      expect((await page.goto(`/${lang}/register`)).status()).toBe(200);
+      const rendered = page.locator(formSelector);
+      const terms = await rendered.locator('[name=terms]').getAttribute('value');
+      const privacy = await rendered.locator('[name=privacy]').getAttribute('value');
+      const values = { email, password: secret, password_confirmation: secret };
+      const form = await prepare(page, formSelector, { ...values, terms, privacy });
+      const register = new URL(`${alias}/register`, form.url).href;
+      const challenge = new URL(`${alias}/register/abuse/challenge`, form.url).href;
+      expect(await state()).toEqual([]);
+      await rejected({ page, url: register, fields: form.fields, snapshot: state, baseline: [] });
+      await budget('identity-registration-attempt', 2);
+      await budget('identity-registration', 1);
+      for (const { actor, token } of wrong) {
+        const response = await sendForm(actor, register, { ...form.fields, _csrf: token, email: '' });
+        expect(response.status()).toBe(303);
+        expect(response.headers().location).toBe('/account');
+        expect(await state()).toEqual([]);
+      }
+      await budget('identity-registration-attempt', 0);
+      await budget('identity-registration', 0);
+      const invalid = lang === 'pl' ? 'Podaj poprawny adres e-mail.' : 'Enter a valid e-mail address.';
+      for (const malformed of ['', 'x'.repeat(255) + '@local.test', '123', 'a@']) {
+        const response = await sendForm(page, register, { ...form.fields, email: malformed });
+        expect(response.status()).toBe(422);
+        expect(await response.text()).toContain(invalid);
+        expect(await state()).toEqual([]);
+      }
+
+      await budget('identity-registration-challenge', 4);
+      const binding = createHash('sha256').update(form.fields._csrf).digest();
+      const works = () => query('SELECT count(*)::int AS pending FROM registration_work WHERE form_hash=$1', [binding]);
+      const baseline = await works();
+      for (const csrf of [undefined, 'invalid']) {
+        const response = await page.request.post(challenge, {
+          headers: { origin, ...(csrf === undefined ? {} : { 'x-csrf-token': csrf }) },
+        });
+        expect(response.status()).toBe(403);
+        expect(await works()).toEqual(baseline);
+        expect(await state()).toEqual([]);
+      }
+      const renderedChallenge = new URL('/register/abuse/challenge', form.url).href;
+      const rewriteChallenge = route => route.continue({ url: challenge });
+      const registration = async route => {
+        if (route.request().method() === 'POST') {
+          try {
+            expect(await works()).toEqual([{ pending: baseline[0].pending + 1 }]);
+          } finally {
+            await route.continue({ url: register });
+          }
+        } else {
+          await route.continue();
+        }
+      };
+      if (renderedChallenge !== challenge) await page.route(renderedChallenge, rewriteChallenge);
+      await page.route(form.url, registration);
+      try {
+        const issuance = page.waitForResponse(response =>
+          new URL(response.url()).pathname.endsWith('/register/abuse/challenge') && response.request().method() === 'POST'
+        );
+        await submit(page, formSelector, { ...values, terms: true, privacy: true });
+        expect((await issuance).status()).toBe(200);
+        await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox$`), { timeout: 270_000 });
+      } finally {
+        await page.unroute(form.url, registration);
+        await page.unroute(renderedChallenge, rewriteChallenge);
+      }
+      const [pending] = await state();
+      expect(pending).toEqual({ id: expect.any(String), status: 'pending_verification', verified: false });
+      expect(await works()).toEqual(baseline);
+
+      const inbox = `/${lang}/register/check-inbox`;
+      const resendPage = `/${lang}/verify-email/resend`;
+      expect((await page.goto(resendPage)).status()).toBe(200);
+      const resend = await prepare(page, formSelector, { email });
+      const targetResend = new URL(`${alias}/verify-email/resend`, resend.url).href;
+      const delivery = async () => ({
+        account: await state(),
+        jobs: (await query("SELECT count(*)::int AS count FROM outbox WHERE kind='email.verify' AND payload->>'account_id'=$1", [pending.id]))[0].count,
+        links: (await query("SELECT count(*)::int AS count FROM account_email_tokens WHERE account_id=$1 AND used_at IS NULL", [pending.id]))[0].count,
+      });
+      const starting = { account: [pending], jobs: 1, links: 1 };
+      expect(await delivery()).toEqual(starting);
+      await rejected({ page, url: targetResend, fields: resend.fields, snapshot: delivery, baseline: starting });
+      await budget('identity-registration', 3);
+      for (const { actor, token } of wrong) {
+        const ignored = await sendForm(actor, targetResend, { ...resend.fields, _csrf: token });
+        expect(ignored.status()).toBe(303);
+        expect(ignored.headers().location).toBe(inbox);
+        expect(await delivery()).toEqual(starting);
+      }
+      await budget('identity-registration', 0);
+      for (const email of ['', 'x'.repeat(255) + '@local.test', '123', 'a@']) {
+        const response = await sendForm(page, targetResend, { ...resend.fields, email });
+        expect(response.status()).toBe(303);
+        expect(response.headers().location).toBe(inbox);
+        expect(await delivery()).toEqual(starting);
+      }
+      await expect.poll(async () => {
+        const [row] = await query(
+          "SELECT updated_at<=clock_timestamp()-interval '60 seconds' AS available FROM account_email_tokens WHERE account_id=$1",
+          [pending.id],
+        );
+        return row?.available;
+      }, { timeout: 65_000, intervals: [1000] }).toBe(true);
+      await budget('identity-registration', 3);
+      expect((await page.goto(resendPage)).status()).toBe(200);
+      const repeat = await prepare(page, formSelector, { email });
+      await useFormMethod(page, repeat.url, 'POST', () => submit(page, formSelector, { email }), targetResend);
+      await expect(page).toHaveURL(new URL(inbox, resend.url).href);
+      const resent = { ...starting, jobs: 2 };
+      expect(await delivery()).toEqual(resent);
+      expect((await sendForm(page, targetResend, repeat.fields)).status()).toBe(303);
+      expect(await delivery()).toEqual(resent);
+
+      const link = await mailLink(page, email, /https:\/\/localhost:\d+\/(?:pl|en)\/verify-email\?token=(?:3D)?[a-f0-9]{64}/, 120_000);
+      await budget('identity-verification-source', 3);
+      expect((await page.goto(link)).status()).toBe(200);
+      const verification = await prepare(page, formSelector);
+      const target = new URL(`${alias}/verify-email`, verification.url);
+      target.search = new URL(verification.url).search;
+      const pendingState = [pending];
+      await rejected({ page, url: target.href, fields: verification.fields, snapshot: state, baseline: pendingState });
+      for (const attempt of ['', 'x'.repeat(513), 'not-a-token', '0'.repeat(63)]) {
+        const rejectedToken = new URL(target);
+        rejectedToken.searchParams.set('token', attempt);
+        const refused = await sendForm(page, rejectedToken.href, verification.fields);
+        expect(refused.status()).toBe(422);
+        expect(await refused.text()).toContain(lang === 'pl'
+          ? 'Ten link jest nieprawidłowy lub wygasł.'
+          : 'This link is invalid or has expired.');
+        expect(await state()).toEqual(pendingState);
+      }
+      await useFormMethod(page, verification.url, 'POST', () => submit(page, formSelector), target.href);
+      await expect(page.locator('main')).toContainText(lang === 'pl'
+        ? 'Twój adres e-mail został zweryfikowany.'
+        : 'Your e-mail has been verified.');
+      const verified = [{ ...pending, verified: true, status: 'active' }];
+      expect(await state()).toEqual(verified);
+      const used = () => query(
+        'SELECT count(*)::int AS count FROM account_email_tokens WHERE account_id=$1 AND used_at IS NOT NULL',
+        [pending.id],
+      );
+      expect(await used()).toEqual([{ count: 1 }]);
+      expect((await sendForm(page, target.href, verification.fields)).status()).toBe(403);
+      expect(await state()).toEqual(verified);
+      expect(await used()).toEqual([{ count: 1 }]);
+      await login(page, lang, values);
+      await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
+
+test('world catalogue actions require a supported imported version and catalogue permissions', async ({ page, browser }, info) => {
+  test.setTimeout(420_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    await seededPlayer(page, lang, 'platform_admin');
+    const outsiders = [];
+    for (const role of [undefined, 'content_editor']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const screen = await context.newPage();
+      await seededPlayer(screen, lang, role);
+      await screen.goto(`/${lang}/account/privacy`);
+      outsiders.push({ screen, token: (await prepare(screen, formSelector)).fields._csrf });
+    }
+    await page.goto(`/${lang}/account/privacy`);
+    const csrf = (await prepare(page, formSelector)).fields._csrf;
+    const path = '/admin/world';
+    expect((await page.goto(path)).status()).toBe(200);
+    await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? 'Świat gry' : 'Game world');
+    await expect(page.locator('main p code').first()).toBeEmpty();
+    await expect(page.locator('main form[method=post]')).toHaveCount(0);
+    const snapshot = async () => ({
+      active: await query('SELECT version_id,previous_version_id FROM world_active_version WHERE singleton'),
+      catalog: await query('SELECT snapshot_id FROM world_catalog_publication WHERE singleton'),
+      ready: await query("SELECT id FROM world_versions WHERE status='ready' ORDER BY id"),
+      writes: await query("SELECT id FROM audit_log WHERE action LIKE 'world.%' ORDER BY id"),
+    });
+    const baseline = await snapshot();
+    expect(baseline).toEqual({
+      active: [{ version_id: null, previous_version_id: null }], catalog: [{ snapshot_id: null }],
+      ready: [], writes: [],
+    });
+    const version = uuid7();
+    const url = new URL(path, page.url()).href;
+    for (const action of ['publish', 'visibility', 'names']) {
+      const fields = { _csrf: csrf, action, version, kind: 'items', key: 'fixture',
+        allowed: 'true', pl: 'Przedmiot testowy', en: 'Test item' };
+      await rejected({ page, url, fields, snapshot, baseline });
+      for (const { screen, token } of outsiders) {
+        expect((await sendForm(screen, url, { ...fields, _csrf: token })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      const refused = await sendForm(page, url, fields);
+      expect(refused.status()).toBe(404);
+      expect(await snapshot()).toEqual(baseline);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
