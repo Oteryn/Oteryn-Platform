@@ -15,7 +15,7 @@
   <form method="get" class="op-stack">
     <label>{{ self.text("ops-days") }}
       <select name="days" class="op-input">
-        {% for day in 1u8..31u8 %}<option value="{{ day }}"{% if day == selected %} selected{% endif %}>{{ day }}</option>{% endfor %}
+        {% for day in 1u8..31u8 %}<option value="{{ day }}"{% if day == *selected %} selected{% endif %}>{{ day }}</option>{% endfor %}
       </select>
     </label>
     <button type="submit" class="op-button">{{ self.text("ops-show") }}</button>

@@ -9,7 +9,7 @@ const digest = text => createHash('sha256').update(text).digest();
 
 // Seed durable browser state in the disposable database using the same proof
 // fields as admin/src/test_staff.rs. Requests still pass the real route guards.
-async function panelActor(context, lang, staff = false) {
+async function panelActor(context, lang, role = null) {
   const session = randomBytes(32).toString('hex');
   const csrf = randomBytes(32).toString('hex');
   const grant = randomBytes(32).toString('hex');
@@ -23,10 +23,10 @@ async function panelActor(context, lang, staff = false) {
        RETURNING id,password_hash`,
       [`${unique()}@example.test`, lang],
     );
-    if (staff) {
+    if (role) {
       const membership = await connection.query(
-        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'",
-        [account.id],
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2",
+        [account.id, role],
       );
       expect(membership.rowCount).toBe(1);
       const {rows: [{generation}]} = await connection.query(
@@ -43,7 +43,7 @@ async function panelActor(context, lang, staff = false) {
       `INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation)
        SELECT $1,id,now()+interval '15 minutes',now()+interval '1 hour','panel test',$3,$4,native_security_generation
        FROM accounts WHERE id=$2`,
-      [digest(session), account.id, csrf, JSON.stringify(staff ? {mfa_grant: grant} : {})],
+      [digest(session), account.id, csrf, JSON.stringify(role ? {mfa_grant: grant} : {})],
     );
     await connection.query('COMMIT');
     await context.addCookies([{
@@ -70,7 +70,11 @@ const csv = '/admin/operations/rate-limits.csv';
 
 test('platform operations are discoverable and enforce staff-only, read-only access', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;
-  await panelActor(page.context(), lang);
+  await panelActor(page.context(), lang, 'support');
+  expect((await visit(page, '/admin')).status()).toBe(200);
+  for (const [path] of pages) {
+    await expect(page.locator(`nav[data-panel="admin"] a[href="${path}"]`)).toHaveCount(0);
+  }
   for (const [path] of pages) {
     expect((await page.request.get(path)).status(), path).toBe(403);
   }
@@ -80,7 +84,7 @@ test('platform operations are discoverable and enforce staff-only, read-only acc
     baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
   });
   try {
-    await panelActor(staff, lang, true);
+    await panelActor(staff, lang, 'platform_admin');
     const admin = await staff.newPage();
     expect((await visit(admin, '/admin')).status()).toBe(200);
     for (const [path, en, pl] of pages) {
@@ -119,7 +123,7 @@ test('platform operations are discoverable and enforce staff-only, read-only acc
 
 test('analytics drills into the selected qualified UTC bucket', async ({page}, info) => {
   const lang = info.project.metadata.locale;
-  await panelActor(page.context(), lang, true);
+  await panelActor(page.context(), lang, 'platform_admin');
   const authority = process.env.OTERYN_ADMIN_ANALYTICS_AUTHORITY;
   const privacy = process.env.OTERYN_ADMIN_ANALYTICS_PRIVACY;
   const family = 'world_activity_hourly';

@@ -172,9 +172,20 @@ async fn statistics(
 }
 
 async fn rate_rows(pool: &PgPool) -> Result<Rows, StatusCode> {
-    let policies = NamedPolicy::ALL;
-    let names: Vec<_> = policies.iter().map(|p| p.name()).collect();
-    let thresholds: Vec<_> = policies.iter().map(|p| p.limit()).collect();
+    // These older identity adapters call abuse::http::budget directly.
+    let identity = [
+        ("identity-consent-mutation", 10, 60),
+        ("identity-registration-attempt", 5, 60),
+        ("identity-registration-challenge", 5, 60),
+    ];
+    let mut policies: Vec<_> = NamedPolicy::ALL
+        .iter()
+        .map(|policy| (policy.name(), policy.limit(), policy.window_seconds()))
+        .chain(identity)
+        .collect();
+    policies.sort_unstable_by_key(|policy| policy.0);
+    let names: Vec<_> = policies.iter().map(|policy| policy.0).collect();
+    let thresholds: Vec<_> = policies.iter().map(|policy| policy.1).collect();
     // The counter saturates at limit + 1. Each saturated window proves at least
     // one denied key charge, but cannot tell us how many later charges it denied.
     let counts = bounded(
@@ -194,11 +205,11 @@ async fn rate_rows(pool: &PgPool) -> Result<Rows, StatusCode> {
     Ok(policies
         .iter()
         .zip(counts)
-        .map(|(policy, count)| {
+        .map(|((name, limit, window_seconds), count)| {
             vec![
-                policy.name().to_owned(),
-                policy.limit().to_string(),
-                policy.window_seconds().to_string(),
+                (*name).to_owned(),
+                limit.to_string(),
+                window_seconds.to_string(),
                 count.to_string(),
             ]
         })
@@ -287,45 +298,64 @@ async fn system_health(
     );
     page.rows
         .push(vec![page.text("ops-http"), page.text("ops-available")]);
-    let queue = bounded(sqlx::query_as::<_, (i64, i64, i64)>(
-        "SELECT count(*) FILTER (WHERE state = 'pending' AND run_after <= statement_timestamp()),
-                count(*) FILTER (WHERE state = 'running' AND leased_until <= statement_timestamp()),
-                count(*) FILTER (WHERE state = 'done' AND updated_at > statement_timestamp() - interval '5 minutes')
-         FROM outbox WHERE state IN ('pending', 'running') OR updated_at > statement_timestamp() - interval '5 minutes'",
-    ).fetch_one(&pool)).await;
-    let database_ready = queue.is_ok();
-    let database_status = page.text(if database_ready {
+    let (database, queue, incidents) = tokio::join!(
+        bounded(sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&pool)),
+        bounded(sqlx::query_as::<_, (i64, i64, bool)>(
+            "SELECT count(*) FILTER (WHERE state = 'pending' AND run_after <= statement_timestamp()),
+                    count(*) FILTER (WHERE state = 'running' AND leased_until <= statement_timestamp()),
+                    coalesce(bool_or(kind = 'cleanup.rate-limits' AND state = 'done'
+                      AND updated_at > statement_timestamp() - interval '5 minutes'), false)
+             FROM outbox WHERE state IN ('pending', 'running')
+                OR (kind = 'cleanup.rate-limits' AND state = 'done')",
+        ).fetch_one(&pool)),
+        bounded(sqlx::query_as::<_, (String, bool)>(
+            "SELECT to_char(observed AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), binding_conflict
+             FROM (
+               SELECT created_at AS observed, true AS binding_conflict FROM audit_log
+               WHERE action = 'ops.playerdata_binding_conflict' AND actor IS NULL
+               UNION ALL
+               SELECT updated_at AS observed, false FROM outbox WHERE state = 'dead'
+             ) AS incidents
+             WHERE observed > statement_timestamp() - interval '7 days'
+             ORDER BY observed DESC LIMIT 50",
+        ).fetch_all(&pool)),
+    );
+    let database_status = page.text(if database.is_ok() {
         "ops-available"
     } else {
         "ops-unavailable"
     });
     page.rows.push(vec![page.text("ops-db"), database_status]);
-    if let Ok((due, expired, completed)) = queue {
-        for (label, value) in [
-            ("ops-due", due),
-            ("ops-leases", expired),
-            ("ops-recent-completions", completed),
-        ] {
-            page.rows.push(vec![page.text(label), value.to_string()]);
+    match queue {
+        Ok((due, expired, worker_observed)) => {
+            let worker_status = page.text(if worker_observed {
+                "ops-worker-observed"
+            } else {
+                "ops-worker-unconfirmed"
+            });
+            page.rows.push(vec![page.text("ops-worker"), worker_status]);
+            for (label, value) in [("ops-due", due), ("ops-leases", expired)] {
+                page.rows.push(vec![page.text(label), value.to_string()]);
+            }
         }
+        Err(_) => page
+            .rows
+            .push(vec![page.text("ops-worker"), page.text("ops-unavailable")]),
     }
-    match bounded(
-        sqlx::query_scalar::<_, String>(
-            "SELECT DISTINCT to_char(observed AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS at
-         FROM (
-           SELECT created_at AS observed FROM audit_log
-           WHERE action = 'ops.playerdata_binding_conflict' AND actor IS NULL
-           UNION ALL
-           SELECT updated_at AS observed FROM outbox WHERE state = 'dead'
-         ) AS incidents
-         WHERE observed > statement_timestamp() - interval '7 days'
-         ORDER BY at DESC LIMIT 50",
-        )
-        .fetch_all(&pool),
-    )
-    .await
-    {
-        Ok(incidents) => page.incidents = incidents.into_iter().map(|at| vec![at]).collect(),
+    match incidents {
+        Ok(incidents) => {
+            page.incidents = incidents
+                .into_iter()
+                .map(|(at, binding_conflict)| {
+                    let label = if binding_conflict {
+                        "ops-binding-conflict"
+                    } else {
+                        "ops-dead-job"
+                    };
+                    vec![at, page.text(label)]
+                })
+                .collect()
+        }
         Err(_) => page.note = "ops-incidents-unavailable",
     }
     page.response()

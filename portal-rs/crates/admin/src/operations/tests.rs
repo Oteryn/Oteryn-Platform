@@ -47,6 +47,27 @@ async fn reads_success_and_bad_input() {
     oteryn_db::migrate(&pool)
         .await
         .expect("migrate disposable PostgreSQL");
+    let account = uuid::Uuid::now_v7();
+    let source = std::net::Ipv6Addr::from(account.as_u128());
+    let mut keys = oteryn_web::ratelimit::Keys::source(source.into());
+    keys.account = Some(account.to_string());
+    let limiter = oteryn_web::ratelimit::RateLimiter::new(pool.clone());
+    let policy = NamedPolicy::IdentityTermination;
+    let saturated = |rows: Rows| {
+        rows.into_iter()
+            .find(|row| row[0] == policy.name())
+            .and_then(|row| row[3].parse::<i64>().ok())
+            .expect("numeric counter for the policy")
+    };
+    let before = saturated(rate_rows(&pool).await.expect("initial aggregate"));
+    for _ in 0..policy.limit() + 2 {
+        // Extra denied charges must still contribute only one saturated window.
+        let _ = limiter.check(policy, std::slice::from_ref(&keys)).await;
+    }
+    let rate = rate_rows(&pool)
+        .await
+        .expect("aggregate rate-limit counters");
+    assert_eq!(saturated(rate), before + 1);
     let app = Router::new()
         .route(ROUTES[0].0, get(statistics))
         .route(ROUTES[1].0, get(rate_limits))
