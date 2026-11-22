@@ -1,0 +1,226 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { test as base, expect } from '../fixtures.mjs';
+import { password, submit } from '../helpers.mjs';
+import { loginWithRecoveryCode, membership, query } from '../staff-rbac-helpers.mjs';
+import {
+  adminAgent, characterId, characterName, itemId, nodeId, sanctionId,
+  startStaffConsoleHarness, wrongCharacterId,
+} from '../admin-agent.mjs';
+
+const route = '/admin/console/players';
+const url = (lang, params = {}) => `${route}?${new URLSearchParams({lang, ...params})}`;
+const searchForm = 'main form[method=post]';
+const dossierForm = 'main form[method=get]';
+
+function readHarness(directory) {
+  const secret = name => fs.readFileSync(path.join(directory, 'secrets', name), 'utf8');
+  const settings = JSON.parse(secret('admin-agent.json'));
+  const env = JSON.parse(secret('env.json'));
+  const binary = secret('seed-binary');
+  return {
+    ...settings,
+    databaseURL: env.OTERYN_DATABASE_URL,
+    seed(entity, input) {
+      const result = spawnSync(binary, ['seed', entity, JSON.stringify(input)], { env, encoding: 'utf8' });
+      // Seed arguments and output can contain disposable credentials.
+      assert.equal(result.status, 0, `Portal seed failed for ${entity}`);
+      try {
+        return JSON.parse(result.stdout);
+      } catch {
+        throw new Error(`Portal seed returned invalid JSON for ${entity}`);
+      }
+    },
+  };
+}
+
+function seedAccount(setup, lang) {
+  const account = { email: `gm-console-${randomUUID()}@example.invalid`, password: password() };
+  const { accountId } = setup.seed('account', { ...account, locale: lang });
+  const { recoveryCodes } = setup.seed('account-mfa', { accountId, password: account.password });
+  return { ...account, accountId, code: recoveryCodes[0] };
+}
+
+async function navigate(page, method, trigger) {
+  const [response] = await Promise.all([
+    page.waitForResponse(response => response.request().isNavigationRequest()
+      && response.request().method() === method && response.frame() === page.mainFrame()),
+    trigger(),
+  ]);
+  return response;
+}
+
+function expectRequest(request, operation, actor, target = null, params = {}) {
+  expect(request).toMatchObject({
+    operation, operation_version: 1, kind: 'query', risk_class: 'R1', dry_run: false,
+    actor: {
+      admin_id: actor,
+      permission: operation === 'sanction.list' ? 'game.sanction.read' : 'game.player.read',
+      roles: ['game_master_senior'],
+      mfa_at: expect.any(String),
+    },
+  });
+  expect(request.target).toEqual({ world_id: null, node_id: nodeId, character_id: target, account_ref: null });
+  expect(request.params).toEqual(params);
+  expect(request.admin_operation_id).toBe(request.request_id);
+}
+
+async function expectReadAudit(request, actor, target) {
+  expect(await query(`SELECT actor, admin_control_target FROM audit_log
+    WHERE request_id=$1 AND operation=$2 AND outcome='succeeded'`,
+  [request.request_id, request.operation])).toContainEqual({ actor, admin_control_target: target });
+}
+
+const test = base.extend({
+  staffHarness: [async ({}, use) => {
+    const existing = process.env.PORTAL_E2E_ADMIN_AGENT_DIRECTORY;
+    const previous = process.env.PORTAL_E2E_DATABASE_URL;
+    const managed = existing ? undefined : await startStaffConsoleHarness(previous || process.env.OTERYN_DATABASE_URL);
+    try {
+      const setup = readHarness(existing || managed.out);
+      process.env.PORTAL_E2E_DATABASE_URL = setup.databaseURL;
+      await use(setup);
+    } finally {
+      if (previous === undefined) delete process.env.PORTAL_E2E_DATABASE_URL;
+      else process.env.PORTAL_E2E_DATABASE_URL = previous;
+      await managed?.close();
+    }
+  }, { scope: 'worker', timeout: 600_000 }],
+  baseURL: async ({ staffHarness }, use) => { await use(staffHarness.origin); },
+});
+
+test('GM player reads use signed results from the mTLS Admin Agent', async ({page, browser, staffHarness: setup}, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const copy = lang === 'en'
+    ? { player: 'Players', source: 'Game agent · observed at', unavailable: 'Unavailable', inventory: 'Inventory', sanctions: 'Sanctions' }
+    : { player: 'Gracze', source: 'Agent gry · czas obserwacji', unavailable: 'Niedostępne', inventory: 'Ekwipunek', sanctions: 'Kary' };
+  const agent = adminAgent(setup);
+  const options = {baseURL: setup.origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport};
+  const manager = await browser.newContext(options);
+  const restricted = await browser.newContext(options);
+  const managerPage = await manager.newPage();
+  const denied = await restricted.newPage();
+  try {
+    const anonymous = await page.request.get(url(lang), {maxRedirects: 0});
+    expect(anonymous.status()).toBe(303);
+    expect(anonymous.headers().location).toBe('/login');
+
+    const admin = seedAccount(setup, lang);
+    const gm = seedAccount(setup, lang);
+    const support = seedAccount(setup, lang);
+    // Seed has no role command. Bootstrap the initial administrator as in isolatedAdmin.
+    expect(await query(`INSERT INTO account_roles(account_id,role_id)
+      SELECT $1,id FROM roles WHERE key='platform_admin' RETURNING account_id`,
+    [admin.accountId])).toEqual([{account_id: admin.accountId}]);
+    await loginWithRecoveryCode(managerPage, lang, admin, admin.code);
+    const roles = await query("SELECT id,key FROM roles WHERE key IN ('game_master_senior','support')");
+    await membership(managerPage, gm.accountId, roles.find(role => role.key === 'game_master_senior').id, 'grant');
+    await membership(managerPage, support.accountId, roles.find(role => role.key === 'support').id, 'grant');
+    await loginWithRecoveryCode(page, lang, gm, gm.code);
+    await loginWithRecoveryCode(denied, lang, support, support.code);
+    const deniedCsrf = await denied.locator('form[action$="/logout"] input[name=_csrf]').first().inputValue();
+
+    expect(await agent.hello()).toEqual({status: 'registered'});
+    expect((await denied.goto(url(lang))).status()).toBe(200);
+    await expect(denied.locator('main form')).toHaveCount(0);
+    expect((await denied.goto(url(lang, {character: characterId}))).status()).toBe(403);
+
+    const landing = await page.goto(url(lang));
+    expect(landing.status()).toBe(200);
+    expect(landing.headers()['cache-control']).toBe('no-store');
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page.getByRole('heading', {name: copy.player, exact: true})).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
+
+    const search = page.locator(searchForm);
+    await search.locator('[name=q]').fill('E2E Console');
+    const fields = await search.evaluate(form => Object.fromEntries(new FormData(form)));
+    const post = (actor, form) => actor.request.post(route, {
+      form, maxRedirects: 0, headers: {origin: setup.origin},
+    });
+    expect((await post(denied, {...fields, _csrf: deniedCsrf})).status()).toBe(403);
+    expect((await post(page, {...fields, q: '<bad>'})).status()).toBe(400);
+    expect(await agent.poll()).toEqual([]);
+
+    // submit() verifies the missing-CSRF response before the genuine browser POST.
+    expect((await navigate(page, 'POST', () => submit(page, searchForm))).status()).toBe(303);
+    const found = await agent.poll(3);
+    expect(found).toHaveLength(1);
+    expectRequest(found[0], 'player.search', gm.accountId, null, {query: fields.q});
+    await expect(page.getByText(copy.unavailable, {exact: true}).first()).toBeVisible();
+    await agent.answer(found[0], 'success');
+    expect((await page.reload()).status()).toBe(200);
+    await expect(page.locator('main > p')).toContainText(copy.source);
+    await expect(page.locator('main > p')).toContainText(found[0].request_id);
+    await expect(page.locator('main')).toContainText(characterName);
+    await expectReadAudit(found[0], gm.accountId, {view: 'search'});
+
+    const dossiers = page.locator(dossierForm);
+    const openDossier = async id => {
+      await dossiers.locator('[name=character]').fill(id);
+      return navigate(page, 'GET', () => dossiers.getByRole('button').click());
+    };
+    expect((await openDossier('invalid/id')).status()).toBe(400);
+    expect(await agent.poll()).toEqual([]);
+    expect((await page.goto(url(lang))).status()).toBe(200);
+
+    expect((await openDossier(characterId)).status()).toBe(200);
+    const dossier = await agent.poll(3);
+    expect(dossier).toHaveLength(1);
+    expectRequest(dossier[0], 'player.character.get', gm.accountId, characterId);
+    await agent.answer(dossier[0], 'success');
+    expect((await page.reload()).status()).toBe(200);
+    await expect(page.locator('main > p')).toContainText(dossier[0].request_id);
+    await expect(page.locator('main')).toContainText(`${characterId} · ${characterName}`);
+    await expect(page.locator('main')).toContainText('42, 27, 7');
+    await expectReadAudit(dossier[0], gm.accountId, {character_id: characterId});
+
+    const childRequests = await agent.poll(3);
+    expect(childRequests.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
+    for (const request of childRequests) {
+      expectRequest(request, request.operation, gm.accountId, characterId);
+      await agent.answer(request, 'success');
+    }
+    expect((await page.reload()).status()).toBe(200);
+    const section = name => page.locator('main section').filter({has: page.getByRole('heading', {name, exact: true})});
+    await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
+    await expect(section(copy.sanctions)).toContainText(`${sanctionId} · warning · true`);
+    for (const request of childRequests) {
+      await expectReadAudit(request, gm.accountId, {character_id: characterId});
+    }
+
+    await agent.heartbeat();
+    expect((await openDossier(wrongCharacterId)).status()).toBe(200);
+    const mismatch = await agent.poll(3);
+    expect(mismatch).toHaveLength(1);
+    expectRequest(mismatch[0], 'player.character.get', gm.accountId, wrongCharacterId);
+    await agent.answer(mismatch[0], 'success');
+    const rejectedProjection = await page.reload();
+    expect(rejectedProjection.status()).toBe(503);
+    expect(await rejectedProjection.text()).not.toContain(characterName);
+    expect(await query("SELECT id FROM audit_log WHERE request_id=$1 AND outcome='succeeded'",
+      [mismatch[0].request_id])).toEqual([]);
+    expect(await agent.poll()).toEqual([]);
+
+    expect((await page.goto(url(lang))).status()).toBe(200);
+    expect((await navigate(page, 'POST', () => submit(page, searchForm, {q: 'Rejected search'}))).status()).toBe(303);
+    const refused = await agent.poll(3);
+    expect(refused).toHaveLength(1);
+    expectRequest(refused[0], 'player.search', gm.accountId, null, {query: 'Rejected search'});
+    await agent.answer(refused[0], 'refusal');
+    expect((await page.reload()).status()).toBe(200);
+    await expect(page.getByText(copy.unavailable, {exact: true}).first()).toBeVisible();
+    await expect(page.locator('main')).not.toContainText(characterName);
+    expect(await query('SELECT status FROM admin_control_requests WHERE request_id=$1',
+      [refused[0].request_id])).toEqual([{status: 'rejected'}]);
+    expect(await agent.poll()).toEqual([]);
+  } finally {
+    agent.close();
+    await restricted.close();
+    await manager.close();
+  }
+});

@@ -303,3 +303,27 @@ skipped/interrupted, any test failed, or any retry occurred. REPORT.md records
 Rust acceptance and the concrete source fixes. The qualification source digest
 excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
 evidence-only commit can refer to the immutable tested source candidate.
+
+## GM player console through the Admin Agent
+
+Start the existing harness on loopback with the disposable PostgreSQL
+administrator URL already set. The agent mode generates its own certificates
+and signing keys and starts an HTTPS proxy for the staff host.
+
+```sh
+portal-rs/e2e/start.sh --staff-console
+```
+
+From `portal-rs/e2e`, run the four locale/viewport projects against that run.
+
+```sh
+PORTAL_E2E_ADMIN_AGENT_DIRECTORY=.harness/run npm test -- gm-player-console.spec.mjs
+```
+
+The spec uses the seed CLI for accounts and MFA, uses the browser RBAC workflow
+to grant roles, and polls the real `/internal/v1/admin-control/channel` with a
+verified client certificate. It verifies the Platform request signature and
+sends signed results on `/internal/v1/admin-control/results`. Test fixtures cover
+player search, character detail, inventory, sanctions, a refused search and a
+dossier whose signed payload names another character. Staff writes remain
+disabled. Stop the harness with Ctrl-C to drop its disposable database.

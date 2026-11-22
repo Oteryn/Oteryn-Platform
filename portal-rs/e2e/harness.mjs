@@ -124,6 +124,9 @@ const tokenHashFile = path.join(dirs.secrets, 'gateway-token.sha256');
 fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
 fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).digest('hex')}\n`, { mode: 0o600 });
 
+const staffConsole = argv.includes('--staff-console')
+  ? await (await import('./admin-agent.mjs')).prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports })
+  : undefined;
 const env = {
   PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
   ...identityEnv,
@@ -142,6 +145,7 @@ const env = {
   GATEWAY_LISTEN_ADDR: `127.0.0.1:${ports.gateway}`,
   GATEWAY_NATIVE_LOGIN_ENABLED: 'true',
   OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
+  ...staffConsole?.env,
 };
 for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
 fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
@@ -163,6 +167,7 @@ if (!binary) {
   fs.chmodSync(binary, 0o755);
 }
 log('migrate');
+if (staffConsole) fs.writeFileSync(path.join(dirs.secrets, 'seed-binary'), path.resolve(binary), { mode: 0o600 });
 run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a'), fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a')] });
 
 // ---- services ----------------------------------------------------------------
@@ -171,6 +176,7 @@ let closing = false;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
+  staffConsole?.close();
   for (const child of children) if (child.exitCode === null) child.kill('SIGINT');
   await Promise.all(children.map(child => child.exitCode !== null ? null : new Promise(resolve => child.once('exit', resolve))));
   if (process.env.PORTAL_E2E_KEEP_DATABASE !== '1') await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {});
@@ -238,6 +244,7 @@ const report = {
   database: dbName,
   baseUrls: {
     public: `http://127.0.0.1:${ports.http}`,
+    ...(staffConsole && { staff: staffConsole.origin }),
     internal: `https://127.0.0.1:${ports.internal}`,
     nativeAdmission: `http://127.0.0.1:${ports.admission}`,
     gateway: `http://127.0.0.1:${ports.gateway}`,
