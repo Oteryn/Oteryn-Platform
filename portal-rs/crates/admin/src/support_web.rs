@@ -377,9 +377,15 @@ async fn show<A: AccountStateReader, B: Backend>(
         Ok(details) => details,
         Err(error) => return status(error, lang),
     };
-    let can_link = area == Area::Reports
-        && details.verified_target.is_some()
+    let can_manage_report = area == Area::Reports
         && matches!(record.status.as_str(), "submitted" | "reviewing")
+        && s.auth
+            .check(context, Permission::ManageSupportReports)
+            .await
+            .is_ok();
+    let can_verify = can_manage_report && details.player_report;
+    let can_link = can_manage_report
+        && details.verified_target.is_some()
         && s.auth
             .check(context, Permission::ManageSupportEnforcement)
             .await
@@ -390,7 +396,10 @@ async fn show<A: AccountStateReader, B: Backend>(
         details,
         session,
         lang,
-        RecordForm::Detail { can_link },
+        RecordForm::Detail {
+            can_verify,
+            can_link,
+        },
     )
     .await
 }
@@ -420,7 +429,7 @@ async fn create_page(
 
 enum RecordForm {
     CreateSanction,
-    Detail { can_link: bool },
+    Detail { can_verify: bool, can_link: bool },
 }
 
 async fn render_record(
@@ -526,12 +535,17 @@ async fn render_record(
         );
         if (matches!(*action, "assign_ticket" | "reply") && !open_ticket)
             || (*action == "link_sanction"
-                && !matches!(form, RecordForm::Detail { can_link: true }))
+                && !matches!(form, RecordForm::Detail { can_link: true, .. }))
             || (*action == "revoke_sanction" && record.status != "active")
             || (*action == "moderate" && record.status == "closed")
             || (*action == "verify_report_target"
-                && (!details.player_report
-                    || !matches!(record.status.as_str(), "submitted" | "reviewing")))
+                && !matches!(
+                    form,
+                    RecordForm::Detail {
+                        can_verify: true,
+                        ..
+                    }
+                ))
         {
             continue;
         }

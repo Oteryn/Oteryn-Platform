@@ -198,6 +198,8 @@ test('moderator can review reports and is refused Platform admin areas', async (
   await page.locator(`main a[href="${detail}"]`).click();
   expect((await reportResponse).status()).toBe(200);
   await expect(page.locator('main')).toContainText(evidence);
+  await expect(page.locator('form:has(input[value=verify_report_target])')).toHaveCount(0);
+  await expect(page.locator('form:has(input[value=link_sanction])')).toHaveCount(0);
 
   const outcome = unique();
   await action(page, 'form:has(input[value=moderate])', {
