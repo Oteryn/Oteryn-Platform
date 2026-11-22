@@ -315,6 +315,7 @@ mod tests {
                 to: String::new(),
                 policy: String::new(),
                 groups: vec![Group {
+                    label_key: "circulation",
                     family: "economy_circulation_daily".into(),
                     source: "Game",
                     columns: "",
