@@ -22,6 +22,8 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/account/privacy` (POST and PUT) | Yes | Yes | Anonymous | Yes | Each save advances the revision |
 | `/account/badges` and `/{lang}/account/badges` | Account-age selection and clearing | Yes | Anonymous | Yes | Selection unchanged after replay |
 | `/{lang}/account/notifications` | Yes | Yes | Anonymous | Yes | Same preferences after replay |
+| `/{lang}/account/consents` | Grant and revoke both purposes | Yes | Anonymous | Malformed fields are 400. Obsolete grant text yields localized conflict | Each decision is a new history row |
+| `/oauth/authorize` | Approve creates a bound code. Deny redirects with no grant | Yes | Anonymous | OAuth protocol validation error | The issued code exchanges once |
 | `/account/sessions/{id}` and locale alias, POST and DELETE | Session removed and security event stored | Yes | Foreign player and content editor | Malformed ID is 400 | Already-revoked target leaves the same event and session state |
 | Session sign-out-others POST and DELETE, both prefixes | Only the current session remains | Yes | Anonymous refused. Authenticated actors cannot target another account | CSRF-only forms | Each successful self-action records its own event |
 | Session sign-out-all POST, both prefixes | Login shown and all sessions removed | Yes | Anonymous refused. Authenticated actors cannot target another account | CSRF-only form | Replayed token refused with unchanged state |

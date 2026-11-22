@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { login, password, pool, submit } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, player, query } from '../staff-rbac-helpers.mjs';
@@ -1306,5 +1306,144 @@ test('console exposes unavailable Game agents and creates no read requests', asy
     await rejected(options);
     expect((await sendForm(page, options.url, options.fields)).status()).toBe(503);
     expect(await snapshot()).toEqual(baseline);
+  }
+});
+
+test('consent forms record independent scoped grants and revocations', async ({ page, browser }, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  const context = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
+  });
+  try {
+    const owner = await seededPlayer(page, lang);
+    const anonymous = await context.newPage();
+    const target = `/${lang}/account/consents`;
+    const kinds = ['personalised_ads', 'play_session'];
+    const state = () => query(
+      "SELECT document_kind,document_version,granted,actor,source FROM account_consents WHERE account_id=$1 AND document_kind IN ('personalised_ads','play_session') ORDER BY accepted_at,id",
+      [owner.id],
+    );
+    let baseline = [];
+    expect(await state()).toEqual(baseline);
+    expect((await page.goto(target)).status()).toBe(200);
+    const key = createHash('sha256').update(owner.id).digest();
+    for (const kind of kinds) {
+      await expect.poll(async () => {
+        const [row] = await query(
+          "SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits WHERE limiter_name='identity-consent-mutation' AND window_start=date_trunc('minute',clock_timestamp()) AND key_hash=$1",
+          [key],
+        );
+        return row.count;
+      }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(3);
+      const selector = `main form:has([name=kind][value="${kind}"])`;
+      const consent = page.locator(`${selector} [name=granted]`);
+      await expect(consent).not.toBeChecked();
+      const { url, fields } = await prepare(page, selector, { granted: 'true' });
+      await rejected({ page, url, fields, snapshot: state, baseline });
+      await wrongActor({ page: anonymous, lang, url, fields, status: 303, snapshot: state, baseline });
+      for (const patch of [
+        { version: '' }, { version: 'a'.repeat(129) }, { granted: 'abc' }, { kind: 'play_session ' },
+      ]) {
+        expect((await sendForm(page, url, { ...fields, ...patch })).status()).toBe(400);
+        expect(await state()).toEqual(baseline);
+      }
+      const outdated = await sendForm(page, url, { ...fields, version: '2000-01-01.1' });
+      expect(outdated.status()).toBe(409);
+      expect(await outdated.text()).toContain(lang === 'pl'
+        ? 'Treść zgody uległa zmianie.'
+        : 'The consent text has changed.');
+      expect(await state()).toEqual(baseline);
+      await submit(page, selector, { granted: true });
+      await expect(consent).toBeChecked();
+      const decision = {
+        document_kind: kind, document_version: fields.version, granted: true, actor: owner.id, source: 'web',
+      };
+      baseline = [...baseline, decision];
+      expect(await state()).toEqual(baseline);
+      await submit(page, selector, { granted: false });
+      await expect(consent).not.toBeChecked();
+      baseline = [...baseline, { ...decision, granted: false }];
+      expect(await state()).toEqual(baseline);
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test('OAuth consent form approves or denies the checked client and binds its code to the acting account', async ({ page, browser }, info) => {
+  test.setTimeout(360_000);
+  const lang = info.project.metadata.locale;
+  const context = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+  });
+  try {
+    const owner = await seededPlayer(page, lang);
+    const anonymous = await context.newPage();
+    const callback = new URL('/__oauth/callback', page.url()).href;
+    const oauth = new URL('/oauth/authorize', page.url()).href;
+    const readCodes = () => query(
+      'SELECT account_id,client_id,used_at IS NOT NULL AS used FROM oauth_authorization_codes WHERE account_id=$1 ORDER BY created_at',
+      [owner.id],
+    );
+    const client = 'e2e-local';
+    const state = randomUUID();
+    const verifier = randomBytes(32).toString('base64url');
+    const request = {
+      response_type: 'code', client_id: client, redirect_uri: callback,
+      scope: 'game:ticket', state,
+      code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+      code_challenge_method: 'S256',
+    };
+    const consent = `${oauth}?${new URLSearchParams(request)}`;
+    expect((await page.goto(consent)).status()).toBe(200);
+    const choice = 'main form:has(button[name=decision])';
+    const { url, fields } = await prepare(page, choice, { decision: 'approve' });
+    expect(await readCodes()).toEqual([]);
+    await rejected({ page, url, fields, snapshot: readCodes, baseline: [] });
+    await wrongActor({ page: anonymous, lang, url, fields, status: 400, snapshot: readCodes, baseline: [] });
+
+    for (const patch of [
+      { decision: '' }, { decision: 'a'.repeat(513) },
+      { response_type: '1' }, { code_challenge: 'a'.repeat(42) },
+    ]) {
+      const denied = await sendForm(page, url, { ...fields, ...patch });
+      expect(denied.status()).toBe(400);
+      expect(await denied.json()).toEqual({
+        error: 'invalid_request',
+        error_description: 'The request is missing a required parameter or is malformed.',
+      });
+      expect(await readCodes()).toEqual([]);
+    }
+
+    await page.locator(`${choice} button[value=deny]`).click();
+    await expect(page).toHaveURL(/\/__oauth\/callback\?/);
+    const refusal = new URL(page.url());
+    expect(refusal.searchParams.get('error')).toBe('access_denied');
+    expect(refusal.searchParams.get('state')).toBe(state);
+    expect(await readCodes()).toEqual([]);
+    expect(await query(
+      "SELECT event FROM oauth_security_events WHERE account_id=$1 AND event='consent_denied'",
+      [owner.id],
+    )).toEqual([{ event: 'consent_denied' }]);
+
+    expect((await page.goto(consent)).status()).toBe(200);
+    await page.locator(`${choice} button[value=approve]`).click();
+    await expect(page).toHaveURL(/\/__oauth\/callback\?/);
+    const returned = new URL(page.url());
+    const code = returned.searchParams.get('code');
+    expect(Boolean(code)).toBe(true);
+    expect(returned.searchParams.get('state')).toBe(state);
+    expect(await readCodes()).toEqual([{ account_id: owner.id, client_id: client, used: false }]);
+    const exchange = {
+      grant_type: 'authorization_code', client_id: client, redirect_uri: callback,
+      code, code_verifier: verifier,
+    };
+    expect((await page.request.post('/oauth/token', { form: exchange })).status()).toBe(200);
+    expect((await page.request.post('/oauth/token', { form: exchange })).status()).toBe(400);
+    expect(await readCodes()).toEqual([{ account_id: owner.id, client_id: client, used: true }]);
+  } finally {
+    await context.close();
   }
 });
