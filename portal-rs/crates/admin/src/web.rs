@@ -535,7 +535,6 @@ pub(crate) async fn host_guard(
             "max-age=63072000; includeSubDomains",
         ),
         ("x-content-type-options", "nosniff"),
-        ("referrer-policy", "strict-origin-when-cross-origin"),
         (
             "permissions-policy",
             "camera=(), microphone=(), geolocation=()",
@@ -552,6 +551,16 @@ pub(crate) async fn host_guard(
         response
             .headers_mut()
             .insert(name, axum::http::HeaderValue::from_static(value));
+    }
+    let headers = response.headers_mut();
+    if headers
+        .get(header::REFERRER_POLICY)
+        .is_none_or(|policy| policy != "no-referrer")
+    {
+        headers.insert(
+            header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        );
     }
     if private {
         response.headers_mut().insert(
