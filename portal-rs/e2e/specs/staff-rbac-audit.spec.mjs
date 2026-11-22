@@ -19,6 +19,12 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     await audit(staff.page, 'rbac.role.granted', account.id, { lang });
 
     const table = staff.page.locator('main').getByRole('table');
+    await expect(table).toBeVisible();
+    expect(await staff.page.evaluate(() => document.documentElement.scrollWidth)).toBe(info.project.use.viewport.width);
+    if (info.project.use.viewport.width === 390) {
+      const wrapper = staff.page.locator('main .op-table-wrap');
+      expect(await wrapper.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+    }
     const [field, before, after, assigned, no, yes, roleId, platformSource, gameSource] = lang === 'pl'
       ? ['Pole', 'Przed', 'Po', 'Przypisanie', 'Nie', 'Tak', 'Identyfikator roli', 'Platforma · audyt, ostatnie 100 dopasowań', 'Agent gry · czas obserwacji']
       : ['Field', 'Before', 'After', 'Assigned', 'No', 'Yes', 'Role ID', 'Platform · audit log, latest 100 matches', 'Game agent · observed at'];

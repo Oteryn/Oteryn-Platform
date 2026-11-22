@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {role} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -33,6 +34,8 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ // Populate the audit page through a real staff mutation before checking layout.
+ await role(page, 'admin.access audit.view');
  const failures=[];
  const staffContext=page.context();
  for(const path of paths) await test.step(path,async()=>{
@@ -41,6 +44,13 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    let response;try{response=await page.goto(['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`)?path:`${path}?lang=${lang}`);}catch(error){failures.push(`${path}: ${error.message}`);return;}
    if(response.status()!==200)failures.push(`${path}: HTTP ${response.status()}`);
    if(response.status()===200 && await page.locator('html').getAttribute('lang')!==lang)failures.push(`${path}: wrong page language`);
+   if (path === '/admin/console/audit') {
+     const table = page.locator('main .op-table-wrap').first();
+     await expect(table).toBeVisible();
+     if (info.project.use.viewport.width === 390) {
+       expect(await table.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+     }
+   }
    if(response.status()===200) await assertShell(page);
    const forms=await page.locator('form[method=post],form[method=POST]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
    for(const form of forms)await csrfRejected(page,form.action,form.fields);
