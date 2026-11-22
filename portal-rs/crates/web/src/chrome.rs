@@ -40,12 +40,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let (account, account_id) = if request.extensions().get::<StaffDashboard>().is_some() {
-        match crate::session::read_signed_in(&shell.sessions, &mut request).await {
-            Ok(Some(session)) => (
+        match crate::session::chrome_session(&shell.sessions, &mut request).await {
+            Some(session) => (
                 oteryn_ui::Account::SignedIn { csrf: session.csrf },
                 Some(session.account_id),
             ),
-            _ => (oteryn_ui::Account::Anonymous, None),
+            None => (oteryn_ui::Account::Anonymous, None),
         }
     } else {
         (

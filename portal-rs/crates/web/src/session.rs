@@ -388,6 +388,13 @@ impl SessionLayer {
         }
     }
 }
+pub(crate) async fn chrome_session(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> Option<SignedInSession> {
+    read_signed_in(layer, request).await.ok().flatten()
+}
+
 /// Attach after route matching. Deployment overrides can be supplied as outer
 /// `Extension<SessionConfig>` and `Extension<CsrfConfig>` layers on the public router.
 pub async fn middleware(
@@ -539,7 +546,7 @@ impl std::fmt::Debug for SignedInSession {
     }
 }
 
-pub(crate) async fn read_signed_in(
+async fn read_signed_in(
     layer: &SessionLayer,
     request: &mut Request,
 ) -> Result<Option<SignedInSession>, sqlx::Error> {

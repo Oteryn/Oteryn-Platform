@@ -33,6 +33,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  expect(response.status()).toBe(200);
  expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
+ expect(linked).not.toContain('/console');
+ const dashboard=await page.goto(`/console/dashboard?lang=${lang}`);
+ expect(dashboard.status()).toBe(403);
+ expect(new URL(dashboard.url()).pathname).toBe('/console/dashboard');
+ await expect(page.locator('html')).toHaveAttribute('lang',lang);
+ await assertShell(page,{status:403});
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
  const staffContext=page.context();
@@ -74,12 +80,6 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
- expect(linked).not.toContain('/console');
- const dashboard=await page.goto(`/console/dashboard?lang=${lang}`);
- expect(dashboard.status()).toBe(403);
- expect(new URL(dashboard.url()).pathname).toBe('/console/dashboard');
- await expect(page.locator('html')).toHaveAttribute('lang',lang);
- await assertShell(page,{status:403});
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
