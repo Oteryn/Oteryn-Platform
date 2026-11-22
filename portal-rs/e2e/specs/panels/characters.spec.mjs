@@ -156,7 +156,9 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
 
     await submit(owner.page, 'main form[method=post]', {name: '123'});
     await expect(owner.page.locator('[role=status]')).toContainText(lang === 'en' ? 'Check the name rules' : 'Sprawdź reguły imion');
-    const name = 'Panel ' + Array.from(crypto.randomBytes(9), byte => String.fromCharCode(97 + byte % 26)).join('');
+    const suffix = Array.from(crypto.randomBytes(9), byte => String.fromCharCode(97 + byte % 26)).join('');
+    const name = 'Panel ' + suffix[0].toUpperCase() + suffix.slice(1);
+    const csrf = await form.locator('[name=_csrf]').inputValue();
     await submit(owner.page, 'main form[method=post]', {name});
     await expect(owner.page).toHaveURL(/\/characters\/requests\/[a-f0-9-]+$/);
     const request = new URL(owner.page.url()).pathname;
@@ -177,6 +179,9 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
     expect(overview.headers()['cache-control']).toContain('no-store');
     const row = owner.page.locator('main li').filter({hasText: name});
     await expect(row).toContainText('412');
+    const foreignOverview = await other.page.request.get('/account');
+    expect(foreignOverview.status()).toBe(200);
+    expect(await foreignOverview.text()).not.toContain(name);
     expect(await owner.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(owner.page.locator('main')).toContainText(lang === 'en' ? 'Ownership transfer' : 'Przeniesienie własności');
     await expect(owner.page.locator('main')).toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC/);
@@ -191,6 +196,11 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
     const services = `/${lang}/account/characters/${character}/services`;
     expect((await owner.page.request.get(services)).status()).toBe(404);
     await csrfRejected(owner.page, services, {action: 'rename'});
+    expect((await owner.page.request.post(services, {
+      form: {_csrf: csrf, action: 'rename'},
+      headers: {origin: new URL(owner.page.url()).origin},
+      maxRedirects: 0,
+    })).status()).toBe(404);
     expect(await owner.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   } finally {
     await db.end();
