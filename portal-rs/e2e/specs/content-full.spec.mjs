@@ -85,7 +85,7 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
  const values = {
   starts_at: stamp(60).slice(0, 16), ends_at: stamp(120).slice(0, 16),
   en_title: `Event ${slug}`, en_slug: slug, en_summary: 'English summary.', en_body: 'English event details.',
-  pl_title: `Wydarzenie ${slug}`, pl_slug: slug, pl_summary: 'Polskie streszczenie.', pl_body: 'Polskie szczegóły.',
+  pl_title: `Wydarzenie ${slug}`, pl_slug: `pl-${slug}`, pl_summary: 'Polskie streszczenie.', pl_body: 'Polskie szczegóły.',
  };
  await refuse(content, create);
  await refuse(content, `${create}/create`);
@@ -144,19 +144,26 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
  await submitForm(mainForm(page), { starts_at: stamp(-60).slice(0, 16) });
  await send(status, { status: 'scheduled' }, 409);
  await send(status, { status: 'published', lock_version: '1' }, 409);
- for (const locale of locales) await visit(anonymous.page, `/${locale}/events/${slug}`, 404);
+ for (const locale of locales) await visit(anonymous.page, `/${locale}/events/${values[`${locale}_slug`]}`, 404);
  await submitForm(status, { status: 'published' });
  for (const locale of locales) {
   await visit(anonymous.page, `/${locale}/events`);
-  await link(anonymous.page, `/${locale}/events/${slug}`, values[`${locale}_title`]);
+  await link(anonymous.page, `/${locale}/events/${values[`${locale}_slug`]}`, values[`${locale}_title`]);
   await title(anonymous.page, values[`${locale}_title`], locale);
   await expect(anonymous.page.locator('main')).toContainText(values[`${locale}_body`]);
  }
  await request(anonymous.page, '/events', 'GET', 303);
- await request(anonymous.page, `/events/${slug}`, 'GET', 303);
+ for (const [source, preferred] of [['pl', 'en'], ['en', 'pl']]) {
+  const response = await anonymous.page.request.get(`/events/${values[`${source}_slug`]}`, {
+   headers: { 'Accept-Language': preferred }, maxRedirects: 0,
+  });
+  expect(response.status()).toBe(303);
+  expect(response.headers().location).toBe(`/${preferred}/events/${values[`${preferred}_slug`]}`);
+  await visit(anonymous.page, response.headers().location);
+ }
  await visit(anonymous.page, '/events/INVALID', 404);
  await submitForm(status, { status: 'archived' });
- for (const locale of locales) await visit(anonymous.page, `/${locale}/events/${slug}`, 404);
+ for (const locale of locales) await visit(anonymous.page, `/${locale}/events/${values[`${locale}_slug`]}`, 404);
 });
 
 const legalPages = [

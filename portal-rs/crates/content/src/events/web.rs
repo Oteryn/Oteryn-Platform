@@ -34,23 +34,26 @@ pub fn public_router(pool: PgPool) -> Router {
                 Redirect::to(&format!("/{locale}/events"))
             }),
         )
-        .route(
-            "/events/{slug}",
-            get(
-                |Path(slug): Path<String>, headers: axum::http::HeaderMap| async move {
-                    if valid_slug(&slug) {
-                        let locale = oteryn_ui::preferred_language(&headers);
-                        Redirect::to(&format!("/{locale}/events/{slug}")).into_response()
-                    } else {
-                        StatusCode::NOT_FOUND.into_response()
-                    }
-                },
-            ),
-        )
+        .route("/events/{slug}", get(redirect_event))
         .route("/{locale}/events", get(index))
         .route("/{locale}/events/{slug}", get(show))
         .with_state(Events::new(pool))
         .layer(middleware::from_fn(headers))
+}
+async fn redirect_event(
+    State(events): State<Events>,
+    Path(slug): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    if !valid_slug(&slug) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let preferred = oteryn_ui::preferred_language(&headers);
+    match events.public_destination(&slug, preferred).await {
+        Ok(Some((locale, slug))) => Redirect::to(&format!("/{locale}/events/{slug}")).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => response(error),
+    }
 }
 async fn headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
