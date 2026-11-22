@@ -222,9 +222,13 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
     if !lower.contains("/static/css/home.css") {
         styles.push_str("<link rel=\"stylesheet\" href=\"/static/css/home.css\">");
     }
+    let shell_styles = concat!(
+        "<link rel=\"stylesheet\" href=\"/static/thais/shell.css\">",
+        "<link rel=\"stylesheet\" href=\"/static/thais/interior.css\">",
+    );
     let head = match head.to_ascii_lowercase().find("</head>") {
-        Some(at) => format!("{}{styles}{}", &head[..at], &head[at..]),
-        None => format!("{styles}{head}"),
+        Some(at) => format!("{}{styles}{shell_styles}{}", &head[..at], &head[at..]),
+        None => format!("{styles}{head}{shell_styles}"),
     };
     let content = content_landmark(&without_module_skip(&page[body_end + 1..body_close]));
     let target = if content.contains("id=\"main\"") || content.contains("id='main'") {
@@ -393,9 +397,16 @@ mod tests {
         let out = inject(page, "<header>H</header>", "<footer>F</footer>")
             .ok_or("standalone page must be wrapped")?;
         assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\">"));
-        assert!(out.contains(
-            "components.css\"><link rel=\"stylesheet\" href=\"/static/css/home.css\"></head>"
-        ));
+        let head_end = out.find("</head>").ok_or("document must retain its head")?;
+        let head = &out[..head_end];
+        for style in [
+            "/static/css/components.css",
+            "/static/css/home.css",
+            "/static/thais/shell.css",
+            "/static/thais/interior.css",
+        ] {
+            assert!(head.contains(style), "{style} must load from the head");
+        }
         assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">tresc</main></div><footer>F</footer></body></html>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
         Ok(())
@@ -422,6 +433,7 @@ mod tests {
         let out =
             inject(implied, "H", "F").ok_or("document with an implied body must be wrapped")?;
         assert!(out.find("components.css") < out.find("<body"));
+        assert!(out.find("/static/thais/interior.css") < out.find("<body"));
         assert!(out.contains("<html lang=\"pl\" data-theme=\"dark\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\">"));
         assert!(out.contains("<body class=\"op-theme op-shell\">H<div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">m</main></div>F</body></html>"));
         Ok(())
@@ -549,7 +561,9 @@ mod response_tests {
             assert!(html.contains(&format!("lang=\"{lang}\"")));
             assert!(html.contains("id=\"portal-header\""));
             assert!(html.contains("class=\"foot foot-interior\""));
-            assert!(html.contains("/static/thais/interior.css"));
+            assert_eq!(html.matches("/static/thais/interior.css").count(), 1);
+            let head_end = html.find("</head>").ok_or("document must have a head")?;
+            assert!(html[..head_end].contains("/static/thais/interior.css"));
             let response = app
                 .clone()
                 .oneshot(Request::get(format!("/{lang}/account/privacy")).body(Body::empty())?)
