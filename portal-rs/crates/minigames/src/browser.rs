@@ -14,13 +14,20 @@ pub(crate) async fn deadline(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+    let purchase = crate::pass::web::purchase_language(&req);
     match tokio::time::timeout(std::time::Duration::from_secs(3), next.run(req)).await {
         Ok(response) => response,
-        Err(_) => (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            [("cache-control", "no-store")],
-        )
-            .into_response(),
+        Err(_) => match purchase {
+            Some(lang) => crate::pass::web::uncertain_purchase(
+                lang,
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            None => (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                [("cache-control", "no-store")],
+            )
+                .into_response(),
+        },
     }
 }
 

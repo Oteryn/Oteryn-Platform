@@ -70,6 +70,13 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             return Err(Error::Invalid);
         }
         self.authority.account(tx, account).await?;
+        Self::lock_progress(tx, account, season).await
+    }
+    async fn lock_progress(
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+        season: Uuid,
+    ) -> Result<(Progress, i64)> {
         let price: Option<i64> =
             sqlx::query_scalar("SELECT price FROM pass_seasons WHERE id=$1 FOR SHARE")
                 .bind(season)
@@ -93,15 +100,38 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             price,
         ))
     }
+    async fn read_progress(
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+        season: Uuid,
+    ) -> Result<Progress> {
+        let (xp, paid) = sqlx::query_as(
+            "SELECT xp,paid FROM pass_progress WHERE account_id=$1 AND season_id=$2",
+        )
+        .bind(account)
+        .bind(season)
+        .fetch_optional(&mut **tx)
+        .await?
+        .unwrap_or((0, false));
+        Ok(Progress { xp, paid })
+    }
     async fn live(&self, tx: &mut Transaction<'_, Postgres>, season: Uuid) -> Result<()> {
-        let live: bool = sqlx::query_scalar("SELECT starts_at<=clock_timestamp() AND ends_at>clock_timestamp() FROM pass_seasons WHERE id=$1")
-            .bind(season).fetch_one(&mut **tx).await?;
-        if live { Ok(()) } else { Err(Error::Denied) }
+        let live: Option<bool> = sqlx::query_scalar("SELECT starts_at<=clock_timestamp() AND ends_at>clock_timestamp() FROM pass_seasons WHERE id=$1")
+            .bind(season).fetch_optional(&mut **tx).await?;
+        if live == Some(true) {
+            Ok(())
+        } else {
+            Err(Error::Denied)
+        }
     }
     pub async fn progress(&self, account: Uuid, season: Uuid) -> Result<Progress> {
         self.enabled()?;
+        if !valid_id(account) || !valid_id(season) {
+            return Err(Error::Invalid);
+        }
         let mut tx = crate::browser::begin(&self.pool).await?;
-        let (progress, _) = self.lock(&mut tx, account, season).await?;
+        self.authority.account(&mut tx, account).await?;
+        let progress = Self::read_progress(&mut tx, account, season).await?;
         self.live(&mut tx, season).await?;
         tx.commit().await?;
         Ok(progress)
@@ -109,12 +139,23 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
     /// The account comes from the browser session, never a form field.
     pub async fn overview(&self, account: Uuid) -> Result<Overview> {
         self.enabled()?;
+        if !valid_id(account) {
+            return Err(Error::Invalid);
+        }
         let mut tx = crate::browser::begin(&self.pool).await?;
-        self.authority.account(&mut tx, account).await?;
-        let row = sqlx::query("SELECT id,ends_at FROM pass_seasons WHERE starts_at<=clock_timestamp() AND ends_at>clock_timestamp()")
+        // Progress, challenge amounts and claims must reflect the same snapshot,
+        // including when the first progress row is inserted concurrently.
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        self.authority.account_snapshot(&mut tx, account).await?;
+        let row = sqlx::query("SELECT id,ends_at,price FROM pass_seasons WHERE starts_at<=clock_timestamp() AND ends_at>clock_timestamp()")
             .fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
         let season: Uuid = row.try_get("id")?;
-        let (progress, price) = self.lock(&mut tx, account, season).await?;
+        if !valid_id(season) {
+            return Err(Error::Invalid);
+        }
+        let progress = Self::read_progress(&mut tx, account, season).await?;
         self.live(&mut tx, season).await?;
         let mut challenges = Vec::new();
         for row in sqlx::query("SELECT c.id,c.source,c.metric,c.target,c.xp,COALESCE(p.amount,0) AS amount FROM pass_challenges c LEFT JOIN pass_challenge_progress p ON p.challenge_id=c.id AND p.account_id=$2 AND p.season_id=c.season_id WHERE c.season_id=$1 ORDER BY c.id")
@@ -136,7 +177,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             can_buy: self.flags.paid && !progress.paid,
             season,
             ends_at: row.try_get("ends_at")?,
-            price,
+            price: row.try_get("price")?,
             progress,
             challenges,
             rewards,
@@ -196,11 +237,26 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         if !self.flags.paid {
             return Err(Error::Disabled);
         }
-        if !valid_id(operation) {
+        if !valid_id(operation) || !valid_id(account) || !valid_id(season) {
             return Err(Error::Invalid);
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
-        let (mut progress, price) = self.lock(&mut tx, account, season).await?;
+        self.authority.account(&mut tx, account).await?;
+        // Wait for the in-flight purchase before checking its binding, even
+        // when the requested season does not exist.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('season-pass-buy:' || $1::uuid::text, 0))")
+            .bind(operation)
+            .execute(&mut *tx)
+            .await?;
+        let original: Option<(Uuid, Uuid)> =
+            sqlx::query_as("SELECT account_id,season_id FROM pass_progress WHERE purchase_key=$1")
+                .bind(operation)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if original.is_some_and(|bound| bound != (account, season)) {
+            return Err(Error::Conflict);
+        }
+        let (mut progress, price) = Self::lock_progress(&mut tx, account, season).await?;
         if progress.paid {
             let key: Option<Uuid> = sqlx::query_scalar(
                 "SELECT purchase_key FROM pass_progress WHERE account_id=$1 AND season_id=$2",
@@ -235,11 +291,34 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         if !self.flags.rewards {
             return Err(Error::Disabled);
         }
-        if !valid_id(reward) || !valid_id(operation) {
+        if !valid_id(account) || !valid_id(season) || !valid_id(reward) || !valid_id(operation) {
             return Err(Error::Invalid);
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
-        let (progress, _) = self.lock(&mut tx, account, season).await?;
+        self.authority.account(&mut tx, account).await?;
+        // The operation lock spans accounts and seasons. Hold it until the
+        // receipt and its delivery commit together or the transaction rolls back.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('season-pass-claim:' || $1::uuid::text, 0))")
+            .bind(operation)
+            .execute(&mut *tx)
+            .await?;
+        let original: Option<(Uuid, Uuid, Uuid, Uuid)> = sqlx::query_as(
+            "SELECT account_id,season_id,reward_id,delivery_id FROM pass_claims WHERE id=$1",
+        )
+        .bind(operation)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((owner, claimed_season, claimed_reward, delivery)) = original {
+            if (owner, claimed_season, claimed_reward) != (account, season, reward) {
+                return Err(Error::Conflict);
+            }
+            tx.commit().await?;
+            return Ok(Claim {
+                operation,
+                delivery,
+            });
+        }
+        let (progress, _) = Self::lock_progress(&mut tx, account, season).await?;
         let row = sqlx::query("SELECT track,xp,grant_key,grant_revision FROM pass_rewards WHERE id=$1 AND season_id=$2")
             .bind(reward).bind(season).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
         let track: String = row.try_get("track")?;
@@ -257,12 +336,16 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         {
             return Err(Error::Denied);
         }
-        if let Some(old) = sqlx::query("SELECT id,delivery_id FROM pass_claims WHERE account_id=$1 AND season_id=$2 AND reward_id=$3")
-            .bind(account).bind(season).bind(reward).fetch_optional(&mut *tx).await? {
-            if old.try_get::<Uuid,_>("id")? != operation { return Err(Error::Conflict); }
-            let result = Claim { operation, delivery: old.try_get("delivery_id")? };
-            tx.commit().await?;
-            return Ok(result);
+        let already_claimed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pass_claims WHERE account_id=$1 AND season_id=$2 AND reward_id=$3)",
+        )
+        .bind(account)
+        .bind(season)
+        .bind(reward)
+        .fetch_one(&mut *tx)
+        .await?;
+        if already_claimed {
+            return Err(Error::Conflict);
         }
         self.live(&mut tx, season).await?;
         let delivery = self
