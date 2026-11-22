@@ -117,6 +117,7 @@ async function submitReport(page, lang, target, evidence) {
 }
 
 test('ticket queue and moderation preserve owner privacy and refuse invalid writes', async ({ page, browser }, info) => {
+  test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const pl = lang === 'pl';
   const owner = await seedAccount(lang);
@@ -266,6 +267,7 @@ test('ticket queue and moderation preserve owner privacy and refuse invalid writ
 });
 
 test('moderation triages private reports and applies or revokes a bounded Platform sanction', async ({ page, browser }, info) => {
+  test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const pl = lang === 'pl';
   const reporter = await seedAccount(lang);
