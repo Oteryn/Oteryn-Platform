@@ -234,6 +234,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
             let app = app.merge(credentials_http::configured_router(db.clone()));
+            let app = app.merge(profile_http::configured_router(db.clone()));
             let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
@@ -368,6 +369,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
             navigation.account = true; // /account is always mounted.
             oteryn_identity::navigation::register(&mut navigation);
+            oteryn_identity::navigation::register_identity_panel(&mut navigation.panels);
             oteryn_characters::navigation::register(&mut navigation);
             oteryn_store::navigation::register(&mut navigation);
             oteryn_content::navigation::register(&mut navigation);
@@ -629,6 +631,8 @@ mod email_change_http;
 mod passkeys_http;
 #[path = "../../../crates/identity/src/privacy_web.rs"]
 mod privacy_web;
+#[path = "../../../crates/identity/src/profile_http.rs"]
+mod profile_http;
 #[path = "../../../crates/identity/src/reset_delivery.rs"]
 mod reset_delivery;
 #[path = "../../../crates/identity/src/reset_http.rs"]

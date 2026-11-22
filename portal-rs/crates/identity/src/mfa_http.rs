@@ -11,7 +11,8 @@ use axum::{
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::{
     login::Credentials,
-    mfa::{Authenticated, Mfa},
+    mfa::{Authenticated, ManagementAction, ManagementResult, Mfa},
+    mutation_actor::MutationActor,
 };
 use oteryn_web::{
     Language,
@@ -19,7 +20,7 @@ use oteryn_web::{
     session::{self, BrowserSession, PrivilegeChange, SessionKey, SessionLayer},
 };
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, types::time::OffsetDateTime};
 use std::net::SocketAddr;
 pub(crate) const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
 const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
@@ -31,6 +32,7 @@ const TRUSTED: &str = "__Host-oteryn_mfa_device";
 struct Context {
     mfa: Mfa,
     limiter: RateLimiter,
+    native_enabled: bool,
 }
 /// Public adapter for future staff guards. Ambiguous state always denies.
 pub async fn session_satisfied(mfa: &Mfa, session: &BrowserSession) -> bool {
@@ -55,12 +57,21 @@ pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
         .ok()
         .into_iter()
         .collect();
-    Ok(compose(app, pool, mfa, sessions))
+    let native_enabled = oteryn_gameauth::devices::owner_panel_enabled()
+        && std::env::var("OTERYN_ACCOUNT_CREDENTIALS").as_deref() == Ok("true");
+    Ok(compose(app, pool, mfa, sessions, native_enabled))
 }
-fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Router {
+fn compose(
+    app: Router,
+    pool: PgPool,
+    mfa: Mfa,
+    sessions: SessionLayer,
+    native_enabled: bool,
+) -> Router {
     let context = Context {
         mfa,
         limiter: RateLimiter::new(pool),
+        native_enabled,
     };
     let mut routes = Router::new();
     for prefix in ["", "/pl", "/en"] {
@@ -74,7 +85,15 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
             .route(&format!("{prefix}/mfa"), get(settings))
             .route(&format!("{prefix}/mfa/enroll"), post(enroll))
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
-            .route(&format!("{prefix}/mfa/devices"), post(remove_device));
+            .route(&format!("{prefix}/mfa/devices"), post(remove_device))
+            .route(&format!("{prefix}/mfa/manage"), post(manage))
+            .route(
+                &format!("{prefix}/mfa/replace/confirm"),
+                post(confirm_replacement),
+            );
+        if context.native_enabled {
+            routes = routes.route(&format!("{prefix}/mfa/native-devices"), post(revoke_native));
+        }
     }
     let admin_host = std::env::var("OTERYN_ADMIN_HOST").ok().filter(|host| {
         std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|flag| flag == "true")
@@ -205,6 +224,9 @@ struct Page {
     secret: String,
     codes: Vec<String>,
     devices: Vec<String>,
+    remaining_codes: i64,
+    native_enabled: bool,
+    native_devices: Vec<oteryn_gameauth::devices::RememberedFamily>,
 }
 impl Page {
     fn text(&self, key: &str) -> String {
@@ -240,6 +262,19 @@ async fn page(
     codes: Vec<String>,
     devices: Vec<String>,
 ) -> Result<Response, StatusCode> {
+    Ok(oteryn_web::render(
+        &page_data(language, session, mode, failed, secret, codes, devices).await?,
+    ))
+}
+async fn page_data(
+    language: Language,
+    session: &BrowserSession,
+    mode: &'static str,
+    failed: bool,
+    secret: String,
+    codes: Vec<String>,
+    devices: Vec<String>,
+) -> Result<Page, StatusCode> {
     let failed = failed
         || session
             .get(FAILED)
@@ -254,7 +289,7 @@ async fn page(
     } else {
         session.csrf_token().await.map_err(unavailable)?
     };
-    Ok(oteryn_web::render(&Page {
+    Ok(Page {
         lang: language.code(),
         language,
         csrf,
@@ -263,7 +298,10 @@ async fn page(
         secret,
         codes,
         devices,
-    }))
+        remaining_codes: 0,
+        native_enabled: false,
+        native_devices: vec![],
+    })
 }
 async fn show_login(
     Extension(language): Extension<Language>,
@@ -682,6 +720,9 @@ async fn email(
         secret: String::new(),
         codes: vec![],
         devices: vec![],
+        remaining_codes: 0,
+        native_enabled: false,
+        native_devices: vec![],
     };
     let subject = text.text("mfa-email-subject");
     let body = format!("{}\n\n{code}", text.text("mfa-email-body"));
@@ -735,7 +776,7 @@ async fn settings(
     } else {
         vec![]
     };
-    page(
+    let mut page = page_data(
         language,
         &session,
         settings_mode(&context.mfa, id).await?,
@@ -744,8 +785,20 @@ async fn settings(
         vec![],
         devices,
     )
-    .await
+    .await?;
+    if page.mode == "enabled" {
+        page.remaining_codes = context.mfa.remaining_codes(id).await.map_err(unavailable)?;
+    }
+    if context.native_enabled {
+        page.native_enabled = true;
+        page.native_devices =
+            oteryn_gameauth::devices::remembered_for_owner(&context.mfa.pool(), id)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    }
+    Ok(oteryn_web::render(&page))
 }
+
 async fn enroll(
     State(context): State<Context>,
     supplied: Option<Extension<RateLimiter>>,
@@ -907,17 +960,222 @@ async fn remove_device(
         )
         .await
         .map_err(unavailable)?;
-    page(
-        language,
-        &session,
-        settings_mode(&context.mfa, id).await?,
-        !removed,
-        String::new(),
-        vec![],
-        context.mfa.devices(id).await.map_err(unavailable)?,
-    )
-    .await
+    if !removed {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    session::rotate(&session, PrivilegeChange::Reissue)
+        .await
+        .map_err(unavailable)?;
+    settings(State(context), Extension(language), Extension(session)).await
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Operation {
+    Replace,
+    Remove,
+    RotateCodes,
+}
+
+#[derive(Deserialize)]
+struct ManagementInput {
+    action: Operation,
+    password: String,
+    code: String,
+}
+
+#[derive(Deserialize)]
+struct ConfirmationInput {
+    password: String,
+    code: String,
+}
+
+struct SecurityRequest {
+    language: Language,
+    session: BrowserSession,
+    id: uuid::Uuid,
+}
+
+impl axum::extract::FromRequestParts<Context> for SecurityRequest {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        context: &Context,
+    ) -> Result<Self, Response> {
+        let language = *parts
+            .extensions
+            .get::<Language>()
+            .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+        let session = parts
+            .extensions
+            .get::<BrowserSession>()
+            .cloned()
+            .ok_or_else(|| StatusCode::FORBIDDEN.into_response())?;
+        let id = session
+            .account_id()
+            .await
+            .ok_or_else(|| StatusCode::FORBIDDEN.into_response())?;
+        let limiter = parts
+            .extensions
+            .get::<RateLimiter>()
+            .unwrap_or(&context.limiter);
+        charge(
+            limiter,
+            parts
+                .extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .copied()
+                .map(Extension),
+            &parts.headers,
+            language,
+            (Some(id.to_string()), None, None),
+            &[NamedPolicy::IdentitySecurityMutation],
+        )
+        .await?;
+        Ok(Self {
+            language,
+            session,
+            id,
+        })
+    }
+}
+
+impl SecurityRequest {
+    async fn actor(&self) -> Result<MutationActor, StatusCode> {
+        Ok(MutationActor::browser(
+            self.id,
+            self.session.csrf_token().await.map_err(unavailable)?,
+        ))
+    }
+
+    async fn codes(&self, codes: Vec<String>) -> Result<Response, StatusCode> {
+        session::rotate(&self.session, PrivilegeChange::Logout)
+            .await
+            .map_err(unavailable)?;
+        page(
+            self.language,
+            &self.session,
+            "codes",
+            false,
+            String::new(),
+            codes,
+            vec![],
+        )
+        .await
+    }
+}
+
+fn validate_proof(password: &str, code: &str) -> Result<(), StatusCode> {
+    if password.is_empty()
+        || password.len() > 1024
+        || code.len() != 6
+        || !code.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
+
+async fn manage(
+    State(context): State<Context>,
+    request: SecurityRequest,
+    Form(input): Form<ManagementInput>,
+) -> Result<Response, StatusCode> {
+    validate_proof(&input.password, &input.code)?;
+    let action = match input.action {
+        Operation::Replace => ManagementAction::Replace,
+        Operation::Remove => ManagementAction::Remove,
+        Operation::RotateCodes => ManagementAction::RotateCodes,
+    };
+    match context
+        .mfa
+        .manage(request.actor().await?, &input.password, &input.code, action)
+        .await
+        .map_err(unavailable)?
+        .ok_or(StatusCode::FORBIDDEN)?
+    {
+        ManagementResult::Replacement(secret) => {
+            page(
+                request.language,
+                &request.session,
+                "replacement",
+                false,
+                secret,
+                vec![],
+                vec![],
+            )
+            .await
+        }
+        ManagementResult::Removed => {
+            session::rotate(&request.session, PrivilegeChange::Logout)
+                .await
+                .map_err(unavailable)?;
+            Ok(redirect(request.language, "/login"))
+        }
+        ManagementResult::Codes(codes) => request.codes(codes).await,
+    }
+}
+
+async fn confirm_replacement(
+    State(context): State<Context>,
+    request: SecurityRequest,
+    Form(input): Form<ConfirmationInput>,
+) -> Result<Response, StatusCode> {
+    validate_proof(&input.password, &input.code)?;
+    let codes = context
+        .mfa
+        .confirm_replacement(request.actor().await?, &input.password, &input.code)
+        .await
+        .map_err(unavailable)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+    request.codes(codes).await
+}
+
+#[derive(Deserialize)]
+struct NativeInput {
+    family: uuid::Uuid,
+}
+
+async fn revoke_native(
+    State(context): State<Context>,
+    request: SecurityRequest,
+    Form(input): Form<NativeInput>,
+) -> Result<Response, StatusCode> {
+    if !context.native_enabled {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let hash = request
+        .session
+        .identity_hash()
+        .await
+        .ok_or(StatusCode::FORBIDDEN)?;
+    let mut tx = context.mfa.pool().begin().await.map_err(unavailable)?;
+    let active: Option<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR UPDATE")
+        .bind(request.id).fetch_optional(&mut *tx).await.map_err(unavailable)?;
+    if active.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let until: Option<OffsetDateTime> = sqlx::query_scalar("SELECT sudo_until FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND sudo_until>clock_timestamp() AND sudo_until<=clock_timestamp()+interval '15 minutes' AND least(idle_expires_at,absolute_expires_at)>clock_timestamp()")
+        .bind(hash).bind(request.id).fetch_optional(&mut *tx).await.map_err(unavailable)?;
+    let until = until.ok_or(StatusCode::FORBIDDEN)?;
+    let revoked =
+        oteryn_gameauth::devices::revoke_remembered_for_owner(&mut tx, request.id, input.family)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !revoked {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,'account.native_device.revoked',$2,'{\"revoked\":false}','{\"revoked\":true}',$3)")
+        .bind(request.id).bind(input.family.to_string()).bind(uuid::Uuid::now_v7())
+        .execute(&mut *tx).await.map_err(unavailable)?;
+    let rotation = session::rotate_in_transaction(&request.session, &mut tx, until)
+        .await
+        .map_err(unavailable)?;
+    tx.commit().await.map_err(unavailable)?;
+    session::apply_rotation(&request.session, rotation).await;
+    Ok(redirect(request.language, "/mfa"))
+}
+
 #[cfg(test)]
 #[path = "mfa_http_tests.rs"]
 mod tests;

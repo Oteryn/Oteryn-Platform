@@ -16,9 +16,9 @@
 <label><input type="checkbox" name="remember" value="yes"> {{ self.text("mfa-remember") }}</label>
 <button class="op-button op-button--primary">{{ self.text("mfa-verify") }}</button></form>
 <form method="post" action="/{{ lang }}/mfa/email"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button">{{ self.text("mfa-send-email") }}</button></form>
-{% else if mode == "enrollment" %}
+{% else if mode == "enrollment" || mode == "replacement" %}
 <p>{{ self.text("mfa-provision") }}</p><p class="op-prose">{{ secret }}</p>
-<form class="op-stack" method="post" action="/{{ lang }}/mfa/confirm">
+<form class="op-stack" method="post" action="/{{ lang }}/mfa/{% if mode == "replacement" %}replace/{% endif %}confirm">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
 <div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
@@ -33,7 +33,38 @@
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
 <button class="op-button op-button--primary">{{ self.text("mfa-enroll") }}</button></form>
 {% endif %}
-<h2>{{ self.text("mfa-devices") }}</h2>
+{% if mode == "enabled" %}
+<h2>{{ self.text("panel-identity-recovery-count") }} <span data-recovery-count>{{ remaining_codes }}</span></h2>
+<form class="op-stack" method="post" action="/{{ lang }}/mfa/manage">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="operation">{{ self.text("panel-identity-operation") }}</label>
+<select class="op-input" id="operation" name="action">
+<option value="rotate_codes">{{ self.text("panel-identity-rotate-codes") }}</option>
+<option value="replace">{{ self.text("panel-identity-replace") }}</option>
+<option value="remove">{{ self.text("panel-identity-remove") }}</option>
+</select></div>
+<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
+<div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
+<button class="op-button">{{ self.text("panel-identity-apply") }}</button>
+</form>
+{% endif %}
+<h2>{{ self.text("mfa-browser-device-label") }}</h2>
 {% for device in devices %}<form method="post" action="/{{ lang }}/mfa/devices"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="device" value="{{ device }}"><button class="op-button">{{ self.text("mfa-remove") }} {{ loop.index }}</button></form>{% endfor %}
+{% if native_enabled %}
+<h2>{{ self.text("panel-identity-native-devices") }}</h2>
+{% if native_devices.is_empty() %}
+<p>{{ self.text("panel-identity-no-native-devices") }}</p>
+{% else %}
+<a href="/{{ lang }}/account/sudo">{{ self.text("panel-identity-recent-auth") }}</a>
+{% for family in native_devices %}
+<form method="post" action="/{{ lang }}/mfa/native-devices">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="family" value="{{ family.id }}">
+<p>{{ family.updated_at }} UTC</p>
+<button class="op-button">{{ self.text("mfa-remove") }}</button>
+</form>
+{% endfor %}
+{% endif %}
+{% endif %}
 {% endif %}
 {% endblock %}
