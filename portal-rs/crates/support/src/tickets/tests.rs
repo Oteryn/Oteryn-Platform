@@ -715,13 +715,20 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     for (body, expected) in [
-        ("body=answer&lock_version=1".into(), StatusCode::FORBIDDEN),
         (
-            format!("_csrf={csrf}&body=answer&lock_version=0"),
+            "body=answer&lock_version=1&reason=Reviewed".into(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            format!("_csrf={csrf}&body=answer&lock_version=0&reason=Reviewed"),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
         (
             format!("_csrf={csrf}&body=answer&lock_version=1"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            format!("_csrf={csrf}&body=answer&lock_version=1&reason=Reviewed"),
             StatusCode::FOUND,
         ),
     ] {
