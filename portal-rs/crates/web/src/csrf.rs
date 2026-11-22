@@ -18,16 +18,18 @@ pub struct CsrfConfig {
 /// Normalize an HTTPS host and optional port for routing and serialized origins.
 pub fn https_authority(value: &str) -> Option<String> {
     let authority: axum::http::uri::Authority = value.parse().ok()?;
-    let host = authority.host();
-    if host.is_empty() || value.contains('@') {
+    if authority.host().is_empty()
+        || value.contains('@')
+        || (authority.port().is_none() && value != authority.host())
+    {
         return None;
     }
-    match authority.port_u16() {
-        Some(443) => Some(host.to_ascii_lowercase()),
-        Some(port) => Some(format!("{}:{port}", host.to_ascii_lowercase())),
-        None if value == host => Some(host.to_ascii_lowercase()),
-        None => None,
-    }
+    let url = url::Url::parse(&format!("https://{authority}")).ok()?;
+    let host = url.host_str()?;
+    Some(match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_owned(),
+    })
 }
 
 pub async fn verify(
@@ -116,4 +118,28 @@ pub async fn verify(
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::https_authority;
+
+    #[test]
+    fn https_authority_matches_browser_serialization() {
+        for (configured, browser) in [
+            ("Staff.Example.test:443", "staff.example.test"),
+            ("[0:0:0:0:0:0:0:1]:443", "[::1]"),
+            ("[::ffff:192.0.2.1]:8443", "[::ffff:c000:201]:8443"),
+        ] {
+            assert_eq!(https_authority(configured).as_deref(), Some(browser));
+            assert_eq!(https_authority(browser).as_deref(), Some(browser));
+        }
+        for invalid in [
+            "staff.example.test:",
+            "user@staff.example.test",
+            "staff.example.test:65536",
+        ] {
+            assert_eq!(https_authority(invalid), None);
+        }
+    }
 }

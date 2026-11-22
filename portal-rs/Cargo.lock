@@ -3348,6 +3348,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "unic-langid",
+ "url",
 ]
 
 [[package]]
