@@ -482,6 +482,22 @@ mod tests {
         assert_eq!(active, ["calculators"]);
     }
     #[test]
+    fn desktop_home_panorama_fits_the_request_budget() -> Result<(), askama::Error> {
+        const PANORAMA: &str = "brama-panorama-f4db61b9.webp";
+        let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
+        let html = Home::new(&chrome, &HomeData::default()).render()?;
+        assert!(html.contains(&format!(r#"srcset="/static/thais/{PANORAMA}""#)));
+        let asset = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../static/thais")
+            .join(PANORAMA);
+        let size = std::fs::metadata(asset)
+            .expect("shipped desktop panorama")
+            .len();
+        assert!(size < 1_000_000, "desktop panorama is {size} bytes");
+        Ok(())
+    }
+
+    #[test]
     fn home_and_account_states_in_both_languages() -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {
             for enabled in [false, true] {
