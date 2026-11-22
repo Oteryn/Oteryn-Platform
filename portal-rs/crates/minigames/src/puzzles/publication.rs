@@ -217,6 +217,7 @@ impl Puzzles {
                 Err(Error::Conflict)
             };
         }
+        self.lock_publication_day(tx, day).await?;
         let today: Date = sqlx::query_scalar("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date")
             .fetch_one(&mut **tx)
             .await?;
@@ -225,6 +226,20 @@ impl Puzzles {
         }
         // Never add a new publication from a replay-only preparation.
         let puzzles = puzzles.ok_or(Error::Conflict)?;
+        if day > today {
+            let kinds: Vec<_> = puzzles
+                .iter()
+                .map(|(definition, _)| definition.kind.key())
+                .collect();
+            sqlx::query(
+                "DELETE FROM puzzles_daily
+                 WHERE day=$1 AND kind=ANY($2) AND day > (clock_timestamp() AT TIME ZONE 'UTC')::date",
+            )
+            .bind(day)
+            .bind(kinds)
+            .execute(&mut **tx)
+            .await?;
+        }
         let mut ids = Vec::with_capacity(puzzles.len());
         for (definition, media) in puzzles {
             let puzzle_id = self

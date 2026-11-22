@@ -63,12 +63,17 @@ inside the manifest directory and the portal checks their digests against that
 manifest. Quiz entries omit media. The portal fails closed if an asset or approved
 source is unavailable.
 
-New publications activate all supplied slots and append one `puzzles.publish`
-audit entry in the same transaction. Future dates are scheduled for their UTC
-day. Repeating the same document and ID returns `replayed: true` without
-reopening its assets. Reusing an ID with changed content, publishing over an
-occupied date and kind, or adding a slot from a different catalogue version
-to an occupied UTC date returns `Conflict`. Published definitions are immutable.
+New publications store all supplied slots and append one `puzzles.publish`
+audit entry in the same transaction. Future slots are staged until midnight UTC.
+Before release, submit a new publication ID to replace the staged slots for the
+kinds in the document. If the catalogue changed, include every existing kind
+for that date so the replacement uses one catalogue throughout. Slots for the
+current UTC day are playable and immutable.
+
+Repeating the same document and ID returns `replayed: true` without reopening
+its assets or restoring superseded slots. Reusing an ID with changed content,
+replacing a released slot, or mixing catalogue versions on one date returns
+`Conflict`.
 
 Each account gets one attempt per puzzle. Repeating the same choice returns
 the stored result; changing it returns a conflict. All three correct answers
@@ -81,9 +86,8 @@ The server never returns the correct-choice index or entity keys. Database
 uniqueness and a per-account row lock serialize answers and completion.
 Source/account authorization precedes the transaction, using public crate
 APIs without retaining a connection needed by those APIs. UTC expiry is
-checked after acquiring the lock and before committing. Published definitions
-cannot be updated or deleted; a revoked source fails closed rather than
-silently changing a puzzle after players have answered it.
+checked after acquiring the lock and before committing. Released definitions
+cannot be updated or deleted. A revoked source fails closed.
 
 Tests use synthetic data only. PostgreSQL tests read
 `PORTAL_TEST_DATABASE_URL`, print a skip notice when absent, and otherwise

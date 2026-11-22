@@ -166,6 +166,23 @@ impl Database {
             .bind(media(kind).map(|media|media.bytes)).execute(&self.pool).await?;
         Ok(id)
     }
+    async fn switch_catalogue(&self) -> Result<Uuid, sqlx::Error> {
+        let next_version = Uuid::now_v7();
+        sqlx::query("INSERT INTO world_versions (id, source_commit, status) VALUES ($1, repeat('b', 40), 'ready')")
+            .bind(next_version)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("INSERT INTO world_entities (version_id, kind, key, data, publishable) SELECT $1, kind, key, data, publishable FROM world_entities WHERE version_id=$2")
+            .bind(next_version)
+            .bind(self.version)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
+            .bind(next_version)
+            .execute(&self.pool)
+            .await?;
+        Ok(next_version)
+    }
     async fn close(self) -> TestResult {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -1255,20 +1272,7 @@ async fn postgres_publication_rejects_mixed_catalogues_on_the_same_utc_day() -> 
         return Ok(());
     };
     let atlas = db.publish(Kind::Atlas).await?;
-    let next_version = Uuid::now_v7();
-    sqlx::query("INSERT INTO world_versions (id, source_commit, status) VALUES ($1, repeat('b', 40), 'ready')")
-        .bind(next_version)
-        .execute(&db.pool)
-        .await?;
-    sqlx::query("INSERT INTO world_entities (version_id, kind, key, data, publishable) SELECT $1, kind, key, data, publishable FROM world_entities WHERE version_id=$2")
-        .bind(next_version)
-        .bind(db.version)
-        .execute(&db.pool)
-        .await?;
-    sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
-        .bind(next_version)
-        .execute(&db.pool)
-        .await?;
+    let next_version = db.switch_catalogue().await?;
 
     let publication_id = Uuid::now_v7();
     let tomorrow = db.today.next_day().unwrap();
@@ -1329,5 +1333,93 @@ async fn postgres_publication_rejects_mixed_catalogues_on_the_same_utc_day() -> 
     let daily = db.service.today(db.account).await?;
     assert_eq!(daily.len(), 1);
     assert_eq!(daily[0].id, atlas);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_staged_publication_can_replace_stale_slots_only_before_release() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let day = db.today.next_day().unwrap();
+    let original_id = Uuid::now_v7();
+    let quiz = |publication_id, version| {
+        serde_json::from_value(serde_json::json!({
+            "publication_id": publication_id,
+            "day": day.to_string(),
+            "puzzles": [{"definition": definition(version, Kind::Quiz)}]
+        }))
+    };
+    let root = std::path::Path::new(".");
+    let original = db
+        .service
+        .prepare_publication(quiz(original_id, db.version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    let staged = db
+        .service
+        .activate_publication(&mut tx, original)
+        .await?
+        .unwrap()[0];
+    tx.commit().await?;
+
+    let next_version = db.switch_catalogue().await?;
+    assert!(db.service.today(db.account).await?.is_empty());
+    assert!(matches!(
+        db.service.answer(db.account, staged, 1).await,
+        Err(Error::NotFound)
+    ));
+    let replacement = db
+        .service
+        .prepare_publication(quiz(Uuid::now_v7(), next_version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    let released = db
+        .service
+        .activate_publication(&mut tx, replacement)
+        .await?
+        .unwrap()[0];
+    tx.commit().await?;
+    assert_ne!(released, staged);
+
+    // An old receipt stays idempotent and cannot restore its superseded slot.
+    let replay = db
+        .service
+        .prepare_publication(quiz(original_id, db.version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service.activate_publication(&mut tx, replay).await?,
+        None
+    );
+    tx.commit().await?;
+
+    let late = db
+        .service
+        .prepare_publication(quiz(Uuid::now_v7(), next_version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    db.service.activate_publication(&mut tx, late).await?;
+    test_clock::set(&db.pool, day.midnight().assume_utc()).await?;
+    let error = tx.commit().await.unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().message(),
+        "published daily puzzles are immutable"
+    );
+    let daily = db.service.today(db.account).await?;
+    assert_eq!(daily.len(), 1);
+    assert_eq!(daily[0].id, released);
+    assert!(db.service.answer(db.account, released, 1).await?.correct);
+
+    let after_release = db
+        .service
+        .prepare_publication(quiz(Uuid::now_v7(), next_version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service
+            .activate_publication(&mut tx, after_release)
+            .await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await?;
     db.close().await
 }
