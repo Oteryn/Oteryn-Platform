@@ -232,6 +232,32 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
+    async fn anonymous_forms_negotiate_before_accessing_session_storage()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use oteryn_identity::recovery_key::{FEATURE, FeatureFlags};
+
+        let state = crate::AppState {
+            db: oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?,
+        };
+        let app = secure_public(crate::router(state, "static"))
+            .layer(axum::Extension(FeatureFlags::from([FEATURE.to_owned()])));
+        for path in ["/en/register", "/en/recovery-key"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(path)
+                        .header(header::ACCEPT, "application/json")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE, "{path}");
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+            assert!(!response.headers().contains_key(header::SET_COOKIE));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn dynamic_pages_require_a_real_no_store_directive()
     -> Result<(), Box<dyn std::error::Error>> {
         let cases: [(&[&str], bool); 6] = [

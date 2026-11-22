@@ -378,6 +378,11 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                         {
                             return StatusCode::NOT_FOUND.into_response();
                         }
+                        if matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD)
+                            && let Some(response) = public_http::html_refusal(&request)
+                        {
+                            return response;
+                        }
                         request
                             .extensions_mut()
                             .insert(oteryn_identity::recovery_key::Enabled(true));
