@@ -25,16 +25,19 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 
 | Browser mutation | a | b | c | d | e |
 | --- | --- | --- | --- | --- | --- |
-| `/{lang}/account/privacy` (POST and PUT) | Yes | Yes | Anonymous | Yes | Each save advances the revision |
-| `/account/badges` and `/{lang}/account/badges` | Account-age selection and clearing | Yes | Anonymous | Yes | Selection unchanged after replay |
-| `/{lang}/account/notifications` | Yes | Yes | Anonymous | Yes | Same preferences after replay |
-| `/{lang}/account/consents` | Grant and revoke both purposes | Yes | Anonymous | Malformed fields are 400. Obsolete grant text yields localized conflict | Each decision is a new history row |
+| `/{lang}/account/privacy` (POST and PUT) | Yes | Yes | Foreign player and content editor cannot name the owner | Yes | Each save advances the revision |
+| `/account/badges` and `/{lang}/account/badges` | Account-age selection and clearing | Yes | Foreign player and content editor cannot name the owner | Yes | Selection unchanged after replay |
+| `/{lang}/account/notifications` | Yes | Yes | Foreign player and content editor cannot name the owner | Yes | Same preferences after replay |
+| `/{lang}/account/consents` | Grant and revoke both purposes | Yes | Foreign player and content editor cannot name the owner | Malformed fields are 400. Obsolete grant text yields localized conflict | Each decision is a new history row |
 | `/oauth/authorize` | Approve creates a bound code. Deny redirects with no grant | Yes | Anonymous | OAuth protocol validation error | The issued code exchanges once |
 | `/account/sessions/{id}` and locale alias, POST and DELETE | Session removed and security event stored | Yes | Foreign player and content editor | Malformed ID is 400 | Already-revoked target leaves the same event and session state |
 | Session sign-out-others POST and DELETE, both prefixes | Only the current session remains | Yes | Anonymous refused. Authenticated actors cannot target another account | CSRF-only forms | Each successful self-action records its own event |
 | Session sign-out-all POST, both prefixes | Login shown and all sessions removed | Yes | Anonymous refused. Authenticated actors cannot target another account | CSRF-only form | Replayed token refused with unchanged state |
 | Login and MFA login POST, both prefixes | Login lands on the account homepage and persists a session and login event | Yes | Signed-in foreign player and content editor retain their own sessions | Localized validation | Login intentionally rotates the acting session |
 | Logout POST, both prefixes | Login page shown and only the acting session revoked | Yes | Signed-in foreign player and content editor cannot revoke the target session | CSRF-only form | Replayed token refused with unchanged state |
+| Sudo POST, both prefixes | Browser confirms the password and persists recent authorization for the acting session | Yes | Other player and content editor cannot authorize the target | Localized invalid password feedback | Fresh successful confirmation renews the session proof |
+| Password change POST and PUT, both prefixes | Real form changes the credential, transaction records the security event and revokes old sessions | Yes | Other player and content editor refused | Localized input validation | Old request cannot change the credential again |
+| WebAuthn registration, authentication and removal | Chromium authenticator completes real ceremonies, and credential and session records change | Yes | Other player and content editor cannot operate on the owner challenge or credential | Structured authenticator errors and malformed references | Challenge or credential state changes once |
 | `/{lang}/unsubscribe` | Signed confirmation form | Signed capability missing or forged | Possession of the signed link grants access | Malformed and overlength capabilities | No additional change on replay |
 | `/{lang}/support/tickets` | Yes | Yes | Anonymous | Yes | Request-key replay |
 | `/{lang}/support/tickets/{id}/reply` | Yes | Yes | Foreign player | Yes | Stale lock version |

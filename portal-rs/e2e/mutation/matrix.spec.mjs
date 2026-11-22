@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { login, logout, password, pool, submit, waitForLoginBudget } from '../helpers.mjs';
+import { login, logout, password, pool, seedPasswordRange, submit, waitForLoginBudget } from '../helpers.mjs';
 import { action, enrollMfa, loginWithRecoveryCode, player, query, rolePage } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 
@@ -2019,6 +2019,347 @@ test('staff roles create, edit, grant and revoke only under admin.roles.manage',
       { action: 'rbac.role.created' }, { action: 'rbac.role.permissions_changed' },
       { action: 'rbac.role.granted' }, { action: 'rbac.role.revoked' },
     ]);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+for (const [prefix, changeMethod] of [
+  ['locale', 'POST'], ['locale', 'PUT'], ['unprefixed', 'POST'], ['unprefixed', 'PUT'],
+]) {
+  test(`sudo and password change bind ${prefix} ${changeMethod} to the active account`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    });
+    try {
+      const owner = await seededPlayer(page, lang);
+      const outsider = await context.newPage();
+      await seededPlayer(outsider, lang, 'content_editor');
+      await outsider.goto(`/${lang}/account/privacy`);
+      const foreignToken = (await prepare(outsider, formSelector)).fields._csrf;
+      const snapshot = async () => ({
+        events: (await query('SELECT kind FROM credential_security_events WHERE account_id=$1 ORDER BY id', [owner.id]))
+          .map(row => row.kind),
+        sessions: await query(
+          'SELECT session_id, sudo_until IS NOT NULL AS sudo FROM web_sessions WHERE account_id=$1 ORDER BY session_id',
+          [owner.id],
+        ),
+        generation: (await query('SELECT native_security_generation FROM accounts WHERE id=$1', [owner.id]))[0].native_security_generation,
+      });
+      const first = await snapshot();
+      expect(first.events).toEqual([]);
+      expect(first.sessions).toHaveLength(1);
+      const error = lang === 'pl' ? 'Sprawdź obecne hasło oraz pola nowego hasła.'
+        : 'Check your current password and the new password fields.';
+      const prefixPath = prefix === 'locale' ? `/${lang}` : '';
+      const sudo = `/${lang}/account/sudo`;
+      const change = `/${lang}/password/change`;
+
+      const verifyRefusals = async ({ path, alias, method, values, baseline, samples }) => {
+        expect((await page.goto(path)).status()).toBe(200);
+        const form = await prepare(page, formSelector, values);
+        const url = new URL(alias, form.url).href;
+        const expectedRedirect = method === 'PUT' ? 303 : 302;
+        await rejected({ page, url, fields: form.fields, method, snapshot, baseline });
+        expect((await sendForm(outsider, url, { ...form.fields, _csrf: foreignToken }, method)).status())
+          .toBe(expectedRedirect);
+        expect(await snapshot()).toEqual(baseline);
+        for (const { name, patch } of samples) {
+          await test.step(name, async () => {
+            const denied = await sendForm(page, url, { ...form.fields, ...patch }, method);
+            expect(denied.status()).toBe(expectedRedirect);
+            expect(denied.headers().location).toBe(path);
+            await page.goto(path);
+            await expect(page.getByRole('alert')).toHaveText(error);
+            expect(await snapshot()).toEqual(baseline);
+          });
+        }
+        return { form, url };
+      };
+      const sudoFields = { current_password: owner.password };
+      const sudoInput = await verifyRefusals({
+        path: sudo, alias: `${prefixPath}/account/sudo`, method: 'POST', values: sudoFields, baseline: first,
+        samples: [
+          { name: 'empty current password', patch: { current_password: '' } },
+          { name: 'overlong current password', patch: { current_password: 'x'.repeat(1025) } },
+          { name: 'numeric input does not verify', patch: { current_password: '1' } },
+          { name: 'current password with one extra character', patch: { current_password: owner.password + 'x' } },
+        ],
+      });
+      await useFormMethod(page, sudoInput.form.url, 'POST',
+        () => submit(page, formSelector, sudoFields), sudoInput.url);
+      await expect(page).toHaveURL(new URL(change, sudoInput.url).href);
+      const elevated = await snapshot();
+      expect(elevated.events).toEqual(['sudo_confirmed']);
+      expect(elevated.sessions).toHaveLength(1);
+      expect(elevated.sessions[0].sudo).toBe(true);
+      expect((await sendForm(page, sudoInput.url, sudoInput.form.fields)).status()).toBe(403);
+      expect(await snapshot()).toEqual(elevated);
+
+      const next = password();
+      await seedPasswordRange(next);
+      const passwordFields = { current_password: owner.password, password: next, password_confirmation: next };
+      const changeInput = await verifyRefusals({
+        path: change, alias: `${prefixPath}/password/change`, method: changeMethod,
+        values: passwordFields, baseline: elevated,
+        samples: [
+          { name: 'empty new password', patch: { password: '' } },
+          { name: 'overlong new password', patch: { password: 'x'.repeat(1025) } },
+          { name: 'confirmation does not bind the new password', patch: { password_confirmation: '1234' } },
+          { name: 'nine characters below the minimum', patch: { password: 'a'.repeat(9), password_confirmation: 'a'.repeat(9) } },
+        ],
+      });
+      await useFormMethod(page, changeInput.form.url, changeMethod,
+        () => submit(page, formSelector, passwordFields), changeInput.url);
+      await expect(page).toHaveURL(/\/login$/);
+      const changed = await snapshot();
+      expect(changed.events).toEqual(['sudo_confirmed', 'password_changed']);
+      expect(changed.sessions).toEqual([]);
+      expect(Number(changed.generation)).toBe(Number(elevated.generation) + 1);
+      expect((await sendForm(page, changeInput.url, changeInput.form.fields, changeMethod)).status()).toBe(403);
+      expect(await snapshot()).toEqual(changed);
+      await login(page, lang, { ...owner, password: next });
+      await expect(page).toHaveURL(new URL(`/${lang}/`, changeInput.url).href);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+test('WebAuthn browser ceremonies save, authenticate and remove only the owner credential', async ({ page, browser, context }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const origin = new URL(info.project.use.baseURL).origin;
+  const path = `/${lang}/account/passkeys`;
+  const cdp = await context.newCDPSession(page);
+  const others = [];
+  await cdp.send('WebAuthn.enable');
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
+    protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
+    automaticPresenceSimulation: true, isUserVerified: true,
+  } });
+  try {
+    const owner = await seededPlayer(page, lang);
+    const foreign = [];
+    for (const role of [undefined, 'content_editor']) {
+      const context = await browser.newContext({ baseURL: origin, ignoreHTTPSErrors: true, locale: lang });
+      others.push(context);
+      const other = await context.newPage();
+      const actor = await seededPlayer(other, lang, role);
+      expect((await other.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+      const { fields } = await prepare(other, formSelector);
+      foreign.push({ other, token: fields._csrf, actor });
+
+    }
+    const json = (screen, url, data, token) => screen.request.post(url, {
+      data, headers: { origin, ...(token === undefined ? {} : { 'x-csrf-token': token }) },
+    });
+    const keys = () => query('SELECT id FROM account_passkeys WHERE account_id=$1', [owner.id]);
+    const sessions = () => query('SELECT session_id FROM web_sessions WHERE account_id=$1', [owner.id]);
+    const keyPage = page.locator('#passkeys');
+    const passwordField = page.locator('#passkey-password');
+    const register = page.locator('[data-passkey=register]');
+    const authenticate = page.locator('[data-passkey=authenticate]');
+    const localStatus = page.locator('#passkey-status');
+    const reserve = async (needed = 1) => {
+      await waitForLoginBudget(needed);
+      await expect.poll(async () => {
+        const [row] = await query(
+          "SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits WHERE limiter_name='identity-security-mutation' AND window_start=date_trunc('minute',clock_timestamp())",
+        );
+        return row.count;
+      }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(10 - needed);
+    };
+    const noCsrf = async (url, data, state, baseline) => {
+      for (const token of [undefined, 'invalid']) {
+        expect((await json(page, url, data, token)).status()).toBe(403);
+        expect(await state()).toEqual(baseline);
+      }
+    };
+    const browserFinish = async (phase, click) => {
+      const pattern = new URL(`${path}/${phase}/finish`, origin).href;
+      let proof;
+      const check = async route => {
+        try {
+          proof = route.request().postDataJSON();
+          const hash = createHash('sha256').update(proof.token).digest();
+          const ceremony = () => query('SELECT account_id,purpose FROM passkey_ceremonies WHERE token_hash=$1', [hash]);
+          const baseline = [{ account_id: phase === 'register' ? owner.id : null, purpose: phase }];
+          expect(await ceremony()).toEqual(baseline);
+          const token = await keyPage.getAttribute('data-csrf');
+          await noCsrf(pattern, proof, ceremony, baseline);
+          await reserve(5);
+          for (const { other, token } of foreign) {
+            expect((await json(other, pattern, proof, token)).status()).toBe(403);
+            expect(await ceremony()).toEqual(baseline);
+          }
+          for (const patch of [
+            { token: '' }, { token: '1'.repeat(129) },
+            { token: 9 }, { token: '0'.repeat(63) },
+          ]) {
+            expect((await json(page, pattern, { ...proof, ...patch }, token)).status()).toBe(403);
+            expect(await ceremony()).toEqual(baseline);
+          }
+        } finally {
+          await route.continue();
+        }
+      };
+      await page.route(pattern, check);
+      try {
+        const completed = page.waitForResponse(response => response.url() === pattern && response.request().method() === 'POST', { timeout: 120_000 });
+        await click();
+        expect((await completed).status()).toBe(200);
+      } finally {
+        await page.unroute(pattern, check);
+      }
+      return proof;
+    };
+    expect((await page.goto(path)).status()).toBe(200);
+    const initial = await sessions();
+    expect(initial).toHaveLength(1);
+    expect(await keys()).toEqual([]);
+    const start = `${path}/register/start`;
+    const state = () => query("SELECT purpose FROM passkey_ceremonies WHERE account_id=$1", [owner.id]);
+    await noCsrf(start, { password: owner.password }, state, []);
+    await reserve(6);
+    for (const { other, token } of foreign) {
+      expect((await json(other, start, { password: owner.password }, token)).status()).toBe(403);
+      expect(await state()).toEqual([]);
+    }
+    const ownToken = await keyPage.getAttribute('data-csrf');
+    for (const invalid of ['', 'x'.repeat(1025), 1, `${owner.password}x`]) {
+      expect((await json(page, start, { password: invalid }, ownToken)).status()).toBe(403);
+      expect(await state()).toEqual([]);
+    }
+    await passwordField.fill('Wrong local password!');
+    await register.click();
+    await expect(localStatus).toHaveText(await localStatus.getAttribute('data-error'));
+    await reserve(2);
+    await passwordField.fill(owner.password);
+    const registration = await browserFinish('register', () => register.click());
+    await expect(authenticate).toBeVisible();
+    expect(await state()).toEqual([]);
+    expect(await sessions()).toEqual([]);
+    const credential = await keys();
+    expect(credential).toEqual([{ id: expect.any(String) }]);
+    await reserve(1);
+    expect((await json(page, `${path}/register/finish`, registration, await keyPage.getAttribute('data-csrf'))).status()).toBe(403);
+    expect(await keys()).toEqual(credential);
+
+    const authStart = `${path}/authenticate/start`;
+    await noCsrf(authStart, {}, sessions, []);
+    await reserve(7);
+    for (const { other, token } of foreign) {
+      expect((await json(other, authStart, {}, token)).status()).toBe(403);
+      expect(await sessions()).toEqual([]);
+    }
+    for (const invalid of [null, '', 1, { account: owner.id }]) {
+      expect((await json(page, authStart, invalid, await keyPage.getAttribute('data-csrf'))).status()).toBe(403);
+      expect(await sessions()).toEqual([]);
+    }
+    const assertion = await browserFinish('authenticate', () => authenticate.click());
+    await expect(register).toBeVisible();
+    const signedIn = await sessions();
+    expect(signedIn).toHaveLength(1);
+    expect(signedIn).not.toEqual(initial);
+    await reserve(1);
+    expect((await json(page, `${path}/authenticate/finish`, assertion, await keyPage.getAttribute('data-csrf'))).status()).toBe(403);
+    expect(await sessions()).toEqual(signedIn);
+
+    const id = credential[0].id;
+    const remove = `${path}/${id}/remove`;
+    await noCsrf(remove, { password: owner.password }, keys, credential);
+    await reserve(7);
+    for (const { other, token, actor } of foreign) {
+      expect((await json(other, remove, { password: actor.password }, token)).status()).toBe(403);
+      expect(await keys()).toEqual(credential);
+    }
+    for (const invalid of [null, '', 1, 'x'.repeat(1025)]) {
+      expect((await json(page, remove, { password: invalid }, await keyPage.getAttribute('data-csrf'))).status()).toBe(403);
+      expect(await keys()).toEqual(credential);
+    }
+    await passwordField.fill(owner.password);
+    await page.locator(`[data-remove="${id}"]`).click();
+    await expect(authenticate).toBeVisible();
+    expect(await keys()).toEqual([]);
+    expect(await sessions()).toEqual([]);
+  } finally {
+    await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
+    await cdp.detach();
+    await Promise.all(others.map(context => context.close()));
+  }
+});
+
+test('other players and unrelated staff cannot name an owner in account settings', async ({ page, browser }, info) => {
+  test.setTimeout(420_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const owner = await seededPlayer(page, lang);
+    const outsiders = [];
+    for (const role of [undefined, 'content_editor']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const actor = await context.newPage();
+      const account = await seededPlayer(actor, lang, role);
+      await actor.goto(`/${lang}/account/privacy`);
+      outsiders.push({ actor, account, token: (await prepare(actor, formSelector)).fields._csrf });
+    }
+    const ids = [owner.id, ...outsiders.map(actor => actor.account.id)];
+    const state = async () => ({
+      privacy: await query(
+        'SELECT id,public_account_association,public_status_visible,locale FROM accounts WHERE id=ANY($1::uuid[]) ORDER BY id',
+        [ids],
+      ),
+      badges: await query('SELECT account_id,badge_keys FROM account_badge_selections WHERE account_id=ANY($1::uuid[]) ORDER BY account_id', [ids]),
+      consents: await query(
+        "SELECT account_id,document_kind,granted FROM account_consents WHERE account_id=ANY($1::uuid[]) AND document_kind IN ('play_session','personalised_ads') ORDER BY account_id,document_kind",
+        [ids],
+      ),
+      notify: await query(
+        'SELECT account_id,category,email_enabled,portal_enabled FROM account_notification_prefs WHERE account_id=ANY($1::uuid[]) ORDER BY account_id,category',
+        [ids],
+      ),
+      places: await query('SELECT account_id,participating FROM pd_places_preferences WHERE account_id=ANY($1::uuid[]) ORDER BY account_id', [ids]),
+    });
+    const baseline = await state();
+    const check = async (url, fields, methods = ['POST']) => {
+      for (const method of methods) {
+        for (const { actor, token } of outsiders) {
+          const response = await sendForm(actor, url, { ...fields, _csrf: token, account_id: owner.id }, method);
+          expect(response.status(), `${method} ${new URL(url).pathname}`).toBe(422);
+          expect(await state()).toEqual(baseline);
+        }
+      }
+    };
+
+    await page.goto(`/${lang}/account/privacy`);
+    const privacy = await prepare(page, formSelector, { public_account_association: '1', public_status_visible: '1' });
+    await check(privacy.url, privacy.fields, ['POST', 'PUT']);
+
+    for (const path of [`/${lang}/account/badges`, '/account/badges']) {
+      expect((await page.goto(path)).status()).toBe(200);
+      const { url, fields } = await prepare(page, formSelector, { badge: 'account-age' });
+      await check(url, fields);
+      await expect(page.locator('main fieldset [role=status]')).toHaveText(lang === 'pl' ? 'Niedostępne' : 'Unavailable');
+      await expect(page.locator('select[name=profile] option')).toHaveCount(1);
+      await expect(page.locator('select[name=ranking] option')).toHaveCount(1);
+    }
+
+    expect((await page.goto(`/${lang}/account/notifications`)).status()).toBe(200);
+    const prefs = await prepare(page, formSelector, { news_email: 'true' });
+    await check(prefs.url, prefs.fields);
+
+    expect((await page.goto(`/${lang}/account/consents`)).status()).toBe(200);
+    for (const kind of ['play_session', 'personalised_ads']) {
+      const consent = await prepare(page, `main form:has([name=kind][value=${kind}])`, { granted: 'true' });
+      await check(consent.url, consent.fields);
+    }
+    await check(new URL(`/${lang}/atlas/places/participation`, privacy.url).href, { participating: 'true' });
   } finally {
     await Promise.all(contexts.map(context => context.close()));
   }
