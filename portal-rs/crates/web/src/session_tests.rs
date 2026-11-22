@@ -484,6 +484,58 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
 }
 
 #[tokio::test]
+async fn chrome_passkey_link_tracks_account_eligibility() -> TestResult {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,locale,status,email_verified_at) VALUES($1,'passkey-menu@example.invalid','fixture','en','active',now())")
+        .bind(account).execute(&db.pool).await?;
+    let session = BrowserSession::new(
+        db.pool.clone(),
+        SessionConfig::default(),
+        None,
+        "chrome test",
+    );
+    rotate(&session, PrivilegeChange::Login(account)).await?;
+    let id = session
+        .inner
+        .lock()
+        .await
+        .record
+        .as_ref()
+        .ok_or("missing record")?
+        .id
+        .clone();
+    let layer = SessionLayer::new(db.pool.clone());
+    let mut registry = oteryn_ui::Registry::default();
+    registry.section(
+        true,
+        "account-passkeys",
+        "shell-account-passkeys",
+        "account/passkeys",
+        oteryn_ui::Group::Account,
+        false,
+    );
+    for (status, verified, mandatory, expected) in [
+        ("active", true, false, true),
+        ("active", true, true, false),
+        ("active", false, false, false),
+        ("suspended", true, false, false),
+    ] {
+        sqlx::query("UPDATE accounts SET status=$2,email_verified_at=CASE WHEN $3 THEN now() END,login_mfa_required=$4 WHERE id=$1")
+            .bind(account).bind(status).bind(verified).bind(mandatory).execute(&db.pool).await?;
+        let mut request = HttpRequest::get("/en/")
+            .header(header::COOKIE, format!("{COOKIE_NAME}={id}"))
+            .body(Body::empty())?;
+        let account = chrome_account(&layer, &mut request).await;
+        let chrome = registry.chrome("en", "/en/", account);
+        assert_eq!(chrome.link("account-passkeys").is_some(), expected);
+    }
+    db.close().await
+}
+
+#[tokio::test]
 async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestResult {
     let db = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     let layer = crate::public_sessions(db.clone(), Some("https://portal.test".into()));
