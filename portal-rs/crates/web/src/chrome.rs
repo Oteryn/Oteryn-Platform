@@ -75,10 +75,10 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     replacement.headers_mut().insert(name, value.clone());
                 }
             }
-            for value in response.headers().get_all(header::SET_COOKIE) {
-                replacement
-                    .headers_mut()
-                    .append(header::SET_COOKIE, value.clone());
+            for name in [header::SET_COOKIE, header::CACHE_CONTROL] {
+                for value in response.headers().get_all(&name) {
+                    replacement.headers_mut().append(&name, value.clone());
+                }
             }
             for (name, value) in [
                 (
@@ -101,26 +101,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .entry(axum::http::HeaderName::from_static(name))
                     .or_insert(axum::http::HeaderValue::from_static(value));
             }
-            replacement.headers_mut().insert(
-                header::CACHE_CONTROL,
-                axum::http::HeaderValue::from_static("no-store"),
-            );
+            ensure_no_store(replacement.headers_mut());
             response = replacement;
         }
     }
-    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE
-        && !response
-            .headers()
-            .get_all(header::CACHE_CONTROL)
-            .iter()
-            .filter_map(|value| value.to_str().ok())
-            .flat_map(|value| value.split(','))
-            .any(|directive| directive.trim().eq_ignore_ascii_case("no-store"))
-    {
-        response.headers_mut().insert(
-            header::CACHE_CONTROL,
-            header::HeaderValue::from_static("no-store"),
-        );
+    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
+        ensure_no_store(response.headers_mut());
     }
     let mut response = wrap_document(response, &chrome).await;
     if response
@@ -139,6 +125,34 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+fn ensure_no_store(headers: &mut axum::http::HeaderMap) {
+    let no_store = headers.get_all(header::CACHE_CONTROL).iter().any(|value| {
+        let mut quoted = false;
+        let mut escaped = false;
+        value
+            .as_bytes()
+            .split(|&byte| {
+                if escaped {
+                    escaped = false;
+                } else if quoted && byte == b'\\' {
+                    escaped = true;
+                } else if byte == b'"' {
+                    quoted = !quoted;
+                } else if byte == b',' && !quoted {
+                    return true;
+                }
+                false
+            })
+            .any(|directive| directive.trim_ascii().eq_ignore_ascii_case(b"no-store"))
+    });
+    if !no_store {
+        headers.append(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
+    }
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit
@@ -486,6 +500,27 @@ mod response_tests {
         Ok(())
     }
 
+    #[test]
+    fn existing_no_store_is_not_duplicated() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.append(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("private"),
+        );
+        headers.append(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache, No-Store"),
+        );
+        super::ensure_no_store(&mut headers);
+        assert_eq!(
+            headers
+                .get_all(header::CACHE_CONTROL)
+                .iter()
+                .collect::<Vec<_>>(),
+            ["private", "no-cache, No-Store"],
+        );
+    }
+
     #[tokio::test]
     async fn public_refusals_are_documents_and_api_statuses_stay_intact()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -495,16 +530,21 @@ mod response_tests {
             .route(
                 "/{lang}/cold",
                 get(|| async {
-                    (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        [
-                            (header::RETRY_AFTER, "17"),
-                            (header::STRICT_TRANSPORT_SECURITY, "max-age=7"),
-                            (header::REFERRER_POLICY, "no-referrer"),
-                            (header::SET_COOKIE, "probe=value; Secure; HttpOnly"),
-                        ],
-                        "",
-                    )
+                    let mut headers = axum::http::HeaderMap::new();
+                    for (name, value) in [
+                        (header::RETRY_AFTER, "17"),
+                        (header::CACHE_CONTROL, "private, no-cache"),
+                        (
+                            header::CACHE_CONTROL,
+                            r#"extension="a,no-store,b", max-age=0"#,
+                        ),
+                        (header::STRICT_TRANSPORT_SECURITY, "max-age=7"),
+                        (header::REFERRER_POLICY, "no-referrer"),
+                        (header::SET_COOKIE, "probe=value; Secure; HttpOnly"),
+                    ] {
+                        headers.append(name, axum::http::HeaderValue::from_static(value));
+                    }
+                    (StatusCode::SERVICE_UNAVAILABLE, headers, "")
                 }),
             )
             .route("/api/refused", get(|| async { StatusCode::FORBIDDEN }))
@@ -532,7 +572,18 @@ mod response_tests {
                 )
                 .await?;
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(
+                response
+                    .headers()
+                    .get_all(header::CACHE_CONTROL)
+                    .iter()
+                    .collect::<Vec<_>>(),
+                [
+                    "private, no-cache",
+                    r#"extension="a,no-store,b", max-age=0"#,
+                    "no-store"
+                ],
+            );
             assert_eq!(response.headers()[header::RETRY_AFTER], "17");
         }
         for lang in ["pl", "en"] {
@@ -550,7 +601,18 @@ mod response_tests {
                     .to_str()?
                     .starts_with("text/html")
             );
-            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(
+                response
+                    .headers()
+                    .get_all(header::CACHE_CONTROL)
+                    .iter()
+                    .collect::<Vec<_>>(),
+                [
+                    "private, no-cache",
+                    r#"extension="a,no-store,b", max-age=0"#,
+                    "no-store"
+                ],
+            );
             assert_eq!(
                 response.headers()[header::X_CONTENT_TYPE_OPTIONS],
                 "nosniff"
