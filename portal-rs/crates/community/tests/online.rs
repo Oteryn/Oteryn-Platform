@@ -370,6 +370,13 @@ async fn missing_feed_signal_requires_successful_database_reads() -> TestResult 
     assert_eq!(partial.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert!(!partial.headers().contains_key("x-oteryn-game-data"));
 
+    sqlx::query("DELETE FROM public_snapshots WHERE is_watermark")
+        .execute(&db)
+        .await?;
+    let before_watermark = get().await?;
+    assert_eq!(before_watermark.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!before_watermark.headers().contains_key("x-oteryn-game-data"));
+
     sqlx::query("DELETE FROM public_snapshots")
         .execute(&db)
         .await?;

@@ -316,6 +316,15 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
     if let Err(error) = state.visibility.hidden_batch(&[]).await {
         if matches!(error, Unavailable::MissingGameData)
             && complete_through.is_none()
+            // Publication may have written rows before advancing the family watermark.
+            && !sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM public_snapshots
+                 WHERE family='world_online' AND NOT is_watermark
+                   AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1))",
+            )
+            .fetch_one(&mut *fence)
+            .await
+            .map_err(|_| Unavailable::Failure)?
             && privacy_cut
                 .validate(&mut fence)
                 .await
