@@ -6,9 +6,10 @@ The launchers install the default legal pages after migrations in `local` and
 `testing`. With `OTERYN_ENV=preprod`, the cross-repository harness instead
 seeds approved signup fixtures in its fresh local database and checks both
 locales before starting. The fixture versions use `OTERYN_TERMS_VERSION` and
-`OTERYN_PRIVACY_VERSION`, each defaulting to `e2e-approved-v1`.
-When using an
-already running isolated portal, run `OTERYN_ENV=testing oteryn-portal install-legal-pages`
+`OTERYN_PRIVACY_VERSION`, each defaulting to `e2e-approved-v1`. Pass `--outbox`
+to the harness to enable the local HTTPS origin and SMTP sink for signup.
+When using an already running isolated testing portal, run
+`OTERYN_ENV=testing oteryn-portal install-legal-pages`
 against its database before running `specs/legal-pages.spec.mjs` or exercising
 browser signup.
 
