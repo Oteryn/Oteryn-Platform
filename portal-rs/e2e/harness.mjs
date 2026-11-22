@@ -271,6 +271,7 @@ async function start() {
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.http, path: '/', method: 'GET' }).then(() => true), 'public listener');
   await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
+  await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------

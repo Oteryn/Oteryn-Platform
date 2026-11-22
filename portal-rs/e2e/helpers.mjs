@@ -4,8 +4,7 @@ import crypto from 'node:crypto';
 import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
-export const pool = () => {
- const connectionString=process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
+export const pool = (connectionString = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL) => {
  if(!connectionString)throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
  const url=new URL(connectionString);
  if(!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!url.pathname.startsWith('/portal_e2e_'))throw new Error('Fixtures require a local portal_e2e_ database');

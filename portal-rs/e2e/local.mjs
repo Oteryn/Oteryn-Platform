@@ -106,8 +106,15 @@ Object.assign(env,{
  PORTAL_E2E_GAME_CLOSURE_CONTROL_URL:gameProducer.controlURL,
 });
 // A prebuilt binary (PORTAL_E2E_BINARY, e.g. from a CI build job) skips the local build.
-if(!process.env.PORTAL_E2E_BINARY) command('cargo',['build','--locked','-p','oteryn-portal']);
-const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
+let binary=process.env.PORTAL_E2E_BINARY;
+if(!binary){
+ command('cargo',['build','--locked','-p','oteryn-portal']);
+ const metadata=spawnSync('cargo',['metadata','--locked','--no-deps','--format-version=1'],{cwd:root,env,encoding:'utf8'});
+ if(metadata.status!==0)throw new Error('cargo metadata failed');
+ binary=path.join(JSON.parse(metadata.stdout).target_directory,'debug','oteryn-portal');
+}
+binary=path.resolve(root,binary);
+env.PORTAL_E2E_BINARY=binary;
 command(binary,['migrate']);
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
@@ -135,7 +142,11 @@ const proxy=https.createServer(tls,(req,res)=>{
   return;
  }
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
- const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
+ // Select actual loopback peers for source-limit checks on the local login route.
+ const {'x-portal-e2e-login-peer':peer,...headers}=req.headers;
+ const localAddress=req.method==='POST'&&/^\/(?:pl\/|en\/)?login$/.test(req.url)&&
+  ['127.0.0.2','127.0.0.3'].includes(peer)?peer:'127.0.0.1';
+ const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });
 proxy.listen(18443,'127.0.0.1');
