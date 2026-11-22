@@ -27,6 +27,7 @@ impl Panel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Permission {
     AccountOwner,
+    AccountPasskeys,
     Staff(&'static str),
 }
 

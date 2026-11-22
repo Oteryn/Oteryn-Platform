@@ -211,7 +211,7 @@ async fn configured_https_port_matches_browser_host_and_csrf_origin() {
 #[test]
 fn localized_responsive_labelled_template() {
     for (lang, reports_label) in [("pl", "Zgłoszenia graczy"), ("en", "Player reports")] {
-        let html = Page {
+        let mut page = Page {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
@@ -231,9 +231,11 @@ fn localized_responsive_labelled_template() {
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
             next: None,
-        }
-        .render()
-        .unwrap();
+        };
+        let html = page.render().unwrap();
+        assert!(html.contains("return_to=roles"));
+        page.can_grant = false;
+        assert!(!page.render().unwrap().contains("return_to=roles"));
         assert!(html.contains(&format!(r#"href="{REPORTS_PATH}">{reports_label}</a>"#)));
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
@@ -273,6 +275,8 @@ async fn database_navigation_authorization_csrf_and_owner() {
     oteryn_db::migrate(&pool).await.unwrap();
     portal_identity_lifecycle(&pool).await;
     let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'synthetic','active','en',now())")
+        .bind(actor).bind(format!("{actor}@example.test")).execute(&pool).await.unwrap();
     let identity = Some(StaffIdentity {
         account: actor,
         mfa_satisfied: true,
@@ -385,6 +389,12 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .unwrap()
         .split('"')
         .next()
+        .unwrap();
+    crate::test_staff::browser(&pool, actor, &cookie)
+        .await
+        .unwrap();
+    crate::test_staff::recent_password(&pool, &cookie)
+        .await
         .unwrap();
     // Match register::configured's outer public-origin extension without changing
     // process environment shared by concurrent tests.
@@ -572,7 +582,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         pool: pool.clone(),
     };
     assert!(matches!(
-        revoke(&panel, context, actor, owner).await,
+        revoke(&panel, context, actor, owner, staff_actions::ROLE_REASON).await,
         Err(Error::Denied)
     ));
     assert!(matches!(
@@ -624,8 +634,8 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     let (first, second) = tokio::join!(
-        revoke(&panel, context, actor, owner),
-        revoke(&panel, context, other, owner)
+        revoke(&panel, context, actor, owner, staff_actions::ROLE_REASON),
+        revoke(&panel, context, other, owner, staff_actions::ROLE_REASON)
     );
     assert_ne!(first.is_ok(), second.is_ok());
     let holders: i64 = sqlx::query_scalar("SELECT count(*) FROM account_roles WHERE role_id=$1")
@@ -646,7 +656,14 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     assert!(matches!(
-        revoke(&panel, context, actor, explicit_owner).await,
+        revoke(
+            &panel,
+            context,
+            actor,
+            explicit_owner,
+            staff_actions::ROLE_REASON
+        )
+        .await,
         Err(Error::Denied)
     ));
     pool.close().await;

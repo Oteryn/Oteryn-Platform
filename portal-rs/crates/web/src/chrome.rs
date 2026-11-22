@@ -38,26 +38,6 @@ struct LocaleQuery {
     lang: Option<String>,
 }
 
-/// The GM console accepts an explicit locale before its guard runs.
-fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
-    if !matches!(
-        uri.path(),
-        "/console"
-            | "/console/dashboard"
-            | "/console/worlds"
-            | "/console/nodes"
-            | "/console/database"
-    ) {
-        return None;
-    }
-    let axum::extract::Query(query) =
-        axum::extract::Query::<LocaleQuery>::try_from_uri(uri).ok()?;
-    match query.lang.as_deref() {
-        Some("pl") => Some(Language::Pl),
-        Some("en") => Some(Language::En),
-        _ => None,
-    }
-}
 /// CSP for portal HTML that only loads same-origin scripts and styles.
 pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
@@ -78,8 +58,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         request.extensions_mut().insert(language);
         language
     } else {
-        console_locale(request.uri())
-            .unwrap_or_else(|| crate::surface::document_language(request.uri(), request.headers()))
+        crate::surface::request_language(&request)
     }
     .code();
     let (account, account_id) = if request.method() == axum::http::Method::POST
@@ -262,9 +241,7 @@ pub async fn unavailable_response(
     next: Next,
 ) -> Response {
     let browser = is_browser(&request);
-    let lang = console_locale(request.uri())
-        .unwrap_or_else(|| Language::for_request(&request))
-        .code();
+    let lang = crate::surface::request_language(&request).code();
     let path = browser.then(|| request.uri().path().to_owned());
     let mut response = next.run(request).await;
     if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
@@ -507,6 +484,24 @@ fn without_attribute(tag: &str, name: &str) -> String {
     match tag[value..].find('"') {
         Some(end) => format!("{}{}", &tag[..at], &tag[value + end + 1..]),
         None => tag.to_owned(),
+    }
+}
+
+pub type StaffAccess = std::sync::Arc<
+    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct StaffDashboard {
+    pub url: String,
+    pub allows: StaffAccess,
+}
+
+impl std::fmt::Debug for StaffDashboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffDashboard").finish_non_exhaustive()
     }
 }
 

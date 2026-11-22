@@ -400,3 +400,4 @@ shell-sudo = Potwierdź hasło
 shell-email = Zmień adres e-mail
 shell-export = Pobierz dane konta
 shell-termination = Zamknij konto
+staff-action-confirm-password = Potwierdź hasło

@@ -478,7 +478,7 @@ pub async fn middleware(
                         .get::<crate::csrf::LocalizedRefusal>()
                         .is_some()
                 {
-                    let lang = crate::surface::negotiate(request.headers()).code();
+                    let lang = crate::surface::request_language(&request).code();
                     let fallback = oteryn_ui::Registry::default().chrome(
                         lang,
                         request.uri().path(),
@@ -708,6 +708,14 @@ impl oteryn_db::outbox::Cleanup for SessionCleanup {
                 .map_err(|error| error.to_string())
         })
     }
+}
+
+/// Read the signed-in account for permission-aware presentation.
+pub(crate) async fn chrome_session(
+    layer: &SessionLayer,
+    request: &mut Request,
+) -> Option<SignedInSession> {
+    read_signed_in(layer, request).await.ok().flatten()
 }
 
 impl std::fmt::Debug for CommittedRotation {

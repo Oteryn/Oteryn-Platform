@@ -400,3 +400,4 @@ shell-sudo = Confirm your password
 shell-email = Change email address
 shell-export = Download account data
 shell-termination = Close account
+staff-action-confirm-password = Confirm password

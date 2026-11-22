@@ -126,6 +126,24 @@ fn message(lang: Language, id: &str) -> String {
     oteryn_ui::text(lang.code(), id)
 }
 
+/// Console pages use an explicit language selector instead of localized paths.
+pub(crate) fn request_language(request: &Request) -> Language {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+
+    let path = request.uri().path();
+    let console = path == "/console" || path.starts_with("/console/");
+    path_language(path)
+        .or_else(|| {
+            let query = request.uri().query().filter(|_| console)?;
+            let selection: LocaleQuery = serde_urlencoded::from_str(query).ok()?;
+            Language::parse(selection.lang.as_deref()?)
+        })
+        .unwrap_or_else(|| document_language(request.uri(), request.headers()))
+}
+
 fn request_chrome(request: &Request, lang: Language) -> oteryn_ui::Chrome {
     request
         .extensions()
@@ -172,7 +190,7 @@ pub(crate) async fn resolve(data: Option<HomeFuture>) -> oteryn_ui::HomeData {
     }
 }
 async fn localized_home(request: Request) -> Response {
-    let lang = document_language(request.uri(), request.headers());
+    let lang = request_language(&request);
     let chrome = request_chrome(&request, lang);
     let data = home_data(&request, lang);
     drop(request);
@@ -208,7 +226,7 @@ fn wants_json(headers: &HeaderMap) -> bool {
 }
 
 async fn policy(mut request: Request, next: Next) -> Response {
-    let lang = document_language(request.uri(), request.headers());
+    let lang = request_language(&request);
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();
@@ -541,6 +559,44 @@ mod tests {
         assert_eq!(body.matches("<script").count(), 1);
         assert!(body.contains("src=\"/static/thais/home.js\""));
         assert!(!body.contains("style="));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn console_fallback_uses_explicit_locale_in_chrome_and_response_headers() -> TestResult {
+        let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+        let app = app()?.layer(axum::middleware::from_fn_with_state(
+            crate::chrome::Shell {
+                registry: oteryn_ui::Registry::default(),
+                sessions: crate::session::SessionLayer::new(pool),
+            },
+            crate::chrome::middleware,
+        ));
+        for (path, lang, title) in [
+            ("/console/missing?lang=en", "en", "Page not found"),
+            ("/console/missing?lang=pl", "pl", "Nie znaleziono strony"),
+            (
+                "/console/missing?lang=invalid",
+                "pl",
+                "Nie znaleziono strony",
+            ),
+            ("/other?lang=en", "pl", "Nie znaleziono strony"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::get(path)
+                        .header(header::ACCEPT, "text/html")
+                        .header(header::COOKIE, "portal_language=pl")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = html(response).await?;
+            assert!(body.contains(&format!("<html lang=\"{lang}\"")), "{path}");
+            assert!(body.contains(title), "{path}");
+        }
         Ok(())
     }
 

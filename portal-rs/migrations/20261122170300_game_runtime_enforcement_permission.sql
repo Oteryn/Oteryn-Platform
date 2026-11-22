@@ -3,6 +3,9 @@ ALTER TABLE role_permissions DROP CONSTRAINT role_permissions_permission_check;
 ALTER TABLE role_permissions ADD CONSTRAINT role_permissions_permission_check
     CHECK (permission IN (
         'admin.access',
+        'account.flags.edit',
+        'account.status.edit',
+        'account.email.edit',
         'ops.playerdata_binding_conflict.read',
         'admin.roles.grant',
         'puzzles.publish',

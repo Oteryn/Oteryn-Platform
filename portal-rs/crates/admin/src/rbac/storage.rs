@@ -1,8 +1,5 @@
 use super::{AccountState, AccountStateReader, Authorizer, CheckContext, Error, Permission};
-use crate::{
-    audit::{self, AuditContext, Entry},
-    staff_actions::AuditChange,
-};
+use crate::audit::{self, AuditContext, Entry};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -59,7 +56,8 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_impl(context, request_id, change, false).await
+        self.change_impl(context, request_id, change, false, true, "role_maintenance")
+            .await
     }
 
     /// Browser role edits cannot bypass privileged-grant approval or alter the
@@ -70,7 +68,33 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_impl(context, request_id, change, true).await
+        self.change_from_panel_with_reason(
+            context,
+            request_id,
+            change,
+            crate::staff_actions::ROLE_REASON,
+            false,
+        )
+        .await
+    }
+
+    pub(crate) async fn change_from_panel_with_reason(
+        &self,
+        context: CheckContext,
+        request_id: Uuid,
+        change: Change<'_>,
+        reason: &'static str,
+        grant_confirmation: bool,
+    ) -> Result<Option<Uuid>, Error> {
+        self.change_impl(
+            context,
+            request_id,
+            change,
+            true,
+            grant_confirmation,
+            reason,
+        )
+        .await
     }
 
     /// Grant an ordinary role under the staff-action transaction's existing locks.
@@ -93,60 +117,14 @@ impl<A: AccountStateReader> Authorizer<A> {
         Ok(true)
     }
 
-    /// Apply a role edit under the staff-action transaction's authorization and locks.
-    pub(crate) async fn edit_role_with_grant_controls(
-        &self,
-        connection: &mut PgConnection,
-        context: CheckContext,
-        change: Change<'_>,
-    ) -> Result<Option<AuditChange>, Error> {
-        self.check_in(connection, context, Permission::ManageRoles)
-            .await?;
-        let (permissions, role) = match &change {
-            Change::CreateRole { permissions, .. } => (*permissions, None),
-            Change::SetPermissions { role, permissions } => (*permissions, Some(*role)),
-            _ => return Err(Error::InvalidInput),
-        };
-        if permissions.contains(&Permission::ManageRoles) {
-            return Err(Error::Denied);
-        }
-        let audit = match (&change, role) {
-            (Change::CreateRole { key, .. }, None) => AuditChange::RoleCreated {
-                role: create_role(connection, key, permissions).await?,
-                permissions: permissions.to_vec(),
-            },
-            (_, Some(role)) => {
-                ensure_panel_role_grant(connection, role).await?;
-                let Some(before) =
-                    set_role_permissions(connection, context, role, permissions, true).await?
-                else {
-                    return Ok(None);
-                };
-                AuditChange::RolePermissions {
-                    role,
-                    before: before
-                        .iter()
-                        .map(|permission| permission.parse())
-                        .collect::<Result<_, _>>()?,
-                    after: permissions.to_vec(),
-                }
-            }
-            _ => return Err(Error::InvalidInput),
-        };
-        self.check_in(connection, context, Permission::ManageRoles)
-            .await?;
-        change
-            .revoke_browser_credentials(connection, context)
-            .await?;
-        Ok(Some(audit))
-    }
-
     async fn change_impl(
         &self,
         context: CheckContext,
         request_id: Uuid,
         change: Change<'_>,
         panel: bool,
+        grant_confirmation: bool,
+        reason: &'static str,
     ) -> Result<Option<Uuid>, Error> {
         if request_id.is_nil() {
             return Err(Error::InvalidInput);
@@ -188,7 +166,7 @@ impl<A: AccountStateReader> Authorizer<A> {
             }
             match &change {
                 Change::CreateRole { permissions, .. }
-                    if permissions.contains(&Permission::GrantRoles) =>
+                    if permissions.contains(&Permission::GrantRoles) && !grant_confirmation =>
                 {
                     return Err(Error::Denied);
                 }
@@ -203,9 +181,15 @@ impl<A: AccountStateReader> Authorizer<A> {
                 _ => {}
             }
         }
+        let mut require_recent = false;
         let (action, target, before, after, result) = match change {
             Change::CreateRole { key, permissions } => {
-                let role = create_role(&mut tx, key, permissions).await?;
+                if panel && permissions.contains(&Permission::GrantRoles) {
+                    self.check_in(&mut tx, context, Permission::GrantRoles)
+                        .await?;
+                    require_recent = true;
+                }
+                let role = create_role::<A>(&mut tx, context.account, key, permissions).await?;
                 (
                     "rbac.role.created",
                     role.to_string(),
@@ -215,8 +199,14 @@ impl<A: AccountStateReader> Authorizer<A> {
                 )
             }
             Change::SetPermissions { role, permissions } => {
-                let Some(before) =
-                    set_role_permissions(&mut tx, context, role, permissions, !panel).await?
+                let Some((before, escalates_grant)) = set_role_permissions::<A>(
+                    &mut tx,
+                    context,
+                    role,
+                    permissions,
+                    grant_confirmation,
+                )
+                .await?
                 else {
                     self.check_in(&mut tx, context, Permission::ManageRoles)
                         .await?;
@@ -226,6 +216,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                     tx.commit().await?;
                     return Ok(None);
                 };
+                if escalates_grant {
+                    self.check_in(&mut tx, context, Permission::GrantRoles)
+                        .await?;
+                }
+                require_recent = escalates_grant;
                 let after = permission_ids(permissions);
                 (
                     "rbac.role.permissions_changed",
@@ -279,7 +274,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 )
             }
         };
-        audit::append(
+        audit::append_with_reason(
             &mut tx,
             Entry {
                 context: AuditContext {
@@ -291,12 +286,20 @@ impl<A: AccountStateReader> Authorizer<A> {
                 before,
                 after,
             },
+            Some(reason),
         )
         .await?;
         self.check_in(&mut tx, context, Permission::ManageRoles)
             .await?;
         if panel {
             self.check_in(&mut tx, context, Permission::Access).await?;
+        }
+        if require_recent {
+            self.check_in(&mut tx, context, Permission::GrantRoles)
+                .await?;
+            if !crate::staff_actions::recent_password_in(&mut tx, context).await? {
+                return Err(Error::Denied);
+            }
         }
         change.revoke_browser_credentials(&mut tx, context).await?;
         tx.commit().await?;
@@ -322,13 +325,17 @@ pub(crate) async fn requires_grant_approval(
     .await
 }
 
-async fn create_role(
+async fn create_role<A: AccountStateReader>(
     connection: &mut PgConnection,
+    actor: Uuid,
     key: &str,
     permissions: &[Permission],
 ) -> Result<Uuid, Error> {
     validate_key(key)?;
     validate_permissions(permissions)?;
+    for &permission in permissions {
+        Authorizer::<A>::check_permission(connection, actor, permission).await?;
+    }
     restrict_analytics(key, false, permissions)?;
     let role: Uuid = sqlx::query_scalar("INSERT INTO roles (key) VALUES ($1) RETURNING id")
         .bind(key)
@@ -340,13 +347,13 @@ async fn create_role(
 
 /// Call with the role-writer fence held. Widening an assigned role confers
 /// permissions on its holders, so it requires the same controls as a grant.
-async fn set_role_permissions(
+async fn set_role_permissions<A: AccountStateReader>(
     connection: &mut PgConnection,
     actor: CheckContext,
     role: Uuid,
     permissions: &[Permission],
     may_grant_permissions: bool,
-) -> Result<Option<Vec<String>>, Error> {
+) -> Result<Option<(Vec<String>, bool)>, Error> {
     validate_permissions(permissions)?;
     require_role(connection, role).await?;
     let (key, built_in): (String, bool) =
@@ -365,8 +372,20 @@ async fn set_role_permissions(
     if before == after {
         return Ok(None);
     }
-    let additions = after.iter().filter(|p| !before.iter().any(|b| b == *p));
-    if additions.clone().next().is_some() {
+    let mut changes_grants = false;
+    let mut adds_grant_permission = false;
+    for &permission in permissions {
+        if !before
+            .iter()
+            .any(|existing| existing == permission.as_str())
+        {
+            Authorizer::<A>::check_permission(connection, actor.account, permission).await?;
+            changes_grants = true;
+            adds_grant_permission |= permission == Permission::GrantRoles;
+        }
+    }
+    let mut escalates_grant = adds_grant_permission;
+    if changes_grants {
         let (assigned, held): (bool, bool) = sqlx::query_as(
             "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1),
                     EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
@@ -375,13 +394,8 @@ async fn set_role_permissions(
         .bind(actor.account)
         .fetch_one(&mut *connection)
         .await?;
-        if held
-            || (!may_grant_permissions
-                && (assigned
-                    || additions
-                        .into_iter()
-                        .any(|p| *p == Permission::GrantRoles.as_str())))
-        {
+        escalates_grant |= assigned;
+        if held || (!may_grant_permissions && escalates_grant) {
             return Err(Error::Denied);
         }
     }
@@ -394,7 +408,7 @@ async fn set_role_permissions(
         .bind(role)
         .execute(connection)
         .await?;
-    Ok(Some(before))
+    Ok(Some((before, escalates_grant)))
 }
 
 fn validate_key(key: &str) -> Result<(), Error> {
@@ -480,9 +494,9 @@ async fn ensure_panel_role_grant(
     }
 }
 
-async fn grant_membership(
+async fn grant_membership<A: AccountStateReader>(
     connection: &mut sqlx::PgConnection,
-    accounts: &impl AccountStateReader,
+    accounts: &A,
     actor: Uuid,
     account: Uuid,
     role: Uuid,
@@ -497,12 +511,32 @@ async fn grant_membership(
     {
         return Err(Error::Denied);
     }
+    let permissions: Vec<String> =
+        sqlx::query_scalar("SELECT permission FROM role_permissions WHERE role_id=$1")
+            .bind(role)
+            .fetch_all(&mut *connection)
+            .await?;
+    for permission in permissions {
+        let permission = permission.parse().map_err(|_| Error::Denied)?;
+        Authorizer::<A>::check_permission(connection, actor, permission).await?;
+    }
     let result = sqlx::query(
         "INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
     )
     .bind(account)
     .bind(role)
     .execute(connection)
-    .await?;
+    .await
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .and_then(|error| error.constraint())
+            == Some("role_grant_assisted_email_reversible")
+        {
+            Error::Denied
+        } else {
+            error.into()
+        }
+    })?;
     Ok(result.rows_affected() == 1)
 }

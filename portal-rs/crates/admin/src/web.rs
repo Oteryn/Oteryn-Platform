@@ -982,15 +982,23 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
         }
         Err(error) => return error.into_response(),
     };
+    let csrf = csrf.map(|Extension(proof)| proof);
+    if let Err(error) = staff_actions::verify_session(context, csrf) {
+        return error.response(chrome);
+    }
+    let reason = match staff_actions::validated_code(&form.reason, &[staff_actions::ROLE_REASON]) {
+        Ok(reason) => reason,
+        Err(error) => return error.response(chrome),
+    };
     let guard = staff_actions::Guard {
         actor: context,
         authority: &authority,
-        csrf: csrf.map(|Extension(proof)| proof),
+        csrf,
     };
     let grant_action = staff_actions::Action {
         permission: Permission::GrantRoles,
-        reason: &form.reason,
-        reason_codes: &["role_assignment"],
+        reason,
+        reason_codes: &[staff_actions::ROLE_REASON],
         step_up: staff_actions::StepUp::RecentPassword,
     };
     let result = match form.action.as_str() {
@@ -1015,44 +1023,14 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                     permissions: &permissions,
                 }
             };
-            // A reason selects the confirmed edit flow. The ordinary path
-            // still rejects additions to assigned roles under the writer fence.
-            if (form.action == "set-permissions" && !form.reason.is_empty())
-                || (form.action == "create" && permissions.contains(&Permission::GrantRoles))
-            {
-                if !s.grant_confirmation {
-                    return staff_actions::Error::Forbidden.response(chrome);
-                }
-                let auth = s.auth.clone();
-                let result = staff_actions::run(
-                    &s.pool,
-                    guard,
-                    grant_action,
-                    || Ok((Vec::new(), (form.action, form.key, form.role, permissions))),
-                    move |connection, (action, key, role, permissions)| {
-                        Box::pin(async move {
-                            let change = if action == "create" {
-                                Change::CreateRole {
-                                    key: &key,
-                                    permissions: &permissions,
-                                }
-                            } else {
-                                Change::SetPermissions {
-                                    role,
-                                    permissions: &permissions,
-                                }
-                            };
-                            Ok(auth
-                                .edit_role_with_grant_controls(connection, context, change)
-                                .await?)
-                        })
-                    },
-                )
-                .await;
-                return staff_action_response(result, chrome);
-            }
             s.auth
-                .change_from_panel(context, Uuid::now_v7(), change)
+                .change_from_panel_with_reason(
+                    context,
+                    Uuid::now_v7(),
+                    change,
+                    reason,
+                    s.grant_confirmation,
+                )
                 .await
                 .map(|_| ())
         }
@@ -1082,9 +1060,18 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 },
             )
             .await;
-            return staff_action_response(result, chrome);
+            return match result {
+                Ok(()) => Redirect::to("/admin/roles").into_response(),
+                Err(staff_actions::Error::Forbidden) => {
+                    match refusal(&s.pool, context.account, "/admin/roles").await {
+                        Ok(()) => staff_actions::Error::Forbidden.response(chrome),
+                        Err(_) => staff_actions::Error::Unavailable.response(chrome),
+                    }
+                }
+                result => staff_action_response(result, chrome),
+            };
         }
-        "revoke" => revoke(&s, context, form.account, form.role).await,
+        "revoke" => revoke(&s, context, form.account, form.role, reason).await,
         _ => return StatusCode::BAD_REQUEST.into_response(),
     };
     match result {
@@ -1114,6 +1101,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     context: CheckContext,
     account: Uuid,
     role: Uuid,
+    reason: &'static str,
 ) -> Result<(), Error> {
     if account.is_nil() || role.is_nil() {
         return Err(Error::InvalidInput);
@@ -1176,7 +1164,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
             .bind(role)
             .execute(&mut *tx)
             .await?;
-        audit::append(
+        audit::append_with_reason(
             &mut tx,
             Entry {
                 context: AuditContext {
@@ -1188,6 +1176,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
                 before: json!({"role":role,"assigned":true}),
                 after: json!({"role":role,"assigned":false}),
             },
+            Some(reason),
         )
         .await?;
     }

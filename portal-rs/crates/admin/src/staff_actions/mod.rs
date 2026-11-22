@@ -7,6 +7,9 @@ use axum::{http::StatusCode, response::Response};
 use oteryn_ui::Chrome;
 use oteryn_web::csrf::Verified;
 use serde_json::{Value, json};
+
+pub(crate) const ROLE_REASON: &str = "role_assignment";
+pub(crate) const ACCOUNT_REASON: &str = "support_case";
 use sqlx::{PgConnection, PgPool};
 use std::{future::Future, pin::Pin};
 use uuid::Uuid;
@@ -115,14 +118,22 @@ pub enum AuditChange {
         account: Uuid,
         role: Uuid,
     },
-    RoleCreated {
-        role: Uuid,
-        permissions: Vec<Permission>,
+    AccountNote {
+        account: Uuid,
+        note: Uuid,
     },
-    RolePermissions {
-        role: Uuid,
-        before: Vec<Permission>,
-        after: Vec<Permission>,
+    ReviewFlag {
+        account: Uuid,
+        before: bool,
+        after: bool,
+    },
+    AccountStatus {
+        account: Uuid,
+        suspended: bool,
+    },
+    AccountEmail {
+        account: Uuid,
+        request: Uuid,
     },
     #[cfg(test)]
     TestLocale {
@@ -132,11 +143,6 @@ pub enum AuditChange {
 
 impl AuditChange {
     fn project(self) -> (&'static str, Uuid, Value, Value) {
-        let permissions = |permissions: Vec<Permission>| {
-            let mut names: Vec<_> = permissions.into_iter().map(Permission::as_str).collect();
-            names.sort_unstable();
-            json!({"permissions": names})
-        };
         match self {
             Self::RoleGrant { account, role } => (
                 "rbac.role.granted",
@@ -144,24 +150,40 @@ impl AuditChange {
                 json!({"role": role, "assigned": false}),
                 json!({"role": role, "assigned": true}),
             ),
-            Self::RoleCreated {
-                role,
-                permissions: assigned,
-            } => (
-                "rbac.role.created",
-                role,
-                Value::Null,
-                permissions(assigned),
+            Self::AccountNote { account, note } => (
+                "players.note.added",
+                account,
+                json!({}),
+                json!({"note": note}),
             ),
-            Self::RolePermissions {
-                role,
+            Self::ReviewFlag {
+                account,
                 before,
                 after,
             } => (
-                "rbac.role.permissions_changed",
-                role,
-                permissions(before),
-                permissions(after),
+                "players.flags.changed",
+                account,
+                json!({"needs_review": before}),
+                json!({"needs_review": after}),
+            ),
+            Self::AccountStatus { account, suspended } => {
+                let (before, after) = if suspended {
+                    ("active", "suspended")
+                } else {
+                    ("suspended", "active")
+                };
+                (
+                    "players.status.changed",
+                    account,
+                    json!({"status": before}),
+                    json!({"status": after}),
+                )
+            }
+            Self::AccountEmail { account, request } => (
+                "players.email.change_requested",
+                account,
+                json!({"pending": false}),
+                json!({"pending": true, "request": request}),
             ),
             #[cfg(test)]
             Self::TestLocale { account } => (
@@ -199,6 +221,28 @@ pub struct Guard<'a> {
 pub type Mutation<'a> =
     Pin<Box<dyn Future<Output = Result<Option<AuditChange>, Error>> + Send + 'a>>;
 
+pub(crate) fn verify_session(actor: CheckContext, csrf: Option<Verified>) -> Result<(), Error> {
+    let same_session = csrf
+        .zip(actor.session_proof)
+        .is_some_and(|(csrf, proof)| csrf.matches_session(&proof.session_hash));
+    if same_session && actor.require_staff_mfa && actor.mfa_verified {
+        Ok(())
+    } else {
+        Err(Error::Forbidden)
+    }
+}
+
+pub(crate) fn validated_code(
+    reason: &str,
+    allowed: &'static [&'static str],
+) -> Result<&'static str, Error> {
+    allowed
+        .iter()
+        .copied()
+        .find(|code| *code == reason && (8..=500).contains(&code.chars().count()))
+        .ok_or(Error::Reason)
+}
+
 /// Validate the form, lock its accounts and run the mutation under durable staff
 /// authorization. Return `None` from the mutation only for a successful no-op.
 pub async fn run<T, F>(
@@ -211,24 +255,11 @@ pub async fn run<T, F>(
 where
     F: for<'a> FnOnce(&'a mut PgConnection, T) -> Mutation<'a>,
 {
-    let same_session = guard
-        .csrf
-        .zip(guard.actor.session_proof)
-        .is_some_and(|(csrf, proof)| csrf.matches_session(&proof.session_hash));
-    if !same_session
-        || !guard.actor.require_staff_mfa
-        || !guard.actor.mfa_verified
-        || action.permission == Permission::Access
-    {
+    verify_session(guard.actor, guard.csrf)?;
+    if action.permission == Permission::Access {
         return Err(Error::Forbidden);
     }
-    let reason = action
-        .reason_codes
-        .iter()
-        .copied()
-        // Match the audit table's char_length constraint before opening a transaction.
-        .find(|code| *code == action.reason && (8..=500).contains(&code.chars().count()))
-        .ok_or(Error::Reason)?;
+    let reason = validated_code(action.reason, action.reason_codes)?;
     let (accounts, input) = validate()?;
     let mut tx = pool.begin().await?;
     rbac::mutation_budget(&mut tx).await?;

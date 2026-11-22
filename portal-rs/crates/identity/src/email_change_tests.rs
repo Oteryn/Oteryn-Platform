@@ -1019,3 +1019,94 @@ async fn delayed_primary_revert_removes_backup_confirmed_during_wait() -> TestRe
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn assisted_change_requires_owner_proof_and_blocks_promotion_until_reversal_expires()
+-> TestResult {
+    let (db, service, owner) = setup().await?.ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let unapproved = random_token()?;
+    let cancellation = random_token()?;
+    let proposal: Uuid = sqlx::query_scalar(
+        "INSERT INTO account_email_changes
+            (account_id,kind,old_email,new_email,confirmation_hash,revert_hash,
+             immediate,apply_after,expires_at,revert_until,initiated_by_staff)
+         VALUES ($1,'primary','old@example.invalid','new@example.invalid',$2,$3,false,
+                 now()-interval '1 minute',now()+interval '1 day',now()+interval '30 days',true)
+         RETURNING id",
+    )
+    .bind(owner)
+    .bind(token_hash(&unapproved))
+    .bind(token_hash(&cancellation))
+    .fetch_one(&db.pool)
+    .await?;
+    let mut reservation = db.pool.begin().await?;
+    crate::accounts::claim_lock(&mut reservation, "new@example.invalid").await?;
+    assert!(
+        crate::accounts::address_available(&mut reservation, None, "new@example.invalid").await?
+    );
+    reservation.commit().await?;
+    assert_eq!(service.confirm(&unapproved).await?, Outcome::Refused);
+    // A confirmation persisted by the previous implementation is insufficient.
+    sqlx::query("UPDATE account_email_changes SET confirmed_at=now() WHERE id=$1")
+        .bind(proposal)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(service.apply_due().await?, 0);
+
+    let mut invalid = input(false, false);
+    invalid.proof = "incorrect-proof".into();
+    assert_eq!(service.request(owner, invalid).await?, Outcome::Refused);
+    assert_eq!(
+        service.request(owner, input(true, false)).await?,
+        Outcome::Requested
+    );
+    let mut reservation = db.pool.begin().await?;
+    crate::accounts::claim_lock(&mut reservation, "new@example.invalid").await?;
+    assert!(
+        !crate::accounts::address_available(&mut reservation, None, "new@example.invalid").await?
+    );
+    reservation.commit().await?;
+    let (confirm, revert) = tokens(&db.pool).await?;
+    assert_eq!(service.confirm(&unapproved).await?, Outcome::Refused);
+    assert_eq!(service.confirm(&confirm).await?, Outcome::Confirmed);
+    let approved: Uuid = sqlx::query_scalar(
+        "UPDATE account_email_changes SET apply_after=now()-interval '1 second'
+         WHERE account_id=$1 AND initiated_by_staff AND owner_approved_at IS NOT NULL
+         AND confirmed_at IS NOT NULL AND NOT immediate RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(service.apply_due().await?, 1);
+
+    let grant =
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'";
+    let denied = sqlx::query(grant).bind(owner).execute(&db.pool).await;
+    assert_eq!(
+        denied
+            .err()
+            .as_ref()
+            .and_then(|error| error.as_database_error())
+            .and_then(|error| error.constraint()),
+        Some("role_grant_assisted_email_reversible")
+    );
+    sqlx::query("UPDATE account_email_changes SET revert_until=now() WHERE id=$1")
+        .bind(approved)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        sqlx::query(grant)
+            .bind(owner)
+            .execute(&db.pool)
+            .await?
+            .rows_affected(),
+        1
+    );
+    assert_eq!(service.revert(&revert).await?, Outcome::Refused);
+    let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+        .bind(owner)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(email, "new@example.invalid");
+    db.close().await
+}

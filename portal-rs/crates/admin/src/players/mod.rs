@@ -9,6 +9,7 @@ use sqlx::{PgConnection, PgPool};
 use std::future::Future;
 use uuid::Uuid;
 
+mod edits;
 pub mod http;
 mod projection;
 
@@ -172,6 +173,7 @@ pub struct Players<A, I> {
     flags: Flags,
     auth: Authorizer<A>,
     accounts: I,
+    edits: edits::Settings,
 }
 impl<A: AccountStateReader, I: Accounts> Players<A, I> {
     pub fn new(pool: PgPool, flags: Flags, staff: A, accounts: I) -> Self {
@@ -180,6 +182,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
             pool,
             flags,
             accounts,
+            edits: edits::Settings::default(),
         }
     }
     async fn check(&self, context: CheckContext, permission: Permission) -> Result<(), Error> {

@@ -175,7 +175,11 @@ impl Registry {
                         panel: panels::Panel::Player,
                         route: entry.path,
                         label: entry.label,
-                        permission: panels::Permission::AccountOwner,
+                        permission: if entry.section == "account-passkeys" {
+                            panels::Permission::AccountPasskeys
+                        } else {
+                            panels::Permission::AccountOwner
+                        },
                     },
                 );
             }
@@ -314,14 +318,10 @@ impl Registry {
                 || suffix.starts_with("panel/"))
                 && signed_in
             {
-                let passkeys_url = format!("/{lang}/account/passkeys");
-                self.panels
-                    .links(panels::Panel::Player, lang, |p| {
-                        p == panels::Permission::AccountOwner
-                    })
-                    .into_iter()
-                    .filter(|link| passkeys_eligible || link.url != passkeys_url)
-                    .collect()
+                self.panels.links(panels::Panel::Player, lang, |p| {
+                    p == panels::Permission::AccountOwner
+                        || (p == panels::Permission::AccountPasskeys && passkeys_eligible)
+                })
             } else {
                 Vec::new()
             },
@@ -963,5 +963,38 @@ mod tests {
             assert_eq!(html.contains("Staff dashboard"), enabled && staff);
         }
         Ok(())
+    }
+
+    #[test]
+    fn player_panel_only_offers_passkeys_to_eligible_accounts() {
+        let mut registry = Registry::default();
+        registry.section(
+            true,
+            "account-passkeys",
+            "shell-account-passkeys",
+            "account/passkeys",
+            Group::Account,
+            false,
+        );
+        for lang in ["pl", "en"] {
+            let route = format!("/{lang}/account/passkeys");
+            for passkeys_eligible in [false, true] {
+                let chrome = registry.chrome(
+                    lang,
+                    "/account",
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible,
+                    },
+                );
+                assert_eq!(
+                    chrome
+                        .player_navigation
+                        .iter()
+                        .any(|link| link.url == route),
+                    passkeys_eligible,
+                );
+            }
+        }
     }
 }

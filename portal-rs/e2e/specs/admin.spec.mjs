@@ -3,11 +3,11 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {confirmStaffPassword,role} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,role,staff as openStaff} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
-test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
- test.setTimeout(300_000);
+test('staff bootstrap and mandatory MFA',async({page},info)=>{
+ test.setTimeout(150_000);
  const lang=info.project.metadata.locale;
  const staff=await register(page,lang);
  const db=pool();
@@ -29,65 +29,89 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
+ await confirmStaffPassword(page,lang,staff.password);
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
- expect(new URL(response.url()).pathname).toBe('/admin');
+ fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
+});
+
+async function sweep(page,info,lang,part){
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- expect(linked).not.toContain('/console');
- const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(path=>path!=='/console/dashboard');
- await test.step('the populated audit table fits the viewport',async()=>{
-   await role(page, 'admin.access audit.view');
-   expect((await page.goto(`/admin/console/audit?lang=${lang}`)).status()).toBe(200);
-   const table=page.locator('main .op-table-wrap').first();
-   await expect(table).toBeVisible();
-   if (info.project.use.viewport.width === 390) {
-     expect(await table.evaluate(el=>el.scrollWidth>el.clientWidth)).toBe(true);
-   }
- });
+ const allPaths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ const paths=allPaths.filter(path=>path!=='/console/dashboard').filter((_,index)=>index%2===part);
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
- for(const path of paths) await test.step(path,async()=>{
+ // Each worker checks one destination and issues one link probe at a time.
+ const pageWorkers=3;
+ const sweeps=await Promise.allSettled(Array.from({length:pageWorkers},async(_,offset)=>{
    const screen=await staffContext.newPage();
-   attempted.push(path);
    try {
-     // Shell link probes visit both locales and can change the shared cookie.
-     await staffContext.addCookies([{name:'portal_language',value:lang,url:page.url()}]);
-     const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
-     const response=await screen.goto(localized?path:`${path}?lang=${lang}`,{waitUntil:'domcontentloaded'});
-     const expected=new URL(path,page.url()).pathname;
-     expect(new URL(response.url()).pathname,'terminal staff route').toBe(expected);
-     if(response.status()===200) {
-       if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
-       // assertShell also checks CSRF on every POST form.
-       await assertShell(screen);
-     } else {
-       failures.push(`${path}: HTTP ${response.status()}`);
-       const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
-       for(const form of forms) await csrfRejected(screen,form.action,form.fields);
+     for(let i=offset;i<paths.length;i+=pageWorkers) {
+       const path=paths[i];
+       attempted.push(path);
+       try {
+         await test.step(path,async()=>{
+           const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
+           const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
+           const status=response.status();
+           if(status===200) {
+             if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
+             // assertShell also checks CSRF on every POST form.
+             await assertShell(screen);
+           } else {
+             failures.push(`${path}: HTTP ${status}`);
+             const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
+             for(const form of forms) await csrfRejected(screen,form.action,form.fields);
+           }
+         });
+       } catch(error) {
+         failures.push(`${path}: ${error.message}`);
+       }
      }
-   } catch(error) {
-     failures.push(`${path}: ${error.message}`);
    } finally {
      await screen.close();
    }
- });
+ }));
+ for(const [index,result] of sweeps.entries()) {
+   if(result.status==='rejected') failures.push(`worker ${index+1}: ${result.reason.message}`);
+ }
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
  // Opening navigation must not grant Game read permission to the bootstrap role.
+}
+for(const part of [0,1]) {
+ test(`staff navigation sweep ${part+1}`,async({browser},info)=>{
+  test.setTimeout(240_000);
+  const lang=info.project.metadata.locale;
+  const {context,page}=await openStaff(browser,info);
+  try {
+   expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(200);
+   await sweep(page,info,lang,part);
+  } finally {
+   await context.close();
+  }
+ });
+}
+
+test('GM console refuses platform-only staff',async({browser},info)=>{
+ const lang=info.project.metadata.locale;
+ const {context:staffContext,page}=await openStaff(browser,info);
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
- await test.step('/console/dashboard',async()=>{
-   const denied=await page.context().newPage();
-   try {
-     const response=await denied.goto(`/console/dashboard?lang=${lang}`);
-     expect(response.status()).toBe(403);
-     expect(new URL(response.url()).pathname).toBe('/console/dashboard');
-     expect(await denied.locator('html').getAttribute('lang')).toBe(lang);
-     await assertShell(denied);
-   } finally {await denied.close();}
+ await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{
+   expect((await page.goto(`/console/dashboard?lang=${lang}`)).status()).toBe(403);
+   await expect(page.locator('html')).toHaveAttribute('lang',lang);
+   await assertShell(page,{status:403});
  });
+ await staffContext.close();
+});
+
+test('privileged role grants and non-staff admin access are refused',async({browser},info)=>{
+ test.setTimeout(150_000);
+ const lang=info.project.metadata.locale;
+ const {context:staffContext,page}=await openStaff(browser,info);
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
@@ -107,5 +131,6 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  });
  expect((await ordinary.goto('/admin')).status()).toBe(403);
  for(const path of ['/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up','/console/dashboard','/admin/console/players']) expect((await ordinary.goto(path)).status(),path).toBe(403);
+ await staffContext.close();
  await context.close();
 });

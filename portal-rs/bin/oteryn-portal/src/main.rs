@@ -270,9 +270,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 db.clone(),
                 oteryn_content::announcements::banner,
             ));
-            let email_change = email_change_http::configured_router(db.clone());
-            let email_change_enabled = email_change.has_routes();
-            let app = app.merge(email_change);
+            let app = app.merge(email_change_http::configured_router(db.clone()));
+            let email_change_enabled =
+                email_change_http::configured_router(db.clone()).has_routes();
             let app = app.merge(oteryn_admin::commerce::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());

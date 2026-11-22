@@ -29,3 +29,12 @@ coin-hold-released = Blokada zakupu monet została zdjęta.
 coin-hold-absent = Nie było blokady zakupu monet do zdjęcia.
 coin-debt = Zaległy dług w monetach (spłacany najpierw z każdego zasilenia)
 audit = Audyt
+
+new-email = Nowy adres e-mail
+request-email = Zleć zmianę adresu e-mail
+email-help = Właściciel konta musi zatwierdzić zmianę hasłem i kodem 2FA lub kluczem odzyskiwania. Następnie należy potwierdzić nowy adres. Zmiana nastąpi po siedmiodniowym okresie oczekiwania.
+email-pending = Zmiana adresu czeka na zgodę właściciela, potwierdzenie adresu lub koniec okresu oczekiwania.
+review-flag = Wymaga sprawdzenia przez zespół
+save-flag = Zapisz oznaczenie
+save-status = Zapisz status konta
+support-reason = Sprawa zgłoszona do pomocy
