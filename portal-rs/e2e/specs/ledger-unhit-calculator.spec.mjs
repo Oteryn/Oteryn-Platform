@@ -41,7 +41,9 @@ for (const [operation, fields, status] of [
     if (operation === 'stamina') {
       await expect(page.locator('output')).toHaveText('1');
     } else {
-      await expect(page.getByRole('alert')).toHaveText(lang === 'pl' ? 'Dane świata są niedostępne' : 'World data is unavailable');
+      await expect(page.getByRole('alert')).toHaveText(lang === 'pl'
+        ? 'Dane świata są niedostępne lub nie zostały zatwierdzone. Nie można podać wyniku.'
+        : 'World data is unavailable or has not been approved. No estimate can be provided.');
       await expect(page.locator('output')).toHaveCount(0);
     }
   });
