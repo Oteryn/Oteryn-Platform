@@ -409,9 +409,14 @@ async fn update(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    method: axum::http::Method,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    save(&pool, &auth, context, Some(id), input).await
+    let mut response = save(&pool, &auth, context, Some(id), input).await?;
+    if method == axum::http::Method::PUT {
+        *response.status_mut() = StatusCode::SEE_OTHER;
+    }
+    Ok(response)
 }
 fn storage(e: sqlx::Error) -> StatusCode {
     if e.as_database_error().is_some_and(|e| {
@@ -529,6 +534,7 @@ async fn delete(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    method: axum::http::Method,
     Form(revision): Form<Revision>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
@@ -602,11 +608,12 @@ async fn delete(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    Ok((
-        StatusCode::FOUND,
-        [(axum::http::header::LOCATION, "/admin/news")],
-    )
-        .into_response())
+    let status = if method == axum::http::Method::DELETE {
+        StatusCode::SEE_OTHER
+    } else {
+        StatusCode::FOUND
+    };
+    Ok((status, [(axum::http::header::LOCATION, "/admin/news")]).into_response())
 }
 #[cfg(test)]
 #[path = "news_tests.rs"]
