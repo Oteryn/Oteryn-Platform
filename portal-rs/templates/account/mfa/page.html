@@ -16,8 +16,11 @@
 <label><input type="checkbox" name="remember" value="yes"> {{ self.text("mfa-remember") }}</label>
 <button class="op-button op-button--primary">{{ self.text("mfa-verify") }}</button></form>
 <form method="post" action="/{{ lang }}/mfa/email"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button">{{ self.text("mfa-send-email") }}</button></form>
+{% else if mode == "management-refused" %}
+<a class="op-button" href="/{{ lang }}/mfa">{{ self.text("mfa-back-to-settings") }}</a>
 {% else if mode == "enrollment" || mode == "replacement" %}
-<p>{{ self.text("mfa-provision") }}</p><p class="op-prose">{{ secret }}</p>
+{% if !secret.is_empty() %}<p>{{ self.text("mfa-provision") }}</p><p class="op-prose">{{ secret }}</p>{% endif %}
+{% if failed %}<a href="/{{ lang }}/mfa">{{ self.text("mfa-back-to-settings") }}</a>{% endif %}
 <form class="op-stack" method="post" action="/{{ lang }}/mfa/{% if mode == "replacement" %}replace/{% endif %}confirm">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>

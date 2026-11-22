@@ -777,17 +777,18 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
         .status(),
         StatusCode::BAD_REQUEST
     );
-    assert_eq!(
-        send(
-            manage,
-            cookie.clone(),
-            csrf.clone(),
-            action("replace", "wrong", original.generate(now))
-        )
-        .await?
-        .status(),
-        StatusCode::FORBIDDEN
-    );
+    let refusal = send(
+        manage,
+        cookie.clone(),
+        csrf.clone(),
+        action("replace", "wrong", original.generate(now)),
+    )
+    .await?;
+    assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
+    let body = axum::body::to_bytes(refusal.into_body(), 32768).await?;
+    let html = std::str::from_utf8(&body)?;
+    assert!(html.contains("role=\"alert\""));
+    assert!(html.contains("href=\"/en/mfa\">Back to security settings"));
     let response = send(
         manage,
         cookie.clone(),

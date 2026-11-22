@@ -1048,6 +1048,24 @@ impl SecurityRequest {
         ))
     }
 
+    async fn proof_refusal(
+        &self,
+        status: StatusCode,
+        mode: &'static str,
+    ) -> Result<Response, StatusCode> {
+        let html = page(
+            self.language,
+            &self.session,
+            mode,
+            true,
+            String::new(),
+            vec![],
+            vec![],
+        )
+        .await?;
+        Ok((status, html).into_response())
+    }
+
     async fn codes(&self, codes: Vec<String>) -> Result<Response, StatusCode> {
         session::clear_revoked_session(&self.session).await;
         page(
@@ -1079,19 +1097,25 @@ async fn manage(
     request: SecurityRequest,
     Form(input): Form<ManagementInput>,
 ) -> Result<Response, StatusCode> {
-    validate_proof(&input.password, &input.code)?;
+    if let Err(status) = validate_proof(&input.password, &input.code) {
+        return request.proof_refusal(status, "management-refused").await;
+    }
     let action = match input.action {
         Operation::Replace => ManagementAction::Replace,
         Operation::Remove => ManagementAction::Remove,
         Operation::RotateCodes => ManagementAction::RotateCodes,
     };
-    match context
+    let Some(result) = context
         .mfa
         .manage(request.actor().await?, &input.password, &input.code, action)
         .await
         .map_err(unavailable)?
-        .ok_or(StatusCode::FORBIDDEN)?
-    {
+    else {
+        return request
+            .proof_refusal(StatusCode::FORBIDDEN, "management-refused")
+            .await;
+    };
+    match result {
         ManagementResult::Replacement(secret) => {
             page(
                 request.language,
@@ -1117,13 +1141,19 @@ async fn confirm_replacement(
     request: SecurityRequest,
     Form(input): Form<ConfirmationInput>,
 ) -> Result<Response, StatusCode> {
-    validate_proof(&input.password, &input.code)?;
-    let codes = context
+    if let Err(status) = validate_proof(&input.password, &input.code) {
+        return request.proof_refusal(status, "replacement").await;
+    }
+    let Some(codes) = context
         .mfa
         .confirm_replacement(request.actor().await?, &input.password, &input.code)
         .await
         .map_err(unavailable)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+    else {
+        return request
+            .proof_refusal(StatusCode::FORBIDDEN, "replacement")
+            .await;
+    };
     request.codes(codes).await
 }
 

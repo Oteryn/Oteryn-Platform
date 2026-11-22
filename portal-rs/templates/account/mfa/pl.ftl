@@ -16,3 +16,4 @@ mfa-remove = Usuń urządzenie
 mfa-email-subject = Twój kod weryfikacyjny Oteryn
 mfa-email-body = Wpisz ten kod wyłącznie na stronie logowania Oteryn. Kod wygasa za pięć minut. Zignoruj wiadomość, jeśli nie proszono o kod.
 mfa-browser-device-label = Zapamiętane przeglądarki
+mfa-back-to-settings = Wróć do ustawień bezpieczeństwa
