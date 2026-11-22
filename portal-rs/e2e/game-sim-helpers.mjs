@@ -19,7 +19,9 @@ export async function actor(browser,info,{staff=false,mfa=false,funded=false}={}
    const secret=(await page.locator('main p.op-prose').innerText()).trim();
    const totp=new TOTP({secret:Secret.fromBase32(secret),algorithm:'SHA1',digits:6,period:30});
    await submit(page,'main form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
-   const recovery=(await page.locator('textarea[readonly]').allTextContents())[0];
+   const recoveryCode=page.locator('textarea[readonly]').first();
+   await expect(recoveryCode).toBeVisible();
+   const recovery=await recoveryCode.inputValue();
    await login(page,lang,account);await expect(page,'seller must complete MFA').toHaveURL(/mfa\/challenge/);
    await submit(page,'main form[action$="/mfa/challenge"]',{code:recovery});
    await page.goto(`/${lang}/account/sudo`);await submit(page,'main form',{current_password:account.password});
