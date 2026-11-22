@@ -6,18 +6,48 @@ use crate::{
 use axum::{http::StatusCode, response::Response};
 use oteryn_ui::Chrome;
 use oteryn_web::csrf::Verified;
-use serde::Serialize;
+use serde_json::{Value, json};
+
+pub(crate) const ROLE_REASON: &str = "role_assignment";
+pub(crate) const ACCOUNT_REASON: &str = "support_case";
 use sqlx::{PgConnection, PgPool};
-use std::{collections::BTreeMap, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 use uuid::Uuid;
 
-pub const MIN_REASON_CHARS: usize = 8;
-pub const MAX_REASON_CHARS: usize = 500;
+#[derive(Debug, Clone, Copy)]
+pub enum StepUp {
+    SessionMfa,
+    RecentPassword,
+}
+
+pub(crate) async fn check_step_up(
+    connection: &mut PgConnection,
+    actor: CheckContext,
+    requirement: StepUp,
+) -> Result<(), Error> {
+    if matches!(requirement, StepUp::RecentPassword) {
+        let proof = actor.session_proof.ok_or(Error::StepUp)?;
+        // RBAC has already locked and verified the durable session and MFA grant.
+        let fresh: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM web_sessions
+             WHERE account_id=$1 AND id_hash=$2 AND sudo_until>clock_timestamp())",
+        )
+        .bind(actor.account)
+        .bind(proof.session_hash.as_slice())
+        .fetch_one(connection)
+        .await?;
+        if !fresh {
+            return Err(Error::StepUp);
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub enum Error {
     Forbidden,
     Reason,
+    StepUp,
     Invalid,
     Conflict,
     Unavailable,
@@ -26,7 +56,7 @@ pub enum Error {
 impl Error {
     pub fn response(self, chrome: &Chrome) -> Response {
         let status = match self {
-            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Forbidden | Self::StepUp => StatusCode::FORBIDDEN,
             Self::Reason | Self::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
             Self::Conflict => StatusCode::CONFLICT,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
@@ -36,6 +66,12 @@ impl Error {
                 chrome,
                 status,
                 &chrome.text("staff-action-reason-invalid"),
+            )
+        } else if matches!(self, Self::StepUp) {
+            oteryn_ui::error_with_message(
+                chrome,
+                status,
+                &chrome.text("staff-action-step-up-required"),
             )
         } else {
             oteryn_ui::error(chrome, status)
@@ -66,37 +102,103 @@ impl From<sqlx::Error> for Error {
     }
 }
 
-/// Audit projections accept only explicitly selected, non-secret domain values.
-/// Use opaque domain IDs and stable enums represented by trusted static labels.
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum AuditValue {
-    Id(Uuid),
-    Flag(bool),
-    Count(i64),
-    Label(&'static str),
+/// Closed audit projections. Each variant chooses its event name, fields and
+/// value types. Form data and arbitrary runtime values never reach this API.
+#[derive(Debug)]
+pub enum AuditChange {
+    RoleGrant {
+        account: Uuid,
+        role: Uuid,
+    },
+    AccountNote {
+        account: Uuid,
+        note: Uuid,
+    },
+    ReviewFlag {
+        account: Uuid,
+        before: bool,
+        after: bool,
+    },
+    AccountStatus {
+        account: Uuid,
+        suspended: bool,
+    },
+    AccountEmail {
+        account: Uuid,
+        request: Uuid,
+    },
+    #[cfg(test)]
+    TestLocale {
+        account: Uuid,
+    },
 }
 
-pub type Snapshot = BTreeMap<&'static str, AuditValue>;
-
-#[derive(Debug)]
-pub struct AuditChange {
-    pub target: Uuid,
-    pub before: Snapshot,
-    pub after: Snapshot,
+impl AuditChange {
+    fn project(self) -> (&'static str, Uuid, Value, Value) {
+        match self {
+            Self::RoleGrant { account, role } => (
+                "rbac.role.granted",
+                account,
+                json!({"role": role, "assigned": false}),
+                json!({"role": role, "assigned": true}),
+            ),
+            Self::AccountNote { account, note } => (
+                "players.note.added",
+                account,
+                json!({}),
+                json!({"note": note}),
+            ),
+            Self::ReviewFlag {
+                account,
+                before,
+                after,
+            } => (
+                "players.flags.changed",
+                account,
+                json!({"needs_review": before}),
+                json!({"needs_review": after}),
+            ),
+            Self::AccountStatus { account, suspended } => {
+                let (before, after) = if suspended {
+                    ("active", "suspended")
+                } else {
+                    ("suspended", "active")
+                };
+                (
+                    "players.status.changed",
+                    account,
+                    json!({"status": before}),
+                    json!({"status": after}),
+                )
+            }
+            Self::AccountEmail { account, request } => (
+                "players.email.change_requested",
+                account,
+                json!({"pending": false}),
+                json!({"pending": true, "request": request}),
+            ),
+            #[cfg(test)]
+            Self::TestLocale { account } => (
+                "staff.action.test",
+                account,
+                json!({"locale": "pl"}),
+                json!({"locale": "en"}),
+            ),
+        }
+    }
 }
 
 pub struct Action<'a> {
     pub permission: Permission,
-    pub action: &'static str,
     pub reason: &'a str,
+    pub reason_codes: &'static [&'static str],
+    pub step_up: StepUp,
 }
 
 impl std::fmt::Debug for Action<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Action")
             .field("permission", &self.permission)
-            .field("action", &self.action)
             .finish_non_exhaustive()
     }
 }
@@ -111,11 +213,26 @@ pub struct Guard<'a> {
 pub type Mutation<'a> =
     Pin<Box<dyn Future<Output = Result<Option<AuditChange>, Error>> + Send + 'a>>;
 
-pub(crate) fn validated_reason(reason: &str) -> Option<&str> {
-    let reason = reason.trim();
-    ((MIN_REASON_CHARS..=MAX_REASON_CHARS).contains(&reason.chars().count())
-        && !reason.contains('\0'))
-    .then_some(reason)
+pub(crate) fn verify_session(actor: CheckContext, csrf: Option<Verified>) -> Result<(), Error> {
+    let same_session = csrf
+        .zip(actor.session_proof)
+        .is_some_and(|(csrf, proof)| csrf.matches_session(&proof.session_hash));
+    if same_session && actor.require_staff_mfa && actor.mfa_verified {
+        Ok(())
+    } else {
+        Err(Error::Forbidden)
+    }
+}
+
+pub(crate) fn validated_code(
+    reason: &str,
+    allowed: &'static [&'static str],
+) -> Result<&'static str, Error> {
+    allowed
+        .iter()
+        .copied()
+        .find(|code| *code == reason && (8..=500).contains(&code.chars().count()))
+        .ok_or(Error::Reason)
 }
 
 /// Validate the form, lock its accounts and run the mutation under durable staff
@@ -130,14 +247,11 @@ pub async fn run<T, F>(
 where
     F: for<'a> FnOnce(&'a mut PgConnection, T) -> Mutation<'a>,
 {
-    if guard.csrf.is_none()
-        || !guard.actor.require_staff_mfa
-        || !guard.actor.mfa_verified
-        || action.permission == Permission::Access
-    {
+    verify_session(guard.actor, guard.csrf)?;
+    if action.permission == Permission::Access {
         return Err(Error::Forbidden);
     }
-    let reason = validated_reason(action.reason).ok_or(Error::Reason)?;
+    let reason = validated_code(action.reason, action.reason_codes)?;
     let (accounts, input) = validate()?;
     let mut tx = pool.begin().await?;
     rbac::mutation_budget(&mut tx).await?;
@@ -150,9 +264,11 @@ where
         &permissions,
     )
     .await?;
+    check_step_up(&mut tx, guard.actor, action.step_up).await?;
     let change = mutate(&mut tx, input).await?;
     let changed = change.is_some();
     if let Some(change) = change {
+        let (event, target, before, after) = change.project();
         audit::append_with_reason(
             &mut tx,
             Entry {
@@ -160,10 +276,10 @@ where
                     actor: Some(guard.actor.account),
                     request_id: Uuid::now_v7(),
                 },
-                action: action.action,
-                target: &change.target.to_string(),
-                before: serde_json::to_value(change.before).map_err(|_| Error::Unavailable)?,
-                after: serde_json::to_value(change.after).map_err(|_| Error::Unavailable)?,
+                action: event,
+                target: &target.to_string(),
+                before,
+                after,
             },
             Some(reason),
         )
@@ -175,6 +291,7 @@ where
             .check(&mut tx, guard.actor, permission)
             .await?;
     }
+    check_step_up(&mut tx, guard.actor, action.step_up).await?;
     if changed {
         tx.commit().await?;
     } else {

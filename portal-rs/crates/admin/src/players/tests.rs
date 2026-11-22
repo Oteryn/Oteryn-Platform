@@ -534,6 +534,14 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
     .execute(&db.pool)
     .await
     .unwrap();
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at)
+         VALUES($1,'staff-note@example.test','test-only','active','en',now())",
+    )
+    .bind(db.support)
+    .execute(&db.pool)
+    .await
+    .unwrap();
     let app = http::router(
         db.pool.clone(),
         Flags {
@@ -572,6 +580,10 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
         .next()
         .unwrap()
         .to_owned();
+    crate::test_staff::browser(&db.pool, db.support, &cookie)
+        .await
+        .unwrap();
+    let submission = Uuid::now_v7();
     let body = String::from_utf8(
         to_bytes(response.into_body(), 100000)
             .await
@@ -589,6 +601,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
     for (token, status) in [
         ("wrong", StatusCode::FORBIDDEN),
         (csrf, StatusCode::SEE_OTHER),
+        (csrf, StatusCode::SEE_OTHER),
     ] {
         let response = app
             .clone()
@@ -599,7 +612,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
                     .header("cookie", &cookie)
                     .header("content-type", "application/x-www-form-urlencoded")
                     .body(Body::from(format!(
-                        "_csrf={token}&action=note&body=Example&reason=Verified+support+case"
+                        "_csrf={token}&action=note&body=Example&reason=support_case&submission={submission}"
                     )))
                     .unwrap(),
             )
@@ -607,6 +620,16 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
             .unwrap();
         assert_eq!(response.status(), status);
     }
+    let writes: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM player_notes WHERE id=$1),
+                (SELECT count(*) FROM audit_log WHERE target=$2 AND action='players.note.added')",
+    )
+    .bind(submission)
+    .bind(db.target.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(writes, (1, 1));
     for (uri, host, status) in [
         ("/admin/players?q=example", "staff.test", StatusCode::OK),
         (
@@ -2144,7 +2167,7 @@ async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
             app(moderator),
             &path,
             &cookie,
-            format!("_csrf={csrf}&action=note&body=Note&reason=Verified+support+case")
+            format!("_csrf={csrf}&action=note&body=Note&reason=support_case")
         )
         .await,
         StatusCode::FORBIDDEN
@@ -2276,7 +2299,7 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
             "players.status.changed",
         ),
     ] {
-        let valid = format!("action={action}&body={good}&reason=Verified+support+case");
+        let valid = format!("action={action}&body={good}&reason=support_case");
         for (cookie, token, body, expected) in [
             (&admin, "wrong", valid.clone(), StatusCode::FORBIDDEN),
             (
@@ -2288,7 +2311,7 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
             (
                 &admin,
                 csrf.as_str(),
-                format!("action={action}&body={bad}&reason=Verified+support+case"),
+                format!("action={action}&body={bad}&reason=support_case"),
                 StatusCode::UNPROCESSABLE_ENTITY,
             ),
             (&admin, csrf.as_str(), valid, StatusCode::SEE_OTHER),
@@ -2308,7 +2331,7 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
         .await
         .unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].2, "Verified support case");
+        assert_eq!(rows[0].2, "support_case");
         assert!(!rows[0].1.to_string().contains("example.test"));
     }
     let recipients: (i64, bool) = sqlx::query_as(
@@ -2331,6 +2354,19 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
     .await
     .unwrap();
     assert_eq!(saved, ("suspended".into(), true, true));
+    let protected = format!("/admin/players/{}", db.support);
+    assert_eq!(
+        staff_security_post(
+            &app,
+            &protected,
+            "staff.test",
+            &admin,
+            &csrf,
+            "action=review-flag&body=yes&reason=support_case"
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
     let protected = format!("/admin/players/{}", db.approver);
     assert_eq!(
         staff_security_post(
@@ -2339,7 +2375,7 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
             "staff.test",
             &admin,
             &csrf,
-            "action=account-status&body=suspended&reason=Verified+support+case"
+            "action=account-status&body=suspended&reason=support_case"
         )
         .await,
         StatusCode::FORBIDDEN

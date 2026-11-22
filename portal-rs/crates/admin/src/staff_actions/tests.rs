@@ -24,34 +24,42 @@ struct Fixture {
     authority: MutationAuthorization,
 }
 
+const OVERSIZED_REASON: &str = match std::str::from_utf8(&[b'x'; 501]) {
+    Ok(reason) => reason,
+    Err(_) => panic!("ASCII reason fixture is valid UTF-8"),
+};
+
 #[derive(Deserialize)]
 struct TestForm {
     #[serde(default)]
     reason: String,
     #[serde(default)]
     conflict: bool,
+    #[serde(default)]
+    expire_step_up: bool,
 }
 
 async fn apply(
     State(fixture): State<Fixture>,
-    csrf: Option<Extension<Verified>>,
+    Extension(csrf): Extension<Verified>,
     Form(form): Form<TestForm>,
 ) -> Response {
     let actor = fixture.actor.account;
-    match run(
+    let mut response = match run(
         &fixture.pool,
         Guard {
             actor: fixture.actor,
             authority: &fixture.authority,
-            csrf: csrf.map(|Extension(proof)| proof),
+            csrf: Some(csrf),
         },
         Action {
             permission: Permission::GrantRoles,
-            action: "staff.action.test",
             reason: &form.reason,
+            reason_codes: &["role_assignment", "short", OVERSIZED_REASON],
+            step_up: StepUp::RecentPassword,
         },
-        || Ok((vec![actor], form.conflict)),
-        move |connection, conflict| {
+        || Ok((vec![actor], (form.conflict, form.expire_step_up))),
+        move |connection, (conflict, expire_step_up)| {
             Box::pin(async move {
                 let before: String = sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
                     .bind(actor)
@@ -62,16 +70,27 @@ async fn apply(
                 }
                 sqlx::query("UPDATE accounts SET locale='en' WHERE id=$1")
                     .bind(actor)
-                    .execute(connection)
+                    .execute(&mut *connection)
                     .await?;
                 if conflict {
                     return Err(Error::Conflict);
                 }
-                Ok(Some(AuditChange {
-                    target: actor,
-                    before: [("locale", AuditValue::Label("pl"))].into(),
-                    after: [("locale", AuditValue::Label("en"))].into(),
-                }))
+                if expire_step_up {
+                    sqlx::query(
+                        "UPDATE web_sessions SET sudo_until=clock_timestamp() WHERE id_hash=$1",
+                    )
+                    .bind(
+                        fixture
+                            .actor
+                            .session_proof
+                            .ok_or(Error::Forbidden)?
+                            .session_hash
+                            .as_slice(),
+                    )
+                    .execute(&mut *connection)
+                    .await?;
+                }
+                Ok(Some(AuditChange::TestLocale { account: actor }))
             })
         },
     )
@@ -83,7 +102,12 @@ async fn apply(
             "/",
             oteryn_ui::Account::Anonymous,
         )),
-    }
+    };
+    response.headers_mut().insert(
+        "x-test-staff-handler",
+        header::HeaderValue::from_static("verified"),
+    );
+    response
 }
 
 #[tokio::test]
@@ -127,7 +151,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .bind(role)
         .execute(&pool)
         .await?;
-    let proof = crate::test_staff::proof(&pool, account).await?;
+    let (proof, cookie) = crate::test_staff::proof_with_cookie(&pool, account).await?;
     let context = CheckContext {
         account,
         require_staff_mfa: true,
@@ -158,19 +182,17 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .with_state(fixture);
     let response = app
         .clone()
-        .oneshot(Request::get("/action").body(Body::empty())?)
+        .oneshot(
+            Request::get("/action")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())?,
+        )
         .await?;
-    let cookie = response.headers()[header::SET_COOKIE]
-        .to_str()?
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned();
     let token = String::from_utf8(to_bytes(response.into_body(), 256).await?.to_vec())?;
-    let post = |token: &str, form: &str| {
+    let post_as = |cookie: &str, token: &str, form: &str| {
         app.clone().oneshot(
             Request::post("/action")
-                .header(header::COOKIE, &cookie)
+                .header(header::COOKIE, cookie)
                 .header(header::ACCEPT_LANGUAGE, "en")
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header("x-csrf-token", token)
@@ -178,7 +200,8 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
                 .unwrap(),
         )
     };
-    let good = "reason=Valid+staff+reason";
+    let post = |token: &str, form: &str| post_as(&cookie, token, form);
+    let good = "reason=role_assignment";
     let unchanged = || async {
         let locale: String = sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
             .bind(account)
@@ -205,10 +228,12 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .execute(&pool)
         .await?;
 
+    let oversized_reason = format!("reason={OVERSIZED_REASON}");
     for form in [
         "",
-        "reason=%20%20short",
-        &format!("reason={}", "a".repeat(MAX_REASON_CHARS + 1)),
+        "reason=arbitrary+credential-shaped+text",
+        "reason=short",
+        &oversized_reason,
     ] {
         assert_eq!(
             post(&token, form).await?.status(),
@@ -227,11 +252,52 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .bind("1 minute")
         .execute(&pool)
         .await?;
-    let conflict = post(&token, "reason=Valid+staff+reason&conflict=true").await?;
+    assert_eq!(post(&token, good).await?.status(), StatusCode::FORBIDDEN);
+    let (_, other_cookie) = crate::test_staff::proof_with_cookie(&pool, account).await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/action")
+                .header(header::COOKIE, &other_cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    let other_token = String::from_utf8(to_bytes(response.into_body(), 256).await?.to_vec())?;
+    crate::test_staff::recent_password(&pool, &other_cookie).await?;
+    assert_eq!(post(&token, good).await?.status(), StatusCode::FORBIDDEN);
+    crate::test_staff::recent_password(&pool, &cookie).await?;
+    // The other session has a valid token and fresh sudo for this same actor.
+    // Its request must still fail when paired with the original actor proof.
+    let mismatched = post_as(&other_cookie, &other_token, good).await?;
+    assert_eq!(mismatched.headers()["x-test-staff-handler"], "verified");
+    assert_eq!(mismatched.status(), StatusCode::FORBIDDEN);
+    unchanged().await;
+    let conflict = post(&token, "reason=role_assignment&conflict=true").await?;
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
     assert!(
         String::from_utf8(to_bytes(conflict.into_body(), 100_000).await?.to_vec())?
             .contains("Change conflict")
+    );
+    unchanged().await;
+
+    // The sequence is deliberately nontransactional. It attests that the
+    // audit INSERT ran even though the final freshness check rolls it back.
+    sqlx::raw_sql(
+        "CREATE SEQUENCE staff_action_audit_attempts;
+        CREATE FUNCTION count_staff_action_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN PERFORM nextval('staff_action_audit_attempts'); RETURN NEW; END $$;
+        CREATE TRIGGER count_staff_action_audit AFTER INSERT ON audit_log
+        FOR EACH ROW WHEN (NEW.action='staff.action.test')
+        EXECUTE FUNCTION count_staff_action_audit()",
+    )
+    .execute(&pool)
+    .await?;
+    let expired = post(&token, "reason=role_assignment&expire_step_up=true").await?;
+    assert_eq!(expired.status(), StatusCode::FORBIDDEN);
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT is_called FROM staff_action_audit_attempts")
+            .fetch_one(&pool)
+            .await?
     );
     unchanged().await;
 
@@ -246,7 +312,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         vec![(
             serde_json::json!({"locale": "pl"}),
             serde_json::json!({"locale": "en"}),
-            "Valid staff reason".into(),
+            "role_assignment".into(),
         )]
     );
     pool.close().await;

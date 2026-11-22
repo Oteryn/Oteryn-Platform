@@ -518,6 +518,8 @@ struct Page {
     grant: String,
     can_grant: bool,
     reason_label: String,
+    reason_assignment: String,
+    confirm_password: String,
     navigation: Vec<panels::Link>,
     revoke: String,
     csrf: String,
@@ -628,6 +630,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         grant: text(lang, "grant"),
         can_grant: manage && s.auth.check(context, Permission::GrantRoles).await.is_ok(),
         reason_label: oteryn_ui::text(lang, "staff-action-reason"),
+        reason_assignment: oteryn_ui::text(lang, "staff-action-role-assignment"),
+        confirm_password: oteryn_ui::text(lang, "staff-action-confirm-password"),
         navigation: registry.links(PanelKind::Admin, lang, |_| true),
         revoke: text(lang, "revoke"),
         csrf,
@@ -676,6 +680,14 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
         }
         Err(error) => return error.into_response(),
     };
+    let csrf = csrf.map(|Extension(proof)| proof);
+    if let Err(error) = staff_actions::verify_session(context, csrf) {
+        return error.response(chrome);
+    }
+    let reason = match staff_actions::validated_code(&form.reason, &[staff_actions::ROLE_REASON]) {
+        Ok(reason) => reason,
+        Err(error) => return error.response(chrome),
+    };
     let result = match form.action.as_str() {
         "create" | "set-permissions" => {
             let permissions: Result<Vec<Permission>, _> = form
@@ -699,24 +711,25 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 }
             };
             s.auth
-                .change_from_panel_with_reason(context, Uuid::now_v7(), change, &form.reason)
+                .change_from_panel_with_reason(context, Uuid::now_v7(), change, reason)
                 .await
                 .map(|_| ())
         }
         "grant" => {
-            use staff_actions::{AuditChange, AuditValue};
+            use staff_actions::AuditChange;
             let auth = s.auth.clone();
             let result = staff_actions::run(
                 &s.pool,
                 staff_actions::Guard {
                     actor: context,
                     authority: &authority,
-                    csrf: csrf.map(|Extension(proof)| proof),
+                    csrf,
                 },
                 staff_actions::Action {
                     permission: Permission::GrantRoles,
-                    action: "rbac.role.granted",
-                    reason: &form.reason,
+                    reason,
+                    reason_codes: &[staff_actions::ROLE_REASON],
+                    step_up: staff_actions::StepUp::RecentPassword,
                 },
                 || {
                     if form.account.is_nil() || form.role.is_nil() {
@@ -729,18 +742,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                         let granted = auth
                             .grant_from_staff_action(connection, context, account, role)
                             .await?;
-                        let snapshot = |assigned| {
-                            [
-                                ("role", AuditValue::Id(role)),
-                                ("assigned", AuditValue::Flag(assigned)),
-                            ]
-                            .into()
-                        };
-                        Ok(granted.then(|| AuditChange {
-                            target: account,
-                            before: snapshot(false),
-                            after: snapshot(true),
-                        }))
+                        Ok(granted.then_some(AuditChange::RoleGrant { account, role }))
                     })
                 },
             )
@@ -756,7 +758,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 Err(error) => error.response(chrome),
             };
         }
-        "revoke" => revoke(&s, context, form.account, form.role).await,
+        "revoke" => revoke(&s, context, form.account, form.role, reason).await,
         _ => return StatusCode::BAD_REQUEST.into_response(),
     };
     match result {
@@ -776,6 +778,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     context: CheckContext,
     account: Uuid,
     role: Uuid,
+    reason: &'static str,
 ) -> Result<(), Error> {
     if account.is_nil() || role.is_nil() {
         return Err(Error::InvalidInput);
@@ -838,7 +841,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
             .bind(role)
             .execute(&mut *tx)
             .await?;
-        audit::append(
+        audit::append_with_reason(
             &mut tx,
             Entry {
                 context: AuditContext {
@@ -850,6 +853,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
                 before: json!({"role":role,"assigned":true}),
                 after: json!({"role":role,"assigned":false}),
             },
+            Some(reason),
         )
         .await?;
     }

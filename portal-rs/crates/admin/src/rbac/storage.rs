@@ -55,7 +55,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_impl(context, request_id, change, false, "")
+        self.change_impl(context, request_id, change, false, "role_maintenance")
             .await
     }
 
@@ -67,8 +67,13 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_from_panel_with_reason(context, request_id, change, "")
-            .await
+        self.change_from_panel_with_reason(
+            context,
+            request_id,
+            change,
+            crate::staff_actions::ROLE_REASON,
+        )
+        .await
     }
 
     pub(crate) async fn change_from_panel_with_reason(
@@ -76,7 +81,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         context: CheckContext,
         request_id: Uuid,
         change: Change<'_>,
-        reason: &str,
+        reason: &'static str,
     ) -> Result<Option<Uuid>, Error> {
         self.change_impl(context, request_id, change, true, reason)
             .await
@@ -108,7 +113,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
         panel: bool,
-        reason: &str,
+        reason: &'static str,
     ) -> Result<Option<Uuid>, Error> {
         if request_id.is_nil() {
             return Err(Error::InvalidInput);
@@ -149,7 +154,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 ensure_panel_role_grant(&mut tx, role).await?;
             }
         }
-        let mut audit_reason = None;
+        let mut require_recent = false;
         let (action, target, before, after, result) = match change {
             Change::CreateRole { key, permissions } => {
                 validate_key(key)?;
@@ -206,10 +211,8 @@ impl<A: AccountStateReader> Authorizer<A> {
                     if assigned {
                         self.check_in(&mut tx, context, Permission::GrantRoles)
                             .await?;
-                        audit_reason = Some(
-                            crate::staff_actions::validated_reason(reason)
-                                .ok_or(Error::InvalidInput)?,
-                        );
+                        require_recent = true;
+                        check_recent_password(&mut tx, context).await?;
                     }
                 }
                 if before == after {
@@ -294,7 +297,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 before,
                 after,
             },
-            audit_reason,
+            Some(reason),
         )
         .await?;
         self.check_in(&mut tx, context, Permission::ManageRoles)
@@ -302,10 +305,31 @@ impl<A: AccountStateReader> Authorizer<A> {
         if panel {
             self.check_in(&mut tx, context, Permission::Access).await?;
         }
+        if require_recent {
+            check_recent_password(&mut tx, context).await?;
+        }
         change.revoke_browser_credentials(&mut tx, context).await?;
         tx.commit().await?;
         Ok(Some(result))
     }
+}
+
+async fn check_recent_password(
+    connection: &mut sqlx::PgConnection,
+    context: CheckContext,
+) -> Result<(), Error> {
+    crate::staff_actions::check_step_up(
+        connection,
+        context,
+        crate::staff_actions::StepUp::RecentPassword,
+    )
+    .await
+    .map_err(|error| match error {
+        crate::staff_actions::Error::StepUp => Error::Denied,
+        _ => Error::Storage(sqlx::Error::Protocol(
+            "password confirmation unavailable".into(),
+        )),
+    })
 }
 
 fn validate_key(key: &str) -> Result<(), Error> {

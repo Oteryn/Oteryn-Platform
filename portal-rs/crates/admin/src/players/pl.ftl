@@ -35,3 +35,4 @@ email-pending = Zmiana adresu czeka na zgodę właściciela, potwierdzenie adres
 review-flag = Wymaga sprawdzenia przez zespół
 save-flag = Zapisz oznaczenie
 save-status = Zapisz status konta
+support-reason = Sprawa zgłoszona do pomocy

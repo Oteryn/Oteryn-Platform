@@ -37,7 +37,27 @@ impl std::fmt::Debug for StaffDashboard {
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::request_language(&request).code();
-    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let staff_check = request.method() == axum::http::Method::GET
+        && request.extensions().get::<StaffDashboard>().is_some()
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+    let (account, account_id) = if staff_check {
+        match crate::session::chrome_session(&shell.sessions, &mut request).await {
+            Some(session) => (
+                oteryn_ui::Account::SignedIn { csrf: session.csrf },
+                Some(session.account_id),
+            ),
+            None => (oteryn_ui::Account::Anonymous, None),
+        }
+    } else {
+        (
+            crate::session::chrome_account(&shell.sessions, &mut request).await,
+            None,
+        )
+    };
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")

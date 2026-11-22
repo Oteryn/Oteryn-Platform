@@ -102,6 +102,7 @@ struct Action {
     action: String,
     #[serde(default)]
     body: String,
+    submission: Option<Uuid>,
     #[serde(default)]
     reason: String,
     evidence: Option<Uuid>,
@@ -130,6 +131,8 @@ struct Page {
     characters_unavailable: bool,
     csrf: String,
     add_note: String,
+    note_submission: Uuid,
+    support_reason: String,
     logout: String,
     kick: String,
     reason: String,
@@ -228,6 +231,8 @@ impl Page {
             characters_unavailable: false,
             csrf: String::new(),
             add_note: text(lang, "add-note"),
+            note_submission: Uuid::now_v7(),
+            support_reason: text(lang, "support-reason"),
             logout: text(lang, "logout"),
             kick: text(lang, "kick"),
             reason: text(lang, "reason"),
@@ -306,9 +311,6 @@ async fn detail<A: AccountStateReader, I: Accounts>(
     };
     page.account_status = account.status.clone();
     page.flag_edit = can_edit(&s, context, edits::Field::Flag).await?;
-    if page.flag_edit {
-        page.needs_review = edits::needs_review(&mut *s.pool.acquire().await?, id).await?;
-    }
     page.status_edit = s.edits.status
         && account.email_verified
         && matches!(account.status.as_str(), "active" | "suspended")
@@ -317,13 +319,16 @@ async fn detail<A: AccountStateReader, I: Accounts>(
         && account.email_verified
         && account.status == "active"
         && can_edit(&s, context, edits::Field::Email).await?;
-    if page.status_edit || page.email_edit {
-        let protected = id == context.account
-            || edits::target_state(&mut *s.pool.acquire().await?, id)
-                .await?
-                .is_none_or(|(_, _, protected)| protected);
-        page.status_edit &= !protected;
-        page.email_edit &= !protected;
+    if page.flag_edit || page.status_edit || page.email_edit {
+        let protected = edits::target_state(&mut *s.pool.acquire().await?, id)
+            .await?
+            .is_none_or(|(_, _, protected)| protected);
+        page.flag_edit &= !protected;
+        page.status_edit &= !protected && id != context.account;
+        page.email_edit &= !protected && id != context.account;
+    }
+    if page.flag_edit {
+        page.needs_review = edits::needs_review(&mut *s.pool.acquire().await?, id).await?;
     }
     if page.email_edit {
         page.pending_email = sqlx::query_scalar(
@@ -413,14 +418,18 @@ async fn change<A: AccountStateReader, I: Accounts>(
             },
             staff_actions::Action {
                 permission: field.permission(),
-                action: field.action(),
                 reason: &form.reason,
+                reason_codes: &[staff_actions::ACCOUNT_REASON],
+                step_up: staff_actions::StepUp::SessionMfa,
             },
             || {
                 if id.is_nil() {
                     return Err(staff_actions::Error::Invalid);
                 }
-                Ok((vec![id], field.validate(&form.body, &s.edits)?))
+                Ok((
+                    vec![id],
+                    field.validate(&form.body, &s.edits, form.submission)?,
+                ))
             },
             move |db, edit| {
                 Box::pin(async move {

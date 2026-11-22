@@ -35,3 +35,4 @@ email-pending = An email change is awaiting owner approval, address verification
 review-flag = Needs staff review
 save-flag = Save review flag
 save-status = Save account status
+support-reason = Support case

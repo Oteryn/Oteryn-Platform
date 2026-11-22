@@ -140,6 +140,8 @@ fn localized_responsive_labelled_template() {
             grant: text(lang, "grant"),
             can_grant: true,
             reason_label: "Reason".into(),
+            reason_assignment: "Role administration".into(),
+            confirm_password: "Confirm password".into(),
             navigation: Vec::new(),
             revoke: text(lang, "revoke"),
             csrf: "token".into(),
@@ -186,6 +188,8 @@ async fn database_navigation_authorization_csrf_and_owner() {
     oteryn_db::migrate(&pool).await.unwrap();
     portal_identity_lifecycle(&pool).await;
     let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'synthetic','active','en',now())")
+        .bind(actor).bind(format!("{actor}@example.test")).execute(&pool).await.unwrap();
     let identity = Some(StaffIdentity {
         account: actor,
         mfa_satisfied: true,
@@ -299,6 +303,12 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .split('"')
         .next()
         .unwrap();
+    crate::test_staff::browser(&pool, actor, &cookie)
+        .await
+        .unwrap();
+    crate::test_staff::recent_password(&pool, &cookie)
+        .await
+        .unwrap();
     // Match register::configured's outer public-origin extension without changing
     // process environment shared by concurrent tests.
     for (routes, path, accepted) in [
@@ -358,7 +368,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
                 .header("origin", "https://staff.test")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
-                    "account={target}&role={ordinary}&action=grant&reason=Reference+role+grant"
+                    "account={target}&role={ordinary}&action=grant&reason=role_assignment"
                 )))
                 .unwrap(),
         )
@@ -384,7 +394,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
                     .header("origin", "https://staff.test")
                     .header("content-type", "application/x-www-form-urlencoded")
                     .body(Body::from(format!(
-                        "account={account}&role={ordinary}&action={action}&reason=Reference+role+grant"
+                        "account={account}&role={ordinary}&action={action}&reason=role_assignment"
                     )))
                     .unwrap(),
             )
@@ -429,7 +439,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         pool: pool.clone(),
     };
     assert!(matches!(
-        revoke(&panel, context, actor, owner).await,
+        revoke(&panel, context, actor, owner, staff_actions::ROLE_REASON).await,
         Err(Error::Denied)
     ));
     assert!(matches!(
@@ -479,8 +489,8 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     let (first, second) = tokio::join!(
-        revoke(&panel, context, actor, owner),
-        revoke(&panel, context, other, owner)
+        revoke(&panel, context, actor, owner, staff_actions::ROLE_REASON),
+        revoke(&panel, context, other, owner, staff_actions::ROLE_REASON)
     );
     assert_ne!(first.is_ok(), second.is_ok());
     let holders: i64 = sqlx::query_scalar("SELECT count(*) FROM account_roles WHERE role_id=$1")
@@ -501,7 +511,14 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     assert!(matches!(
-        revoke(&panel, context, actor, explicit_owner).await,
+        revoke(
+            &panel,
+            context,
+            actor,
+            explicit_owner,
+            staff_actions::ROLE_REASON
+        )
+        .await,
         Err(Error::Denied)
     ));
     pool.close().await;

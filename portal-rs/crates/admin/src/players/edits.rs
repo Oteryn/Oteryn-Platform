@@ -1,6 +1,6 @@
 use crate::{
     rbac::Permission,
-    staff_actions::{AuditChange, AuditValue, Error, Snapshot},
+    staff_actions::{AuditChange, Error},
 };
 use oteryn_identity::{
     accounts::{address_available, normalize_email},
@@ -63,20 +63,20 @@ impl Field {
         }
     }
 
-    pub fn action(self) -> &'static str {
-        match self {
-            Self::Note => "players.note.added",
-            Self::Flag => "players.flags.changed",
-            Self::Status => "players.status.changed",
-            Self::Email => "players.email.change_requested",
-        }
-    }
-
-    pub fn validate(self, value: &str, settings: &Settings) -> Result<Edit, Error> {
+    pub fn validate(
+        self,
+        value: &str,
+        settings: &Settings,
+        submission: Option<Uuid>,
+    ) -> Result<Edit, Error> {
         match (self, value.trim()) {
             (Self::Note, note) => {
                 super::valid_text(note, 4000).map_err(|_| Error::Invalid)?;
-                Ok(Edit::Note(note.to_owned()))
+                let submission = submission.filter(|id| !id.is_nil()).ok_or(Error::Invalid)?;
+                Ok(Edit::Note {
+                    submission,
+                    body: note.to_owned(),
+                })
             }
             (Self::Flag, "yes") => Ok(Edit::Flag(true)),
             (Self::Flag, "no") => Ok(Edit::Flag(false)),
@@ -99,7 +99,7 @@ impl Field {
 }
 
 pub(super) enum Edit {
-    Note(String),
+    Note { submission: Uuid, body: String },
     Flag(bool),
     Status(&'static str),
     Email { address: String, origin: String },
@@ -115,19 +115,45 @@ impl Edit {
         let (status, verified, protected) =
             target_state(db, target).await?.ok_or(Error::Invalid)?;
 
-        let (before, after) = match self {
-            Self::Note(note) => {
-                let id: Uuid = sqlx::query_scalar(
-                    "INSERT INTO player_notes(account_id,author,body) VALUES($1,$2,$3) RETURNING id",
+        let change = match self {
+            Self::Note { submission, body } => {
+                let inserted = sqlx::query(
+                    "INSERT INTO player_notes(id,account_id,author,body) VALUES($1,$2,$3,$4)
+                     ON CONFLICT (id) DO NOTHING",
                 )
+                .bind(submission)
                 .bind(target)
                 .bind(actor)
-                .bind(note)
-                .fetch_one(&mut *db)
-                .await?;
-                (Snapshot::new(), [("note", AuditValue::Id(id))].into())
+                .bind(&body)
+                .execute(&mut *db)
+                .await?
+                .rows_affected();
+                if inserted == 0 {
+                    let retry: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM player_notes
+                         WHERE id=$1 AND account_id=$2 AND author=$3 AND body=$4)",
+                    )
+                    .bind(submission)
+                    .bind(target)
+                    .bind(actor)
+                    .bind(&body)
+                    .fetch_one(db)
+                    .await?;
+                    return if retry {
+                        Ok(None)
+                    } else {
+                        Err(Error::Conflict)
+                    };
+                }
+                AuditChange::AccountNote {
+                    account: target,
+                    note: submission,
+                }
             }
             Self::Flag(enabled) => {
+                if protected {
+                    return Err(Error::Forbidden);
+                }
                 let old = needs_review(db, target).await?;
                 if old == enabled {
                     return Ok(None);
@@ -140,10 +166,11 @@ impl Edit {
                 .bind(enabled)
                 .execute(&mut *db)
                 .await?;
-                (
-                    [("needs_review", AuditValue::Flag(old))].into(),
-                    [("needs_review", AuditValue::Flag(enabled))].into(),
-                )
+                AuditChange::ReviewFlag {
+                    account: target,
+                    before: old,
+                    after: enabled,
+                }
             }
             Self::Status(next) => {
                 if protected || actor == target || !verified {
@@ -166,31 +193,23 @@ impl Edit {
                     .bind(target)
                     .execute(&mut *db)
                     .await?;
-                (
-                    [("status", AuditValue::Label(previous))].into(),
-                    [("status", AuditValue::Label(next))].into(),
-                )
+                AuditChange::AccountStatus {
+                    account: target,
+                    suspended: next == "suspended",
+                }
             }
             Self::Email { address, origin } => {
                 if protected || actor == target || !verified || status != "active" {
                     return Err(Error::Forbidden);
                 }
                 let request = queue_email_change(db, target, &address, &origin).await?;
-                (
-                    [("pending", AuditValue::Flag(false))].into(),
-                    [
-                        ("pending", AuditValue::Flag(true)),
-                        ("request", AuditValue::Id(request)),
-                    ]
-                    .into(),
-                )
+                AuditChange::AccountEmail {
+                    account: target,
+                    request,
+                }
             }
         };
-        Ok(Some(AuditChange {
-            target,
-            before,
-            after,
-        }))
+        Ok(Some(change))
     }
 }
 
@@ -312,42 +331,42 @@ mod tests {
             email_origin: Some("https://example.test".into()),
         };
         assert!(matches!(
-            Field::Status.validate("active", &disabled),
+            Field::Status.validate("active", &disabled, None),
             Err(Error::Forbidden)
         ));
         assert!(matches!(
-            Field::Email.validate("new@example.test", &disabled),
+            Field::Email.validate("new@example.test", &disabled, None),
             Err(Error::Forbidden)
         ));
         assert!(matches!(
-            Field::Status.validate("closed", &enabled),
+            Field::Status.validate("closed", &enabled, Some(Uuid::now_v7())),
             Err(Error::Invalid)
         ));
         assert!(matches!(
-            Field::Email.validate("invalid", &enabled),
+            Field::Email.validate("invalid", &enabled, Some(Uuid::now_v7())),
             Err(Error::Invalid)
         ));
         assert!(matches!(
-            Field::Flag.validate("true", &enabled),
+            Field::Flag.validate("true", &enabled, Some(Uuid::now_v7())),
             Err(Error::Invalid)
         ));
         assert!(matches!(
-            Field::Note.validate("  ", &enabled),
+            Field::Note.validate("  ", &enabled, Some(Uuid::now_v7())),
             Err(Error::Invalid)
         ));
         assert!(matches!(
-            Field::Status.validate("suspended", &enabled),
+            Field::Status.validate("suspended", &enabled, Some(Uuid::now_v7())),
             Ok(Edit::Status("suspended"))
         ));
         assert!(
-            matches!(Field::Email.validate(" NEW@example.test ", &enabled), Ok(Edit::Email { address, .. }) if address == "new@example.test")
+            matches!(Field::Email.validate(" NEW@example.test ", &enabled, Some(Uuid::now_v7())), Ok(Edit::Email { address, .. }) if address == "new@example.test")
         );
         assert!(matches!(
-            Field::Flag.validate("yes", &enabled),
+            Field::Flag.validate("yes", &enabled, Some(Uuid::now_v7())),
             Ok(Edit::Flag(true))
         ));
         assert!(
-            matches!(Field::Note.validate("  review details  ", &enabled), Ok(Edit::Note(value)) if value == "review details")
+            matches!(Field::Note.validate("  review details  ", &enabled, Some(Uuid::now_v7())), Ok(Edit::Note { body, .. }) if body == "review details")
         );
     }
 }
