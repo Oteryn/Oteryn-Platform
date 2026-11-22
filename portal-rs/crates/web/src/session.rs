@@ -528,14 +528,13 @@ pub(crate) async fn chrome_account(
     if identifiers.next().is_some() {
         return oteryn_ui::Account::Anonymous;
     }
-    let row: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
+    let row: Result<Option<(String, bool)>, _> = sqlx::query_as(
         "SELECT s.csrf_token, EXISTS (
             SELECT 1 FROM account_roles ar
             JOIN role_permissions rp ON rp.role_id = ar.role_id
             WHERE ar.account_id = s.account_id AND rp.permission = 'admin.access'
-        ), COALESCE(a.status = 'active' AND a.email_verified_at IS NOT NULL AND NOT a.login_mfa_required, false)
+        )
         FROM web_sessions s
-        LEFT JOIN accounts a ON a.id = s.account_id
         WHERE s.id_hash = $1 AND s.account_id IS NOT NULL
             AND s.idle_expires_at > clock_timestamp() AND s.absolute_expires_at > clock_timestamp()",
     )
@@ -543,10 +542,9 @@ pub(crate) async fn chrome_account(
     .fetch_optional(&layer.pool)
     .await;
     match row {
-        Ok(Some((csrf, staff_access, passkey_eligible))) => oteryn_ui::Account::SignedIn {
+        Ok(Some((csrf, staff_access))) => oteryn_ui::Account::SignedIn {
             csrf,
             staff_access,
-            passkey_eligible,
         },
         _ => oteryn_ui::Account::Anonymous,
     }

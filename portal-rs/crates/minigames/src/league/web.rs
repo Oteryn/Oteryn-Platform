@@ -190,6 +190,9 @@ async fn page<A: Authority>(
         Ok(source) => source,
         Err(status) => return Page::new(&lang, None).response(status),
     };
+    let Ok(now) = u64::try_from((state.clock)()) else {
+        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    };
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
     if let Some(ClientSource(ip)) = source {
         let keys = [Keys::source(ip)];
@@ -207,10 +210,7 @@ async fn page<A: Authority>(
     let Ok(slot) = state.read_slots.try_acquire() else {
         return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
-    let snapshots = state
-        .league
-        .read_with_clock(|| u64::try_from((state.clock)()).map_err(|_| Error::Unavailable))
-        .await;
+    let snapshots = state.league.read(now).await;
     drop(slot);
     match snapshots {
         Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),

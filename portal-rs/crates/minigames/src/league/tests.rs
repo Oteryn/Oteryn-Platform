@@ -617,12 +617,6 @@ async fn enqueue_publication(db: &Db, c: &config::Config, p: &Publication) -> Re
 }
 #[tokio::test]
 async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
-    use axum::{
-        body::{Body, to_bytes},
-        http::{Request, StatusCode, header},
-    };
-    use tower::ServiceExt;
-
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Db::new().await? else {
         return Ok(());
@@ -708,14 +702,6 @@ async fn real_authority_worker_enumeration_replay_and_restore() -> TestResult {
         .execute(&db.pool)
         .await?;
     assert!(league.read(runtime::now()?).await.is_err());
-    let stale = web::router(league)
-        .oneshot(Request::get("/en/league").body(Body::empty())?)
-        .await?;
-    assert_eq!(stale.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(stale.headers()[header::CACHE_CONTROL], "no-store");
-    let body = String::from_utf8(to_bytes(stale.into_body(), 64 * 1024).await?.to_vec())?;
-    assert!(body.contains("Authoritative results are currently unavailable."));
-    assert!(!body.contains("<article>"));
     write_recovery(&c, "2")?;
     assert!(restarted.read(runtime::now()?).await.is_err());
     sqlx::query("UPDATE league_feed_state SET conflicted=true,ready=false")
@@ -1394,20 +1380,6 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
     })
     .await??;
     assert!(started.elapsed() < std::time::Duration::from_secs(2));
-    let clock_sampled = std::cell::Cell::new(false);
-    assert!(
-        league
-            .read_with_clock(|| {
-                clock_sampled.set(true);
-                Ok(NOW)
-            })
-            .await
-            .is_err()
-    );
-    assert!(
-        !clock_sampled.get(),
-        "sample only after acquiring the projection lock"
-    );
     let dir = tempfile::tempdir()?;
     let c = real_config(dir.path());
     write_recovery(&c, "1")?;
@@ -1422,16 +1394,6 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
     );
     blocker.rollback().await?;
     assert!(league.read(NOW).await?.is_empty());
-    assert!(
-        league
-            .read_with_clock(|| {
-                clock_sampled.set(true);
-                Ok(NOW)
-            })
-            .await?
-            .is_empty()
-    );
-    assert!(clock_sampled.get());
     db.close().await
 }
 

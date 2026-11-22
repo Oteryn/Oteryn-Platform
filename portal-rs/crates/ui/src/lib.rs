@@ -4,37 +4,18 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
-use fluent_bundle::{FluentResource, concurrent::FluentBundle};
-use std::sync::OnceLock;
-
-fn catalogue(lang: &str) -> Option<&'static FluentBundle<FluentResource>> {
-    static EN: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
-    static PL: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
-    let (slot, locale, source) = if lang == "en" {
-        (
-            &EN,
-            unic_langid::langid!("en"),
-            include_str!("../i18n/en.ftl"),
-        )
-    } else {
-        (
-            &PL,
-            unic_langid::langid!("pl"),
-            include_str!("../i18n/pl.ftl"),
-        )
-    };
-    slot.get_or_init(|| {
-        let resource = FluentResource::try_new(source.to_owned()).ok()?;
-        let mut bundle = FluentBundle::new_concurrent(vec![locale]);
-        bundle.add_resource(resource).ok()?;
-        Some(bundle)
-    })
-    .as_ref()
-}
+use fluent_bundle::{FluentBundle, FluentResource};
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {
-    if let Some(bundle) = catalogue(lang)
+    let (locale, source) = if lang == "en" {
+        (unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
+    } else {
+        (unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
+    };
+    let mut bundle = FluentBundle::new(vec![locale]);
+    if let Ok(resource) = FluentResource::try_new(source.to_owned())
+        && bundle.add_resource(resource).is_ok()
         && let Some(pattern) = bundle.get_message(key).and_then(|m| m.value())
     {
         return bundle
@@ -132,16 +113,6 @@ impl Registry {
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
-            .filter(|entry| {
-                entry.section != "account-passkeys"
-                    || !matches!(
-                        account,
-                        Account::SignedIn {
-                            passkey_eligible: false,
-                            ..
-                        }
-                    )
-            })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
                     e.path.to_owned()
@@ -223,7 +194,6 @@ pub enum Account {
     SignedIn {
         csrf: String,
         staff_access: bool,
-        passkey_eligible: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -419,18 +389,6 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn shell_reuses_each_locale_catalogue() -> Result<(), Box<dyn std::error::Error>> {
-        for (lang, label) in [("en", "My account"), ("pl", "Moje konto")] {
-            let first = super::catalogue(lang).ok_or("missing catalogue")?;
-            let next = super::catalogue(lang).ok_or("missing cached catalogue")?;
-            assert!(std::ptr::eq(first, next));
-            assert_eq!(super::text(lang, "stage-my-account"), label);
-            assert_eq!(super::text(lang, "missing-test-key"), "");
-        }
-        Ok(())
-    }
-
     use super::*;
     fn registry() -> Registry {
         let mut registry = Registry {
@@ -565,7 +523,6 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     staff_access: false,
-                    passkey_eligible: true,
                     csrf: "escaped<&token".into(),
                 },
             );

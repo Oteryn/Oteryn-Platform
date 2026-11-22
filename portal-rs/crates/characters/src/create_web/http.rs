@@ -61,8 +61,18 @@ where
     Fut: Future<Output = Result<BrowserContext, sqlx::Error>> + Send + 'static,
     A: Clone + Send + Sync + 'static,
 {
-    let settings = Settings::configured(|key| std::env::var(key).ok());
-    if !settings.mounted() {
+    let flag = |key| std::env::var(key).is_ok_and(|v| v == "true");
+    let settings = Settings {
+        enabled: flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED"),
+        commands: crate::commands::Settings {
+            enabled: flag("OTERYN_CHARACTER_COMMANDS_ENABLED"),
+            create_enabled: flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED"),
+            source_authority: std::env::var("OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY")
+                .unwrap_or_default(),
+            ..Default::default()
+        },
+    };
+    if !settings.enabled || !settings.commands.enabled || !settings.commands.create_enabled {
         return Router::new();
     }
     router(pool, settings, session)
