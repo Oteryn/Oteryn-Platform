@@ -428,6 +428,14 @@
           "name": "kind",
           "value": "{{ row.kind }}"
         },
+        {
+          "name": "allowed",
+          "value": "false"
+        },
+        {
+          "name": "allowed",
+          "value": "true"
+        },
         {}
       ]
     },
@@ -488,6 +496,14 @@
         "publish_snapshot"
       ],
       "submits": [
+        {
+          "name": "currency",
+          "value": "coins"
+        },
+        {
+          "name": "currency",
+          "value": "gold"
+        },
         {}
       ]
     },
@@ -693,9 +709,31 @@
       "fields": [
         "_csrf",
         "lock_version",
+        "publication_state",
+        "severity",
         "{{ field.0 }}"
       ],
       "submits": [
+        {
+          "name": "publication_state",
+          "value": "draft"
+        },
+        {
+          "name": "publication_state",
+          "value": "published"
+        },
+        {
+          "name": "severity",
+          "value": "info"
+        },
+        {
+          "name": "severity",
+          "value": "maintenance"
+        },
+        {
+          "name": "severity",
+          "value": "warning"
+        },
         {}
       ]
     },
@@ -861,6 +899,14 @@
         {
           "name": "action",
           "value": "review"
+        },
+        {
+          "name": "accepted",
+          "value": "true"
+        },
+        {
+          "name": "accepted",
+          "value": "false"
         },
         {}
       ]
@@ -1179,6 +1225,9 @@
         "action",
         "create",
         "{field}",
+        "status",
+        "appeal_status",
+        "category",
         "internal"
       ],
       "submits": [
@@ -1201,6 +1250,78 @@
         {
           "name": "action",
           "value": "appeal"
+        },
+        {
+          "name": "status",
+          "value": "open"
+        },
+        {
+          "name": "status",
+          "value": "waiting_staff"
+        },
+        {
+          "name": "status",
+          "value": "waiting_user"
+        },
+        {
+          "name": "status",
+          "value": "resolved"
+        },
+        {
+          "name": "status",
+          "value": "closed"
+        },
+        {
+          "name": "status",
+          "value": "submitted"
+        },
+        {
+          "name": "status",
+          "value": "reviewing"
+        },
+        {
+          "name": "status",
+          "value": "actioned"
+        },
+        {
+          "name": "status",
+          "value": "rejected"
+        },
+        {
+          "name": "status",
+          "value": "active"
+        },
+        {
+          "name": "status",
+          "value": "expired"
+        },
+        {
+          "name": "status",
+          "value": "revoked"
+        },
+        {
+          "name": "appeal_status",
+          "value": "reviewing"
+        },
+        {
+          "name": "appeal_status",
+          "value": "accepted"
+        },
+        {
+          "name": "appeal_status",
+          "value": "rejected"
+        },
+        {
+          "name": "category",
+          "value": "warning"
+        },
+        {
+          "name": "category",
+          "value": "restriction"
+        },
+        {
+          "name": "category",
+          "value": "suspension"
         },
         {}
       ]
@@ -1234,6 +1355,14 @@
         {
           "name": "kind",
           "value": "item"
+        },
+        {
+          "name": "currency",
+          "value": "COINS"
+        },
+        {
+          "name": "currency",
+          "value": "GOLD"
         },
         {}
       ]

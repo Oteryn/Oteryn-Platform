@@ -15,7 +15,10 @@ ATTRIBUTE = re.compile(
     re.S,
 )
 FORM = re.compile(r"<form\b.*?</form\s*>", re.I | re.S)
-ACTION_FIELDS = {"action", "decision", "kind", "op", "operation", "status"}
+ACTION_FIELDS = {
+    "accepted", "action", "allowed", "currency", "decision", "kind", "op",
+    "operation", "publication_state", "severity", "status",
+}
 INLINE_METHOD = re.compile(r"MethodFilter::(POST|PUT|PATCH|DELETE)\b")
 CONSTANT = re.compile(r'\bconst (\w+)\s*:\s*&str\s*=\s*"([^"]+)"')
 
@@ -63,6 +66,31 @@ def attributes(tag):
         match[1].lower(): next(value for value in match.groups()[1:] if value is not None)
         for match in ATTRIBUTE.finditer(tag)
     }
+
+
+def option_values(source, dynamic):
+    for option in TAG.finditer(source):
+        if option[1].lower() != "option":
+            continue
+        value = attributes(option[2]).get("value")
+        if value is not None:
+            yield from dynamic.get(value, [value])
+            continue
+        label = source[option.end():].split("</option", 1)[0].strip()
+        variable = re.fullmatch(r"{{\s*(\w+)\s*}}", label)
+        if variable:
+            loop = re.search(r"{% for " + re.escape(variable[1]) + r" in (\[[^\]]+\]) %}", source)
+            if loop:
+                yield from json.loads(loop[1])
+        elif label and "{" not in label and "<" not in label:
+            yield label
+
+
+def support_choices(source):
+    choices = source.split("let choices: &[&str] =", 1)[1].split("if choices.is_empty()", 1)[0]
+    for name, values in re.findall(r'\("(\w+)",\s*[^)]+\)\s*=>\s*(?:\{\s*)?&\[(.*?)\]', choices, re.S):
+        for value in re.findall(r'"([^"]+)"', values):
+            yield {"name": name, "value": value}
 
 
 def bindings(path, source, all_sources):
@@ -141,6 +169,12 @@ def forms(path, source, all_sources):
         for tag in tags[1:]:
             field = attributes(tag[2])
             name = field.get("name")
+            if tag[1].lower() == "select" and name == "{{ field.0 }}":
+                condition = re.search(
+                    r'{% (?:else )?if field\.0 == "(\w+)" %}\s*$', form[0][:tag.start()],
+                )
+                if condition:
+                    name = condition[1]
             if name:
                 fields.append(name)
             if tag[1].lower() == "button" or field.get("type") in {"submit", "image"}:
@@ -152,12 +186,12 @@ def forms(path, source, all_sources):
                 submits.extend({"name": name, "value": choice} for choice in dynamic.get(value, [value]))
             elif name in ACTION_FIELDS and tag[1].lower() == "select":
                 options = form[0][tag.end():].split("</select", 1)[0]
-                for option in TAG.finditer(options):
-                    if option[1].lower() != "option":
-                        continue
-                    value = attributes(option[2]).get("value")
-                    if value is not None:
-                        submits.extend({"name": name, "value": choice} for choice in dynamic.get(value, [value]))
+                submits.extend({"name": name, "value": choice} for choice in option_values(options, dynamic))
+            elif name == "{field}" and tag[1].lower() == "select" and path == "crates/admin/src/support_web.rs":
+                for choice in support_choices(source):
+                    fields.append(choice["name"])
+                    if choice not in submits:
+                        submits.append(choice)
         action_variants = []
         if "{% if" in target:
             conditional = re.search(r"{% if .*? %}(.*?)(?:{% else %}(.*?))?{% endif %}", target)

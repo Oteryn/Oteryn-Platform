@@ -3453,9 +3453,11 @@ test('world catalogue actions require a supported imported version and catalogue
     });
     const version = uuid7();
     const url = new URL(path, page.url()).href;
-    for (const action of ['publish', 'visibility', 'names']) {
+    for (const [action, allowed] of [
+      ['publish', 'true'], ['visibility', 'true'], ['visibility', 'false'], ['names', 'true'],
+    ]) {
       const fields = { _csrf: csrf, action, version, kind: 'items', key: 'fixture',
-        allowed: 'true', pl: 'Przedmiot testowy', en: 'Test item' };
+        allowed, pl: 'Przedmiot testowy', en: 'Test item' };
       await rejected({ page, url, fields, snapshot, baseline });
       for (const { screen, token } of outsiders) {
         expect((await sendForm(screen, url, { ...fields, _csrf: token })).status()).toBe(403);
@@ -3693,6 +3695,216 @@ test('staff refunds a real uncredited test payment through one independent appro
     expect(await snapshot()).toEqual(verified);
     expect((await settle()).status()).toBe(204);
     expect(await snapshot()).toEqual(verified);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('editorial page forms save, refresh and delete a bilingual publication with immutable revisions', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const editor = await seededPlayer(page, lang, 'content_editor');
+    const wrong = [];
+    for (const role of [undefined, 'support']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const screen = await context.newPage();
+      await seededPlayer(screen, lang, role);
+      await screen.goto(`/${lang}/account/privacy`);
+      wrong.push({ screen, csrf: (await prepare(screen, formSelector)).fields._csrf });
+    }
+    const slug = `e2e-page-${randomUUID()}`;
+    const snapshot = () => query(
+      `SELECT e.locale,e.title,e.body,e.revision::int,e.source_revision::int,e.published_at IS NOT NULL AS published
+       FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1 ORDER BY e.locale`,
+      [slug],
+    );
+    const change = async (locale, operation, values) => {
+      const path = `/admin/pages/${slug}/${locale}`;
+      expect((await page.goto(path)).status()).toBe(200);
+      const baseline = await snapshot();
+      const form = await prepare(page, formSelector, { ...values, action: operation });
+      await rejected({ page, ...form, snapshot, baseline });
+      for (const { screen, csrf } of wrong) {
+        expect((await sendForm(screen, form.url, { ...form.fields, _csrf: csrf })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      const error = locale === 'pl'
+        ? 'Sprawdź żądanie i spróbuj ponownie.' : 'Check the request and try again.';
+      for (const patch of [{ title: '' }, { title: 'x'.repeat(201) }, { published_at: 'not-a-date' }, { legal_version: 'q'.repeat(81) }]) {
+        const denied = await sendForm(page, form.url, { ...form.fields, ...patch });
+        expect(denied.status()).toBe(400);
+        expect(await denied.text()).toContain(error);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      if (operation === 'save') await submit(page, formSelector, values);
+      else await page.locator(`${formSelector} button[value=delete]`).click();
+      await expect(page).toHaveURL(new URL('/admin/pages', form.url).href);
+      const after = await snapshot();
+      expect((await sendForm(page, form.url, form.fields)).status()).toBe(409);
+      expect(await snapshot()).toEqual(after);
+      return after;
+    };
+    const published_at = new Date(Date.now() - 60_000).toISOString();
+    const visible = async (locale, expected) => {
+      const response = await page.goto(`/${locale}/pages/${slug}`);
+      expect(response.status()).toBe(expected ? 200 : 404);
+      if (expected) await expect(page.locator('main h1')).toHaveText(expected);
+    };
+    const en = { title: 'Matrix editorial page', body: 'English source editorial text.', published_at };
+    const pl = { title: 'Strona redakcyjna matrix', body: 'Polskie tłumaczenie treści.', published_at };
+    expect(await snapshot()).toEqual([]);
+    const english = { locale: 'en', title: en.title, body: en.body, revision: expect.any(Number), source_revision: 1, published: true };
+    const first = await change('en', 'save', en);
+    expect(first).toEqual([english]);
+    expect(first[0].revision).toBeGreaterThan(1);
+    const [source] = first;
+    const polish = { locale: 'pl', title: pl.title, body: pl.body, revision: expect.any(Number), source_revision: source.revision, published: true };
+    await visible('en', en.title);
+    const translated = await change('pl', 'save', pl);
+    expect(translated).toEqual([source, polish]);
+    expect(translated[1].revision).toBeGreaterThan(source.revision);
+    await visible('pl', pl.title);
+    const changed = { ...en, title: 'Matrix revised editorial page' };
+    const refreshed = await change('en', 'save', changed);
+    const [newSource] = refreshed;
+    expect(refreshed).toEqual([{
+      ...source, title: changed.title, revision: expect.any(Number), source_revision: source.revision,
+    }, translated[1]]);
+    expect(newSource.revision).toBeGreaterThan(source.revision);
+    await visible('en', changed.title);
+    await visible('pl');
+    expect(await change('pl', 'save', pl)).toEqual([newSource, {
+      ...translated[1], source_revision: newSource.revision,
+    }]);
+    await visible('pl', pl.title);
+    expect(await change('pl', 'delete', {})).toEqual([newSource]);
+    await visible('pl');
+    await visible('en', changed.title);
+    expect(await change('en', 'delete', {})).toEqual([]);
+    await visible('en');
+    expect(await query(
+      "SELECT action,after->>'locale' AS locale FROM audit_log WHERE actor=$1 AND target=$2 ORDER BY created_at,id",
+      [editor.id, slug],
+    )).toEqual([
+      { action: 'cms.page.saved', locale: 'en' }, { action: 'cms.page.saved', locale: 'pl' },
+      { action: 'cms.page.saved', locale: 'en' }, { action: 'cms.page.saved', locale: 'pl' },
+      { action: 'cms.page.deleted', locale: 'pl' }, { action: 'cms.page.deleted', locale: 'en' },
+    ]);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+
+test('staff announcement forms keep drafts private and publish the reviewed bilingual version', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const editor = await seededPlayer(page, lang, 'content_editor');
+    const wrong = [];
+    for (const role of [undefined, 'support']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const screen = await context.newPage();
+      await seededPlayer(screen, lang, role);
+      await screen.goto(`/${lang}/account/privacy`);
+      wrong.push({ screen, token: (await prepare(screen, formSelector)).fields._csrf });
+    }
+    await page.setExtraHTTPHeaders({ 'accept-language': lang });
+    const title = `Local announcement ${randomUUID()}`;
+    const title_pl = `Lokalne ogłoszenie ${randomUUID()}`;
+    const values = {
+      title, title_pl, body: 'Current English maintenance detail.',
+      body_pl: 'Aktualna informacja o konserwacji.',
+      starts_at: new Date(Date.now() - 90_000).toISOString(),
+      ends_at: new Date(Date.now() + 600_000).toISOString(),
+    };
+    const snapshot = () => query(
+      `SELECT id,title,title_pl,publication_state,severity,lock_version::int AS version,
+              created_by,updated_by,translation_published_at IS NOT NULL AS approved
+       FROM announcements WHERE title=$1`, [title],
+    );
+    const validation = lang === 'pl' ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    const validate = async (patch, invalidFields) => {
+      const offer = await prepare(page, formSelector, patch);
+      const baseline = await snapshot();
+      await rejected({ page, ...offer, snapshot, baseline });
+      for (const { screen, token } of wrong) {
+        expect((await sendForm(screen, offer.url, { ...offer.fields, _csrf: token })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      for (const invalid of invalidFields) {
+        const response = await page.request.post(offer.url, {
+          form: { ...offer.fields, ...invalid },
+          headers: { origin: new URL(offer.url).origin, 'accept-language': lang },
+          maxRedirects: 0,
+        });
+        expect(response.status()).toBe(422);
+        expect(await response.text()).toContain(validation);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      return offer;
+    };
+    const invalidFields = [{ title: '' }, { body: 'x'.repeat(10001) }, { starts_at: 'text' },
+      { ends_at: values.starts_at }];
+    expect((await page.goto('/admin/announcements/create')).status()).toBe(200);
+    expect(await snapshot()).toEqual([]);
+    await validate(values, invalidFields);
+    await submit(page, formSelector, values);
+    await expect(page).toHaveURL(/\/admin\/announcements\/[a-f0-9-]+\/edit$/);
+    await expect(page.locator('[name=title]')).toHaveValue(title);
+    const editorPath = new URL(page.url()).pathname;
+    const id = editorPath.split('/').at(-2);
+    const draft = { id, title, title_pl, publication_state: 'draft', severity: 'info', version: 1,
+      created_by: editor.id, updated_by: editor.id, approved: false };
+    expect(await snapshot()).toEqual([draft]);
+    const ticker = `/${lang}/announcements/ticker`;
+    {
+      const before = await page.request.get(ticker);
+      expect(before.status()).toBe(200);
+      expect(await before.text()).not.toContain(lang === 'pl' ? title_pl : title);
+    }
+
+    const approval = { translation_published_at: new Date(Date.now() - 60_000).toISOString() };
+    const publication = await validate({ ...approval, publication_state: 'published', severity: 'warning' }, invalidFields);
+    await page.locator('[name=publication_state]').selectOption('published');
+    await page.locator('[name=severity]').selectOption('warning');
+    await submit(page, formSelector, approval);
+    await expect(page.locator('[name=publication_state]')).toHaveValue('published');
+    const published = { ...draft, publication_state: 'published', severity: 'warning', version: 2, approved: true };
+    expect(await snapshot()).toEqual([published]);
+    for (const [locale, expected] of [['en', title], ['pl', title_pl]]) {
+      const response = await page.request.get(`/${locale}/announcements/ticker`);
+      expect(response.status()).toBe(200);
+      expect(await response.text()).toContain(expected);
+    }
+    expect((await sendForm(page, publication.url, publication.fields)).status()).toBe(409);
+    expect(await snapshot()).toEqual([published]);
+    const maintenance = await validate({ severity: 'maintenance' }, invalidFields);
+    await page.locator('[name=severity]').selectOption('maintenance');
+    await submit(page, formSelector);
+    await expect(page.locator('[name=severity]')).toHaveValue('maintenance');
+    const maintenanceNotice = { ...published, severity: 'maintenance', version: 3 };
+    expect(await snapshot()).toEqual([maintenanceNotice]);
+    expect(await (await page.request.get(ticker)).text()).toContain(lang === 'pl' ? title_pl : title);
+    expect((await sendForm(page, maintenance.url, maintenance.fields)).status()).toBe(409);
+    expect(await snapshot()).toEqual([maintenanceNotice]);
+    await page.locator('[name=publication_state]').selectOption('draft');
+    await submit(page, formSelector);
+    await expect(page.locator('[name=publication_state]')).toHaveValue('draft');
+    expect(await snapshot()).toEqual([{ ...maintenanceNotice, publication_state: 'draft', version: 4 }]);
+    const retired = await page.request.get(ticker);
+    expect(retired.status()).toBe(200);
+    expect(await retired.text()).not.toContain(lang === 'pl' ? title_pl : title);
   } finally {
     await Promise.all(contexts.map(context => context.close()));
   }
