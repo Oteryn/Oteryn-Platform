@@ -83,6 +83,17 @@ class StaticContract(unittest.TestCase):
         self.assertIn('ipv4_address: ' + tunnel, compose)
         self.assertNotIn('ports:', compose)
 
+    def test_apex_publishes_an_unexpired_security_contact(self):
+        text = CADDYFILE.read_text()
+        apex = text[text.index('\noteryn.com {'):]
+        apex = apex[:apex.index('\n}\n')]
+        block = apex[apex.index('\thandle /.well-known/security.txt {\n'):]
+        self.assertIn('\t\t\tContact: mailto:security@oteryn.com\n', block)
+        self.assertIn('\t\t\tCanonical: https://oteryn.com/.well-known/security.txt\n', block)
+        expires = re.search(r'\t\t\tExpires: (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\n', block).group(1)
+        self.assertGreater(expires, time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+        self.assertLess(block.index('security.txt {'), apex.index('reverse_proxy platform:8080'))
+
     def test_every_site_is_kept_out_of_indexes_before_launch(self):
         text = CADDYFILE.read_text()
         snippet = text[text.index('\n(no_robots) {'):]
