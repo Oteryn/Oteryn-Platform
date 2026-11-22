@@ -279,6 +279,21 @@ async function serverValidation(page, locale, actor, target, targets) {
   }
 }
 
+async function assertAnonymousCheckoutRedirects(page) {
+  const target = sample('/native-account/coin-checkout/{id}', 'en');
+  expect((await page.goto('/language/en')).status()).toBe(200);
+  expect((await page.goto('/en/login')).status()).toBe(200);
+  const csrf = await page.locator('main form input[name=_csrf]').first().inputValue();
+  const options = { maxRedirects: 0, headers: { origin: new URL(page.url()).origin, 'accept-language': 'en' } };
+  for (const response of [
+    await page.request.get(target, options),
+    await page.request.post(target, { ...options, form: { _csrf: csrf, action: 'pay' } }),
+  ]) {
+    expect(response.status()).toBe(303);
+    expect(response.headers().location).toBe('/pl/login');
+  }
+}
+
 async function signInStaff(page, locale) {
   const account = await register(page, locale);
   await query(
@@ -308,6 +323,7 @@ for (const actor of ['anonymous', 'player', 'staff']) {
     const locale = info.project.metadata.locale;
     if (actor === 'staff') await signInStaff(page, locale);
     if (actor === 'player') await login(page, locale, await register(page, locale));
+    if (actor === 'anonymous') await assertAnonymousCheckoutRedirects(page);
     const origin = new URL(`/${locale}/`, process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
     expect((await page.goto(`/language/${locale}`)).status()).toBe(200);
     const targets = destinations(actor, locale);

@@ -250,7 +250,7 @@ async fn page(
         if session.set(RETURN_KEY, &target).await.is_err() {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
-        return Redirect::to(&format!("/{}/login", chrome.lang)).into_response();
+        return Redirect::to("/pl/login").into_response();
     };
     let order = match service.checkout(account, order).await {
         Ok(order) => order,
@@ -280,7 +280,7 @@ async fn act(
 ) -> Response {
     let chrome = chrome.map(|Extension(chrome)| chrome).unwrap_or_default();
     let Some(account) = session.account_id().await else {
-        return Redirect::to(&format!("/{}/login", chrome.lang)).into_response();
+        return Redirect::to("/pl/login").into_response();
     };
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
