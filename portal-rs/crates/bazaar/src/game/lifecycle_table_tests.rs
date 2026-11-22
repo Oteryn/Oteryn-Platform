@@ -1,6 +1,7 @@
 use super::*;
 use crate::State;
 use crate::moderation::{StaffCommand, execute_staff};
+use sqlx::Row;
 use std::{future::Future, pin::Pin};
 
 async fn item_state(db: &BrowserFixture) -> State {
@@ -1124,6 +1125,91 @@ async fn funding_state(db: &BrowserFixture, request: Uuid) -> (String, Option<Uu
     .unwrap()
 }
 
+async fn bid_activity(db: &BrowserFixture, account: Uuid) -> (String, time::OffsetDateTime) {
+    let rows = sqlx::query(include_str!("../activity.sql"))
+        .bind(account)
+        .bind(uid("20"))
+        .bind(0_i64)
+        .bind(20_i64)
+        .fetch_all(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<i32, _>("section"), 1);
+    (rows[0].get("state"), rows[0].get("updated_at"))
+}
+
+#[tokio::test]
+async fn gold_activity_hides_previous_leader_release() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = item_in(State::Active).await;
+    let previous = uid("13");
+    let challenger = uid("15");
+    let listing = uid("20");
+    let previous_hold = uid("83");
+    gold_bid(&db).await;
+    commit_gold_hold(&db, previous_hold).await;
+    db.runtime.tick_gold_bids().await.unwrap();
+    let previous_activity = bid_activity(&db, previous).await;
+    assert_eq!(previous_activity.0, "accepted");
+
+    sqlx::query(
+        "INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale)
+         VALUES($1,'challenger@invalid.test',now(),'synthetic','active','en')",
+    )
+    .bind(challenger)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let request = Uuid::now_v7();
+    db.runtime
+        .bid(challenger, listing, 20000, uid("16"), request)
+        .await
+        .unwrap();
+    let pending = bid_activity(&db, challenger).await;
+    assert_eq!(pending.0, "pending");
+    commit_gold_hold(&db, uid("84")).await;
+    db.runtime.tick_gold_bids().await.unwrap();
+    assert_eq!(
+        funding_state(&db, request).await,
+        ("releasing".into(), Some(challenger))
+    );
+    let release = newest_intent(&db, listing, Command::Release).await;
+    assert_eq!(
+        text(&release.value, "buyer_account_id").unwrap(),
+        previous.to_string()
+    );
+
+    let accepted = bid_activity(&db, challenger).await;
+    let accepted_at: time::OffsetDateTime = sqlx::query_scalar(
+        "SELECT created_at FROM bazaar_bids WHERE listing_id=$1 AND account=$2 AND idempotency_key=$3",
+    )
+    .bind(listing)
+    .bind(challenger)
+    .bind(request.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(accepted, ("accepted".into(), accepted_at));
+    assert_eq!(bid_activity(&db, previous).await, previous_activity);
+
+    let data = format!(
+        r#"{{"hold_id":"{previous_hold}","hold_revision":"2","released_amount":"10000","remaining_held":"0","hold_state":"RELEASED"}}"#,
+    );
+    let mut tx = db.pool.begin().await.unwrap();
+    let now = runtime::now(&mut tx).await.unwrap();
+    committed_fact(db.runtime.authority(), &mut tx, &release, &data, now).await;
+    tx.commit().await.unwrap();
+    db.runtime.tick_gold_bids().await.unwrap();
+    assert_eq!(
+        funding_state(&db, request).await,
+        ("accepted".into(), Some(challenger))
+    );
+    assert_eq!(bid_activity(&db, challenger).await, accepted);
+    assert_eq!(bid_activity(&db, previous).await, previous_activity);
+    db.end().await;
+}
+
 async fn lifecycle_active_bid_gold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
@@ -1142,8 +1228,25 @@ async fn lifecycle_gold_pending_refuse_hold() {
     let db = item_in(State::Active).await;
     let request = gold_bid(&db).await;
     let hold = newest_intent(&db, uid("20"), Command::Hold).await;
+    let pending = bid_activity(&db, uid("13")).await;
+    assert_eq!(pending.0, "pending");
     reject(&db, &hold, "CHAR_CMD_BAZAAR_HOLD_CONFLICT").await;
+    assert_eq!(bid_activity(&db, uid("13")).await, pending);
     db.runtime.tick().await.unwrap();
+    let receipt_at: time::OffsetDateTime = sqlx::query_scalar(
+        "SELECT r.created_at FROM bazaar_authority_receipts r
+         JOIN bazaar_authority_gold_bids b ON b.hold_operation_id=r.operation_id
+         WHERE b.request_id=$1",
+    )
+    .bind(request)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(receipt_at > pending.1);
+    assert_eq!(
+        bid_activity(&db, uid("13")).await,
+        ("refused".into(), receipt_at)
+    );
     let (phase, leader) = funding_state(&db, request).await;
     let releases = dispatched(&db, uid("20"), Command::Release).await;
     db.end().await;
@@ -1156,7 +1259,7 @@ async fn lifecycle_gold_pending_commit_hold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
     let request = gold_bid(&db).await;
-    commit_gold_hold(&db).await;
+    commit_gold_hold(&db, uid("83")).await;
     db.runtime.tick().await.unwrap();
     let (phase, leader) = funding_state(&db, request).await;
     db.end().await;
@@ -1164,14 +1267,14 @@ async fn lifecycle_gold_pending_commit_hold() {
     assert_eq!(leader, Some(uid("13")));
 }
 
-async fn commit_gold_hold(db: &BrowserFixture) {
+async fn commit_gold_hold(db: &BrowserFixture, hold_id: Uuid) {
     let hold = newest_intent(db, uid("20"), Command::Hold).await;
     let data = format!(
-        r#"{{"hold_id":"{}","hold_revision":"1","buyer_account_id":"{}","offer_id":"{}","hold_purpose":"{}","held_amount":"10000"}}"#,
-        uid("83"),
-        uid("13"),
+        r#"{{"hold_id":"{hold_id}","hold_revision":"1","buyer_account_id":"{}","offer_id":"{}","hold_purpose":"{}","held_amount":"{}"}}"#,
+        text(&hold.value, "buyer_account_id").unwrap(),
         text(&hold.value, "offer_id").unwrap(),
-        text(&hold.value, "hold_purpose").unwrap()
+        text(&hold.value, "hold_purpose").unwrap(),
+        text(&hold.value, "amount").unwrap(),
     );
     let mut tx = db.pool.begin().await.unwrap();
     let now = runtime::now(&mut tx).await.unwrap();
@@ -1212,7 +1315,7 @@ async fn lifecycle_gold_release(accepted: bool) {
         .unwrap();
     }
     let request = gold_bid(&db).await;
-    commit_gold_hold(&db).await;
+    commit_gold_hold(&db, uid("83")).await;
     if !accepted {
         sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
             .bind(buyer)
