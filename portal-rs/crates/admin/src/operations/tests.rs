@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used, clippy::panic)]
 use super::*;
 use axum::{
     body::{Body, to_bytes},
@@ -47,6 +47,25 @@ async fn reads_success_and_bad_input() {
     oteryn_db::migrate(&pool)
         .await
         .expect("migrate disposable PostgreSQL");
+    sqlx::query(
+        "WITH history AS (
+           INSERT INTO accounts(email, password_hash, locale, created_at)
+           SELECT $1 || n || '@statistics.example.test', 'non-loginable-fixture', 'en',
+                  date_trunc('day', statement_timestamp(), 'UTC') - n * interval '1 day'
+           FROM generate_series(0, 2048) AS n
+           RETURNING id, created_at
+         )
+         INSERT INTO security_events(account_id, kind, created_at)
+         SELECT id, 'login_succeeded', created_at FROM history",
+    )
+    .bind(uuid::Uuid::now_v7().to_string())
+    .execute(&pool)
+    .await
+    .expect("statistics history fixture");
+    sqlx::raw_sql("ANALYZE accounts; ANALYZE security_events")
+        .execute(&pool)
+        .await
+        .expect("statistics history planner estimates");
     let mut tx = statistics_transaction(&pool)
         .await
         .expect("statistics transaction");
@@ -55,12 +74,6 @@ async fn reads_success_and_bad_input() {
         .await
         .expect("transaction-local statement timeout");
     assert_eq!(timeout, "2500ms");
-    // Tiny fixtures legitimately prefer sequential scans. Inspect the range
-    // conditions PostgreSQL can apply to each date-leading index.
-    sqlx::query("SET LOCAL enable_seqscan = off")
-        .execute(&mut *tx)
-        .await
-        .expect("enable index plan on tiny fixture");
     let plan =
         sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(format!("EXPLAIN {STATISTICS_SQL}")))
             .bind(1_i32)
@@ -75,7 +88,7 @@ async fn reads_success_and_bad_input() {
             .iter()
             .skip_while(|line| !line.contains(index))
             .nth(1)
-            .expect("timestamp conditions for statistics index");
+            .unwrap_or_else(|| panic!("{index} missing from one-day plan: {plan:#?}"));
         assert!(
             conditions.contains("Index Cond:")
                 && conditions.contains("created_at >=")

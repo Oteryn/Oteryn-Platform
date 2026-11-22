@@ -133,14 +133,14 @@ const STATISTICS_SQL: &str =
          ), registrations AS (
             SELECT (created_at AT TIME ZONE 'UTC')::date AS day, count(*) AS total
             FROM accounts
-            WHERE created_at >= (((SELECT today FROM bounds) - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
+            WHERE created_at >= (((statement_timestamp() AT TIME ZONE 'UTC')::date - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
               AND created_at <= statement_timestamp()
             GROUP BY 1
          ), logins AS (
             SELECT (created_at AT TIME ZONE 'UTC')::date AS day, count(*) AS total
             FROM security_events
             WHERE kind = 'login_succeeded'
-              AND created_at >= (((SELECT today FROM bounds) - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
+              AND created_at >= (((statement_timestamp() AT TIME ZONE 'UTC')::date - ($1::int - 1))::timestamp AT TIME ZONE 'UTC')
               AND created_at <= statement_timestamp()
             GROUP BY 1
          )
