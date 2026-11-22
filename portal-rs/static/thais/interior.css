@@ -48,13 +48,15 @@ body.op-shell::before {
   background:
     linear-gradient(90deg, #081418ed, #09171bd1 42%, #0b161a60 83%),
     linear-gradient(0deg, #091619a8, transparent 55%),
-    url("brama-8c66cbecc.webp") 68% center / cover no-repeat;
+    image-set(url("brama-dee0c725.webp") 1x, url("brama-8c66cbecc.webp") 2x)
+      68% center / cover no-repeat;
 }
 @media (max-width: 700px) {
   body.op-shell::before {
     background:
       linear-gradient(90deg, #09161bd9, #0a171ba8),
-      url("brama-1692ad85.webp") 74% center / cover no-repeat;
+      image-set(url("brama-0a5fa173.webp") 1x, url("brama-1692ad85.webp") 2x)
+        74% center / cover no-repeat;
   }
 }
 @media (prefers-reduced-transparency: reduce), (forced-colors: active) {

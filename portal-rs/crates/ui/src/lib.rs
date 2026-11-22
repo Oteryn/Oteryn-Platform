@@ -557,6 +557,17 @@ mod tests {
                 assert!(std::fs::metadata(static_dir.join(source)).unwrap().len() < full_size);
             }
         }
+        let interior = std::fs::read_to_string(static_dir.join("interior.css")).unwrap();
+        for (standard, high_density) in [
+            ("brama-dee0c725.webp", "brama-8c66cbecc.webp"),
+            ("brama-0a5fa173.webp", "brama-1692ad85.webp"),
+        ] {
+            let sources =
+                format!("image-set(url(\"{standard}\") 1x, url(\"{high_density}\") 2x)");
+            assert!(interior.contains(&sources));
+            let bytes = |source| std::fs::metadata(static_dir.join(source)).unwrap().len();
+            assert!(bytes(standard) < bytes(high_density));
+        }
     }
 
     #[test]
