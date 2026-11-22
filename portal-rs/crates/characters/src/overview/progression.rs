@@ -11,6 +11,12 @@ pub(super) struct Facts {
     pub vocation: u8,
 }
 
+#[derive(Default)]
+pub(super) struct Visibility {
+    pub rows: HashMap<Uuid, Option<Facts>>,
+    pub unproven: bool,
+}
+
 /// Verify which portfolio rows the actor may see and attach optional public
 /// progression facts under the same receipt and portfolio fences.
 pub(super) async fn load(
@@ -18,13 +24,16 @@ pub(super) async fn load(
     account: Uuid,
     candidates: &[CharacterSummary],
     include_progression: bool,
-) -> HashMap<Uuid, Option<Facts>> {
+) -> Visibility {
     if candidates.is_empty() {
-        return HashMap::new();
+        return Visibility::default();
     }
     load_owned(pool, account, candidates, include_progression)
         .await
-        .unwrap_or_default()
+        .unwrap_or(Visibility {
+            rows: HashMap::new(),
+            unproven: true,
+        })
 }
 
 async fn load_owned(
@@ -32,7 +41,7 @@ async fn load_owned(
     account: Uuid,
     candidates: &[CharacterSummary],
     include_progression: bool,
-) -> Result<HashMap<Uuid, Option<Facts>>, Unavailable> {
+) -> Result<Visibility, Unavailable> {
     let mut tx = pool.begin().await?;
     sqlx::query("SET LOCAL statement_timeout = '2500ms'")
         .execute(&mut *tx)
@@ -43,7 +52,7 @@ async fn load_owned(
             .fetch_optional(&mut *tx)
             .await?;
     if active.as_deref() != Some("active") {
-        return Ok(HashMap::new());
+        return Err(Unavailable);
     }
     // Match the journal's lock order and keep transfers and portfolio updates
     // fenced from the facts query through the final ownership proof.
@@ -61,7 +70,7 @@ async fn load_owned(
         .into_iter()
         .map(|(id, world, name, availability)| (id, (world, name, availability)))
         .collect();
-    let mut visible = HashMap::new();
+    let mut visible = Visibility::default();
     for candidate in candidates {
         let id = candidate.character_id.as_uuid();
         let world_id = candidate.world_id.as_uuid();
@@ -70,16 +79,18 @@ async fn load_owned(
                 && *name == candidate.name
                 && availability == candidate.availability.as_str()
         }) {
+            visible.unproven = true;
             continue;
         }
-        if let Ok(Ownership::Owner(cut)) =
-            ownership::ownership_with_feed(&mut tx, account, id, &feed).await
-            && cut.world == world_id
-        {
-            visible.insert(id, None);
+        match ownership::ownership_with_feed(&mut tx, account, id, &feed).await {
+            Ok(Ownership::Owner(cut)) if cut.world == world_id => {
+                visible.rows.insert(id, None);
+            }
+            Ok(Ownership::Former | Ownership::Stranger) => {}
+            _ => visible.unproven = true,
         }
     }
-    if include_progression && !visible.is_empty() {
+    if include_progression && !visible.rows.is_empty() {
         let rows = sqlx::query_as::<_, (Uuid, String, String)>(
         r#"SELECT c.character_id,
                   p.payload->'profile'->0->>'level', p.payload->'profile'->0->>'vocation'
@@ -103,7 +114,7 @@ async fn load_owned(
     .await?;
 
         for (id, level, vocation) in rows {
-            if let Some(facts) = visible.get_mut(&id)
+            if let Some(facts) = visible.rows.get_mut(&id)
                 && let (Ok(level), Ok(vocation)) = (level.parse(), vocation.parse())
             {
                 *facts = Some(Facts { level, vocation });

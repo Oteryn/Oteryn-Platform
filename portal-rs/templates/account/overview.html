@@ -14,6 +14,7 @@
 <section class="op-stack" aria-labelledby="characters">
 <h2 id="characters">{{ characters_label }}</h2>
 <p role="status">{{ state }}</p>
+{% if let Some(notice) = roster_notice %}<p>{{ notice }}</p>{% endif %}
 {% if create %}<a class="op-button op-button--secondary" href="/{{ lang }}/account/characters/new">{{ self.label("shell-create-character") }}</a>{% endif %}
 <ul class="op-stack">
 {% for character in characters %}

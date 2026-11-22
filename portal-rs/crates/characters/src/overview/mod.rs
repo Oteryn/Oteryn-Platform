@@ -48,6 +48,7 @@ struct Page {
     preferences_label: String,
     state: String,
     characters: Vec<Character>,
+    roster_notice: Option<String>,
     create: bool,
     outfit: bool,
     updated: String,
@@ -212,11 +213,21 @@ async fn load(
                 pool,
                 account,
                 &view.characters,
-                crate::navigation::flag("PORTAL_PUBLIC_PROFILES_ENABLED"),
+                flag("PORTAL_PUBLIC_PROFILES_ENABLED"),
             )
             .await
         }
         _ => Default::default(),
+    };
+    let roster_notice = if visible.unproven {
+        Some(t("roster-unproven"))
+    } else if view
+        .as_ref()
+        .is_some_and(|v| v.state == ReadState::Ready && v.characters.is_empty())
+    {
+        Some(t("roster-empty"))
+    } else {
+        None
     };
     let characters = view
         .filter(|v| v.state == ReadState::Ready)
@@ -224,7 +235,7 @@ async fn load(
             v.characters
                 .into_iter()
                 .filter_map(|c| {
-                    let facts = visible.get(&c.character_id.as_uuid())?.as_ref();
+                    let facts = visible.rows.get(&c.character_id.as_uuid())?.as_ref();
                     let availability =
                         t(if c.availability == crate::lcfa::Availability::Available {
                             "available"
@@ -270,8 +281,9 @@ async fn load(
             _ => "unavailable",
         }),
         characters,
-        create: crate::navigation::creation_enabled(),
-        outfit: crate::navigation::outfit_enabled(),
+        roster_notice,
+        create: creation_enabled(),
+        outfit: outfit_enabled(),
         updated,
         lifecycle: [
             "panel-characters-rename",
@@ -327,4 +339,41 @@ fn parse_limits(active: &str, total: &str) -> Option<(u16, u16)> {
     let active = active.parse::<u16>().ok()?;
     let total = total.parse::<u16>().ok()?;
     (active > 0 && total >= active).then_some((active, total))
+}
+
+/// Register the private roster alongside the existing creation navigation.
+pub fn register_navigation(registry: &mut oteryn_ui::Registry) {
+    use oteryn_ui::panels::{Entry, Panel, Permission};
+    registry.panels.register(
+        flag("OTERYN_ACCOUNT_OVERVIEW_ENABLED"),
+        Entry {
+            panel: Panel::Player,
+            route: "/account#characters",
+            label: "panel-characters",
+            permission: Permission::AccountOwner,
+        },
+    );
+}
+
+fn flag(key: &str) -> bool {
+    std::env::var(key).as_deref() == Ok("true")
+}
+
+fn creation_enabled() -> bool {
+    flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED")
+        && flag("OTERYN_CHARACTER_COMMANDS_ENABLED")
+        && flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED")
+}
+
+/// The existing owner view uses the restricted Game projection configuration.
+pub fn outfit_enabled() -> bool {
+    flag("PORTAL_PUBLIC_PROJECTIONS_ENABLED")
+        && flag("PORTAL_G4_OUTFIT_SERVING_ENABLED")
+        && oteryn_core::restricted_environment(|key| std::env::var(key).ok())
+        && std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").is_ok_and(|authority| {
+            (1..=128).contains(&authority.len())
+                && authority
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._:/-".contains(&byte))
+        })
 }

@@ -118,7 +118,7 @@ pub fn configured_router(db: PgPool) -> Router {
             skills: base && on("PORTAL_G4_SKILLS_SERVING_ENABLED"),
             achievements: base && on("PORTAL_G4_ACHIEVEMENTS_SERVING_ENABLED"),
             equipment: base && on("PORTAL_G4_EQUIPMENT_SERVING_ENABLED"),
-            outfit: oteryn_characters::navigation::outfit_enabled(),
+            outfit: oteryn_characters::overview::outfit_enabled(),
             source_authority: std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY")
                 .unwrap_or_default(),
         },

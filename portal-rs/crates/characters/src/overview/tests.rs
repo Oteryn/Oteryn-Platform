@@ -104,6 +104,8 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
         include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
         include_str!("../../../../migrations/20261105160020_t23_restore_reconciliation.sql"),
         include_str!("../../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../../migrations/20261105230108_t72_private_journal.sql"),
+        include_str!("../../../../migrations/20261112100006_t72_journal_admission.sql"),
         include_str!("../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await?;
@@ -140,6 +142,7 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
         .bind(character.to_string()).bind(profile).execute(&pool).await?;
     let facts = progression::load(&pool, id, &candidates, true).await;
     let facts = facts
+        .rows
         .get(&character)
         .and_then(Option::as_ref)
         .ok_or("fresh progression missing")?;
@@ -153,16 +156,18 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
         progression::load(&pool, id, &candidates, true),
     )
     .await?;
-    assert!(during_write.is_empty());
+    assert!(during_write.unproven && during_write.rows.is_empty());
     writer.rollback().await?;
     assert!(
         progression::load(&pool, id, &candidates, true)
             .await
+            .rows
             .contains_key(&character)
     );
     assert!(
         progression::load(&pool, Uuid::now_v7(), &candidates, true)
             .await
+            .rows
             .is_empty()
     );
     sqlx::query("UPDATE public_snapshots SET watermark=0 WHERE is_watermark")
@@ -171,12 +176,31 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     assert!(matches!(
         progression::load(&pool, id, &candidates, true)
             .await
+            .rows
             .get(&character),
         Some(None)
     ));
     sqlx::query("UPDATE public_snapshots SET watermark=floor(extract(epoch FROM now()))::bigint WHERE is_watermark")
         .execute(&pool)
         .await?;
+    let legacy = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Legacy','AVAILABLE')")
+        .bind(id).bind(legacy).bind(world).execute(&pool).await?;
+    let render = |lang| show(&pool, Some(id), lang, true, settings.clone());
+    let before = axum::body::to_bytes(render("en").await.into_body(), 65536).await?;
+    let before = std::str::from_utf8(&before)?;
+    assert!(before.contains("Some character ownership could not be confirmed"));
+    assert!(!before.contains("/characters/Legacy"));
+    assert!(!before.contains("Your character roster is empty."));
+    assert!(before.contains("/characters/Aldric"));
+
+    sqlx::query("INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,from_projection_revision,to_projection_revision,projection_epoch,recovery_generation) VALUES($1,$2,$3,1,1,1,1,1)")
+        .bind(legacy).bind(id).bind(world).execute(&pool).await?;
+    let verified = axum::body::to_bytes(render("en").await.into_body(), 65536).await?;
+    let verified = std::str::from_utf8(&verified)?;
+    assert!(verified.contains("/characters/Legacy"));
+    assert!(!verified.contains("Some character ownership could not be confirmed"));
+
     let buyer = Uuid::now_v7();
     let transfer = Uuid::now_v7();
     let mut committed: serde_json::Value =
@@ -199,12 +223,14 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     assert!(
         progression::load(&pool, id, &candidates, true)
             .await
+            .rows
             .is_empty()
     );
 
     assert!(
         progression::load(&pool, id, &candidates, false)
             .await
+            .rows
             .is_empty()
     );
     let response = show(&pool, Some(id), "en", true, settings.clone()).await;
