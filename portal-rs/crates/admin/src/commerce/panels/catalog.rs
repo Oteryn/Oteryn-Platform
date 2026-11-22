@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_store::catalog::{self, Catalog, Offer};
+use oteryn_store::catalog::{Catalog, Offer};
 use oteryn_ui::Chrome;
 use oteryn_web::{csrf::Verified, session::BrowserSession};
 use serde::Deserialize;
@@ -39,7 +39,9 @@ struct Page {
     title: &'static str,
     csrf: String,
     current: String,
+    generation: i64,
     offers: Vec<Offer>,
+    proposals: Vec<(String, i64)>,
     revisions: Vec<Comparison>,
     activation: bool,
 }
@@ -56,6 +58,8 @@ struct PriceChange {
 }
 
 const CURRENT: &str = "SELECT catalog_revision FROM store_active_catalog WHERE id=1";
+const GENERATION: &str =
+    "SELECT COALESCE(max(activation_sequence),0) FROM store_catalog_activations";
 const DOCUMENT: &str =
     "SELECT canonical_bytes FROM store_price_list_imports WHERE catalog_revision=$1";
 
@@ -92,12 +96,21 @@ async fn offer_page(
     } else {
         vec![]
     };
+    let proposals = sqlx::query_as(
+        "SELECT offer_key,unit_price FROM store_price_proposals WHERE base_revision=$1
+         ORDER BY proposed_at DESC,offer_key,unit_price LIMIT 25",
+    )
+    .bind(&current)
+    .fetch_all(pool)
+    .await?;
     Ok(Page {
         chrome,
         title: "commerce-catalog",
         csrf,
         current: current.unwrap_or_default(),
+        generation: 0,
         offers,
+        proposals,
         revisions: vec![],
         activation: false,
     })
@@ -122,10 +135,18 @@ async fn revision_page(
     chrome: Chrome,
 ) -> Result<Page, Error> {
     let csrf = session.csrf_token().await.map_err(|_| Error::Unavailable)?;
-    let current: Option<String> = sqlx::query_scalar(CURRENT).fetch_one(pool).await?;
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT catalog_revision FROM store_price_list_imports
-         WHERE catalog_revision IS DISTINCT FROM $1 ORDER BY created_at DESC LIMIT 10",
+    let (current, generation): (Option<String>, i64) = sqlx::query_as(
+        "SELECT catalog_revision,(SELECT COALESCE(max(activation_sequence),0)
+         FROM store_catalog_activations) FROM store_active_catalog WHERE id=1",
+    )
+    .fetch_one(pool)
+    .await?;
+    let rows: Vec<(String, Vec<u8>)> = sqlx::query_as(
+        r#"SELECT catalog_revision,canonical_bytes FROM store_price_list_imports
+           WHERE catalog_revision IS DISTINCT FROM $1
+             AND position(convert_to('"schema":"OTERYN_STORE_RUNTIME_CATALOGUE/v1"','UTF8')
+                          IN canonical_bytes)>0
+           ORDER BY created_at DESC,catalog_revision LIMIT 10"#,
     )
     .bind(&current)
     .fetch_all(pool)
@@ -144,7 +165,10 @@ async fn revision_page(
         std::collections::BTreeMap::new()
     };
     let mut revisions = Vec::new();
-    for (revision,) in rows {
+    for (revision, bytes) in rows {
+        if !Catalog::verified_game_import(&bytes, &revision) {
+            continue;
+        }
         let prices: Vec<(String, String)> = sqlx::query_as(
             "SELECT offer_key,unit_price::text FROM store_offers WHERE catalog_revision=$1 ORDER BY offer_key",
         ).bind(&revision).fetch_all(pool).await?;
@@ -172,7 +196,9 @@ async fn revision_page(
         title: "commerce-activation",
         csrf,
         current: current.unwrap_or_default(),
+        generation,
         offers: vec![],
+        proposals: vec![],
         revisions,
         activation: true,
     })
@@ -190,6 +216,7 @@ struct Stage {
 struct Activate {
     current: String,
     revision: String,
+    generation: i64,
     reason: String,
 }
 
@@ -255,10 +282,16 @@ async fn stage(
                     return Ok(None);
                 }
                 let proposed = base.with_price(&offer, price).map_err(|_| Error::Invalid)?;
-                if !catalog::insert_revision(conn, &proposed, actor.account)
-                    .await
-                    .map_err(catalog_error)?
-                {
+                let inserted = sqlx::query(
+                    "INSERT INTO store_price_proposals(base_revision,offer_key,unit_price)
+                     VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+                )
+                .bind(&current)
+                .bind(&offer)
+                .bind(price)
+                .execute(&mut *conn)
+                .await?;
+                if inserted.rows_affected() == 0 {
                     return Ok(None);
                 }
                 Ok(Some(AuditChange {
@@ -286,6 +319,7 @@ async fn activate(
     let Ok(Form(Activate {
         current,
         revision,
+        generation,
         reason,
     })) = form
     else {
@@ -295,20 +329,24 @@ async fn activate(
         &pool, Guard { actor, authority: &authority, csrf: csrf.map(|v| v.0) },
         Action { permission: Permission::ActivateStoreCatalog, action: "store.catalog.activated", reason: &reason },
         || {
-            if !revision_valid(&revision) || (!current.is_empty() && !revision_valid(&current)) {
+            if generation < 0 || !revision_valid(&revision) || (!current.is_empty() && !revision_valid(&current)) {
                 return Err(Error::Invalid);
             }
-            Ok((vec![], (current, revision)))
+            Ok((vec![], (current, revision, generation)))
         },
-        |conn, (current, revision)| Box::pin(async move {
+        |conn, (current, revision, generation)| Box::pin(async move {
             let prior = lock_current(conn, &current).await?;
+            // Read after acquiring the same pointer lock used by CLI activation.
+            let latest: i64 = sqlx::query_scalar(GENERATION).fetch_one(&mut *conn).await?;
+            if generation != latest {
+                return Err(Error::Conflict);
+            }
             if prior.as_deref() == Some(&revision) {
                 return Ok(None);
             }
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM store_price_list_imports WHERE catalog_revision=$1)",
-            ).bind(&revision).fetch_one(&mut *conn).await?;
-            if !exists {
+            let bytes: Vec<u8> = sqlx::query_scalar(DOCUMENT)
+                .bind(&revision).fetch_optional(&mut *conn).await?.ok_or(Error::Invalid)?;
+            if !Catalog::verified_game_import(&bytes, &revision) {
                 return Err(Error::Invalid);
             }
             let activation = Uuid::now_v7();
@@ -333,14 +371,6 @@ async fn lock_current(conn: &mut PgConnection, expected: &str) -> Result<Option<
         return Err(Error::Conflict);
     }
     Ok(current)
-}
-
-fn catalog_error(error: catalog::Error) -> Error {
-    match error {
-        catalog::Error::Conflict => Error::Conflict,
-        catalog::Error::Database(error) => error.into(),
-        _ => Error::Unavailable,
-    }
 }
 
 fn revision_id(revision: &str) -> Result<Uuid, Error> {

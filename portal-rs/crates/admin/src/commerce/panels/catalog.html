@@ -13,12 +13,18 @@
 <form method="post" action="?lang={{ chrome.lang }}" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="current" value="{{ current }}">
+<input type="hidden" name="generation" value="{{ generation }}">
 <input type="hidden" name="revision" value="{{ item.revision }}">
 <label class="op-field">{{ chrome.text("staff-action-reason") }} <input class="op-input" name="reason" required minlength="8" maxlength="500"></label>
 <button class="op-button">{{ chrome.text("commerce-activate") }}</button>
 </form></article>
 {% else %}<p>{{ chrome.text("commerce-no-revisions") }}</p>{% endfor %}
 {% else %}
+{% if !proposals.is_empty() %}
+<section><h2>{{ chrome.text("commerce-price-proposals") }}</h2>
+<p>{{ chrome.text("commerce-price-proposals-note") }}</p>
+<ul>{% for (offer, price) in proposals %}<li>{{ offer }} · {{ price }} COINS</li>{% endfor %}</ul></section>
+{% endif %}
 {% for offer in offers %}
 <article class="op-card"><h2>{{ offer.offer_key }}</h2>
 <p>{{ chrome.text("commerce-price") }} {{ offer.unit_price }} {{ offer.currency }}</p>

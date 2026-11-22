@@ -1,4 +1,8 @@
 import {createHash, randomBytes} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {expect, test} from '../../fixtures.mjs';
 import {csrfRejected, pool} from '../../helpers.mjs';
 import {uuid7} from '../../staff-commerce-helpers.mjs';
@@ -100,7 +104,32 @@ test('store orders and delivery are scoped to the signed-in buyer', async ({page
   }
 });
 
-test('staff stage an immutable price diff and explicitly activate it', async ({page, browser}, info) => {
+function catalogCommand(args, account) {
+  const result = spawnSync(process.env.PORTAL_E2E_BINARY, ['catalog', ...args, '--actor', account], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  expect(result.status, 'catalog CLI succeeded').toBe(0);
+  return result.stdout.trim();
+}
+
+function importGameCatalog(account, offer, price) {
+  const directory = mkdtempSync(join(tmpdir(), 'portal-commerce-catalog-'));
+  try {
+    const path = join(directory, 'catalog.json');
+    writeFileSync(path, JSON.stringify({
+      schema: 'OTERYN_STORE_RUNTIME_CATALOGUE/v1',
+      source: {fixture: offer},
+      offers: [{key: offer, category: 'items', title: 'Exercise sword', price,
+        currency: 'TIBIA_COIN', item: {key: 'oteryn:item.tibia.i28552', revision: 'definition-r1', charges: 1},
+        source_line: 1}],
+    }));
+    return catalogCommand(['import', path], account);
+  } finally {
+    rmSync(directory, {recursive: true});
+  }
+}
+
+test('staff stage proposals and activate verified Game revisions with replay fencing', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;
   const staffContext = await browser.newContext({baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport});
   const offers = `/admin/store-catalog?lang=${lang}`;
@@ -111,14 +140,9 @@ test('staff stage an immutable price diff and explicitly activate it', async ({p
     const admin = await staffContext.newPage();
     const {csrf: refusedCsrf} = await actor(page.context(), lang, 'security_admin');
     const offer = `commerce.${unique()}`;
-    const document = Buffer.from(JSON.stringify({contract_version: 1, offers: [{
-      offer_key: offer, currency: 'COINS', unit_price: '21', max_quantity: 1, purchasable: true,
-      units: [{product_id: 'premium.test', product_version: '1', unit_kind: 'PREMIUM_TIME', grant_key: 'test', grant_revision: '1', quantity: 1}],
-    }]}));
-    const current = digest(document).toString('hex');
-    await query('INSERT INTO store_price_list_imports(catalog_revision,canonical_bytes,imported_by) VALUES($1,$2,$3)', [current, document, id]);
-    await query("INSERT INTO store_offers(catalog_revision,offer_key,currency,unit_price,max_quantity,purchasable,canonical_bytes) VALUES($1,$2,'COINS',21,1,true,$3)", [current, offer, document]);
-    await query('UPDATE store_active_catalog SET catalog_revision=$1 WHERE id=1', [current]);
+    const current = importGameCatalog(id, offer, 21);
+    const verified = importGameCatalog(id, offer, 41);
+    catalogCommand(['activate', current], id);
     await open(page, offers, 403);
     await open(page, activation, 403);
     await open(admin, '/admin');
@@ -138,22 +162,31 @@ test('staff stage an immutable price diff and explicitly activate it', async ({p
     await post(page, offers, {...fields, _csrf: refusedCsrf}, 403);
     await post(admin, offers, fields, 303);
     await post(admin, offers, fields, 303);
-    const [{catalog_revision: proposed}] = await query('SELECT catalog_revision FROM store_offers WHERE offer_key=$1 AND unit_price=31', [offer]);
+    expect(await query('SELECT unit_price::int AS price FROM store_price_proposals WHERE base_revision=$1 AND offer_key=$2', [current, offer])).toEqual([{price: 31}]);
+    expect(await query('SELECT 1 FROM store_offers WHERE offer_key=$1 AND unit_price=31', [offer])).toEqual([]);
     expect((await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1'))[0].catalog_revision).toBe(current);
+    await open(admin, offers);
+    await expect(admin.locator('main')).toContainText(`${offer} · 31 COINS`);
 
-    await open(admin, activation);
-    const proposal = admin.locator('article').filter({hasText: proposed});
-    await expect(proposal).toContainText('21 → 31');
-    await width(admin);
-    const activate = {_csrf: await proposal.locator('[name=_csrf]').inputValue(), current, revision: proposed, reason: 'Approve verified test prices'};
+    async function activationForm(revision) {
+      await open(admin, activation);
+      const card = admin.locator('article').filter({hasText: revision});
+      await expect(card).toContainText(revision === verified ? '21 → 41' : '41 → 21');
+      await width(admin);
+      const fields = await card.locator('form').evaluate(form => Object.fromEntries(new FormData(form)));
+      return {...fields, reason: 'Approve verified Game catalog'};
+    }
+    const activate = await activationForm(verified);
     await csrfRejected(admin, activation, activate);
     await post(admin, activation, {...activate, revision: 'bad'}, 422);
     await post(page, activation, {...activate, _csrf: refusedCsrf}, 403);
     await post(admin, activation, activate, 303);
+    const returnToA = await activationForm(current);
+    await post(admin, activation, returnToA, 303);
     await post(admin, activation, activate, 409);
-    expect((await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1'))[0].catalog_revision).toBe(proposed);
-    const audit = await query("SELECT action,before,after FROM audit_log WHERE actor=$1 AND action IN ('store.catalog.price.staged','store.catalog.activated') ORDER BY created_at", [id]);
-    expect(audit.map(row => row.action)).toEqual(['store.catalog.price.staged', 'store.catalog.activated']);
+    expect((await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1'))[0].catalog_revision).toBe(current);
+    const audit = await query("SELECT action,before,after FROM audit_log WHERE actor=$1 AND staff_reason IS NOT NULL AND action IN ('store.catalog.price.staged','store.catalog.activated') ORDER BY created_at", [id]);
+    expect(audit.map(row => row.action)).toEqual(['store.catalog.price.staged', 'store.catalog.activated', 'store.catalog.activated']);
     expect(audit[0].before.unit_price).toBe(21);
     expect(audit[0].after.unit_price).toBe(31);
   } finally {
@@ -170,7 +203,7 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
   const reviewer = await browser.newContext(opts);
   try {
     const {csrf} = await actor(staff, lang, 'platform_admin');
-    const {csrf: reviewerCsrf} = await actor(reviewer, lang, 'platform_admin');
+    const {id: reviewerId, csrf: reviewerCsrf} = await actor(reviewer, lang, 'platform_admin');
     const admin = await staff.newPage();
     const second = await reviewer.newPage();
     const intent = uuid7();
@@ -189,38 +222,53 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     await open(admin, `${base}&id=invalid`, 422);
     await open(admin, `${base}&id=${uuid7()}`, 404);
     await open(admin, `${base}&queue=true`);
-    const chargeback = uuid7();
+    const reversed = uuid7();
     const quote = uuid7();
     const order = uuid7();
     const packageId = uuid7();
     const invoice = uuid7();
-    await query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,100,'PLN','chargeback')",
-      [chargeback, account, `test-${chargeback}`]);
-    await query("INSERT INTO invoices(id,intent_id,account_id,amount,currency) VALUES($1,$2,$3,100,'PLN')", [invoice, chargeback, account]);
-    await query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) VALUES($1,$2,$3,25,100,'PLN',2,'test',now())",
+    const state = lang === 'pl' ? 'chargeback' : 'refunded';
+    const kind = state === 'chargeback' ? state : 'refund';
+    await query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'EUR',$4)",
+      [reversed, account, `test-${reversed}`, state]);
+    await query("INSERT INTO invoices(id,intent_id,account_id,amount,currency) VALUES($1,$2,$3,250,'EUR')", [invoice, reversed, account]);
+    await query("INSERT INTO coin_purchase_quotes(id,payer_account_id,package_id,coins,minor_units,currency,exponent,environment,expires_at) VALUES($1,$2,$3,25,250,'EUR',3,'test',now())",
       [quote, account, packageId]);
     await query(`INSERT INTO coin_purchase_orders(id,payer_account_id,request_id,quote_id,package_id,coins,minor_units,currency,exponent,environment,payment_intent_id,state,receipt_id,review_required,code)
-      VALUES($1,$2,$3,$4,$5,25,100,'PLN',2,'test',$6,'chargeback',$7,true,'review')`,
-      [order, account, uuid7(), quote, packageId, chargeback, invoice]);
+      VALUES($1,$2,$3,$4,$5,25,250,'EUR',3,'test',$6,$7,$8,true,'review')`,
+      [order, account, uuid7(), quote, packageId, reversed, state, invoice]);
     await query("INSERT INTO coin_purchase_reversals(id,order_id,payer_account_id,kind,provider,provider_event_id,coins,debited,outcome) VALUES($1,$2,$3,$4,'test',$5,25,0,'held')",
-      [uuid7(), order, account, lang === 'pl' ? 'chargeback' : 'refund', chargeback]);
+      [uuid7(), order, account, kind, reversed]);
     await query("INSERT INTO coin_purchase_holds(account_id,order_id,reason) VALUES($1,$2,'reversal_insufficient_balance')", [account, order]);
     await open(admin, `${base}&queue=true`);
-    await admin.getByRole('link', {name: chargeback}).click();
+    await admin.getByRole('link', {name: reversed}).click();
+    await expect(admin.locator('main')).toContainText('0.250 EUR');
     await expect(admin.locator('main')).toContainText('25 COINS');
     await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Blokada zakupów' : 'Purchase hold');
+    await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Obciążenie zwrotne' : 'Refund reversal');
+    if (state === 'refunded') await expect(admin.locator('main')).toContainText('Refund settlement verified');
     await width(admin);
 
+    const reconcile = '/admin/payment-review';
+    const reviewForm = admin.locator(`form[action^="${reconcile}?"]`);
+    const reviewFields = {
+      ...await reviewForm.evaluate(form => Object.fromEntries(new FormData(form))),
+      reason: 'Verify recorded reversal and outstanding balance',
+    };
+    await csrfRejected(admin, reconcile, reviewFields);
+    await post(page, reconcile, {...reviewFields, _csrf: refusedCsrf}, 403);
+    await post(admin, reconcile, {...reviewFields, id: 'bad'}, 422);
+    await post(admin, reconcile, {...reviewFields, reason: ''}, 422);
+    await post(admin, reconcile, reviewFields, 303);
+    await post(admin, reconcile, reviewFields, 303);
+    await expect.poll(() => query('SELECT state FROM payment_intents WHERE id=$1', [reversed])).toEqual([{state}]);
+    expect(await query("SELECT staff_reason FROM audit_log WHERE target=$1 AND action='commerce.payment.reviewed'", [reversed])).toEqual([{staff_reason: reviewFields.reason}]);
+    await open(admin, `${base}&id=${reversed}`);
+    await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Ostatnia zapisana weryfikacja' : 'Last review recorded');
+    await open(admin, `${base}&queue=true`);
+    await expect(admin.getByRole('link', {name: reversed})).toHaveCount(0);
 
     const common = {target: intent, reason: 'Verify payment and provider records'};
-    const reconcile = '/admin/commerce/reconcile';
-    await csrfRejected(admin, reconcile, {...common, request_id: uuid7()});
-    await post(page, reconcile, {...common, _csrf: refusedCsrf, request_id: uuid7()}, 403);
-    await post(admin, reconcile, {...common, target: 'bad', _csrf: csrf, request_id: uuid7()}, 422);
-    await post(admin, reconcile, {...common, _csrf: csrf, request_id: uuid7()}, 303);
-    await open(admin, `${base}&id=${intent}`);
-    await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Ostatnia zapisana weryfikacja' : 'Last review recorded');
-
     const refund = '/admin/commerce/refund';
     const request = uuid7();
     await csrfRejected(admin, refund, {...common, request_id: request});
@@ -229,12 +277,28 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     const approval = `/admin/commerce/approvals/${request}`;
     await open(second, '/admin/commerce');
     await csrfRejected(second, approval);
-    await post(admin, approval, {_csrf: csrf}, 403);
+    const approvalReason = 'Independent reviewer approved the full refund';
+    await post(admin, approval, {_csrf: csrf, reason: approvalReason}, 403);
+    await post(second, approval, {_csrf: reviewerCsrf}, 422);
+    await post(second, approval, {_csrf: reviewerCsrf, reason: 'short'}, 422);
     await post(second, '/admin/commerce/approvals/bad', {_csrf: reviewerCsrf}, 422);
-    await post(second, approval, {_csrf: reviewerCsrf}, 303);
+    const approvalForm = second.locator(`form[action="${approval}"]`);
+    await expect(approvalForm.locator('textarea[name=reason]')).toHaveAttribute('required', '');
+    await post(second, approval, {_csrf: reviewerCsrf, reason: approvalReason}, 303);
+    await post(second, approval, {_csrf: reviewerCsrf, reason: approvalReason}, 303);
+    expect(await query("SELECT staff_reason FROM audit_log WHERE actor=$1 AND action='commerce.approved' AND target=$2", [reviewerId, intent])).toEqual([{staff_reason: approvalReason}]);
+    await expect.poll(() => query('SELECT state FROM commerce_refunds WHERE operation_id=$1', [request]), {timeout: 30_000}).toEqual([{state: 'done'}]);
     expect((await query('SELECT intent_id FROM commerce_refunds WHERE operation_id=$1', [request]))[0].intent_id).toBe(intent);
     await open(admin, `${base}&id=${intent}`);
     await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Próby przekazania zwrotu operatorowi' : 'Provider delivery attempts');
+    await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Wysłano do operatora' : 'Dispatched to provider');
+    expect(await query('SELECT state FROM payment_intents WHERE id=$1', [intent])).toEqual([{state: 'succeeded'}]);
+    // Project a definitive refusal from the same records written by the worker's refusal path.
+    await query("UPDATE commerce_refunds SET state='pending',provider_reference=NULL,attempt_id=NULL,claimed_at=NULL WHERE operation_id=$1", [request]);
+    await query("UPDATE commerce_operations SET result=result || jsonb_build_object('refund_outcome','refused','queued',false) WHERE id=$1", [request]);
+    await open(admin, `${base}&id=${intent}`);
+    await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Operator odmówił zwrotu' : 'Refund refused by provider');
+
   } finally {
     await staff.close();
     await reviewer.close();

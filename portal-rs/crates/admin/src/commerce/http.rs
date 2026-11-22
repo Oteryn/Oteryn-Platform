@@ -1,5 +1,8 @@
 use super::*;
-use crate::web::{self, PanelConfig, StaffSession};
+use crate::{
+    staff_actions::{self, Action as StaffAction, AuditChange, AuditValue, Guard},
+    web::{self, PanelConfig, StaffSession},
+};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -12,7 +15,10 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
+use oteryn_ui::Chrome;
+use oteryn_web::csrf::Verified;
 use oteryn_web::session::BrowserSession;
+use sqlx::Connection;
 use std::sync::Arc;
 
 /// The application injects trusted session and domain authority adapters here.
@@ -174,6 +180,7 @@ struct Pending {
     adjustment_amount: Option<i64>,
     refund_amount: Option<String>,
     can_approve: bool,
+    refund: bool,
 }
 #[derive(Template)]
 #[template(path = "commerce/page.html", config = "src/commerce/askama.toml")]
@@ -284,6 +291,7 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
                     actor: r.try_get("actor_id")?,
                     command: label,
                     can_approve: r.try_get::<Uuid, _>("actor_id")? != context.account,
+                    refund: kind == "refund",
                     adjustment_amount: amount.filter(|_| kind == "adjust"),
                     refund_amount: amount
                         .filter(|_| kind == "refund")
@@ -372,18 +380,101 @@ async fn submit<A: rbac::AccountStateReader, E: Effects>(
         Err(e) => failure(locale, e),
     }
 }
-async fn approve<A: rbac::AccountStateReader, E: Effects>(
+#[derive(Deserialize)]
+struct ApprovalForm {
+    #[serde(default)]
+    reason: String,
+}
+
+async fn approve<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     State(s): State<Arc<Commerce<A, E>>>,
     Extension(context): Extension<rbac::CheckContext>,
+    Extension(authority): Extension<rbac::MutationAuthorization>,
+    chrome: Option<Extension<Chrome>>,
+    csrf: Option<Extension<Verified>>,
     path: Result<Path<Uuid>, PathRejection>,
     headers: HeaderMap,
+    form: Result<Form<ApprovalForm>, FormRejection>,
 ) -> Response {
+    let locale = Locale::from_headers(&headers);
     let Ok(Path(id)) = path else {
-        return failure(Locale::from_headers(&headers), Error::Invalid);
+        return failure(locale, Error::Invalid);
     };
-    match s.approve(context, id).await {
-        Ok(_) => Redirect::to("/admin/commerce").into_response(),
-        Err(e) => failure(Locale::from_headers(&headers), e),
+    let target = match async { approval_target(&mut *s.pool.acquire().await?, id).await }.await {
+        Ok(target) => target,
+        Err(error) => return failure(locale, error),
+    };
+    if !matches!(target.command, Command::Refund) {
+        return match s.approve(context, id).await {
+            Ok(_) => Redirect::to("/admin/commerce").into_response(),
+            Err(e) => failure(locale, e),
+        };
+    }
+    let Ok(Form(form)) = form else {
+        return failure(locale, Error::Invalid);
+    };
+    let chrome = chrome.map(|value| value.0).unwrap_or_else(|| Chrome {
+        lang: locale.0.to_owned(),
+        ..Chrome::default()
+    });
+    let pool = s.pool.clone();
+    let flags = s.flags;
+    let result = staff_actions::run(
+        &pool,
+        Guard {
+            actor: context,
+            authority: &authority,
+            csrf: csrf.map(|value| value.0),
+        },
+        StaffAction {
+            permission: rbac::Permission::ReconcilePayments,
+            action: "commerce.approved",
+            reason: &form.reason,
+        },
+        || {
+            target.command.validate(flags).map_err(approval_error)?;
+            Ok((vec![target.original, target.owner], target.owner))
+        },
+        move |conn, owner| {
+            let service = s;
+            Box::pin(async move {
+                // The ledger APIs take a Transaction. The savepoint retains
+                // their changes in the encompassing staff-action transaction.
+                let mut tx = conn.begin().await?;
+                let change = service
+                    .approve_locked(&mut tx, context, id, owner)
+                    .await
+                    .map_err(approval_error)?;
+                tx.commit().await?;
+                Ok(change.map(|(proposer, request, _, _)| AuditChange {
+                    target: request.target,
+                    before: [("pending", AuditValue::Flag(true))].into(),
+                    after: [
+                        ("pending", AuditValue::Flag(false)),
+                        ("operation", AuditValue::Id(id)),
+                        ("requested_by", AuditValue::Id(proposer)),
+                        ("command", AuditValue::Label("refund")),
+                    ]
+                    .into(),
+                }))
+            })
+        },
+    )
+    .await;
+    match result {
+        Ok(()) => Redirect::to("/admin/commerce").into_response(),
+        Err(error) => error.response(&chrome),
+    }
+}
+
+fn approval_error(error: Error) -> staff_actions::Error {
+    match error {
+        Error::Denied => staff_actions::Error::Forbidden,
+        Error::Invalid => staff_actions::Error::Invalid,
+        Error::Conflict => staff_actions::Error::Conflict,
+        Error::Disabled | Error::Unavailable | Error::Storage(_) => {
+            staff_actions::Error::Unavailable
+        }
     }
 }
 // Cancellation shares the approval authority and locking order, but never applies

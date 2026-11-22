@@ -402,7 +402,7 @@ commerce-payment-failed = Failed
 commerce-payment-refunded = Refunded
 commerce-payment-chargeback = Chargeback
 commerce-refund = Full refund
-commerce-refund-done = Provider refund completed
+commerce-refund-done = Refund settlement verified
 commerce-refund-exhausted = Provider delivery attempts exhausted
 commerce-refund-processing = Provider refund in progress
 commerce-refund-queued = Queued for provider
@@ -424,3 +424,11 @@ commerce-review-flag = Flagged for review.
 commerce-review-recorded = Last review recorded
 commerce-review-unrecorded = No reconciliation review recorded.
 commerce-no-payments = No matching payments.
+
+commerce-price-proposals = Price proposals
+commerce-price-proposals-note = Activation requires a verified catalog import from Game.
+
+commerce-refund-dispatched = Dispatched to provider, awaiting verified settlement
+commerce-refund-refused = Refund refused by provider
+commerce-refund-reversal = Refund reversal
+commerce-record-review = Record review

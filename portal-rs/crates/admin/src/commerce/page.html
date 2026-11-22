@@ -21,5 +21,7 @@
 {% if let Some(value) = item.refund_amount %}<p>{{refund_amount}}: {{value}}</p>
 {% else if let Some(value) = item.adjustment_amount %}<p>{{amount}}: {{value}}</p>{% endif %}
 <p><input class="op-input" readonly value="{{item.actor}}" size="24" aria-label="{{account}}"></p>
-{% if item.can_approve %}<button class="op-button" type="submit">{{approve}}</button><button class="op-button" type="submit" formaction="/admin/commerce/cancellations/{{item.id}}">{{cancel}}</button>{% else %}<p>{{pending_label}}</p>{% endif %}</form>
+{% if item.can_approve %}{% if item.refund %}
+<p class="op-field"><label>{{reason}} <textarea class="op-input" name="reason" rows="3" minlength="8" maxlength="500" required></textarea></label></p>
+{% endif %}<button class="op-button" type="submit">{{approve}}</button><button class="op-button" type="submit" formnovalidate formaction="/admin/commerce/cancellations/{{item.id}}">{{cancel}}</button>{% else %}<p>{{pending_label}}</p>{% endif %}</form>
 {% endfor %}{% if let Some(cursor) = next %}<a rel="next" href="/admin/commerce?after={{cursor}}">{{next_label}}</a>{% endif %}<a href="/admin/commerce">{{approvals}}</a></section></main></body></html>

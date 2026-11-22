@@ -329,19 +329,12 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         }
         let mut tx = self.pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
-        let (original, target): (Uuid, Uuid) =
-            sqlx::query_as("SELECT actor_id,target_id FROM commerce_operations WHERE id=$1")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or(Error::Invalid)?;
-        let saved: Value =
-            sqlx::query_scalar("SELECT command FROM commerce_operations WHERE id=$1")
-                .bind(id)
-                .fetch_one(&mut *tx)
-                .await?;
-        let saved: Command = serde_json::from_value(saved).map_err(|_| Error::Unavailable)?;
-        let owner = payment_owner(&mut tx, &saved, target).await?;
+        let approval = approval_target(&mut tx, id).await?;
+        let ApprovalTarget {
+            original,
+            owner,
+            command: saved,
+        } = approval;
         rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account, original, owner],
@@ -359,13 +352,45 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             &[rbac::Permission::Access, saved.permission()],
         )
         .await?;
+        let change = self.approve_locked(&mut tx, context, id, owner).await?;
+        let replayed = change.is_none();
+        if let Some((actor, request, hash, result)) = change {
+            record(
+                &mut tx,
+                context.account,
+                &request,
+                "commerce.approved",
+                json!({"pending":true}),
+                json!({"requested_by":actor,"reason_sha256":hash,"pending":false,"result":result}),
+            )
+            .await?;
+            self.authorize_in(&mut tx, context, &request.command)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(Outcome {
+            id,
+            pending: false,
+            replayed,
+        })
+    }
+
+    // The caller holds both accounts and the RBAC fence. Re-read the operation
+    // under its row lock and preserve the four-eyes checks for both entry points.
+    async fn approve_locked(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        context: rbac::CheckContext,
+        id: Uuid,
+        owner: Uuid,
+    ) -> Result<Option<(Uuid, Request, String, Value)>, Error> {
         let row = sqlx::query("SELECT actor_id,target_id,command,reason_sha256,requires_approval,approved_by,result FROM commerce_operations WHERE id=$1 FOR UPDATE")
-            .bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Invalid)?;
+            .bind(id).fetch_optional(&mut **tx).await?.ok_or(Error::Invalid)?;
         let actor: Uuid = row.try_get("actor_id")?;
         let command: Command =
             serde_json::from_value(row.try_get("command")?).map_err(|_| Error::Unavailable)?;
         command.validate(self.flags)?;
-        self.authorize_in(&mut tx, context, &command).await?;
+        self.authorize_in(tx, context, &command).await?;
         if actor == context.account
             || owner == context.account
             || !row.try_get::<bool, _>("requires_approval")?
@@ -376,19 +401,12 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             if row.try_get::<Option<Uuid>, _>("approved_by")? != Some(context.account) {
                 return Err(Error::Conflict);
             }
-            tx.commit().await?;
-            return Ok(Outcome {
-                id,
-                pending: false,
-                replayed: true,
-            });
+            return Ok(None);
         }
         // Approval rechecks the proposer's eligibility and current grants; the
         // approver's live session and MFA were checked above under these locks.
         for permission in [rbac::Permission::Access, command.permission()] {
-            self.auth
-                .check_subject_in(&mut tx, actor, permission)
-                .await?;
+            self.auth.check_subject_in(tx, actor, permission).await?;
         }
         let request = Request {
             request_id: id,
@@ -397,27 +415,37 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             command,
         };
         let hash: String = row.try_get("reason_sha256")?;
-        let result = self.effects.apply(&mut tx, actor, &request, &hash).await?;
-        complete(&mut tx, id, Some(context.account), result.clone()).await?;
-        record(
-            &mut tx,
-            context.account,
-            &request,
-            "commerce.approved",
-            json!({"pending":true}),
-            json!({"requested_by":actor,"reason_sha256":hash,"pending":false,"result":result}),
-        )
-        .await?;
-        self.authorize_in(&mut tx, context, &request.command)
-            .await?;
-        tx.commit().await?;
-        Ok(Outcome {
-            id,
-            pending: false,
-            replayed: false,
-        })
+        let result = self.effects.apply(tx, actor, &request, &hash).await?;
+        complete(tx, id, Some(context.account), result.clone()).await?;
+        Ok(Some((actor, request, hash, result)))
     }
 }
+
+struct ApprovalTarget {
+    original: Uuid,
+    owner: Uuid,
+    command: Command,
+}
+
+async fn approval_target(conn: &mut sqlx::PgConnection, id: Uuid) -> Result<ApprovalTarget, Error> {
+    if !valid_id(id) {
+        return Err(Error::Invalid);
+    }
+    let (original, target, command): (Uuid, Uuid, Value) =
+        sqlx::query_as("SELECT actor_id,target_id,command FROM commerce_operations WHERE id=$1")
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or(Error::Invalid)?;
+    let command = serde_json::from_value(command).map_err(|_| Error::Unavailable)?;
+    let owner = payment_owner(conn, &command, target).await?;
+    Ok(ApprovalTarget {
+        original,
+        owner,
+        command,
+    })
+}
+
 async fn complete(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
@@ -473,7 +501,7 @@ fn valid_id(id: Uuid) -> bool {
 mod tests;
 
 async fn payment_owner(
-    tx: &mut Transaction<'_, Postgres>,
+    conn: &mut sqlx::PgConnection,
     command: &Command,
     target: Uuid,
 ) -> Result<Uuid, Error> {
@@ -481,7 +509,7 @@ async fn payment_owner(
         Ok(
             sqlx::query_scalar("SELECT account_id FROM payment_intents WHERE id=$1")
                 .bind(target)
-                .fetch_optional(&mut **tx)
+                .fetch_optional(conn)
                 .await?
                 .ok_or(Error::Invalid)?,
         )

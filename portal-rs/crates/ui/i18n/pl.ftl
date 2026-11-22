@@ -402,7 +402,7 @@ commerce-payment-failed = Nieudana
 commerce-payment-refunded = Zwrócona
 commerce-payment-chargeback = Obciążenie zwrotne
 commerce-refund = Pełny zwrot
-commerce-refund-done = Operator zakończył zwrot
+commerce-refund-done = Rozliczenie zwrotu zweryfikowane
 commerce-refund-exhausted = Wyczerpano próby przekazania zwrotu operatorowi
 commerce-refund-processing = Operator przetwarza zwrot
 commerce-refund-queued = Oczekuje na przekazanie operatorowi
@@ -424,3 +424,11 @@ commerce-review-flag = Oznaczono do weryfikacji.
 commerce-review-recorded = Ostatnia zapisana weryfikacja
 commerce-review-unrecorded = Brak zapisanej weryfikacji uzgodnienia.
 commerce-no-payments = Brak pasujących płatności.
+
+commerce-price-proposals = Propozycje cen
+commerce-price-proposals-note = Aktywacja wymaga zweryfikowanego importu katalogu z gry.
+
+commerce-refund-dispatched = Wysłano do operatora, oczekiwanie na potwierdzenie rozliczenia
+commerce-refund-refused = Operator odmówił zwrotu
+commerce-refund-reversal = Cofnięcie środków po zwrocie
+commerce-record-review = Zapisz uzgodnienie

@@ -2642,19 +2642,38 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
             .await
             .unwrap();
 
-    let offer = oteryn_store::catalog::Catalog::parse(br#"{"contract_version":1,"offers":[{"offer_key":"test.offer","currency":"COINS","unit_price":"10","max_quantity":1,"purchasable":true,"units":[{"product_id":"premium.test","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"test","grant_revision":"1","quantity":1}]}]}"#).unwrap();
+    use oteryn_store::{catalog::Catalog, purchase};
+    let game_document = br#"{"offers":[{"category":"items","currency":"TIBIA_COIN","item":{"charges":1,"key":"oteryn:item.tibia.i28552","revision":"definition-r1"},"key":"test.offer","price":10,"source_line":1,"title":"Test offer"}],"schema":"OTERYN_STORE_RUNTIME_CATALOGUE/v1","source":{}}"#;
+    let offer = Catalog::parse(game_document).unwrap();
+    let other_document = std::str::from_utf8(game_document)
+        .unwrap()
+        .replace("\"price\":10", "\"price\":30");
+    let game_digest = format!("{:x}", Sha256::digest(other_document.as_bytes()));
+    let other = Catalog::parse(other_document.as_bytes()).unwrap();
+    assert_eq!(other.revision(), game_digest);
+    let proposal = offer.with_price("test.offer", 20).unwrap();
     let mut tx = h.pool.begin().await.unwrap();
-    oteryn_store::catalog::insert_revision(&mut tx, &offer, h.actor)
-        .await
-        .unwrap();
+    for catalog in [&offer, &other, &proposal] {
+        // Include a historically staged S-5 row to test the upgrade boundary.
+        oteryn_store::catalog::insert_revision(&mut tx, catalog, h.actor)
+            .await
+            .unwrap();
+    }
     sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1 WHERE id=1")
         .bind(offer.revision())
         .execute(&mut *tx)
         .await
         .unwrap();
     tx.commit().await.unwrap();
-
-    let expected = offer.with_price("test.offer", 20).unwrap();
+    let mut generation = 0_i64;
+    let activate = |from: &Catalog, to: &Catalog, generation| {
+        format!(
+            "current={}&revision={}&generation={generation}",
+            from.revision(),
+            to.revision()
+        )
+    };
+    let first_activation = activate(&offer, &other, generation);
     for (path, form, status) in [
         (
             "/admin/store-catalog",
@@ -2668,16 +2687,17 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
         ),
         (
             "/admin/store-activation",
-            format!("current={}&revision=invalid", offer.revision()),
+            format!("current={}&revision=invalid&generation=0", offer.revision()),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
         (
             "/admin/store-activation",
-            format!(
-                "current={}&revision={}",
-                offer.revision(),
-                expected.revision()
-            ),
+            activate(&offer, &proposal, 0),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/admin/store-activation",
+            first_activation.clone(),
             StatusCode::SEE_OTHER,
         ),
     ] {
@@ -2711,6 +2731,145 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
             status
         );
     }
+    let post_activation = |form: &str| {
+        HttpRequest::post("/admin/store-activation")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "{form}&reason=Review+test+catalog+price&_csrf={csrf}"
+            )))
+            .unwrap()
+    };
+    h.effects()
+        .wallet
+        .adjust(
+            Uuid::now_v7(),
+            h.target,
+            100,
+            h.actor,
+            "Test catalog purchase funding",
+        )
+        .await
+        .unwrap();
+    let source = "oteryn-game/store-consumer";
+    let purchases = purchase::database(
+        h.pool.clone(),
+        purchase::Settings {
+            purchase_enabled: true,
+            delivery_enabled: true,
+            environment: "testing".into(),
+            source_authority: source.into(),
+            peer_identity: "store-test-peer".into(),
+            enabled_unit_kinds: vec!["ITEM".into()],
+            ..purchase::Settings::default()
+        },
+        false,
+    );
+    let quoted = serde_json::to_vec(&purchase::PurchaseRequest {
+        contract_version: 1,
+        operation: "PurchaseStoreOfferV1".into(),
+        source_authority: source.into(),
+        purchase_request_id: Uuid::now_v7().to_string(),
+        account_id: h.target.to_string(),
+        character_id: Uuid::now_v7().to_string(),
+        world_id: Uuid::now_v7().to_string(),
+        catalog_revision: game_digest.clone(),
+        offer_key: "test.offer".into(),
+        currency: "COINS".into(),
+        unit_price: "30".into(),
+        quantity: 1,
+    })
+    .unwrap();
+    let answer: Value =
+        serde_json::from_slice(&purchases.purchase(&quoted).await.unwrap()).unwrap();
+    assert_eq!(answer["result"], "ACCEPTED");
+
+    generation =
+        sqlx::query_scalar("SELECT max(activation_sequence) FROM store_catalog_activations")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    let response = staff
+        .clone()
+        .oneshot(post_activation(&activate(&other, &offer, generation)))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let response = staff
+        .clone()
+        .oneshot(post_activation(&first_activation))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(h.count("store_catalog_activations").await, 2);
+    let audit_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='store.catalog.activated'")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(audit_count, 2);
+    assert_eq!(h.count("store_price_proposals").await, 1);
+
+    // This router has no payment adapter. Reviewing the production-shaped
+    // intent still records evidence and leaves its state and amount untouched.
+    let intent = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
+                 VALUES($1,$2,'external',$3,250,'EUR','pending')")
+        .bind(intent).bind(h.target).bind(intent.to_string()).execute(&h.pool).await.unwrap();
+    let review = Uuid::now_v7();
+    let submit_review = |reason: &str, token: &str| {
+        HttpRequest::post("/admin/payment-review?lang=en")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "id={intent}&request_id={review}&reason={reason}&_csrf={token}"
+            )))
+            .unwrap()
+    };
+    for (reason, token, expected) in [
+        ("", csrf.as_str(), StatusCode::UNPROCESSABLE_ENTITY),
+        ("Reviewed+payment+evidence", "bad", StatusCode::FORBIDDEN),
+        (
+            "Reviewed+payment+evidence",
+            csrf.as_str(),
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            "Reviewed+payment+evidence",
+            csrf.as_str(),
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        assert_eq!(
+            staff
+                .clone()
+                .oneshot(submit_review(reason, token))
+                .await
+                .unwrap()
+                .status(),
+            expected
+        );
+    }
+    let ledger: (String, i64) =
+        sqlx::query_as("SELECT state,amount FROM payment_intents WHERE id=$1")
+            .bind(intent)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(ledger, ("pending".into(), 250));
+    let reasons: Vec<String> = sqlx::query_scalar(
+        "SELECT staff_reason FROM audit_log WHERE action='commerce.payment.reviewed' AND target=$1",
+    )
+    .bind(intent.to_string())
+    .fetch_all(&h.pool)
+    .await
+    .unwrap();
+    assert_eq!(reasons, vec!["Reviewed payment evidence"]);
+
     for (route, status) in [
         (
             "/admin/store-catalog?unexpected=true",
@@ -2749,6 +2908,6 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
             .fetch_one(&h.pool)
             .await
             .unwrap();
-    assert_eq!(activated, expected.revision());
+    assert_eq!(activated, offer.revision());
     h.close().await;
 }

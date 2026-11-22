@@ -104,6 +104,16 @@ impl Catalog {
         Self::parse_s5(raw).or_else(|_| runtime::parse(raw))
     }
 
+    /// Check that stored import bytes are the canonical Game runtime artifact
+    /// bound to the digest Game uses for purchase quotes.
+    pub fn verified_game_import(raw: &[u8], revision: &str) -> bool {
+        !raw.is_empty()
+            && raw.len() <= MAX_BYTES
+            && runtime::parse(raw).is_ok_and(|catalog| {
+                catalog.revision() == revision && catalog.canonical_bytes() == raw
+            })
+    }
+
     fn parse_s5(raw: &[u8]) -> Result<Self, Error> {
         let value = canonical::decode_canonical(raw, MAX_BYTES, 8, &DOCUMENT)
             .map_err(|_| Error::InvalidDocument)?;

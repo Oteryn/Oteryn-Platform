@@ -10,7 +10,7 @@
 <label><input type="checkbox" name="queue" value="true" {% if queue %}checked{% endif %}> {{ chrome.text("commerce-queue") }}</label>
 <button class="op-button">{{ chrome.text("commerce-search") }}</button>
 </form>
-{% if actions %}<a href="/admin/commerce">{{ chrome.text("commerce-payment-actions") }}</a>{% endif %}
+{% if refunds %}<a href="/admin/commerce">{{ chrome.text("commerce-payment-actions") }}</a>{% endif %}
 {% for p in rows %}
 <article class="op-card">
 <h2>{% if detail %}{{ p.id }}{% else %}<a href="?lang={{ chrome.lang }}&amp;id={{ p.id }}">{{ p.id }}</a>{% endif %}</h2>
@@ -23,9 +23,9 @@
 <dt>{{ chrome.text("commerce-refund") }}</dt>
 <dd>{% if !refunds && p.refund_key() == "commerce-refund-eligible" %}{{ chrome.text("commerce-refund-disabled") }}{% else %}{{ chrome.text(p.refund_key()) }}{% endif %}</dd>
 {% if let Some(attempts) = p.refund_attempts %}<dt>{{ chrome.text("commerce-attempts") }}</dt><dd>{{ attempts }}</dd>{% endif %}
-{% if p.state == "chargeback" || p.chargeback.is_some() %}
-<dt>{{ chrome.text("commerce-payment-chargeback") }}</dt><dd>{{ chrome.text(p.reversal_key()) }}</dd>
-<dt>{{ chrome.text("commerce-hold") }}</dt><dd>{% if p.chargeback_hold %}{{ chrome.text("commerce-hold-active") }}{% else %}{{ chrome.text("commerce-hold-none") }}{% endif %}</dd>
+{% if let Some(kind) = p.reversal_kind_key() %}
+<dt>{{ chrome.text(kind) }}</dt><dd>{{ chrome.text(p.reversal_key()) }}</dd>
+<dt>{{ chrome.text("commerce-hold") }}</dt><dd>{% if p.purchase_hold %}{{ chrome.text("commerce-hold-active") }}{% else %}{{ chrome.text("commerce-hold-none") }}{% endif %}</dd>
 <dt>{{ chrome.text("commerce-debt") }}</dt><dd>{{ p.outstanding_debt }} COINS</dd>
 {% endif %}
 <dt>{{ chrome.text("commerce-reconciliation") }}</dt>
@@ -33,6 +33,13 @@
 {% if let Some(reviewed) = p.reviewed_at %}{{ chrome.text("commerce-review-recorded") }} {{ reviewed }} UTC
 {% else %}{{ chrome.text("commerce-review-unrecorded") }}{% endif %}</dd>
 </dl>
+<form method="post" action="/admin/payment-review?lang={{ chrome.lang }}" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="id" value="{{ p.id }}">
+<input type="hidden" name="request_id" value="{{ request_id }}">
+<label class="op-field">{{ chrome.text("staff-action-reason") }} <input class="op-input" name="reason" required minlength="8" maxlength="500"></label>
+<button class="op-button">{{ chrome.text("commerce-record-review") }}</button>
+</form>
 {% endif %}
 </article>
 {% else %}<p>{{ chrome.text("commerce-no-payments") }}</p>{% endfor %}
