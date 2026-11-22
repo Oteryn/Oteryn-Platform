@@ -565,9 +565,24 @@ pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
 ) -> oteryn_ui::Account {
-    match read_signed_in(layer, request).await {
-        Ok(Some(session)) => oteryn_ui::Account::SignedIn { csrf: session.csrf },
-        _ => oteryn_ui::Account::Anonymous,
+    let Ok(Some(session)) = read_signed_in(layer, request).await else {
+        return oteryn_ui::Account::Anonymous;
+    };
+    let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
+        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
+         FROM accounts WHERE id=$1",
+    )
+    .bind(session.account_id)
+    .fetch_optional(&layer.pool)
+    .await;
+    let passkeys_eligible = matches!(
+        policy,
+        Ok(Some((status, verified, mfa_required)))
+            if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
+    );
+    oteryn_ui::Account::SignedIn {
+        csrf: session.csrf,
+        passkeys_eligible,
     }
 }
 
@@ -603,29 +618,25 @@ impl std::fmt::Debug for CommittedRotation {
     }
 }
 
-/// Read account-menu eligibility from the account behind a live, read-only session.
-pub(crate) async fn chrome_account_with_links(
-    layer: &SessionLayer,
-    request: &mut Request,
-) -> (oteryn_ui::Account, bool, bool) {
-    let Ok(Some(session)) = read_signed_in(layer, request).await else {
-        return (oteryn_ui::Account::Anonymous, false, false);
+/// Check dashboard-link visibility using the existing, unexpired browser session.
+pub(crate) async fn can_link_staff_dashboard(layer: &SessionLayer, request: &Request) -> bool {
+    let Ok(Some(id)) = cookie_id(request.headers()) else {
+        return false;
     };
-    // Match the account eligibility checked under lock by identity::passkeys.
-    let links: Result<Option<(bool, bool)>, _> = sqlx::query_as(
-        "SELECT NOT a.login_mfa_required, EXISTS (
-            SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
-            WHERE ar.account_id=a.id AND rp.permission='admin.access'
-         ) FROM accounts a
-         WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL",
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM web_sessions s
+            JOIN accounts a ON a.id=s.account_id
+            JOIN account_roles ar ON ar.account_id=a.id
+            JOIN role_permissions rp ON rp.role_id=ar.role_id
+            WHERE s.id_hash=$1 AND s.idle_expires_at>clock_timestamp()
+              AND s.absolute_expires_at>clock_timestamp()
+              AND a.status='active' AND a.email_verified_at IS NOT NULL
+              AND rp.permission='admin.access'
+         )",
     )
-    .bind(session.account_id)
-    .fetch_optional(&layer.pool)
-    .await;
-    let (passkeys, staff) = links.ok().flatten().unwrap_or_default();
-    (
-        oteryn_ui::Account::SignedIn { csrf: session.csrf },
-        passkeys,
-        staff,
-    )
+    .bind(hash(id))
+    .fetch_one(&layer.pool)
+    .await
+    .unwrap_or(false)
 }
