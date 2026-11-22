@@ -1,5 +1,5 @@
 import {test,expect} from '../fixtures.mjs';
-import {register,login,logout,submit,password,csrfRejected,waitForLoginBudget,pool} from '../helpers.mjs';
+import {register,login,logout,submit,password,csrfRejected,waitForLoginBudget,pool,exportOptions} from '../helpers.mjs';
 import crypto from 'node:crypto';
 
 test('privacy changes persist and account export contains the owning account',async({page},info)=>{
@@ -12,7 +12,7 @@ test('privacy changes persist and account export contains the owning account',as
  await expect(page.locator('[name=public_status_visible]')).toBeChecked();
  await page.goto(`/${lang}/account/sudo`);
  await submit(page,'main form',{current_password:account.password});
- const exported=await page.request.get(`/${lang}/account/privacy/export`);
+ const exported=await page.request.post(`/${lang}/account/privacy/export`,await exportOptions(page,lang));
  expect(exported.status()).toBe(200);
  expect(exported.headers()['cache-control']).toContain('no-store');
  expect(await exported.text()).toContain(account.email);
