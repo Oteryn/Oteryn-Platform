@@ -688,6 +688,46 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
     );
     let app = router(board.clone(), true);
     let (token, csrf) = db.session(owner).await;
+    for (lang, expected) in [
+        (
+            "en",
+            "Some information could not be accepted. Check your input and try again.",
+        ),
+        (
+            "pl",
+            "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/{lang}/party"))
+                    .header(
+                        header::COOKIE,
+                        format!("{}={token}", oteryn_web::session::COOKIE_NAME),
+                    )
+                    .header("x-csrf-token", &csrf)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("character=invalid"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+        let body = axum::body::to_bytes(response.into_body(), 256)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], expected.as_bytes());
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pd_party_posts WHERE account_id=$1")
+            .bind(owner)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap(),
+        0
+    );
     let draft = db.draft().await;
     let body = format!(
         "character={character}&purpose=hunt&min_level=80&max_level=180&profession=knight&starts_at={}&expires_at={}&note=Team",

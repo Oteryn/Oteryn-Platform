@@ -422,13 +422,36 @@ async fn page(
         account(&board, &session).await.is_ok(),
     )
 }
+type FormInput<T> = Result<Form<T>, axum::extract::rejection::FormRejection>;
+
+fn form_error(lang: &str, rejection: axum::extract::rejection::FormRejection) -> Response {
+    if rejection.status() != StatusCode::UNPROCESSABLE_ENTITY {
+        return rejection.into_response();
+    }
+    let language = if lang == "pl" {
+        oteryn_web::Language::Pl
+    } else {
+        oteryn_web::Language::En
+    };
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        [(axum::http::header::CONTENT_LANGUAGE, language.code())],
+        language.text("error-422-description"),
+    )
+        .into_response()
+}
+
 async fn create(
     State(board): State<Board>,
     Path(lang): Path<String>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
-    Form(draft): Form<Draft>,
+    input: FormInput<Draft>,
 ) -> Result<Response, Error> {
     language(&lang)?;
+    let Form(draft) = match input {
+        Ok(form) => form,
+        Err(error) => return Ok(form_error(&lang, error)),
+    };
     let owner = account(&board, &session).await?;
     board.create(owner, draft).await?;
     Ok(Redirect::to(&format!("/{lang}/party")).into_response())
@@ -444,9 +467,13 @@ async fn report(
     State(board): State<Board>,
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
-    Form(input): Form<Reason>,
+    input: FormInput<Reason>,
 ) -> Result<Response, Error> {
     language(&lang)?;
+    let Form(input) = match input {
+        Ok(form) => form,
+        Err(error) => return Ok(form_error(&lang, error)),
+    };
     board
         .report(account(&board, &session).await?, id, &input.reason)
         .await?;
@@ -490,9 +517,13 @@ async fn moderate(
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(context): Extension<oteryn_admin::rbac::CheckContext>,
     Extension(authority): Extension<oteryn_admin::rbac::MutationAuthorization>,
-    Form(input): Form<Decision>,
+    input: FormInput<Decision>,
 ) -> Result<Response, Error> {
     language(&lang)?;
+    let Form(input) = match input {
+        Ok(form) => form,
+        Err(error) => return Ok(form_error(&lang, error)),
+    };
     let report_ids = input
         .report_ids
         .split(',')
