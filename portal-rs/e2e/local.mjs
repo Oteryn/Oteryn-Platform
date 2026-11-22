@@ -150,7 +150,8 @@ const proxy=https.createServer(tls,(req,res)=>{
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 });
 proxy.listen(18443,'127.0.0.1');
-const children=['serve','worker','gateway'].map(role=>{
+const serviceRoles=['serve','worker','gateway'];
+const children=serviceRoles.map(role=>{
  const log=fs.openSync(path.join(scratch,`${role}.log`),'a',0o600);
  try {
   return spawn(binary,[role],{cwd:root,env:role==='gateway'?gatewayEnv:env,stdio:['ignore',log,log]});
@@ -185,7 +186,7 @@ async function close(code=0) {
 process.on('SIGINT',()=>void close());
 process.on('SIGTERM',()=>void close());
 for(const [index,child] of children.entries()){
- const role=['serve','worker','gateway'][index];
+ const role=serviceRoles[index];
  const failed=()=>{
   if(closing)return;
   console.error(`Local ${role} stopped. See its private log.`);
@@ -193,6 +194,8 @@ for(const [index,child] of children.entries()){
  };
  child.once('error',failed);
  child.once('exit',failed);
+ // A service can exit while the producer is still opening its listener.
+ if(child.exitCode!==null||child.signalCode!==null)failed();
 }
 try {
  Object.assign(env,await outbox.ready);
