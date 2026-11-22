@@ -188,7 +188,11 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
       .toBe(url.pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1] ?? info.project.metadata.locale);
     await expect.soft(page.getByRole('main'), `${label}: main landmark`).toHaveCount(1);
 
-    const axe = await new AxeBuilder({ page }).withRules(auditRules).analyze();
+    const scanner = new AxeBuilder({ page }).withRules(auditRules);
+    // A single document can use axe.run directly. Keep the frame-aware
+    // aggregation path for pages that embed other documents.
+    if (page.frames().length === 1) scanner.setLegacyMode();
+    const axe = await scanner.analyze();
     const serious = format(axe.violations.filter(({ id, impact }) =>
       wcagRules.has(id) && ['serious', 'critical'].includes(impact)));
     const details = format(axe.violations.filter(({ id }) => requiredRules.includes(id)));
