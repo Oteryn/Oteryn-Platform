@@ -1,31 +1,13 @@
 import crypto from 'node:crypto';
 import { expect } from './fixtures.mjs';
+import { revealPortalLink } from './journey-navigation.mjs';
 import { csrfRejected, mailLink, password, seedPasswordRange, submit, waitForLoginBudget } from './helpers.mjs';
 
 export const localized = (lang, pl, en) => lang === 'pl' ? pl : en;
 
 export async function visibleLink(page, href) {
   await page.waitForLoadState('load');
-  const links = page.locator(`a[href="${href}"]:not([data-account-link])`);
-  if (!(await links.filter({ visible: true }).count())) {
-    const fallback = page.locator('header .om-fallback-menu:not([open]) > summary:visible');
-    if (await fallback.count()) {
-      await fallback.click();
-    } else if (page.viewportSize().width <= 960) {
-      const mobile = page.locator('#portal-menu-toggle:visible[aria-expanded=false]');
-      if (await mobile.count()) await mobile.click();
-    }
-    for (const menu of ['world', 'community']) {
-      const button = page.locator(`#portal-${menu}-button:enabled[aria-expanded=false]:visible`);
-      if (await page.locator(`#portal-${menu}-panel a[href="${href}"]`).count() && await button.count()) {
-        await button.click();
-      }
-    }
-    const account = page.locator('header .om-fallback-account:not([open]) > summary:visible, [data-account-link]:visible');
-    if (!(await links.filter({ visible: true }).count()) && await account.count()) await account.first().click();
-  }
-
-  return links.filter({ visible: true }).first();
+  return revealPortalLink(page, `a[href="${href}"]:not([data-account-link])`);
 }
 
 export async function follow(page, href, status = 200, label) {

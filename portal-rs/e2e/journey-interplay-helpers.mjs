@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { expect } from './fixtures.mjs';
 import { csrfRejected, password, pool, waitForLoginBudget } from './helpers.mjs';
 import { query } from './staff-rbac-helpers.mjs';
+import { revealPortalLink } from './journey-navigation.mjs';
 
 export async function newActor(browser, info, storageState) {
   const context = await browser.newContext({
@@ -83,41 +84,7 @@ export async function follow(page, path) {
   // The destination can render its own navigation just after the response.
   // Wait for it before opening the portal menu, which overlays links on mobile.
   await page.waitForLoadState('domcontentloaded');
-  const selector = `a[href="${path}"]`;
-  const link = page.locator(selector).filter({ visible: true }).first();
-  if (await link.count()) return navigate(page, link, path);
-
-  const fallback = page.locator('#portal-header details.om-fallback-menu');
-  const summary = fallback.locator(':scope > summary');
-  if (await summary.isVisible() && await fallback.getAttribute('open') === null) {
-    await summary.click();
-  }
-
-  const menu = page.locator('#portal-menu-toggle');
-  if (!await link.count() && await menu.isVisible() && await menu.getAttribute('aria-expanded') === 'false') {
-    await menu.click();
-  }
-
-  const nav = page.locator('#portal-navigation');
-  const disclosure = nav.locator('details').filter({ has: page.locator(selector) }).first();
-  const toggle = disclosure.locator(':scope > summary');
-  if (!await link.count() && await toggle.isVisible() && await disclosure.getAttribute('open') === null) {
-    await toggle.click();
-  }
-
-  if (!await link.count()) {
-    for (const panel of await nav.locator('.om-panel').all()) {
-      if (await panel.locator(selector).count() && !await panel.isVisible()) {
-        const id = await panel.getAttribute('id');
-        const button = nav.locator(`button[aria-controls="${id}"]`);
-        if (await button.isVisible()) await button.click();
-        break;
-      }
-    }
-  }
-  if (!await link.count() && await page.locator('dialog').locator(selector).count()) {
-    await nav.locator('[data-account-link]').click();
-  }
+  const link = await revealPortalLink(page, `a[href="${path}"]`);
   return navigate(page, link, path);
 }
 
