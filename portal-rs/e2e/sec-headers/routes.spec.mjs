@@ -148,7 +148,7 @@ async function checkRoute(request, route, origin, locale, report) {
 test('every composed public GET and legacy alias has a scenario', ({}, info) => {
   const locale = info.project.metadata.locale;
   const { routes: scenarios } = matrix(locale);
-  expect(scenarios.every(row => ['player', 'staff'].includes(row.actor))).toBe(true);
+  expect(scenarios.every(row => ['player', 'staff', 'gm'].includes(row.actor))).toBe(true);
   const withoutForgotPassword = new Map(contracts);
   withoutForgotPassword.delete('/forgot-password');
   expect(uncoveredGetPaths(publicRegistrations().registrations, locale, withoutForgotPassword))
@@ -234,17 +234,17 @@ async function checkExistingResources(page, browser, info, baseURL, draft) {
   }
 }
 
-for (const actor of ['player', 'staff']) {
+for (const actor of ['player', 'staff', 'gm']) {
   test(actor + ' composed routes have security headers on every GET and redirect hop', async ({ page, baseURL, browser }, info) => {
     test.setTimeout(180_000);
     const locale = info.project.metadata.locale;
     const account = await seedAccount(locale);
     const root = '/' + locale + '/';
     let mfa;
-    if (actor === 'staff') {
+    if (actor !== 'player') {
       const assigned = await query(`INSERT INTO account_roles(account_id, role_id)
-        SELECT $1, id FROM roles WHERE key = 'platform_admin' AND built_in RETURNING role_id`, [account.id]);
-      expect(assigned.length, 'built-in Platform Admin role assigned').toBe(1);
+        SELECT $1, id FROM roles WHERE key = $2 AND built_in RETURNING role_id`, [account.id, actor === 'gm' ? 'game_viewer' : 'platform_admin']);
+      expect(assigned.length, 'the actor received the exact built-in role').toBe(1);
       mfa = await seedEntity('account-mfa', { accountId: account.id, password: account.password });
     } else {
       // Initialize the local registration corpus and policy with the shared helper.
@@ -271,7 +271,7 @@ for (const actor of ['player', 'staff']) {
     }
     if (draft) {
       await checkExistingResources(page, browser, info, baseURL, draft);
-    } else {
+    } else if (actor === 'player') {
       await checkReferralsMethod(page.request, root);
       await publishProfileWatermark();
       for (const row of routes.filter(ownerProfile)) {

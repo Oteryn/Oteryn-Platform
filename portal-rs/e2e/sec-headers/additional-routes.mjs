@@ -1,6 +1,7 @@
 // Response contracts for composed registrations absent from route-expectations.json.
 // The live registration report selects which contracts become scenarios.
 const playerRoutes = [
+  ['admin', '/{lang}/staff-invite', 403, 'missing invitation credential'],
   ['community', '/characters/{name}/skills', 503, 'cold Skills projection'],
   ['community', '/{lang}/characters/{name}/skills', 503, 'cold Skills projection'],
   ...['achievements', 'equipment', 'outfit'].flatMap(family =>
@@ -23,6 +24,7 @@ const playerRoutes = [
 ];
 
 const staffRoutes = [
+  ['admin', '/admin/staff-invites', 200, 'staff invitation management'],
   ['content', '/admin/announcements', 200, 'announcement index'],
   ['content', '/admin/announcements/create', 200, 'new announcement form'],
   ['content', '/admin/announcements/{id}/edit', 404, 'missing announcement'],
@@ -31,5 +33,9 @@ const staffRoutes = [
   ['admin', '/admin/support/tickets/{id}', 404, 'missing ticket'],
 ];
 
-export const additionalRoutes = Object.entries({ player: playerRoutes, staff: staffRoutes })
+const gmRoutes = [
+  ['admin', '/console', 303, 'the Game viewer lands on their first authorized console section'],
+];
+
+export const additionalRoutes = Object.entries({ player: playerRoutes, staff: staffRoutes, gm: gmRoutes })
   .flatMap(([actor, routes]) => routes.map(([crate, route, status, reason]) => ({ actor, crate, route, status, reason })));

@@ -27,7 +27,9 @@ export function routePolicy(contract, status, matched) {
     return { csp: surface, ...(status === 200 && { referrer: 'same-origin' }) }; // identity/email_change_http.rs
   }
   if (local === '/account/security/wizard') return { csp: shellPolicy(stylesOnly), referrer: 'no-referrer' };
-  if (local === '/account/passkeys') return { csp: shellPolicy(sameOrigin), referrer: 'strict-origin' };
+  if (local === '/account/profile') return { csp: browser };
+  if (local === '/staff-invite') return { csp: shellPolicy(sameOriginForm), referrer: 'strict-origin' };
+  if (local === '/account/passkeys' || local === '/account/passkeys/manage') return { csp: shellPolicy(sameOrigin), referrer: 'strict-origin' };
   if (local === '/account/privacy') return { csp: shellPolicy(sameOrigin) }; // identity/privacy_web.rs
   if (matches(/^\/account\/referrals$|^\/referrals\//, local)) {
     return { csp: shellPolicy(stylesForm), referrer: 'same-origin' }; // community/referrals/web.rs

@@ -400,7 +400,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    let disabled = roles_router(
+    let disabled = router_with_reports(
         pool.clone(),
         PanelConfig {
             admin_panel: true,
@@ -408,6 +408,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         },
         Identity(identity),
         Identity(identity),
+        false,
         false,
     );
     let page = disabled
