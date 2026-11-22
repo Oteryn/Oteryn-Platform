@@ -942,7 +942,12 @@
       "source": "crates/admin/src/console/templates/page.html:12",
       "ordinal": 1,
       "action": "{{ path }}",
-      "actionVariants": [],
+      "actionVariants": [
+        "/console/dashboard",
+        "/console/worlds",
+        "/console/nodes",
+        "/console/database"
+      ],
       "fields": [
         "_csrf",
         "operation",
@@ -953,7 +958,31 @@
       "submits": [
         {
           "name": "operation",
-          "value": "{{ section.operation }}"
+          "value": "ops.overview.get"
+        },
+        {
+          "name": "operation",
+          "value": "world.list"
+        },
+        {
+          "name": "operation",
+          "value": "world.get"
+        },
+        {
+          "name": "operation",
+          "value": "node.list"
+        },
+        {
+          "name": "operation",
+          "value": "node.get"
+        },
+        {
+          "name": "operation",
+          "value": "db.status"
+        },
+        {
+          "name": "operation",
+          "value": "db.migrations.list"
         },
         {}
       ]
@@ -1473,7 +1502,11 @@
       "submits": [
         {
           "name": "kind",
-          "value": "{{ item.kind }}"
+          "value": "play_session"
+        },
+        {
+          "name": "kind",
+          "value": "personalised_ads"
         },
         {}
       ]

@@ -75,6 +75,13 @@ def bindings(path, source, all_sources):
         router = all_sources["crates/admin/src/commerce/http.rs"]
         commands = router.split("for (key, command) in [", 1)[1].split("] {", 1)[0]
         return {"{{action.key}}": re.findall(r'\("([^"]+)", Command::', commands)}
+    if path == "crates/admin/src/console/templates/page.html":
+        console = all_sources["crates/admin/src/console/mod.rs"]
+        operations = console.split("pub enum Operation {", 1)[1].split("}", 1)[0]
+        return {
+            "{{ path }}": re.findall(r'\.route\(\s*"(/console/[^"]+)"', console),
+            "{{ section.operation }}": re.findall(r'#\[serde\(rename = "([^"]+)"\)\]', operations),
+        }
     if path == "crates/admin/src/bazaar.rs":
         panel = source.split("let forms = vec![", 1)[1].split("\n    ];", 1)[0]
         return {"{{ form.action }}": re.findall(r'\bform\(\s*"([^"]+)"', panel)}
@@ -88,6 +95,10 @@ def bindings(path, source, all_sources):
     if path == "crates/admin/src/support_web.rs":
         panel = source.split("let actions:", 1)[1].split("for (action, fields)", 1)[0]
         return {"{action}": re.findall(r'\(\s*"([^"]+)",\s*&\[', panel)}
+    if path == "crates/identity/src/consents_http.rs":
+        consents = all_sources["crates/identity/src/consents.rs"]
+        codes = consents.split("pub fn code(self)", 1)[1].split("}", 1)[0]
+        return {"{{ item.kind }}": re.findall(r'Self::\w+ => "([^"]+)"', codes)}
     return {}
 
 
