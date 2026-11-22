@@ -445,7 +445,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
             .await?;
     let create_legacy = |effective_at, expires_at| {
         format!(
-            "lock_version=1&action=sanction&create=true&status=active&target={owner}&category=warning&public_reason=Created&moderator_notes=&effective_at={effective_at}&expires_at={expires_at}"
+            "lock_version=1&action=sanction&create=true&status=active&target={owner}&category=warning&public_reason=Original+public+reason&moderator_notes=Original+private+notes&effective_at={effective_at}&expires_at={expires_at}"
         )
     };
     if scenario == Some("expiry") {
@@ -547,7 +547,42 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .bind(owner)
         .execute(&pool)
         .await?;
-    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Revoked&moderator_notes=&effective_at={start}&expires_at={end}")).await?,StatusCode::SEE_OTHER);
+    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Updated+public+reason&moderator_notes=Updated+private+notes&effective_at={start}&expires_at={end}")).await?,StatusCode::SEE_OTHER);
+    let (before, after): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT before,after FROM audit_log WHERE target=$1 AND action='support.enforcement_updated'",
+    )
+    .bind(created.to_string())
+    .fetch_one(&pool)
+    .await?;
+    let digest = |text: &str| {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(text.as_bytes()))
+    };
+    assert_eq!(
+        before["public_reason_sha256"],
+        digest("Original public reason")
+    );
+    assert_eq!(
+        before["moderator_notes_sha256"],
+        digest("Original private notes")
+    );
+    assert_eq!(
+        after["public_reason_sha256"],
+        digest("Updated public reason")
+    );
+    assert_eq!(
+        after["moderator_notes_sha256"],
+        digest("Updated private notes")
+    );
+    let audit = format!("{before}{after}");
+    for text in [
+        "Original public reason",
+        "Original private notes",
+        "Updated public reason",
+        "Updated private notes",
+    ] {
+        assert!(!audit.contains(text));
+    }
     assert_eq!(
         post(
             "moderation/reports",

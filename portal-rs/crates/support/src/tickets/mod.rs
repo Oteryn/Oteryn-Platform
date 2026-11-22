@@ -523,7 +523,8 @@ impl Tickets {
 }
 impl Ticket {
     fn audit_change(&self, message_id: Option<Uuid>) -> serde_json::Value {
-        let mut after = serde_json::json!({"status": self.status, "lock_version": self.lock_version});
+        let mut after =
+            serde_json::json!({"status": self.status, "lock_version": self.lock_version});
         if let Some(id) = message_id {
             after["message_id"] = serde_json::json!(id);
         }
