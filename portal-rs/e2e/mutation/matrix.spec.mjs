@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { login, logout, password, pool, seedPasswordRange, submit, waitForLoginBudget } from '../helpers.mjs';
+import { login, logout, mailLink, password, pool, seedPasswordRange, submit, waitForLoginBudget } from '../helpers.mjs';
 import { action, enrollMfa, loginWithRecoveryCode, player, query, rolePage } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 
@@ -2502,6 +2502,130 @@ for (const kind of ['coins', 'premium_days']) {
       expect(replay.status()).toBe(200);
       expect((await replay.json()).redemption_id).toBe(receipt.redemption_id);
       expect(await redemptions()).toEqual(effects);
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
+
+for (const prefix of ['locale', 'unprefixed']) {
+  test(`password reset ${prefix} aliases deliver one capability and consume it once`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const routes = prefix === 'locale' ? `/${lang}` : '';
+    const contexts = [];
+    const newActor = async role => {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const screen = await context.newPage();
+      return { screen, account: await seededPlayer(screen, lang, role) };
+    };
+    try {
+      const { screen: priorSession, account: owner } = await newActor();
+      const outsiders = [];
+      for (const role of [undefined, 'content_editor']) {
+        const { screen } = await newActor(role);
+        await screen.goto(`/${lang}/account/privacy`);
+        outsiders.push({ screen, token: (await prepare(screen, formSelector)).fields._csrf });
+      }
+      const snapshot = async () => ({
+        reset: await query(
+          'SELECT used_at IS NOT NULL AS used,last_reset_at IS NOT NULL AS completed FROM account_password_resets WHERE account_id=$1',
+          [owner.id],
+        ),
+        sessions: await query('SELECT session_id FROM web_sessions WHERE account_id=$1', [owner.id]),
+        generation: (await query('SELECT native_security_generation FROM accounts WHERE id=$1', [owner.id]))[0].native_security_generation,
+      });
+      const budget = async (policy, remaining) => {
+        await expect.poll(async () => {
+          const [row] = await query(
+            "SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits WHERE limiter_name=$1 AND window_start=date_trunc('minute',clock_timestamp())",
+            [policy],
+          );
+          return row.count;
+        }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(remaining);
+      };
+      const signedRefused = async (url, fields, baseline) => {
+        for (const { screen, token } of outsiders) {
+          const denied = await sendForm(screen, url, { ...fields, _csrf: token });
+          expect(denied.status()).toBe(302);
+          expect(denied.headers().location).toBe(`/${lang}/`);
+          expect(await snapshot()).toEqual(baseline);
+        }
+      };
+      const localizedNotice = lang === 'pl'
+        ? 'Jeśli konto z tym adresem istnieje, wysłaliśmy link do zresetowania hasła.'
+        : 'If an account exists for that email, a password reset link has been sent.';
+      const localizedRefusal = lang === 'pl'
+        ? 'Link jest nieprawidłowy lub wygasł albo hasła nie są identyczne. W razie potrzeby poproś o nowy link.'
+        : 'This password reset link is invalid or expired, or the passwords do not match. Request a new link if needed.';
+      const forgot = `/${lang}/forgot-password`;
+      expect((await page.goto(forgot)).status()).toBe(200);
+      const requestValues = { email: owner.email };
+      const request = await prepare(page, formSelector, requestValues);
+      const first = new URL(`${routes}/forgot-password`, request.url).href;
+      const baseline = await snapshot();
+      expect(baseline.reset).toEqual([]);
+      expect(baseline.sessions).toHaveLength(1);
+      await rejected({ page, url: first, fields: request.fields, snapshot, baseline });
+      await budget('identity-password-recovery-source', 3);
+      await signedRefused(first, request.fields, baseline);
+      for (const email of ['', 'a'.repeat(256) + '@local.test', '123', 'a@']) {
+        const denied = await sendForm(page, first, { ...request.fields, email });
+        expect(denied.status()).toBe(302);
+        expect(denied.headers().location).toBe(forgot);
+        expect((await page.goto(forgot)).status()).toBe(200);
+        await expect(page.getByRole('status')).toHaveText(localizedNotice);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      await useFormMethod(page, request.url, 'POST', () => submit(page, formSelector, requestValues), first);
+      await expect(page.getByRole('status')).toHaveText(localizedNotice);
+      const pending = { ...baseline, reset: [{ used: false, completed: false }] };
+      expect(await snapshot()).toEqual(pending);
+      const mail = await mailLink(page, owner.email, /https:\/\/localhost:\d+\/(?:pl|en)\/reset-password\/[a-f0-9]{64}/, 120_000);
+      expect((await page.goto(mail)).status()).toBe(200);
+      const newPassword = password();
+      await seedPasswordRange(newPassword);
+      const values = { email: owner.email, password: newPassword, password_confirmation: newPassword };
+      const change = await prepare(page, formSelector, values);
+      const reset = new URL(`${routes}/reset-password`, change.url).href;
+      await rejected({ page, url: reset, fields: change.fields, snapshot, baseline: pending });
+      await budget('identity-password-recovery-source', 3);
+      await budget('identity-password-reset', 0);
+      await signedRefused(reset, change.fields, pending);
+      for (const patch of [
+        { email: '' }, { token: 'x'.repeat(65) }, { token: 'type' },
+        { password: 'a'.repeat(9), password_confirmation: 'a'.repeat(9) },
+      ]) {
+        const denied = await sendForm(page, reset, { ...change.fields, ...patch });
+        expect(denied.status()).toBe(302);
+        const next = new URL(denied.headers().location, reset);
+        expect(next.pathname.startsWith(`/${lang}/reset-password`)).toBe(true);
+        expect((await page.goto(next.href)).status()).toBe(200);
+        await expect(page.getByRole('alert')).toHaveText(localizedRefusal);
+        expect(await snapshot()).toEqual(pending);
+      }
+      await budget('identity-password-reset', 3);
+      expect((await page.goto(mail)).status()).toBe(200);
+      await useFormMethod(page, change.url, 'POST', () => submit(page, formSelector, values), reset);
+      await expect(page).toHaveURL(new RegExp(`/${lang}/login$`));
+      const updated = await snapshot();
+      expect(updated.reset).toEqual([{ used: true, completed: true }]);
+      expect(updated.sessions).toEqual([]);
+      expect(Number(updated.generation)).toBe(Number(pending.generation) + 1);
+      await priorSession.goto(`/${lang}/account/sessions`);
+      await expect(priorSession).toHaveURL(new RegExp(`/${lang}/login$`));
+      expect((await page.goto(mail)).status()).toBe(200);
+      const replay = await prepare(page, formSelector, values);
+      const refused = await sendForm(page, reset, replay.fields);
+      expect(refused.status()).toBe(302);
+      expect((await page.goto(refused.headers().location)).status()).toBe(200);
+      await expect(page.getByRole('alert')).toHaveText(localizedRefusal);
+      expect(await snapshot()).toEqual(updated);
+      await login(page, lang, { ...owner, password: newPassword });
+      await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
     } finally {
       await Promise.all(contexts.map(context => context.close()));
     }
