@@ -54,9 +54,9 @@ async fn drop_pages_schema(root: PgPool, pool: PgPool, schema: &str) -> Result<(
 async fn relabeled_placeholder_pages_show_localized_draft_notice()
 -> Result<(), Box<dyn std::error::Error>> {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
-    let Some((root, pool, schema)) = pages_database().await? else {
-        return Ok(());
-    };
+    let (root, pool, schema) = pages_database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the legal renderer test")?;
     for profile in [None, Some("production"), Some("preprod")] {
         assert!(matches!(
             legal::install(&pool, profile).await,
@@ -116,9 +116,9 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
 async fn postgres_installer_preserves_preexisting_draft_and_history_and_audits_once()
 -> Result<(), Box<dyn std::error::Error>> {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
-    let Some((root, pool, schema)) = pages_database().await? else {
-        return Ok(());
-    };
+    let (root, pool, schema) = pages_database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the legal installer test")?;
     let draft: Uuid = sqlx::query_scalar(
         "INSERT INTO pages(id,slug) VALUES (uuidv7(),'terms-of-service') RETURNING id",
     )
