@@ -88,7 +88,7 @@ async function startMinute() {
   // Leave enough of the production window to exercise the exact boundary.
   await expect.poll(async () => Number((await query(
     'SELECT extract(second FROM clock_timestamp()) AS seconds',
-  ))[0].seconds), { timeout: 65_000, intervals: [500] }).toBeLessThan(40);
+  ))[0].seconds), { timeout: 65_000, intervals: [500] }).toBeLessThan(10);
 }
 
 async function expireBucket(policy, account, budget) {
@@ -115,27 +115,34 @@ const ticketLocation = lang => new RegExp(`^/${lang}/support/tickets/${uuidPath}
 
 test('ticket creation allows six, isolates a second account and resets', async ({ browser }, info) => {
   await withPlayers(browser, info, async ([a, b], lang) => {
-    await startMinute();
-    for (let i = 1; i <= 6; i++) redirect(await createTicket(a, lang, i), 302, ticketLocation(lang));
-    await denied(await createTicket(a, lang, 7), lang, { retry: 'minute-bucket' });
-    redirect(await createTicket(b, lang, 7), 302, ticketLocation(lang));
-    await denied(await createTicket(a, lang, 7), lang, { retry: 'minute-bucket' });
-    await expireBucket('support-ticket-create', a.id, 6);
-    const seventh = redirect(await createTicket(a, lang, 7), 302, ticketLocation(lang));
-    for (let i = 8; i <= 10; i++) redirect(await createTicket(a, lang, i), 302, ticketLocation(lang));
-
     const route = `/${lang}/support/tickets`;
-    const atCapacity = await createTicket(a, lang, 11);
+    const forms = new Map();
+    for (const player of [a, b]) forms.set(player.id, await formFields(player.page, `${route}/create`));
+    const keys = await query('SELECT uuidv7() AS key FROM generate_series(1,12)');
+    const create = (player, suffix) => post(player.page, route, {
+      ...forms.get(player.id), request_key: keys[suffix - 1].key,
+      subject: `Browser ticket ${suffix}`, body: 'Local abuse qualification message.',
+    });
+    await startMinute();
+    for (let i = 1; i <= 6; i++) redirect(await create(a, i), 302, ticketLocation(lang));
+    await denied(await create(a, 7), lang, { retry: 'minute-bucket' });
+    redirect(await create(b, 12), 302, ticketLocation(lang));
+    await denied(await create(a, 7), lang, { retry: 'minute-bucket' });
+    await expireBucket('support-ticket-create', a.id, 6);
+    const seventh = redirect(await create(a, 7), 302, ticketLocation(lang));
+    for (let i = 8; i <= 10; i++) redirect(await create(a, i), 302, ticketLocation(lang));
+
+    const atCapacity = await create(a, 11);
     redirect(atCapacity, 302, `${route}/create`);
     expect(atCapacity.headers()['retry-after']).toBeUndefined();
     expect((await a.page.goto(`${route}/create`)).status()).toBe(200);
     await expect(a.page.locator('main [role=alert]')).toHaveText(lang === 'pl'
       ? 'Nie udało się wykonać żądania. Odśwież zgłoszenie i spróbuj ponownie.'
       : 'The request could not be completed. Reload the ticket and try again.');
-    redirect(await createTicket(b, lang, 11), 302, ticketLocation(lang));
+    redirect(await create(b, 11), 302, ticketLocation(lang));
     const close = await formFields(a.page, seventh, 'main form[action$="/status"]');
     redirect(await post(a.page, `${seventh}/status`, { ...close, status: 'closed' }), 302, seventh);
-    redirect(await createTicket(a, lang, 11), 302, ticketLocation(lang));
+    redirect(await create(a, 11), 302, ticketLocation(lang));
     const counts = await query('SELECT account_id, count(*)::int AS count FROM tickets WHERE account_id=ANY($1) GROUP BY account_id', [[a.id, b.id]]);
     expect(Object.fromEntries(counts.map(row => [row.account_id, row.count]))).toEqual({ [a.id]: 11, [b.id]: 2 });
   });
