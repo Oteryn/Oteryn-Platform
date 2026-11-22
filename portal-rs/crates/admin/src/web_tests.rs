@@ -131,7 +131,7 @@ async fn host_flag_session_and_mfa_boundaries() {
 #[test]
 fn localized_responsive_labelled_template() {
     for lang in ["pl", "en"] {
-        let html = Page {
+        let mut page = Page {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
@@ -141,16 +141,18 @@ fn localized_responsive_labelled_template() {
             can_grant: true,
             reason_label: "Reason".into(),
             reason_assignment: "Role administration".into(),
-            confirm_password: "Confirm password".into(),
+            confirm_password: Some(oteryn_ui::text(lang, "staff-action-confirm-password")),
             navigation: Vec::new(),
             revoke: text(lang, "revoke"),
             csrf: "token".into(),
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
             next: None,
-        }
-        .render()
-        .unwrap();
+        };
+        let html = page.render().unwrap();
+        assert!(html.contains("return_to=roles"));
+        page.confirm_password = None;
+        assert!(!page.render().unwrap().contains("return_to=roles"));
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
         assert!(html.contains("for=\"account\""));

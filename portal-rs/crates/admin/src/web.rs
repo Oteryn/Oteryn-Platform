@@ -519,7 +519,7 @@ struct Page {
     can_grant: bool,
     reason_label: String,
     reason_assignment: String,
-    confirm_password: String,
+    confirm_password: Option<String>,
     navigation: Vec<panels::Link>,
     revoke: String,
     csrf: String,
@@ -631,7 +631,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         can_grant: manage && s.auth.check(context, Permission::GrantRoles).await.is_ok(),
         reason_label: oteryn_ui::text(lang, "staff-action-reason"),
         reason_assignment: oteryn_ui::text(lang, "staff-action-role-assignment"),
-        confirm_password: oteryn_ui::text(lang, "staff-action-confirm-password"),
+        confirm_password: (std::env::var("OTERYN_ACCOUNT_CREDENTIALS").as_deref() == Ok("true"))
+            .then(|| oteryn_ui::text(lang, "staff-action-confirm-password")),
         navigation: registry.links(PanelKind::Admin, lang, |_| true),
         revoke: text(lang, "revoke"),
         csrf,
