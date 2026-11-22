@@ -13,6 +13,6 @@ export default defineConfig({
   testMatch: '**/routes.spec.mjs',
   timeout: 600_000,
   outputDir,
-  reporter: [['list'], ['json', { outputFile: path.join(path.dirname(outputDir), 'results.json') }]],
+  reporter: [['line'], ['json', { outputFile: path.join(path.dirname(outputDir), 'results.json') }]],
   use: { ...base.use, baseURL: origin, serviceWorkers: 'block', trace: 'off', screenshot: 'off' },
 });

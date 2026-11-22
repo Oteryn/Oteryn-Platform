@@ -92,7 +92,8 @@ on exit. Local route reports are under the printed `.harness/crawl-*` path.
 The crawl starts from the home page, registered destinations, explicitly
 declared Game-dependent routes, and the staff panel. It follows same-origin
 links in real browser sessions for anonymous visitors, players, and a built-in
-Platform administrator signed in with MFA. The fixture seeds Platform accounts
+Platform administrator signed in with MFA. Each project renders its locale in Chromium
+and checks the HTTP responses for links to the alternate locale. The fixture seeds Platform accounts
 and a world registry entry through the seed CLI. No Game snapshots are
 published. Each declared unavailable page must return exactly 503 with
 `no-store`, the expected localized message, and no data or mutation form.

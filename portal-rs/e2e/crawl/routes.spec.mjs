@@ -179,11 +179,12 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         const headers = { accept: 'text/html', 'accept-language': locale };
 
         if (redirectPath) {
+          const redirectStatus = actor === 'anonymous' && route === 'password/change' ? 302 : 303;
           const redirect = await page.request.get(url.href, { maxRedirects: 0, timeout: 15_000, headers });
           try {
             const location = redirect.headers().location;
-            if (redirect.status() !== 303 || !location || localURL(location, url, origin)?.href !== target.href) {
-              defects.add(`${from} → ${current} expected 303 to ${redirectPath}, got HTTP ${redirect.status()}`);
+            if (redirect.status() !== redirectStatus || !location || localURL(location, url, origin)?.href !== target.href) {
+              defects.add(`${from} → ${current} expected ${redirectStatus} to ${redirectPath}, got HTTP ${redirect.status()}`);
               continue;
             }
           } finally {
@@ -192,7 +193,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
           }
         }
         if (visited.has(target.href)) continue;
-        await waitForWikiBudget(target.href);
+        await waitForWikiBudget(target.href, info.config.workers);
         if (isAlternateLocale) {
           // The matching locale project renders these documents at its viewport.
           // Here the actual link must still reach the exact HTML response.

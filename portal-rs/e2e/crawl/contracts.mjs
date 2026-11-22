@@ -65,8 +65,9 @@ export function redirectDestination(url, actor, locale) {
   if (actor === 'anonymous') {
     if (/^(?:admin|console)(?:\/|$)/.test(route) || route === 'password/change') return '/login';
     if (isPrivate(route) || /^(?:shop|puzzles|collection)(?:\/|$)/.test(route)) return `/${lang}/login`;
-  } else if (route === 'account/security') {
-    return `/${lang}/password/change`;
+  } else {
+    if (route === 'account/security') return `/${lang}/password/change`;
+    if (route === 'register') return '/account';
   }
 }
 
