@@ -34,22 +34,22 @@ export default async function setup() {
   };
 
   const lines = createInterface({ input: child.stdout });
+  let readinessTimeout;
   try {
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Game-data harness readiness timed out')), 300_000);
-      const onExit = code => reject(new Error(`Game-data harness exited before readiness (${code})`));
+      readinessTimeout = setTimeout(() => reject(new Error('Game-data harness readiness timed out')), 300_000);
       const onLine = line => {
         try {
-          if (JSON.parse(line).status === 'ready') resolve();
+          if (JSON.parse(line).status !== 'ready') throw new Error();
+          resolve();
         } catch {
           reject(new Error('Game-data harness emitted an invalid readiness report'));
         }
       };
       child.once('error', reject);
-      child.once('exit', onExit);
+      stopped.then(({ code, signal }) => reject(new Error(`Game-data harness exited before readiness (${signal ?? code})`)));
       lines.once('line', onLine);
-      stopped.then(() => clearTimeout(timer));
-      lines.once('close', () => clearTimeout(timer));
+      lines.once('close', () => reject(new Error('Game-data harness closed its readiness stream')));
     });
     await access(reportFile);
     process.env.PORTAL_E2E_GAME_DATA_REPORT = reportFile;
@@ -57,6 +57,7 @@ export default async function setup() {
     await stop();
     throw new Error(`Game-data startup failed. Harness logs are in ${path.join(output, 'logs')}`, { cause: error });
   } finally {
+    clearTimeout(readinessTimeout);
     lines.close();
   }
 

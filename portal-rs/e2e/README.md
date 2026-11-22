@@ -94,7 +94,8 @@ The default config also discovers the legacy Bazaar, authentication, and mutatio
 
 With `PORTAL_E2E_BINARY` pointing to the built binary, run
 `node --test harness.test.mjs` to verify disposable database cleanup and
-retained diagnostics when migration fails or PostgreSQL refuses database cleanup.
+retained diagnostics when startup is interrupted, migration fails, or PostgreSQL
+refuses database cleanup.
 
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 

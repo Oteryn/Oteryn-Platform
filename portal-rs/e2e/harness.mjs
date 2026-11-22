@@ -151,13 +151,18 @@ const admin = new pg.Client({ connectionString: adminURL });
 const children = [];
 let gameDataBrowser;
 let closeOutboxBrowser;
-let createdDatabase = false;
 let closing = false;
+const databaseCreation = (async () => {
+  await admin.connect();
+  await admin.query(`CREATE DATABASE "${dbName}"`);
+})();
 async function close(code = 0) {
   if (closing) return;
   closing = true;
   for (const { child } of children) child.kill('SIGINT');
   await Promise.all(children.map(({ stopped }) => stopped));
+  // A signal can arrive while PostgreSQL is still creating the database.
+  const createdDatabase = await databaseCreation.then(() => true, () => false);
   try {
     if (createdDatabase && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
       await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
@@ -177,13 +182,16 @@ async function close(code = 0) {
   }
   process.exit(code);
 }
-process.on('SIGINT', () => void close());
-process.on('SIGTERM', () => void close());
+function stopOnSignal() {
+  if (!closing) log('shutdown requested');
+  void close();
+}
+process.on('SIGINT', stopOnSignal);
+process.on('SIGTERM', stopOnSignal);
 
 async function start() {
-  await admin.connect();
-  await admin.query(`CREATE DATABASE "${dbName}"`);
-  createdDatabase = true;
+  await databaseCreation;
+  if (closing) return;
   const databaseURL = (() => { const url = new URL(adminURL); url.pathname = `/${dbName}`; return url.toString(); })();
   log('database', dbName);
 
@@ -197,6 +205,7 @@ async function start() {
   gameDataBrowser = gameData ? await (await import('./game-publishers.mjs')).startGameDataBrowser({
     server, caFile, publicPort: ports.http, authority: testEnv.PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY,
   }) : undefined;
+  if (closing) return;
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
     ...identityEnv,
@@ -249,6 +258,7 @@ async function start() {
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
     closeOutboxBrowser = await startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    if (closing) return;
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
@@ -290,6 +300,7 @@ async function start() {
   await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
+  if (closing) return;
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------

@@ -1,15 +1,66 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { access, constants, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
+import { expect } from '@playwright/test';
 import pg from 'pg';
 import setupGameData from './game-data.setup.mjs';
 
 const execute = promisify(execFile);
+
+test('shutdown during database creation waits and drops the new database', { timeout: 30_000 }, async () => {
+  const adminUrl = new URL(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+  assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(adminUrl.hostname));
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'portal-e2e-interrupted-create-'));
+  const blocker = new pg.Client({ connectionString: adminUrl.href });
+  const observer = new pg.Client({ connectionString: adminUrl.href });
+  adminUrl.searchParams.set('application_name', path.basename(scratch));
+  await blocker.connect();
+  await observer.connect();
+  // Hold a real PostgreSQL catalog lock so SIGTERM arrives during CREATE DATABASE.
+  await blocker.query('BEGIN; LOCK TABLE pg_database IN SHARE MODE');
+  const child = spawn(process.execPath, ['harness.mjs', '--game-data'], {
+    cwd: new URL('.', import.meta.url),
+    env: {
+      ...process.env,
+      PORTAL_E2E_ADMIN_DATABASE_URL: adminUrl.href,
+      PORTAL_E2E_OUT: path.join(scratch, 'harness'),
+      PORTAL_E2E_KEEP_DATABASE: '0',
+    },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  const stopped = once(child, 'close');
+  const lines = createInterface({ input: child.stderr });
+  try {
+    const activeCreation = async () => (await observer.query(
+      `SELECT query FROM pg_stat_activity
+       WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'CREATE DATABASE %'`,
+      [path.basename(scratch)],
+    )).rows[0]?.query;
+    const createPattern = /^CREATE DATABASE "(portal_e2e_[a-f0-9]{12})"$/;
+    await expect.poll(activeCreation, { timeout: 15_000 }).toMatch(createPattern);
+    const [, database] = createPattern.exec(await activeCreation());
+    const shutdown = once(lines, 'line');
+    assert.equal(child.kill('SIGTERM'), true);
+    assert.deepEqual(await Promise.race([shutdown, stopped]), ['[harness] shutdown requested']);
+    await blocker.query('COMMIT');
+    assert.deepEqual(await stopped, [0, null]);
+    assert.equal((await observer.query('SELECT 1 FROM pg_database WHERE datname=$1', [database])).rowCount, 0);
+  } finally {
+    await blocker.end(); // Also releases the lock if the test fails before COMMIT.
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    await stopped;
+    lines.close();
+    await observer.end();
+  }
+  await rm(scratch, { recursive: true, force: true });
+});
 
 test('failed Game-data migration drops the disposable database and keeps logs', async () => {
   const adminUrl = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
