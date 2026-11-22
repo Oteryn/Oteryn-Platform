@@ -577,10 +577,10 @@ async fn history(
         Err(r) => return r,
     };
     let Ok(Query(query)) = query else {
-        return failure(l, Error::Invalid);
+        return StatusCode::BAD_REQUEST.into_response();
     };
     if query.before.is_some_and(|id| !uuid7(id)) {
-        return failure(l, Error::Invalid);
+        return StatusCode::BAD_REQUEST.into_response();
     }
     p.entries = match s.backend.history(a, query.before).await {
         Ok(e) => e,
