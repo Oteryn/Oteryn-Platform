@@ -71,7 +71,7 @@ separate Support enforcement implementation, outside this GM read scenario.
 checkpoint_version: 1
 updated_at: 2026-11-22T22:07:52Z
 head: bab011c1df563ec630fd1db95e09c38c2cf74657
-branch: codex/feat-gm-character
+branch: codex/pkg-2
 pr: none
 status: ready
 context_routes:
