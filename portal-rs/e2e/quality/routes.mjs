@@ -20,6 +20,8 @@ const coldGameRoutes = new Set([
   '/{lang}/bazaar/items/{listing}', '/{lang}/bazaar/items/{id}',
   '/{lang}/account/characters/requests/{operation}', '/{lang}/account/characters/suggest',
 ]);
+const alternateLanguageRoutes = new Set(['/today', '/console/dashboard', '/admin/console/players',
+  '/admin/commerce', '/admin/news']);
 
 function candidates(pattern, locale, ids) {
   const replacements = {
@@ -39,6 +41,9 @@ function candidates(pattern, locale, ids) {
     paths = paths.flatMap(value =>
       (replacements[key] ?? [missingId]).map(replacement => value.replace(token, replacement)),
     ).slice(0, maxSamples);
+  }
+  if (alternateLanguageRoutes.has(pattern)) {
+    paths.push(pattern + (locale === 'en' ? '?lang=pl' : '?lang=en'));
   }
   return paths;
 }
@@ -86,17 +91,23 @@ export function matchingRoute(inventory, pathname) {
   return result;
 }
 
-export function documentLanguage(url, pattern, locale) {
+export function languageFilter(url, status) {
+  if (status >= 400) return;
   const { pathname, searchParams } = url;
+  const news = /^\/(?:news(?:\/[^/]+)?|admin\/news(?:\/create|\/[^/]+\/edit)?)$/;
+  const console = /^\/(?:console\/(?:dashboard|worlds|nodes|database)|admin\/console\/(?:players|audit|access|approvals))$/;
+  if (!alternateLanguageRoutes.has(pathname) && !news.test(pathname) && !console.test(pathname) &&
+      pathname !== '/admin/media') return;
+  const filter = searchParams.get('lang');
+  if (filter === 'pl' || filter === 'en') return filter;
+}
+
+export function documentLanguage(url, pattern, locale, status) {
+  const { pathname } = url;
   const prefix = pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1];
   if (prefix) return prefix;
   const segment = pattern.split('/').indexOf('{lang}');
   const explicit = pathname.split('/')[segment];
   if ((explicit === 'pl' || explicit === 'en') && matches(pattern, pathname)) return explicit;
-  // These legacy editorial routes expose an explicit language filter.
-  if (/^\/(?:news(?:\/[^/]+)?|admin\/(?:media|news(?:\/create|\/[^/]+\/edit)?))$/.test(pathname)) {
-    const filter = searchParams.get('lang');
-    if (filter === 'pl' || filter === 'en') return filter;
-  }
-  return locale;
+  return languageFilter(url, status) ?? locale;
 }

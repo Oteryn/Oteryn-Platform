@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { login, password, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
-import { documentLanguage, matchingRoute, maxSamples, routes } from './routes.mjs';
+import { documentLanguage, languageFilter, matchingRoute, maxSamples, routes } from './routes.mjs';
 import { assertKeyboard } from './keyboard.mjs';
 import { publishEditorialFixtures } from './editorial-fixtures.mjs';
 import { assertBudgets, collectResponses, installVitals, startPaintTrace, vitals } from './performance.mjs';
@@ -199,7 +199,7 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
     expect(url.pathname, 'browser and source discovery agree on destination').toBe(label);
     await vitals(page);
     expect.soft(await page.locator('html').getAttribute('lang'), `${label}: document language`)
-      .toBe(documentLanguage(url, entry.pattern, info.project.metadata.locale));
+      .toBe(documentLanguage(url, entry.pattern, info.project.metadata.locale, status));
     await expect.soft(page.getByRole('main'), `${label}: main landmark`).toHaveCount(1);
 
     const scanner = new AxeBuilder({ page }).withRules(auditRules);
@@ -220,6 +220,11 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
     const measurement = await page.evaluate(() => window.portalQualityVitals());
     const paintTrace = await stopTrace?.();
     stopTrace = undefined;
+    const selectedLanguage = languageFilter(url, status);
+    if (selectedLanguage) {
+      const labelText = selectedLanguage === 'en' ? 'Skip to content' : 'Przejdź do treści';
+      await expect.soft(page.locator('a[href="#main"]').first(), `${label}: skip link language`).toHaveText(labelText);
+    }
     await assertKeyboard(page, label);
     const resources = await transfers();
     const totals = assertBudgets(measurement, resources, label);
