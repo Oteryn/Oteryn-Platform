@@ -894,3 +894,32 @@ async fn pg_expiry_bounds_each_ordered_batch() {
         started.elapsed()
     );
 }
+
+#[test]
+fn gm_browser_result_fixtures_match_pinned_operation_schemas() {
+    let envelope: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/admin-control-v1/result.schema.json")).unwrap();
+    let payloads: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../e2e/support/admin-control-results.json"
+    ))
+    .unwrap();
+    let world_page = json!({"worlds": [payloads["World"]], "next_cursor": null});
+    let node_page = json!({"nodes": [payloads["Node"]], "next_cursor": null});
+    for (name, value) in payloads
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(name, value)| (name.as_str(), value))
+        .chain([("WorldPage", &world_page), ("NodePage", &node_page)])
+    {
+        let schema = json!({
+            "$schema": envelope["$schema"],
+            "$defs": envelope["$defs"],
+            "$ref": format!("#/$defs/{name}"),
+        });
+        jsonschema::validator_for(&schema)
+            .unwrap()
+            .validate(value)
+            .unwrap_or_else(|error| panic!("{name} fixture: {error}"));
+    }
+}

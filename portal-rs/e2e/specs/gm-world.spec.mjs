@@ -1,3 +1,4 @@
+import {adminControlAgent, agentId, nodeId, worldId} from '../support/admin-control-fixture.mjs';
 import {test, expect} from '../fixtures.mjs';
 import {csrfRejected, submit} from '../helpers.mjs';
 import {action, query, seededStaff, unique} from '../staff-rbac-helpers.mjs';
@@ -116,4 +117,80 @@ test('ops views preserve unavailable state and CMS lifecycle records staff decis
   expect((await transition('published', 'Unauthorized publication')).status()).toBe(403);
   expect((await page.request.get(`/admin/console/access?lang=${lang}`)).status()).toBe(403);
   expect((await page.request.get(link)).status()).toBe(404);
+});
+
+test('ratified Game agent results render in every ops read view', async ({page}, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const actor = await seededStaff(page, lang, 'platform_admin');
+  await query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'", [actor]);
+  const agent = adminControlAgent();
+  const answer = async (operation, target, requestId) => {
+    const requests = await agent.poll();
+    expect(requests.length, `claimed ${operation} through mTLS`).toBe(1);
+    const [request] = requests;
+    expect(request.operation).toBe(operation);
+    expect(request.operation_version).toBe(1);
+    expect(request.kind).toBe('query');
+    expect(request.actor.admin_id).toBe(actor);
+    expect(request.target).toEqual({
+      world_id: target === worldId ? worldId : null,
+      node_id: target === worldId ? null : nodeId,
+      character_id: null,
+      account_ref: null,
+    });
+    if (requestId) expect(request.request_id).toBe(requestId);
+    expect(agent.authentic(request), 'Platform signed the claimed request').toBe(true);
+    await agent.complete(request);
+  };
+
+  await agent.connect();
+  try {
+    for (const [route, operation, target, expected] of [
+      ['/console/dashboard', 'ops.overview.get', null, '137'],
+      ['/console/worlds', 'world.list', null, `${worldId} · Verified frontier`],
+      ['/console/worlds', 'world.get', worldId, `${worldId} · Verified frontier`],
+      ['/console/nodes', 'node.list', null, 'verified-build-42'],
+      ['/console/nodes', 'node.get', nodeId, 'verified-build-42'],
+      ['/console/database', 'db.status', null, 'verified-runtime: 7'],
+      ['/console/database', 'db.migrations.list', null, '20261122004200'],
+    ]) {
+      await agent.heartbeat();
+      const params = new URLSearchParams({lang, agent: agentId});
+      if (target) params.set('target', target);
+      expect((await page.goto(`${route}?${params}`)).status()).toBe(200);
+      const form = page.locator(`main form:has(input[name=operation][value="${operation}"])`);
+      const fields = await form.evaluate(node => Object.fromEntries(new FormData(node)));
+      await csrfRejected(page, route, fields);
+      const queued = await page.request.post(route, {
+        form: fields, headers: {origin: new URL(page.url()).origin}, maxRedirects: 0,
+      });
+      expect(queued.status()).toBe(303);
+      const resultUrl = queued.headers().location;
+      const requestId = new URL(resultUrl, page.url()).searchParams.get('request');
+      expect(requestId).toMatch(/^[a-f0-9-]{36}$/);
+      await answer(operation, target, requestId);
+      expect((await page.goto(resultUrl)).status()).toBe(200);
+      const record = page.locator('main section').filter({
+        has: page.getByText(expected, {exact: true}),
+      });
+      await expect(record).toHaveCount(1);
+      await expect(record.getByText(expected, {exact: true})).toBeVisible();
+      await expect(record.getByText('verified-fixture-revision', {exact: true})).toBeVisible();
+    }
+
+    for (const [route, operation, expected] of [
+      ['/admin/console/audit', 'admin.ledger.query', 'verified-fixture-ledger'],
+      ['/admin/console/access', 'admin.policy.get', 'world.get · R0 · game.world.read'],
+    ]) {
+      await agent.heartbeat();
+      const url = `${route}?lang=${lang}`;
+      expect((await page.goto(url)).status()).toBe(200);
+      await answer(operation);
+      expect((await page.reload()).status()).toBe(200);
+      await expect(page.locator('main').getByText(expected)).toBeVisible();
+    }
+  } finally {
+    await agent.close();
+  }
 });

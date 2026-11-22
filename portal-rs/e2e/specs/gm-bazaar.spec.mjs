@@ -45,6 +45,42 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
     const post = (screen, data) => screen.request.post(route, {
       form: data, headers: {origin: new URL(screen.url()).origin}, maxRedirects: 0,
     });
+    // The public report producer remains disabled. Seed a pending Platform report
+    // for the active listing and its eligible, verified third-party reporter.
+    const seeded = await query(
+      `INSERT INTO bazaar_reports (id, listing_id, reporter, category, detail)
+       SELECT $1, listing.id, reporter.id, 'other', 'Fixture report for staff review'
+       FROM bazaar_listings listing JOIN accounts reporter ON reporter.id=$3
+       WHERE listing.id=$2 AND listing.state='active' AND listing.owner<>reporter.id
+         AND reporter.status='active' AND reporter.email_verified_at IS NOT NULL
+       RETURNING id, reporter`,
+      [report.id, id, buyer.id],
+    );
+    expect(seeded).toEqual([{id: report.id, reporter: buyer.id}]);
+    expect(requester).not.toBe(buyer.id);
+    expect((await page.reload()).status()).toBe(200);
+    const review = `${form('review')}:has(input[name=id][value="${report.id}"])`;
+    const reviewForm = page.locator(review);
+    await expect(reviewForm).toHaveCount(1);
+    const reviewFields = await reviewForm.evaluate(node => Object.fromEntries(new FormData(node)));
+    expect((await post(page, {...reviewFields, accepted: 'true', reason: ' '})).status()).toBe(422);
+    await reviewForm.locator('select[name=accepted]').selectOption('true');
+    const decisionReason = 'Confirmed the issue with the listing details';
+    await submit(page, review, {reason: decisionReason});
+    await expect(reviewForm).toHaveCount(0);
+    expect(await query(
+      'SELECT state, reviewed_by FROM bazaar_reports WHERE id=$1', [report.id],
+    )).toEqual([{state: 'accepted', reviewed_by: requester}]);
+    expect(await query(
+      "SELECT actor, before->'report' AS before, after->'report' AS after, after->>'reason' AS reason FROM audit_log WHERE action='bazaar.report.review' AND target=$1",
+      [report.id],
+    )).toEqual([{
+      actor: requester,
+      before: {state: 'pending', reviewed_by: null},
+      after: {state: 'accepted', reviewed_by: requester},
+      reason: decisionReason,
+    }]);
+
     const suspendReason = 'Suspend listing for moderation review';
     expect((await post(page, {...await fields(page, 'suspend'), listing: id, reason: ' '})).status()).toBe(422);
     expect((await post(page, {...await fields(page, 'suspend'), listing: id, reason: suspendReason.padEnd(501)})).status()).toBe(422);
