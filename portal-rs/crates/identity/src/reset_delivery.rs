@@ -3,7 +3,7 @@ use crate::{
     reset_http::text,
     worker::{Handler, HandlerFuture, Registry},
 };
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, SinglePart, Tokio1Executor};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::SinglePart};
 use oteryn_identity::{
     reset::{DeliveryKey, audit},
     verify::token_hash,

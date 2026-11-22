@@ -1,7 +1,7 @@
 //! Delivery of registration verification jobs through the existing outbox worker.
 //! Delivery is at least once: a crash after SMTP acceptance and before outbox acknowledgement can resend the message.
 use crate::worker::{Handler, HandlerFuture, Registry};
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, SinglePart, Tokio1Executor};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::SinglePart};
 use oteryn_identity::verify::token_hash;
 use sqlx::PgPool;
 use std::sync::Arc;
