@@ -296,7 +296,8 @@ pub(super) async fn persist(
             return Err(Error::InvalidInput);
         }
     }
-    if form.action == "delete" {
+    let deleting = form.action == "delete";
+    if deleting {
         if legal(slug) {
             return Err(Error::InvalidInput);
         }
@@ -332,14 +333,18 @@ pub(super) async fn persist(
                 actor: Some(context.account),
                 request_id: Uuid::now_v7(),
             },
-            action: if form.action == "delete" {
+            action: if deleting {
                 "cms.page.deleted"
             } else {
                 "cms.page.saved"
             },
             target: slug,
             before: before.unwrap_or(json!(null)),
-            after: json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date}),
+            after: if deleting {
+                serde_json::Value::Null
+            } else {
+                json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date})
+            },
         },
     )
     .await?;

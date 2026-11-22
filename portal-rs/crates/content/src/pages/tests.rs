@@ -213,6 +213,14 @@ Updated English source",
     persist_current(&pool, &auth, ctx, &slug, "en", &form).await?;
     let remaining:i64=sqlx::query_scalar("SELECT count(*) FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1 AND e.locale='en'").bind(&slug).fetch_one(&pool).await?;
     assert_eq!(remaining, 0);
+    let (before, after): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT before,after FROM audit_log WHERE action='cms.page.deleted' AND target=$1",
+    )
+    .bind(&slug)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(before["title"], "Safe title");
+    assert_eq!(after, serde_json::Value::Null);
     form.action = "save".into();
     form.published_at = "2020-01-01T00:00:00Z".into();
     persist_current(&pool, &auth, ctx, &slug, "en", &form).await?;
