@@ -295,12 +295,12 @@ async fn execute_with_deadline<A: AccountStateReader, B: Backend>(
             .map_err(|_| Error::Unavailable)?
             .map_err(commit_authorization_error)?;
     }
+    // Preparation precedes the RBAC fence, but retains its bounded lock waits.
     let mut tx = match deadline {
         Some(deadline) => deadline.begin(pool).await,
         None => pool.begin().await,
     }
     .map_err(|_| Error::Unavailable)?;
-    // Preparation precedes the RBAC fence, but retains its bounded lock waits.
     crate::rbac::mutation_budget(&mut tx)
         .await
         .map_err(|_| Error::Unavailable)?;
