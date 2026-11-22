@@ -58,7 +58,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     }
     if let Some(host) = &shell.registry.staff_host
         && chrome.signed_in()
-        && crate::session::can_link_staff_dashboard(&shell.sessions, &request).await
+        && crate::session::can_link_staff_dashboard(&shell.sessions, request.headers()).await
     {
         chrome.staff_dashboard = Some(if crate::staff_host::matches(request.headers(), host) {
             "/admin".into()

@@ -619,8 +619,8 @@ impl std::fmt::Debug for CommittedRotation {
 }
 
 /// Check dashboard-link visibility using the existing, unexpired browser session.
-pub(crate) async fn can_link_staff_dashboard(layer: &SessionLayer, request: &Request) -> bool {
-    let Ok(Some(id)) = cookie_id(request.headers()) else {
+pub(crate) async fn can_link_staff_dashboard(layer: &SessionLayer, headers: &HeaderMap) -> bool {
+    let Ok(Some(id)) = cookie_id(headers) else {
         return false;
     };
     sqlx::query_scalar(
