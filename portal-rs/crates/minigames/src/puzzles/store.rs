@@ -219,7 +219,7 @@ impl Puzzles {
                 )
                 .execute(&mut **tx)
                 .await?;
-                let day = Self::lock_read_day(&mut **tx).await?;
+                let day = Self::lock_read_day(tx).await?;
                 let rows = Self::today_rows(&mut **tx, account, day).await?;
                 let daily = self.daily_cards(rows, Some(tx)).await?;
                 oteryn_db::check_deadline(deadline)?;
