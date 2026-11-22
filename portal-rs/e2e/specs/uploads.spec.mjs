@@ -257,7 +257,7 @@ test('media pagination uses the selected language', async ({ page }, { project }
   try {
     await openMedia(page, lang);
     await expect(page.locator('main ul > li')).toHaveCount(100);
-    const next = page.getByRole('link', { name: lang === 'en' ? 'Next' : 'Następna', exact: true });
+    const next = page.getByRole('link', { name: lang === 'en' ? 'Next page' : 'Następna strona', exact: true });
     await expect(next).toHaveAttribute('href', `?page=1&lang=${lang}`);
     await next.click();
     await expect(page).toHaveURL(`${route}?page=1&lang=${lang}`);

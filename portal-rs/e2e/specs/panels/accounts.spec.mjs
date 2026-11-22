@@ -232,8 +232,8 @@ test('role grants cannot delegate an unheld permission', async ({browser}, info)
     });
     expect(expired.status()).toBe(403);
     expect(await expired.text()).toContain(locale === 'pl'
-      ? 'Potwierdź hasło przed zmianą przypisania ról.'
-      : 'Confirm your password before changing role assignments.');
+      ? 'Przed nadaniem roli potwierdź hasło na stronie ról.'
+      : 'Confirm your password from the roles page before granting a role.');
     expect(await query('SELECT 1 FROM account_roles WHERE account_id=$1', [target.id])).toHaveLength(0);
     expect(await query("SELECT 1 FROM audit_log WHERE target=$1 AND action='rbac.role.granted'", [target.id])).toHaveLength(0);
     await confirmStaffPassword(admin.page, locale, admin.password);
