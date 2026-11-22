@@ -16,8 +16,8 @@ The staff console renders localized, escaped changes from existing audit JSONB f
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T14:23:10Z
-head: e24826bc0d39b43a7925539c9ed9f25cfd8dbe99
+updated_at: 2026-11-22T15:05:35Z
+head: 80681951d06fe8e4124648d67af9bfecf0502cab
 branch: codex/feat-audit-diff
 pr: none
 status: ready
@@ -32,6 +32,7 @@ owned_paths:
   - portal-rs/e2e/specs/admin.spec.mjs
   - portal-rs/e2e/specs/staff-rbac-audit.spec.mjs
   - portal-rs/e2e/staff-rbac-helpers.mjs
+  - portal-rs/static/css/components.css
 proven:
   - audit_log already stores JSONB before and after values
   - The published F6 candidate d1bfb1c1 received two independent reviews
@@ -59,21 +60,22 @@ changed_paths:
   - portal-rs/e2e/specs/admin.spec.mjs
   - portal-rs/e2e/specs/staff-rbac-audit.spec.mjs
   - portal-rs/e2e/staff-rbac-helpers.mjs
+  - portal-rs/static/css/components.css
 validation:
-  - command: cargo fmt --all --check and Clippy with warnings denied in admin, content and support
+  - command: Focused Rust audit rendering and PostgreSQL handler tests
     result: PASS
-    evidence: Source candidate e24826bc0d39b43a7925539c9ed9f25cfd8dbe99
-  - command: Focused Rust audit, CMS and support tests
+    evidence: Fourteen tests passed on 80681951d06fe8e4124648d67af9bfecf0502cab
+  - command: Formatting and Clippy with warnings denied
     result: PASS
-    evidence: Eight audit unit tests and four PostgreSQL tests passed on e24826bc0d39b43a7925539c9ed9f25cfd8dbe99
-  - command: Playwright staff-rbac-audit.spec.mjs in pl-1440 and en-390
+    evidence: Workspace formatting and all admin targets passed on 80681951d06fe8e4124648d67af9bfecf0502cab
+  - command: Playwright admin and staff audit specs in pl-1440 and en-390
     result: PASS
-    evidence: Both projects passed against e24826bc0d39b43a7925539c9ed9f25cfd8dbe99
-  - command: Related Playwright news, role and support cases in pl-1440 and en-390
+    evidence: Both specs passed in both projects on 80681951d06fe8e4124648d67af9bfecf0502cab
+  - command: Harness readiness and account seed
     result: PASS
-    evidence: Eight cases passed against e24826bc0d39b43a7925539c9ed9f25cfd8dbe99
+    evidence: Existing harness reached readiness and created a disposable account on 80681951d06fe8e4124648d67af9bfecf0502cab
 blockers: []
-next_action: Independently re-review the F6 fixes on the published branch using the pinned validation evidence
+next_action: Independently re-review the published F6 fixes and the pinned validation evidence
 ```
 
 ## Source branch closeout
@@ -84,6 +86,4 @@ source_branch_reason: Owner requested branch publication for F6
 source_branch_evidence: The F6 branch was first published at d1bfb1c1c0097609a16c325df27732c2f6673401
 ```
 
-The checkpoint head identifies the source candidate. The documentation-only checkpoint commit follows it. [Reviewed F6 commit](https://github.com/Oteryn/Oteryn-Platform/commit/d1bfb1c1c0097609a16c325df27732c2f6673401) · [Review fixes](https://github.com/Oteryn/Oteryn-Platform/commit/e24826bc0d39b43a7925539c9ed9f25cfd8dbe99)
-
-The separate admin navigation sweep hit its time limit after successful staff authentication. The companion run uses real staff sessions created through the browser harness.
+The source candidate addresses the follow-up review of [2fc7d428](https://github.com/Oteryn/Oteryn-Platform/commit/2fc7d428697a487fb5137928ec0e7359b22c390b). The checkpoint records the [tested source commit](https://github.com/Oteryn/Oteryn-Platform/commit/80681951d06fe8e4124648d67af9bfecf0502cab). The documentation-only checkpoint commit follows it.
