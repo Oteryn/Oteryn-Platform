@@ -1,7 +1,7 @@
 // Run harness.mjs --staff-console, then from e2e/ run
 // PORTAL_E2E_ADMIN_AGENT_DIRECTORY=.harness/run npm test -- staff-console.spec.mjs
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
@@ -12,8 +12,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { SMTPServer } from 'smtp-server';
-import { localDatabaseURL } from './local-database.mjs';
+import { staffDatabaseURL } from './local-database.mjs';
 
 export const agentId = 'staff-console-e2e';
 export const worldId = '019b0760-0000-7000-8000-000000000001';
@@ -82,8 +83,7 @@ function signingBytes({ signature, ...envelope }) {
 export function staffSeedEnvironment(saved) {
   assert(saved.OTERYN_ENV === 'testing' && saved.APP_ENV === 'testing',
     'Staff console seeding requires OTERYN_ENV=testing and APP_ENV=testing');
-  const database = localDatabaseURL(saved.OTERYN_DATABASE_URL);
-  assert(database.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
+  const database = staffDatabaseURL(saved.OTERYN_DATABASE_URL);
   return {
     OTERYN_ENV: 'testing',
     APP_ENV: 'testing',
@@ -109,6 +109,27 @@ export function readStaffFixture(directory) {
   };
 }
 
+const execSeed = promisify(execFile);
+
+export async function runStaffSeed(binary, env, entity, input, timeout = 30_000) {
+  let stdout;
+  try {
+    ({ stdout } = await execSeed(binary, ['seed', entity, JSON.stringify(input)], {
+      env, timeout, killSignal: 'SIGKILL', maxBuffer: 1 << 20,
+    }));
+  } catch (error) {
+    // The subprocess error holds the command arguments and can include credentials.
+    if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error(`Portal seed ${entity} exceeded its output limit`);
+    if (error.killed) throw new Error(`Portal seed ${entity} exceeded its ${timeout} ms deadline`);
+    throw new Error(`Portal seed ${entity} failed (${error.signal ?? error.code ?? 'unknown status'})`);
+  }
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(`Portal seed ${entity} returned invalid JSON`);
+  }
+}
+
 export const startupBindConflict = 75;
 
 export async function reserveStaffPorts(signal) {
@@ -131,12 +152,26 @@ export async function reserveStaffPorts(signal) {
   return { ports, release };
 }
 
+export async function staffPortsOccupied(ports) {
+  for (const port of ports) {
+    const probe = net.createServer(socket => socket.destroy());
+    try {
+      await once(probe.listen(port, '127.0.0.1'), 'listening');
+    } catch (error) {
+      if (error.code === 'EADDRINUSE') return true;
+      throw error;
+    } finally {
+      if (probe.listening) await new Promise(resolve => probe.close(resolve));
+    }
+  }
+  return false;
+}
+
 // The browser qualification launcher already supplies a disposable database.
 // Start a separate harness so attaching an agent cannot change another spec.
 export async function startStaffConsoleHarness(databaseURL) {
   assert(databaseURL, 'Set PORTAL_E2E_ADMIN_AGENT_DIRECTORY or run browser qualification with a disposable database');
-  const adminURL = localDatabaseURL(databaseURL);
-  assert(adminURL.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
+  const adminURL = staffDatabaseURL(databaseURL);
   adminURL.pathname = '/postgres';
   for (let attempt = 1; ; attempt++) {
     try {

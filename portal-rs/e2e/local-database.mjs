@@ -1,5 +1,6 @@
 import { Socket } from 'node:net';
 import pg from 'pg';
+import { disposableDatabaseUrl } from './helpers.mjs';
 
 const loopback = new Map([
   ['localhost', '127.0.0.1'], ['127.0.0.1', '127.0.0.1'], ['::1', '::1'], ['[::1]', '::1'],
@@ -63,8 +64,16 @@ export function localDatabaseClient(url, connectionTimeoutMillis) {
   return { client, socket };
 }
 
-export function fixtureDatabasePool(connectionString) {
+export function staffDatabaseURL(connectionString) {
   const url = localDatabaseURL(connectionString);
-  if (!url.pathname.startsWith('/portal_e2e_')) throw new Error('Fixtures require a local portal_e2e_ database');
-  return new pg.Pool(pinnedConnection(url));
+  // The shared validator also restricts CLI URL options. Staff TLS settings
+  // and transport overrides have already been handled by localDatabaseURL.
+  const destination = new URL(url);
+  destination.search = '';
+  disposableDatabaseUrl({ PORTAL_E2E_DATABASE_URL: destination.href });
+  return url;
+}
+
+export function fixtureDatabasePool(connectionString) {
+  return new pg.Pool(pinnedConnection(staffDatabaseURL(connectionString)));
 }

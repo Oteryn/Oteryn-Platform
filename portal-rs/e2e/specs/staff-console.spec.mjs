@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test as base, expect } from '../fixtures.mjs';
-import { password, submit, waitForLoginBudget } from '../helpers.mjs';
-import { membership, query } from '../staff-rbac-helpers.mjs';
+import { password, submit } from '../helpers.mjs';
+import { membership, queryWith } from '../staff-rbac-helpers.mjs';
+import { fixtureDatabasePool } from '../local-database.mjs';
 import {
-  adminAgent, agentId, characterId, characterName, ledgerId, nodeId, readStaffFixture, resultRevision,
+  adminAgent, agentId, characterId, characterName, ledgerId, nodeId, readStaffFixture, resultRevision, runStaffSeed,
   startStaffConsoleHarness, worldId,
 } from '../admin-agent.mjs';
 
@@ -47,29 +47,25 @@ function harness(directory) {
   const { settings, env, seedBinary } = readStaffFixture(directory);
   return {
     ...settings,
-    databaseURL: env.OTERYN_DATABASE_URL,
-    seed(entity, input) {
-      const command = spawnSync(seedBinary, ['seed', entity, JSON.stringify(input)], { env, encoding: 'utf8' });
-      assert(command.status === 0, `Portal seed ${entity} failed (exit ${command.status})`);
-      try {
-        return JSON.parse(command.stdout);
-      } catch {
-        throw new Error(`Portal seed ${entity} returned invalid JSON`);
-      }
-    },
+    connect: () => fixtureDatabasePool(env.OTERYN_DATABASE_URL),
+    seed: (entity, input) => runStaffSeed(seedBinary, env, entity, input),
   };
 }
 
-function seedAccount(setup, lang) {
+async function seedAccount(setup, lang) {
   const account = { email: `console-${randomUUID()}@example.invalid`, password: password() };
-  const { accountId } = setup.seed('account', { ...account, locale: lang });
-  const { recoveryCodes } = setup.seed('account-mfa', { accountId, password: account.password });
+  const { accountId } = await setup.seed('account', { ...account, locale: lang });
+  const { recoveryCodes } = await setup.seed('account-mfa', { accountId, password: account.password });
   return { ...account, accountId, code: recoveryCodes[0] };
 }
 
-async function staffLogin(page, lang, account) {
+async function staffLogin(page, lang, account, connect) {
   expect((await page.goto(`/${lang}/login`)).status()).toBe(200);
-  await waitForLoginBudget();
+  await expect.poll(async () => {
+    const [budget] = await queryWith(connect,
+      "SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-login-source' AND window_start=date_trunc('minute',clock_timestamp())");
+    return Number(budget.count);
+  }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(19);
   await submit(page, 'main form', { email: account.email, password: account.password });
   await expect(page).toHaveURL(/mfa\/challenge/);
   await submit(page, 'form[action$="/mfa/challenge"]', { code: account.code });
@@ -129,15 +125,11 @@ async function invalidSelection(page, route, lang) {
 const test = base.extend({
   staffHarness: [async ({}, use) => {
     const existing = process.env.PORTAL_E2E_ADMIN_AGENT_DIRECTORY;
-    const previous = process.env.PORTAL_E2E_DATABASE_URL;
-    const managed = existing ? undefined : await startStaffConsoleHarness(previous || process.env.OTERYN_DATABASE_URL);
+    const database = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
+    const managed = existing ? undefined : await startStaffConsoleHarness(database);
     try {
-      const setup = harness(existing || managed.out);
-      process.env.PORTAL_E2E_DATABASE_URL = setup.databaseURL;
-      await use(setup);
+      await use(harness(existing || managed.out));
     } finally {
-      if (previous === undefined) delete process.env.PORTAL_E2E_DATABASE_URL;
-      else process.env.PORTAL_E2E_DATABASE_URL = previous;
       await managed?.close();
     }
   }, { scope: 'worker', timeout: 600_000 }],
@@ -160,23 +152,23 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
   const auditPage = await page.context().newPage();
   const node = { node_id: nodeId };
   try {
-    const admin = seedAccount(setup, lang);
-    const operator = seedAccount(setup, lang);
-    const support = seedAccount(setup, lang);
+    const admin = await seedAccount(setup, lang);
+    const operator = await seedAccount(setup, lang);
+    const support = await seedAccount(setup, lang);
     const actor = operator.accountId;
     // The seed CLI has no role action. Bootstrap the initial role as in
     // isolatedAdmin, then grant the restricted role through the RBAC form.
-    const granted = await query(
+    const granted = await queryWith(setup.connect,
       "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin' RETURNING account_id",
       [admin.accountId],
     );
     expect(granted).toHaveLength(1);
-    await staffLogin(managerPage, lang, admin);
-    const roles = await query("SELECT id,key FROM roles WHERE key IN ('game_support','support')");
-    await membership(managerPage, actor, roles.find(role => role.key === 'game_support').id, 'grant');
-    await membership(managerPage, support.accountId, roles.find(role => role.key === 'support').id, 'grant');
-    await staffLogin(page, lang, operator);
-    await staffLogin(deniedPage, lang, support);
+    await staffLogin(managerPage, lang, admin, setup.connect);
+    const roles = await queryWith(setup.connect, "SELECT id,key FROM roles WHERE key IN ('game_support','support')");
+    await membership(managerPage, actor, roles.find(role => role.key === 'game_support').id, 'grant', setup.connect);
+    await membership(managerPage, support.accountId, roles.find(role => role.key === 'support').id, 'grant', setup.connect);
+    await staffLogin(page, lang, operator, setup.connect);
+    await staffLogin(deniedPage, lang, support, setup.connect);
     const deniedCsrf = await deniedPage.locator('form[action$="/logout"] input[name=_csrf]').first().getAttribute('value');
     assert(deniedCsrf, 'Restricted staff session has a CSRF token');
     expect((await deniedPage.goto(url(players, { lang }))).status()).toBe(200);

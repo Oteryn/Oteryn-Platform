@@ -63,6 +63,16 @@ test('fixture pool rejects PostgreSQL connection overrides before connecting', (
   assert.throws(() => fixtureDatabasePool('postgres://localhost/postgres'), /require a local portal_e2e_ database/);
 });
 
+test('staff seeding, SQL and managed launch share the canonical database name check', async () => {
+  for (const name of ['portal_e2e_encoded%3Fname', 'portal_e2e_%41', 'portal_e2e_%23', 'portal_e2e_', 'portal_e2e_dash-name']) {
+    const dsn = 'postgres://127.0.0.1/' + name;
+    const saved = { OTERYN_ENV: 'testing', APP_ENV: 'testing', OTERYN_DATABASE_URL: dsn };
+    assert.throws(() => staffSeedEnvironment(saved), /local portal_e2e_ database/);
+    assert.throws(() => fixtureDatabasePool(dsn), /local portal_e2e_ database/);
+    await assert.rejects(startStaffConsoleHarness(dsn), /local portal_e2e_ database/);
+  }
+});
+
 test('harness shutdown waits for a stalled descendant after its group leader exits', { timeout: 20_000 }, async t => {
   const processes = new HarnessProcesses();
   const descendant = `
