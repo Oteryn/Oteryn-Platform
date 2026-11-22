@@ -101,15 +101,31 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .entry(axum::http::HeaderName::from_static(name))
                     .or_insert(axum::http::HeaderValue::from_static(value));
             }
-            replacement.headers_mut().insert(
-                header::CACHE_CONTROL,
-                axum::http::HeaderValue::from_static("no-store"),
-            );
+            if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
+                for value in response.headers().get_all(header::CACHE_CONTROL) {
+                    replacement
+                        .headers_mut()
+                        .append(header::CACHE_CONTROL, value.clone());
+                }
+            } else {
+                replacement.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("no-store"),
+                );
+            }
             response = replacement;
         }
     }
-    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
-        response.headers_mut().insert(
+    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE
+        && !response
+            .headers()
+            .get_all(header::CACHE_CONTROL)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .any(|directive| directive.trim().eq_ignore_ascii_case("no-store"))
+    {
+        response.headers_mut().append(
             header::CACHE_CONTROL,
             axum::http::HeaderValue::from_static("no-store"),
         );
@@ -475,6 +491,67 @@ mod response_tests {
         assert_eq!(html.matches("class=\"foot foot-interior\"").count(), 1);
         assert!(html.contains("components.css"));
         assert!(html.contains("<p>op-theme op-shell</p>"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unavailable_responses_preserve_cache_directives()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let app = Router::new()
+            .route(
+                "/en/analytics/data",
+                get(|| async {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        [(header::CACHE_CONTROL, "no-store, private")],
+                    )
+                }),
+            )
+            .route(
+                "/en/private",
+                get(|| async {
+                    let mut headers = axum::http::HeaderMap::new();
+                    for value in ["private", "max-age=0"] {
+                        headers.append(
+                            header::CACHE_CONTROL,
+                            header::HeaderValue::from_static(value),
+                        );
+                    }
+                    (StatusCode::SERVICE_UNAVAILABLE, headers)
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry: Registry::default(),
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        for accept in ["text/html", "application/json"] {
+            for (path, expected) in [
+                ("/en/analytics/data", &["no-store, private"][..]),
+                ("/en/private", &["private", "max-age=0", "no-store"][..]),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::get(path)
+                            .header(header::ACCEPT, accept)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                let actual = response
+                    .headers()
+                    .get_all(header::CACHE_CONTROL)
+                    .iter()
+                    .map(|value| value.to_str())
+                    .collect::<Result<Vec<_>, _>>()?;
+                assert_eq!(actual, expected);
+            }
+        }
         Ok(())
     }
 
