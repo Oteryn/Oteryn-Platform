@@ -29,18 +29,21 @@ function seedAccount(lang) {
   return {...account,id:result.accountId};
 }
 
-async function send(page,email,role,lang) {
+async function send(page,email,roles,lang) {
   const action=`${manage}?lang=${lang}`;
   const form=page.locator(`form[action="${action}"]`);
-  await csrfRejected(page,action,{email,role});
+  await csrfRejected(page,action,{email,role:roles[0].id});
   await form.getByRole('textbox').fill(email);
-  await form.getByRole('checkbox',{name:'support',exact:true}).check();
+  for(const {key} of roles) {
+    await form.getByRole('checkbox',{name:key,exact:true}).check();
+  }
   const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===manage);
   await form.getByRole('button').click();
   const result=await response;
   expect(result.status()).toBe(303);
   expect(result.headers().location).toBe(action);
-  await expect(page.locator('article').filter({hasText:email})).toContainText('support');
+  const entry=page.locator('article').filter({hasText:email});
+  for(const {key} of roles) await expect(entry).toContainText(key);
   const [invite]=await query('SELECT id FROM staff_invites WHERE email=$1',[email]);
   return invite.id;
 }
@@ -111,7 +114,7 @@ test('staff invitations reach verified registered and existing accounts through 
   try {
     const manager=seedAccount(lang);
     const existing=seedAccount(lang);
-    const [support]=await query("SELECT id FROM roles WHERE key='support'");
+    const [support]=await query("SELECT id,key FROM roles WHERE key='support'");
     // The seed CLI creates verified accounts. Assign this fixture the exact
     // initial memberships it needs to send invitations through the real panel.
     await query(
@@ -132,7 +135,7 @@ test('staff invitations reach verified registered and existing accounts through 
       name:lang==='pl' ? 'Zaproszenia do zespołu' : 'Staff invitations',exact:true,
     })).toBeVisible();
     const fresh=address();
-    const freshId=await send(admin,fresh,support.id,lang);
+    const freshId=await send(admin,fresh,[support],lang);
     const freshLink=await invitation(page,fresh,lang);
     await visit(page,freshLink,200);
     await expect(page.locator(`main a[href="/${lang}/register"]`)).toBeVisible();
@@ -163,7 +166,7 @@ test('staff invitations reach verified registered and existing accounts through 
     expect(await memberships(fresh)).toEqual(['support']);
     await visit(page,freshLink,403);
 
-    const existingId=await send(admin,existing.email,support.id,lang);
+    const existingId=await send(admin,existing.email,[support],lang);
     const existingLink=await invitation(page,existing.email,lang);
     await visit(page,existingLink,403);
     expect(await memberships(existing.email)).toEqual([]);
@@ -202,7 +205,7 @@ test('staff invitations reach verified registered and existing accounts through 
     expect((await page.goto('/admin/roles')).status()).toBe(403);
 
     const revokedEmail=address();
-    const revokedId=await send(admin,revokedEmail,support.id,lang);
+    const revokedId=await send(admin,revokedEmail,[support],lang);
     const revokedLink=await invitation(page,revokedEmail,lang);
     const revokePath=`${manage}/${revokedId}/revoke`;
     const revoked=admin.waitForResponse(r=>r.request().method()==='POST'
@@ -227,5 +230,95 @@ test('staff invitations reach verified registered and existing accounts through 
     await expectInviteQuota(page,`/${lang}/staff-invite`,{_csrf:redeemCsrf,token:'invalid'},403,'staff-invite-accept');
   } finally {
     await staff.close();
+  }
+});
+
+test('protected invitations retain queued mail until current authority and independent approval are present',async({browser,page},info)=>{
+  test.setTimeout(300_000);
+  const lang=info.project.metadata.locale;
+  const localized=`${manage}?lang=${lang}`;
+  const browserOptions={baseURL:origin(),ignoreHTTPSErrors:true,locale:lang,viewport:info.project.use.viewport};
+  const issuerContext=await browser.newContext(browserOptions);
+  const approverContext=await browser.newContext(browserOptions);
+  try {
+    const issuer=seedAccount(lang);
+    const approver=seedAccount(lang);
+    const recipient=seedAccount(lang);
+    const roles=await query("SELECT id,key FROM roles WHERE key IN ('platform_admin','support') ORDER BY key");
+    const support=roles.find(role=>role.key==='support');
+    await query(
+      'INSERT INTO account_roles(account_id,role_id) SELECT manager,role FROM unnest($1::uuid[]) manager CROSS JOIN unnest($2::uuid[]) role',
+      [[issuer.id,approver.id],roles.map(role=>role.id)],
+    );
+    const issuerPage=await issuerContext.newPage();
+    const approverPage=await approverContext.newPage();
+    for(const [actorPage,account] of [[issuerPage,issuer],[approverPage,approver],[page,recipient]]) {
+      await login(actorPage,lang,account);
+      const codes=await enrollMfa(actorPage,lang,account);
+      await loginWithRecoveryCode(actorPage,lang,account,codes[0]);
+    }
+    expect((await issuerPage.goto(localized)).status()).toBe(200);
+    const invite=await send(issuerPage,recipient.email,roles,lang);
+    const pending=issuerPage.locator('article').filter({hasText:recipient.email});
+    const approvalLink=pending.locator('a[href*="?approval="]');
+    await expect(approvalLink).toBeVisible();
+    const approvalPath=await approvalLink.getAttribute('href');
+    const csrf=await issuerPage.locator(`form[action="${localized}"] input[name="_csrf"]`).inputValue();
+    const selfApproval=await issuerPage.request.post(localized,{
+      form:{_csrf:csrf,approve:invite},headers:{origin:origin()},maxRedirects:0,
+    });
+    expect(selfApproval.status()).toBe(403);
+    const [original]=await query(
+      "SELECT o.id,o.state,o.attempts,o.run_after=i.expires_at AS waits_for_approval,i.approved_by FROM outbox o JOIN staff_invites i ON i.id::text=o.idempotency_key WHERE i.id=$1 AND o.kind='email.staff-invite'",
+      [invite],
+    );
+    expect(original).toMatchObject({state:'pending',attempts:0,waits_for_approval:true,approved_by:null});
+
+    const claimBeforeApproval=async()=>{
+      // Make this disposable job due so the real worker checks it before approval.
+      await query("UPDATE outbox SET run_after=clock_timestamp() WHERE id=$1",[original.id]);
+      await expect.poll(async()=>{
+        const [job]=await query(
+          "SELECT state,attempts,run_after>clock_timestamp() AS deferred FROM outbox WHERE id=$1",
+          [original.id],
+        );
+        return job;
+      },{timeout:30_000}).toEqual({state:'pending',attempts:0,deferred:true});
+      const mail=await page.request.get('/__mail');
+      expect(mail.status()).toBe(200);
+      const messages=await mail.json();
+      expect(messages.filter(message=>message.to.includes(recipient.email)).length).toBe(0);
+      expect(await memberships(recipient.email)).toEqual([]);
+    };
+    await query('DELETE FROM account_roles WHERE account_id=$1 AND role_id=$2',[issuer.id,support.id]);
+    await claimBeforeApproval();
+    await query('INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)',[issuer.id,support.id]);
+    await claimBeforeApproval();
+
+    expect((await approverPage.goto(approvalPath)).status()).toBe(200);
+    const approvalForm=`form[action="${localized}"]:has(input[name="approve"])`;
+    await expect(approverPage.locator(approvalForm)).toBeVisible();
+    const approvalResponse=approverPage.waitForResponse(r=>r.request().method()==='POST'
+      && new URL(r.url()).pathname===manage
+      && new URLSearchParams(r.request().postData()).has('_csrf'));
+    await submit(approverPage,approvalForm);
+    const approved=await approvalResponse;
+    expect(approved.status()).toBe(303);
+    expect(approved.headers().location).toBe(localized);
+    expect(await query('SELECT approved_by FROM staff_invites WHERE id=$1',[invite])).toEqual([{approved_by:approver.id}]);
+    const link=await invitation(page,recipient.email,lang);
+    await expect.poll(async()=>{
+      const [job]=await query('SELECT state,attempts FROM outbox WHERE id=$1',[original.id]);
+      return job;
+    }).toEqual({state:'done',attempts:1});
+    await visit(page,link,200);
+    await submit(page,`main form[action="/${lang}/staff-invite"]`);
+    await expect(page.getByText(lang==='pl' ? /Zaproszenie zostało przyjęte/ : /Invitation accepted/)).toBeVisible();
+    expect(await memberships(recipient.email)).toEqual(['platform_admin','support']);
+    expect((await page.goto('/admin/roles')).status()).toBe(200);
+    await audit(issuerPage,'staff.invite.approved',invite);
+    await audit(issuerPage,'staff.invite.accepted',invite);
+  } finally {
+    await Promise.all([issuerContext.close(),approverContext.close()]);
   }
 });
