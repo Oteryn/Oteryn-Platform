@@ -247,7 +247,15 @@ async fn ticket_queue<A: AccountStateReader, B: Backend>(
 ) -> Response {
     let lang = language(&headers);
     let (Ok(Query(paging)), Ok(Query(filter))) = (paging, filter) else {
-        return (StatusCode::BAD_REQUEST, text(lang, "error-queue-query")).into_response();
+        let mut response = shell(
+            lang,
+            format!(
+                "<p role=\"alert\">{}</p>",
+                escape(&text(lang, "error-queue-query"))
+            ),
+        );
+        *response.status_mut() = StatusCode::BAD_REQUEST;
+        return response;
     };
     queue(&s.backend, Area::Tickets, paging, filter, lang).await
 }
