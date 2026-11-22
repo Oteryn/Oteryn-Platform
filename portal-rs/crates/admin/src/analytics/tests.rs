@@ -364,10 +364,13 @@ fn panel(pool: PgPool, actor: Option<crate::web::StaffIdentity>, present: bool) 
     )
 }
 async fn get(app: Router, path: &str) -> axum::response::Response {
+    get_in_language(app, path, "en").await
+}
+async fn get_in_language(app: Router, path: &str, lang: &str) -> axum::response::Response {
     app.oneshot(
         Request::get(path)
             .header("host", "staff.test")
-            .header("accept-language", "en")
+            .header("accept-language", lang)
             .body(Body::empty())
             .unwrap(),
     )
@@ -1249,6 +1252,10 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
     .unwrap();
     for text in [
         "48210377",
+        "Key / item / currency",
+        "Source",
+        "State",
+        "Epoch / revision",
         "low-n (below five)",
         "depot source coverage not yet delivered by Game",
         "Gold in / gold out",
@@ -1288,6 +1295,54 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
         assert_eq!(group["columns"], columns);
         assert!(group["age"].is_u64());
     }
+
+    let response = get_in_language(panel(pool.clone(), Some(admin), true), &path, "pl").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let polish = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    for text in [
+        "Klucz / przedmiot / waluta",
+        "<th scope=\"col\">Źródło</th>",
+        "<th scope=\"col\">Stan</th>",
+        "Stan danych (UTC) / aktualność",
+        "Epoka / rewizja",
+        "Wpływy złota / wypływy złota",
+        "mediana ceny jednostkowej",
+        "Mała próba (poniżej pięciu)",
+        "Niekompletne: Gra nie dostarczyła jeszcze danych dla klucza depot",
+        "Widoczne",
+        "rejestr portfela Platformy",
+        "48210377",
+    ] {
+        assert!(polish.contains(text), "{text}");
+    }
+    assert!(!polish.contains("source coverage not yet delivered by Game"));
+    assert!(!polish.contains("median_unit_price"));
+    let data = path.replacen("/economy?", "/economy/data?", 1);
+    for lang in ["en", "pl"] {
+        let response = get_in_language(panel(pool.clone(), Some(admin), true), &data, lang).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let raw: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 200000).await.unwrap()).unwrap();
+        let group = &raw["groups"][0];
+        assert_eq!(group["family"], "economy_circulation_daily");
+        assert_eq!(group["columns"], "gold (end-of-day stock by location)");
+        assert_eq!(group["source"], "Game");
+        let cells = group["cells"].as_array().unwrap();
+        let depot = cells.iter().find(|cell| cell["key"] == "depot").unwrap();
+        assert_eq!(depot["state"], "incomplete");
+        assert_eq!(
+            depot["gap"],
+            "economy_circulation_daily: depot source coverage not yet delivered by Game"
+        );
+        assert!(cells.iter().any(|cell| cell["state"] == "low_n"));
+    }
+
     for query in [
         "family=characters_created_daily",
         "account=0192f4a0-7c00-7000-8000-000000000001",

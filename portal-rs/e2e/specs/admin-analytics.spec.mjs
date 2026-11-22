@@ -77,7 +77,7 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  const labels = lang === 'pl' ? {
    world: 'Świat', from: 'Od (UTC, włącznie)', to: 'Do (UTC, wyłącznie)',
    heading: 'Klucz / przedmiot / waluta', low: 'Mała próba (poniżej pięciu)',
-   gap: 'depot dane źródłowe z gry jeszcze nie dotarły', wallet: 'Księga portfela platformy',
+   gap: 'Niekompletne: Gra nie dostarczyła jeszcze danych dla klucza depot', wallet: 'rejestr portfela Platformy',
    incomplete: 'Niekompletne',
  } : {
    world: 'World', from: 'From (UTC, inclusive)', to: 'To (UTC, exclusive)',

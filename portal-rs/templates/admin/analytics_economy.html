@@ -30,16 +30,14 @@
     <h2>{{ self.group_text(group, "title") }}</h2>
     <p>{{ columns }}</p>
     {% if group.cells.is_empty() %}
-      <p role="status" data-state="{{ group.state }}">
-        {% match group.state %}
+      <p role="status" data-state="{{ group.state }}">{% match group.state %}
           {% when "available" %}{{ self.text("ops-available") }}
           {% when "expired" %}{{ self.text("ops-analytics-expired") }}
           {% else %}{{ self.text("ops-analytics-unavailable") }}
-        {% endmatch %}
-      </p>
+        {% endmatch %}</p>
       {% if group.state == "available" %}
         <p>{{ self.text("ops-analytics-cut") }} {{ group.cut }} / {{ group.age }} s.
-           {{ self.text("ops-analytics-epoch") }} {{ group.epoch }} / {{ group.revision }}.
+           {{ self.text("ops-analytics-epoch") }}: {{ group.epoch }} / {{ group.revision }}.
            {{ self.text("ops-economy-empty") }}</p>
       {% endif %}
     {% else %}
@@ -51,7 +49,7 @@
         <th scope="col">{{ self.text("ops-economy-source") }}</th>
         <th scope="col">{{ self.text("ops-status") }}</th>
         <th scope="col">{{ columns }}</th>
-        <th scope="col">{{ self.text("ops-analytics-cut") }}</th>
+        <th scope="col">{{ self.text("ops-economy-cut") }}</th>
         <th scope="col">{{ self.text("ops-analytics-epoch") }}</th>
       </tr></thead><tbody>
       {% for cell in group.cells %}
@@ -60,7 +58,7 @@
           <td>{% match cell.state.as_str() %}
             {% when "visible" %}{{ visible }}
             {% when "low_n" %}{{ low_n }}
-            {% when "incomplete" %}{{ incomplete }}. {{ group.family }}: {{ cell.key }} {{ gap }}
+            {% when "incomplete" %}{{ incomplete }}: {% if lang == "pl" %}{{ gap }} {{ cell.key }}{% else %}{{ cell.key }} {{ gap }}{% endif %}
             {% when "suppressed" %}{{ suppressed }}
             {% else %}{{ unavailable }}
           {% endmatch %}</td>

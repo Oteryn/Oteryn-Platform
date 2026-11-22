@@ -321,14 +321,6 @@ async fn execute_with_deadline<A: AccountStateReader, B: Backend>(
         crate::rbac::Error::Storage(_) => Error::Unavailable,
         _ => Error::Denied,
     })?;
-    for permission in [Permission::Access, command.area().permission()] {
-        auth.check_in(&mut tx, context, permission)
-            .await
-            .map_err(|e| match e {
-                crate::rbac::Error::Storage(_) => Error::Unavailable,
-                _ => Error::Denied,
-            })?;
-    }
     let (before, after) = backend
         .apply(&mut tx, context, id, version, command)
         .await?;

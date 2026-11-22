@@ -12,6 +12,7 @@ struct EconomyCell {
     epoch: String,
     revision: String,
 }
+
 #[derive(serde::Serialize)]
 struct Group {
     family: String,
@@ -24,6 +25,7 @@ struct Group {
     age: u64,
     cells: Vec<EconomyCell>,
 }
+
 #[derive(Template)]
 #[template(path = "admin/analytics_economy.html", config = "src/web_askama.toml")]
 struct EconomyPage {
@@ -242,5 +244,52 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     match page.render() {
         Ok(html) => Html(html).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::{EconomyPage, Group, Template};
+
+    #[test]
+    fn available_empty_game_results_use_the_page_language() -> Result<(), askama::Error> {
+        for (lang, state, revision, explanation) in [
+            (
+                "pl",
+                "Dostępne",
+                "Epoka / rewizja",
+                "Zestaw wierszy jest kompletny i pusty. Brak wiersza nie oznacza wartości zero.",
+            ),
+            (
+                "en",
+                "Available",
+                "Epoch / revision",
+                "Complete empty row set; no unlisted zero inferred.",
+            ),
+        ] {
+            let html = EconomyPage {
+                lang,
+                world: String::new(),
+                from: String::new(),
+                to: String::new(),
+                policy: "test-policy".into(),
+                groups: vec![Group {
+                    family: "economy_circulation_daily".into(),
+                    source: "Game",
+                    columns: "gold",
+                    state: "available",
+                    epoch: "1".into(),
+                    revision: "2".into(),
+                    cut: "2026-01-01T00:00:00Z".into(),
+                    age: 60,
+                    cells: vec![],
+                }],
+            }
+            .render()?;
+            assert!(html.contains(&format!("data-state=\"available\">{state}</p>")));
+            assert!(html.contains(&format!("{revision}: 1 / 2")));
+            assert!(html.contains(explanation));
+        }
+        Ok(())
     }
 }
