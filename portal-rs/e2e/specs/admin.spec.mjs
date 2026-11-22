@@ -97,50 +97,39 @@ for(const part of [0,1]) {
 test('GM console refuses platform-only staff',async({browser},info)=>{
  const lang=info.project.metadata.locale;
  const {context:staffContext,page}=await openStaff(browser,info);
- try {
-  // Opening navigation must not grant Game read permission to the bootstrap role.
-  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
-  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
-  await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{
-    const screen=await staffContext.newPage();
-    try {
-      expect((await screen.goto(`/console/dashboard?lang=${lang}`)).status()).toBe(403);
-      await expect(screen.locator('html')).toHaveAttribute('lang',lang);
-      await assertShell(screen,{status:403});
-    } finally {
-      await screen.close();
-    }
-  });
- } finally {
-  await staffContext.close();
- }
+ // Opening navigation must not grant Game read permission to the bootstrap role.
+ expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
+ expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
+ await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{
+   expect((await page.goto(`/console/dashboard?lang=${lang}`)).status()).toBe(403);
+   await expect(page.locator('html')).toHaveAttribute('lang',lang);
+   await assertShell(page,{status:403});
+ });
+ await staffContext.close();
 });
 
 test('privileged role grants and non-staff admin access are refused',async({browser},info)=>{
  test.setTimeout(150_000);
  const lang=info.project.metadata.locale;
  const {context:staffContext,page}=await openStaff(browser,info);
- const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
- try {
-   const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
-   await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
-     const db=pool();
-     try {
-       const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
-       const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-       await page.goto('/admin/roles');
-       const token=await page.locator('input[name=_csrf]').first().inputValue();
-       const fields={account:target,role,action:'grant',reason:'role_assignment'};
-       await csrfRejected(page,'/admin/roles',fields);
-       const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
-       expect(refused.status()).toBe(403);
-       expect(Number((await db.query('SELECT count(*) AS n FROM account_roles WHERE account_id=$1 AND role_id=$2',[target,role])).rows[0].n)).toBe(0);
-     }finally{await db.end();}
-   });
-   expect((await ordinary.goto('/admin')).status()).toBe(403);
-   for(const path of ['/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up','/console/dashboard','/admin/console/players']) expect((await ordinary.goto(path)).status(),path).toBe(403);
- } finally {
-  await context.close();
-  await staffContext.close();
- }
+ const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
+ await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
+   const db=pool();
+   try {
+     const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
+     const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
+     await page.goto('/admin/roles');
+     const token=await page.locator('input[name=_csrf]').first().inputValue();
+     const fields={account:target,role,action:'grant',reason:'role_assignment'};
+     await csrfRejected(page,'/admin/roles',fields);
+     const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
+     expect(refused.status()).toBe(403);
+     expect(Number((await db.query('SELECT count(*) AS n FROM account_roles WHERE account_id=$1 AND role_id=$2',[target,role])).rows[0].n)).toBe(0);
+   }finally{await db.end();}
+ });
+ expect((await ordinary.goto('/admin')).status()).toBe(403);
+ for(const path of ['/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up','/console/dashboard','/admin/console/players']) expect((await ordinary.goto(path)).status(),path).toBe(403);
+ await staffContext.close();
+ await context.close();
 });

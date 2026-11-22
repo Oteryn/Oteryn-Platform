@@ -2349,7 +2349,7 @@ async fn postgres_http_typed_account_edits_and_redacted_audit() {
             environment: "testing".into(),
             ..Default::default()
         },
-        Arc::new(devices::PlatformAuthority {
+        std::sync::Arc::new(devices::PlatformAuthority {
             oauth: config.clone(),
             projection_authority: "test".into(),
         }),
