@@ -274,6 +274,8 @@ async function start() {
     fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
     fs.chmodSync(binary, 0o755);
   }
+  binary = path.resolve(root, binary);
+  env.PORTAL_E2E_BINARY = binary;
   if (outbox) {
     env.OTERYN_SHOP_TEST_PAYMENT_KEY = crypto.randomBytes(32).toString('hex');
     env.PORTAL_E2E_OUTBOX_REPORT = path.join(out, 'report.json');

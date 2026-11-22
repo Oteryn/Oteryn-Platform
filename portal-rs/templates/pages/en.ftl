@@ -12,3 +12,7 @@ locale = Language
 create = Create or edit
 
 not-published = This page has not been published yet.
+support = Player support
+report-a-bug = Report a bug
+help-tickets = Submit a support ticket
+help-password = Recover access to your account

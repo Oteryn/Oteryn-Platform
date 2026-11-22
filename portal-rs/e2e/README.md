@@ -136,6 +136,33 @@ services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
+For the native admission refusal check, use a player-only seed plan. Set
+`PORTAL_E2E_ADMIN_DATABASE_URL` as above, then run from the repository root:
+
+```sh
+seed_plan=$(mktemp)
+node --input-type=module -e '
+  import { randomBytes } from "node:crypto";
+  import { writeFileSync } from "node:fs";
+  writeFileSync(process.argv[1], JSON.stringify({ steps: [{
+    name: "player", entity: "account",
+    args: { email: "native-refusal@example.invalid",
+      password: "Local!" + randomBytes(24).toString("hex"), locale: "en" },
+  }] }), { mode: 0o600 });
+' "$seed_plan"
+portal-rs/e2e/start.sh --seed-plan "$seed_plan"
+```
+
+Leave the harness running. In another terminal, pass the path to the report
+under its `outputDirectory` to the check:
+
+```sh
+node portal-rs/e2e/native-admission-refusals.mjs /path/to/report.json
+```
+
+The check uses the disposable database and the harness-generated credentials.
+After stopping the harness, remove the temporary seed plan.
+
 ### Seed commands
 
 `oteryn-portal seed <entity> '<json object>'` runs only with
@@ -331,3 +358,23 @@ skipped/interrupted, any test failed, or any retry occurred. REPORT.md records
 Rust acceptance and the concrete source fixes. The qualification source digest
 excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
 evidence-only commit can refer to the immutable tested source candidate.
+
+## Collection journal evidence
+
+Run both collection profiles with a locally built portal binary and the same
+disposable PostgreSQL administrator URL as the cross-repository harness.
+
+```sh
+export PORTAL_E2E_BINARY=/absolute/path/to/oteryn-portal
+node collection/run.mjs
+node collection/run.mjs --read-disabled
+```
+
+Each invocation creates its own disposable database and uses the seed CLI for
+the browser accounts. Only the collection runner enables journal ingest. Both
+profiles publish the character portfolio, inventory snapshot and bestiary
+watermark over the private mTLS listener, and check refusal for a bestiary record
+that requires the candidate catalogue mapping. The first profile checks four
+localized browser projects for unknown and then known owner-only timestamps.
+The second leaves the read flag unset and checks all four projects with evidence
+already published.
