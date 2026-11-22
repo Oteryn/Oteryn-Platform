@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { test, expect } from '@playwright/test';
@@ -231,4 +232,34 @@ test('League applies its same-origin stylesheet under CSP', async ({ page }, inf
   await checkHeaders(response, 'League stylesheet', { cache: 'public, max-age=300, must-revalidate' });
   await expect(page.locator('main.league-page section').first()).toHaveCSS('display', 'grid');
   await expect(page.locator('main.league-page')).toHaveCSS('max-width', '1440px');
+});
+
+test('unacceptable OAuth GET preserves the pending login destination', async ({ page, baseURL }, info) => {
+  const locale = info.project.metadata.locale;
+  const account = await seedAccount(locale);
+  const params = new URLSearchParams({
+    response_type: 'code', client_id: 'e2e-local',
+    redirect_uri: new URL('/__oauth/callback', baseURL).href,
+    scope: 'game:ticket', state: 'security-headers-oauth-first',
+    code_challenge: createHash('sha256').update('security headers PKCE fixture').digest('base64url'),
+    code_challenge_method: 'S256',
+  });
+  const accepted = '/oauth/authorize?' + params;
+  const html = { accept: 'text/html', 'accept-language': locale };
+  await checkRedirect(await getFromPortal(page.request, accepted, { headers: html, maxRedirects: 0 }),
+    303, '/' + locale + '/login');
+
+  params.set('state', 'security-headers-oauth-unacceptable');
+  const refused = await getFromPortal(page.request, '/oauth/authorize?' + params, {
+    headers: { ...html, accept: 'application/x-portal-e2e-unknown' }, maxRedirects: 0,
+  });
+  expect(refused.status()).toBe(406);
+  expect(refused.headers()['content-language']).toBe(locale);
+  await checkHeaders(refused, 'OAuth media refusal');
+
+  expect((await page.goto('/' + locale + '/login')).status()).toBe(200);
+  const signedIn = await signIn(page, account);
+  expect(signedIn.status()).toBe(302);
+  expect(signedIn.headers().location === accepted, 'login retained the first OAuth request').toBe(true);
+  await checkHeaders(signedIn, 'OAuth login redirect');
 });

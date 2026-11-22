@@ -119,6 +119,15 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             let oauth_mfa = oauth_mfa.clone();
             async move {
                 use axum::response::IntoResponse;
+                // Authorize is a browser GET. Negotiate before replacing the
+                // session's post-login destination or preparing browser proof.
+                if matches!(
+                    *request.method(),
+                    axum::http::Method::GET | axum::http::Method::HEAD
+                ) && let Some(response) = public_http::html_refusal(&request)
+                {
+                    return response;
+                }
                 let Some(session) = request
                     .extensions()
                     .get::<session::BrowserSession>()

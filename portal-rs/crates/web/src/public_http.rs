@@ -34,20 +34,27 @@ where
 }
 
 async fn require_html(request: Request, next: Next) -> Response {
-    if accepts_html(request.headers()) {
-        next.run(request).await
-    } else {
-        let mut response = refusal(
-            StatusCode::NOT_ACCEPTABLE,
-            request.uri().path(),
-            language(&request),
-        );
-        response.headers_mut().insert(
-            header::REFERRER_POLICY,
-            HeaderValue::from_static("no-referrer"),
-        );
+    if let Some(response) = html_refusal(&request) {
         response
+    } else {
+        next.run(request).await
     }
+}
+
+pub(crate) fn html_refusal(request: &Request) -> Option<Response> {
+    if accepts_html(request.headers()) {
+        return None;
+    }
+    let mut response = refusal(
+        StatusCode::NOT_ACCEPTABLE,
+        request.uri().path(),
+        language(request),
+    );
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    Some(response)
 }
 
 async fn policy(request: Request, next: Next) -> Response {
