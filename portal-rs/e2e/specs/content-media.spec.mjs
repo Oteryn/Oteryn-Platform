@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { query } from '../staff-rbac-helpers.mjs';
 import {
- test, expect, formFor, key, labels, localized as t, png,
+ test, expect, contentActor, formFor, key, labels, localized as t, png,
  refuse, request, send, submitForm, title, visit,
 } from '../content-helpers.mjs';
 
@@ -95,8 +95,18 @@ test('media rejects invalid uploads and serves normalized images until deletion'
  }
 });
 
-test('editorial library pagination reaches entries beyond each first-page limit', async ({content}, {project}) => {
- const { anonymous, editor } = content;
+const editorial = test.extend({
+ editor: async ({ browser }, use, { project }) => {
+  const editor = await contentActor(browser, project, 'content_editor');
+  try {
+   await use(editor);
+  } finally {
+   await editor.context.close();
+  }
+ },
+});
+
+editorial('editorial library pagination reaches entries beyond each first-page limit', async ({editor, page: publicPage}, {project}) => {
  const page = editor.page;
  const lang = project.metadata.locale;
  const prefix = key('paging');
@@ -141,8 +151,8 @@ test('editorial library pagination reaches entries beyond each first-page limit'
    [page, '/admin/announcements', 'a[href^="/admin/announcements/"][href$="/edit"]', announcements.map(row => row.id)],
    [page, '/admin/media', 'img[src^="/admin/media/"]', media.map(row => row.id)],
    [page, '/admin/events', 'a[href^="/admin/events/"][href$="/edit"]', events.map(row => row.event_id)],
-   [anonymous.page, `/${lang}/news`, `a[href^="/${lang}/news/"]`, news.map(row => row.slug)],
-   [anonymous.page, `/${lang}/events`, `a[href^="/${lang}/events/"]`, events.map(row => row.slug)],
+   [publicPage, `/${lang}/news`, `a[href^="/${lang}/news/"]`, news.map(row => row.slug)],
+   [publicPage, `/${lang}/events`, `a[href^="/${lang}/events/"]`, events.map(row => row.slug)],
   ];
   for (const [subject, path, selector, records] of cases) {
    await visit(subject, path);

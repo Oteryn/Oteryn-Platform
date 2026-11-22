@@ -27,7 +27,7 @@ export function binary(args, env = {}) {
  }
 }
 
-async function actor(browser, project, role) {
+export async function contentActor(browser, project, role) {
  const lang = project.metadata.locale;
  const context = await browser.newContext({
   baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: project.use.viewport,
@@ -147,7 +147,7 @@ export const test = base.extend({
   const subjects = {};
   try {
    for (const [name, role] of Object.entries(roles)) {
-    subjects[name] = await actor(browser, project, role);
+    subjects[name] = await contentActor(browser, project, role);
    }
    await use(subjects);
   } finally {
