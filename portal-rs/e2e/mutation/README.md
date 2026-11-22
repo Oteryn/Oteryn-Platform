@@ -47,6 +47,8 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/support/tickets/{id}/read` | Yes | Yes | Foreign player and content editor | Yes | Unread flag clears once |
 | `/{lang}/support/reports` | Yes | Yes | Anonymous, and report stays private from another player | Yes | Request-key replay |
 | `/{lang}/shop/coins` | Yes | Yes | Anonymous | Yes | Operation replay |
+| Gift code issuance | Staff form returns a coin or premium-days batch. Exactly one code and audit record persist | Yes | Player and content editor | Localized feedback for empty, overlong, malformed and out-of-range values | Matching replay returns the same batch without issuing another code |
+| Gift code redemption | Browser JSON request followed by visible wallet credit or premium end date, backed by its ledger | Yes | A valid unused code authorizes redemption. Both a different player and content editor are refused after it is consumed | Localized feedback and unchanged ledger | Replayed operation returns the first receipt and grants value once |
 | `/{lang}/shop/transfer` | Yes | Yes | Content editor with a separate wallet | Yes | One debit and one credit |
 | `/{lang}/shop/test-checkout/{intent}` (pay) | Yes | Yes | Foreign player | Yes | One event and one credit |
 | `/{lang}/shop/test-checkout/{intent}` (reject) | Yes | Yes | Foreign player | Yes | One event and zero credits |

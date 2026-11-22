@@ -2364,3 +2364,146 @@ test('other players and unrelated staff cannot name an owner in account settings
     await Promise.all(contexts.map(context => context.close()));
   }
 });
+
+for (const kind of ['coins', 'premium_days']) {
+  test(`gift issuance and redemption of ${kind} persist one audited batch and grant`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const contexts = [];
+    try {
+      const playerAccount = await seededPlayer(page, lang);
+      const actorPages = [];
+      for (const role of ['platform_admin', undefined, 'content_editor']) {
+        const context = await browser.newContext({
+          baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        });
+        contexts.push(context);
+        const screen = await context.newPage();
+        const account = await seededPlayer(screen, lang, role);
+        await screen.goto(`/${lang}/account/privacy`);
+        actorPages.push({ screen, account, csrf: (await prepare(screen, formSelector)).fields._csrf });
+      }
+      const [admin, ...wrong] = actorPages;
+      const path = `/${lang}/admin/store/codes`;
+      expect((await admin.screen.goto(path)).status()).toBe(200);
+      const now = Math.floor(Date.now() / 1000);
+      const coins = kind === 'coins';
+      const amount = coins ? 37 : 5;
+      const values = {
+        amount: String(amount), count: '1', valid_from: String(now - 60), valid_until: String(now + 3600),
+        note: `Disposable mutation matrix issuance ${randomUUID()}`,
+      };
+      await admin.screen.locator('main select[name=kind]').selectOption(kind);
+      const { url, fields } = await prepare(admin.screen, formSelector, values);
+      const batchState = () => query(
+        `SELECT b.kind,b.amount::text,b.max_per_code,b.max_per_account,b.created_by,
+           (SELECT count(*)::int FROM gift_codes WHERE batch_id=b.id) AS codes,
+           (SELECT count(*)::int FROM audit_log WHERE request_id=b.id AND action='store.codes.generated') AS audit
+         FROM code_batches b WHERE b.id=$1`,
+        [fields.request_id],
+      );
+      expect(await batchState()).toEqual([]);
+      await rejected({ page: admin.screen, url, fields, snapshot: batchState, baseline: [] });
+      for (const other of wrong) {
+        expect((await sendForm(other.screen, url, { ...fields, _csrf: other.csrf })).status()).toBe(403);
+        expect(await batchState()).toEqual([]);
+      }
+      const validation = lang === 'pl' ? 'Sprawdź żądanie i spróbuj ponownie.' : 'Check the request and try again.';
+      await invalid({
+        page: admin.screen, url, fields, message: validation, snapshot: batchState, baseline: [],
+        samples: [
+          { name: 'empty note', patch: { note: '' } },
+          { name: 'overlong note', patch: { note: 'x'.repeat(501) } },
+          { name: 'wrong amount type', patch: { amount: 'not-an-integer' } },
+          { name: 'too many codes', patch: { count: '10001' } },
+        ],
+      });
+
+      const issued = admin.screen.waitForResponse(response => response.url() === url && response.request().method() === 'POST'
+        && response.status() === 200);
+      await submit(admin.screen, formSelector, values);
+      const issuance = await (await issued).json();
+      expect(issuance.batch_id).toBe(fields.request_id);
+      expect(issuance.codes.length).toBe(1);
+      const state = [{
+        kind, amount: String(amount), max_per_code: 1, max_per_account: 1,
+        created_by: admin.account.id, codes: 1, audit: 1,
+      }];
+      expect(await batchState()).toEqual(state);
+      const repeated = await sendForm(admin.screen, url, fields);
+      expect(repeated.status()).toBe(200);
+      const repeat = await repeated.json();
+      expect(repeat.batch_id).toBe(fields.request_id);
+      expect(repeat.codes.length).toBe(0);
+      expect(await batchState()).toEqual(state);
+
+      const redemptionPath = `/${lang}/shop/codes/redeem`;
+      const profile = `/${lang}/shop/coins`;
+      expect((await page.goto(profile)).status()).toBe(200);
+      const firstPaymentForm = 'main form[action$="/shop/coins"]';
+      const csrf = (await prepare(page, firstPaymentForm)).fields._csrf;
+      const redemptionUrl = new URL(redemptionPath, page.url()).href;
+      const operation = uuid7();
+      const redeem = (screen, csrf, data) => screen.request.post(redemptionUrl, {
+        data, headers: {
+          origin: new URL(redemptionUrl).origin, 'accept-language': lang,
+          ...(csrf === undefined ? {} : { 'x-csrf-token': csrf }),
+        },
+        maxRedirects: 0,
+      });
+      const data = { code: issuance.codes[0], operation };
+      const redemptions = () => query(
+        `SELECT r.id,r.account_id,r.idempotency_key,w.available_delta::text AS credit,
+               p.duration_days AS premium_days,p.effective_until
+         FROM code_redemptions r JOIN gift_codes c ON c.id=r.code_id
+         LEFT JOIN wallet_entries w ON w.operation_id=r.id
+         LEFT JOIN premium_ledger p ON p.request_id=r.idempotency_key AND p.account_id=r.account_id
+         WHERE c.batch_id=$1 ORDER BY r.id`,
+        [fields.request_id],
+      );
+      for (const token of [undefined, 'invalid']) {
+        expect((await redeem(page, token, data)).status()).toBe(403);
+        expect(await redemptions()).toEqual([]);
+      }
+      const badInputs = [
+        { code: '' }, { code: 'x'.repeat(65) }, { code: 30 },
+        { operation: '00000000-0000-0000-0000-000000000000' },
+      ];
+      for (const [index, sample] of badInputs.entries()) {
+        const { screen, csrf: validationToken } = wrong[index % wrong.length];
+        const response = await redeem(screen, validationToken, { ...data, ...sample });
+        expect(response.status()).toBe(422);
+        expect(await response.text()).toContain(validation);
+        expect(await redemptions()).toEqual([]);
+      }
+
+      const accepted = await redeem(page, csrf, data);
+      expect(accepted.status()).toBe(200);
+      const receipt = await accepted.json();
+      expect(receipt.amount).toBe(amount);
+      const effects = await redemptions();
+      expect(effects).toEqual([{
+        id: receipt.redemption_id, account_id: playerAccount.id, idempotency_key: operation,
+        credit: coins ? String(amount) : null, premium_days: coins ? null : amount,
+        effective_until: coins ? null : expect.any(Date),
+      }]);
+      if (coins) {
+        expect((await page.goto(`/${lang}/shop/history`)).status()).toBe(200);
+        await expect(page.locator('main dl dd').first()).toHaveText(String(amount));
+      } else {
+        expect((await page.goto(`/${lang}/panel/premium`)).status()).toBe(200);
+        await expect(page.locator('main')).toContainText(effects[0].effective_until.toISOString().slice(0, 10));
+      }
+      for (const other of wrong) {
+        expect((await redeem(other.screen, other.csrf, { ...data, operation: uuid7() })).status()).toBe(403);
+        expect(await redemptions()).toEqual(effects);
+      }
+      const replay = await redeem(page, csrf, data);
+      expect(replay.status()).toBe(200);
+      expect((await replay.json()).redemption_id).toBe(receipt.redemption_id);
+      expect(await redemptions()).toEqual(effects);
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
