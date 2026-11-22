@@ -164,12 +164,15 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   expect(stepUp.status()).toBe(303);
   expect(stepUp.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
   await expect(page).toHaveURL(new RegExp(`/${lang}/account/sudo\\?return_to=export$`));
+  await submit(page, 'main form', { current_password: account.password });
+  await expect(page).toHaveURL(new URL(exportPath, page.url()).href);
+  expect((await page.request.get(exportPath)).status()).toBe(200);
+  await csrfRejected(page, exportPath);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    submit(page, 'main form', { current_password: account.password }),
+    page.locator('main form[method=post] button[type=submit]').click(),
   ]);
   expect(download.suggestedFilename()).toBe('account-data.json');
-  expect((await page.request.get(exportPath)).status()).toBe(200);
   const data = JSON.parse(readFileSync(await download.path(), 'utf8'));
   expect(data.account.id).toBe(account.id);
   expect(data.account.display_name).toBe('Żółty Lis');
