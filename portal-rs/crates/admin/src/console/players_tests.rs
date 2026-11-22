@@ -417,6 +417,8 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
         let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
         assert!(html.contains("Unavailable"), "{area}");
         assert!(html.contains("width=device-width"));
+        assert!(html.contains(r#"<nav class="op-panel" aria-label="#));
+        assert!(!html.contains("<header"));
         assert!(!html.contains("method=\"post\""));
         // Preserve a real rendered artifact for narrow viewport/accessibility checks.
         if let Ok(dir) = std::env::var("PORTAL_CONSOLE_RENDER_DIR") {

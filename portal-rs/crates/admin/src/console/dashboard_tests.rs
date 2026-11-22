@@ -309,6 +309,8 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
             assert!(html.contains("&#60;script&#62;"));
             assert!(!html.contains("<script>"));
             assert!(html.contains("width=device-width"));
+            assert!(html.contains(r#"<nav class="op-tabs" aria-label="#));
+            assert!(!html.contains("<header"));
             assert!(html.contains(r#"<label for="agent""#));
             assert!(html.contains(&format!(r#"lang="{lang}""#)));
         }
