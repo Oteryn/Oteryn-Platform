@@ -32,9 +32,9 @@ fn catalogue_name(path: &Path) -> (&str, &str, &str) {
     (prefix, lang, path.extension().unwrap().to_str().unwrap())
 }
 
-fn catalogue(path: &Path, source: &str) -> Entries {
+fn catalogue(path: &Path, source: &str, fluent: bool) -> Entries {
     let mut entries = Entries::new();
-    if path.extension().unwrap() == "ftl" {
+    if fluent {
         assert!(
             FluentResource::try_new(source.to_owned()).is_ok(),
             "invalid Fluent syntax in {path:?}"
@@ -42,11 +42,7 @@ fn catalogue(path: &Path, source: &str) -> Entries {
     }
     // Keep source text (including select variants) so the checks do not need
     // arbitrary argument values to render Fluent patterns.
-    let separator = if path.extension().unwrap() == "ftl" {
-        '='
-    } else {
-        '\t'
-    };
+    let separator = if fluent { '=' } else { '\t' };
     let mut current_key = String::new();
     let mut last_key = String::new();
     for line in source.lines().filter(|line| !line.trim().is_empty()) {
@@ -142,6 +138,29 @@ fn check_pair(location: &str, pl: Option<&str>, en: Option<&str>, errors: &mut V
     if english_sentence(pl) {
         errors.push(format!("{location}: English sentence in pl"));
     }
+}
+
+fn check_catalogues(location: &str, pl: &Entries, en: &Entries, errors: &mut Vec<String>) -> usize {
+    let keys = pl.keys().chain(en.keys()).collect::<BTreeSet<_>>();
+    for key in &keys {
+        check_pair(
+            &format!("{location}:{key}"),
+            pl.get(*key).map(String::as_str),
+            en.get(*key).map(String::as_str),
+            errors,
+        );
+    }
+    keys.len()
+}
+
+fn is_embedded_catalogue(value: &str) -> bool {
+    value.contains("\\n")
+        && value.split_once(" = ").is_some_and(|(key, _)| {
+            !key.is_empty()
+                && key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        })
 }
 
 fn template_literals(source: &str) -> Vec<(usize, bool, &str, Option<&str>)> {
@@ -270,7 +289,8 @@ fn rust_literals(source: &str) -> Vec<(String, Option<&str>, Option<&str>)> {
     let mut table = BTreeMap::<&str, (Option<&str>, Option<&str>)>::new();
     let mut start = 0;
     let mut english_flag = false;
-    for (line, code) in source.lines().enumerate() {
+    let lines: Vec<_> = source.lines().collect();
+    for (line, code) in lines.iter().enumerate() {
         let code = code.trim();
         if code.contains("match ") || code.starts_with('}') {
             for (key, (pl, en)) in std::mem::take(&mut table) {
@@ -282,14 +302,24 @@ fn rust_literals(source: &str) -> Vec<(String, Option<&str>, Option<&str>)> {
         let Some((pattern, value)) = code.split_once("=>") else {
             continue;
         };
-        let Some(value) = value
-            .trim()
-            .strip_prefix('"')
-            .and_then(|value| value.split_once('"'))
-            .map(|(value, _)| value)
-        else {
-            continue;
+        fn literal(line: &str) -> Option<&str> {
+            line.trim()
+                .strip_prefix('"')
+                .and_then(|value| value.split('"').next())
+        }
+        let value = if value.trim() == "(" {
+            // Match arms can return a locale identifier together with inline
+            // Fluent. The identifier is routing data, so select the resource.
+            lines[line + 1..]
+                .iter()
+                .take_while(|line| !line.trim_start().starts_with(')'))
+                .copied()
+                .filter_map(literal)
+                .find(|value| is_embedded_catalogue(value))
+        } else {
+            literal(value)
         };
+        let Some(value) = value else { continue };
         let pattern = pattern.trim().trim_start_matches('(').trim_end_matches(')');
         let parts = pattern.split(',').map(str::trim).collect::<Vec<_>>();
         let locale = |part| match part {
@@ -370,18 +400,15 @@ fn polish_and_english_translation_sources_stay_in_parity() {
                 if lang == "en" {
                     continue;
                 }
-                let pl = catalogue(path, &fs::read_to_string(path).unwrap());
-                let en = catalogue(&counterpart, &fs::read_to_string(&counterpart).unwrap());
-                let keys = pl.keys().chain(en.keys()).collect::<BTreeSet<_>>();
-                *counts.entry(owner(relative)).or_insert(0) += keys.len();
-                for key in keys {
-                    check_pair(
-                        &format!("{}:{key}", relative.display()),
-                        pl.get(key).map(String::as_str),
-                        en.get(key).map(String::as_str),
-                        &mut errors,
-                    );
-                }
+                let fluent = extension == "ftl";
+                let pl = catalogue(path, &fs::read_to_string(path).unwrap(), fluent);
+                let en = catalogue(
+                    &counterpart,
+                    &fs::read_to_string(&counterpart).unwrap(),
+                    fluent,
+                );
+                *counts.entry(owner(relative)).or_insert(0) +=
+                    check_catalogues(&relative.display().to_string(), &pl, &en, &mut errors);
             }
             Some("html" | "rs") => {
                 let source = fs::read_to_string(path).unwrap();
@@ -397,13 +424,26 @@ fn polish_and_english_translation_sources_stay_in_parity() {
                         .ends_with("_tests.rs")
                 {
                     for (key, pl, en) in rust_literals(&source) {
-                        *counts.entry(owner(relative)).or_insert(0) += 1;
-                        check_pair(
-                            &format!("{}:{key}", relative.display()),
-                            pl,
-                            en,
-                            &mut errors,
-                        );
+                        let location = format!("{}:{key}", relative.display());
+                        let count = if pl.is_some_and(is_embedded_catalogue)
+                            || en.is_some_and(is_embedded_catalogue)
+                        {
+                            let pl = catalogue(
+                                relative,
+                                &pl.unwrap_or_default().replace("\\n", "\n"),
+                                true,
+                            );
+                            let en = catalogue(
+                                relative,
+                                &en.unwrap_or_default().replace("\\n", "\n"),
+                                true,
+                            );
+                            check_catalogues(&location, &pl, &en, &mut errors)
+                        } else {
+                            check_pair(&location, pl, en, &mut errors);
+                            1
+                        };
+                        *counts.entry(owner(relative)).or_insert(0) += count;
                     }
                 }
                 for (line, polish_first, first, second) in template_literals(&source) {

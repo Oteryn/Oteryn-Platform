@@ -14,6 +14,13 @@ const expectations = new Map(read('route-expectations').filter(row => row.method
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const normalize = text => text.replace(/\s+/gu, ' ').trim();
 
+function readMessages(source, locale, keys, labels) {
+  for (const [, key, value] of source.matchAll(/^([\w-]+)[ \t]*=([^\n]*)$/gmu)) {
+    keys.add(key);
+    if (!/[{}]/u.test(value) && value.trim()) labels[locale].add(normalize(value));
+  }
+}
+
 function catalogues(directory, keys, labels) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const filename = path.join(directory, entry.name);
@@ -23,12 +30,16 @@ function catalogues(directory, keys, labels) {
     }
     const locale = /(?:^|[._])(pl|en)\.ftl$/u.exec(entry.name)?.[1];
     if (locale) {
-      for (const [, key, value] of fs.readFileSync(filename, 'utf8').matchAll(/^([\w-]+)[ \t]*=([^\n]*)$/gmu)) {
-        keys.add(key);
-        if (!/[{}]/u.test(value) && value.trim()) labels[locale].add(normalize(value));
-      }
+      readMessages(fs.readFileSync(filename, 'utf8'), locale, keys, labels);
     } else if (/\.(html|rs)$/u.test(entry.name)) {
       const source = fs.readFileSync(filename, 'utf8');
+      for (const [, first, a, b] of source.matchAll(/if\s+(?:lang|locale)\s*==\s*"(pl|en)"\s*\{\s*"([^"]*\\n[^"]*)"\s*\}\s*else\s*\{\s*"([^"]*\\n[^"]*)"\s*\}/gu)) {
+        readMessages(a.replaceAll('\\n', '\n'), first, keys, labels);
+        readMessages(b.replaceAll('\\n', '\n'), first === 'pl' ? 'en' : 'pl', keys, labels);
+      }
+      for (const [, locale, resource] of source.matchAll(/Locale::(?:Pl|En)\s*=>\s*\(\s*"(pl|en)"\s*,\s*"([^"]*\\n[^"]*)"/gu)) {
+        readMessages(resource.replaceAll('\\n', '\n'), locale, keys, labels);
+      }
       for (const [, first, a, b] of source.matchAll(/\{%\s*if\s+(?:chrome\.)?lang\s*==\s*"(pl|en)"\s*%\}([^{}<>]+)\{%\s*else\s*%\}([^{}<>]+)\{%\s*endif\s*%\}/gu)) {
         labels[first].add(normalize(a));
         labels[first === 'pl' ? 'en' : 'pl'].add(normalize(b));
