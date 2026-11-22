@@ -654,7 +654,12 @@ impl Service {
                     if current.is_some() {
                         return Err(StaffError::Conflict);
                     }
-                    if version != 1 || status != "active" {
+                    if version != 1
+                        || status != "active"
+                        || !oteryn_admin::support::valid_sanction_duration(
+                            expires_at - effective_at,
+                        )
+                    {
                         return Err(StaffError::Invalid);
                     }
                     command.transition("absent")?;

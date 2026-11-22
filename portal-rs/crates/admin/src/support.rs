@@ -16,6 +16,11 @@ use uuid::Uuid;
 const MAX_SANCTION_DURATION_HOURS: i64 = 8760;
 const SECONDS_PER_HOUR: i64 = 3600;
 
+/// Duration of a temporary staff sanction after resolving its effective times.
+pub fn valid_sanction_duration(seconds: i64) -> bool {
+    (SECONDS_PER_HOUR..=MAX_SANCTION_DURATION_HOURS * SECONDS_PER_HOUR).contains(&seconds)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
     Tickets,
@@ -168,7 +173,6 @@ impl Command {
                 ) && text(moderator_notes, 8000, false)
             }
             Self::Sanction {
-                create,
                 status,
                 target,
                 category,
@@ -176,6 +180,7 @@ impl Command {
                 moderator_notes,
                 effective_at,
                 expires_at,
+                ..
             } => {
                 matches!(status.as_str(), "active" | "expired" | "revoked")
                     && !target.is_nil()
@@ -184,13 +189,6 @@ impl Command {
                     && text(moderator_notes, 8000, false)
                     && *effective_at > 0
                     && expires_at > effective_at
-                    && (!create
-                        || expires_at
-                            .checked_sub(*effective_at)
-                            .is_some_and(|duration| {
-                                (SECONDS_PER_HOUR..=MAX_SANCTION_DURATION_HOURS * SECONDS_PER_HOUR)
-                                    .contains(&duration)
-                            }))
             }
             Self::Appeal {
                 appeal_status,
