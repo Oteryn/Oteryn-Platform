@@ -186,7 +186,10 @@ async fn promotion_form<A: Accounts, V: PublicViews, L: PromotionLedger>(
     Path((lang, listing)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
-    let actor = session.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
+    Locale::parse(&lang)?;
+    let Some(actor) = session.account_id().await else {
+        return Ok(Redirect::to(&format!("/{lang}/login")).into_response());
+    };
     let quote = api.promotion_quote(actor, listing).await.map_err(status)?;
     form(lang, session, "promote", Some(quote)).await
 }
