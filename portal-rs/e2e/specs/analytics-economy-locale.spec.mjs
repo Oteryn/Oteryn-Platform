@@ -1,17 +1,17 @@
 import { test, expect } from '../fixtures.mjs';
-import { seedAccount, seedEntity } from '../helpers.mjs';
+import { seedAccount, seedEntity } from '../seed-helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 
 test('economy analytics localizes the unavailable view', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   expect((await page.goto('/admin/analytics/economy')).status()).toBe(403);
 
-  const staff = seedAccount(lang);
+  const staff = await seedAccount(lang);
   await query(
     "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'",
     [staff.accountId],
   );
-  const { recoveryCodes } = seedEntity('account-mfa', {
+  const { recoveryCodes } = await seedEntity('account-mfa', {
     accountId: staff.accountId,
     password: staff.password,
   });
