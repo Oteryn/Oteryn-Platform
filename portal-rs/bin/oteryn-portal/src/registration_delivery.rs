@@ -43,13 +43,16 @@ fn mail_settings_present() -> bool {
         .any(|name| std::env::var_os(name).is_some())
 }
 
+fn required_mail_env(name: &str) -> Result<String, String> {
+    std::env::var(name).map_err(|_| format!("{name} is required and must be valid UTF-8"))
+}
+
 fn mail_transport() -> Result<Option<MailTransport>, Box<dyn std::error::Error>> {
     if !mail_settings_present() {
         return Ok(None);
     }
-    let host =
-        std::env::var("OTERYN_SMTP_HOST").map_err(|_| "registration SMTP host is required")?;
-    let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
+    let host = required_mail_env("OTERYN_SMTP_HOST")?;
+    let origin = required_mail_env("OTERYN_PUBLIC_ORIGIN")?;
     let uri: axum::http::Uri = origin
         .parse()
         .map_err(|_| "invalid registration mail origin")?;
@@ -62,11 +65,11 @@ fn mail_transport() -> Result<Option<MailTransport>, Box<dyn std::error::Error>>
     }
     let smtp = oteryn_notify::smtp::transport(
         &host,
-        std::env::var("OTERYN_SMTP_USERNAME")?,
-        std::env::var("OTERYN_SMTP_PASSWORD")?,
+        required_mail_env("OTERYN_SMTP_USERNAME")?,
+        required_mail_env("OTERYN_SMTP_PASSWORD")?,
     )
     .map_err(|_| "SMTP configuration invalid")?;
-    let from = std::env::var("OTERYN_MAIL_FROM")?
+    let from = required_mail_env("OTERYN_MAIL_FROM")?
         .parse()
         .map_err(|_| "invalid registration sender address")?;
     Ok(Some(MailTransport {

@@ -728,7 +728,12 @@ mod flag_boundary {
 
     async fn exercise_unavailable_staff_invite_delivery(pool: &PgPool) -> TestResult {
         seed_browser_accounts(pool).await?;
-        assert!(crate::registration_delivery::register(&mut Registry::default(), pool.clone()).is_err());
+        let error = crate::registration_delivery::register(&mut Registry::default(), pool.clone())
+            .expect_err("worker refuses incomplete SMTP settings");
+        assert_eq!(
+            error.to_string(),
+            "OTERYN_SMTP_PASSWORD is required and must be valid UTF-8"
+        );
         let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
             .fetch_one(pool)
             .await?;
