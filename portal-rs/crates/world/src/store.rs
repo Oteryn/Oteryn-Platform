@@ -179,10 +179,19 @@ impl WorldStore {
 
     /// Diagnostic API for trusted import/admin callers; no entity data is returned.
     pub async fn import_report(&self, id: Uuid) -> Result<Option<ImportReport>, WorldError> {
+        self.import_report_on(&self.pool, id).await
+    }
+
+    /// Read provenance on the same connection as a downstream publication.
+    pub async fn import_report_on<'e>(
+        &self,
+        executor: impl sqlx::PgExecutor<'e>,
+        id: Uuid,
+    ) -> Result<Option<ImportReport>, WorldError> {
         self.check_enabled()?;
         let row: Option<(String, String, i64, sqlx::types::Json<Vec<ImportIssue>>)> = sqlx::query_as(
             "SELECT source_commit, status, document_count, errors FROM world_versions WHERE id = $1"
-        ).bind(id).fetch_optional(&self.pool).await?;
+        ).bind(id).fetch_optional(executor).await?;
         row.map(|(source_commit, status, document_count, errors)| {
             let status = match status.as_str() {
                 "importing" => VersionStatus::Importing,

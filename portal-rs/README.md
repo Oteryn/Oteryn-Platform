@@ -16,6 +16,8 @@ OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- serve
 OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- bootstrap-intent issue --actor <staff-uuidv7> --input request.json  # operator issuer, audited, see the producer contract
 ```
 
+Daily puzzle operators use the [publication CLI and JSON format](crates/minigames/src/puzzles/README.md#publish-a-utc-day).
+
 ## Native login protocol 3 and recovery (contract §19, testing only)
 
 Gateway login contract §19 (N4P-4) runs only behind these default-off flags. Protocol 3 needs `OTERYN_ENV` `testing` or `preprod`; recovery handles also need `OTERYN_ENV=testing` (owner decision U21). Production stays refused.

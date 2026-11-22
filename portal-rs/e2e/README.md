@@ -307,6 +307,25 @@ creates the checkout through the CSRF-protected browser form, sends the signed
 test webhook, waits for the real worker and reads the credited browser balance;
 webhook and outbox replays must leave exactly one classified credit.
 
+## Daily puzzle publication
+
+Use the disposable browser launcher for its TLS SMTP sink. The spec starts a
+separate app and fresh PostgreSQL database through `harness.mjs` for each
+project, then runs the real `admin-cli`. The harness drops each project's
+database at teardown.
+
+```sh
+# From portal-rs/e2e with PORTAL_E2E_ADMIN_DATABASE_URL already set to local PostgreSQL.
+node local.mjs
+```
+
+Run the spec from a second shell in `portal-rs/e2e` with the generated environment
+and the same local `PORTAL_E2E_ADMIN_DATABASE_URL`.
+
+```sh
+node run.mjs /absolute/scratch/env.json test specs/puzzles.spec.mjs
+```
+
 ## Full shared-template matrix
 
 The original flow specs remain. `inventory.py` scans module route declarations,

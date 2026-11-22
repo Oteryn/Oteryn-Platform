@@ -15,11 +15,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
-import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
 import { localPostgresUrl } from './postgres-url.mjs';
+import { withDeadline } from './support/harness-deadline.mjs';
+import { fixtureDatabaseClaim, lockDatabaseName, removeDatabase, withAdminConnection } from './support/harness-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -48,6 +48,7 @@ const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const outbox = argv.includes('--outbox');
+const fixtureOwned = argv.includes('--fixture-owned');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -98,6 +99,20 @@ const ports = {
 };
 
 const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+
+// The isolated puzzle app uses the existing local SMTP sink for real login.
+if (argv.includes('--puzzle-browser')) {
+  for (const key of ['OTERYN_SMTP_HOST', 'OTERYN_SMTP_USERNAME', 'OTERYN_SMTP_PASSWORD',
+    'OTERYN_SMTP_FROM', 'OTERYN_MAIL_FROM', 'SSL_CERT_FILE']) {
+    if (!process.env[key]) throw new Error('Puzzle browser harness requires ' + key + ' from local.mjs');
+    testEnv[key] = process.env[key];
+  }
+  Object.assign(testEnv, {
+    OTERYN_ACCOUNT_LOGIN: 'true',
+    OTERYN_WORLD_ENABLED: 'true',
+    OTERYN_DAILY_PUZZLES_ENABLED: 'true',
+  });
+}
 
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
@@ -162,35 +177,9 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-async function withAdminConnection(operation) {
-  const socket = new Socket();
-  const admin = new pg.Client({
-    connectionString: adminURL.href,
-    stream: socket,
-    connectionTimeoutMillis: 3_000,
-    statement_timeout: 5_000,
-    query_timeout: 6_500,
-  });
-  // A disconnect can arrive between queries. An active operation rejects
-  // through its own promise, and the socket is always closed before returning.
-  admin.on('error', () => {});
-  try {
-    await admin.connect();
-    return await operation(admin);
-  } finally {
-    const ended = admin.end();
-    socket.destroy();
-    await ended;
-  }
-}
-
-// Hold the same session lock for CREATE and reconciliation. A disconnected
-// creator can still be finishing its statement when the cleanup client connects.
-function lockDatabaseName(admin) {
-  return admin.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [dbName]);
-}
 const children = new Set();
-const useProcessGroups = process.platform !== 'win32';
+// A browser fixture starts the entire harness in its own process group.
+const useProcessGroups = process.platform !== 'win32' && !fixtureOwned;
 const shutdownGraceMs = 2_000;
 
 function launch(program, args, options) {
@@ -236,52 +225,64 @@ let creation;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
-  // A signal can arrive while CREATE DATABASE is in flight.
-  await creation.catch(() => {});
-  await Promise.all([...children].map(stopChild));
-  const closeOutboxBrowser = await outboxBrowser?.catch(() => {});
-  closeOutboxBrowser?.();
+  // Wait for an in-flight CREATE while stopping services. Reconciliation
+  // requires the creator to finish and uses a separate bounded connection.
+  const [, services] = await Promise.allSettled([
+    creation,
+    withDeadline(Promise.all([
+      ...[...children].map(stopChild),
+      Promise.resolve(outboxBrowser).then(closeBrowser => closeBrowser?.()),
+    ]), 6_000, 'service shutdown timed out'),
+  ]);
+  if (services.status === 'rejected') {
+    log('failed to stop services for database', dbName);
+    code = 1;
+  }
   if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
-      await withAdminConnection(async admin => {
-        await lockDatabaseName(admin);
-        await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
-      });
+      await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName));
     } catch {
       log('failed to reconcile disposable database', dbName);
       code = 1;
     }
   }
+  if (code !== 0) log('harness failed for database', dbName);
   process.exit(code);
 }
 process.on('SIGINT', () => close(0));
 process.on('SIGTERM', () => close(0));
 
 async function createDatabase() {
-  await withAdminConnection(async admin => {
+  await withAdminConnection(adminURL, async admin => {
     if (closing) return;
-    await lockDatabaseName(admin);
+    await lockDatabaseName(admin, dbName);
     if (closing) return;
     const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
     if (closing) return;
     if (existing.rowCount !== 0) throw new Error('Disposable database name already exists');
+    // Persist ownership under the same lock before CREATE can have an effect.
+    const claim = path.join(out, fixtureDatabaseClaim);
+    if (fixtureOwned) fs.writeFileSync(claim, dbName, { flag: 'wx', mode: 0o600 });
     createRequested = true;
     try {
       await admin.query('CREATE DATABASE "' + dbName + '"');
     } catch (error) {
       // A definite name collision belongs to the existing database owner.
-      if (error.code === '42P04') createRequested = false;
+      if (error.code === '42P04') {
+        createRequested = false;
+        if (fixtureOwned) fs.unlinkSync(claim);
+      }
       throw error;
     }
   });
 }
+log('database', dbName);
 creation = createDatabase();
 
 async function start() {
   await creation;
   if (closing) return;
   const databaseURL = new URL(`/${dbName}`, adminURL).href;
-  log('database', dbName);
 
   // Gateway service token for the native admission listener (sha256 hex on the portal side).
   const token = crypto.randomBytes(32).toString('base64url');

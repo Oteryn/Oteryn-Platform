@@ -61,17 +61,12 @@ fn webp() -> Vec<u8> {
         .unwrap();
     bytes
 }
-fn media(version: Uuid, kind: Kind) -> Option<Media> {
+fn media(kind: Kind) -> Option<Media> {
     match kind {
         Kind::Quiz => None,
-        Kind::Monster => Some(Media {
+        Kind::Monster | Kind::Atlas => Some(Media {
             kind,
             version: COMMIT.into(),
-            bytes: webp(),
-        }),
-        Kind::Atlas => Some(Media {
-            kind,
-            version: version.to_string(),
             bytes: webp(),
         }),
     }
@@ -161,19 +156,32 @@ impl Database {
     }
     async fn publish(&self, kind: Kind) -> Result<Uuid, Error> {
         self.service
-            .publish(
-                self.today,
-                definition(self.version, kind),
-                media(self.version, kind),
-            )
+            .publish(self.today, definition(self.version, kind), media(kind))
             .await
     }
     async fn seed(&self, day: Date, kind: Kind) -> Result<Uuid, Error> {
         let id = Uuid::now_v7();
         sqlx::query("INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image) VALUES ($1,$2,$3,$4,$5,$6)")
             .bind(id).bind(day).bind(kind.key()).bind(self.version).bind(sqlx::types::Json(definition(self.version,kind)))
-            .bind(media(self.version,kind).map(|media|media.bytes)).execute(&self.pool).await?;
+            .bind(media(kind).map(|media|media.bytes)).execute(&self.pool).await?;
         Ok(id)
+    }
+    async fn switch_catalogue(&self) -> Result<Uuid, sqlx::Error> {
+        let next_version = Uuid::now_v7();
+        sqlx::query("INSERT INTO world_versions (id, source_commit, status) VALUES ($1, repeat('b', 40), 'ready')")
+            .bind(next_version)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("INSERT INTO world_entities (version_id, kind, key, data, publishable) SELECT $1, kind, key, data, publishable FROM world_entities WHERE version_id=$2")
+            .bind(next_version)
+            .bind(self.version)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
+            .bind(next_version)
+            .execute(&self.pool)
+            .await?;
+        Ok(next_version)
     }
     async fn close(self) -> TestResult {
         self.pool.close().await;
@@ -263,6 +271,66 @@ fn definitions_refuse_ambiguous_or_bad_input_and_badges_are_durable() {
 }
 
 #[test]
+fn choice_aliases_cannot_reference_the_same_entity() {
+    let mut quiz = definition(Uuid::now_v7(), Kind::Quiz);
+    quiz.choices[0].source.kind = "Creature".into();
+    quiz.choices[1].source.kind = "creatures".into();
+    assert!(quiz.validate_publication().is_ok());
+    quiz.choices[1].source.key = quiz.choices[0].source.key.clone();
+    assert!(quiz.validate().is_ok());
+    assert!(matches!(quiz.validate_publication(), Err(Error::Invalid)));
+}
+
+#[test]
+fn monster_publication_rejects_unknown_sprite_request_fields() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("publication.json");
+    let mut document = serde_json::json!({
+        "publication_id": Uuid::now_v7(),
+        "day": "2026-11-22",
+        "puzzles": [{
+            "definition": definition(Uuid::now_v7(), Kind::Monster),
+            "media": {
+                "kind": "monster",
+                "manifest": "sprites.json",
+                "request": { "kind": "creature", "appearance_id": 1 }
+            }
+        }]
+    });
+    for (input, pattern) in [
+        (
+            serde_json::json!({ "kind": "creature", "appearance_id": 1 }),
+            None,
+        ),
+        (
+            serde_json::json!({ "kind": "creature", "appearance_id": 1, "pattern": null }),
+            None,
+        ),
+        (
+            serde_json::json!({ "kind": "creature", "appearance_id": 1, "pattern": [1, 2, 3] }),
+            Some([1, 2, 3]),
+        ),
+    ] {
+        document["puzzles"][0]["media"]["request"] = input;
+        std::fs::write(&path, serde_json::to_vec(&document)?)?;
+        let parsed = serde_json::to_value(Publication::read(&path)?)?;
+        assert_eq!(
+            parsed["puzzles"][0]["media"]["request"],
+            serde_json::to_value(oteryn_world::sprites::Request {
+                kind: oteryn_world::sprites::Kind::Creature,
+                appearance_id: 1,
+                pattern,
+            })?
+        );
+    }
+    document["puzzles"][0]["media"]["request"] =
+        serde_json::json!({ "kind": "creature", "appearance_id": 1, "pattren": [1, 2, 3] });
+    std::fs::write(&path, serde_json::to_vec(&document)?)?;
+    assert!(matches!(Publication::read(&path), Err(Error::Invalid)));
+    Ok(())
+}
+
+#[test]
 fn media_are_verified_and_monster_pixels_are_silhouettes() -> TestResult {
     let dir = tempfile::tempdir()?;
     let bytes = webp();
@@ -301,7 +369,7 @@ fn media_are_verified_and_monster_pixels_are_silhouettes() -> TestResult {
     };
     let mut atlas = oteryn_atlas::tiles::Manifest {
         format_version: 1,
-        world_version: Uuid::now_v7().to_string(),
+        world_version: COMMIT.into(),
         floor: 7,
         tile_size: 256,
         bounds: oteryn_atlas::tiles::Bounds {
@@ -332,7 +400,7 @@ async fn postgres_publication_is_immutable_and_validates_media_and_sources() -> 
             .await,
         Err(Error::Invalid)
     ));
-    let mut stale = media(db.version, Kind::Monster).unwrap();
+    let mut stale = media(Kind::Monster).unwrap();
     stale.version = "b".repeat(40);
     assert!(matches!(
         db.service
@@ -579,6 +647,63 @@ async fn postgres_hidden_inactive_or_disabled_sources_fail_closed() -> TestResul
             .await,
         Err(Error::Disabled)
     ));
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_legacy_aliases_leave_daily_page_and_answers_available() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::query(
+        "INSERT INTO world_entities (version_id,kind,key,data,publishable)
+         VALUES ($1,'Creature','fox','{}',true)",
+    )
+    .bind(db.version)
+    .execute(&db.pool)
+    .await?;
+    db.world.allow("Creature", "fox").await?;
+
+    let other_id = db.publish(Kind::Atlas).await?;
+    let mut legacy = definition(db.version, Kind::Quiz);
+    legacy.choices[0].source.kind = "Creature".into();
+    legacy.choices[1].source.kind = "creatures".into();
+    legacy.choices[1].source.key = legacy.choices[0].source.key.clone();
+    assert!(matches!(
+        db.service.publish(db.today, legacy.clone(), None).await,
+        Err(Error::Invalid)
+    ));
+
+    // Reproduce a row written before publication started checking aliases.
+    let legacy_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO puzzles_daily (day,kind,world_version,definition)
+         VALUES ($1,'quiz',$2,$3) RETURNING id",
+    )
+    .bind(db.today)
+    .bind(db.version)
+    .bind(sqlx::types::Json(&legacy))
+    .fetch_one(&db.pool)
+    .await?;
+    let (cookie, _) = db.login().await?;
+    let response = db
+        .router()
+        .oneshot(
+            Request::get("/en/puzzles")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    for id in [legacy_id, other_id] {
+        assert!(html.contains(&format!("/en/puzzles/{id}/answer")));
+    }
+    assert!(
+        db.service
+            .answer(db.account, legacy_id, legacy.correct_choice)
+            .await?
+            .correct
+    );
     db.close().await
 }
 
@@ -1003,4 +1128,298 @@ async fn postgres_answer_retains_visibility_fence_through_commit() -> TestResult
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn postgres_publication_is_atomic_and_replays_by_id() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let bytes = webp();
+    let floor = format!("{COMMIT}/7");
+    let tile = "0/0/0.webp";
+    let manifest_path = format!("{floor}/manifest.json");
+    std::fs::create_dir_all(dir.path().join(&floor).join("0/0"))?;
+    std::fs::write(dir.path().join(&floor).join(tile), &bytes)?;
+    let manifest = serde_json::json!({
+        "format_version": 1, "world_version": COMMIT, "floor": 7, "tile_size": 256,
+        "bounds": {"min_x": 0, "min_y": 0, "max_x": 256, "max_y": 256},
+        "levels": [{"z": 0, "width": 256, "height": 256, "columns": 1, "rows": 1}],
+        "tiles": [{"path": tile, "sha256": format!("{:x}", Sha256::digest(&bytes))}]
+    });
+    let manifest_file = dir.path().join(&manifest_path);
+    std::fs::write(&manifest_file, serde_json::to_vec(&manifest)?)?;
+    let tile_response = oteryn_atlas::web::router(oteryn_atlas::web::Viewer {
+        enabled: true,
+        directory: dir.path().into(),
+        world: db.world.clone(),
+    })
+    .oneshot(Request::get(format!("/atlas/tiles/{floor}/{tile}")).body(Body::empty())?)
+    .await?;
+    assert_eq!(tile_response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(tile_response.into_body(), 1_048_576).await?,
+        bytes.as_slice()
+    );
+    let id = Uuid::now_v7();
+    let mut document = serde_json::json!({
+        "publication_id": id,
+        "day": db.today.to_string(),
+        "puzzles": [
+            {"definition": definition(db.version, Kind::Atlas),
+             "media": {"kind": "atlas", "manifest": manifest_path, "tile": tile}},
+            {"definition": definition(db.version, Kind::Quiz)}
+        ]
+    });
+    let mut wrong_version = manifest.clone();
+    wrong_version["world_version"] = db.version.to_string().into();
+    std::fs::write(&manifest_file, serde_json::to_vec(&wrong_version)?)?;
+    let prepared = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service.activate_publication(&mut tx, prepared).await,
+        Err(Error::Unavailable)
+    ));
+    tx.rollback().await?;
+    assert!(db.service.today(db.account).await?.is_empty());
+    std::fs::write(&manifest_file, serde_json::to_vec(&manifest)?)?;
+
+    document["puzzles"][1]["definition"]["choices"][0]["source"]["key"] = "hidden".into();
+
+    let prepared = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service.activate_publication(&mut tx, prepared).await,
+        Err(Error::Unavailable)
+    ));
+    tx.rollback().await?;
+    assert!(db.service.today(db.account).await?.is_empty());
+
+    document["puzzles"][1]["definition"] =
+        serde_json::to_value(definition(db.version, Kind::Quiz))?;
+    let prepared = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
+    let concurrent = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
+    // Activation can use the prepared media even if the files are retired.
+    dir.close()?;
+    let mut tx = db.pool.begin().await?;
+    let ids = db
+        .service
+        .activate_publication(&mut tx, prepared)
+        .await?
+        .unwrap();
+    tx.commit().await?;
+    assert_eq!(ids.len(), 2);
+    let stored_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM puzzles_daily WHERE publication_id=$1 ORDER BY kind")
+            .bind(id)
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(stored_ids, ids);
+    assert_eq!(db.service.image(db.account, ids[0]).await?, bytes);
+
+    // A prepared concurrent attempt must check the now-committed claim.
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service.activate_publication(&mut tx, concurrent).await?,
+        None
+    );
+    tx.commit().await?;
+
+    // A retry after the editorial assets have been retired keeps the original rows.
+    let root = std::path::Path::new("unused");
+    let replay = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service.activate_publication(&mut tx, replay).await?,
+        None
+    );
+    tx.commit().await?;
+
+    document["puzzles"][1]["definition"]["correct_choice"] = 0.into();
+    let conflict = db
+        .service
+        .prepare_publication(serde_json::from_value(document)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service.activate_publication(&mut tx, conflict).await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await?;
+    assert_eq!(db.service.today(db.account).await?.len(), 2);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_publication_rejects_mixed_catalogues_on_the_same_utc_day() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let atlas = db.publish(Kind::Atlas).await?;
+    let next_version = db.switch_catalogue().await?;
+
+    let publication_id = Uuid::now_v7();
+    let tomorrow = db.today.next_day().unwrap();
+    let document = |day: Date| -> Result<Publication, serde_json::Error> {
+        serde_json::from_value(serde_json::json!({
+            "publication_id": publication_id,
+            "day": day.to_string(),
+            "puzzles": [{"definition": definition(next_version, Kind::Quiz)}]
+        }))
+    };
+    let root = std::path::Path::new(".");
+    let prepared = db
+        .service
+        .prepare_publication(document(db.today)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service.activate_publication(&mut tx, prepared).await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await?;
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM puzzles_daily WHERE day=$1")
+        .bind(db.today)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(remaining, [atlas]);
+
+    // A different day may use the new catalogue. The refused claim rolls back.
+    let prepared = db
+        .service
+        .prepare_publication(document(tomorrow)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service
+            .activate_publication(&mut tx, prepared)
+            .await?
+            .unwrap()
+            .len(),
+        1
+    );
+    tx.commit().await?;
+
+    sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
+        .bind(db.version)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        db.service
+            .publish(
+                tomorrow,
+                definition(db.version, Kind::Atlas),
+                media(Kind::Atlas)
+            )
+            .await,
+        Err(Error::Conflict)
+    ));
+    let daily = db.service.today(db.account).await?;
+    assert_eq!(daily.len(), 1);
+    assert_eq!(daily[0].id, atlas);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_staged_publication_can_replace_stale_slots_only_before_release() -> TestResult {
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let day = db.today.next_day().unwrap();
+    let original_id = Uuid::now_v7();
+    let quiz = |publication_id, version| {
+        serde_json::from_value(serde_json::json!({
+            "publication_id": publication_id,
+            "day": day.to_string(),
+            "puzzles": [{"definition": definition(version, Kind::Quiz)}]
+        }))
+    };
+    let root = std::path::Path::new(".");
+    let original = db
+        .service
+        .prepare_publication(quiz(original_id, db.version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    let staged = db
+        .service
+        .activate_publication(&mut tx, original)
+        .await?
+        .unwrap()[0];
+    tx.commit().await?;
+
+    let next_version = db.switch_catalogue().await?;
+    assert!(db.service.today(db.account).await?.is_empty());
+    assert!(matches!(
+        db.service.answer(db.account, staged, 1).await,
+        Err(Error::NotFound)
+    ));
+    let replacement = db
+        .service
+        .prepare_publication(quiz(Uuid::now_v7(), next_version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    let released = db
+        .service
+        .activate_publication(&mut tx, replacement)
+        .await?
+        .unwrap()[0];
+    tx.commit().await?;
+    assert_ne!(released, staged);
+
+    // An old receipt stays idempotent and cannot restore its superseded slot.
+    let replay = db
+        .service
+        .prepare_publication(quiz(original_id, db.version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service.activate_publication(&mut tx, replay).await?,
+        None
+    );
+    tx.commit().await?;
+
+    let late = db
+        .service
+        .prepare_publication(quiz(Uuid::now_v7(), next_version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    db.service.activate_publication(&mut tx, late).await?;
+    test_clock::set(&db.pool, day.midnight().assume_utc()).await?;
+    let error = tx.commit().await.unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().message(),
+        "published daily puzzles are immutable"
+    );
+    let daily = db.service.today(db.account).await?;
+    assert_eq!(daily.len(), 1);
+    assert_eq!(daily[0].id, released);
+    assert!(db.service.answer(db.account, released, 1).await?.correct);
+
+    let after_release = db
+        .service
+        .prepare_publication(quiz(Uuid::now_v7(), next_version)?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service
+            .activate_publication(&mut tx, after_release)
+            .await,
+        Err(Error::Conflict)
+    ));
+    tx.rollback().await?;
+    db.close().await
 }
