@@ -541,7 +541,8 @@ impl Service {
                 create: true,
                 target,
                 ..
-            } => *target,
+            }
+            | Command::ApplySanction { target, .. } => *target,
             _ => sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
                 .bind(id)
                 .fetch_optional(&mut **tx)
@@ -597,6 +598,34 @@ impl Service {
                 return Err(StaffError::Conflict);
             }
         }
+        let timed_command;
+        let command = if let Command::ApplySanction {
+            target,
+            category,
+            public_reason,
+            moderator_notes,
+            duration_hours,
+        } = command
+        {
+            let now: i64 =
+                sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?;
+            timed_command = Command::Sanction {
+                create: true,
+                status: "active".into(),
+                target: *target,
+                category: category.clone(),
+                public_reason: public_reason.clone(),
+                moderator_notes: moderator_notes.clone(),
+                effective_at: now,
+                expires_at: now + duration_hours * 3600,
+            };
+            &timed_command
+        } else {
+            command
+        };
         let before = current.as_ref().map_or(Value::Null,|r|json!({"status":r.0,"lock_version":version,"sanction_version":r.1,"appeal_version":workflow.as_ref().map(|w|w.1),"category":r.3,"effective_at_ms":r.4,"expires_at_ms":r.5}));
         let next = match command {
             Command::Sanction {
@@ -629,8 +658,11 @@ impl Service {
                         return Err(StaffError::Invalid);
                     }
                     command.transition("absent")?;
-                    sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) VALUES($1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8)")
+                    let inserted = sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) VALUES($1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8) ON CONFLICT (id) DO NOTHING")
                         .bind(id).bind(target).bind(category).bind(public_reason.trim()).bind(moderator_notes).bind(decision.effective_at_ms).bind(decision.expires_at_ms).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                    if inserted.rows_affected() != 1 {
+                        return Err(StaffError::Conflict);
+                    }
                     crate::appeals::Appeals { enabled: true }
                         .register(tx, id, target)
                         .await
@@ -664,6 +696,16 @@ impl Service {
                     sqlx::query("UPDATE sanctions SET status=$2,public_reason=$3,moderator_notes=nullif(btrim($4),''),lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(status).bind(public_reason.trim()).bind(moderator_notes).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
                 }
                 status.clone()
+            }
+            Command::RevokeSanction { .. } => {
+                let row = current.as_ref().ok_or(StaffError::NotFound)?;
+                command.transition(&row.0)?;
+                sqlx::query("UPDATE sanctions SET status='revoked',lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1")
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?;
+                "revoked".to_owned()
             }
             Command::Appeal {
                 appeal_status,
@@ -706,7 +748,9 @@ impl Service {
             _ => return Err(StaffError::Invalid),
         };
         let body = match command {
-            Command::Sanction { public_reason, .. } => public_reason.trim().to_owned(),
+            Command::Sanction { public_reason, .. } | Command::RevokeSanction { public_reason } => {
+                public_reason.trim().to_owned()
+            }
             Command::Appeal {
                 appeal_status,
                 appeal_outcome,

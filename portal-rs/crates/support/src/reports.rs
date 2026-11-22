@@ -261,13 +261,22 @@ impl Reports {
     ) -> Result<(serde_json::Value, serde_json::Value), oteryn_admin::support::Error> {
         use oteryn_admin::support::{Command, Error as StaffError};
         self.available().map_err(|_| StaffError::NotFound)?;
-        let Command::Moderate {
-            status,
-            public_outcome,
-            moderator_notes,
-        } = command
-        else {
-            return Err(StaffError::Invalid);
+        let (status, public_outcome, moderator_notes, linked) = match command {
+            Command::Moderate {
+                status,
+                public_outcome,
+                moderator_notes,
+            } => (
+                status.as_str(),
+                public_outcome.as_str(),
+                Some(moderator_notes.as_str()),
+                None,
+            ),
+            Command::LinkSanction {
+                sanction,
+                public_outcome,
+            } => ("actioned", public_outcome.as_str(), None, Some(*sanction)),
+            _ => return Err(StaffError::Invalid),
         };
         command.validate()?;
         let (id, version) = binding;
@@ -293,17 +302,36 @@ impl Reports {
         ) {
             return Err(StaffError::Denied);
         }
-        let row: (String, i64) =
-            sqlx::query_as("SELECT status,lock_version FROM player_reports WHERE id=$1 FOR UPDATE")
-                .bind(id)
-                .fetch_one(&mut **tx)
-                .await
-                .map_err(|_| StaffError::Unavailable)?;
+        let row: (String, i64, String, String) = sqlx::query_as(
+            "SELECT status,lock_version,report_type,target_reference FROM player_reports WHERE id=$1 FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
         if row.1 != version {
             return Err(StaffError::Conflict);
         }
         command.transition(&row.0)?;
-        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=nullif(btrim($4),''),assigned_to=$5,lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
+        if let Some(sanction) = linked {
+            if row.2 != "player" {
+                return Err(StaffError::Invalid);
+            }
+            let account: Uuid = sqlx::query_scalar(
+                "SELECT account_id FROM sanctions WHERE id=$1 AND status<>'pending' FOR SHARE",
+            )
+            .bind(sanction)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|_| StaffError::Unavailable)?
+            .ok_or(StaffError::NotFound)?;
+            // When the report supplies a Platform account UUID, the link must
+            // match it. A player name remains a reference for staff to verify.
+            if row.3.parse::<Uuid>().is_ok_and(|target| target != account) {
+                return Err(StaffError::Invalid);
+            }
+        }
+        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=CASE WHEN $4::text IS NULL THEN moderator_notes ELSE nullif(btrim($4),'') END,assigned_to=$5,lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
             .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
         crate::tickets::staff::notify(
             tx,
@@ -312,9 +340,12 @@ impl Reports {
             web::moderation_notice(&locale, status, public_outcome),
         )
         .await?;
-        Ok((
-            serde_json::json!({"status":row.0,"lock_version":version}),
-            serde_json::json!({"status":status,"lock_version":version+1}),
-        ))
+        let mut before = serde_json::json!({"status":row.0,"lock_version":version});
+        let mut after = serde_json::json!({"status":status,"lock_version":version+1});
+        if let Some(sanction) = linked {
+            before["sanction_id"] = serde_json::Value::Null;
+            after["sanction_id"] = serde_json::json!(sanction);
+        }
+        Ok((before, after))
     }
 }

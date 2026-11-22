@@ -29,10 +29,30 @@ struct MessagePaging {
 #[derive(Deserialize)]
 struct Input {
     lock_version: i64,
+    reason: Option<String>,
     #[serde(rename = "_csrf", default)]
     _csrf: Option<String>,
     #[serde(flatten)]
     command: Command,
+}
+
+impl Input {
+    fn reason(&self) -> Result<&str, Error> {
+        let (reason, max) = match &self.command {
+            Command::Moderate {
+                moderator_notes, ..
+            } => (moderator_notes.as_str(), 8000),
+            Command::ApplySanction { public_reason, .. }
+            | Command::RevokeSanction { public_reason }
+            | Command::Sanction { public_reason, .. } => (public_reason.as_str(), 4000),
+            _ => (self.reason.as_deref().unwrap_or_default(), 500),
+        };
+        if super::text(reason, max, true) {
+            Ok(reason)
+        } else {
+            Err(Error::Invalid)
+        }
+    }
 }
 
 pub fn configured_router<B: Backend>(
@@ -118,8 +138,12 @@ fn area_routes<A: AccountStateReader + 'static, B: Backend>(
     } else {
         routes
     };
+    let routes = if area == Area::Tickets {
+        routes.route(base(area), get(ticket_queue::<A, B>))
+    } else {
+        routes.route(base(area), get(list::<A, B>))
+    };
     routes
-        .route(base(area), get(list::<A, B>))
         .route(
             &format!("{}/{{id}}", base(area)),
             get(show::<A, B>).post(change::<A, B>),
@@ -139,15 +163,22 @@ fn valid_record(area: Area, record: &Record) -> bool {
             Area::Enforcement => matches!(record.status.as_str(), "active" | "expired" | "revoked"),
         }
 }
-fn status(error: Error) -> Response {
-    match error {
+fn status(error: Error, lang: &str) -> Response {
+    let code = match error {
         Error::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
         Error::Denied => StatusCode::FORBIDDEN,
         Error::NotFound => StatusCode::NOT_FOUND,
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         Error::Conflict => StatusCode::CONFLICT,
-    }
-    .into_response()
+    };
+    let key = match error {
+        Error::Unavailable => "error-unavailable",
+        Error::Denied => "error-denied",
+        Error::NotFound => "error-not-found",
+        Error::Invalid => "error-invalid",
+        Error::Conflict => "error-conflict",
+    };
+    (code, text(lang, key)).into_response()
 }
 fn language(headers: &HeaderMap) -> &'static str {
     if headers
@@ -199,27 +230,96 @@ async fn list<A: AccountStateReader, B: Backend>(
     Query(paging): Query<Paging>,
     headers: HeaderMap,
 ) -> Response {
+    queue(
+        &s.backend,
+        area,
+        paging,
+        TicketFilter::default(),
+        language(&headers),
+    )
+    .await
+}
+async fn ticket_queue<A: AccountStateReader, B: Backend>(
+    State(s): State<Arc<Panel<A, B>>>,
+    Query(paging): Query<Paging>,
+    Query(filter): Query<TicketFilter>,
+    headers: HeaderMap,
+) -> Response {
+    queue(
+        &s.backend,
+        Area::Tickets,
+        paging,
+        filter,
+        language(&headers),
+    )
+    .await
+}
+
+async fn queue<B: Backend>(
+    backend: &B,
+    area: Area,
+    paging: Paging,
+    filter: TicketFilter,
+    lang: &str,
+) -> Response {
     let page = paging.page.unwrap_or(1);
-    if page == 0 || page > MAX_PAGE {
-        return status(Error::Invalid);
+    if page == 0 || page > MAX_PAGE || !filter.valid() {
+        return status(Error::Invalid, lang);
     }
-    let records = match s.backend.list(area, page).await {
+    let records = match backend.list_filtered(area, page, &filter).await {
         Ok(v) => v,
-        Err(e) => return status(e),
+        Err(e) => return status(e, lang),
     };
     if records.len() > 30 || records.iter().any(|record| !valid_record(area, record)) {
-        return status(Error::Unavailable);
+        return status(Error::Unavailable, lang);
     }
-    let lang = language(&headers);
     let has_next = if records.len() == 30 && page < MAX_PAGE {
-        match s.backend.list(area, page + 1).await {
+        match backend.list_filtered(area, page + 1, &filter).await {
             Ok(rows) => !rows.is_empty(),
-            Err(e) => return status(e),
+            Err(e) => return status(e, lang),
         }
     } else {
         false
     };
-    let mut body = String::from("<ul>");
+    let mut body = format!("<h2>{}</h2>", text(lang, area_title(area)));
+    if area == Area::Tickets {
+        body.push_str(&format!("<form method=\"get\" action=\"{}\">", base(area)));
+        body.push_str(&select(
+            lang,
+            "status",
+            TICKET_STATUSES,
+            &filter.status,
+            true,
+        ));
+        body.push_str(&select(
+            lang,
+            "category",
+            TICKET_CATEGORIES,
+            &filter.category,
+            true,
+        ));
+        body.push_str(&format!(
+            "<button class=\"op-button\" type=\"submit\">{}</button></form>",
+            text(lang, "filter")
+        ));
+    }
+    let filter_query = if filter.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "&amp;status={}&amp;category={}",
+            filter.status, filter.category
+        )
+    };
+    if !filter.is_empty() && page > 1 {
+        body.push_str(&format!(
+            "<a href=\"{}?page={}{filter_query}\">{}</a>",
+            base(area),
+            page - 1,
+            text(lang, "previous")
+        ));
+    }
+    body.push_str("<ul>");
     if area == Area::Enforcement {
         body.push_str(&format!(
             "<li><a href=\"/admin/moderation/enforcement/create\">{}</a></li>",
@@ -228,16 +328,17 @@ async fn list<A: AccountStateReader, B: Backend>(
     }
     for record in records {
         body.push_str(&format!(
-            "<li><a href=\"{}/{}\">{}</a></li>",
+            "<li><a href=\"{}/{}\">{}</a> <span>{}</span></li>",
             base(area),
             record.id,
-            escape(&record.title)
+            escape(&record.title),
+            text(lang, &record.status)
         ));
     }
     body.push_str("</ul>");
     if has_next {
         body.push_str(&format!(
-            "<a href=\"{}?page={}\">{}</a>",
+            "<a href=\"{}?page={}{filter_query}\">{}</a>",
             base(area),
             page + 1,
             text(lang, "next")
@@ -249,53 +350,108 @@ async fn show<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
     Extension(area): Extension<Area>,
     Extension(session): Extension<BrowserSession>,
+    Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     Query(paging): Query<MessagePaging>,
     headers: HeaderMap,
 ) -> Response {
+    let lang = language(&headers);
     if id.is_nil() {
-        return status(Error::Invalid);
+        return status(Error::Invalid, lang);
     }
     let record = match s.backend.load(area, id, paging.after).await {
         Ok(v) => v,
-        Err(e) => return status(e),
+        Err(e) => return status(e, lang),
     };
     if record.id != id || !valid_record(area, &record) {
-        return status(Error::Unavailable);
+        return status(Error::Unavailable, lang);
     }
-    render_record(area, record, session, headers, false).await
+    let details = match s.backend.details(area, &record).await {
+        Ok(details) => details,
+        Err(error) => return status(error, lang),
+    };
+    let can_link = area == Area::Reports
+        && matches!(record.status.as_str(), "submitted" | "reviewing")
+        && s.auth
+            .check(context, Permission::ManageSupportEnforcement)
+            .await
+            .is_ok();
+    render_record(
+        area,
+        record,
+        details,
+        session,
+        lang,
+        RecordForm::Detail { can_link },
+    )
+    .await
 }
 async fn create_page(
     Extension(session): Extension<BrowserSession>,
     headers: HeaderMap,
 ) -> Response {
+    let lang = language(&headers);
     let record = Record {
         id: Uuid::now_v7(),
         version: 1,
-        title: text(language(&headers), "create"),
+        title: text(lang, "create"),
         status: "active".into(),
         messages: vec![],
         next_message: None,
     };
-    render_record(Area::Enforcement, record, session, headers, true).await
+    render_record(
+        Area::Enforcement,
+        record,
+        Details::default(),
+        session,
+        lang,
+        RecordForm::CreateSanction,
+    )
+    .await
 }
+
+enum RecordForm {
+    CreateSanction,
+    Detail { can_link: bool },
+}
+
 async fn render_record(
     area: Area,
     record: Record,
+    details: Details,
     session: BrowserSession,
-    headers: HeaderMap,
-    create: bool,
+    lang: &str,
+    form: RecordForm,
 ) -> Response {
+    let create = matches!(form, RecordForm::CreateSanction);
     let csrf = match session.csrf_token().await {
         Ok(v) => v,
-        Err(_) => return status(Error::Unavailable),
+        Err(_) => return status(Error::Unavailable, lang),
     };
-    let lang = language(&headers);
     let mut body = format!(
-        "<h2>{}</h2><p>{}</p>",
+        "<a href=\"{}\">{}</a><h2>{}</h2>",
+        base(area),
+        text(lang, area_title(area)),
         escape(&record.title),
-        escape(&text(lang, &record.status))
     );
+    if !create {
+        body.push_str(&format!("<p>{}</p>", text(lang, &record.status)));
+    }
+    if area == Area::Tickets {
+        let assignment = details
+            .assigned_to
+            .map_or_else(|| text(lang, "unassigned"), |id| id.to_string());
+        body.push_str(&format!(
+            "<p>{} <span>{assignment}</span></p>",
+            text(lang, "assigned-to")
+        ));
+    }
+    if let Some(id) = details.linked_sanction {
+        body.push_str(&format!(
+            "<p>{} <span>{id}</span></p>",
+            text(lang, "linked-sanction")
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",
@@ -304,10 +460,10 @@ async fn render_record(
                 .map_or_else(String::new, |id| format!(" id=\"message-{id}\"")),
             text(
                 lang,
-                if message.internal {
-                    "internal"
-                } else {
-                    "public"
+                match (area, message.internal) {
+                    (_, true) => "internal",
+                    (Area::Reports, false) => "report-evidence",
+                    _ => "public",
                 }
             ),
             escape(&message.body)
@@ -323,65 +479,59 @@ async fn render_record(
         ));
     }
     let actions: &[(&str, &[&str])] = match area {
-        Area::Tickets => &[("reply", &["body"]), ("ticket_status", &["status"])],
-        Area::Reports => &[("moderate", &["status", "public_outcome", "moderator_notes"])],
+        Area::Tickets => &[
+            ("assign_ticket", &["assignee", "reason"]),
+            ("reply", &["body", "reason"]),
+            ("ticket_status", &["status", "reason"]),
+        ],
+        Area::Reports => &[
+            ("moderate", &["status", "public_outcome", "moderator_notes"]),
+            ("link_sanction", &["sanction", "public_outcome", "reason"]),
+        ],
+        Area::Enforcement if create => &[(
+            "apply_sanction",
+            &[
+                "target",
+                "category",
+                "duration_hours",
+                "public_reason",
+                "moderator_notes",
+            ],
+        )],
         Area::Enforcement => &[
-            (
-                "sanction",
-                &[
-                    "target",
-                    "category",
-                    "status",
-                    "public_reason",
-                    "moderator_notes",
-                    "effective_at",
-                    "expires_at",
-                ],
-            ),
-            ("appeal", &["appeal_status", "appeal_outcome"]),
+            ("revoke_sanction", &["public_reason"]),
+            ("appeal", &["appeal_status", "appeal_outcome", "reason"]),
         ],
     };
     for (action, fields) in actions {
-        if create && *action != "sanction" {
+        let open_ticket = matches!(
+            record.status.as_str(),
+            "open" | "waiting_staff" | "waiting_user"
+        );
+        if (matches!(*action, "assign_ticket" | "reply") && !open_ticket)
+            || (*action == "link_sanction"
+                && !matches!(form, RecordForm::Detail { can_link: true }))
+            || (*action == "revoke_sanction" && record.status != "active")
+            || (*action == "moderate" && record.status == "closed")
+        {
             continue;
         }
         body.push_str(&format!("<form method=\"post\" action=\"{}/{}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"lock_version\" value=\"{}\"><input type=\"hidden\" name=\"action\" value=\"{action}\">",base(area),record.id,escape(&csrf),record.version));
-        if *action == "sanction" {
-            body.push_str(&format!(
-                "<input type=\"hidden\" name=\"create\" value=\"{create}\">"
-            ));
-        }
         for field in *fields {
             let choices: &[&str] = match (*field, area) {
-                ("status", Area::Tickets) => &[
-                    "open",
-                    "waiting_staff",
-                    "waiting_user",
-                    "resolved",
-                    "closed",
-                ],
-                ("status", Area::Reports) => {
-                    &["submitted", "reviewing", "actioned", "rejected", "closed"]
-                }
-                ("status", Area::Enforcement) => &["active", "expired", "revoked"],
+                ("status", Area::Tickets) => TICKET_STATUSES,
+                ("status", Area::Reports) => match record.status.as_str() {
+                    "submitted" | "reviewing" => &["reviewing", "rejected", "actioned"],
+                    _ => &["closed"],
+                },
                 ("appeal_status", _) => &["reviewing", "accepted", "rejected"],
                 ("category", _) => &["warning", "restriction", "suspension"],
                 _ => &[],
             };
             if choices.is_empty() {
-                body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"8000\"></textarea></label></p>",text(lang,field)));
+                body.push_str(&form_field(lang, action, field));
             } else {
-                body.push_str(&format!(
-                    "<p><label>{}<select class=\"op-input\" name=\"{field}\">",
-                    text(lang, field)
-                ));
-                for choice in choices {
-                    body.push_str(&format!(
-                        "<option value=\"{choice}\">{}</option>",
-                        text(lang, choice)
-                    ));
-                }
-                body.push_str("</select></label></p>");
+                body.push_str(&select(lang, field, choices, &record.status, false));
             }
         }
         if *action == "reply" {
@@ -389,34 +539,121 @@ async fn render_record(
         }
         body.push_str(&format!(
             "<button class=\"op-button\" type=\"submit\">{}</button></form>",
-            text(lang, action)
+            text(lang, action),
         ));
     }
     shell(lang, body)
 }
+fn area_title(area: Area) -> &'static str {
+    match area {
+        Area::Tickets => "tickets-title",
+        Area::Reports => "reports-title",
+        Area::Enforcement => "sanctions-title",
+    }
+}
+
+fn select(lang: &str, field: &str, choices: &[&str], selected: &str, all: bool) -> String {
+    let mut html = format!(
+        "<p><label>{}<br><select class=\"op-input\" name=\"{field}\">",
+        text(lang, field),
+    );
+    if all {
+        html.push_str(&format!(
+            "<option value=\"\">{}</option>",
+            text(lang, "all")
+        ));
+    }
+    for choice in choices {
+        let attribute = if *choice == selected { " selected" } else { "" };
+        let label = match (field, *choice) {
+            ("status", "reviewing") => "escalate-report",
+            ("status", "rejected") => "dismiss-report",
+            _ => choice,
+        };
+        html.push_str(&format!(
+            "<option value=\"{choice}\"{attribute}>{}</option>",
+            text(lang, label),
+        ));
+    }
+    html.push_str("</select></label></p>");
+    html
+}
+
+fn form_field(lang: &str, action: &str, field: &str) -> String {
+    let label = match (action, field) {
+        ("moderate", "moderator_notes") => "private-reason",
+        ("revoke_sanction", "public_reason") => "revocation-reason",
+        (_, "sanction") => "sanction-id",
+        _ => field,
+    };
+    let control = match field {
+        "duration_hours" => format!(
+            "<input class=\"op-input\" type=\"number\" name=\"{field}\" min=\"1\" max=\"8760\" required>"
+        ),
+        "assignee" => {
+            "<input class=\"op-input\" name=\"assignee\" maxlength=\"36\" size=\"24\">".to_owned()
+        }
+        "sanction" | "target" => format!(
+            "<input class=\"op-input\" name=\"{field}\" maxlength=\"36\" size=\"24\" required>"
+        ),
+        _ => {
+            let max = match field {
+                "reason" => 500,
+                "body" | "moderator_notes" => 8000,
+                _ => 4000,
+            };
+            let required = if matches!(field, "body" | "reason" | "public_reason")
+                || (action == "moderate" && field == "moderator_notes")
+                || (action == "link_sanction" && field == "public_outcome")
+            {
+                " required"
+            } else {
+                ""
+            };
+            format!(
+                "<textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"{max}\"{required}></textarea>"
+            )
+        }
+    };
+    format!("<p><label>{}<br>{control}</label></p>", text(lang, label))
+}
+
 async fn change<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
     Extension(area): Extension<Area>,
     Extension(context): Extension<CheckContext>,
-    Path(id): Path<Uuid>,
-    Form(input): Form<Input>,
+    id: Result<Path<Uuid>, axum::extract::rejection::PathRejection>,
+    headers: HeaderMap,
+    input: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Response {
+    let lang = language(&headers);
+    let Ok(Path(id)) = id else {
+        return (StatusCode::BAD_REQUEST, text(lang, "error-invalid")).into_response();
+    };
+    let input = match input {
+        Ok(Form(input)) => input,
+        Err(error) => return (error.status(), text(lang, "error-invalid")).into_response(),
+    };
     if input.command.area() != area {
-        return status(Error::Invalid);
+        return status(Error::Invalid, lang);
     }
-    match execute(
+    let reason = match input.reason() {
+        Ok(reason) => reason,
+        Err(error) => return status(error, lang),
+    };
+    match execute_audited(
         &s.pool,
         &s.auth,
         &s.backend,
         context,
-        id,
-        input.lock_version,
+        (id, input.lock_version),
         &input.command,
+        Some(reason),
     )
     .await
     {
         Ok(()) => Redirect::to(&format!("{}/{id}", base(area))).into_response(),
-        Err(e) => status(e),
+        Err(e) => status(e, lang),
     }
 }
 
@@ -444,6 +681,24 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn staff_reasons_and_typed_assignments_are_checked() {
+        let input: Input = serde_urlencoded::from_str(
+            "lock_version=1&action=assign_ticket&assignee=&reason=Routing+request",
+        )
+        .unwrap();
+        assert!(matches!(
+            input.command,
+            Command::AssignTicket { assignee: None }
+        ));
+        assert_eq!(input.reason(), Ok("Routing request"));
+        let input: Input = serde_urlencoded::from_str(
+            "lock_version=1&action=ticket_status&status=closed&reason=+",
+        )
+        .unwrap();
+        assert_eq!(input.reason(), Err(Error::Invalid));
+    }
+
     #[test]
     fn localized_labels_and_escaping() {
         assert_eq!(text("en", "internal"), "Internal staff note");

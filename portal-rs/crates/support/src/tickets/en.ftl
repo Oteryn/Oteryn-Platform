@@ -27,3 +27,4 @@ notification-reply = Support replied to your ticket.
 notification-status = Your support ticket status changed.
 error = The request could not be completed. Reload the ticket and try again.
 mark-read = Mark reply as read
+reason = Staff reason (up to 500 characters)

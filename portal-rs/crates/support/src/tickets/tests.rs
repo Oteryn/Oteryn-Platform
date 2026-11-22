@@ -925,7 +925,9 @@ async fn staff_waiting_mutation_rechecks_authority(
         .extension(ConnectInfo(
             "127.0.0.1:3210".parse::<std::net::SocketAddr>()?,
         ))
-        .body(Body::from(format!("_csrf={csrf}&lock_version=1&{fields}")))?;
+        .body(Body::from(format!(
+            "_csrf={csrf}&lock_version=1&reason=Reviewed+ticket&{fields}"
+        )))?;
     let pending = tokio::spawn(async move { app.oneshot(request).await });
     // Observe the request waiting at the owner's account lock, after its
     // shared guard and pre-lock actor read have completed.

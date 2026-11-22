@@ -288,6 +288,7 @@ struct Page {
     version_text: String,
     reply_text: String,
     internal_text: String,
+    reason_text: String,
     unread_text: String,
     previous_text: String,
     next_text: String,
@@ -346,6 +347,7 @@ impl Page {
             version_text: tr("version"),
             reply_text: tr("reply"),
             internal_text: tr("internal"),
+            reason_text: tr("reason"),
             unread_text: tr("new-reply"),
             previous_text: tr("previous"),
             next_text: tr("next"),
@@ -618,6 +620,7 @@ async fn create(
 #[derive(Deserialize)]
 struct Mutation {
     lock_version: i64,
+    reason: Option<String>,
     #[serde(default)]
     body: String,
     #[serde(default)]
@@ -705,6 +708,10 @@ async fn mutate(
     {
         return e.into_response();
     }
+    let reason = form.reason.as_deref();
+    if staff.is_some() && !reason.is_some_and(|reason| valid_text(reason, 500)) {
+        return fail(Error::Invalid, &language);
+    }
     let change = if reply {
         Change::Reply {
             body: &form.body,
@@ -714,7 +721,7 @@ async fn mutate(
         Change::Status(&form.status)
     };
     match t
-        .change(account, staff, id, form.lock_version, change)
+        .change_direct(account, staff, (id, form.lock_version), change, reason)
         .await
     {
         Ok(_) => redirect(&language, staff.is_some(), id),

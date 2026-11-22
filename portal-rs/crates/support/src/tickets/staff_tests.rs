@@ -145,7 +145,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
                     "lock_version=1&action=sanction&status=active&target={owner}&category=warning&public_reason=Existing+sanction&moderator_notes=&effective_at=1794000000&expires_at=1894000000"
                 )
             } else {
-                "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes="
+                "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes=Escalated+for+review"
                     .into()
             };
             let a = concurrent_app.clone();
@@ -169,7 +169,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
                 "support/tickets",
                 ticket,
                 &format!(
-                    "lock_version={ticket_version}&action=reply&body=Concurrent+reply&internal=true"
+                    "lock_version={ticket_version}&action=reply&reason=Reviewed+ticket&body=Concurrent+reply&internal=true"
                 ),
             )
             .await
@@ -275,7 +275,8 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=1&action=reply&body=Staff+reply&internal=false".into()
+            "lock_version=1&action=reply&reason=Reviewed+ticket&body=Staff+reply&internal=false"
+                .into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -291,7 +292,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=1&action=ticket_status&status=closed".into()
+            "lock_version=1&action=ticket_status&reason=Reviewed+ticket&status=closed".into()
         )
         .await?,
         StatusCode::CONFLICT
@@ -305,7 +306,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=2&action=reply&body=Private+internal+note&internal=true".into()
+            "lock_version=2&action=reply&reason=Reviewed+ticket&body=Private+internal+note&internal=true".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -321,7 +322,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=3&action=ticket_status&status=resolved".into()
+            "lock_version=3&action=ticket_status&reason=Reviewed+ticket&status=resolved".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -341,7 +342,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/enforcement",
             sanction,
-            "lock_version=2&action=appeal&appeal_status=reviewing&appeal_outcome=".into()
+            "lock_version=2&action=appeal&reason=Reviewed+appeal&appeal_status=reviewing&appeal_outcome=".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -355,7 +356,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/enforcement",
             sanction,
-            "lock_version=4&action=appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
+            "lock_version=4&action=appeal&reason=Reviewed+appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
         )
         .await?,
         StatusCode::SERVICE_UNAVAILABLE
@@ -389,7 +390,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/enforcement",
             sanction,
-            "lock_version=4&action=appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
+            "lock_version=4&action=appeal&reason=Reviewed+appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -448,7 +449,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/reports",
             report,
-            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes="
+            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes=Moderation+complete"
                 .into()
         )
         .await?,
@@ -473,7 +474,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/reports",
             report,
-            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes="
+            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes=Moderation+complete"
                 .into()
         )
         .await?,
@@ -482,7 +483,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
     let pending = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,$2,'synthetic-hash','pending_verification','en')").bind(pending).bind(format!("{pending}@example.invalid")).execute(&pool).await?;
     let pending_report:Uuid=sqlx::query_scalar("INSERT INTO player_reports(reporter_account_id,request_key,report_type,category,target_reference) VALUES($1,$2,'player','conduct','Pending reporter') RETURNING id").bind(pending).bind(Uuid::now_v7()).fetch_one(&pool).await?;
-    assert_eq!(post("moderation/reports",pending_report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=".into()).await?,StatusCode::SEE_OTHER);
+    assert_eq!(post("moderation/reports",pending_report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=Reviewed+evidence".into()).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM notifications WHERE account_id=$1")
             .bind(pending)
