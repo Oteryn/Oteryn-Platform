@@ -177,22 +177,26 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-async function withAdminConnection(operation) {
+async function withAdminConnection(operation, { signal, statementTimeout = 5_000 } = {}) {
+  signal?.throwIfAborted();
   const socket = new Socket();
   const admin = new pg.Client({
     connectionString: adminURL.href,
     stream: socket,
     connectionTimeoutMillis: 3_000,
-    statement_timeout: 5_000,
-    query_timeout: 6_500,
+    statement_timeout: statementTimeout,
+    query_timeout: statementTimeout + 1_500,
   });
   // A disconnect can arrive between queries. An active operation rejects
   // through its own promise, and the socket is always closed before returning.
   admin.on('error', () => {});
+  const abort = () => socket.destroy();
+  signal?.addEventListener('abort', abort, { once: true });
   try {
     await admin.connect();
     return await operation(admin);
   } finally {
+    signal?.removeEventListener('abort', abort);
     const ended = admin.end();
     socket.destroy();
     await ended;
@@ -204,6 +208,26 @@ async function withAdminConnection(operation) {
 function lockDatabaseName(admin) {
   return admin.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [dbName]);
 }
+
+async function removeDatabase() {
+  const signal = AbortSignal.timeout(24_000);
+  const drop = statementTimeout => withAdminConnection(async admin => {
+    await lockDatabaseName(admin);
+    await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+    const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
+    if (existing.rowCount !== 0) throw new Error('Disposable database still exists');
+  }, { signal, statementTimeout });
+  try {
+    await drop(5_000);
+  } catch {
+    signal.throwIfAborted();
+    // A checkpoint can outlast the first statement, and a lost reply can hide
+    // a successful drop. Reconcile under the same lock on a fresh connection.
+    log('retrying disposable database cleanup', dbName);
+    await drop(15_000);
+  }
+}
+
 const children = new Set();
 const useProcessGroups = process.platform !== 'win32';
 const shutdownGraceMs = 2_000;
@@ -266,10 +290,7 @@ async function close(code = 0) {
   }
   if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
-      await withAdminConnection(async admin => {
-        await lockDatabaseName(admin);
-        await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
-      });
+      await removeDatabase();
     } catch {
       log('failed to reconcile disposable database', dbName);
       code = 1;

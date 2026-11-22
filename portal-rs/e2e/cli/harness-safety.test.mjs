@@ -254,6 +254,69 @@ test('SIGTERM reconciles a committed CREATE whose response was lost', async () =
   );
 });
 
+test('cleanup retries a lost DROP reply and verifies the database is gone', { timeout: 900_000 }, async () => {
+  let dropping = false;
+  let firstDropConnection;
+  let retryConnection;
+  let dropCommitted = false;
+  const frontendTails = new Map();
+  let backendTail = '';
+  await withPostgresProxy(
+    (index, chunk) => {
+      if (!dropping || index === firstDropConnection) return;
+      const data = (frontendTails.get(index) ?? '') + chunk.toString('latin1');
+      if (/DROP DATABASE IF EXISTS "portal_e2e_[a-f0-9]{12}"/.test(data)) {
+        if (firstDropConnection === undefined) firstDropConnection = index;
+        else retryConnection = index;
+        frontendTails.delete(index);
+      } else {
+        frontendTails.set(index, data.slice(-80));
+      }
+    },
+    (index, chunk) => {
+      if (index !== firstDropConnection) return false;
+      const data = backendTail + chunk.toString('latin1');
+      dropCommitted ||= data.includes('DROP DATABASE\0');
+      backendTail = data.slice(-32);
+      return true;
+    },
+    async (endpoint, adminURL) => {
+      const admin = new pg.Client({ connectionString: adminURL.href });
+      try {
+        await admin.connect();
+        await withHarness(endpoint, async (child, output) => {
+          const lines = createInterface({ input: child.stdout });
+          const exited = once(child, 'close');
+          let report;
+          try {
+            const [line] = await Promise.race([
+              once(lines, 'line', { signal: AbortSignal.timeout(120_000) }),
+              exited.then(() => { throw new Error('Harness exited before readiness'); }),
+            ]);
+            report = JSON.parse(line);
+          } finally {
+            lines.close();
+          }
+          assert.equal(report.status, 'ready');
+          const { database } = report;
+          assert.match(database, /^portal_e2e_[a-f0-9]{12}$/);
+          dropping = true;
+          assert.ok(child.kill('SIGTERM'));
+          const shutdown = once(child, 'close', { signal: AbortSignal.timeout(30_000) });
+          assert.deepEqual(await shutdown, [0, null]);
+          assert.ok(dropCommitted, 'PostgreSQL completed the first drop');
+          assert.ok(retryConnection > firstDropConnection, 'Cleanup retried on a fresh connection');
+          assert.ok(output().stderr.includes(`retrying disposable database cleanup ${database}`));
+          const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
+          assert.deepEqual(rows, []);
+        }, { PGSSLMODE: 'disable' });
+      } finally {
+        await admin.end();
+      }
+    },
+  );
+});
+
 test('a failing second world seed names the step and keeps input out of diagnostics', { timeout: 900_000 }, async () => {
   const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-seed-failure-'));

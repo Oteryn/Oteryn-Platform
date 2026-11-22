@@ -105,7 +105,7 @@ const test = base.extend({
       try {
         child.kill('SIGTERM');
         // Allow the harness its service and database budgets plus exit reporting.
-        const [code, signal] = await withDeadline(exited, 28_000, 'harness shutdown timed out')
+        const [code, signal] = await withDeadline(exited, 34_000, 'harness shutdown timed out')
           .catch(async error => {
             if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
               // Kill the whole fixture process group if the harness cannot
