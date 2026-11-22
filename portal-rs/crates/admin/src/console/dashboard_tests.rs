@@ -523,6 +523,8 @@ async fn postgres_binding_alerts_require_the_dedicated_permission() {
     let alarm: Uuid = sqlx::query_scalar("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','binding-fingerprint','null',$1,$2) RETURNING id")
         .bind(serde_json::json!({"authority":"oteryn:journal:primary","family":"BANK","record_id":"019a0000-0000-7000-8000-000000000008"}))
         .bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT actor,action,'second-binding',before,after,$2 FROM audit_log WHERE id=$1")
+        .bind(alarm).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
     sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','malformed-alarm','null','{}',$1)")
         .bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
     let read = |overview| {
@@ -537,6 +539,7 @@ async fn postgres_binding_alerts_require_the_dedicated_permission() {
     assert!(!denied.contains("IMMUTABLE_BINDING"));
     assert!(!denied.contains(&alarm.to_string()));
     assert!(!denied.contains("binding-fingerprint"));
+    assert!(!denied.contains("second-binding"));
 
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_admin' AND built_in")
         .bind(actor).execute(&db.pool).await.unwrap();
@@ -544,6 +547,7 @@ async fn postgres_binding_alerts_require_the_dedicated_permission() {
     assert!(page.contains("IMMUTABLE_BINDING"));
     assert!(page.contains(&alarm.to_string()));
     assert!(page.contains("binding-fingerprint"));
+    assert!(page.contains("second-binding"));
     assert!(!page.contains("malformed-alarm"));
     assert!(!body(read(false).await).await.contains(&alarm.to_string()));
     let polish = body(
@@ -555,7 +559,11 @@ async fn postgres_binding_alerts_require_the_dedicated_permission() {
     )
     .await;
     for label in ["Źródło danych", "Rodzina", "Rekord", "Powiązanie"] {
-        assert!(polish.contains(label), "missing Polish field label {label}");
+        assert_eq!(
+            polish.matches(&format!(">{label}<")).count(),
+            2,
+            "Polish field label {label}"
+        );
     }
     assert!(!polish.contains(">Authority<"));
     assert!(!polish.contains(">Binding<"));

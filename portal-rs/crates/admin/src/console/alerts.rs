@@ -33,19 +33,28 @@ async fn records(pool: &PgPool, lang: &str) -> Result<Vec<DisplayRecord>, sqlx::
     )
     .fetch_all(pool)
     .await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let labels = [
+        "alert-alarm",
+        "alert-utc",
+        "alert-authority",
+        "alert-family",
+        "alert-record",
+        "alert-binding",
+    ]
+    .map(|key| text(lang, key));
     Ok(rows
         .into_iter()
         .map(
             |(id, at, authority, family, record, binding)| DisplayRecord {
                 name: "IMMUTABLE_BINDING".into(),
-                fields: vec![
-                    (text(lang, "alert-alarm"), id),
-                    (text(lang, "alert-utc"), at),
-                    (text(lang, "alert-authority"), authority),
-                    (text(lang, "alert-family"), family),
-                    (text(lang, "alert-record"), record),
-                    (text(lang, "alert-binding"), binding),
-                ],
+                fields: labels
+                    .iter()
+                    .cloned()
+                    .zip([id, at, authority, family, record, binding])
+                    .collect(),
             },
         )
         .collect())
