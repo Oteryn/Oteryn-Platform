@@ -290,7 +290,7 @@ async fn submit(
         &session_hash,
         id,
         input.version,
-        &input.message,
+        &oteryn_web::normalize_textarea(&input.message),
         &deadline,
     )
     .await

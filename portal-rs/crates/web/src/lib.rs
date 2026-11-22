@@ -21,6 +21,11 @@ use tower_http::{
 /// Largest request body accepted by the public surface.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 
+/// Convert browser textarea line endings to LF before validating or persisting text.
+pub fn normalize_textarea(value: &str) -> String {
+    value.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 /// Shared state for every handler. Modules add their own state through extension traits.
 #[derive(Debug, Clone)]
 pub struct AppState {

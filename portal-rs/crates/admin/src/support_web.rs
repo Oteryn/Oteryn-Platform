@@ -455,10 +455,13 @@ async fn change<A: AccountStateReader, B: Backend>(
     Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
-    Form(input): Form<Input>,
+    Form(mut input): Form<Input>,
 ) -> Response {
     if input.command.area() != area {
         return status(Error::Invalid);
+    }
+    if let Command::Appeal { appeal_outcome, .. } = &mut input.command {
+        *appeal_outcome = oteryn_web::normalize_textarea(appeal_outcome);
     }
     match execute(
         &s.pool,

@@ -2,6 +2,11 @@ import { test, expect } from '../fixtures.mjs';
 import { submit } from '../helpers.mjs';
 import { action, audit, isolatedAdmin, player, query, unique } from '../staff-rbac-helpers.mjs';
 
+function atTextareaLimit(prefix) {
+  const firstLine = `${prefix}\n`;
+  return firstLine + 'Details provided. '.repeat(250).slice(0, 3999 - firstLine.length) + 'x';
+}
+
 test('players appeal their own sanctions and staff uphold or overturn them', async ({ page, browser }, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
@@ -16,8 +21,14 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
     ]) {
       const reason = unique();
       const privateNote = unique();
-      const message = `Please review <${unique()}>`;
-      const outcome = `Reviewed ${unique()}`;
+      const submittedReason = `Please review <${unique()}>`;
+      const reviewedReason = `Reviewed ${unique()}`;
+      const message = decision === 'accepted' ? atTextareaLimit(submittedReason) : submittedReason;
+      const outcome = decision === 'accepted' ? atTextareaLimit(reviewedReason) : reviewedReason;
+      if (decision === 'accepted') {
+        expect(message).toHaveLength(4000);
+        expect(outcome).toHaveLength(4000);
+      }
       expect((await staff.page.goto('/admin/moderation/enforcement/create')).status()).toBe(200);
       const now = Math.floor(Date.now() / 1000);
       await action(staff.page, 'form:has(input[value=sanction])', {
@@ -100,6 +111,8 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       await action(staff.page, 'form:has(input[value=appeal])', { appeal_status: decision, appeal_outcome: outcome });
       await expect(staff.page.locator('main')).toContainText(outcome);
       await expect(form).toHaveCount(0);
+      expect(await query('SELECT message, outcome FROM support_appeal_workflows WHERE sanction_id=$1', [id]))
+        .toEqual([{ message, outcome }]);
 
       const repeated = await staff.page.request.post(staffPath, {
         form: { ...fields, appeal_status: decision, appeal_outcome: outcome },
