@@ -608,6 +608,10 @@ async fn submit<B: Backend>(
                 },
             )
             .await?;
+        state.auth.session_in(&mut tx, actor).await?;
+        if !enforcement_step_up::confirmed(&mut tx, &session, actor.account).await? {
+            return Err(Error::StepUp);
+        }
         tx.commit().await?;
         Ok(Redirect::to(&location(&query.lang, character)))
     }

@@ -39,12 +39,14 @@ const messages = {
     unconfirmed: 'No confirmed state', applied: 'Applied in Game', refused: 'Refused by Game', revoked: 'Revoked in Game',
     invalid: 'Invalid input', missing: 'Character not found',
     conflict: 'Enforcement state changed. Reload the dossier.', denied: 'Permission denied',
+    stepUp: 'Confirm with a fresh TOTP code',
   },
   pl: {
     heading: 'Sankcje postaci', none: 'Brak', pending: 'Oczekuje na grę',
     unconfirmed: 'Brak potwierdzonego stanu', applied: 'Nałożona w grze', refused: 'Gra odmówiła', revoked: 'Cofnięta w grze',
     invalid: 'Nieprawidłowe dane', missing: 'Nie znaleziono postaci',
     conflict: 'Stan sankcji się zmienił. Odśwież widok.', denied: 'Brak uprawnień',
+    stepUp: 'Potwierdź działanie kodem TOTP',
   },
 };
 
@@ -254,6 +256,59 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
         locker.release();
         await db.end();
       }
+
+      await refreshProjection();
+      const stepUpDb = pool();
+      const publisher = await stepUpDb.connect();
+      const stepUpPath = '{admin_control_step_up,step_up_at}';
+      const [original] = (await stepUpDb.query(
+        `SELECT (data#>>$2::text[])::bigint AS verified_at FROM web_sessions
+         WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL`,
+        [gm.account.id, stepUpPath],
+      )).rows;
+      expect(original.verified_at).toBeTruthy();
+      let waiting;
+      try {
+        await publisher.query('BEGIN');
+        await publisher.query('SELECT singleton FROM support_enforcement_counter FOR UPDATE');
+        const [{ pid }] = (await publisher.query('SELECT pg_backend_pid() AS pid')).rows;
+        const [{ deadline }] = (await stepUpDb.query(
+          `UPDATE web_sessions SET data=jsonb_set(data,$2::text[],
+             to_jsonb(floor(extract(epoch FROM clock_timestamp()))::bigint-298))
+           WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL
+           RETURNING (data#>>$2::text[])::bigint+300 AS deadline`,
+          [gm.account.id, stepUpPath],
+        )).rows;
+        waiting = post(page, early.target, { ...early.fields, ...valid });
+        await expect.poll(async () => (await stepUpDb.query(
+          `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+             WHERE query='SELECT 1 FROM support_enforcement_counter WHERE singleton FOR UPDATE'
+               AND $1 = ANY (pg_blocking_pids(pid))) AS waiting`,
+          [pid],
+        )).rows[0].waiting, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
+        await expect.poll(async () => (await stepUpDb.query(
+          'SELECT extract(epoch FROM clock_timestamp()) >= $1::bigint AS expired', [deadline],
+        )).rows[0].expired, { intervals: [20, 40, 80], timeout: 2500 }).toBe(true);
+      } finally {
+        await publisher.query('ROLLBACK');
+        publisher.release();
+        try {
+          if (waiting) await refused(await waiting, 403, text.stepUp);
+        } finally {
+          await stepUpDb.query(
+            `UPDATE web_sessions SET data=jsonb_set(data,$2::text[],to_jsonb($3::bigint))
+             WHERE account_id=$1 AND data#>>$2::text[] IS NOT NULL`,
+            [gm.account.id, stepUpPath, original.verified_at],
+          );
+          await stepUpDb.end();
+        }
+      }
+      expect(await query(
+        'SELECT 1 FROM audit_log WHERE request_id=$1', [early.fields.operation],
+      )).toEqual([]);
+      expect(await query(
+        'SELECT 1 FROM support_enforcement_commands WHERE operation_id=$1', [early.fields.operation],
+      )).toEqual([]);
 
       const competitor = await seededAccount(lang);
       const snapshot = {
