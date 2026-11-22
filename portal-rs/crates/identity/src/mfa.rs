@@ -429,18 +429,22 @@ impl Mfa {
             return Ok(None);
         }
         let Some(hash) = hash else { return Ok(None) };
-        if !Self::password(password, &hash).await?
-            || !self.verify_totp_in_connection(&mut tx, id, code).await?
-        {
+        if !Self::password(password, &hash).await? {
+            Self::refuse(tx, Some(id)).await?;
+            return Ok(None);
+        }
+        // Logout does not take the account lock. Recheck and lock the browser
+        // row after password verification, before consuming any proof.
+        let Some(binding) = Self::replacement_binding(&mut tx, &actor).await? else {
+            return Ok(None);
+        };
+        if !self.verify_totp_in_connection(&mut tx, id, code).await? {
             Self::refuse(tx, Some(id)).await?;
             return Ok(None);
         }
 
         let (result, audit) = match action {
             ManagementAction::Replace => {
-                let Some(binding) = Self::replacement_binding(&mut tx, &actor).await? else {
-                    return Ok(None);
-                };
                 let mut secret = vec![0; 20];
                 getrandom::fill(&mut secret).map_err(|_| error())?;
                 let encoded = totp_rs::Secret::Raw(secret.clone())
