@@ -21,10 +21,12 @@ Allow staff role managers to send and revoke email invitations. Accept only from
 
 ## Context checkpoint
 
+The checkpoint head records the tested portal revision immediately before this task-tracking commit.
+
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T17:15:13Z
-head: 2c80adef294c5e7d002a67c0f0e84645251084c4
+updated_at: 2026-11-22T18:39:37Z
+head: 7fc8e0aa7e7bf63211dd44c7aa6c34ae153ea094
 branch: codex/feat-staff-invite
 pr: none
 status: ready
@@ -87,8 +89,20 @@ validation:
   - command: Staff invite and login throttle Playwright in pl-1440 and en-390
     result: PASS
     evidence: Six cases passed. Both invite cases matched the UTC expiry against captured mail and proved account-wide HTTP 429 using distinct loopback peers. The launcher ran with its default proxy trust behavior.
+  - command: Focused PostgreSQL invitation, admin web, transaction guard, identity MFA, delivery, flag boundary and rate-limit tests
+    result: PASS
+    evidence: 55 tests passed. The regressions preserve the accepting grant, clear other MFA credentials, refuse delivery after issuer authority is lost, and reject display-name recipients before creating an invitation or job.
+  - command: node harness.mjs --seed-plan <private-account-plan> --exit-after-ready
+    result: PASS
+    evidence: The composed portal, worker and gateway reached readiness and the seed CLI created an active account on this revision.
+  - command: Playwright staff-invite, auth-mfa and auth-throttle in pl-1440 and en-390
+    result: FAIL
+    evidence: All ten cases passed with zero report errors. The launcher returned exit 1 after the report.
+  - command: Playwright staff-invite in pl-1440 and en-390
+    result: PASS
+    evidence: Both cases passed with exit 0 and zero report errors, retries or skips. Both verified the selected console locale through the form, redirect and captured email. A remembered browser from before promotion needed a fresh MFA challenge. The launcher resolved the binary relative to the portal root while running from /tmp.
 blockers: []
-next_action: Deliver the verified feature branch for owner review.
+next_action: Review the pushed staff invitation branch for issue 2002.
 ```
 
 ## Source branch closeout
