@@ -106,6 +106,8 @@ test('ops views preserve unavailable state and CMS lifecycle records staff decis
     [staff, 'published', 'archived', 'Archive editorial event'],
   ]);
   expect(audits[3].after.ends_at).toBeGreaterThan(audits[3].before.ends_at);
+  expect(audits.map(row => [row.before === null ? null : row.before.published_by, row.after.published_by]))
+    .toEqual([[null, null], [null, staff], [staff, staff], [staff, null], [null, staff], [staff, staff]]);
   const auditUrl = `/admin/console/audit?lang=${lang}&request_id=${audits[5].request_id}`;
   expect((await page.goto(auditUrl)).status()).toBe(200);
   await expect(page.locator('main')).toContainText('events.status_changed');

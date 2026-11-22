@@ -650,11 +650,12 @@ async fn postgres_event_save_audits_changed_content_and_removed_locale() {
         .save(&auth, context, None, initial.clone())
         .await
         .unwrap();
+    events.transition(&auth, context, id, 1, "published", "Publish original event").await.unwrap();
     initial.en.title = "Edited title".into();
     initial.en.body = "Edited body".into();
     initial.pl = None;
     events
-        .save(&auth, context, Some((id, 1)), initial)
+        .save(&auth, context, Some((id, 2)), initial)
         .await
         .unwrap();
 
@@ -668,6 +669,8 @@ async fn postgres_event_save_audits_changed_content_and_removed_locale() {
     let hash = |v: &str| format!("{:x}", Sha256::digest(v));
     let old = &before["translations"];
     let new = &after["translations"];
+    assert_eq!(before["published_by"], serde_json::json!(actor));
+    assert_eq!(after.get("published_by"), Some(&serde_json::Value::Null));
     assert_eq!(old["en"]["slug"], "content-audit");
     assert_eq!(new["en"]["slug"], "content-audit");
     assert_eq!(old["en"]["title_sha256"], hash("Original title"));

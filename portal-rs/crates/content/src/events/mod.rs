@@ -110,6 +110,7 @@ pub struct Event {
     pub ends_at: OffsetDateTime,
     pub featured: bool,
     pub lock_version: i64,
+    pub published_by: Option<Uuid>,
 }
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PublicEvent {

@@ -74,11 +74,11 @@ impl Events {
         self.list_page(0).await
     }
     pub(crate) async fn list_page(&self, offset: i64) -> Result<Vec<Event>, Error> {
-        Ok(sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events ORDER BY updated_at DESC,id DESC LIMIT 200 OFFSET $1").bind(offset).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version,published_by FROM events ORDER BY updated_at DESC,id DESC LIMIT 200 OFFSET $1").bind(offset).fetch_all(&self.pool).await?)
     }
     pub async fn load(&self, id: Uuid) -> Result<(Event, Translation, Option<Translation>), Error> {
         let event = sqlx::query_as(
-            "SELECT id,status,starts_at,ends_at,featured,lock_version FROM events WHERE id=$1",
+            "SELECT id,status,starts_at,ends_at,featured,lock_version,published_by FROM events WHERE id=$1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -141,9 +141,9 @@ impl Events {
         let reason = audit_reason(&draft.reason)?;
         let id = existing.map_or_else(Uuid::now_v7, |v| v.0);
         let mut permissions = vec![Permission::Access, Permission::ManageEvents];
-        let before = if let Some((_, version)) = existing {
+        let (before, published_by): (_, Option<Uuid>) = if let Some((_, version)) = existing {
             let row: Event =
-                sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events WHERE id=$1 FOR UPDATE")
+                sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version,published_by FROM events WHERE id=$1 FOR UPDATE")
                     .bind(id)
                     .fetch_optional(&mut *tx)
                     .await?
@@ -157,16 +157,17 @@ impl Events {
                 permissions.push(Permission::PublishEvents);
             }
             let translations = translation_snapshot(&mut tx, id).await?;
-            sqlx::query("UPDATE events SET status='draft',starts_at=$2,ends_at=$3,featured=$4,updated_by=$5,published_by=NULL,lock_version=lock_version+1,updated_at=now() WHERE id=$1")
-                .bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).execute(&mut *tx).await?;
-            json!({
+            let published_by = sqlx::query_scalar("UPDATE events SET status='draft',starts_at=$2,ends_at=$3,featured=$4,updated_by=$5,published_by=NULL,lock_version=lock_version+1,updated_at=now() WHERE id=$1 RETURNING published_by")
+                .bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).fetch_one(&mut *tx).await?;
+            (json!({
+                "published_by": row.published_by,
                 "status": row.status, "version": version, "featured": row.featured,
                 "starts_at": row.starts_at.unix_timestamp(), "ends_at": row.ends_at.unix_timestamp(),
                 "translations": translations,
-            })
+            }), published_by)
         } else {
-            sqlx::query("INSERT INTO events (id,starts_at,ends_at,featured,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$5)").bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).execute(&mut *tx).await?;
-            json!(null)
+            let published_by = sqlx::query_scalar("INSERT INTO events (id,starts_at,ends_at,featured,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$5) RETURNING published_by").bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).fetch_one(&mut *tx).await?;
+            (json!(null), published_by)
         };
         sqlx::query("DELETE FROM event_translations WHERE event_id=$1")
             .bind(id)
@@ -195,7 +196,7 @@ impl Events {
                 after: json!({
                     "status": "draft", "version": existing.map_or(1, |(_, version)| version + 1),
                     "starts_at": draft.starts_at.unix_timestamp(), "ends_at": draft.ends_at.unix_timestamp(),
-                    "featured": draft.featured, "reason": reason, "translations": translations,
+                    "featured": draft.featured, "reason": reason, "translations": translations, "published_by": published_by,
                 }),
             },
         )
@@ -241,7 +242,7 @@ impl Events {
         }
         let target = Status::parse(target).ok_or(Error::Invalid)?;
         let reason = audit_reason(reason)?;
-        let current: Event=sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let current: Event=sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version,published_by FROM events WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if version < 1
             || version != current.lock_version
             || Status::parse(&current.status).is_none()
@@ -265,7 +266,7 @@ impl Events {
                 return Err(Error::Conflict);
             }
         }
-        sqlx::query("UPDATE events SET status=$2,updated_by=$3,published_by=$4,lock_version=lock_version+1,updated_at=now() WHERE id=$1").bind(id).bind(target.as_str()).bind(context.account).bind(if target==Status::Draft {None} else {Some(context.account)}).execute(&mut *tx).await?;
+        let published_by: Option<Uuid> = sqlx::query_scalar("UPDATE events SET status=$2,updated_by=$3,published_by=$4,lock_version=lock_version+1,updated_at=now() WHERE id=$1 RETURNING published_by").bind(id).bind(target.as_str()).bind(context.account).bind(if target==Status::Draft {None} else {Some(context.account)}).fetch_one(&mut *tx).await?;
         audit::append(
             &mut tx,
             Entry {
@@ -275,8 +276,8 @@ impl Events {
                 },
                 action: "events.status_changed",
                 target: &id.to_string(),
-                before: json!({"status":current.status,"version":version}),
-                after: json!({"status":target.as_str(),"version":version+1,"reason":reason}),
+                before: json!({"status":current.status,"version":version,"published_by":current.published_by}),
+                after: json!({"status":target.as_str(),"version":version+1,"reason":reason,"published_by":published_by}),
             },
         )
         .await?;
