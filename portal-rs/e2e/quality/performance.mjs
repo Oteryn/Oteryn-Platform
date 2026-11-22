@@ -8,10 +8,14 @@ export async function installVitals(page) {
   await page.addInitScript(() => {
     if (window !== window.top) return;
     let lcp = null;
+    let lcpAsset;
     const shifts = [];
     let windowStart, previousShift, windowValue = 0, cls = 0;
     const consumeLcp = entries => {
-      for (const entry of entries) lcp = entry.startTime;
+      for (const entry of entries) {
+        lcp = entry.startTime;
+        lcpAsset = entry.url ? new URL(entry.url).pathname : undefined;
+      }
     };
     const consumeShifts = entries => {
       for (const entry of entries) {
@@ -37,7 +41,7 @@ export async function installVitals(page) {
     window.portalQualityVitals = () => {
       consumeLcp(lcpObserver.takeRecords());
       consumeShifts(clsObserver.takeRecords());
-      return { lcp, cls, shifts };
+      return { lcp, lcpAsset, cls, shifts };
     };
   });
 }

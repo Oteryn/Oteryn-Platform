@@ -20,7 +20,7 @@ function candidates(pattern, locale, ids) {
       pattern.includes('/support/reports/') && ids.report ? [ids.report, missingId] : [missingId],
     kind: pattern.includes('/wiki/') ? kinds.wiki :
       pattern.includes('/stats/') ? kinds.stats : kinds.community,
-    tab: ['experience', 'skills', 'deaths'],
+    tab: ['experience', 'history', 'deaths'],
     slug: pattern.includes('/pages/') ? ['rules', 'help', 'support'] : ['missing-quality'],
     name: ['MissingQuality'], character: ['MissingQuality'], family: ['missing-quality'],
     key: ['missing-quality'], channel: ['stable'], filename: ['timestamp.json'],
