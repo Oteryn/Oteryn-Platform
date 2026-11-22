@@ -223,9 +223,15 @@ impl<
                 &format!("store-purchase:{operation}"),
             )
             .await
-            .map_err(|_| Error::Denied)?;
+            .map_err(|error| match error {
+                oteryn_wallet::Error::Refused(oteryn_wallet::Refusal::IdempotencyConflict) => {
+                    Error::Conflict
+                }
+                oteryn_wallet::Error::Storage(error) => Error::Database(error),
+                _ => Error::Denied,
+            })?;
         if receipt.replayed {
-            return Err(Error::Denied);
+            return Err(Error::Conflict);
         }
         Ok(())
     }

@@ -771,7 +771,7 @@ async fn postgres_store_wallet_receipt_cannot_buy_a_pass() -> TestResult {
     );
     assert!(matches!(
         service.buy(db.account, db.season.id, operation).await,
-        Err(Error::Denied)
+        Err(Error::Conflict)
     ));
     assert!(!service.progress(db.account, db.season.id).await?.paid);
     assert_eq!(ledger.balance(db.account).await?.available, 100);

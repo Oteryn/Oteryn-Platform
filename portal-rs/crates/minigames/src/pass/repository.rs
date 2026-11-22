@@ -70,6 +70,13 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             return Err(Error::Invalid);
         }
         self.authority.account(tx, account).await?;
+        Self::lock_progress(tx, account, season).await
+    }
+    async fn lock_progress(
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+        season: Uuid,
+    ) -> Result<(Progress, i64)> {
         let price: Option<i64> =
             sqlx::query_scalar("SELECT price FROM pass_seasons WHERE id=$1 FOR SHARE")
                 .bind(season)
@@ -196,11 +203,22 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         if !self.flags.paid {
             return Err(Error::Disabled);
         }
-        if !valid_id(operation) {
+        if !valid_id(operation) || !valid_id(account) || !valid_id(season) {
             return Err(Error::Invalid);
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
-        let (mut progress, price) = self.lock(&mut tx, account, season).await?;
+        self.authority.account(&mut tx, account).await?;
+        // Check committed receipts before looking up the requested season.
+        // The Wallet operation key also closes the race with a concurrent debit.
+        let original: Option<(Uuid, Uuid)> =
+            sqlx::query_as("SELECT account_id,season_id FROM pass_progress WHERE purchase_key=$1")
+                .bind(operation)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if original.is_some_and(|bound| bound != (account, season)) {
+            return Err(Error::Conflict);
+        }
+        let (mut progress, price) = Self::lock_progress(&mut tx, account, season).await?;
         if progress.paid {
             let key: Option<Uuid> = sqlx::query_scalar(
                 "SELECT purchase_key FROM pass_progress WHERE account_id=$1 AND season_id=$2",
