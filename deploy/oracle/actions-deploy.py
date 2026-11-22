@@ -8,6 +8,7 @@ the arm64 image artifact of the same qualified Game run on stdin. Host
 secrets/configuration, World content, custody and the incarnation controller
 remain separately installed.
 """
+from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
 import json
@@ -20,6 +21,7 @@ import tarfile
 import tempfile
 import time
 import traceback
+from urllib.parse import urlencode
 import urllib.request
 import zipfile
 
@@ -142,6 +144,31 @@ def durable_replace(source, path):
 def reauthorize(component, sha, run_id, attempt):
     qualify(component, sha)
     qualify_workflow(component, sha, run_id, attempt)
+
+
+def nightly_window():
+    now = datetime.now(timezone.utc)
+    cutoff = now.replace(hour=2, minute=17, second=0, microsecond=0)
+    return cutoff if now >= cutoff else cutoff - timedelta(days=1)
+
+
+def qualify_platform_nightly():
+    window = nightly_window()
+    since = window.strftime('%Y-%m-%dT%H:%M:%SZ')
+    query = urlencode({'branch': 'main', 'event': 'schedule', 'created': '>=' + since, 'per_page': 1})
+    runs = api(REPOS['platform'] + '/actions/workflows/portal-rs-e2e.yml/runs?' + query)['workflow_runs']
+    if nightly_window() != window:
+        raise ValueError('nightly E2E window changed during deployment authorization')
+    if not runs or runs[0]['display_title'] != 'Portal RS E2E Nightly' or runs[0]['created_at'] < since:
+        raise ValueError(f'no scheduled nightly E2E on main for the window starting {since}')
+    latest = runs[0]
+    if latest['status'] != 'completed' or latest['conclusion'] != 'success':
+        raise ValueError(f'nightly E2E on main for the window starting {since} must complete successfully')
+
+
+def reauthorize_platform(sha, run_id, attempt):
+    reauthorize('platform', sha, run_id, attempt)
+    qualify_platform_nightly()
 
 
 def journal(component, sha, phase, **facts):
@@ -359,9 +386,9 @@ def platform_deploy(directory, sha, run_id, attempt):
     # effect, so a host that cannot be probed never rolls back a good release.
     portal_containers()
     portal_ready()
-    reauthorize('platform', sha, run_id, attempt)
+    reauthorize_platform(sha, run_id, attempt)
     backup_platform(sha)
-    reauthorize('platform', sha, run_id, attempt)
+    reauthorize_platform(sha, run_id, attempt)
     journal('platform', sha, 'prepared', schema=schema,
             previous_image=inspect(PORTAL_CONTAINERS['portal'])['Image'], platform_image=info['Id'])
     for path, before, _ in texts:
@@ -370,8 +397,8 @@ def platform_deploy(directory, sha, run_id, attempt):
     try:
         for path, _, after in texts:
             rewrite(path, after)
-        reauthorize('platform', sha, run_id, attempt)
         journal('platform', sha, 'schema_unknown')
+        reauthorize_platform(sha, run_id, attempt)
         run(current + ['run', '--rm', '-T', 'portal', 'migrate'])
         journal('platform', sha, 'schema_known')
         run(current + ['up', '-d', *PORTAL_APPS])

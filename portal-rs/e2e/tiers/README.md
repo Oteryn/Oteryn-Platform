@@ -19,7 +19,8 @@ The tier runner starts and stops `local.mjs` and invokes `run.mjs` once the HTTP
 probe succeeds. Set `PORTAL_E2E_BINARY` to use a binary built from the same
 checkout. The smoke job has an 11-minute timeout after the shared binary build.
 
-The nightly matrix runs three file shards for each of the four projects.
+The nightly matrix discovers the configured Playwright projects and runs three
+file shards per project.
 The first shard keeps the staff bootstrap together with the content, routes
 and staff specs that consume its browser storage state. The other two shards
 split the remaining sorted spec filenames. Each shard gets separate databases
@@ -29,7 +30,11 @@ Raw browser output and harness logs stay in the private scratch directory.
 The registered `portal-rs-e2e.yml` workflow runs smoke for PRs and the full
 matrix on schedule or dispatch. Deploy requires the newest scheduled run on
 `main` for the current nightly window to complete successfully. Each window
-starts at 02:17 UTC. Manual runs can qualify the suite on demand.
+starts at 02:17 UTC. The root-owned Oracle deploy wrapper checks the window
+again immediately before migration. Install the revised wrapper through the
+existing manual Oracle installation procedure to enable the host check.
+Only the newest scheduled run on main can update the failure issue. Manual runs
+can qualify the suite on demand.
 
 Add the PR coverage gate when the ledger lands, with its entry point and
 committed baseline both required.

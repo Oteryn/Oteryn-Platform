@@ -18,13 +18,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: portal-rs-e2e-${{ github.event_name == 'pull_request' && 'smoke' || 'full' }}-${{ github.ref }}
+  group: portal-rs-e2e-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      projects: ${{ steps.projects.outputs.names }}
     defaults:
       run:
         working-directory: portal-rs
@@ -36,6 +38,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: github.event_name != 'pull_request'
+        with:
+          node-version: '22'
+      - name: Discover the full-suite projects
+        if: github.event_name != 'pull_request'
+        id: projects
+        working-directory: portal-rs/e2e
+        run: |
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          import config from './tiers/playwright.config.mjs';
+          const names = config.projects.map(project => project.name);
+          if (!names.length || names.some(name => !name) || new Set(names).size !== names.length) {
+            throw new Error('Playwright projects must have unique, nonempty names');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `names=${JSON.stringify(names)}\n`);
+          JS
       - name: Build the portal with the pinned toolchain
         run: |
           rustup show active-toolchain || rustup toolchain install
@@ -44,7 +65,9 @@ jobs:
         with:
           name: portal-e2e-tier-binary
           path: portal-rs/target/debug/oteryn-portal
-          retention-days: 1
+          # Partial reruns reuse the successful build from the same run.
+          overwrite: true
+          retention-days: 30
           if-no-files-found: error
 
   smoke:
@@ -80,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [pl-1440, pl-390, en-1440, en-390]
+        project: ${{ fromJSON(needs.build.outputs.projects) }}
         shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,17 +129,18 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: nightly-${{ matrix.project }}-${{ matrix.shard }}
+          name: nightly-${{ matrix.project }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: portal-rs/e2e/tier-report.html
           retention-days: 7
           if-no-files-found: ignore
 
   track:
-    if: ${{ always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    if: ${{ always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
     needs: [build, full]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      actions: read
       issues: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -124,7 +148,19 @@ jobs:
       FULL_RESULT: ${{ needs.full.result }}
     steps:
       - name: Track the nightly failure or recovery
+        shell: bash
         run: |
+          require_latest_schedule() {
+            local latest
+            latest="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/portal-rs-e2e.yml/runs" \
+              -f branch=main -f event=schedule -F per_page=1 \
+              --jq '.workflow_runs[0] | "\(.id):\(.run_attempt)"')"
+            if [[ "$latest" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" ]]; then
+              echo 'Nightly issue belongs to a newer scheduled run or attempt.'
+              exit 0
+            fi
+          }
+          require_latest_schedule
           title='Nightly E2E failing'
           label=e2e-nightly
           if ! labels="$(gh api --paginate "repos/$GITHUB_REPOSITORY/labels?per_page=100" --jq '.[] | .name')"; then
@@ -134,6 +170,7 @@ jobs:
             if [[ "$BUILD_RESULT" == success && "$FULL_RESULT" == success ]]; then
               exit 0
             fi
+            require_latest_schedule
             gh api --method POST "repos/$GITHUB_REPOSITORY/labels" -f name="$label" -f color=b60205 >/dev/null
           fi
           issues="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=all&labels=$label&per_page=100" \
@@ -146,12 +183,14 @@ jobs:
           run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           if [[ "$BUILD_RESULT" == success && "$FULL_RESULT" == success ]]; then
             if [[ "$state" == open ]]; then
+              require_latest_schedule
               gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/$number" \
                 -f state=closed -f state_reason=completed >/dev/null
             fi
             exit 0
           fi
           body="Nightly E2E failed in $run. Build: $BUILD_RESULT. Full suite: $FULL_RESULT."
+          require_latest_schedule
           if [[ -z "$number" ]]; then
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues" \
               -f title="$title" -f 'labels[]=e2e-nightly' -f body="$body" >/dev/null

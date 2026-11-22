@@ -1,3 +1,4 @@
+from datetime import datetime
 import hashlib
 import io
 import importlib.util
@@ -12,10 +13,54 @@ import stat
 import tarfile
 import zipfile
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 spec = importlib.util.spec_from_file_location('oracle_deploy', Path(__file__).with_name('actions-deploy.py'))
 deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
+
+
+class NightlyAuthorization(unittest.TestCase):
+    def test_newest_scheduled_run_must_be_fresh_completed_and_successful(self):
+        for now, since in [('2026-11-22T02:16:59+00:00', '2026-11-21T02:17:00Z'),
+                           ('2026-11-22T02:17:00+00:00', '2026-11-22T02:17:00Z')]:
+            green = dict(display_title='Portal RS E2E Nightly', created_at=since,
+                         status='completed', conclusion='success')
+            cases = [
+                ([], False),
+                ([dict(green, status='queued', conclusion=None), green], False),
+                ([dict(green, status='in_progress', conclusion=None), green], False),
+                ([dict(green, conclusion='failure')], False),
+                ([dict(green, display_title='Legacy E2E')], False),
+                ([dict(green, created_at='2026-11-20T02:17:00Z')], False),
+                ([green], True),
+            ]
+            for runs, allowed in cases:
+                with self.subTest(now=now, runs=runs), \
+                     patch.object(deploy, 'datetime', wraps=datetime) as clock, \
+                     patch.object(deploy, 'api', return_value={'workflow_runs': runs}) as api:
+                    clock.now.return_value = datetime.fromisoformat(now)
+                    if allowed:
+                        deploy.qualify_platform_nightly()
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'nightly E2E'):
+                            deploy.qualify_platform_nightly()
+                    path = urlsplit(api.call_args.args[0])
+                    self.assertEqual(path.path, 'Oteryn-Platform/actions/workflows/portal-rs-e2e.yml/runs')
+                    self.assertEqual(parse_qs(path.query), {
+                        'branch': ['main'], 'event': ['schedule'],
+                        'created': ['>=' + since], 'per_page': ['1'],
+                    })
+
+    def test_mid_request_rollover_refuses_previous_windows_green_run(self):
+        green = dict(display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
+                     status='completed', conclusion='success')
+        with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
+             patch.object(deploy, 'api', return_value={'workflow_runs': [green]}), \
+             self.assertRaisesRegex(ValueError, 'window changed'):
+            clock.now.side_effect = [datetime.fromisoformat('2026-11-22T02:16:59+00:00'),
+                                     datetime.fromisoformat('2026-11-22T02:17:00+00:00')]
+            deploy.qualify_platform_nightly()
 
 
 class SourceArtifactPermissions(unittest.TestCase):
@@ -215,7 +260,7 @@ class LivePortalDeployment(unittest.TestCase):
         state.mkdir()
         return portal, state
 
-    def deploy(self, portal, state, *, fail=None, reauthorize=None, ready=None, probe=None):
+    def deploy(self, portal, state, *, fail=None, reauthorize=None, nightly=None, ready=None, probe=None):
         calls = []
         compose = ['docker', 'compose', '-p', 'oteryn-portal', '-f', str(portal / 'compose.yml')]
         def command(args, **kwargs):
@@ -232,6 +277,7 @@ class LivePortalDeployment(unittest.TestCase):
              patch.object(deploy, 'contract', return_value='portal-rs-1'), \
              patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
              patch.object(deploy, 'reauthorize', side_effect=reauthorize), \
+             patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly), \
              patch.object(deploy, 'wait_platform', side_effect=ready or (lambda image_id: calls.append((['ready', image_id], {})))):
             try:
                 return deploy.platform_deploy(Path('/archive'), self.sha, 100, 1), calls, compose
@@ -300,6 +346,26 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
             self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
             self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_known')
+
+    def test_rollover_during_preparation_blocks_migration(self):
+        previous = datetime.fromisoformat('2026-11-22T02:16:59+00:00')
+        current = datetime.fromisoformat('2026-11-22T02:17:00+00:00')
+        green = dict(display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
+                     status='completed', conclusion='success')
+        queued = dict(green, created_at='2026-11-22T02:17:00Z', status='queued', conclusion=None)
+        for runs in ([], [queued]):
+            with self.subTest(runs=runs), tempfile.TemporaryDirectory() as temporary:
+                portal, state = self.host(temporary)
+                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
+                     patch.object(deploy, 'api', side_effect=[
+                         {'workflow_runs': [green]}, {'workflow_runs': [green]}, {'workflow_runs': runs},
+                     ]) as api, self.assertRaisesRegex(ValueError, 'nightly E2E') as raised:
+                    clock.now.side_effect = [previous, previous, previous, previous, current, current]
+                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
+                self.assertEqual(api.call_count, 3)
+                self.assertFalse(any('migrate' in args for args, _ in raised.exception.calls))
+                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
 
     def test_canceled_workflow_after_backup_changes_nothing_live(self):
         with tempfile.TemporaryDirectory() as temporary:
