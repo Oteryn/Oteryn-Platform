@@ -257,12 +257,15 @@ fn authorization_error(error: crate::rbac::Error) -> Error {
     }
 }
 
-async fn check_area_in<A: AccountStateReader>(
+async fn authorize_area_in<A: AccountStateReader>(
     tx: &mut Transaction<'_, Postgres>,
     auth: &Authorizer<A>,
     context: CheckContext,
     area: Area,
 ) -> Result<(), Error> {
+    crate::rbac::authorize_mutation(tx, &[context.account], auth, context, &[Permission::Access])
+        .await
+        .map_err(authorization_error)?;
     for &permission in area.permissions() {
         match auth.check_in(tx, context, permission).await {
             Err(crate::rbac::Error::Denied) => continue,
@@ -306,16 +309,7 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         .await
         .map_err(|_| Error::Unavailable)?;
     backend.prepare(&mut tx, context, id, command).await?;
-    crate::rbac::authorize_mutation(
-        &mut tx,
-        &[context.account],
-        auth,
-        context,
-        &[Permission::Access],
-    )
-    .await
-    .map_err(authorization_error)?;
-    check_area_in(&mut tx, auth, context, area).await?;
+    authorize_area_in(&mut tx, auth, context, area).await?;
     let (before, after) = backend
         .apply(&mut tx, context, id, version, command)
         .await?;
@@ -334,18 +328,7 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     )
     .await
     .map_err(|_| Error::Unavailable)?;
-    crate::rbac::authorize_mutation(
-        &mut tx,
-        &[context.account],
-        auth,
-        context,
-        &[Permission::Access, command.area().permission()],
-    )
-    .await
-    .map_err(|error| match error {
-        crate::rbac::Error::Storage(_) => Error::Unavailable,
-        _ => Error::Denied,
-    })?;
+    authorize_area_in(&mut tx, auth, context, area).await?;
     tx.commit().await.map_err(|_| Error::Unavailable)
 }
 
