@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
-import { login } from '../helpers.mjs';
+import { csrfRejected, login } from '../helpers.mjs';
 import { loginWithRecoveryCode, query, seedAccount, unique } from '../staff-rbac-helpers.mjs';
 
 async function signIn(page, lang, role) {
@@ -44,7 +44,7 @@ test('the player account menu links passkeys and excludes the staff dashboard', 
 
 test('a moderator reaches the dashboard and reports with MFA, and passkeys stay hidden', async ({ page }, { project }) => {
   const lang = project.metadata.locale;
-  await signIn(page, lang, 'moderator');
+  const moderator = await signIn(page, lang, 'moderator');
   const menu = await accountMenu(page);
   await expect(menu.locator(`a[href="/${lang}/account/passkeys"]`)).toHaveCount(0);
   const dashboard = menu.getByRole('link', {
@@ -56,6 +56,38 @@ test('a moderator reaches the dashboard and reports with MFA, and passkeys stay 
   await dashboard.click();
   expect((await navigation).status()).toBe(200);
   await visit(page, '/admin/moderation/reports', 200);
+  const { accountId: reporter } = await seedAccount(lang);
+  const [{ id: report }] = await query(
+    `INSERT INTO player_reports(reporter_account_id,request_key,report_type,category,target_reference)
+     VALUES($1,uuidv7(),'content','spam',$2) RETURNING id`,
+    [reporter, unique()],
+  );
+  const reportPath = `/admin/moderation/reports/${report}`;
+  await visit(page, reportPath, 200);
+  const form = page.locator('form:has(input[value="moderate"])');
+  const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
+  const notes = unique();
+  await csrfRejected(page, reportPath, { ...fields, status: 'reviewing', public_outcome: '', moderator_notes: notes });
+  const readReport = () => query(
+    'SELECT status, lock_version::int, assigned_to, moderator_notes FROM player_reports WHERE id=$1',
+    [report],
+  );
+  const readAudit = () => query(
+    "SELECT actor, before->>'status' AS previous, after->>'status' AS current FROM audit_log WHERE action='support.report_status_changed' AND target=$1",
+    [report],
+  );
+  expect(await readReport()).toEqual([{ status: 'submitted', lock_version: 1, assigned_to: null, moderator_notes: null }]);
+  expect(await readAudit()).toEqual([]);
+
+  await form.locator('select[name="status"]').selectOption('reviewing');
+  await form.locator('[name="public_outcome"]').fill('');
+  await form.locator('[name="moderator_notes"]').fill(notes);
+  const updated = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === reportPath);
+  await form.locator('button').click();
+  expect((await updated).status()).toBe(303);
+  await expect(page).toHaveURL(new RegExp(`${reportPath}$`));
+  expect(await readReport()).toEqual([{ status: 'reviewing', lock_version: 2, assigned_to: moderator, moderator_notes: notes }]);
+  expect(await readAudit()).toEqual([{ actor: moderator, previous: 'submitted', current: 'reviewing' }]);
   await visit(page, '/admin/moderation/reports/malformed', 400);
   await visit(page, '/admin/roles', 403);
   await visit(page, `/${lang}/account/passkeys`, 403);
@@ -122,6 +154,10 @@ test('a Game administrator sees well-formed Platform alarms while Game is offlin
   await expect(main).toContainText(binding);
   await expect(main).toContainText(id);
   await expect(main).not.toContainText(malformed);
+  const alarm = main.locator('article').filter({ hasText: binding });
+  await expect(alarm.locator('dt')).toHaveText(lang === 'pl'
+    ? ['Alarm', 'UTC', 'Źródło danych', 'Rodzina', 'Rekord', 'Powiązanie']
+    : ['Alarm', 'UTC', 'Authority', 'Family', 'Record', 'Binding']);
   await query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin' AND built_in", [admin]);
   await visit(page, `/admin/console/audit?lang=${lang}&operation=ops.playerdata_binding_conflict&target=${binding}`, 200);
   await expect(main).toContainText(`ops.playerdata_binding_conflict · ${binding}`);
