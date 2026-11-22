@@ -477,7 +477,7 @@ async fn db_http_csrf_locales_and_escaped_content() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     db.close().await;
 }
 
