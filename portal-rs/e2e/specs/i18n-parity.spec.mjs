@@ -160,7 +160,9 @@ function destinations(actor, locale) {
 async function addLinkedPages(page, targets, locale, actor) {
   const paths = await page.locator('a[href]:not([hreflang], [download])').evaluateAll((links) =>
     links.flatMap((link) => {
-      const url = new URL(link.href);
+      const href = link.getAttribute('href');
+      if (!URL.canParse(href, link.baseURI)) return [];
+      const url = new URL(href, link.baseURI);
       // Do not replay links carrying query parameters, fragments or signed tokens.
       return url.origin === location.origin && !url.search && !url.hash ? [url.pathname] : [];
     }));
@@ -185,7 +187,10 @@ async function nativeValidation(page, locale, checked, uncovered) {
         element.matches('input:not([type=hidden], [type=radio]), textarea, select') && element.getClientRects().length);
       const button = Array.from(form.elements).find((element) =>
         element.type === 'submit' && !element.disabled && !element.formNoValidate && element.getClientRects().length);
-      const details = { action: new URL(form.action).pathname, method: form.method, result: null };
+      // Named controls such as "action" shadow HTMLFormElement properties.
+      const action = button?.getAttribute('formaction') ?? form.getAttribute('action') ?? '';
+      const method = button?.getAttribute('formmethod') ?? form.getAttribute('method') ?? 'get';
+      const details = { action: new URL(action || location.href, form.baseURI).pathname, method, result: null };
       if (!field || !button || form.noValidate) return details;
       const original = { value: field.value, checked: field.checked, selectedIndex: field.selectedIndex };
       if (field.type === 'checkbox') field.checked = false;
@@ -197,7 +202,7 @@ async function nativeValidation(page, locale, checked, uncovered) {
         if (field.validity.valid) return details;
         let invalidEvent = false;
         field.addEventListener('invalid', () => { invalidEvent = true; }, { once: true });
-        form.requestSubmit(button);
+        HTMLFormElement.prototype.requestSubmit.call(form, button);
         details.result = { invalidEvent, message: field.validationMessage, custom: field.validity.customError };
         return details;
       } finally {
@@ -307,7 +312,11 @@ for (const actor of ['anonymous', 'player', 'staff']) {
       if (target.startsWith('/language/')) continue;
       await test.step(target, async () => {
         const url = new URL(target, origin);
-        if (/^\/(?:admin|console)(?:\/|$)/u.test(url.pathname)) url.searchParams.set('lang', locale);
+        // These screens expose a locale query parameter. Other routes use
+        // the language cookie or Accept-Language and can reject extra queries.
+        if (/^\/admin\/(?:news(?:\/|$)|media$|console\/(?:access|approvals)$)/u.test(url.pathname)) {
+          url.searchParams.set('lang', locale);
+        }
         await waitForWikiBudget(target, 2);
         const probe = await page.request.get(url.href, { headers: { accept: 'text/html', 'accept-language': locale } });
         if (status !== undefined && actor !== 'anonymous') expect.soft(probe.status(), target).toBe(status);
