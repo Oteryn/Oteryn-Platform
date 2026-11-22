@@ -544,7 +544,10 @@ test('An accepted appeal needs fresh step-up through the Game revoke audit write
   expect((await page.goto(appeal)).status()).toBe(200);
   const form = page.locator('form').filter({ has: page.locator('[name=appeal_status]') });
   const attempt = await formPayload(form);
-  const decision = { ...attempt.fields, appeal_status: 'accepted', appeal_outcome: 'Appeal granted' };
+  const decision = {
+    ...attempt.fields, appeal_status: 'accepted', appeal_outcome: 'Appeal granted',
+    reason: 'Reviewed the player’s appeal and enforcement record',
+  };
   const expired = await postAfterStepUpExpires(
     page, gm.account.id, attempt.target, decision,
     'LOCK TABLE audit_log IN SHARE MODE', 'INSERT INTO audit_log',
