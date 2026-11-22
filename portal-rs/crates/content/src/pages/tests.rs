@@ -126,6 +126,44 @@ Updated English source",
         }
     }
 
+    // A bare slug is represented by a page with no locale content.
+    sqlx::query("INSERT INTO pages(id,slug) VALUES($1,'cookie-policy')")
+        .bind(Uuid::now_v7())
+        .execute(&pool)
+        .await?;
+    assert_eq!(legal::install(&pool).await?, 3);
+    assert_eq!(legal::install(&pool).await?, 0);
+    for (lang, note, titles) in [
+        (
+            "en",
+            "Draft — operator details are placeholders.",
+            ["Terms of Service", "Privacy Policy", "Cookie Policy"],
+        ),
+        (
+            "pl",
+            "Wersja robocza — dane operatora są tymczasowe.",
+            [
+                "Regulamin Oteryn",
+                "Polityka prywatności",
+                "Polityka plików cookie",
+            ],
+        ),
+    ] {
+        for (path, title) in ["terms", "privacy", "cookies"].into_iter().zip(titles) {
+            let response = app
+                .clone()
+                .oneshot(Request::get(format!("/{lang}/legal/{path}")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+            assert!(html.contains(&format!("<h1>{title}</h1>")));
+            assert!(html.contains(&format!("<strong>{note}</strong>")));
+            assert!(html.contains("2026-11-22"));
+            assert!(html.contains("0000000000"));
+            assert!(!html.contains("{{operator}}"));
+        }
+    }
+
     let response = app
         .clone()
         .oneshot(Request::get(format!("/en/pages/{slug}")).body(Body::empty())?)
@@ -255,7 +293,15 @@ Updated English source",
     let versions: i64 = sqlx::query_scalar("SELECT count(*) FROM page_legal_versions")
         .fetch_one(&pool)
         .await?;
-    assert_eq!(versions, 2);
+    assert_eq!(versions, 8);
+    assert_eq!(legal::install(&pool).await?, 0);
+    let edited: String = sqlx::query_scalar(
+        "SELECT e.body FROM editorial_pages e JOIN pages p ON p.id=e.page_id
+         WHERE p.slug='terms-of-service' AND e.locale='en'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(edited, form.body);
     use oteryn_admin::web::PanelConfig;
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(ctx.account)

@@ -1,4 +1,4 @@
-//! Oteryn portal binary. One process role per invocation: serve, migrate or worker.
+//! Oteryn portal binary with server roles and one-off operator commands.
 
 use std::process::ExitCode;
 
@@ -10,6 +10,7 @@ use tracing_subscriber::EnvFilter;
 enum Role {
     Serve,
     Migrate,
+    InstallLegalPages,
     Worker,
 }
 
@@ -17,6 +18,7 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
     match arg {
         Some("serve") | None => Some(Role::Serve),
         Some("migrate") => Some(Role::Migrate),
+        Some("install-legal-pages") => Some(Role::InstallLegalPages),
         Some("worker") => Some(Role::Worker),
         Some(_) => None,
     }
@@ -75,7 +77,7 @@ async fn main() -> ExitCode {
         };
     }
     let Some(role) = parse_role(arg.as_deref()) else {
-        tracing::error!(role = ?arg, "unknown role; expected serve, migrate or worker");
+        tracing::error!(role = ?arg, "unknown role; expected serve, migrate, install-legal-pages or worker");
         return ExitCode::from(2);
     };
     match run(role).await {
@@ -97,6 +99,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
         Role::Migrate => {
             oteryn_db::migrate(&db).await?;
             tracing::info!("migrations applied");
+        }
+        Role::InstallLegalPages => {
+            let installed = oteryn_content::pages::legal::install(&db).await?;
+            tracing::info!(installed, "default legal document pairs installed");
         }
         Role::Worker => {
             tracing::info!("worker started");
@@ -564,6 +570,10 @@ mod tests {
     fn roles_parse_with_serve_as_default() {
         assert_eq!(parse_role(None), Some(Role::Serve));
         assert_eq!(parse_role(Some("migrate")), Some(Role::Migrate));
+        assert_eq!(
+            parse_role(Some("install-legal-pages")),
+            Some(Role::InstallLegalPages)
+        );
         assert_eq!(parse_role(Some("worker")), Some(Role::Worker));
         assert_eq!(parse_role(Some("drop-database")), None);
     }

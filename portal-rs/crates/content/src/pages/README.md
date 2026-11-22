@@ -6,12 +6,31 @@ Public routes are available in Polish and English under `/pl` and `/en`:
 The bug-report page contains editorial instructions; it does not submit tickets.
 Editorial slugs cannot be served through the generic page route.
 
-Content starts empty. Missing, draft, future-dated, or stale translated content
-returns 404. Database failures return 503. English is the source locale; saving
-a Polish translation binds it to the current English revision. Updating English
+Content starts empty until an operator installs the legal defaults or staff
+publish a page. Missing, draft, future-dated, or stale translated content
+shows an unpublished notice on reserved routes and returns 404 on generic
+routes. Database failures return 503. English is the source locale. Saving a
+Polish translation binds it to the current English revision. Updating English
 makes prior Polish revisions unavailable until reviewed and saved again.
 Markdown is rendered and sanitized; titles and editor fields remain escaped.
 Public responses are not cached, so unpublication has no stale response window.
+
+After migrations, run `oteryn-portal install-legal-pages` with the portal's
+migration database configuration. The live Oracle composition uses the
+following command.
+
+```sh
+docker compose -p oteryn-portal -f /opt/oteryn-portal/compose.yml run --rm -T portal install-legal-pages
+```
+
+The installer publishes the paired Markdown files in `legal/` and records
+the initial legal versions. It skips any slug
+with locale content or publication history, including drafts and unpublished
+documents. Rerunning it is safe. Replace the fictional operator block in
+`legal/operator.md` and remove the draft notices before installing for launch.
+If the drafts were already installed, publish replacements in the CMS under a
+new legal version and save English before Polish. Coordinate the launch versions
+with the versions recorded by account registration.
 
 The editor is `/admin/pages`. Its create form opens
 `/admin/pages/{slug}/{locale}`, which supports GET and CSRF-protected POST.

@@ -109,6 +109,7 @@ fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.
 if(!process.env.PORTAL_E2E_BINARY) command('cargo',['build','--locked','-p','oteryn-portal']);
 const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
 command(binary,['migrate']);
+command(binary,['install-legal-pages']);
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
 const bazaarSeed=new pg.Client({connectionString:databaseURL(dbName)});await bazaarSeed.connect();

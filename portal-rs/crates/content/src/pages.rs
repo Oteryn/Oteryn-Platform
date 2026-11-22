@@ -8,6 +8,7 @@ use axum::{
     routing::get,
 };
 use sqlx::{PgPool, Row};
+pub mod legal;
 mod staff;
 #[cfg(test)]
 mod tests;
