@@ -104,10 +104,11 @@ Object.assign(env,{
  PORTAL_ACCOUNT_CLOSURE_KEY_ID:gameProducer.keyId,PORTAL_ACCOUNT_CLOSURE_PUBLIC_KEY_HEX:gameProducer.publicKeyHex,PORTAL_ACCOUNT_CLOSURE_RECOVERY_GENERATION:'3',PORTAL_ACCOUNT_CLOSURE_WORKER_INTERVAL_SECONDS:'1',
  PORTAL_E2E_GAME_CLOSURE_CONTROL_URL:gameProducer.controlURL,
 });
-fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 // A prebuilt binary (PORTAL_E2E_BINARY, e.g. from a CI build job) skips the local build.
 if(!process.env.PORTAL_E2E_BINARY) command('cargo',['build','--locked','-p','oteryn-portal']);
 const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
+env.PORTAL_E2E_BINARY=path.resolve(root,binary);
+fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 command(binary,['migrate']);
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
