@@ -10,8 +10,10 @@ import { fileURLToPath } from 'node:url';
 
 const e2e = fileURLToPath(new URL('../', import.meta.url));
 const root = path.dirname(e2e);
-const admin = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
-if (!admin || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(admin).hostname)) {
+const admin = process.env.PORTAL_E2E_ADMIN_DATABASE_URL ?? '';
+const database = URL.canParse(admin) ? new URL(admin) : undefined;
+if (!database || !['postgres:', 'postgresql:'].includes(database.protocol) ||
+    !['localhost', '127.0.0.1', '[::1]'].includes(database.hostname)) {
   throw new Error('PORTAL_E2E_ADMIN_DATABASE_URL must point to disposable local PostgreSQL');
 }
 const cargoEnv = { ...process.env, CARGO_BUILD_JOBS: '2' };
@@ -83,8 +85,8 @@ const launcherExit = once(launcher, 'exit');
 let proxy;
 let tests;
 const stop = () => {
-  tests?.kill('SIGTERM');
-  launcher.kill('SIGTERM');
+  if (tests) tests.kill('SIGINT');
+  else launcher.kill('SIGTERM');
 };
 process.once('SIGINT', stop);
 process.once('SIGTERM', stop);
@@ -93,9 +95,15 @@ try {
   let reportText = '';
   const report = await Promise.race([
     once(launcher.stdout, 'end').then(() => { throw new Error('Harness closed before readiness'); }),
-    new Promise(resolve => launcher.stdout.on('data', bytes => {
+    new Promise((resolve, reject) => launcher.stdout.on('data', bytes => {
       reportText += bytes;
-      if (reportText.includes('\n')) resolve(JSON.parse(reportText));
+      const end = reportText.indexOf('\n');
+      if (end === -1) return;
+      try {
+        resolve(JSON.parse(reportText.slice(0, end)));
+      } catch {
+        reject(new Error('Harness readiness report is invalid'));
+      }
     })),
   ]);
   const secrets = JSON.parse(fs.readFileSync(path.join(out, 'secrets/env.json'), 'utf8'));
