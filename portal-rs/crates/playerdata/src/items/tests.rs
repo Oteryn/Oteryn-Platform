@@ -327,6 +327,7 @@ struct TestEvidence {
     deny: AtomicBool,
     now: std::sync::atomic::AtomicU64,
     unpriced: AtomicBool,
+    second_bank_account: Option<Uuid>,
 }
 impl TestEvidence {
     fn new() -> Self {
@@ -334,14 +335,20 @@ impl TestEvidence {
             deny: AtomicBool::new(false),
             now: NOW.into(),
             unpriced: AtomicBool::new(false),
+            second_bank_account: None,
         }
+    }
+
+    fn permits_account(&self, account: Uuid, family: &str) -> bool {
+        account == actor() || (family == "BANK" && self.second_bank_account == Some(account))
     }
 }
 #[async_trait]
 impl Evidence for TestEvidence {
     async fn authorize(&self, _: &mut PgConnection, s: &Scope, a: Access) -> Result<Proof> {
+        let account = s.account_id.parse::<Uuid>().map_err(|_| Error::Denied)?;
         if self.deny.load(Ordering::SeqCst)
-            || s.account_id != ident(1)
+            || !self.permits_account(account, &s.family)
             || s.world_id != ident(2)
             || s.recovery_generation != "1"
             || (s.family != "BANK"
@@ -349,7 +356,7 @@ impl Evidence for TestEvidence {
         {
             return Err(Error::Denied);
         }
-        if matches!(a,Access::Read(who) if who!=actor()) {
+        if matches!(a, Access::Read(who) if who != account) {
             return Err(Error::Denied);
         }
         Ok(Proof {
@@ -375,7 +382,7 @@ impl Evidence for TestEvidence {
         c: Option<Uuid>,
         family: &str,
     ) -> Result<Scope> {
-        if a != actor() {
+        if !self.permits_account(a, family) {
             return Err(Error::Denied);
         }
         Ok(Scope {
@@ -445,7 +452,10 @@ impl TestDb {
         })
     }
     fn projection(&self) -> (Projection, Arc<TestEvidence>) {
-        let e = Arc::new(TestEvidence::new());
+        self.projection_with(TestEvidence::new())
+    }
+    fn projection_with(&self, evidence: TestEvidence) -> (Projection, Arc<TestEvidence>) {
+        let e = Arc::new(evidence);
         (
             Projection {
                 pool: self.pool.clone(),
@@ -782,7 +792,11 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     let Some(db) = TestDb::new().await else {
         return;
     };
-    let (p, e) = db.projection();
+    let second = Uuid::parse_str(&ident(99)).unwrap();
+    let (p, e) = db.projection_with(TestEvidence {
+        second_bank_account: Some(second),
+        ..TestEvidence::new()
+    });
     // Browser rotation now retains the real identity resource before sessions.
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261105155256_t03_accounts.sql"
@@ -802,7 +816,7 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     .execute(&db.pool)
     .await
     .unwrap();
-    for account in [actor(), Uuid::parse_str(&ident(99)).unwrap()] {
+    for account in [actor(), second] {
         sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
             .bind(account).execute(&db.pool).await.unwrap();
     }
@@ -816,13 +830,23 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
         entry.balance_after = "73199".into();
     }
     ingest(&p, &bank_entry).await.unwrap();
+    bank_entry.account_id = second.to_string();
+    bank_entry.record_id = ident(219);
+    if let Payload::Bank(entry) = &mut bank_entry.payload {
+        entry.operation_occurrence_id = ident(220);
+        entry.event_id = ident(221);
+        entry.entry_id = ident(222);
+        entry.amount = "84627".into();
+        entry.balance_after = "84627".into();
+    }
+    ingest(&p, &bank_entry).await.unwrap();
     for record in market_and_trade() {
         ingest(&p, &record).await.unwrap();
     }
     let uri = format!("/en/panel/items/{}/{}", world(), character());
     let app = web::router(p);
     let owner = cookie(db.pool.clone(), actor()).await;
-    let foreign = cookie(db.pool.clone(), Uuid::parse_str(&ident(99)).unwrap()).await;
+    let foreign = cookie(db.pool.clone(), second).await;
     let request = |cookie: &str| {
         Request::get(&uri)
             .header("cookie", cookie)
@@ -871,7 +895,6 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
                 format!("/{lang}/panel/history/{}/trades/{}", world(), character()),
                 "item.coin",
             ),
-            (format!("/{lang}/panel/history/{}/bank", world()), "73199"),
         ] {
             for (cookie, expected) in [(&owner, StatusCode::OK), (&foreign, StatusCode::NOT_FOUND)]
             {
@@ -895,6 +918,29 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
                 );
                 assert_eq!(snapshot().await, before, "{path}");
             }
+        }
+        let path = format!("/{lang}/panel/history/{}/bank", world());
+        for (cookie, own, other) in [(&owner, "73199", "84627"), (&foreign, "84627", "73199")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(&path)
+                        .header("cookie", cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(response.headers()["cache-control"], "private, no-store");
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let html = std::str::from_utf8(&body).unwrap();
+            assert!(html.contains(own), "{path} omitted the actor's entry");
+            assert!(
+                !html.contains(other),
+                "{path} exposed the other account's entry"
+            );
+            assert_eq!(snapshot().await, before, "{path}");
         }
     }
     e.deny.store(true, Ordering::SeqCst);

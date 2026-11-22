@@ -72,8 +72,8 @@ async function check(page, path, {method = 'GET', status = 404, form, data, toke
   await test.step(`${method} ${path}`, async () => {
     const before = await snapshot();
     const response = await page.request.fetch(path, {
-      method, form: form && {...form, _csrf: token}, data, maxRedirects: 0,
-      headers: token ? {...headers, origin: new URL(page.url()).origin, 'x-csrf-token': token} : headers,
+      method, form: form && token ? {...form, _csrf: token} : form, data, maxRedirects: 0,
+      headers: token ? {origin: new URL(page.url()).origin, ...headers, 'x-csrf-token': token} : headers,
     });
     let html = await response.text();
     // The shared shell translates the requested pathname in its locale links,
@@ -85,7 +85,9 @@ async function check(page, path, {method = 'GET', status = 404, form, data, toke
     }
     expect(response.status(), 'ownership refusal status').toBe(status);
     expect(response.headers().location).toBe(location);
-    if (contains) expect(html.includes(contains), 'documented refusal notice').toBe(true);
+    for (const value of [].concat(contains ?? [])) {
+      expect(html.includes(value), 'expected content in response').toBe(true);
+    }
     for (const value of privateValues) {
       expect(html.includes(value), 'foreign data in response').toBe(false);
     }
@@ -364,9 +366,17 @@ ownership('wallet cursor stays account-scoped and transfer operation IDs cannot 
   const {id: recipient} = await seedAccount('recipient', lang);
   const credit = await fundWallet(a, lang);
   await fundWallet(b, lang);
-  await view(a.page, transfer);
-  const operation = await a.page.locator('main [name=operation]').inputValue();
-  await submit(a.page, 'main form', {recipient, amount: '120'});
+  async function send(actor, amount) {
+    await view(actor.page, transfer);
+    const id = await actor.page.locator('main [name=operation]').inputValue();
+    await submit(actor.page, 'main form', {recipient, amount});
+    await expect(actor.page).toHaveURL(new RegExp(`${history}$`));
+    await expect(actor.page.locator('main')).toContainText(id);
+    return id;
+  }
+  const foreignEntry = await send(a, '137');
+  const ownEntry = await send(b, '83');
+  const operation = await send(a, '120');
   await expect(a.page).toHaveURL(new RegExp(`${history}$`));
   await expect(a.page.locator('main')).toContainText(credit);
   await expect(a.page.locator('main')).toContainText(operation);
@@ -378,7 +388,8 @@ ownership('wallet cursor stays account-scoped and transfer operation IDs cannot 
            (SELECT jsonb_agg(o ORDER BY id) FROM wallet_operations o WHERE account_id IN ($1,$2,$3)) AS operations
   `, [a.id, b.id, recipient]);
   await check(b.page, `${history}?before=${cursor}`, {
-    status: 200, privateValues: [credit, cursor], snapshot,
+    status: 200, contains: [ownEntry, '-83 / 0</p>'],
+    privateValues: [credit, cursor, foreignEntry, '-137 / 0</p>'], snapshot,
   });
   const token = await csrf(b.page, transfer);
   await check(b.page, transfer, {
@@ -700,6 +711,14 @@ ownership('native request status and sandbox checkout require the payer', async 
       ...options, method: 'POST', token, form: {action: decision},
     });
   }
+  const ownerOrigin = new URL(a.page.url()).origin;
+  const ownerToken = await a.page.locator('main form:has(input[value=pay]) [name=_csrf]').inputValue();
+  expect(ownerToken).toBeTruthy();
+  const settle = {...options, method: 'POST', status: 403, form: {action: 'pay'}};
+  await check(a.page, checkoutPath, {...settle, headers: {origin: ownerOrigin}});
+  await check(a.page, checkoutPath, {
+    ...settle, token: ownerToken, headers: {origin: 'https://untrusted.example.invalid'},
+  });
   const [settled] = await Promise.all([
     a.page.waitForResponse((response) => response.request().method() === 'POST'
       && new URL(response.url()).pathname === checkoutPath),
@@ -728,11 +747,14 @@ async function publishRoster(a, b) {
     seller_character_id: uuid7(), buyer_character_id: character,
   }});
   expect(published.status()).toBe(201);
-  const [roster] = await query(
-    'SELECT * FROM account_characters WHERE account_id=$1 AND character_id=$2',
-    [b.id, character],
-  );
-  expect(roster.account_id).toBe(b.id);
+  let roster;
+  await expect.poll(async () => {
+    [roster] = await query(
+      'SELECT * FROM account_characters WHERE account_id=$1 AND character_id=$2',
+      [b.id, character],
+    );
+    return roster?.account_id;
+  }, {message: 'the requested roster revision reached PostgreSQL'}).toBe(b.id);
   return roster;
 }
 
@@ -768,7 +790,7 @@ ownership('Atlas bestiary and Collection fail closed with only a verified roster
   }
 });
 
-ownership('Bazaar promotion form is scoped to the seller', async ({players: {a, b, lang}, operator}) => {
+ownership('Bazaar promotion form is scoped to the seller', async ({players: {a, b, lang}, operator, request}) => {
   await view(operator, `/admin/${lang}/bazaar`);
   await submit(operator, 'form:has(input[value=fees])', {
     promotion_price: '50', reason: 'Disposable ownership promotion quote',
@@ -779,6 +801,9 @@ ownership('Bazaar promotion form is scoped to the seller', async ({players: {a, 
   await submit(a.page, 'main form', {current_password: a.password});
   const {id} = await listing(a, b, lang);
   const path = `/${lang}/account/bazaar/${id}/promote`;
+  const guest = await request.get(path, {maxRedirects: 0});
+  expect(guest.status()).toBe(303);
+  expect(guest.headers().location).toBe(`/${lang}/login`);
   await view(a.page, path);
   const form = await a.page.locator('main form').first().evaluate((node) => {
     const {id, fee_revision, amount} = Object.fromEntries(new FormData(node));
