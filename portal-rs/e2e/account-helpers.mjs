@@ -4,20 +4,11 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {expect} from '@playwright/test';
-import {password, submit, waitForLoginBudget} from './helpers.mjs';
+import {fixtureDatabaseURL, password, submit, waitForLoginBudget} from './helpers.mjs';
 
 export function seedPlayer(locale) {
   const credentials = {email: `account-${randomUUID()}@example.invalid`, password: password()};
-  const database = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
-  let url;
-  try {
-    url = new URL(database);
-  } catch {
-    throw new Error('Start the disposable local portal harness before running account specs');
-  }
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || !url.pathname.startsWith('/portal_e2e_')) {
-    throw new Error('Account fixtures require a local portal_e2e_ database');
-  }
+  const database = fixtureDatabaseURL();
   const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
   const binary = process.env.PORTAL_E2E_BINARY || resolve(target, 'debug/oteryn-portal');
   try {

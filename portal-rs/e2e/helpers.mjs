@@ -10,7 +10,7 @@ export const fixtureDatabaseURL = (
  if(!connectionString)throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
  let url;
  try { url=new URL(connectionString); } catch { throw new Error('Invalid disposable PostgreSQL URL'); }
- if(!['postgres:', 'postgresql:'].includes(url.protocol)||url.search||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!url.pathname.startsWith('/portal_e2e_'))throw new Error('Fixtures require a local portal_e2e_ database');
+ if(!['postgres:', 'postgresql:'].includes(url.protocol)||url.search||url.hash||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!url.pathname.startsWith('/portal_e2e_'))throw new Error('Fixtures require a local portal_e2e_ database');
  return connectionString;
 };
 export const pool = (databaseURL) => new pg.Pool({connectionString: fixtureDatabaseURL(databaseURL)});
