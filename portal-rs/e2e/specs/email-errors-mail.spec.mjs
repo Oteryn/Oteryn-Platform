@@ -578,14 +578,30 @@ supportTest.describe('support email and ticket errors', () => {
     await action(staffPage, 'form:has(input[value=sanction])', { ...values, public_reason: unique() });
     await expect(staffPage).toHaveURL(/enforcement\/[a-f0-9-]+$/);
     const sanction = new URL(staffPage.url()).pathname.split('/').at(-1);
-    // Player appeal submission has no mounted route. Match the existing staff integration fixture.
-    const requested = await query(
-      "UPDATE support_appeal_workflows SET status='requested',message=$3 WHERE sanction_id=$1 AND owner_id=$2 AND status='none' RETURNING status",
-      [sanction, account.id, unique()],
+    const appealPath = `/${lang}/support/appeals/${sanction}`;
+    const message = unique();
+    expect((await page.goto(appealPath)).status()).toBe(200);
+    await submit(page, 'main form', { message });
+    await expect(page.locator('main')).toContainText(message);
+    const appealState = () => query(
+      'SELECT status, message FROM support_appeal_workflows WHERE sanction_id=$1 AND owner_id=$2',
+      [sanction, account.id],
     );
-    expect(requested).toEqual([{ status: 'requested' }]);
+    expect(await appealState()).toEqual([{ status: 'requested', message }]);
+
     await staffPage.reload();
-    await action(staffPage, 'form:has(input[value=appeal])', { appeal_status: 'reviewing', appeal_outcome: '' });
+    // The staff form offers final decisions while the endpoint still accepts the legacy review transition.
+    const reviewForm = staffPage.locator('form:has(input[value=appeal])');
+    const reviewFields = await reviewForm.evaluate(form => Object.fromEntries(new FormData(form)));
+    const staffPath = new URL(staffPage.url()).pathname;
+    const reviewResponse = await staffPage.request.post(staffPath, {
+      headers: { origin: new URL(staffPage.url()).origin },
+      form: { ...reviewFields, appeal_status: 'reviewing', appeal_outcome: '' },
+      maxRedirects: 0,
+    });
+    expect(reviewResponse.status()).toBe(303);
+    expect(await appealState()).toEqual([{ status: 'reviewing', message }]);
+    await staffPage.reload();
     const reviewCopy = 'reviewing:';
     const review = await mail(page, account.email, subject, reviewCopy, reviewCopy);
     expect(review.text === `${subject}\n\n${reviewCopy}`, 'only the appeal status is mailed').toBe(true);
