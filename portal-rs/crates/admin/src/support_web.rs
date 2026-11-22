@@ -145,7 +145,9 @@ fn status(error: Error) -> Response {
         Error::Denied => StatusCode::FORBIDDEN,
         Error::NotFound => StatusCode::NOT_FOUND,
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
-        Error::Conflict => StatusCode::CONFLICT,
+        Error::Conflict | Error::StaleTicketVersion | Error::TicketStateConflict => {
+            StatusCode::CONFLICT
+        }
     }
     .into_response()
 }
@@ -416,7 +418,21 @@ async fn change<A: AccountStateReader, B: Backend>(
     .await
     {
         Ok(()) => Redirect::to(&format!("{}/{id}", base(area))).into_response(),
-        Err(e) => status(e),
+        Err(error) => {
+            use oteryn_web::chrome::TicketConflict;
+            let reason = match error {
+                Error::StaleTicketVersion => Some(TicketConflict::StaleVersion {
+                    recovery_path: format!("{}/{id}", base(area)),
+                }),
+                Error::TicketStateConflict => Some(TicketConflict::State),
+                _ => None,
+            };
+            let mut response = status(error);
+            if let Some(reason) = reason {
+                response.extensions_mut().insert(reason);
+            }
+            response
+        }
     }
 }
 

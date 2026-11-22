@@ -225,7 +225,10 @@ fn fail(error: Error, language: &str) -> Response {
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         Error::NotFound => StatusCode::NOT_FOUND,
         Error::Denied => StatusCode::FORBIDDEN,
-        Error::Conflict | Error::RequestKeyConflict => StatusCode::CONFLICT,
+        Error::Conflict
+        | Error::RequestKeyConflict
+        | Error::StaleVersion
+        | Error::StateConflict => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     (code, text::text(language, "error")).into_response()
@@ -539,11 +542,7 @@ async fn show(
     page.status = text::text(&language, &ticket.status);
     page.version = ticket.lock_version;
     page.id = id;
-    page.can_reply = if staff.is_some() {
-        active(&ticket.status)
-    } else {
-        matches!(ticket.status.as_str(), "open" | "waiting_user")
-    };
+    page.can_reply = can_reply(&ticket.status, staff.is_some());
     page.messages = messages
         .into_iter()
         .map(|m| DisplayMessage {
@@ -646,16 +645,17 @@ fn form_bool<'de, D: serde::Deserializer<'de>>(
         _ => Err(serde::de::Error::custom("invalid boolean")),
     }
 }
+fn ticket_path(language: &str, staff: bool, id: Uuid) -> String {
+    format!(
+        "/{language}/{}support/tickets/{id}",
+        if staff { "admin/" } else { "" }
+    )
+}
+
 fn redirect(language: &str, staff: bool, id: Uuid) -> Response {
     (
         StatusCode::FOUND,
-        [(
-            header::LOCATION,
-            format!(
-                "/{language}/{}support/tickets/{id}",
-                if staff { "admin/" } else { "" }
-            ),
-        )],
+        [(header::LOCATION, ticket_path(language, staff, id))],
     )
         .into_response()
 }
@@ -726,11 +726,25 @@ async fn mutate(
         Change::Status(&form.status)
     };
     match t
-        .change(account, staff, id, form.lock_version, change)
+        .change_checked(account, staff, id, form.lock_version, change)
         .await
     {
         Ok(_) => redirect(&language, staff.is_some(), id),
-        Err(e) => fail(e, &language),
+        Err(error) => {
+            use oteryn_web::chrome::TicketConflict;
+            let reason = match error {
+                Error::StaleVersion => Some(TicketConflict::StaleVersion {
+                    recovery_path: ticket_path(&language, staff.is_some(), id),
+                }),
+                Error::StateConflict => Some(TicketConflict::State),
+                _ => None,
+            };
+            let mut response = fail(error, &language);
+            if let Some(reason) = reason {
+                response.extensions_mut().insert(reason);
+            }
+            response
+        }
     }
 }
 

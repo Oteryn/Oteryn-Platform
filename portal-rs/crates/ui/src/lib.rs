@@ -411,6 +411,7 @@ struct ErrorPage<'a> {
     chrome: &'a Chrome,
     title: String,
     description: String,
+    recovery_path: Option<&'a str>,
     status: u16,
 }
 /// Plain, translated refusal detail supplied by a module's existing decision.
@@ -428,12 +429,41 @@ pub fn error(chrome: &Chrome, status: StatusCode) -> Response {
 /// Render a domain-specific translated message with the shared status title and chrome.
 /// The message remains HTML-escaped, like every other dynamic template value.
 pub fn error_with_message(chrome: &Chrome, status: StatusCode, message: &str) -> Response {
+    render_error(chrome, status, message, None)
+}
+
+/// Render a stale form refusal with a link to the current form's GET page.
+pub fn stale_form(chrome: &Chrome, recovery_path: &str) -> Response {
+    render_error(
+        chrome,
+        StatusCode::CONFLICT,
+        &chrome.text("error-409-stale-description"),
+        Some(recovery_path),
+    )
+}
+
+fn render_error(
+    chrome: &Chrome,
+    status: StatusCode,
+    message: &str,
+    recovery_path: Option<&str>,
+) -> Response {
+    let mut title = chrome.text(&format!("error-{}-title", status.as_u16()));
+    if title.is_empty() {
+        title = chrome.text("error-generic-title");
+    }
+    let description = if message.is_empty() {
+        chrome.text("error-generic-description")
+    } else {
+        message.to_owned()
+    };
     render(
         &ErrorPage {
             chrome,
             status: status.as_u16(),
-            title: chrome.text(&format!("error-{}-title", status.as_u16())),
-            description: message.to_owned(),
+            title,
+            description,
+            recovery_path,
         },
         status,
     )
@@ -859,6 +889,7 @@ mod tests {
                     chrome: &chrome,
                     title: title.clone(),
                     description: String::new(),
+                    recovery_path: None,
                     status: status.as_u16(),
                 }
                 .render()?;

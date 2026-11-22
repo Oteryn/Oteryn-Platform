@@ -204,22 +204,131 @@ async fn switch_language(Path(lang): Path<String>) -> Response {
     response
 }
 
-fn wants_json(headers: &HeaderMap) -> bool {
-    headers
-        .get(header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|accept| {
-            accept.split(',').any(|item| {
-                let mut parts = item.trim().split(';');
-                parts.next() == Some("application/json") && !parts.any(|p| p.trim() == "q=0")
-            })
-        })
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ErrorRepresentation {
+    DefaultHtml,
+    Html,
+    Json,
+    Unacceptable,
+}
+
+fn split_media_header(value: &str, delimiter: char) -> impl Iterator<Item = &str> {
+    let mut quoted = false;
+    let mut escaped = false;
+    value.split(move |character| {
+        if escaped {
+            escaped = false;
+        } else if quoted && character == '\\' {
+            escaped = true;
+        } else if character == '"' {
+            quoted = !quoted;
+        } else if !quoted && character == delimiter {
+            return true;
+        }
+        false
+    })
+}
+
+fn accepts_utf8(value: &str) -> bool {
+    let Some(quoted) = value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    else {
+        return value.eq_ignore_ascii_case("utf-8");
+    };
+    let mut bytes = quoted.bytes();
+    b"utf-8".iter().all(|expected| {
+        let actual = match bytes.next() {
+            Some(b'\\') => bytes.next(),
+            other => other,
+        };
+        actual.is_some_and(|actual| actual.eq_ignore_ascii_case(expected))
+    }) && bytes.next().is_none()
+}
+
+pub(crate) fn error_representation(headers: &HeaderMap) -> ErrorRepresentation {
+    use ErrorRepresentation::*;
+    if !headers.contains_key(header::ACCEPT) {
+        return DefaultHtml;
+    }
+
+    let mut html = (0, false, 0.0_f32);
+    let mut json = (0, false, 0.0_f32);
+    'media_range: for item in headers
+        .get_all(header::ACCEPT)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| split_media_header(value, ','))
+    {
+        let mut parts = split_media_header(item, ';').map(str::trim);
+        let range = parts.next().unwrap_or_default();
+        let mut quality = 1.0;
+        let mut requires_utf8 = false;
+        for parameter in parts.filter(|part| !part.is_empty()) {
+            let Some((name, value)) = parameter.split_once('=') else {
+                continue 'media_range;
+            };
+            let (name, value) = (name.trim(), value.trim());
+            if name.eq_ignore_ascii_case("q") {
+                quality = value
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|q| (0.0..=1.0).contains(q))
+                    .unwrap_or(0.0);
+            } else if name.eq_ignore_ascii_case("charset") && accepts_utf8(value) {
+                requires_utf8 = true;
+            } else {
+                continue 'media_range;
+            }
+        }
+
+        // HTML emits charset=utf-8. JSON has no media-type parameters.
+        // Apply the most specific matching range, including a q=0 exclusion.
+        for (exact, range_type, score) in [
+            ("text/html", "text/*", &mut html),
+            ("application/json", "application/*", &mut json),
+        ] {
+            if requires_utf8 && exact != "text/html" {
+                continue;
+            }
+            let specificity = if range.eq_ignore_ascii_case(exact) {
+                3
+            } else if range.eq_ignore_ascii_case(range_type) {
+                2
+            } else if range == "*/*" {
+                1
+            } else {
+                continue;
+            };
+            if (specificity, requires_utf8, quality) > *score {
+                *score = (specificity, requires_utf8, quality);
+            }
+        }
+    }
+
+    match (html, json) {
+        ((_, _, 0.0), (_, _, 0.0)) => Unacceptable,
+        ((1, false, h), (1, false, j)) if h == j => DefaultHtml,
+        ((hs, hp, h), (js, jp, j)) if (h, hs, hp) > (j, js, jp) => Html,
+        _ => Json,
+    }
+}
+
+pub(crate) fn oauth_protocol_path(path: &str) -> bool {
+    matches!(path, "/oauth/authorize" | "/oauth/token")
+}
+
+/// Whether the browser shell owns the response for this path.
+pub(crate) fn browser_path(path: &str) -> bool {
+    !matches!(path, "/api" | "/internal" | "/oauth/token")
+        && !path.starts_with("/api/")
+        && !path.starts_with("/internal/")
 }
 
 async fn policy(mut request: Request, next: Next) -> Response {
     let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
     let chrome = request_chrome(&request, lang);
-    let json = wants_json(request.headers());
+    let representation = error_representation(request.headers());
     let path = request.uri().path().to_owned();
     let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
@@ -242,30 +351,37 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
-    if path != oteryn_gameauth::locator::PATH
-        && matches!(
+    if !oauth_protocol_path(&path)
+        && path != oteryn_gameauth::locator::PATH
+        && (matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
-        )
+        ) || (status == StatusCode::UNAUTHORIZED
+            && representation == ErrorRepresentation::Html
+            && browser_path(&path)))
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
     {
-        let mut replacement = if json {
-            let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
-            (status, axum::Json(error)).into_response()
-        } else {
-            response
+        let mut replacement = match representation {
+            ErrorRepresentation::Json => {
+                let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
+                (status, axum::Json(error)).into_response()
+            }
+            ErrorRepresentation::Html | ErrorRepresentation::DefaultHtml => response
                 .extensions()
                 .get::<oteryn_ui::RefusalMessage>()
                 .map_or_else(
                     || oteryn_ui::error(&chrome, status),
                     |message| oteryn_ui::error_with_message(&chrome, status, &message.0),
-                )
+                ),
+            ErrorRepresentation::Unacceptable => status.into_response(),
         };
         // Preserve protocol metadata, but discard internal content and entity headers.
-        for name in [header::ALLOW, header::RETRY_AFTER] {
-            if let Some(value) = response.headers().get(&name) {
-                replacement.headers_mut().insert(name, value.clone());
+        for name in [header::ALLOW, header::RETRY_AFTER, header::WWW_AUTHENTICATE] {
+            for value in response.headers().get_all(&name) {
+                replacement
+                    .headers_mut()
+                    .append(name.clone(), value.clone());
             }
         }
         for value in response.headers().get_all(header::SET_COOKIE) {
@@ -353,6 +469,47 @@ mod tests {
                 .to_vec(),
         )?)
     }
+    #[test]
+    fn error_accept_respects_quality_and_specific_exclusions() {
+        use ErrorRepresentation::*;
+        for (accept, expected) in [
+            ("application/json, text/html;q=0", Json),
+            ("text/html;q=0.0", Unacceptable),
+            ("TEXT/HTML ; q=0.8, application/json;q=0", Html),
+            ("text/html, application/json", Json),
+            ("text/html;q=1, application/json;q=0.1", Html),
+            ("text/html;q=0.1, application/json;q=1", Json),
+            ("text/html;q=0, */*;q=0.8", Json),
+            ("application/json;q=0, */*;q=0.8", Html),
+            ("text/*, application/json;q=0.1", Html),
+            (
+                "text/html; charset=iso-8859-1, application/json;q=0.5",
+                Json,
+            ),
+            ("text/html; CHARSET=\"UTF-8\", application/json;q=0.5", Html),
+            (
+                "text/html; charset=utf-8;q=0, text/html;q=1, application/json;q=0.5",
+                Json,
+            ),
+            (
+                "text/html; charset=iso-8859-1;q=0, text/*;q=0.8, application/json;q=0.5",
+                Html,
+            ),
+            ("application/json; charset=utf-8, */*;q=0.5", DefaultHtml),
+            (
+                "text/html; note=\"value; text/html, text/html\", application/json;q=0.5",
+                Json,
+            ),
+            ("application/xml", Unacceptable),
+            ("*/*", DefaultHtml),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT, HeaderValue::from_static(accept));
+            assert_eq!(error_representation(&headers), expected);
+        }
+        assert_eq!(error_representation(&HeaderMap::new()), DefaultHtml);
+    }
+
     #[tokio::test]
     async fn r7_device_keeps_contract_error() -> TestResult {
         let response = app()?
@@ -458,6 +615,77 @@ mod tests {
         assert_eq!(body.matches("<script").count(), 1);
         assert!(body.contains("src=\"/static/thais/home.js\""));
         assert!(!body.contains("style="));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn native_runtime_refusal_remains_empty_for_html_accept() -> TestResult {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let app = finish(oteryn_gameauth::runtime::configured_routes(pool, |key| {
+            match key {
+                "GAME_AUTH_NATIVE_RUNTIME_STATUS_ENABLED" => Some("true".into()),
+                "GAME_AUTH_NATIVE_RUNTIME_STATUS_IDENTITIES" => Some(
+                    r#"{"runtime.example.test":["01900000-0000-7000-8000-000000000001/01900000-0000-7000-8000-000000000002"]}"#.into(),
+                ),
+                _ => None,
+            }
+        }));
+        let response = app
+            .oneshot(
+                HttpRequest::post("/internal/v1/game-auth/native-runtime-status")
+                    .header(header::ACCEPT, "text/html")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{}"))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(html(response).await?.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unauthorized_browser_page_is_localized_and_keeps_the_challenge() -> TestResult {
+        let app = finish(Router::new().route(
+            "/account",
+            get(|| async {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::WWW_AUTHENTICATE, "Bearer")],
+                    "private detail",
+                )
+            }),
+        ));
+        for (lang, title) in [("pl", "Wymagane logowanie"), ("en", "Sign-in required")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::get("/account")
+                        .header(header::ACCEPT, "text/html")
+                        .header(header::ACCEPT_LANGUAGE, lang)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = html(response).await?;
+            assert!(body.contains("<main "));
+            assert!(body.contains(title));
+            assert!(!body.contains("private detail"));
+        }
+        let response = app
+            .oneshot(
+                HttpRequest::get("/account")
+                    .header(header::ACCEPT, "application/json")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+        assert_eq!(html(response).await?, "private detail");
         Ok(())
     }
 

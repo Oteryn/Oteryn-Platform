@@ -92,11 +92,14 @@ fn panel_locale(uri: &axum::http::Uri) -> Option<Language> {
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
+    if !crate::surface::browser_path(request.uri().path()) {
+        return next.run(request).await;
+    }
     let lang = crate::surface::path_language(request.uri().path())
         .or_else(|| panel_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let browser = request.method() == axum::http::Method::GET
+    let browser_navigation = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
         && !request.uri().path().starts_with("/internal/")
         && request
@@ -141,7 +144,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
     let mut chrome = shell.registry.chrome(lang, path, account);
-    if browser
+    if browser_navigation
         && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
         && (staff.allows)(id).await
     {
@@ -160,19 +163,45 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             }
         }
     }
+    let browser_method = matches!(
+        request.method(),
+        &axum::http::Method::GET | &axum::http::Method::POST
+    );
+    let browser = !crate::surface::oauth_protocol_path(path)
+        && crate::surface::error_representation(request.headers())
+            == crate::surface::ErrorRepresentation::Html;
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
-    if browser && (response.status().is_client_error() || response.status().is_server_error()) {
+    let ticket_conflict = response.extensions().get::<TicketConflict>();
+    if browser
+        && (browser_method || ticket_conflict.is_some())
+        && (response.status().is_client_error() || response.status().is_server_error())
+    {
         let html = response
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("text/html"));
         if !html {
-            let mut replacement = oteryn_ui::error(&chrome, response.status());
+            let status = response.status();
+            let mut replacement = match (status, ticket_conflict) {
+                (
+                    axum::http::StatusCode::CONFLICT,
+                    Some(TicketConflict::StaleVersion { recovery_path }),
+                ) => oteryn_ui::stale_form(&chrome, recovery_path),
+                (axum::http::StatusCode::CONFLICT, Some(TicketConflict::State)) => {
+                    oteryn_ui::error_with_message(
+                        &chrome,
+                        status,
+                        &chrome.text("error-409-ticket-state-description"),
+                    )
+                }
+                _ => oteryn_ui::error(&chrome, status),
+            };
             for name in [
                 header::ALLOW,
                 header::RETRY_AFTER,
+                header::WWW_AUTHENTICATE,
                 header::CONTENT_SECURITY_POLICY,
                 header::STRICT_TRANSPORT_SECURITY,
                 header::X_CONTENT_TYPE_OPTIONS,
@@ -180,9 +209,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 header::CONTENT_LANGUAGE,
                 header::VARY,
                 axum::http::HeaderName::from_static("permissions-policy"),
+                axum::http::HeaderName::from_static("x-robots-tag"),
             ] {
-                if let Some(value) = response.headers().get(&name) {
-                    replacement.headers_mut().insert(name, value.clone());
+                for value in response.headers().get_all(&name) {
+                    replacement
+                        .headers_mut()
+                        .append(name.clone(), value.clone());
                 }
             }
             for value in response.headers().get_all(header::SET_COOKIE) {
@@ -212,6 +244,10 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 header::CACHE_CONTROL,
                 axum::http::HeaderValue::from_static("no-store"),
             );
+            replacement
+                .headers_mut()
+                .entry(header::CONTENT_LANGUAGE)
+                .or_insert(header::HeaderValue::from_static(lang));
             response = replacement;
         }
     }
@@ -232,6 +268,16 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+/// A ticket mutation's conflict reason from the authorized, locked domain check.
+#[derive(Clone, Debug)]
+pub enum TicketConflict {
+    StaleVersion {
+        /// Server-built same-origin GET path of the current ticket form.
+        recovery_path: String,
+    },
+    State,
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit
@@ -600,6 +646,17 @@ mod response_tests {
                     )
                 }),
             )
+            .route(
+                "/{lang}/refused",
+                get(|| async {
+                    (
+                        StatusCode::UNAUTHORIZED,
+                        [(header::WWW_AUTHENTICATE, "Bearer")],
+                        "private unauthorized detail",
+                    )
+                })
+                .post(|| async { (StatusCode::INTERNAL_SERVER_ERROR, "private database detail") }),
+            )
             .route("/api/refused", get(|| async { StatusCode::FORBIDDEN }))
             .route(
                 "/{lang}/account/privacy",
@@ -657,6 +714,49 @@ mod response_tests {
             assert!(html.contains("id=\"portal-header\""));
             assert!(html.contains("class=\"foot foot-interior\""));
             assert!(html.contains("/static/thais/interior.css"));
+            for (method, status, title) in [
+                (
+                    axum::http::Method::GET,
+                    StatusCode::UNAUTHORIZED,
+                    if lang == "pl" {
+                        "Wymagane logowanie"
+                    } else {
+                        "Sign-in required"
+                    },
+                ),
+                (
+                    axum::http::Method::POST,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    if lang == "pl" {
+                        "Wystąpił błąd"
+                    } else {
+                        "Something went wrong"
+                    },
+                ),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(format!("/{lang}/refused"))
+                            .header(header::ACCEPT, "text/html")
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), status);
+                assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+                assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+                if status == StatusCode::UNAUTHORIZED {
+                    assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+                }
+                let body = axum::body::to_bytes(response.into_body(), 100000).await?;
+                let body = std::str::from_utf8(&body)?;
+                assert!(body.contains("id=\"portal-header\""));
+                assert!(body.contains(&format!("<h1>{title}</h1>")));
+                assert!(!body.contains("private unauthorized detail"));
+                assert!(!body.contains("private database detail"));
+            }
             let response = app
                 .clone()
                 .oneshot(Request::get(format!("/{lang}/account/privacy")).body(Body::empty())?)

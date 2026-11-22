@@ -360,6 +360,8 @@ fn ticket_error(error: Error) -> StaffError {
         Error::NotFound => StaffError::NotFound,
         Error::Denied => StaffError::Denied,
         Error::Conflict | Error::RequestKeyConflict => StaffError::Conflict,
+        Error::StaleVersion => StaffError::StaleTicketVersion,
+        Error::StateConflict => StaffError::TicketStateConflict,
         _ => StaffError::Unavailable,
     }
 }

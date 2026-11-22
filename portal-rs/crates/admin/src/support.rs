@@ -73,6 +73,10 @@ pub enum Error {
     Invalid,
     #[error("conflict")]
     Conflict,
+    #[error("ticket version mismatch")]
+    StaleTicketVersion,
+    #[error("ticket state blocks the action")]
+    TicketStateConflict,
 }
 impl Command {
     pub fn area(&self) -> Area {
