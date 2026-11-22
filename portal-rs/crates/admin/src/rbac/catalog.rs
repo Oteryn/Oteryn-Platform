@@ -77,6 +77,9 @@ pub enum Permission {
     ActivateStoreCatalog,
     GenerateStoreCodes,
     GrantRoles,
+    EditAccountEmail,
+    EditAccountStatus,
+    EditAccountFlags,
 }
 
 impl Permission {
@@ -162,6 +165,9 @@ impl Permission {
         Self::ActivateStoreCatalog,
         Self::GenerateStoreCodes,
         Self::GrantRoles,
+        Self::EditAccountEmail,
+        Self::EditAccountStatus,
+        Self::EditAccountFlags,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -235,6 +241,9 @@ impl Permission {
             Self::ActivateStoreCatalog => "store.catalog.activate",
             Self::GenerateStoreCodes => "store.codes.generate",
             Self::GrantRoles => "admin.roles.grant",
+            Self::EditAccountEmail => "account.email.edit",
+            Self::EditAccountStatus => "account.status.edit",
+            Self::EditAccountFlags => "account.flags.edit",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }
@@ -352,6 +361,9 @@ impl BuiltInRole {
                 Permission::ActivateStoreCatalog,
                 Permission::GenerateStoreCodes,
                 Permission::GrantRoles,
+                Permission::EditAccountEmail,
+                Permission::EditAccountStatus,
+                Permission::EditAccountFlags,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,

@@ -527,6 +527,13 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
     let Some(db) = Db::open().await else {
         return;
     };
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash) VALUES($1,'note@example.test','test-only')",
+    )
+    .bind(db.target)
+    .execute(&db.pool)
+    .await
+    .unwrap();
     let app = http::router(
         db.pool.clone(),
         Flags {
@@ -592,7 +599,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
                     .header("cookie", &cookie)
                     .header("content-type", "application/x-www-form-urlencoded")
                     .body(Body::from(format!(
-                        "_csrf={token}&action=note&body=Example"
+                        "_csrf={token}&action=note&body=Example&reason=Verified+support+case"
                     )))
                     .unwrap(),
             )
@@ -2220,5 +2227,129 @@ async fn self_kick_commits_with_live_session() {
         .await;
     assert_eq!(result.expect("authorized self kick"), before + 1);
     assert_eq!(kick_state(&db).await.0, before + 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_http_typed_account_edits_and_redacted_audit() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Db::open().await.expect("PORTAL_TEST_DATABASE_URL required");
+    for id in [db.target, db.support, db.approver] {
+        sqlx::query(
+            "INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at)
+             VALUES($1,$2,'synthetic-hash','active','en',now())",
+        )
+        .bind(id)
+        .bind(format!("{id}@example.test"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    }
+
+    let app = http::configured_router_from(db.pool.clone(), &|key| match key {
+        "OTERYN_ADMIN_PANEL"
+        | "OTERYN_ADMIN_PLAYERS"
+        | "OTERYN_ACCOUNT_EMAIL_CHANGE"
+        | "OTERYN_ADMIN_ACCOUNT_SECURITY_EDITS_ENABLED" => Some("true".into()),
+        "OTERYN_ADMIN_HOST" => Some("staff.test".into()),
+        "OTERYN_PUBLIC_ORIGIN" => Some("https://staff.test".into()),
+        "OTERYN_MFA_KEY" => Some("ab".repeat(32)),
+        _ => None,
+    })
+    .unwrap();
+    let admin = staff_security_cookie(&db.pool, db.approver, 'd').await;
+    let support = staff_security_cookie(&db.pool, db.support, 'e').await;
+    let path = format!("/admin/players/{}", db.target);
+    let csrf = "a".repeat(64);
+    for (action, good, bad, audit) in [
+        ("review-flag", "yes", "true", "players.flags.changed"),
+        (
+            "account-email",
+            "new%40example.test",
+            "invalid",
+            "players.email.change_requested",
+        ),
+        (
+            "account-status",
+            "suspended",
+            "closed",
+            "players.status.changed",
+        ),
+    ] {
+        let valid = format!("action={action}&body={good}&reason=Verified+support+case");
+        for (cookie, token, body, expected) in [
+            (&admin, "wrong", valid.clone(), StatusCode::FORBIDDEN),
+            (
+                &support,
+                csrf.as_str(),
+                valid.clone(),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                &admin,
+                csrf.as_str(),
+                format!("action={action}&body={bad}&reason=Verified+support+case"),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (&admin, csrf.as_str(), valid, StatusCode::SEE_OTHER),
+        ] {
+            assert_eq!(
+                staff_security_post(&app, &path, "staff.test", cookie, token, &body).await,
+                expected,
+                "{action}"
+            );
+        }
+        let rows: Vec<(serde_json::Value, serde_json::Value, String)> = sqlx::query_as(
+            "SELECT before,after,staff_reason FROM audit_log WHERE target=$1 AND action=$2",
+        )
+        .bind(db.target.to_string())
+        .bind(audit)
+        .fetch_all(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].2, "Verified support case");
+        assert!(!rows[0].1.to_string().contains("example.test"));
+    }
+    let saved: (String, bool, bool) = sqlx::query_as(
+        "SELECT a.status, f.needs_review, c.confirmed_at IS NULL AND a.email=c.old_email
+         FROM accounts a JOIN staff_account_flags f ON f.account_id=a.id
+         JOIN account_email_changes c ON c.account_id=a.id WHERE a.id=$1",
+    )
+    .bind(db.target)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(saved, ("suspended".into(), true, true));
+    let protected = format!("/admin/players/{}", db.approver);
+    assert_eq!(
+        staff_security_post(
+            &app,
+            &protected,
+            "staff.test",
+            &admin,
+            &csrf,
+            "action=account-status&body=suspended&reason=Verified+support+case"
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id)
+         SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(db.target)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT cancelled_at IS NOT NULL FROM account_email_changes WHERE account_id=$1"
+        )
+        .bind(db.target)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+    );
     db.close().await;
 }

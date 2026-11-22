@@ -139,6 +139,9 @@ impl<A: AccountStateReader> Authorizer<A> {
             Change::CreateRole { key, permissions } => {
                 validate_key(key)?;
                 validate_permissions(permissions)?;
+                for permission in permissions {
+                    Self::check_permission(&mut tx, context.account, *permission).await?;
+                }
                 restrict_analytics(key, false, permissions)?;
                 let role: Uuid =
                     sqlx::query_scalar("INSERT INTO roles (key) VALUES ($1) RETURNING id")
@@ -167,6 +170,11 @@ impl<A: AccountStateReader> Authorizer<A> {
                     "SELECT permission FROM role_permissions WHERE role_id = $1 ORDER BY permission")
                     .bind(role).fetch_all(&mut *tx).await?;
                 let after = permission_ids(permissions);
+                for permission in permissions {
+                    if !before.iter().any(|value| value == permission.as_str()) {
+                        Self::check_permission(&mut tx, context.account, *permission).await?;
+                    }
+                }
                 // Nobody widens a role they hold themselves; narrowing stays allowed.
                 if after.iter().any(|p| !before.iter().any(|b| b == p)) {
                     let held: bool = sqlx::query_scalar(
@@ -364,9 +372,9 @@ async fn ensure_panel_role_grant(
     }
 }
 
-async fn grant_membership(
+async fn grant_membership<A: AccountStateReader>(
     connection: &mut sqlx::PgConnection,
-    accounts: &impl AccountStateReader,
+    accounts: &A,
     actor: Uuid,
     account: Uuid,
     role: Uuid,
@@ -380,6 +388,15 @@ async fn grant_membership(
         )
     {
         return Err(Error::Denied);
+    }
+    let permissions: Vec<String> =
+        sqlx::query_scalar("SELECT permission FROM role_permissions WHERE role_id=$1")
+            .bind(role)
+            .fetch_all(&mut *connection)
+            .await?;
+    for permission in permissions {
+        let permission = permission.parse().map_err(|_| Error::Denied)?;
+        Authorizer::<A>::check_permission(connection, actor, permission).await?;
     }
     let result = sqlx::query(
         "INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",

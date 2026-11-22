@@ -1201,3 +1201,72 @@ async fn r8_grant_invalidates_existing_staff_session() {
     tx.rollback().await.unwrap();
     db.close().await;
 }
+
+#[tokio::test]
+async fn db_role_managers_can_delegate_only_permissions_they_hold() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let manager = db.manager().await;
+    let auth = db.auth();
+    let role = db.role("support").await;
+    let account = Uuid::now_v7();
+    let request = Uuid::now_v7();
+    assert!(matches!(
+        auth.change(manager, request, Change::Grant { account, role })
+            .await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        auth.change(
+            manager,
+            request,
+            Change::CreateRole {
+                key: "account_flag_editor",
+                permissions: &[Permission::EditAccountFlags],
+            }
+        )
+        .await,
+        Err(Error::Denied)
+    ));
+    let custom = auth
+        .change(
+            manager,
+            request,
+            Change::CreateRole {
+                key: "audit_reader_for_delegation",
+                permissions: &[Permission::ViewAudit],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        auth.change(
+            manager,
+            request,
+            Change::SetPermissions {
+                role: custom,
+                permissions: &[Permission::ViewAudit, Permission::EditAccountFlags],
+            }
+        )
+        .await,
+        Err(Error::Denied)
+    ));
+    auth.change(
+        manager,
+        request,
+        Change::Grant {
+            account,
+            role: custom,
+        },
+    )
+    .await
+    .unwrap();
+    auth.check(verified(account), Permission::ViewAudit)
+        .await
+        .unwrap();
+    assert_eq!(db.audit_count(request).await, 2);
+    db.close().await;
+}
