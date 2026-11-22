@@ -269,7 +269,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=grant&account={target}&role={role}")
+            format!("action=grant&account={target}&role={role}&reason=Approved+role+assignment")
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -623,7 +623,9 @@ async fn postgres_a3_real_player_request_refuses_revoked_session_after_authentic
         .header("cookie", format!("__Host-oteryn_session={session_id}"))
         .header("x-csrf-token", csrf)
         .header("content-type", "application/x-www-form-urlencoded")
-        .body(Body::from("action=note&body=Session+revocation+regression"))?;
+        .body(Body::from(
+            "action=note&body=Session+revocation+regression&reason=Verified+support+case",
+        ))?;
     let task = tokio::spawn(async move { app.oneshot(request).await });
     tokio::time::timeout(std::time::Duration::from_secs(3), authenticated.notified()).await?;
     let mut revoke = db.pool.begin().await?;

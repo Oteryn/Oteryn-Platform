@@ -411,7 +411,7 @@ async fn db_audit_change_commits_atomically_with_actor_and_diff() {
     };
     let manager = db.manager().await;
     let account = Uuid::now_v7();
-    let role = db.role("support").await;
+    let role = db.role("security_admin").await;
     let request = Uuid::now_v7();
     db.auth()
         .change(manager, request, Change::Grant { account, role })
@@ -455,7 +455,7 @@ async fn db_audit_failure_rolls_back_role_change() {
     };
     let manager = db.manager().await;
     let account = Uuid::now_v7();
-    let role = db.role("support").await;
+    let role = db.role("security_admin").await;
     sqlx::raw_sql("CREATE FUNCTION reject_audit_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END; $$; CREATE TRIGGER reject_insert BEFORE INSERT ON audit_log FOR EACH STATEMENT EXECUTE FUNCTION reject_audit_insert();")
         .execute(&db.pool).await.unwrap();
     let request = Uuid::now_v7();
@@ -597,7 +597,7 @@ async fn db_grants_deny_unknown_targets_and_database_rejects_unknown_permissions
     };
     let manager = db.manager().await;
     let target = Uuid::now_v7();
-    let role = db.role("support").await;
+    let role = db.role("security_admin").await;
     for state in [
         Ok(AccountState::Disabled),
         Ok(AccountState::Unknown),
@@ -872,7 +872,6 @@ async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant()
     let Some(db) = Database::open().await else {
         return;
     };
-    let manager = db.manager().await;
     let auth = db.auth().with_game_flags(GamePermissionFlags {
         enabled: true,
         deploy: false,
@@ -887,16 +886,13 @@ async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant()
         .filter(|r| r.key().starts_with("game_") || **r == BuiltInRole::PlatformAdmin)
     {
         let account = Uuid::now_v7();
-        auth.change(
-            manager,
-            Uuid::now_v7(),
-            Change::Grant {
-                account,
-                role: db.role(role.key()).await,
-            },
-        )
-        .await
-        .unwrap();
+        // Fixture bootstrap establishes each role independently of delegation.
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+            .bind(account)
+            .bind(db.role(role.key()).await)
+            .execute(&db.pool)
+            .await
+            .unwrap();
         for permission in &permissions {
             let result = auth.check(verified(account), *permission).await;
             if role.permissions().contains(permission) && *permission != Permission::GameNodeDeploy
