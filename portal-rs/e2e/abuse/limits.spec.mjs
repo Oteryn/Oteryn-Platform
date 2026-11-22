@@ -28,7 +28,7 @@ async function seedAccount(lang) {
   return { ...account, id: JSON.parse(result.stdout).accountId };
 }
 
-async function withPlayers(browser, info, exercise) {
+async function withPlayers(browser, watchContext, info, exercise) {
   const lang = info.project.metadata.locale;
   await query('SELECT 1'); // Validate the disposable database before invoking the seed CLI.
   const contexts = [];
@@ -42,6 +42,7 @@ async function withPlayers(browser, info, exercise) {
         extraHTTPHeaders: { 'Accept-Language': lang },
       });
       contexts.push(context);
+      watchContext(context);
       const page = await context.newPage();
       await login(page, lang, account);
       players.push({ page, id: account.id });
@@ -79,17 +80,33 @@ function redirect(response, status, location) {
   return actual;
 }
 
-async function denied(response, lang, { message = sharedMessage[lang], retry } = {}) {
+async function deniedBody(response, message) {
   expect(response.status()).toBe(429);
-  const html = await response.text();
-  expect(html).toContain(message);
+  expect(await response.text()).toContain(message);
+}
+
+async function denied(response, lang, { message = sharedMessage[lang], retry } = {}) {
+  await deniedBody(response, message);
+  expect(response.headers()['retry-after']).toBe(retry);
+}
+
+async function databaseEpochSeconds() {
+  const [{ seconds }] = await query('SELECT extract(epoch FROM clock_timestamp()) AS seconds');
+  return Number(seconds);
+}
+
+async function deniedInMinute(submit, lang) {
+  const before = await databaseEpochSeconds();
+  const response = await submit();
+  const after = await databaseEpochSeconds();
+  await deniedBody(response, sharedMessage[lang]);
   const header = response.headers()['retry-after'];
-  if (retry === 'minute-bucket') {
-    expect(header).toMatch(/^[1-9][0-9]?$/);
-    expect(Number(header)).toBeLessThanOrEqual(60);
-  } else {
-    expect(header).toBe(retry);
-  }
+  expect(header).toMatch(/^[1-9][0-9]?$/);
+  // The limiter rounds up the seconds left in the charged UTC minute. The
+  // charge occurred between these two PostgreSQL clock readings.
+  const minuteEnd = (Math.floor(before / 60) + 1) * 60;
+  expect(Number(header)).toBeGreaterThanOrEqual(Math.max(1, Math.ceil(minuteEnd - after)));
+  expect(Number(header)).toBeLessThanOrEqual(Math.ceil(minuteEnd - before));
 }
 
 async function partyQuotaDenied(response) {
@@ -99,10 +116,11 @@ async function partyQuotaDenied(response) {
 }
 
 async function startMinute() {
-  // Leave enough of the production window to exercise the exact boundary.
-  await expect.poll(async () => Number((await query(
-    'SELECT extract(second FROM clock_timestamp()) AS seconds',
-  ))[0].seconds), { timeout: 65_000, intervals: [500] }).toBeLessThan(10);
+  // Leave enough time for the sequence and make a constant 60-second header wrong.
+  await expect.poll(async () => {
+    const seconds = (await databaseEpochSeconds()) % 60;
+    return seconds >= 1 && seconds < 10;
+  }, { timeout: 65_000, intervals: [500] }).toBe(true);
 }
 
 function bucketHash(policy, account, source) {
@@ -139,8 +157,8 @@ const createTicket = async (player, lang, suffix) => {
 };
 const ticketLocation = lang => new RegExp(`^/${lang}/support/tickets/${uuidPath}$`);
 
-test('comment-only profile updates accept thirty, refuse thirty-one and recover', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([player], lang) => {
+test('comment-only profile updates accept thirty, refuse thirty-one and recover', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([player], lang) => {
     await partyCharacters([player]);
     const route = `/${lang}/account/characters/${encodeURIComponent('Aldric Vale')}/profile`;
     const form = await formFields(player.page, route);
@@ -162,8 +180,8 @@ test('comment-only profile updates accept thirty, refuse thirty-one and recover'
   });
 });
 
-test('ticket creation allows six, isolates a second account and resets', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('ticket creation allows six, isolates a second account and resets', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/support/tickets`;
     const forms = new Map();
     for (const player of [a, b]) forms.set(player.id, await formFields(player.page, `${route}/create`));
@@ -174,11 +192,11 @@ test('ticket creation allows six, isolates a second account and resets', async (
     }, source);
     await startMinute();
     for (let i = 1; i <= 6; i++) redirect(await create(a, i), 302, ticketLocation(lang));
-    await denied(await create(a, 7), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => create(a, 7), lang);
     redirect(await create(a, 13, 'secondary'), 302, ticketLocation(lang));
     await verifySecondaryBucket('support-ticket-create', a.id);
     redirect(await create(b, 12), 302, ticketLocation(lang));
-    await denied(await create(a, 7), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => create(a, 7), lang);
     await expireBucket('support-ticket-create', a.id, 6);
     const seventh = redirect(await create(a, 7), 302, ticketLocation(lang));
     for (let i = 8; i <= 9; i++) redirect(await create(a, i), 302, ticketLocation(lang));
@@ -204,8 +222,8 @@ test('ticket creation allows six, isolates a second account and resets', async (
   });
 });
 
-test('ticket replies allow twelve, isolate a second account and reset', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('ticket replies allow twelve, isolate a second account and reset', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/support/tickets`;
     const existing = await query(
       `WITH inserted AS (
@@ -248,10 +266,10 @@ test('ticket replies allow twelve, isolate a second account and reset', async ({
     }
     redirect(await reply(a, eleventh.ticket, eleventh.fields, 11), 302, eleventh.ticket);
     redirect(await reply(a, twelfth.ticket, twelfth.fields, 12), 302, twelfth.ticket);
-    await denied(await reply(a, refused.ticket, refused.fields, 13), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => reply(a, refused.ticket, refused.fields, 13), lang);
     redirect(await reply(a, secondary.ticket, secondary.fields, 14, 'secondary'), 302, secondary.ticket);
     redirect(await reply(b, bTicket, bFields, 1), 302, bTicket);
-    await denied(await reply(a, refused.ticket, refused.fields, 13), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => reply(a, refused.ticket, refused.fields, 13), lang);
     await expireBucket('support-ticket-reply', a.id, 12);
     redirect(await reply(a, refused.ticket, refused.fields, 13), 302, refused.ticket);
     await verifySecondaryBucket('support-ticket-reply', a.id);
@@ -268,8 +286,8 @@ test('ticket replies allow twelve, isolate a second account and reset', async ({
   });
 });
 
-test('ticket status changes allow twelve per account and source and reset', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('ticket status changes allow twelve per account and source and reset', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const aTicket = redirect(await createTicket(a, lang, 'status A'), 302, ticketLocation(lang));
     const bTicket = redirect(await createTicket(b, lang, 'status B'), 302, ticketLocation(lang));
     const selector = 'main form[action$="/status"]';
@@ -285,11 +303,11 @@ test('ticket status changes allow twelve per account and source and reset', asyn
       redirect(await change(a, aTicket, aFields, initial + i, i % 2 ? 'open' : 'closed'), 302, aTicket);
     }
     const version = initial + 12;
-    await denied(await change(a, aTicket, aFields, version, 'closed'), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => change(a, aTicket, aFields, version, 'closed'), lang);
     redirect(await change(a, aTicket, aFields, version, 'closed', 'secondary'), 302, aTicket);
     await verifySecondaryBucket('support-ticket-status', a.id);
     redirect(await change(b, bTicket, bFields, Number(bFields.lock_version), 'closed'), 302, bTicket);
-    await denied(await change(a, aTicket, aFields, version + 1, 'open'), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => change(a, aTicket, aFields, version + 1, 'open'), lang);
     await expireBucket('support-ticket-status', a.id, 12);
     redirect(await change(a, aTicket, aFields, version + 1, 'open'), 302, aTicket);
     expect(await query(
@@ -298,8 +316,8 @@ test('ticket status changes allow twelve per account and source and reset', asyn
   });
 });
 
-test('player report submissions allow three, isolate a second account and reset', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('player report submissions allow three, isolate a second account and reset', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/support/reports`;
     const location = new RegExp(`^${route}/${uuidPath}$`);
     const submit = async (player, index) => {
@@ -344,8 +362,8 @@ test('player report submissions allow three, isolate a second account and reset'
   });
 });
 
-test('new email invitations suppress a 26th enqueue, isolate an inviter and reset', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('new email invitations suppress a 26th enqueue, isolate an inviter and reset', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     await query('UPDATE referral_campaign_settings SET enabled=true WHERE singleton');
     const route = `/${lang}/account/referrals`;
     const selector = 'form:has(input[name=kind][value=new])';
@@ -389,8 +407,8 @@ test('new email invitations suppress a 26th enqueue, isolate an inviter and rese
   });
 });
 
-test('Bazaar bid admission allows twenty requests, isolates a bidder and resets', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('Bazaar bid admission allows twenty requests, isolates a bidder and resets', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const [fixture] = await query('SELECT uuidv7() AS listing, uuidv7() AS character');
     const route = `/${lang}/account/bazaar/${fixture.listing}/bids`;
     for (const player of [a, b]) {
@@ -406,11 +424,11 @@ test('Bazaar bid admission allows twenty requests, isolates a bidder and resets'
     // A syntactically valid bid reaches the real handler and finds no listing.
     // No Game publication or funded auction is necessary for this admission test.
     for (let i = 0; i < 20; i++) expect((await bid(a)).status()).toBe(404);
-    await denied(await bid(a), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => bid(a), lang);
     expect((await bid(a, 'secondary')).status()).toBe(404);
     await verifySecondaryBucket('marketplace-bid', a.id);
     expect((await bid(b)).status()).toBe(404);
-    await denied(await bid(a), lang, { retry: 'minute-bucket' });
+    await deniedInMinute(() => bid(a), lang);
     await expireBucket('marketplace-bid', a.id, 20);
     expect((await bid(a)).status()).toBe(404);
   });
@@ -445,8 +463,8 @@ async function partyCharacters(players) {
     ON CONFLICT(family,subject,is_watermark) DO UPDATE SET watermark=EXCLUDED.watermark`);
 }
 
-test('party caps five active and ten hourly posts, isolates an owner and resets', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('party caps five active and ten hourly posts, isolates an owner and resets', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/party`;
     for (const player of [a, b]) {
       const fields = await formFields(player.page, `/${lang}/support/tickets/create`);
@@ -490,8 +508,8 @@ test('party caps five active and ten hourly posts, isolates an owner and resets'
   });
 });
 
-test('party reports accept the twentieth and refuse the twenty-first under each cap', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('party reports accept the twentieth and refuse the twenty-first under each cap', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/party`;
     const fields = await formFields(a.page, `/${lang}/support/tickets/create`);
     // These reports count toward the hourly cap only.
@@ -548,8 +566,8 @@ test('party reports accept the twentieth and refuse the twenty-first under each 
   });
 });
 
-test('returning invitations suppress the 21st enqueue in 30 days and reset', async ({ browser }, info) => {
-  await withPlayers(browser, info, async ([a, b], lang) => {
+test('returning invitations suppress the 21st enqueue in 30 days and reset', async ({ browser, browserDiagnostics }, info) => {
+  await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     await query('UPDATE referral_campaign_settings SET enabled=true WHERE singleton');
     await query("UPDATE portal_referral_coverage SET covered_since=clock_timestamp()-interval '13 months' WHERE id");
     const candidates = await query(
