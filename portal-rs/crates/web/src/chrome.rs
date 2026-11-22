@@ -15,10 +15,47 @@ pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
 }
+pub type StaffAccess = std::sync::Arc<
+    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
 
-#[derive(serde::Deserialize)]
-struct LocaleQuery {
-    lang: Option<String>,
+#[derive(Clone)]
+pub struct StaffDashboard {
+    pub url: String,
+    pub allows: StaffAccess,
+}
+
+impl std::fmt::Debug for StaffDashboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffDashboard").finish_non_exhaustive()
+    }
+}
+
+/// The GM console accepts an explicit locale before its guard runs.
+fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+    if !matches!(
+        uri.path(),
+        "/console"
+            | "/console/dashboard"
+            | "/console/worlds"
+            | "/console/nodes"
+            | "/console/database"
+    ) {
+        return None;
+    }
+    let axum::extract::Query(query) =
+        axum::extract::Query::<LocaleQuery>::try_from_uri(uri).ok()?;
+    match query.lang.as_deref() {
+        Some("pl") => Some(Language::Pl),
+        Some("en") => Some(Language::En),
+        _ => None,
+    }
 }
 
 /// Install as the outermost application middleware so every module can extract Chrome.
@@ -36,21 +73,17 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         language
     } else {
         crate::surface::path_language(request.uri().path())
+            .or_else(|| console_locale(request.uri()))
             .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
     }
     .code();
-    let account =
+    let (account, account_id) =
         if request.method() == axum::http::Method::POST && request.uri().path() == "/admin/media" {
             // Media uploads authorize before reading the body under a deadline.
             // Leave session I/O to that route so its timeout covers the first lookup.
-            oteryn_ui::Account::Anonymous
+            (oteryn_ui::Account::Anonymous, None)
         } else {
-            crate::session::chrome_account(
-                &shell.sessions,
-                &mut request,
-                shell.registry.staff_panel_url.is_some(),
-            )
-            .await
+            crate::session::chrome_account(&shell.sessions, &mut request).await
         };
     let path = request.uri().path();
     let local = path
@@ -71,8 +104,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
-    request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
         && !request.uri().path().starts_with("/internal/")
@@ -81,6 +112,14 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
+    let mut chrome = shell.registry.chrome(lang, path, account);
+    if browser
+        && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
+        && (staff.allows)(id).await
+    {
+        chrome.staff_dashboard = Some(staff.url.clone());
+    }
+    request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
         let html = response

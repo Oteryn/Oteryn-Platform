@@ -1,4 +1,6 @@
 //! Shared portal presentation. No module, database or session dependencies.
+pub mod panels;
+
 use askama::Template;
 use axum::{
     http::StatusCode,
@@ -85,15 +87,26 @@ pub struct Entry {
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
     entries: Vec<Entry>,
+    pub panels: panels::Registry,
     pub login: bool,
     pub registration: bool,
     pub account: bool,
-    pub staff_panel_url: Option<String>,
 }
 impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.
     pub fn register(&mut self, enabled: bool, entry: Entry) {
         if enabled && !self.entries.iter().any(|e| e.section == entry.section) {
+            if entry.group == Group::Account && !entry.footer {
+                self.panels.register(
+                    true,
+                    panels::Entry {
+                        panel: panels::Panel::Player,
+                        route: entry.path,
+                        label: entry.label,
+                        permission: panels::Permission::AccountOwner,
+                    },
+                );
+            }
             self.entries.push(entry);
         }
     }
@@ -140,9 +153,6 @@ impl Registry {
                     || !matches!(
                         account,
                         Account::SignedIn {
-                            passkeys_eligible: false,
-                            ..
-                        } | Account::Staff {
                             passkeys_eligible: false,
                             ..
                         }
@@ -193,6 +203,7 @@ impl Registry {
                 })
             })
             .collect();
+        let signed_in = matches!(account, Account::SignedIn { .. });
         Chrome {
             lang: lang.to_owned(),
             alternate_url: if let Some(rest) = clean
@@ -218,7 +229,18 @@ impl Registry {
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
-            staff_panel_url: self.staff_panel_url.clone(),
+            staff_dashboard: None,
+            player_navigation: if (suffix == "account"
+                || suffix.starts_with("account/")
+                || suffix.starts_with("panel/"))
+                && signed_in
+            {
+                self.panels.links(panels::Panel::Player, lang, |p| {
+                    p == panels::Permission::AccountOwner
+                })
+            } else {
+                Vec::new()
+            },
         }
     }
 }
@@ -228,10 +250,6 @@ pub enum Account {
     #[default]
     Anonymous,
     SignedIn {
-        csrf: String,
-        passkeys_eligible: bool,
-    },
-    Staff {
         csrf: String,
         passkeys_eligible: bool,
     },
@@ -272,7 +290,8 @@ pub struct Chrome {
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
-    pub staff_panel_url: Option<String>,
+    pub staff_dashboard: Option<String>,
+    pub player_navigation: Vec<panels::Link>,
 }
 impl Default for Chrome {
     fn default() -> Self {
@@ -284,22 +303,12 @@ impl Chrome {
         text(&self.lang, key)
     }
     pub fn signed_in(&self) -> bool {
-        matches!(
-            self.account,
-            Account::SignedIn { .. } | Account::Staff { .. }
-        )
-    }
-    pub fn staff_panel_link(&self) -> Option<&str> {
-        if matches!(self.account, Account::Staff { .. }) {
-            self.staff_panel_url.as_deref()
-        } else {
-            None
-        }
+        matches!(self.account, Account::SignedIn { .. })
     }
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf, .. } | Account::Staff { csrf, .. } => csrf,
+            Account::SignedIn { csrf, .. } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -594,7 +603,16 @@ mod tests {
                 assert_eq!(html.matches("<script").count(), 1);
                 assert!(html.contains("src=\"/static/thais/home.js\""));
             }
-            let chrome = registry().chrome(
+            let mut registry = registry();
+            registry.section(
+                true,
+                "account-overview",
+                "shell-account-overview",
+                "/account",
+                Group::Account,
+                false,
+            );
+            let chrome = registry.chrome(
                 lang,
                 "/",
                 Account::SignedIn {
@@ -650,6 +668,48 @@ mod tests {
                     html.contains(&chrome.text("thais-home-character-unavailable")),
                     !visible
                 );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn account_menu_respects_overview_registration() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for enabled in [false, true] {
+                let mut registry = registry();
+                registry.section(
+                    enabled,
+                    "account-overview",
+                    "shell-account-overview",
+                    "/account",
+                    Group::Account,
+                    false,
+                );
+                registry.section(
+                    true,
+                    "account-security",
+                    "shell-account-security",
+                    "password/change",
+                    Group::Account,
+                    false,
+                );
+                let chrome = registry.chrome(
+                    lang,
+                    "/account/sessions",
+                    Account::SignedIn {
+                        csrf: "fixture".into(),
+                        passkeys_eligible: false,
+                    },
+                );
+                let header = ShellHeader { chrome: &chrome }.render()?;
+                assert_eq!(header.contains("class=\"account-overview\""), enabled);
+                assert_eq!(header.contains("href=\"/account\""), enabled);
+                if !enabled {
+                    assert!(header.contains("href=\"#podglad-konta\" data-account-link"));
+                }
+                assert!(header.contains(&format!("href=\"/{lang}/password/change\"")));
+                assert!(header.contains("id=\"podglad-konta\""));
             }
         }
         Ok(())
@@ -806,25 +866,17 @@ mod tests {
     fn account_menu_renders_staff_link_only_when_enabled_and_authorized()
     -> Result<(), askama::Error> {
         for (enabled, staff) in [(true, true), (true, false), (false, true)] {
-            let mut registry = registry();
+            let registry = registry();
             let url = "https://staff.example.test:8443/admin";
-            registry.staff_panel_url = enabled.then(|| url.into());
-            let csrf = "fixture".into();
-            let account = if staff {
-                Account::Staff {
-                    csrf,
-                    passkeys_eligible: false,
-                }
-            } else {
-                Account::SignedIn {
-                    csrf,
-                    passkeys_eligible: false,
-                }
+            let account = Account::SignedIn {
+                csrf: "fixture".into(),
+                passkeys_eligible: false,
             };
-            let chrome = registry.chrome("en", "/en/", account);
+            let mut chrome = registry.chrome("en", "/en/", account);
+            chrome.staff_dashboard = (enabled && staff).then(|| url.into());
             let html = Home::new(&chrome, &HomeData::default()).render()?;
             assert_eq!(html.contains(&format!("href=\"{url}\"")), enabled && staff);
-            assert_eq!(html.contains("Staff panel"), enabled && staff);
+            assert_eq!(html.contains("Staff dashboard"), enabled && staff);
         }
         Ok(())
     }

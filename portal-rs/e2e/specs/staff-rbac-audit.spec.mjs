@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { submit } from '../helpers.mjs';
-import { audit, enrollMfa, isolatedAdmin, loginWithRecoveryCode, membership, player, query, role } from '../staff-rbac-helpers.mjs';
+import { audit, confirmStaffPassword, enrollMfa, isolatedAdmin, loginWithRecoveryCode, membership, player, query, role } from '../staff-rbac-helpers.mjs';
 
 test('Platform audit shows role changes and keeps them from Game audit staff', async ({ page, browser }, info) => {
   test.setTimeout(480_000);
@@ -17,6 +17,7 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     expect((await page.goto(auditUrl.pathname + auditUrl.search)).status()).toBe(403);
     const codes = await enrollMfa(page, lang, account);
 
+    await confirmStaffPassword(staff.page, lang, staff.account.password);
     await membership(staff.page, account.id, id, 'grant');
     await audit(staff.page, 'rbac.role.granted', account.id, { lang });
 
@@ -83,6 +84,7 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     await expect(change.getByRole('cell')).toHaveText([yes, no]);
 
     const gameRole = await role(staff.page, 'admin.access game.audit.read');
+    await confirmStaffPassword(staff.page, lang, staff.account.password);
     await membership(staff.page, account.id, gameRole, 'grant');
     await loginWithRecoveryCode(page, lang, account, codes[1]);
     expect((await page.goto(grantUrl.pathname + grantUrl.search)).status()).toBe(200);

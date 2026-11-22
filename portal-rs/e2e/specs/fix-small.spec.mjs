@@ -65,7 +65,7 @@ test('account menu shows a localized staff link only with admin.access', async (
 
   await grantRole(account, 'game_viewer');
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
-  await expect(link).toHaveText(lang === 'pl' ? 'Panel zespołu' : 'Staff panel');
+  await expect(link).toHaveText(lang === 'pl' ? 'Panel administracyjny' : 'Staff dashboard');
   const destination = staffUrl('/admin');
   await expect(link).toHaveAttribute('href', destination);
   expect((await page.goto(consents)).status()).toBe(200);

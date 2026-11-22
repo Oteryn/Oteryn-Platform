@@ -29,6 +29,14 @@ pub async fn append(
     transaction: &mut Transaction<'_, Postgres>,
     entry: Entry<'_>,
 ) -> Result<Uuid, crate::rbac::Error> {
+    append_with_reason(transaction, entry, None).await
+}
+
+pub(crate) async fn append_with_reason(
+    transaction: &mut Transaction<'_, Postgres>,
+    entry: Entry<'_>,
+    reason: Option<&str>,
+) -> Result<Uuid, crate::rbac::Error> {
     if entry.context.request_id.is_nil()
         || entry.context.actor.is_some_and(|id| id.is_nil())
         || entry.action.trim().is_empty()
@@ -38,9 +46,10 @@ pub async fn append(
     {
         return Err(crate::rbac::Error::InvalidInput);
     }
+    // Existing audit writers remain compatible with a nullable reason.
     let id = sqlx::query_scalar(
-        "INSERT INTO audit_log (actor, action, target, before, after, request_id)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        "INSERT INTO audit_log (actor, action, target, before, after, request_id, staff_reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
     )
     .bind(entry.context.actor)
     .bind(entry.action)
@@ -48,6 +57,7 @@ pub async fn append(
     .bind(entry.before)
     .bind(entry.after)
     .bind(entry.context.request_id)
+    .bind(reason)
     .fetch_one(&mut **transaction)
     .await?;
     Ok(id)

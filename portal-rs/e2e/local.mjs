@@ -25,8 +25,10 @@ const dbName=`portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
 const testName=`${dbName}_tests`;
 const queryName=`${dbName}_queries`;
 const databases=[dbName,testName,queryName];
-const queryPort=18083;
-const queryProxyPort=18448;
+const nativePanelOffPort=18083;
+const nativePanelOffProxyPort=18448;
+const queryPort=18084;
+const queryProxyPort=18450;
 const admin=new pg.Client({connectionString:adminURL});await admin.connect();
 for(const name of databases) await admin.query(`CREATE DATABASE "${name}"`);
 const databaseURL=name=>{const url=new URL(adminURL);url.pathname=`/${name}`;return url.toString();};
@@ -54,6 +56,17 @@ Object.assign(env,{
 });
 const splitStaffOrigin = process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1';
 if(splitStaffOrigin) env.OTERYN_ADMIN_HOST='127.0.0.1:443';
+const nativeDeviceClient = '019b0760-0000-7000-8000-000000000002';
+if(!process.env.PORTAL_OAUTH_CONFIG){
+ const oauth = JSON.parse(env.PORTAL_OAUTH_CONFIG);
+ oauth.clients.push({client_id:nativeDeviceClient,redirect_uris:['http://127.0.0.1/callback']});
+ env.PORTAL_OAUTH_CONFIG=JSON.stringify(oauth);
+}
+Object.assign(env,{
+ PORTAL_E2E_NATIVE_DEVICE_CLIENT:nativeDeviceClient,
+ PORTAL_E2E_NATIVE_DEVICE_ORIGIN:'https://localhost:18447',
+ PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN:'https://localhost:18448',
+});
 {
  // The pinned lane producer still emits an unsupported negative compatibility candidate.
  // Never read raw Game content or fabricate a Today producer/catalogue.
@@ -88,6 +101,11 @@ openssl(['req','-x509','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/ca-ke
 openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/key.pem`,'-out',`${scratch}/leaf.csr`,'-subj','/CN=localhost']);
 fs.writeFileSync(`${scratch}/extensions`,'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n');
 openssl(['x509','-req','-in',`${scratch}/leaf.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/cert.pem`,'-days','2','-extfile',`${scratch}/extensions`]);
+Object.assign(env,{
+ OTERYN_NATIVE_TLS_BIND:'127.0.0.1:18447',
+ OTERYN_NATIVE_TLS_CERT_FILE:`${scratch}/cert.pem`,
+ OTERYN_NATIVE_TLS_KEY_FILE:`${scratch}/key.pem`,
+});
 Object.assign(env,{
  OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18446',
  OTERYN_INTERNAL_TLS_CERT_FILE:`${scratch}/cert.pem`,
@@ -163,7 +181,7 @@ function forward(req,res,port,headers=req.headers,localAddress='127.0.0.1'){
  const upstream=http.request({hostname:'127.0.0.1',port,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 }
-function proxyRequest(req,res) {
+function proxyRequest(req,res,port=18080) {
  // Browser fixture controls invoke the producer, which makes the mTLS exchanges.
  if(req.url.startsWith('/__bazaar_game/')){
   void bazaarGame.control(req,res,req.url.slice('/__bazaar_game'.length));
@@ -181,9 +199,11 @@ function proxyRequest(req,res) {
    localAddress=invitePeer;
   }
  }
- forward(req,res,18080,headers,localAddress);
+ forward(req,res,port,headers,localAddress);
 }
 const proxy=https.createServer(tls,proxyRequest);
+const nativePanelOffProxy=https.createServer(tls,(req,res)=>proxyRequest(req,res,nativePanelOffPort));
+nativePanelOffProxy.listen(nativePanelOffProxyPort,'127.0.0.1');
 proxy.listen(18443,'127.0.0.1');
 const queryProxy=https.createServer(tls,(req,res)=>forward(req,res,queryPort));
 queryProxy.listen(queryProxyPort,'127.0.0.1');
@@ -193,6 +213,17 @@ function start(role,instanceEnv,log){
  finally{fs.closeSync(fd);}
 }
 const children=[start('serve',env,'serve'),start('worker',env,'worker'),start('serve',queryEnv,'query-serve')];
+// Use the same data with native panel routes disabled in a separate portal.
+children.push(start('serve',{
+ ...env,
+ OTERYN_PANEL_NATIVE_DEVICES_ENABLED:'false',
+ OTERYN_BIND:`127.0.0.1:${nativePanelOffPort}`,
+ OTERYN_PUBLIC_ORIGIN:env.PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN,
+ OTERYN_ADMIN_HOST:'localhost:18448',
+ OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18449',
+ PORTAL_NATIVE_ADMISSION_BIND:'127.0.0.1:18093',
+ OTERYN_NATIVE_TLS_BIND:'',OTERYN_NATIVE_TLS_CERT_FILE:'',OTERYN_NATIVE_TLS_KEY_FILE:'',
+},'native-panel-off'));
 league.start();
 if(splitStaffOrigin){
  const staffProxy=https.createServer(tls,proxyRequest).listen(443,'127.0.0.1');
@@ -218,6 +249,7 @@ async function close(code=0) {
  starttls.close();
  proxy.close();
  queryProxy.close();
+ nativePanelOffProxy.close();
  for(const name of databases)await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
  await admin.end();
  process.exit(code);

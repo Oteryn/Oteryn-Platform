@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {role} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,role} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -31,9 +31,9 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
- fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
+ expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(path=>path!=='/console/dashboard');
  await test.step('the populated audit table fits the viewport',async()=>{
    await role(page, 'admin.access audit.view');
    expect((await page.goto(`/admin/console/audit?lang=${lang}`)).status()).toBe(200);
@@ -46,46 +46,47 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
- // Each worker checks one destination and issues one link probe at a time.
- const pageWorkers=3;
- const sweeps=await Promise.allSettled(Array.from({length:pageWorkers},async(_,offset)=>{
+ for(const path of paths) await test.step(path,async()=>{
    const screen=await staffContext.newPage();
+   attempted.push(path);
    try {
-     for(let i=offset;i<paths.length;i+=pageWorkers) {
-       const path=paths[i];
-       attempted.push(path);
-       try {
-         await test.step(path,async()=>{
-           const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
-           const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
-           const status=response.status();
-           if(status===200) {
-             if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
-             // assertShell also checks CSRF on every POST form.
-             await assertShell(screen);
-           } else {
-             failures.push(`${path}: HTTP ${status}`);
-             const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
-             for(const form of forms) await csrfRejected(screen,form.action,form.fields);
-           }
-         });
-       } catch(error) {
-         failures.push(`${path}: ${error.message}`);
-       }
+     // Shell link probes visit both locales and can change the shared cookie.
+     await staffContext.addCookies([{name:'portal_language',value:lang,url:page.url()}]);
+     const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
+     const response=await screen.goto(localized?path:`${path}?lang=${lang}`,{waitUntil:'domcontentloaded'});
+     const expected=new URL(path,page.url()).pathname;
+     expect(new URL(response.url()).pathname,'terminal staff route').toBe(expected);
+     if(response.status()===200) {
+       if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
+       // assertShell also checks CSRF on every POST form.
+       await assertShell(screen);
+     } else {
+       failures.push(`${path}: HTTP ${response.status()}`);
+       const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
+       for(const form of forms) await csrfRejected(screen,form.action,form.fields);
      }
+   } catch(error) {
+     failures.push(`${path}: ${error.message}`);
    } finally {
      await screen.close();
    }
- }));
- for(const [index,result] of sweeps.entries()) {
-   if(result.status==='rejected') failures.push(`worker ${index+1}: ${result.reason.message}`);
- }
+ });
  await info.attach('admin-findings',{body:JSON.stringify({paths,attempted,failures},null,2),contentType:'application/json'});
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
+ await test.step('/console/dashboard',async()=>{
+   const denied=await page.context().newPage();
+   try {
+     const response=await denied.goto(`/console/dashboard?lang=${lang}`);
+     expect(response.status()).toBe(403);
+     expect(new URL(response.url()).pathname).toBe('/console/dashboard');
+     expect(await denied.locator('html').getAttribute('lang')).toBe(lang);
+     await assertShell(denied);
+   } finally {await denied.close();}
+ });
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
@@ -93,9 +94,10 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    try {
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-     await page.goto('/admin/roles');
+     await confirmStaffPassword(page,lang,staff.password);
+     fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
      const token=await page.locator('input[name=_csrf]').first().inputValue();
-     const fields={account:target,role,action:'grant'};
+     const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);
      const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
      expect(refused.status()).toBe(403);

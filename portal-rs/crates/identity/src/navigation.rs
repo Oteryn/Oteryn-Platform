@@ -30,7 +30,7 @@ pub fn register(registry: &mut Registry) {
         std::env::var("OTERYN_ACCOUNT_PASSKEYS").as_deref() == Ok("true"),
         "account-passkeys",
         "shell-account-passkeys",
-        "account/passkeys",
+        "account/passkeys/manage",
         Group::Account,
         false,
     );
@@ -66,4 +66,34 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+}
+
+pub fn profile_enabled() -> bool {
+    std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true")
+}
+
+pub fn register_identity_panel(registry: &mut oteryn_ui::panels::Registry) {
+    use oteryn_ui::panels::{Entry, Panel, Permission};
+    for (enabled, route, label) in [
+        (
+            profile_enabled(),
+            "account/profile",
+            "panel-identity-profile",
+        ),
+        (
+            profile_enabled() && std::env::var("OTERYN_ACCOUNT_MFA").as_deref() == Ok("true"),
+            "mfa",
+            "panel-identity-mfa",
+        ),
+    ] {
+        registry.register(
+            enabled,
+            Entry {
+                panel: Panel::Player,
+                route,
+                label,
+                permission: Permission::AccountOwner,
+            },
+        );
+    }
 }

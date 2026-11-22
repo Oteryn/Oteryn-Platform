@@ -163,13 +163,13 @@ impl BrowserSession {
             .map(|r| r.csrf.clone())
             .ok_or(sqlx::Error::RowNotFound)
     }
-    pub(crate) async fn existing_csrf_token(&self) -> Option<String> {
+    pub(crate) async fn csrf_proof(&self) -> Option<(String, [u8; 32])> {
         self.inner
             .lock()
             .await
             .record
             .as_ref()
-            .map(|r| r.csrf.clone())
+            .map(|r| (r.csrf.clone(), Sha256::digest(r.id.as_bytes()).into()))
     }
     pub async fn account_id(&self) -> Option<Uuid> {
         self.inner
@@ -256,7 +256,7 @@ pub struct CommittedRotation {
 pub async fn rotate_in_transaction(
     session: &BrowserSession,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    until: OffsetDateTime,
+    until: impl Into<Option<OffsetDateTime>>,
 ) -> Result<CommittedRotation, sqlx::Error> {
     let inner = session.inner.lock().await;
     let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
@@ -315,15 +315,18 @@ impl BrowserSession {
             .map(|record| hash(&record.id))
     }
 }
+/// Clear request-local identity after the caller has durably revoked its session.
+pub async fn clear_revoked_session(session: &BrowserSession) {
+    let mut inner = session.inner.lock().await;
+    expire_cookie(&mut inner);
+}
+
 pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result<(), sqlx::Error> {
     let mut inner = session.inner.lock().await;
     if matches!(change, PrivilegeChange::Logout) {
         let previous = inner.record.as_ref().map(|record| record.session_id);
-        // Withhold any newly rotated identity even when durable deletion is unavailable.
-        inner.record = None;
-        inner.cookie = Some(format!(
-            "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
-        ));
+        // Withhold the identity even when durable deletion is unavailable.
+        expire_cookie(&mut inner);
         if let Some(previous) = previous {
             sqlx::query("DELETE FROM web_sessions WHERE session_id=$1")
                 .bind(previous)
@@ -388,6 +391,13 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
     });
     Ok(())
 }
+fn expire_cookie(inner: &mut Inner) {
+    inner.record = None;
+    inner.cookie = Some(format!(
+        "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+    ));
+}
+
 fn cookie(id: &str) -> String {
     format!("{COOKIE_NAME}={id}; Secure; HttpOnly; SameSite=Lax; Path=/")
 }
@@ -419,11 +429,16 @@ pub async fn middleware(
         .get::<crate::csrf::CsrfConfig>()
         .cloned()
         .unwrap_or_else(|| layer.csrf.clone());
-    // The login router knows both deployment origins. Bind logout to the
-    // configured origin matching this host, including the dedicated staff host.
+    // Logout and password confirmation are available on the staff host.
+    // Use the configured origin matching the request host for those routes.
     if matches!(
         request.uri().path(),
-        "/logout" | "/en/logout" | "/pl/logout"
+        "/logout"
+            | "/en/logout"
+            | "/pl/logout"
+            | "/account/sudo"
+            | "/en/account/sudo"
+            | "/pl/account/sudo"
     ) {
         let mut hosts = request.headers().get_all(header::HOST).iter();
         if let Some(host) = hosts.next().and_then(|value| value.to_str().ok())
@@ -453,6 +468,24 @@ pub async fn middleware(
         Ok(session) => {
             request.extensions_mut().insert(session.clone());
             if let Err(status) = crate::csrf::verify(&layer.csrf, &session, &mut request).await {
+                if status == StatusCode::FORBIDDEN
+                    && request
+                        .extensions()
+                        .get::<crate::csrf::LocalizedRefusal>()
+                        .is_some()
+                {
+                    let lang = crate::surface::negotiate(request.headers()).code();
+                    let fallback = oteryn_ui::Registry::default().chrome(
+                        lang,
+                        request.uri().path(),
+                        oteryn_ui::Account::Anonymous,
+                    );
+                    let chrome = request
+                        .extensions()
+                        .get::<oteryn_ui::Chrome>()
+                        .unwrap_or(&fallback);
+                    return oteryn_ui::error(chrome, status);
+                }
                 return status.into_response();
             }
             let mut response = next.run(request).await;
@@ -615,42 +648,29 @@ pub async fn read_only_middleware(
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
-    staff_panel_enabled: bool,
-) -> oteryn_ui::Account {
+) -> (oteryn_ui::Account, Option<Uuid>) {
     let Ok(Some(session)) = read_signed_in(layer, request).await else {
-        return oteryn_ui::Account::Anonymous;
+        return (oteryn_ui::Account::Anonymous, None);
     };
-    let policy: Result<Option<(String, bool, bool, bool)>, _> = sqlx::query_as(
-        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true),
-                $2 AND EXISTS (
-                    SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
-                    WHERE ar.account_id=$1 AND rp.permission='admin.access'
-                )
+    let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
+        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
          FROM accounts WHERE id=$1",
     )
     .bind(session.account_id)
-    .bind(staff_panel_enabled)
     .fetch_optional(&layer.pool)
     .await;
-    let Ok(Some((status, verified, mfa_required, staff))) = policy else {
-        return oteryn_ui::Account::SignedIn {
-            csrf: session.csrf,
-            passkeys_eligible: false,
-        };
-    };
-    let passkeys_eligible =
-        oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required);
-    if staff {
-        oteryn_ui::Account::Staff {
-            csrf: session.csrf,
-            passkeys_eligible,
-        }
-    } else {
+    let passkeys_eligible = matches!(
+        policy,
+        Ok(Some((status, verified, mfa_required)))
+            if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
+    );
+    (
         oteryn_ui::Account::SignedIn {
             csrf: session.csrf,
             passkeys_eligible,
-        }
-    }
+        },
+        Some(session.account_id),
+    )
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.

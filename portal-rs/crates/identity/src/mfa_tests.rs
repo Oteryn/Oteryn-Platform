@@ -551,3 +551,78 @@ async fn audit02_mfa_password_snapshot_refuses_email_security_generation_change(
     assert!(!proof.current(&mfa).await?);
     db.close().await
 }
+
+#[tokio::test]
+async fn management_cannot_overtake_an_in_progress_logout() -> Result<(), Box<dyn std::error::Error>>
+{
+    use crate::mutation_actor::MutationActor;
+    use sqlx::Connection;
+
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id = account(&db.pool, "logout-race@example.test").await?;
+    let enrolled = mfa.enroll(id, "test password").await?.ok_or("enroll")?;
+    mfa.confirm(id, "test password", &code(&enrolled.secret, 0)?)
+        .await?
+        .ok_or("confirm")?;
+    let initial_step: i64 =
+        sqlx::query_scalar("SELECT last_step FROM account_mfa_totp WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&db.pool)
+        .await?;
+    let mut connection =
+        sqlx::PgConnection::connect(&std::env::var("PORTAL_TEST_DATABASE_URL")?).await?;
+    sqlx::query("SELECT set_config('search_path',$1,false)")
+        .bind(schema)
+        .execute(&mut connection)
+        .await?;
+
+    for action in [ManagementAction::RotateCodes, ManagementAction::Remove] {
+        let csrf = random_token()?;
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'logout race',now()+interval '1 hour',now()+interval '1 day')")
+            .bind(digest(&csrf)).bind(id).bind(&csrf).execute(&db.pool).await?;
+        let mut logout = connection.begin().await?;
+        // The removal is still invisible to a non-locking snapshot.
+        sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .execute(&mut *logout)
+            .await?;
+        let service = mfa.clone();
+        let proof = code(&enrolled.secret, 30)?;
+        let request = tokio::spawn(async move {
+            service
+                .manage(
+                    MutationActor::browser(id, csrf),
+                    "test password",
+                    &proof,
+                    action,
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pg_backend_pid()=ANY(pg_blocking_pids(pid)))")
+                    .fetch_one(&mut *logout).await?;
+                if blocked || request.is_finished() {
+                    return Ok::<_, sqlx::Error>(());
+                }
+            }
+        }).await??;
+        logout.commit().await?;
+        assert!(request.await??.is_none());
+        assert_eq!(mfa.remaining_codes(id).await?, 8);
+        let step: i64 =
+            sqlx::query_scalar("SELECT last_step FROM account_mfa_totp WHERE account_id=$1")
+                .bind(id)
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(step, initial_step);
+    }
+    connection.close().await?;
+    db.close().await
+}

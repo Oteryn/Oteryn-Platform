@@ -84,6 +84,29 @@ struct State {
     last_step: i64,
     generation: Uuid,
 }
+#[derive(Debug)]
+pub enum ManagementAction {
+    Replace,
+    Remove,
+    RotateCodes,
+}
+
+pub enum ManagementResult {
+    Replacement(String),
+    Removed,
+    Codes(Vec<String>),
+}
+
+impl std::fmt::Debug for ManagementResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Replacement(_) => "Replacement([redacted])",
+            Self::Removed => "Removed",
+            Self::Codes(_) => "Codes([redacted])",
+        })
+    }
+}
+
 impl Mfa {
     pub fn pool(&self) -> PgPool {
         self.pool.clone()
@@ -341,25 +364,171 @@ impl Mfa {
             .bind(id)
             .execute(&mut *tx)
             .await?;
+        let codes = Self::new_codes(&mut tx, id).await?;
+        Self::revoke(&mut tx, id).await?;
+        Self::audit(&mut tx, Some(id), "mfa.enrolled").await?;
+        tx.commit().await?;
+        Ok(Some(codes))
+    }
+    async fn new_codes(tx: &mut Tx<'_>, id: AccountId) -> Result<Vec<String>, sqlx::Error> {
         let mut codes = Vec::new();
         sqlx::query("DELETE FROM account_recovery_codes WHERE account_id=$1")
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         for _ in 0..8 {
             let code = random_token()?;
             sqlx::query("INSERT INTO account_recovery_codes(account_id,code_hash) VALUES($1,$2)")
                 .bind(id)
                 .bind(digest(&code))
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
             codes.push(code);
         }
+        Ok(codes)
+    }
+
+    pub async fn remaining_codes(&self, id: AccountId) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar("SELECT count(*) FROM account_recovery_codes WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+    }
+
+    /// The pending ciphertext carries a fixed-length fingerprint of its owner browser
+    /// identity and credential generation. Older unbound pending replacements fail closed.
+    async fn replacement_binding(
+        conn: &mut sqlx::PgConnection,
+        actor: &crate::mutation_actor::MutationActor,
+    ) -> Result<Option<[u8; 32]>, sqlx::Error> {
+        Ok(actor
+            .ceremony_identity(conn)
+            .await?
+            .map(|(session, generation)| {
+                let mut digest = Sha256::new();
+                digest.update(b"oteryn-mfa-replacement-v1");
+                digest.update(session);
+                digest.update(generation.to_be_bytes());
+                digest.finalize().into()
+            }))
+    }
+
+    /// Prove possession of the existing factor before starting replacement,
+    /// removing the factor, or invalidating the old set of recovery codes.
+    pub async fn manage(
+        &self,
+        actor: crate::mutation_actor::MutationActor,
+        password: &str,
+        code: &str,
+        action: ManagementAction,
+    ) -> Result<Option<ManagementResult>, sqlx::Error> {
+        let id = actor.account;
+        let mut tx = self.pool.begin().await?;
+        let hash = Self::lock(&mut tx, id).await?;
+        if !actor.live(&mut tx).await? {
+            return Ok(None);
+        }
+        let Some(hash) = hash else { return Ok(None) };
+        if !Self::password(password, &hash).await? {
+            Self::refuse(tx, Some(id)).await?;
+            return Ok(None);
+        }
+        // Logout does not take the account lock. Recheck and lock the browser
+        // row after password verification, before consuming any proof.
+        let Some(binding) = Self::replacement_binding(&mut tx, &actor).await? else {
+            return Ok(None);
+        };
+        if !self.verify_totp_in_connection(&mut tx, id, code).await? {
+            Self::refuse(tx, Some(id)).await?;
+            return Ok(None);
+        }
+
+        let (result, audit) = match action {
+            ManagementAction::Replace => {
+                let mut secret = vec![0; 20];
+                getrandom::fill(&mut secret).map_err(|_| error())?;
+                let encoded = totp_rs::Secret::Raw(secret.clone())
+                    .to_encoded()
+                    .to_string();
+                let mut pending = binding.to_vec();
+                pending.extend(self.encrypt(id, &secret)?);
+                sqlx::query("UPDATE account_mfa_totp SET replacement_secret=$2,replacement_expires_at=clock_timestamp()+interval '10 minutes' WHERE account_id=$1")
+                    .bind(id).bind(pending).execute(&mut *tx).await?;
+                (
+                    ManagementResult::Replacement(encoded),
+                    "mfa.replacement_started",
+                )
+            }
+            ManagementAction::Remove => {
+                sqlx::query("DELETE FROM account_mfa_totp WHERE account_id=$1")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM account_recovery_codes WHERE account_id=$1")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query(
+                    "UPDATE accounts SET login_mfa_required=false,updated_at=now() WHERE id=$1",
+                )
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+                Self::revoke(&mut tx, id).await?;
+                (ManagementResult::Removed, "mfa.removed")
+            }
+            ManagementAction::RotateCodes => {
+                let codes = Self::new_codes(&mut tx, id).await?;
+                Self::revoke(&mut tx, id).await?;
+                (ManagementResult::Codes(codes), "mfa.recovery_codes_rotated")
+            }
+        };
+        Self::audit(&mut tx, Some(id), audit).await?;
+        tx.commit().await?;
+        Ok(Some(result))
+    }
+
+    pub async fn confirm_replacement(
+        &self,
+        actor: crate::mutation_actor::MutationActor,
+        password: &str,
+        code: &str,
+    ) -> Result<Option<Vec<String>>, sqlx::Error> {
+        let id = actor.account;
+        let mut tx = self.pool.begin().await?;
+        let hash = Self::lock(&mut tx, id).await?;
+        let Some(binding) = Self::replacement_binding(&mut tx, &actor).await? else {
+            return Ok(None);
+        };
+        let replacement: Option<State> = sqlx::query_as("SELECT replacement_secret AS secret,confirmed,-1::bigint AS last_step,generation FROM account_mfa_totp WHERE account_id=$1 AND confirmed AND replacement_expires_at>clock_timestamp()")
+            .bind(id).fetch_optional(&mut *tx).await?;
+        let Some(mut replacement) = replacement else {
+            return Ok(None);
+        };
+        let Some(ciphertext) = replacement.secret.strip_prefix(binding.as_slice()) else {
+            return Ok(None);
+        };
+        replacement.secret = ciphertext.to_vec();
+        let step = self.step(id, &replacement, code, now()?)?;
+        if hash.is_none()
+            || step.is_none()
+            || !Self::password(password, hash.as_deref().unwrap_or("")).await?
+        {
+            Self::refuse(tx, Some(id)).await?;
+            return Ok(None);
+        }
+        let updated = sqlx::query("UPDATE account_mfa_totp SET secret=$3,replacement_secret=NULL,replacement_expires_at=NULL,generation=uuidv7(),last_step=$2,updated_at=now() WHERE account_id=$1 AND replacement_expires_at>clock_timestamp()")
+            .bind(id).bind(step).bind(replacement.secret).execute(&mut *tx).await?;
+        if updated.rows_affected() != 1 {
+            return Ok(None);
+        }
+        let codes = Self::new_codes(&mut tx, id).await?;
         Self::revoke(&mut tx, id).await?;
-        Self::audit(&mut tx, Some(id), "mfa.enrolled").await?;
+        Self::audit(&mut tx, Some(id), "mfa.replaced").await?;
         tx.commit().await?;
         Ok(Some(codes))
     }
+
     async fn revoke(tx: &mut Tx<'_>, id: AccountId) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1")
             .bind(id)
@@ -679,21 +848,35 @@ impl Mfa {
         id: impl Into<crate::mutation_actor::MutationActor>,
         identifier: &str,
     ) -> Result<bool, sqlx::Error> {
-        let actor = id.into();
-        let id = actor.account;
         let mut tx = self.pool.begin().await?;
-        let active = Self::lock(&mut tx, id).await?.is_some();
-        if !actor.live(&mut tx).await? {
+        let removed = self
+            .remove_device_in_transaction(&mut tx, id, identifier)
+            .await?;
+        tx.commit().await?;
+        Ok(removed)
+    }
+
+    /// Keep the owner lock and device change within the caller's rotation transaction.
+    pub async fn remove_device_in_transaction(
+        &self,
+        tx: &mut Tx<'_>,
+        actor: impl Into<crate::mutation_actor::MutationActor>,
+        identifier: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let actor = actor.into();
+        let id = actor.account;
+        let active = Self::lock(tx, id).await?.is_some();
+        if !actor.live(tx).await? {
             return Ok(false);
         }
 
         let removed = if active && valid_token(identifier) {
-            sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND encode(token_hash,'hex')=$2").bind(id).bind(identifier).execute(&mut *tx).await?.rows_affected()==1
+            sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND purpose='trusted' AND encode(token_hash,'hex')=$2").bind(id).bind(identifier).execute(&mut **tx).await?.rows_affected()==1
         } else {
             false
         };
         Self::audit(
-            &mut tx,
+            tx,
             Some(id),
             if removed {
                 "mfa.device_removed"
@@ -702,7 +885,6 @@ impl Mfa {
             },
         )
         .await?;
-        tx.commit().await?;
         Ok(removed)
     }
 }

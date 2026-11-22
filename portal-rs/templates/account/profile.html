@@ -1,0 +1,23 @@
+{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("panel-identity-profile") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("panel-identity-profile") }}</h1>
+<dl>
+  <dt>{{ self.text("panel-identity-created") }}</dt><dd>{{ profile.created_at }}</dd>
+  <dt>{{ self.text("panel-identity-verified") }}</dt><dd>{{ profile.verified_at }}</dd>
+  {% if let Some(last_browser_login) = profile.last_browser_login %}
+  <dt>{{ self.text("panel-identity-last-browser-login") }}</dt><dd>{{ last_browser_login }}</dd>
+  {% endif %}
+</dl>
+{% if invalid %}<p class="op-error" role="alert">{{ self.text("panel-identity-invalid-name") }}</p>{% endif %}
+<form class="op-stack" method="post" action="/{{ lang }}/account/profile">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <div class="op-field">
+    <label for="display-name">{{ self.text("panel-identity-display-name") }}</label>
+    <input class="op-input" id="display-name" name="display_name" value="{{ profile.display_name }}"
+      pattern="[\p{White_Space}--\p{Cc}]*[^\p{Cc}]{0,{{ display_name_limit }}}[\p{White_Space}--\p{Cc}]*"
+      title="{{ self.text("panel-identity-invalid-name") }}" autocomplete="nickname">
+  </div>
+  <button class="op-button op-button--primary">{{ self.text("panel-identity-save-profile") }}</button>
+</form>
+{% endblock %}

@@ -114,34 +114,34 @@
   {
     "crate": "admin",
     "route": "/console/dashboard",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/worlds",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/database",
-    "actor": "staff",
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
@@ -1012,8 +1012,8 @@
     "route": "/{lang}/account/privacy/export",
     "actor": "player",
     "method": "GET",
-    "status": 403,
-    "reason": "authorization required"
+    "status": 200,
+    "reason": "redirects to localized password confirmation before export"
   },
   {
     "crate": "identity",
@@ -1105,7 +1105,57 @@
   },
   {
     "crate": "identity",
+    "route": "/{lang}/mfa/manage",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/replace/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/native-devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/profile",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "active owner can open profile settings",
+    "exactPath": true
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/profile",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation",
+    "case": "route identity /{lang}/account/profile POST"
+  },
+  {
+    "crate": "identity",
     "route": "/{lang}/account/passkeys",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/manage",
     "actor": "player",
     "method": "GET",
     "status": 200,
@@ -2466,6 +2516,30 @@
   {
     "crate": "identity",
     "route": "/mfa/devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/manage",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/replace/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/native-devices",
     "actor": "player",
     "method": "POST",
     "status": 403,

@@ -131,13 +131,17 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .clone()
         .oneshot(request(
             "POST",
-            "/en/account/sudo",
+            "/en/account/sudo?return_to=export",
             &cookie,
             &csrf,
             "current_password=test+password",
         )?)
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "/en/account/privacy/export"
+    );
     let rotated = response
         .headers()
         .get(header::SET_COOKIE)
