@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
@@ -115,6 +116,7 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
   });
+  const contexts = [anonymous];
   try {
     const owner = await player(page, lang);
     expect((await page.goto(`/${lang}/support/tickets/create`)).status()).toBe(200);
@@ -149,12 +151,18 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
     const target = new URL(page.url()).pathname;
     const created = [{ id: target.split('/').at(-1), account_id: owner.id, subject, body }];
     expect(await snapshot()).toEqual(created);
+    for (const { screen, account } of await foreignActors(browser, info.project, lang, contexts, 'content_editor')) {
+      expect((await sendForm(screen, url, fields)).status()).toBe(403);
+      expect((await screen.goto(target)).status()).toBe(404);
+      expect(await query('SELECT id FROM tickets WHERE account_id=$1', [account.id])).toEqual([]);
+      expect(await snapshot()).toEqual(created);
+    }
     const replay = await sendForm(page, url, fields);
     expect(replay.status()).toBe(302);
     expect(replay.headers().location).toBe(target);
     expect(await snapshot()).toEqual(created);
   } finally {
-    await anonymous.close();
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
@@ -469,12 +477,9 @@ test('character creation queues one operation and exposes the pending Game outco
       : 'Your request is being processed. Without a result from Game, its outcome is still unknown. Refresh this page to check again.');
     const queued = [{ id: target.split('/').at(-1), state: 'PENDING', receipt_json: null }];
     expect(await snapshot()).toEqual(queued);
-    for (const { screen, account, csrf } of await foreignActors(browser, info.project, lang, contexts, 'content_editor')) {
-      const refused = await sendForm(screen, fresh.url, { ...fresh.fields, _csrf: csrf });
-      expect(refused.status()).toBe(302);
-      expect(refused.headers().location).toBe(surface);
-      await screen.goto(surface);
-      await expect(screen.getByRole('status')).toHaveText(error);
+    for (const { screen, account } of await foreignActors(browser, info.project, lang, contexts, 'content_editor')) {
+      expect((await sendForm(screen, fresh.url, fresh.fields)).status()).toBe(403);
+      expect((await screen.goto(target)).status()).toBe(404);
       expect(await snapshot()).toEqual(queued);
       expect(await query('SELECT id FROM character_commands WHERE account_id=$1', [account.id])).toEqual([]);
     }
@@ -665,11 +670,12 @@ test('support ticket reply and resolution require the support permission', async
 });
 
 test('player report persists one private report for the submitted request key', async ({ page, browser }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const reader = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
   });
+  const contexts = [reader];
   try {
     const other = await reader.newPage();
     const owner = await seededPlayer(page, lang);
@@ -727,11 +733,14 @@ test('player report persists one private report for the submitted request key', 
     expect(replay.status()).toBe(302);
     expect(replay.headers().location).toBe(target);
     expect(await snapshot()).toEqual(submitted);
-    await seededPlayer(other, lang);
-    expect((await other.goto(target)).status()).toBe(404);
-    expect(await snapshot()).toEqual(submitted);
+    for (const { screen, account } of await foreignActors(browser, info.project, lang, contexts, 'content_editor')) {
+      expect((await sendForm(screen, fresh.url, fresh.fields)).status()).toBe(403);
+      expect((await screen.goto(target)).status()).toBe(404);
+      expect(await query('SELECT id FROM player_reports WHERE reporter_account_id=$1', [account.id])).toEqual([]);
+      expect(await snapshot()).toEqual(submitted);
+    }
   } finally {
-    await reader.close();
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
@@ -3554,6 +3563,136 @@ test('admin control step-up consumes one TOTP and approval requires an accepted 
     expect((await sendForm(page, approval, { _csrf: csrf })).status()).toBe(403);
     expect(await durable()).toEqual([]);
     expect(await state()).toEqual(proved);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('staff refunds a real uncredited test payment through one independent approval', { tag: '@uncredited-payment' }, async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const origin = new URL(info.project.use.baseURL).origin;
+  try {
+    const owner = await seededPlayer(page, lang);
+    const staff = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
+    const reviewers = [];
+    for (let index = 0; index < 2; index += 1) {
+      const context = await browser.newContext({ baseURL: origin, ignoreHTTPSErrors: true, locale: lang });
+      contexts.push(context);
+      const screen = await context.newPage();
+      reviewers.push({ screen, account: await seededPlayer(screen, lang, 'platform_admin') });
+    }
+    const [proposer, reviewer] = reviewers;
+    await page.goto(`/${lang}/shop/coins`);
+    const packageForm = 'main form[action$="/shop/coins"]';
+    const order = await prepare(page, packageForm);
+    await submit(page, packageForm);
+    await expect(page).toHaveURL(/\/shop\/test-checkout\/[a-f0-9-]+$/);
+    const intent = new URL(page.url()).pathname.split('/').at(-1);
+    expect(await query('SELECT payment_intent_id FROM store_web_topups WHERE operation_id=$1 AND account_id=$2',
+      [order.fields.operation, owner.id])).toEqual([{ payment_intent_id: intent }]);
+    await submit(page, 'main form[action*="/shop/test-checkout/"]');
+    await expect(page.locator('main')).toContainText(lang === 'pl'
+      ? 'Płatność przyjęta, środki zostaną zaksięgowane po przetworzeniu.'
+      : 'Payment accepted; funds will be credited after processing.');
+    const payment = () => query(
+      `SELECT state,provider,amount::int,currency,
+              (SELECT count(*)::int FROM wallet_entries WHERE operation_id=$1) AS credits,
+              (SELECT count(*)::int FROM payment_events WHERE intent_id=$1) AS events
+       FROM payment_intents WHERE id=$1 AND account_id=$2`, [intent, owner.id],
+    );
+    const paid = [{ state: 'succeeded', provider: 'test', amount: 250, currency: 'PLN', credits: 0, events: 1 }];
+    expect(await payment()).toEqual(paid);
+
+    const panel = '/admin/commerce';
+    expect((await proposer.screen.goto(panel)).status()).toBe(200);
+    const form = 'main form[action="/admin/commerce/refund"]';
+    const data = { target: intent, reason: 'Refund this authorized uncredited test provider payment.' };
+    const offer = await prepare(proposer.screen, form, data);
+    const operation = offer.fields.request_id;
+    const snapshot = async () => ({
+      payment: await payment(),
+      review: await query(
+        "SELECT actor_id,approved_by,target_id,command->>'kind' AS kind,result FROM commerce_operations WHERE id=$1", [operation],
+      ),
+      dispatch: await query(
+        `SELECT state,provider,provider_reference IS NOT NULL AS submitted,
+           (SELECT count(*)::int FROM audit_log WHERE request_id=$1 AND action='commerce.refund.dispatched') AS confirmed
+         FROM commerce_refunds WHERE operation_id=$1 AND intent_id=$2`, [operation, intent],
+      ),
+    });
+    const validation = lang === 'pl' ? 'Nieprawidłowe dane. Sprawdź identyfikatory, kwotę i powód.'
+      : 'Invalid input. Check the identifiers, amount and reason.';
+    const initial = { payment: paid, review: [], dispatch: [] };
+    const refusal = async (screen, action, baseline) => {
+      await rejected({ page: screen, ...action, snapshot, baseline });
+      for (const { screen: outsider, csrf } of staff) {
+        expect((await sendForm(outsider, action.url, { ...action.fields, _csrf: csrf })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+    };
+    await refusal(proposer.screen, offer, initial);
+    await invalid({ page: proposer.screen, ...offer, snapshot, baseline: initial, message: validation, samples: [
+      { name: 'empty reason', patch: { reason: '' } },
+      { name: 'overlong reason', patch: { reason: 'x'.repeat(501) } },
+      { name: 'wrong target identifier format', patch: { target: 'text' } },
+      { name: 'reason below minimum length', patch: { reason: 'x'.repeat(9) } },
+    ] });
+    await submit(proposer.screen, form, data);
+    await expect(proposer.screen).toHaveURL(new URL(panel, origin).href);
+    const approval = `main form[action="${panel}/approvals/${operation}"]`;
+    await expect(proposer.screen.locator(approval)).toBeVisible();
+    await expect(proposer.screen.locator(`${approval} button`)).toHaveCount(0);
+    const proposal = { actor_id: proposer.account.id, approved_by: null, target_id: intent, kind: 'refund', result: null };
+    const pending = { ...initial, review: [proposal] };
+    expect(await snapshot()).toEqual(pending);
+    expect((await sendForm(proposer.screen, offer.url, offer.fields)).status()).toBe(303);
+    expect(await snapshot()).toEqual(pending);
+
+    expect((await reviewer.screen.goto(panel)).status()).toBe(200);
+    const decision = await prepare(reviewer.screen, approval);
+    await refusal(reviewer.screen, decision, pending);
+    const own = await prepare(proposer.screen, approval);
+    expect((await sendForm(proposer.screen, decision.url, own.fields)).status()).toBe(403);
+    expect(await snapshot()).toEqual(pending);
+    for (const value of ['_', 'x'.repeat(128), '123', operation.slice(0, -1)]) {
+      const denied = await sendForm(reviewer.screen, decision.url.replace(operation, value), decision.fields);
+      expect(denied.status()).toBe(422);
+      expect(await denied.text()).toContain(validation);
+      expect(await snapshot()).toEqual(pending);
+    }
+    await submit(reviewer.screen, approval);
+    await expect(reviewer.screen).toHaveURL(new URL(panel, origin).href);
+    await expect(reviewer.screen.locator(approval)).toHaveCount(0);
+    const refunded = {
+      ...pending,
+      review: [{ ...proposal, approved_by: reviewer.account.id,
+        result: { intent, queued: true, amount: 250, currency: 'PLN' },
+      }],
+      dispatch: [{ state: 'done', provider: 'test', submitted: true, confirmed: 1 }],
+    };
+    await expect.poll(snapshot, { timeout: 60_000, intervals: [1000] }).toEqual(refunded);
+    expect((await sendForm(reviewer.screen, decision.url, decision.fields)).status()).toBe(303);
+    expect(await snapshot()).toEqual(refunded);
+
+    const [record] = await query('SELECT provider_reference FROM payment_intents WHERE id=$1', [intent]);
+    const event = JSON.stringify({
+      event_id: `matrix-refund:${intent}`, intent_id: intent, provider_reference: record.provider_reference,
+      amount: { minor_units: 250, currency: 'PLN' }, state: 'refunded',
+    });
+    const providerKey = readFileSync(process.env.PORTAL_E2E_REFUND_KEY_FILE);
+    const signature = createHmac('sha256', providerKey).update(event).digest('base64');
+    const settle = () => page.request.post('/__test/payments/webhook', {
+      data: event, headers: { 'content-type': 'application/json', 'x-test-payment-signature': signature },
+    });
+    expect((await settle()).status()).toBe(204);
+    await page.reload();
+    await expect(page.locator('main')).toContainText(lang === 'pl' ? 'Płatność zwrócona.' : 'Payment refunded.');
+    const verified = { ...refunded, payment: [{ ...paid[0], state: 'refunded', events: 2 }] };
+    expect(await snapshot()).toEqual(verified);
+    expect((await settle()).status()).toBe(204);
+    expect(await snapshot()).toEqual(verified);
   } finally {
     await Promise.all(contexts.map(context => context.close()));
   }

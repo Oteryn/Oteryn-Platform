@@ -45,13 +45,13 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Account termination request and cancellation | The request returns the owner to login and persists one scheduled termination. A fresh owner session cancels it before finalization | Yes | Foreign player and content editor are refused | Localized confirmation and password errors | The request revokes the issuing session. Replayed cancellation leaves the cancelled row unchanged |
 | WebAuthn registration, authentication and removal | Chromium authenticator completes real ceremonies, and credential and session records change | Yes | Other player and content editor cannot operate on the owner challenge or credential | Structured authenticator errors and malformed references | Challenge or credential state changes once |
 | `/{lang}/unsubscribe` | Signed confirmation form | Signed capability missing or forged | Possession of the signed link grants access | Malformed and overlength capabilities | No additional change on replay |
-| `/{lang}/support/tickets` | Yes | Yes | Anonymous | Yes | Request-key replay |
+| `/{lang}/support/tickets` | Yes | Yes | Anonymous. A foreign player and content editor cannot submit the owner's form or read the ticket | Yes | Request-key replay |
 | `/{lang}/support/tickets/{id}/reply` | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/support/tickets/{id}/status` (POST and PUT, close and reopen) | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/admin/support/tickets/{id}/reply` | Public replies appear for both parties. Internal notes persist and remain visible to staff | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/admin/support/tickets/{id}/status` (POST and PUT) | Resolved, open, waiting for player, waiting for staff and closed | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/support/tickets/{id}/read` | Yes | Yes | Foreign player and content editor | Yes | Unread flag clears once |
-| `/{lang}/support/reports` | Yes | Yes | Anonymous, and report stays private from another player | Yes | Request-key replay |
+| `/{lang}/support/reports` | Yes | Yes | Anonymous. A foreign player and content editor cannot submit the owner's form or read the report | Yes | Request-key replay |
 | `/{lang}/shop/coins` | Yes | Yes | Anonymous, foreign player and unrelated support staff are refused for the owner's operation | Yes | Operation replay |
 | Gift code issuance | Staff form returns a coin or premium-days batch. Exactly one code and audit record persist | Yes | Player and content editor | Localized feedback for empty, overlong, malformed and out-of-range values | Matching replay returns the same batch without issuing another code |
 | Gift code redemption | Browser JSON request followed by visible wallet credit or premium end date, backed by its ledger | Yes | A valid unused code authorizes redemption. Both a different player and content editor are refused after it is consumed | Localized feedback and unchanged ledger | Replayed operation returns the first receipt and grants value once |
@@ -66,7 +66,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Wiki create, update, revision restore and review actions | Visible draft, review, published and archived states. Changes persist bilingual revisions and a review history | Yes | Foreign player and support staff | Localized malformed text, slug and revision feedback | Stale edits, restores and transitions are refused |
 | Media upload and deletion (POST and DELETE) | Upload shows and serves the image. Stored bytes, dimensions, thumbnail and audit entry are verified before deletion | Yes | Foreign player and support staff | Bad metadata, image bytes and IDs are refused | Deleted bytes stay unavailable after replay |
 | Staff roles (create, set permissions, grant and revoke) | Role and membership forms are visible. Permissions, members and each audit action persist | Yes | Player and content editor | Empty, overlong and malformed values refused | Each deliberate administrative change is audited |
-| `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous, foreign player and content editor cannot reuse the owner's submission | Yes | Submission replay |
+| `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous. A foreign player and content editor cannot submit the owner's form or read the command | Yes | Submission replay |
 
 The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, daily puzzle answers, and collection PvP and set purchases. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, daily puzzle catalogue, or the collection PvP gameplay and wallet adapters. The standard matrix proves that the character creation form persists one pending command. The publisher matrix proves the terminal receipt, durable portfolio, and visible creation result.
 
@@ -214,3 +214,37 @@ The browser buys coins through the test provider. An accepted Game receipt
 settles one reserved coin, and the published portfolio and service history show
 the new name. Missing and invalid CSRF, foreign players and staff, invalid
 names and prices, and replay preserve the checked wallet and order state.
+
+Enable `PORTAL_PARTY_ENABLED=true` in the publisher instance for recruitment.
+The publisher supplies the owned character and a fresh public profile
+watermark. Browser forms create and remove recruitment posts, submit reports,
+and resolve reports as staff by dismissing them or removing the post. The
+matrix checks visible listings, owner and staff permissions, localized field
+refusals, and the persisted posts and reports.
+
+## Refund fixture
+
+Run the uncredited payment case in a separate instance of `local.mjs`. The
+worker's existing `OTERYN_WALLET_ENABLED` switch defers credit delivery while
+the server and refund worker handle actual test-provider payments. Use a private
+key file for the test provider's settlement webhook.
+
+```sh
+umask 077
+export PORTAL_E2E_REFUND_BINARY=/absolute/path/to/oteryn-portal
+export PORTAL_E2E_REFUND_KEY_FILE="$(mktemp)"
+openssl rand -hex 32 | tr -d '\n' > "$PORTAL_E2E_REFUND_KEY_FILE"
+export PORTAL_E2E_BINARY="$PWD/mutation/refund-worker.sh"
+node local.mjs
+```
+
+With the same environment, run the tagged case in all four projects.
+
+```sh
+node run.mjs /absolute/scratch/env.json test --config mutation/refund.config.mjs --retries=0
+```
+
+The purchaser sees the uncredited payment. Two distinct staff identities
+submit and approve the refund, and the refund worker records one dispatch.
+The signed test-provider settlement appears in the browser as refunded, and
+replaying approval and settlement leaves one refund and zero wallet credits.
