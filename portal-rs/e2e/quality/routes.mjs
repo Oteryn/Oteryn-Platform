@@ -86,10 +86,17 @@ export function matchingRoute(inventory, pathname) {
   return result;
 }
 
-export function documentLanguage(pathname, pattern, locale) {
+export function documentLanguage(url, pattern, locale) {
+  const { pathname, searchParams } = url;
   const prefix = pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1];
   if (prefix) return prefix;
   const segment = pattern.split('/').indexOf('{lang}');
   const explicit = pathname.split('/')[segment];
-  return (explicit === 'pl' || explicit === 'en') && matches(pattern, pathname) ? explicit : locale;
+  if ((explicit === 'pl' || explicit === 'en') && matches(pattern, pathname)) return explicit;
+  // These legacy editorial routes expose an explicit language filter.
+  if (/^\/(?:news(?:\/[^/]+)?|admin\/(?:media|news(?:\/create|\/[^/]+\/edit)?))$/.test(pathname)) {
+    const filter = searchParams.get('lang');
+    if (filter === 'pl' || filter === 'en') return filter;
+  }
+  return locale;
 }

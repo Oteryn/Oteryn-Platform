@@ -199,7 +199,7 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
     expect(url.pathname, 'browser and source discovery agree on destination').toBe(label);
     await vitals(page);
     expect.soft(await page.locator('html').getAttribute('lang'), `${label}: document language`)
-      .toBe(documentLanguage(url.pathname, entry.pattern, info.project.metadata.locale));
+      .toBe(documentLanguage(url, entry.pattern, info.project.metadata.locale));
     await expect.soft(page.getByRole('main'), `${label}: main landmark`).toHaveCount(1);
 
     const scanner = new AxeBuilder({ page }).withRules(auditRules);
