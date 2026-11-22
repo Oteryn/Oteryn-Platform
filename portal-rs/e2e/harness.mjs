@@ -15,12 +15,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
-import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
-import { localDatabaseURL } from './local-database.mjs';
+import { localDatabaseClient, localDatabaseURL } from './local-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -32,6 +30,7 @@ const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const staffMode = argv.includes('--staff-console');
+const parentLifetime = argv.includes('--parent-lifetime-stdin');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -85,12 +84,7 @@ async function dropDatabase(dbName, reconcile) {
     const attemptDeadline = performance.now() + budget;
     const url = new URL(adminConnectionString);
     url.searchParams.set('statement_timeout', String(budget));
-    const socket = new Socket();
-    const client = new pg.Client({
-      connectionString: url.href,
-      connectionTimeoutMillis: budget,
-      stream: socket,
-    });
+    const { client, socket } = localDatabaseClient(url, budget);
     // An unexpected disconnect can also emit an idle-client error between
     // connect and query. The awaited operations determine whether to retry.
     client.on('error', () => {});
@@ -182,25 +176,75 @@ function stop(code, message) {
 }
 process.on('SIGINT', () => stop(0));
 process.on('SIGTERM', () => stop(0));
+if (parentLifetime) {
+  process.stdin.once('end', () => stop(0));
+  process.stdin.on('error', () => stop(1, 'Managed harness lifetime pipe failed'));
+  process.stdout.on('error', error => error.code === 'EPIPE' ? stop(0) : stop(1, 'Managed harness report pipe failed'));
+  process.stdin.resume();
+}
+
+function lockOutputDirectory(out) {
+  fs.mkdirSync(out, { recursive: true, mode: 0o700 });
+  const fd = fs.openSync(out, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  try {
+    // flock acts on the inherited open directory descriptor. Node retains the
+    // lock after flock exits, including throughout database and file cleanup.
+    const lock = spawnSync('flock', ['-n', '-E', '75', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] });
+    if (lock.status === 75) throw new Error(`${out} is in use by another harness run`);
+    if (lock.status !== 0) throw new Error('Could not lock the harness output directory (requires flock)');
+    const locked = fs.fstatSync(fd, { bigint: true });
+    const current = fs.lstatSync(out, { bigint: true, throwIfNoEntry: false });
+    if (current?.ino !== locked.ino || current.dev !== locked.dev) {
+      throw new Error(`${out} was replaced during lock acquisition`);
+    }
+  } catch (error) {
+    fs.closeSync(fd);
+    throw error;
+  }
+  onCleanup(() => fs.closeSync(fd));
+}
 
 async function start() {
   // ---- output directory (ignored by git) -------------------------------------
   const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
-  if (fs.existsSync(out)) {
-    if (!fs.existsSync(path.join(out, '.portal-e2e-harness'))) throw new Error(`${out} exists and is not a harness directory`);
-    fs.rmSync(out, { recursive: true, force: true });
+  lockOutputDirectory(out);
+  const marker = path.join(out, '.portal-e2e-harness');
+  const marked = fs.lstatSync(marker, { throwIfNoEntry: false });
+  if (!marked && fs.readdirSync(out).length === 0) {
+    fs.writeFileSync(marker, '', { flag: 'wx', mode: 0o600 });
+  } else if (!marked?.isFile()) {
+    throw new Error(`${out} exists and is not a harness directory`);
   }
   const dirs = { certs: path.join(out, 'certs'), clients: path.join(out, 'certs', 'clients'), witness: path.join(out, 'witness'), logs: path.join(out, 'logs'), secrets: path.join(out, 'secrets'), bin: path.join(out, 'bin') };
+  const reportFile = path.join(out, 'report.json');
+  for (const file of [dirs.certs, dirs.witness, dirs.logs, dirs.secrets, dirs.bin, reportFile]) {
+    fs.rmSync(file, { recursive: true, force: true });
+  }
+  const privatePaths = new Set([dirs.secrets, dirs.clients, dirs.witness, dirs.bin]);
+  const owned = [];
   onCleanup(code => {
-    if (!ready || code !== 0) {
-      for (const dir of [dirs.secrets, dirs.clients, dirs.witness, dirs.bin]) {
-        fs.rmSync(dir, { recursive: true, force: true });
+    if (parentLifetime || !ready || code !== 0) {
+      for (const file of owned) fs.rmSync(file, { recursive: true, force: true });
+    }
+    if (parentLifetime && ready && code === 0) {
+      // Remove the managed run's remaining files under its lock. The parent
+      // only owns the launcher log and can remove the wrapper if it is empty.
+      for (const dir of [dirs.certs, dirs.logs]) fs.rmSync(dir, { recursive: true, force: true });
+      const remaining = fs.readdirSync(out);
+      if (remaining.length === 1 && remaining[0] === path.basename(marker)) {
+        fs.unlinkSync(marker);
+        try {
+          fs.rmdirSync(out);
+        } catch (error) {
+          if (error.code !== 'ENOTEMPTY') throw error;
+        }
       }
-      fs.rmSync(path.join(out, 'report.json'), { force: true });
     }
   });
-  for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(out, '.portal-e2e-harness'), '');
+  for (const dir of Object.values(dirs)) {
+    fs.mkdirSync(dir, { mode: 0o700 });
+    if (privatePaths.has(dir)) owned.push(dir);
+  }
 
   // ---- certificates (openssl, as local.mjs) ----------------------------------
   function openssl(args) {
@@ -254,9 +298,9 @@ async function start() {
 
   // ---- database ----------------------------------------------------------------
   const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-  const adminSocket = new Socket();
-  const admin = new pg.Client({ connectionString: adminConnectionString, connectionTimeoutMillis: 10_000, stream: adminSocket });
+  const { client: admin, socket: adminSocket } = localDatabaseClient(adminDatabaseURL, 10_000);
   admin.on('error', () => stop(1, 'PostgreSQL administrator connection lost'));
+  abort.signal.addEventListener('abort', () => adminSocket.destroy(), { once: true });
   let creation = 'not-issued';
   onCleanup(async () => {
     if ((creation === 'created' || creation === 'pending')
@@ -454,7 +498,13 @@ async function start() {
     pending,
     pid: process.pid,
   };
-  fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
+  const reportFd = fs.openSync(reportFile, 'wx', 0o600);
+  owned.push(reportFile);
+  try {
+    fs.writeFileSync(reportFd, JSON.stringify(report, null, 2));
+  } finally {
+    fs.closeSync(reportFd);
+  }
   console.log(JSON.stringify(report));
   ready = true;
 }

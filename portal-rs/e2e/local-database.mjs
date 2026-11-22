@@ -1,7 +1,8 @@
+import { Socket } from 'node:net';
 import pg from 'pg';
 
 const loopback = new Map([
-  ['localhost', '127.0.0.1'], ['127.0.0.1', '127.0.0.1'], ['::1', '[::1]'], ['[::1]', '[::1]'],
+  ['localhost', '127.0.0.1'], ['127.0.0.1', '127.0.0.1'], ['::1', '::1'], ['[::1]', '::1'],
 ]);
 
 export function localDatabaseURL(connectionString) {
@@ -27,8 +28,9 @@ export function localDatabaseURL(connectionString) {
     throw new Error('Invalid or conflicting PostgreSQL port options');
   }
   url.searchParams.delete('port');
-  url.hostname = host;
   url.port = String(port);
+  // SQLx uses hostaddr for TCP and the URL hostname for TLS verification.
+  if (url.hostname === 'localhost') url.searchParams.set('hostaddr', host);
   // SQLx accepts dbname as an override for the disposable database pathname.
   if (url.searchParams.has('dbname')) throw new Error('Specify the PostgreSQL database in the URL path');
   let client;
@@ -39,4 +41,16 @@ export function localDatabaseURL(connectionString) {
   }
   if (loopback.get(client.host) !== host || client.port !== port) throw new Error('Inconsistent PostgreSQL endpoint');
   return url;
+}
+
+export function localDatabaseClient(url, connectionTimeoutMillis) {
+  const address = loopback.get(url.hostname);
+  if (!address) throw new Error('Local PostgreSQL only');
+  // pg ignores hostaddr. Give pg the hostname for TLS and pin its socket to
+  // the same address as SQLx without querying the system name resolver.
+  const socket = new class extends Socket {
+    connect(port) { return super.connect(port, address); }
+  }();
+  const client = new pg.Client({ connectionString: url.href, connectionTimeoutMillis, stream: socket });
+  return { client, socket };
 }

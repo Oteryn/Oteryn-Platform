@@ -135,13 +135,15 @@ export async function startStaffConsoleHarness(databaseURL) {
   const env = { ...process.env, ...portEnv, PORTAL_E2E_OUT: out, PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href };
   delete env.PORTAL_E2E_SEED_PLAN;
   delete env.PORTAL_E2E_KEEP_DATABASE;
-  const child = spawn(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)), '--staff-console'],
-    { env, stdio: ['ignore', 'pipe', log] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)),
+    '--staff-console', '--parent-lifetime-stdin'], { env, stdio: ['pipe', 'pipe', log] });
   fs.closeSync(log);
+  // The child's exit reports a startup failure even if stdin closes first.
+  child.stdin.on('error', () => {});
   const closed = once(child, 'close');
   const lines = createInterface({ input: child.stdout });
   async function stop() {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    child.stdin.end();
     return closed;
   }
   try {
@@ -155,7 +157,12 @@ export async function startStaffConsoleHarness(databaseURL) {
       async close() {
         const [code, signal] = await stop();
         if (code !== 0) throw new Error(`Staff console harness teardown failed (${signal || code}). See ${logPath}`);
-        fs.rmSync(directory, { recursive: true, force: true });
+        fs.rmSync(logPath, { force: true });
+        try {
+          fs.rmdirSync(directory);
+        } catch (error) {
+          if (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT') throw error;
+        }
       },
     };
   } catch (error) {

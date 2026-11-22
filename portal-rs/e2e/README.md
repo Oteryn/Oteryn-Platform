@@ -97,8 +97,10 @@ portal-rs/e2e/start.sh --seed-plan portal-rs/e2e/seed-plan.example.json
    listener), waits until each answers, runs the seed plan if given, and
    prints **one JSON object** on stdout (also saved as `report.json`).
 
-Output (default `portal-rs/e2e/.harness/run`, ignored by git, replaced on
-each run; override with `PORTAL_E2E_OUT`):
+Output (default `portal-rs/e2e/.harness/run`, ignored by git, override with
+`PORTAL_E2E_OUT`). The harness holds an exclusive directory lock using `flock`
+until teardown completes. A later run replaces the harness files and leaves
+unrelated entries in the output directory in place.
 
 ```json
 {"status":"ready","database":"portal_e2e_<hex>",
@@ -130,11 +132,13 @@ readiness). A startup failure or interruption triggers database cleanup and
 removes generated credentials. Shutdown closes the staff proxy before giving
 children ten seconds to exit, then terminates stalled children. Database cleanup
 retries with fresh connections, increased timeouts, and backoff within 75 seconds.
-PostgreSQL URLs use one explicit loopback endpoint. `localhost` resolves to
-`127.0.0.1` and an omitted port defaults to `5432` unless the URL specifies a
-`port` option. Use an explicit `[::1]` for an IPv6-only listener.
-Managed staff-console teardown reports a failed harness exit and retains its
-diagnostic log.
+PostgreSQL URLs use one explicit loopback endpoint. `localhost` connects to
+`127.0.0.1` and retains `localhost` for TLS certificate verification. An omitted
+port defaults to `5432` unless the URL specifies a `port` option. Use an explicit
+`[::1]` for an IPv6-only listener.
+The managed staff-console harness stops when its Playwright worker closes the
+lifetime pipe, including during startup. Managed teardown reports a failed
+harness exit and retains its diagnostic log.
 Browser seeding validates both testing flags and forwards only the local
 disposable database URL, testing flags, and MFA key.
 The private CA key, CSRs, server key, gateway token and the full child

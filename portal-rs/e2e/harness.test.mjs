@@ -32,18 +32,26 @@ test('managed and direct launchers reject a remote PostgreSQL host override', as
 });
 
 test('local PostgreSQL URL checks all host values and normalizes the loopback endpoint', () => {
-  for (const [input, host] of [['localhost', '127.0.0.1'], ['127.0.0.1', '127.0.0.1'], ['[::1]', '[::1]']]) {
+  for (const input of ['localhost', '127.0.0.1', '[::1]']) {
     const url = localDatabaseURL(`postgres://${input}/postgres`);
-    assert.equal(url.hostname, host);
+    assert.equal(url.hostname, input);
     assert.equal(url.port, '5432');
   }
   assert.equal(localDatabaseURL('postgres://localhost/postgres?host=127.0.0.1&hostaddr=127.0.0.1&port=5433').href,
-    'postgres://127.0.0.1:5433/postgres');
+    'postgres://localhost:5433/postgres?hostaddr=127.0.0.1');
   for (const option of ['%68ost=remote.invalid', 'host=remote.invalid&host=localhost', 'hostaddr=192.0.2.1']) {
     assert.throws(() => localDatabaseURL(`postgres://localhost/postgres?${option}`), /Local PostgreSQL only/);
   }
   assert.throws(() => localDatabaseURL('postgres://localhost/portal_e2e_guard?dbname=other'),
     /database in the URL path/);
+});
+
+test('local PostgreSQL URL preserves its TLS name and pins the TCP address', () => {
+  const url = localDatabaseURL('postgres://localhost/postgres?sslmode=verify-full');
+  assert.equal(url.hostname, 'localhost');
+  assert.equal(url.searchParams.get('hostaddr'), '127.0.0.1');
+  assert.equal(url.searchParams.get('sslmode'), 'verify-full');
+  assert.equal(localDatabaseURL(url.href).href, url.href);
 });
 
 test('local PostgreSQL URL rejects conflicting local endpoints and ignores ambient PGPORT', t => {
@@ -53,7 +61,7 @@ test('local PostgreSQL URL rejects conflicting local endpoints and ignores ambie
     else process.env.PGPORT = previous;
   });
   process.env.PGPORT = '5439';
-  assert.equal(localDatabaseURL('postgres://localhost/postgres').href, 'postgres://127.0.0.1:5432/postgres');
+  assert.equal(localDatabaseURL('postgres://localhost/postgres').href, 'postgres://localhost:5432/postgres?hostaddr=127.0.0.1');
   for (const dsn of [
     'postgres://127.0.0.1/postgres?hostaddr=%3A%3A1',
     'postgres://[::1]/postgres?host=localhost',
@@ -63,6 +71,33 @@ test('local PostgreSQL URL rejects conflicting local endpoints and ignores ambie
     'postgres://localhost/postgres?port=5432&port=5433',
     'postgres://localhost/postgres?port=5432extra',
   ]) assert.throws(() => localDatabaseURL(dsn), /Invalid or conflicting PostgreSQL port/);
+});
+
+test('a contender leaves an exclusively locked harness directory untouched', t => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-harness-locked-'));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  const marker = path.join(out, '.portal-e2e-harness');
+  const fixture = path.join(out, 'secrets', 'fixture');
+  const unrelated = path.join(out, 'unrelated');
+  fs.mkdirSync(path.dirname(fixture));
+  for (const file of [marker, fixture, unrelated]) fs.writeFileSync(file, 'untouched');
+  const fd = fs.openSync(out, 'r');
+  try {
+    assert.equal(spawnSync('flock', ['-n', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] }).status, 0);
+    const run = spawnSync(process.execPath, [fileURLToPath(new URL('./harness.mjs', import.meta.url)), '--staff-console'], {
+      env: {
+        ...process.env, PORTAL_E2E_ADMIN_DATABASE_URL: 'postgres://localhost/postgres', PORTAL_E2E_OUT: out,
+        OTERYN_ENV: 'testing', APP_ENV: 'testing',
+      },
+      encoding: 'utf8', timeout: 10_000,
+    });
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /in use by another harness run/);
+    assert.equal(run.stdout, '');
+    for (const file of [marker, fixture, unrelated]) assert.equal(fs.readFileSync(file, 'utf8'), 'untouched');
+  } finally {
+    fs.closeSync(fd);
+  }
 });
 
 test('staff harness refuses either production environment flag before provisioning', t => {
