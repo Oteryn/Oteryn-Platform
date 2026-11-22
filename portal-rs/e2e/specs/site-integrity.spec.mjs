@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '../fixtures.mjs';
 import { login, password, register, seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
@@ -11,6 +12,25 @@ const pattern = route => new RegExp('^' + route.split(/(\{[^}]+\})/).map(part =>
   if (part.startsWith('{')) return '[^/]+';
   return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }).join('') + '$');
+const MAX_SAMPLES = 3;
+const sections = [
+  'home', 'admin', 'account', 'identity', 'services', 'wiki', 'atlas', 'community', 'stats', 'public',
+];
+const sectionOf = pathname => {
+  const [top] = pathname.replace(/^\/(?:pl|en)(?=\/|$)/, '').split('/').slice(1);
+  if (!top) return 'home';
+  if (['admin', 'console'].includes(top)) return 'admin';
+  if (top === 'account' || top === 'panel') return 'account';
+  if (['login', 'register', 'verify-email', 'forgot-password', 'reset-password', 'mfa', 'password',
+    'email-change', 'recovery-key'].includes(top)) return 'identity';
+  if (top === 'support' || top === 'shop') return 'services';
+  if (top === 'wiki' || top === 'search') return 'wiki';
+  if (top === 'atlas') return 'atlas';
+  if (top === 'stats' || top === 'rankings') return 'stats';
+  if (['characters', 'deaths', 'guilds', 'houses', 'worlds', 'online', 'today', 'bazaar',
+    'events', 'party', 'league', 'pass', 'collection', 'collection-pvp'].includes(top)) return 'community';
+  return 'public';
+};
 const routes = inventory.routes.filter(row => row.methods.includes('GET'))
   .map(({route}) => ({route, matches: pattern(route)}))
   .sort((a, b) => b.route.replace(/\{[^}]+\}/g, '').length - a.route.replace(/\{[^}]+\}/g, '').length);
@@ -94,9 +114,11 @@ async function inspectPage(page, url, defects) {
           return refs;
         }),
       base: document.baseURI,
+      csp: window.siteIntegrityCspViolations,
     };
   });
   const path = label(url);
+  for (const directive of result.csp ?? []) defects.add(`${path} violated CSP directive ${directive}`);
   if (!result.headings) defects.add(`${path} has no h1`);
   if (result.width > result.viewport) {
     defects.add(`${path} overflows horizontally (${result.width}px > ${result.viewport}px)`);
@@ -118,12 +140,23 @@ async function inspectPage(page, url, defects) {
   return result;
 }
 
-async function crawl(page, origin, seeds, locale, info) {
-  const queue = seeds.map(value => ({url: new URL(value, origin), from: 'seed', link: true}));
-  const probes = new Map();
-  const visited = new Set();
-  const defects = new Set();
+function enqueue(state, url, from, link) {
+  // A URL can be both a resource (such as a canonical link) and a navigation target.
+  const key = JSON.stringify([url.href, link]);
+  if (state.seen.has(key)) return;
+  state.seen.add(key);
+  state.queue.push({url: url.href, from, link});
+}
+
+async function crawl(page, origin, locale, section, state, defects, pages, workers) {
+  const {probes, visited} = state;
   let current = '/';
+  await page.addInitScript(() => {
+    window.siteIntegrityCspViolations = [];
+    document.addEventListener('securitypolicyviolation', event => {
+      window.siteIntegrityCspViolations.push(event.effectiveDirective);
+    });
+  });
   const checkStatus = (url, status, source) => {
     if (status === 404 || (status >= 500 && !(status === 503 && cold(url.pathname)))) {
       defects.add(`${source} → ${label(url)} returned HTTP ${status}`);
@@ -163,7 +196,7 @@ async function crawl(page, origin, seeds, locale, info) {
   async function probe(url) {
     if (probes.has(url.href)) return probes.get(url.href);
     if (probes.size >= 4000) throw new Error('Site integrity GET probe budget exceeded (4000 URLs)');
-    await waitForWikiBudget(url.href, 2);
+    await waitForWikiBudget(url.href, workers);
     const response = await page.request.get(url.href, {
       maxRedirects: 0, timeout: 15_000, headers: {'accept-language': locale},
     });
@@ -185,82 +218,144 @@ async function crawl(page, origin, seeds, locale, info) {
     }
   }
 
-  try {
-    for (let index = 0; index < queue.length; index++) {
-      const {url, from, link} = queue[index];
-      let target = url;
-      try {
-        for (const redirects = new Set(); ; ) {
-          if (redirects.has(target.href) || redirects.size >= 10) {
-            defects.add(`${from} → ${label(url)} exceeded redirect budget`);
-            break;
-          }
-          redirects.add(target.href);
-          const result = await probe(target);
-          checkStatus(target, result.status, from);
-          if (result.status >= 300 && result.status < 400 && result.location) {
-            target = sameOrigin(result.location, target, origin);
-            if (!target) break;
-            continue;
-          }
-          const key = pagePattern(target);
-          if (from === 'seed' && result.status !== 200) {
-            defects.add(`seed ${label(target)} returned HTTP ${result.status}, expected 200`);
-          }
-          if (!link || !result.html || visited.has(key)) break;
-          if (visited.size >= 500) throw new Error('Site integrity page budget exceeded (500 route patterns)');
-          visited.add(key);
-          current = label(target);
-          const response = await page.goto(target.href, {waitUntil: 'load'});
-          expect(response?.status(), current).toBe(result.status);
-          const rendered = await inspectPage(page, new URL(page.url()), defects);
-          for (const ref of rendered.refs) {
-            const url = sameOrigin(ref.value, rendered.base, origin);
-            if (url) queue.push({url, from: current, link: ref.link});
-          }
+  for (let index = 0; index < state.queue.length; index++) {
+    const entry = state.queue[index];
+    const url = new URL(entry.url);
+    if (entry.done || (section !== 'cross-section' && sectionOf(url.pathname) !== section)) continue;
+    const {from, link} = entry;
+    entry.done = true;
+    let target = url;
+    try {
+      for (const redirects = new Set(); ; ) {
+        if (redirects.has(target.href) || redirects.size >= 10) {
+          defects.add(`${from} → ${label(url)} exceeded redirect budget`);
           break;
         }
-      } catch (error) {
-        // Request failures can include headers, cookies, and URL query values.
-        if (error.message.startsWith('Site integrity ')) throw error;
-        defects.add(`${from} → ${label(url)} could not be checked (${error.name})`);
+        redirects.add(target.href);
+        const result = await probe(target);
+        checkStatus(target, result.status, from);
+        if (result.status >= 300 && result.status < 400 && result.location) {
+          target = sameOrigin(result.location, target, origin);
+          if (!target) break;
+          continue;
+        }
+        if (section !== 'cross-section' && sectionOf(target.pathname) !== section && link && result.html) {
+          enqueue(state, target, from === 'seed' ? from : label(url), true);
+          break;
+        }
+        const key = pagePattern(target);
+        if (from === 'seed' && result.status !== 200) {
+          defects.add(`seed ${label(target)} returned HTTP ${result.status}, expected 200`);
+        }
+        if (!link || !result.html) break;
+        const samples = visited.get(key) ?? [];
+        if (samples.includes(target.href) || samples.length >= MAX_SAMPLES) break;
+        if (!visited.has(key) && visited.size >= 500) {
+          throw new Error('Site integrity page budget exceeded (500 route patterns)');
+        }
+        current = label(target);
+        await waitForWikiBudget(target.href, workers);
+        const response = await page.goto(target.href, {waitUntil: 'load'});
+        expect(response?.status(), current).toBe(result.status);
+        samples.push(target.href);
+        visited.set(key, samples);
+        pages.push(current);
+        const rendered = await inspectPage(page, new URL(page.url()), defects);
+        for (const ref of rendered.refs) {
+          const url = sameOrigin(ref.value, rendered.base, origin);
+          if (url) enqueue(state, url, current, ref.link);
+        }
+        break;
       }
+    } catch (error) {
+      // Request failures can include headers, cookies, and URL query values.
+      if (error.message.startsWith('Site integrity ')) throw error;
+      defects.add(`${from} → ${label(url)} could not be checked (${error.name})`);
     }
-    expect(visited.size, 'crawl rendered at least one HTML page').toBeGreaterThan(0);
-  } finally {
-    await info.attach('site-integrity', {contentType: 'application/json', body: JSON.stringify({
-      pages: [...visited], urlsProbed: probes.size, defects: [...defects],
-    })});
   }
-  expect([...defects], 'site integrity defects').toEqual([]);
 }
 
-for (const actor of ['anonymous', 'player', 'platform_admin']) {
-  test(`site integrity as ${actor}`, async ({page}, info) => {
-    test.setTimeout(600_000);
-    const locale = info.project.metadata.locale;
-    if (actor === 'anonymous') {
-      await seedPasswordRange(password());
-    } else {
-      const account = await register(page, locale);
-      if (actor === 'platform_admin') {
-        await query(
-          "INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",
-          [account.email],
-        );
-      }
-      await login(page, locale, account);
-      if (actor === 'platform_admin') {
-        await enrollMfa(page, locale, account);
-        // The helper can enumerate recovery textareas before the new document
-        // has rendered. Wait for the first control before reading its value.
-        const recovery = page.locator('textarea[readonly]').first();
-        await expect(recovery).toBeVisible();
-        await loginWithRecoveryCode(page, locale, account, await recovery.inputValue());
-        await expect(page).not.toHaveURL(/mfa\/challenge/);
-      }
+const actors = ['anonymous', 'player', 'platform_admin'];
+
+test.describe.configure({mode: 'parallel'});
+
+for (const actor of actors) {
+  test.describe(`site integrity as ${actor}`, () => {
+    // Each actor's section shards share a frontier. Playwright can distribute
+    // whole actor groups across workers without splitting that dependency.
+    test.describe.configure({mode: 'default'});
+
+    function file(info, name) {
+      return path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY, `site-integrity-${info.project.name}-${info.repeatEachIndex}-${actor}-${name}.json`);
     }
-    const origin = new URL(info.project.use.baseURL).origin;
-    await crawl(page, origin, [`/${locale}/`, ...(actor === 'platform_admin' ? [`/admin?lang=${locale}`] : [])], locale, info);
+
+    test('prepare actor', async ({page}, info) => {
+      const locale = info.project.metadata.locale;
+      if (actor === 'anonymous') {
+        await seedPasswordRange(password());
+      } else {
+        const account = await register(page, locale);
+        if (actor === 'platform_admin') {
+          await query(
+            "INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",
+            [account.email],
+          );
+        }
+        await login(page, locale, account);
+        if (actor === 'platform_admin') {
+          await enrollMfa(page, locale, account);
+          const recovery = page.locator('textarea[readonly]').first();
+          await expect(recovery).toBeVisible();
+          await loginWithRecoveryCode(page, locale, account, await recovery.inputValue());
+          await expect(page).not.toHaveURL(/mfa\/challenge/);
+        }
+        await page.goto(`/${locale}/`);
+        await expect(page.locator('[data-account-link]')).toBeAttached();
+      }
+      fs.writeFileSync(file(info, 'auth'), JSON.stringify(await page.context().storageState()), {mode: 0o600});
+      const origin = new URL(info.project.use.baseURL).origin;
+      const state = {queue: [], seen: new Set()};
+      enqueue(state, new URL(`/${locale}/`, origin), 'seed', true);
+      if (actor === 'platform_admin') enqueue(state, new URL(`/admin?lang=${locale}`, origin), 'seed', true);
+      fs.writeFileSync(file(info, 'crawl'), JSON.stringify({
+        queue: state.queue, seen: [...state.seen], probes: [], visited: [],
+      }), {mode: 0o600});
+    });
+
+    test.use({storageState: async ({}, use, info) => {
+      const auth = file(info, 'auth');
+      await use(info.title === 'prepare actor' ? undefined : auth);
+    }});
+
+    for (const section of [...sections, 'cross-section']) {
+      test(section, async ({page}, info) => {
+        const locale = info.project.metadata.locale;
+        const origin = new URL(info.project.use.baseURL).origin;
+        const saved = JSON.parse(fs.readFileSync(file(info, 'crawl'), 'utf8'));
+        const state = {
+          queue: saved.queue, seen: new Set(saved.seen), probes: new Map(saved.probes), visited: new Map(saved.visited),
+        };
+        const pages = [];
+        const defects = new Set();
+        const before = state.probes.size;
+        try {
+          await crawl(page, origin, locale, section, state, defects, pages, info.config.workers);
+          if (section === 'home') {
+            expect(pages.length, 'crawl rendered a seed HTML page').toBeGreaterThan(0);
+          }
+          if (section === 'cross-section') {
+            expect(state.queue.every(entry => entry.done), 'all discovered URLs checked').toBe(true);
+          }
+        } finally {
+          fs.writeFileSync(file(info, 'crawl'), JSON.stringify({
+            queue: state.queue, seen: [...state.seen], probes: [...state.probes], visited: [...state.visited],
+          }), {mode: 0o600});
+          await info.attach('site-integrity', {contentType: 'application/json', body: JSON.stringify({
+            pages, urlsProbed: state.probes.size - before, defects: [...defects],
+          })});
+        }
+        expect([...defects], 'site integrity defects').toEqual([]);
+      });
+    }
   });
 }
