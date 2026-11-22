@@ -7,15 +7,17 @@ WITH activity AS (
                 WHEN h.listing_id IS NOT NULL AND l.state IN ('draft', 'active')
                     THEN 'suspended'
                 ELSE l.state::text END AS state,
-           greatest(l.updated_at, h.updated_at, cancellation.requested_at) AS updated_at
+           greatest(l.updated_at, h.updated_at,
+               CASE WHEN a.cancel_requested AND l.state NOT IN ('completed', 'cancelled', 'expired')
+                    THEN (
+                        SELECT max(r.created_at)
+                        FROM bazaar_authority_browser_requests r
+                        WHERE r.listing_id = l.id AND r.actor = l.owner AND r.action = 'cancel'
+                    )
+               END) AS updated_at
     FROM bazaar_listings l
     LEFT JOIN bazaar_authority_assets a ON a.listing_id = l.id
     LEFT JOIN bazaar_moderation_holds h ON h.listing_id = l.id
-    LEFT JOIN LATERAL (
-        SELECT max(r.created_at) AS requested_at
-        FROM bazaar_authority_browser_requests r
-        WHERE r.listing_id = l.id AND r.actor = l.owner AND r.action = 'cancel'
-    ) cancellation ON a.cancel_requested AND l.state NOT IN ('completed', 'cancelled', 'expired')
     WHERE l.owner = $1 AND ($2::uuid IS NULL OR l.id = $2)
     UNION ALL
     SELECT 1, b.id, l.id, l.kind::text, l.currency::text, b.maximum,
