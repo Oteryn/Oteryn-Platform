@@ -1508,20 +1508,20 @@ async fn payment_queue_seeds_evidence_from_candidates() {
         .bind(None::<Uuid>)
         .fetch_one(&h.pool)
     };
-    fn relation_work(plan: &Value, table: &str) -> (u64, u64) {
+    fn relation_work(plan: &Value, table: &str) -> (f64, f64) {
         let own = if plan["Relation Name"].as_str() == Some(table) {
-            let loops = plan["Actual Loops"].as_u64().unwrap();
+            let loops = plan["Actual Loops"].as_f64().unwrap();
             let rows = [
                 "Actual Rows",
                 "Rows Removed by Filter",
                 "Rows Removed by Index Recheck",
             ]
             .iter()
-            .map(|key| plan[*key].as_u64().unwrap_or_default())
-            .sum::<u64>();
+            .map(|key| plan[*key].as_f64().unwrap_or_default())
+            .sum::<f64>();
             (loops, rows * loops)
         } else {
-            (0, 0)
+            (0.0, 0.0)
         };
         plan["Plans"]
             .as_array()
@@ -1534,17 +1534,17 @@ async fn payment_queue_seeds_evidence_from_candidates() {
     }
     let empty = plan(true).await.unwrap();
     let empty = &empty[0]["Plan"];
-    assert_eq!(empty["Actual Rows"], 0);
-    assert_eq!(relation_work(empty, "payment_intents"), (0, 0));
-    assert_eq!(relation_work(empty, "commerce_operations"), (0, 0));
+    assert_eq!(empty["Actual Rows"].as_f64(), Some(0.0));
+    assert_eq!(relation_work(empty, "payment_intents"), (0.0, 0.0));
+    assert_eq!(relation_work(empty, "commerce_operations"), (0.0, 0.0));
 
     kill_refund_job(&h, payment).await;
     let sparse = plan(true).await.unwrap();
     let sparse = &sparse[0]["Plan"];
-    assert_eq!(sparse["Actual Rows"], 1);
-    assert_eq!(relation_work(sparse, "payment_intents"), (1, 1));
+    assert_eq!(sparse["Actual Rows"].as_f64(), Some(1.0));
+    assert_eq!(relation_work(sparse, "payment_intents"), (1.0, 1.0));
     let ordinary = plan(false).await.unwrap();
-    assert_eq!(ordinary[0]["Plan"]["Actual Rows"], 26);
+    assert_eq!(ordinary[0]["Plan"]["Actual Rows"].as_f64(), Some(26.0));
     h.close().await;
 }
 
