@@ -528,7 +528,7 @@ pub(crate) async fn chrome_account(
     if identifiers.next().is_some() {
         return oteryn_ui::Account::Anonymous;
     }
-    let row: Result<Option<(String, Option<String>, bool, bool)>, _> = sqlx::query_as(
+    let row: Result<Option<SessionAccountRow>, _> = sqlx::query_as(
         "SELECT s.csrf_token, a.status, a.email_verified_at IS NOT NULL,
                 COALESCE(a.login_mfa_required, true)
          FROM web_sessions s LEFT JOIN accounts a ON a.id=s.account_id
@@ -548,6 +548,9 @@ pub(crate) async fn chrome_account(
         _ => oteryn_ui::Account::Anonymous,
     }
 }
+
+/// CSRF token, account status, verified e-mail and sign-in MFA policy of a live session.
+type SessionAccountRow = (String, Option<String>, bool, bool);
 
 /// Bounded cleanup batches can be called repeatedly by the worker.
 #[derive(Debug, Clone)]
