@@ -797,6 +797,9 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 return invalid();
             };
             if form.action == "set-permissions" {
+                if form.role.is_nil() {
+                    return invalid();
+                }
                 let result = s
                     .auth
                     .edit_permissions_from_panel(
@@ -847,18 +850,16 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
             if !s.grant_confirmation {
                 return staff_actions::Error::Forbidden.response(chrome);
             }
+            if form.account.is_nil() || form.role.is_nil() {
+                return invalid();
+            }
             use staff_actions::AuditChange;
             let auth = s.auth.clone();
             let result = staff_actions::run(
                 &s.pool,
                 guard,
                 grant_action,
-                || {
-                    if form.account.is_nil() || form.role.is_nil() {
-                        return Err(staff_actions::Error::Invalid);
-                    }
-                    Ok((vec![form.account], (form.account, form.role)))
-                },
+                || Ok((vec![form.account], (form.account, form.role))),
                 move |connection, (account, role)| {
                     Box::pin(async move {
                         let granted = auth

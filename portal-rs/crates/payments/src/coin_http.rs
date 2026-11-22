@@ -434,6 +434,8 @@ mod tests {
     #[test]
     fn checkout_form_keeps_the_origin_for_csrf_verification() {
         let response = CheckoutPage {
+            lang: "en".into(),
+            labels: CheckoutPage::labels("en"),
             csrf: "local-test-value".into(),
             order_id: Uuid::now_v7(),
             coins: 1,

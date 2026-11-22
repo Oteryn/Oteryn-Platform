@@ -52,7 +52,8 @@ export async function roleAction(page, operation, fields, status) {
     if (screen !== page) await screen.goto(page.url());
     const button = screen.locator(`button[name="action"][value="${operation}"]`);
     const form = screen.locator('main form').filter({ has: button });
-    for (const [name, value] of Object.entries(fields)) {
+    const input = operation === "grant" ? { reason: "role_assignment", ...fields } : fields;
+    for (const [name, value] of Object.entries(input)) {
       const field = form.locator(`[name="${name}"]`);
       if (await field.evaluate(element => element.tagName === 'SELECT')) {
         await field.selectOption(value);
@@ -60,7 +61,7 @@ export async function roleAction(page, operation, fields, status) {
         await field.fill(value);
       }
     }
-    await csrfRejected(screen, '/admin/roles', { ...fields, action: operation });
+    await csrfRejected(screen, '/admin/roles', { ...input, action: operation });
     const [response] = await Promise.all([
       screen.waitForResponse(response =>
         response.request().method() === 'POST' && new URL(response.url()).pathname === '/admin/roles'),
@@ -113,7 +114,7 @@ const operator = `game.world.ops game.world.config game.node.ops game.db.backup 
 const gameSupport = `game.player.read game.player.moderate game.sanction.write`;
 
 export const builtInPermissions = {
-  platform_admin: `admin.analytics.view admin.analytics.export admin.access admin.roles.manage audit.view cms.news.manage
+  platform_admin: `admin.analytics.view admin.analytics.export admin.rate_limits.view admin.flags.view admin.health.view admin.access admin.roles.manage admin.roles.grant audit.view cms.news.manage
     cms.pages.manage media.manage portal.access portal.announcements.manage portal.settings.manage
     downloads.manage events.manage events.publish support.content.manage support.tickets.manage
     support.reports.manage support.enforcement.manage marketplace.manage products.premium.manage
@@ -122,7 +123,7 @@ export const builtInPermissions = {
     game_catalog.overrides.manage wiki.access wiki.articles.manage wiki.categories.manage wiki.publish
     account.security.kick payments.coin_hold.release store.catalog.import store.catalog.activate
     store.codes.generate`,
-  security_admin: `admin.access admin.roles.manage audit.view`,
+  security_admin: `admin.access admin.roles.manage admin.roles.grant audit.view`,
   content_editor: `cms.news.manage cms.pages.manage media.manage portal.announcements.manage events.manage events.publish
     support.content.manage wiki.access wiki.articles.manage wiki.categories.manage wiki.publish admin.access
     portal.access`,

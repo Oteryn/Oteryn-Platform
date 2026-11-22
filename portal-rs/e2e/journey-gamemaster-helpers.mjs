@@ -1,3 +1,4 @@
+import {confirmStaffPassword} from './staff-rbac-helpers.mjs';
 import {randomBytes} from 'node:crypto';
 import {expect} from './fixtures.mjs';
 import {csrfRejected,login,register,submit,waitForLoginBudget} from './helpers.mjs';
@@ -29,7 +30,8 @@ export async function grantSeniorRole(admin, accountId) {
   const form = admin.locator('main form:has(button[value="grant"])');
   const role = await form.locator('select[name=role]').selectOption({label:'game_master_senior'});
   await form.locator('[name=account]').fill(accountId);
-  const fields = {account:accountId, role:role[0], action:'grant'};
+  await form.locator('select[name=reason]').selectOption('role_assignment');
+  const fields = {account:accountId, role:role[0], action:'grant', reason:'role_assignment'};
   await csrfRejected(admin, '/admin/roles', fields);
   const csrf = await form.locator('[name=_csrf]').inputValue();
   const invalid = await admin.request.post('/admin/roles', {
@@ -78,6 +80,7 @@ export async function grantPlatformAuditRole(admin, accountId, lang) {
   await csrfRejected(admin, '/admin/roles', {account:accountId, role, action:'grant'});
   await grant.locator('[name=account]').fill(accountId);
   await grant.locator('select[name=role]').selectOption(role);
+  await grant.locator('select[name=reason]').selectOption('role_assignment');
   await grant.getByRole('button', {name:lang === 'pl' ? 'Przypisz rolę' : 'Assign role', exact:true}).click();
   await expect(admin).toHaveURL(/\/admin\/roles$/);
   const assigned = await query('SELECT r.key FROM account_roles ar JOIN roles r ON r.id=ar.role_id WHERE ar.account_id=$1 ORDER BY r.key', [accountId]);
@@ -134,6 +137,7 @@ export async function bootstrapAdmin(browser, info) {
     id = membership.account_id;
     await login(page, lang, account);
     await completeEnrollment(page, lang, account);
+    await confirmStaffPassword(page, lang, account.password);
     return {page, close};
   } catch (error) {
     await close();

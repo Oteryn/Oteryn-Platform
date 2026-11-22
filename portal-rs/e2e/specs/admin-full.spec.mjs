@@ -1,7 +1,7 @@
 import * as OTPAuth from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login, submit } from '../helpers.mjs';
-import { loginWithRecoveryCode, query, rolePage } from '../staff-rbac-helpers.mjs';
+import { confirmStaffPassword, loginWithRecoveryCode, query, rolePage } from '../staff-rbac-helpers.mjs';
 import { withSoleRoleHolder } from '../staff-fixture-database.mjs';
 import { accountRoles, adminContext, builtInPermissions, expectAuditEntry, permissionCatalog, postAdmin, roleAction, roleAudit, seedAdminAccount, seedAdminMfa } from '../admin-helpers.mjs';
 
@@ -65,6 +65,7 @@ test.beforeAll(async ({ browser }, info) => {
   await expect(page.getByRole('heading', { name: mfaHeading[lang], exact: true })).toBeVisible();
   const { totp, enrollmentCounter } = await enrollAndSignIn(page, lang, account);
   Object.assign(manager, { totp, enrollmentCounter });
+  await confirmStaffPassword(page, lang, account.password);
 });
 
 test.afterAll(async () => {
@@ -88,15 +89,21 @@ test('roles page labels, validation, self-grant and last administrator protectio
   const labels = lang === 'pl' ? [
     'UUID konta członka zespołu', 'Przypisz rolę', 'Odbierz rolę', 'Dostępne uprawnienia',
     'Zmiany ról uprzywilejowanych wymagają odrębnego zatwierdzenia.', 'Klucz nowej roli',
-    'Uprawnienia (oddzielone spacjami)', 'Utwórz rolę', 'Nowy zestaw uprawnień (oddzielone spacjami)',
+    'Utwórz rolę', 'Nowy zestaw uprawnień (oddzielone spacjami)',
     'Zapisz uprawnienia',
   ] : [
     'Staff account UUID', 'Assign role', 'Revoke role', 'Available permissions',
     'Privileged role changes require separate approval.', 'New role key',
-    'Permissions (separated by spaces)', 'Create role', 'Replacement permissions (separated by spaces)',
+    'Create role', 'Replacement permissions (separated by spaces)',
     'Save permissions',
   ];
   for (const label of labels) await expect(staff.getByText(label, { exact: true })).toBeVisible();
+  const permissionsLabel = lang === 'pl' ? 'Uprawnienia (oddzielone spacjami)' : 'Permissions (separated by spaces)';
+  const permissionsLabels = staff.locator('main label').filter({ hasText: permissionsLabel }).and(
+    staff.getByText(permissionsLabel, { exact: true }),
+  );
+  await expect(permissionsLabels).toHaveCount(2);
+  for (const label of await permissionsLabels.all()) await expect(label).toBeVisible();
   await staff.locator('main details summary').click();
   expect((await staff.locator('main details code').allTextContents()).sort()).toEqual(permissionCatalog);
   expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
@@ -194,8 +201,24 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
     const managesRoles = roleManagers.includes(key);
     expect((await page.goto('/admin')).status()).toBe(200);
     await expect(page.getByRole('heading', { name: panelHeading[lang], exact: true })).toBeVisible();
-    await expect(page.locator('main nav a')).toHaveCount(managesRoles ? 1 : 0);
-    await expect(page.locator('main form button')).toHaveCount(managesRoles ? 4 : 0);
+    const adminNav = [
+      ['/admin', true],
+      ['/admin/roles', managesRoles],
+      ['/admin/players', has('support.tickets.manage')],
+      [`/admin/${lang}/bazaar`, has('marketplace.manage')],
+      [`/admin/store-catalog?lang=${lang}`, has('store.catalog.import')],
+      [`/admin/store-activation?lang=${lang}`, has('store.catalog.activate')],
+      [`/admin/payment-review?lang=${lang}`, has('payments.reconcile')],
+      ['/admin/operations/statistics', has('admin.analytics.view')],
+      ['/admin/operations/rate-limits', has('admin.rate_limits.view')],
+      ['/admin/operations/flags', has('admin.flags.view')],
+      ['/admin/operations/health', has('admin.health.view')],
+      ['/admin/analytics', has('admin.analytics.view') || has('game.analytics.read')],
+      ['/console', Object.values(consolePermissions).some(has)],
+    ].filter(([, visible]) => visible).map(([href]) => href).sort();
+    expect(await page.locator('main nav[data-panel=admin] a').evaluateAll(nodes =>
+      nodes.map(node => node.getAttribute('href')).sort())).toEqual(adminNav);
+    await expect(page.locator('main form button')).toHaveCount(managesRoles ? 5 : 0);
     const canOpenReadConsole = {
       players: has('game.player.read') || has('support.tickets.manage'),
       audit: has('audit.view') || has('game.audit.read'),
@@ -212,7 +235,7 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
       ['/admin/moderation/enforcement/create', has('support.enforcement.manage')],
       [`/admin/${lang}/bazaar`, ['platform_admin', 'moderator'].includes(key)],
       ['/admin/commerce', ['platform_admin', 'moderator'].includes(key)],
-      ...consolePages.map(name => [`/console/${name}`, true]),
+      ...consolePages.map(name => [`/console/${name}`, has(consolePermissions[name])]),
       ...readConsole.map(name => [`/admin/console/${name}?lang=${lang}`, canOpenReadConsole[name]]),
       ...analyticsPages.flatMap(suffix => ['', '/data'].map(data =>
         [`/admin/analytics${suffix}${data}`, key === 'platform_admin' || has('game.analytics.read')])),
@@ -223,11 +246,13 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
       expect(response.status(), `${key} GET ${path}`).toBe(allowed ? 200 : 403);
       if (allowed && path === '/admin/commerce') {
         const actions = await page.locator('main form[action^="/admin/commerce/"]').evaluateAll(
-          forms => forms.map(form => form.getAttribute('action')).sort(),
+          forms => forms.filter(form => form.elements.namedItem('target')).map(form => form.getAttribute('action')).sort(),
         );
-        const expected = key === 'platform_admin' ? ['adjust', 'grant', 'reconcile', 'refund', 'revoke']
+        const expected = key === 'platform_admin' ? ['adjust', 'grant', 'refund', 'revoke']
           : key === 'moderator' ? ['adjust'] : [];
         expect(actions).toEqual(expected.map(action => `/admin/commerce/${action}`));
+        await expect(page.locator('main a[href^="/admin/commerce/reconcile"]'))
+          .toHaveCount(has('payments.reconcile') ? 1 : 0);
       }
       if (allowed && path.startsWith('/console/')) {
         if (screen) {
@@ -243,7 +268,7 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
 
     if (managesRoles) {
       await page.goto('/admin/roles');
-      await expect(page.locator('main form button')).toHaveCount(4);
+      await expect(page.locator('main form button')).toHaveCount(5);
     } else {
       await page.goto(`/${lang}/`);
     }

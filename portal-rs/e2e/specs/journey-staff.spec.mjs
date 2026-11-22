@@ -1,3 +1,4 @@
+import {confirmStaffPassword} from '../staff-rbac-helpers.mjs';
 import { createHmac, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { pool, register, submit, waitForLoginBudget } from '../helpers.mjs';
@@ -138,6 +139,7 @@ test('staff publish content and handle a player’s support, safety and account 
       admin = root.page;
       adminId = root.id;
       await signInWithMfa(admin, lang, root.credentials, true);
+      await confirmStaffPassword(admin, lang, root.credentials.password);
       await open(admin, '/admin');
       await expect(admin.locator('main h1')).toHaveText(pl ? 'Panel zespołu' : 'Staff panel');
       await admin.locator('main a[href="/admin/roles"]').click();
@@ -153,7 +155,7 @@ test('staff publish content and handle a player’s support, safety and account 
         const assigned = [roles[key]];
         if (permissions) {
           await open(admin, '/admin/roles');
-          const form = 'main form:has(input[name=key])';
+          const form = 'main form:has(button[value=create])';
           expect((await responseForForm(admin, form, {
             key: `invalid_${randomUUID()}`, permissions: 'invalid.permission',
           }, admin, 'create')).status()).toBe(400);
@@ -170,7 +172,7 @@ test('staff publish content and handle a player’s support, safety and account 
       }
       const membershipForm = 'main form:has(input[name=account])';
       await open(admin, '/admin/roles');
-      const self = { account: adminId, role: roles.content_editor };
+      const self = { account: adminId, role: roles.content_editor, reason: "role_assignment" };
       await denied(admin, membershipForm, self, page, visitor, 'grant');
       expect((await responseForForm(admin, membershipForm, self, admin, 'grant')).status()).toBe(403);
       expect((await responseForForm(admin, membershipForm, { ...self, account: 'bad-id' }, admin, 'grant')).status()).toBe(422);

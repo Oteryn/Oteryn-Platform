@@ -1,3 +1,4 @@
+import {confirmStaffPassword} from '../staff-rbac-helpers.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -2144,6 +2145,7 @@ test('staff roles create, edit, grant and revoke only under admin.roles.manage',
   };
   try {
     const manager = await seededPlayer(page, lang, 'security_admin');
+    await confirmStaffPassword(page, lang, manager.password);
     const target = await open();
     const editor = await open('content_editor');
     const player = await open();
@@ -2181,7 +2183,7 @@ test('staff roles create, edit, grant and revoke only under admin.roles.manage',
 
     expect((await page.goto(url)).status()).toBe(200);
     expect(await state()).toBeNull();
-    const create = 'main form:has([name=key])';
+    const create = 'main form:has(button[value=create])';
     const first = 'admin.access';
     const invalidPermissions = [
       [{ permissions: 'x'.repeat(500) }, 400],
@@ -2211,11 +2213,12 @@ test('staff roles create, edit, grant and revoke only under admin.roles.manage',
 
     const membership = 'main form:has([name=account])';
     for (const operation of ['grant', 'revoke']) {
-      await verify(membership, { action: operation, account: target.player.id, role: created.id }, [
+      const reason = operation === 'grant' ? { reason: 'role_assignment' } : {};
+      await verify(membership, { action: operation, account: target.player.id, role: created.id, ...reason }, [
         [{ action: '' }, 400], [{ action: 'x'.repeat(129) }, 400],
         [{ role: 'x' }, 422], [{ account: '00000000-0000-0000-0000-000000000000' }, 400],
       ]);
-      await action(page, membership, { account: target.player.id, role: created.id }, operation);
+      await action(page, membership, { account: target.player.id, role: created.id, ...reason }, operation);
       await rolePage(page, created.id);
       expect(await state()).toEqual({ ...amended, members: operation === 'grant' ? [target.player.id] : [] });
       await expect(page.locator('main')).toContainText(key);
