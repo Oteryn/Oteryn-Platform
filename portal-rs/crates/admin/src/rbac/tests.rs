@@ -1208,7 +1208,10 @@ fn moderator_report_review_does_not_grant_party_moderation() {
     assert!(permissions.contains(&Permission::ReviewSupportReports));
     assert!(!permissions.contains(&Permission::ManageSupportReports));
     assert_eq!(
-        crate::support::Area::Reports.permission(),
-        Permission::ReviewSupportReports
+        crate::support::Area::Reports.permissions(),
+        &[
+            Permission::ReviewSupportReports,
+            Permission::ManageSupportReports
+        ]
     );
 }

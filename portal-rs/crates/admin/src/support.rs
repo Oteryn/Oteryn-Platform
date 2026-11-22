@@ -19,11 +19,14 @@ pub enum Area {
     Enforcement,
 }
 impl Area {
-    pub fn permission(self) -> Permission {
+    pub(crate) fn permissions(self) -> &'static [Permission] {
         match self {
-            Self::Tickets => Permission::ManageSupportTickets,
-            Self::Reports => Permission::ReviewSupportReports,
-            Self::Enforcement => Permission::ManageSupportEnforcement,
+            Self::Tickets => &[Permission::ManageSupportTickets],
+            Self::Reports => &[
+                Permission::ReviewSupportReports,
+                Permission::ManageSupportReports,
+            ],
+            Self::Enforcement => &[Permission::ManageSupportEnforcement],
         }
     }
 }
@@ -247,6 +250,28 @@ impl Backend for PendingSupport {
         Err(Error::Unavailable)
     }
 }
+fn authorization_error(error: crate::rbac::Error) -> Error {
+    match error {
+        crate::rbac::Error::Storage(_) => Error::Unavailable,
+        _ => Error::Denied,
+    }
+}
+
+async fn check_area_in<A: AccountStateReader>(
+    tx: &mut Transaction<'_, Postgres>,
+    auth: &Authorizer<A>,
+    context: CheckContext,
+    area: Area,
+) -> Result<(), Error> {
+    for &permission in area.permissions() {
+        match auth.check_in(tx, context, permission).await {
+            Err(crate::rbac::Error::Denied) => continue,
+            result => return result.map_err(authorization_error),
+        }
+    }
+    Err(Error::Denied)
+}
+
 /// Authorization is rechecked while holding the role-writer lock. Domain writes and
 /// audit commit together; an unavailable dependency cannot produce a success.
 pub async fn execute<A: AccountStateReader, B: Backend>(
@@ -268,12 +293,13 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     if !context.require_staff_mfa || !context.mfa_verified {
         return Err(Error::Denied);
     }
-    for permission in [Permission::Access, command.area().permission()] {
-        auth.check(context, permission).await.map_err(|e| match e {
-            crate::rbac::Error::Storage(_) => Error::Unavailable,
-            _ => Error::Denied,
-        })?;
-    }
+    let area = command.area();
+    auth.check(context, Permission::Access)
+        .await
+        .map_err(authorization_error)?;
+    auth.check_any(context, area.permissions())
+        .await
+        .map_err(authorization_error)?;
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     // Preparation precedes the RBAC fence, but retains its bounded lock waits.
     crate::rbac::mutation_budget(&mut tx)
@@ -285,21 +311,11 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         &[context.account],
         auth,
         context,
-        &[Permission::Access, command.area().permission()],
+        &[Permission::Access],
     )
     .await
-    .map_err(|error| match error {
-        crate::rbac::Error::Storage(_) => Error::Unavailable,
-        _ => Error::Denied,
-    })?;
-    for permission in [Permission::Access, command.area().permission()] {
-        auth.check_in(&mut tx, context, permission)
-            .await
-            .map_err(|e| match e {
-                crate::rbac::Error::Storage(_) => Error::Unavailable,
-                _ => Error::Denied,
-            })?;
-    }
+    .map_err(authorization_error)?;
+    check_area_in(&mut tx, auth, context, area).await?;
     let (before, after) = backend
         .apply(&mut tx, context, id, version, command)
         .await?;

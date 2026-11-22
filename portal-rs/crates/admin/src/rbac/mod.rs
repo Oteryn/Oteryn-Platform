@@ -317,6 +317,20 @@ impl<A: AccountStateReader> Authorizer<A> {
         Self::check_permission(&mut connection, context.account, permission).await
     }
 
+    pub(crate) async fn check_any(
+        &self,
+        context: CheckContext,
+        permissions: &[Permission],
+    ) -> Result<(), Error> {
+        for &permission in permissions {
+            match self.check(context, permission).await {
+                Err(Error::Denied) => continue,
+                result => return result,
+            }
+        }
+        Err(Error::Denied)
+    }
+
     pub(crate) async fn account_active(&self, account: Uuid) -> bool {
         matches!(self.accounts.state(account).await, Ok(AccountState::Active))
     }

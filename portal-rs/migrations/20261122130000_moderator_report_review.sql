@@ -73,12 +73,8 @@ ALTER TABLE role_permissions ADD CONSTRAINT role_permissions_permission_check
         'store.codes.generate'
     ));
 
--- Preserve support-report access for existing roles, including custom grants.
+-- Grant review without extending the moderator role to party moderation.
 INSERT INTO role_permissions (role_id, permission)
-SELECT role_id, 'support.reports.review'
-FROM role_permissions
-WHERE permission = 'support.reports.manage'
-UNION
 SELECT id, 'support.reports.review'
 FROM roles
 WHERE built_in AND key = 'moderator'

@@ -331,7 +331,6 @@ impl BuiltInRole {
                 Permission::ManageSupportContent,
                 Permission::ManageSupportTickets,
                 Permission::ManageSupportReports,
-                Permission::ReviewSupportReports,
                 Permission::ManageSupportEnforcement,
                 Permission::ManageMarketplace,
                 Permission::ManagePremiumTime,
@@ -377,7 +376,6 @@ impl BuiltInRole {
                 Permission::Access,
                 Permission::ManageSupportTickets,
                 Permission::ManageSupportReports,
-                Permission::ReviewSupportReports,
             ],
             Self::Moderator => &[
                 Permission::Access,

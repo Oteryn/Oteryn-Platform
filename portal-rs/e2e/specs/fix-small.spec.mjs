@@ -152,9 +152,7 @@ test('browser preserves private cache directives on a non-HTML analytics 503', a
   }
 });
 
-test('moderator can review reports and is refused Platform admin areas', async ({page}, info) => {
-  test.setTimeout(300_000);
-  const lang = info.project.metadata.locale;
+async function fileReport(page, lang) {
   const reporter = await register(page, lang);
   await login(page, lang, reporter);
   const [{id: reporterId}] = await query('SELECT id FROM accounts WHERE email=$1', [reporter.email]);
@@ -164,7 +162,13 @@ test('moderator can review reports and is refused Platform admin areas', async (
   await expect(page).toHaveURL(/support\/reports\/[a-f0-9-]+$/);
   const reportId = new URL(page.url()).pathname.split('/').at(-1);
   await logout(page, lang);
+  return {reportId, reporterId, evidence};
+}
 
+test('moderator can review reports and is refused Platform admin areas', async ({page}, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  const {reportId, reporterId, evidence} = await fileReport(page, lang);
   const moderator = await register(page, lang);
   const [{id: moderatorId}] = await query('SELECT id FROM accounts WHERE email=$1', [moderator.email]);
   expect(moderatorId).not.toBe(reporterId);
@@ -193,4 +197,47 @@ test('moderator can review reports and is refused Platform admin areas', async (
     status: 'actioned', public_outcome: outcome, moderator_notes: evidence,
     assigned_to: moderatorId, reporter_account_id: reporterId,
   }]);
+});
+
+test('custom report managers retain access until their manage permission is revoked', async ({page}, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  const {reportId, evidence} = await fileReport(page, lang);
+  const account = await register(page, lang);
+  const role = unique();
+  const [{id: roleId}] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [role]);
+  await query(
+    "INSERT INTO role_permissions(role_id, permission) VALUES($1, 'admin.access'), ($1, 'support.reports.manage')",
+    [roleId],
+  );
+  await grantRole(account, role);
+  await login(page, lang, account);
+  await signInWithMfa(page, lang, account);
+
+  const queue = '/admin/moderation/reports';
+  const detail = staffUrl(`${queue}/${reportId}`);
+  expect((await page.request.get(staffUrl(queue), {maxRedirects: 0})).status()).toBe(200);
+  expect((await page.goto(detail)).status()).toBe(200);
+  const outcome = unique();
+  const form = 'form:has(input[value=moderate])';
+  await action(page, form, {status: 'actioned', public_outcome: outcome, moderator_notes: evidence});
+  const storedDecision = () => query(
+    'SELECT status, public_outcome, lock_version FROM player_reports WHERE id=$1',
+    [reportId],
+  );
+  await expect.poll(storedDecision).toEqual([{status: 'actioned', public_outcome: outcome, lock_version: '2'}]);
+
+  const decision = page.locator(form);
+  await expect(decision.locator('[name=lock_version]')).toHaveValue('2');
+  const fields = await decision.evaluate(element => Object.fromEntries(new FormData(element)));
+  await query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='support.reports.manage'", [roleId]);
+  expect((await page.request.get(staffUrl(queue), {maxRedirects: 0})).status()).toBe(403);
+  expect((await page.request.get(detail, {maxRedirects: 0})).status()).toBe(403);
+  const denied = await page.request.post(detail, {
+    form: {...fields, status: 'closed', public_outcome: unique(), moderator_notes: evidence},
+    headers: {origin: new URL(detail).origin},
+    maxRedirects: 0,
+  });
+  expect(denied.status()).toBe(403);
+  expect(await storedDecision()).toEqual([{status: 'actioned', public_outcome: outcome, lock_version: '2'}]);
 });

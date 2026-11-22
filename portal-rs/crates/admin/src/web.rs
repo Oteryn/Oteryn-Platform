@@ -154,7 +154,7 @@ pub fn configured_landing_url() -> Result<Option<String>, Box<dyn std::error::Er
 struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
-    required: Option<Permission>,
+    required: Option<Vec<Permission>>,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -204,13 +204,22 @@ pub fn configured_guard_from(
     permission: Permission,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded(
+    configured_guard_any_from(routes, pool, &[permission], lookup)
+}
+
+pub(crate) fn configured_guard_any_from(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(guarded_any(
         routes,
         pool.clone(),
         config_from(lookup)?,
         PortalIdentity::configured_from(pool.clone(), lookup),
         PortalIdentity::configured_from(pool, lookup),
-        permission,
+        permissions,
     ))
 }
 
@@ -227,12 +236,23 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permission: Permission,
 ) -> Router {
+    guarded_any(routes, pool, config, identity, accounts, &[permission])
+}
+
+pub(crate) fn guarded_any<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: Some(permission),
+        required: Some(permissions.to_vec()),
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -402,23 +422,30 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
-    for required in [Permission::Access, permission] {
-        if let Err(error) = s.auth.check(context, required).await {
-            if matches!(error, Error::Storage(_)) {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            }
-            return match refusal(&s.pool, context.account, request.uri().path()).await {
-                Ok(()) => StatusCode::FORBIDDEN.into_response(),
-                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            };
+    let path = request.uri().path();
+    let permission = if path == "/admin/roles" {
+        Permission::ManageRoles
+    } else {
+        Permission::Access
+    };
+    let authorized = match s.auth.check(context, Permission::Access).await {
+        Ok(()) if s.required.is_some() || permission != Permission::Access => {
+            let required = s
+                .required
+                .as_deref()
+                .unwrap_or(std::slice::from_ref(&permission));
+            s.auth.check_any(context, required).await
         }
+        result => result,
+    };
+    if let Err(error) = authorized {
+        if matches!(error, Error::Storage(_)) {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+        return match refusal(&s.pool, context.account, path).await {
+            Ok(()) => StatusCode::FORBIDDEN.into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
     }
     request.extensions_mut().insert(context);
     request

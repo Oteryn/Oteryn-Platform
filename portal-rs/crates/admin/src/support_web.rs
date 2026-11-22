@@ -66,10 +66,10 @@ pub fn configured_router_from<B: Backend>(
             ),
             backend: backend.clone(),
         });
-        routes = routes.merge(web::configured_guard_from(
+        routes = routes.merge(web::configured_guard_any_from(
             area_routes(area, state),
             pool.clone(),
-            area.permission(),
+            area.permissions(),
             lookup,
         )?);
     }
@@ -90,13 +90,13 @@ pub fn router<I: StaffSession, A: AccountStateReader + Clone + 'static, B: Backe
             auth: Authorizer::new(pool.clone(), accounts.clone()),
             backend: backend.clone(),
         });
-        routes = routes.merge(web::guarded(
+        routes = routes.merge(web::guarded_any(
             area_routes(area, state),
             pool.clone(),
             config.clone(),
             identity.clone(),
             accounts.clone(),
-            area.permission(),
+            area.permissions(),
         ));
     }
     routes
