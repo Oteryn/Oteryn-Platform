@@ -22,7 +22,7 @@ impl Area {
     pub fn permission(self) -> Permission {
         match self {
             Self::Tickets => Permission::ManageSupportTickets,
-            Self::Reports => Permission::ManageSupportReports,
+            Self::Reports => Permission::ReviewSupportReports,
             Self::Enforcement => Permission::ManageSupportEnforcement,
         }
     }

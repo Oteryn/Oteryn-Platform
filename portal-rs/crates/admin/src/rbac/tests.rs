@@ -42,7 +42,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 69);
+    assert_eq!(Permission::ALL.len(), 70);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
@@ -1200,4 +1200,15 @@ async fn r8_grant_invalidates_existing_staff_session() {
     assert_eq!(remaining, (0, 0));
     tx.rollback().await.unwrap();
     db.close().await;
+}
+
+#[test]
+fn moderator_report_review_does_not_grant_party_moderation() {
+    let permissions = BuiltInRole::Moderator.permissions();
+    assert!(permissions.contains(&Permission::ReviewSupportReports));
+    assert!(!permissions.contains(&Permission::ManageSupportReports));
+    assert_eq!(
+        crate::support::Area::Reports.permission(),
+        Permission::ReviewSupportReports
+    );
 }
