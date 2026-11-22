@@ -13,18 +13,12 @@ pub(super) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
         .map_err(|_| Error::Unavailable)??;
     tokio::time::timeout(
         std::time::Duration::from_millis(250),
-        set_transaction_limits(&mut tx),
+        sqlx::raw_sql("SET LOCAL lock_timeout = '100ms'; SET LOCAL statement_timeout = '2s'")
+            .execute(&mut *tx),
     )
     .await
     .map_err(|_| Error::Unavailable)??;
     Ok(tx)
-}
-
-async fn set_transaction_limits(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
-    sqlx::raw_sql("SET LOCAL lock_timeout = '100ms'; SET LOCAL statement_timeout = '2s'")
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
 }
 
 // All league consumers scope advisory fences to the resolved table, so schema
@@ -209,11 +203,11 @@ impl<A: Authority> League<A> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
-        // The read deadline bounds pool admission, and the statement timeout
-        // bounds the shared lock wait. A publishing worker may briefly hold
-        // the fence exclusively, so readers do not use the writer's 100 ms limit.
+        // The read deadline bounds pool admission. Give readers time for a
+        // short publication while shedding a stuck fence before all pooled
+        // readers consume their request budget.
         let mut tx = self.pool.begin().await?;
-        sqlx::raw_sql("SET LOCAL lock_timeout = '0'; SET LOCAL statement_timeout = '2s'")
+        sqlx::raw_sql("SET LOCAL lock_timeout = '400ms'; SET LOCAL statement_timeout = '2s'")
             .execute(&mut *tx)
             .await?;
         sqlx::query(
