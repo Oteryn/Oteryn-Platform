@@ -588,8 +588,34 @@ pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
 ) -> oteryn_ui::Account {
-    match read_signed_in(layer, request).await {
-        Ok(Some(session)) => oteryn_ui::Account::SignedIn { csrf: session.csrf },
+    let config = request
+        .extensions()
+        .get::<SessionConfig>()
+        .copied()
+        .unwrap_or(layer.config);
+    if config.validate().is_err() {
+        return oteryn_ui::Account::Anonymous;
+    }
+    let mut identifiers = request
+        .headers()
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|v| v.trim().split_once('='))
+        .filter(|(name, _)| *name == COOKIE_NAME)
+        .map(|(_, value)| value);
+    let Some(id) = identifiers.next().filter(|id| valid_id(id)) else {
+        return oteryn_ui::Account::Anonymous;
+    };
+    if identifiers.next().is_some() {
+        return oteryn_ui::Account::Anonymous;
+    }
+    let row: Result<Option<(String, Option<Uuid>)>, _> = sqlx::query_as(
+        "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
+        .bind(hash(id)).fetch_optional(&layer.pool).await;
+    match row {
+        Ok(Some((csrf, Some(_)))) => oteryn_ui::Account::SignedIn { csrf },
         _ => oteryn_ui::Account::Anonymous,
     }
 }

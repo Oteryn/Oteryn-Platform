@@ -37,27 +37,7 @@ impl std::fmt::Debug for StaffDashboard {
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::request_language(&request).code();
-    let staff_check = request.method() == axum::http::Method::GET
-        && request.extensions().get::<StaffDashboard>().is_some()
-        && request
-            .headers()
-            .get(header::ACCEPT)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.contains("text/html"));
-    let (account, account_id) = if staff_check {
-        match crate::session::chrome_session(&shell.sessions, &mut request).await {
-            Some(session) => (
-                oteryn_ui::Account::SignedIn { csrf: session.csrf },
-                Some(session.account_id),
-            ),
-            None => (oteryn_ui::Account::Anonymous, None),
-        }
-    } else {
-        (
-            crate::session::chrome_account(&shell.sessions, &mut request).await,
-            None,
-        )
-    };
+    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -85,13 +65,22 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
-    let mut chrome = shell.registry.chrome(lang, path, account);
-    if browser
-        && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
-        && (staff.allows)(id).await
-    {
-        chrome.staff_dashboard = Some(staff.url.clone());
-    }
+    let staff = request.extensions().get::<StaffDashboard>().cloned();
+    let staff = if browser && matches!(account, oteryn_ui::Account::SignedIn { .. }) {
+        if let Some(staff) = staff
+            && let Some(session) =
+                crate::session::chrome_session(&shell.sessions, &mut request).await
+            && (staff.allows)(session.account_id).await
+        {
+            Some(staff.url)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    chrome.staff_dashboard = staff;
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
