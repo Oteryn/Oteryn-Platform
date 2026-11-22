@@ -218,7 +218,8 @@ where
         .reason_codes
         .iter()
         .copied()
-        .find(|code| *code == action.reason)
+        // Match the audit table's char_length constraint before opening a transaction.
+        .find(|code| *code == action.reason && (8..=500).contains(&code.chars().count()))
         .ok_or(Error::Reason)?;
     let (accounts, input) = validate()?;
     let mut tx = pool.begin().await?;

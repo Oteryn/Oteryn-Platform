@@ -139,6 +139,16 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await expect(admin).toHaveURL(new RegExp(`/console/worlds\\?lang=${lang}$`));
     await expect(admin.locator('html')).toHaveAttribute('lang', lang);
 
+    const preferred = lang === 'pl' ? 'en' : 'pl';
+    await staffContext.addCookies([{name: 'portal_language', value: preferred, url: origin}]);
+    expect((await visit(admin, '/console/worlds')).status()).toBe(200);
+    await expect(admin.locator('html')).toHaveAttribute('lang', preferred);
+    await expect(admin.locator('main h1')).toHaveText(labels[preferred].worlds);
+    await expect(admin.locator('#portal-navigation')).toHaveAttribute(
+      'aria-label', preferred === 'pl' ? 'Nawigacja główna' : 'Main navigation',
+    );
+    await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
+
     const [{id: roleId}] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [unique()]);
     await rolePage(admin, roleId);
     const grant = admin.locator('form:has(button[value=grant])');
