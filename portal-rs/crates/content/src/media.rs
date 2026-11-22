@@ -13,12 +13,13 @@ use image::{GenericImageView, ImageFormat, ImageReader};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{CheckContext, MutationAuthorization, Permission},
+    web::StaffPreflight,
 };
-use oteryn_web::session::{SessionLayer, has_signed_in_session};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::{io::Cursor, time::Duration};
+use tokio::time::{Instant, timeout_at};
 use uuid::Uuid;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_DECODE_BYTES: usize = 160_000_000;
@@ -298,22 +299,17 @@ fn configured_router_from(
     pool: PgPool,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    let sessions = SessionLayer::new(pool.clone());
-    oteryn_admin::web::configured_host_boundary_from(
-        oteryn_admin::web::configured_guard_from(
-            admin_router(pool.clone()),
-            pool,
-            Permission::ManageMedia,
-            lookup,
-        )?
-        .layer(axum::middleware::from_fn_with_state(
-            sessions,
-            multipart_csrf,
-        ))
-        .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
-        .layer(axum::middleware::from_fn(headers)),
+    let staff = oteryn_admin::web::configured_staff_preflight_from(
+        pool.clone(),
+        Permission::ManageMedia,
         lookup,
-    )
+    )?;
+    let routes = staff
+        .wrap(admin_router(pool))
+        .layer(axum::middleware::from_fn_with_state(staff, multipart_csrf))
+        .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
+        .layer(axum::middleware::from_fn(headers));
+    oteryn_admin::web::configured_host_boundary_from(routes, lookup)
 }
 // Multer inserts headers into a HeaderMap, losing repeated declarations. Check
 // the same multipart boundaries and raw header syntax before either parser runs.
@@ -354,7 +350,7 @@ fn validate_part_headers(body: &[u8], boundary: &str) -> Result<(), StatusCode> 
     }
 }
 
-async fn checked_body(request: &mut Request, deadline: Duration) -> Result<Bytes, StatusCode> {
+async fn checked_body(request: &mut Request, deadline: Instant) -> Result<Bytes, StatusCode> {
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -362,7 +358,7 @@ async fn checked_body(request: &mut Request, deadline: Duration) -> Result<Bytes
         .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
     let boundary = multer::parse_boundary(content_type).map_err(invalid)?;
     let body = std::mem::replace(request.body_mut(), axum::body::Body::empty());
-    let bytes = tokio::time::timeout(deadline, axum::body::to_bytes(body, MAX_BYTES + 16384))
+    let bytes = timeout_at(deadline, axum::body::to_bytes(body, MAX_BYTES + 16384))
         .await
         .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
@@ -381,7 +377,7 @@ impl<S: Send + Sync> FromRequest<S> for CheckedMultipart {
     async fn from_request(mut request: Request, state: &S) -> Result<Self, Self::Rejection> {
         if request.extensions().get::<CheckedPartHeaders>().is_none() {
             *request.body_mut() = axum::body::Body::from(
-                checked_body(&mut request, AUTHENTICATED_UPLOAD_TIMEOUT).await?,
+                checked_body(&mut request, Instant::now() + AUTHENTICATED_UPLOAD_TIMEOUT).await?,
             );
         }
         Multipart::from_request(request, state)
@@ -394,7 +390,7 @@ impl<S: Send + Sync> FromRequest<S> for CheckedMultipart {
 /// Adapt a native multipart form token to the shared synchronizer-token verifier.
 /// The shared guard still validates the origin, session and constant-time token.
 async fn multipart_csrf(
-    State(sessions): State<SessionLayer>,
+    State(staff): State<StaffPreflight>,
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<Response, StatusCode> {
@@ -402,15 +398,23 @@ async fn multipart_csrf(
         && request.uri().path() == "/admin/media"
         && !request.headers().contains_key("x-csrf-token")
     {
+        let started = Instant::now();
         let content_type = request
             .headers()
             .get(header::CONTENT_TYPE)
             .cloned()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-        let deadline = if has_signed_in_session(&sessions, request.headers()).await {
-            SIGNED_IN_FORM_UPLOAD_TIMEOUT
-        } else {
-            ANONYMOUS_FORM_UPLOAD_TIMEOUT
+        let short_deadline = started + ANONYMOUS_FORM_UPLOAD_TIMEOUT;
+        let authorized = timeout_at(
+            short_deadline,
+            staff.permits_long_body(request.headers(), request.uri().path()),
+        )
+        .await
+        .map_err(|_| StatusCode::REQUEST_TIMEOUT)?;
+        let deadline = match authorized {
+            Ok(true) => started + SIGNED_IN_FORM_UPLOAD_TIMEOUT,
+            Ok(false) => short_deadline,
+            Err(response) => return Ok(response),
         };
         let bytes = checked_body(&mut request, deadline).await?;
         let mut copy = axum::http::Request::new(axum::body::Body::from(bytes.clone()));

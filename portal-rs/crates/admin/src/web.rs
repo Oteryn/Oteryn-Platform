@@ -188,14 +188,72 @@ pub fn configured_guard_from(
     permission: Permission,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded(
-        routes,
-        pool.clone(),
-        config_from(lookup)?,
-        PortalIdentity::configured_from(pool.clone(), lookup),
-        PortalIdentity::configured_from(pool, lookup),
-        permission,
-    ))
+    Ok(configured_staff_preflight_from(pool, permission, lookup)?.wrap(routes))
+}
+
+/// Check the staff identity and permissions before an upload body is read.
+#[derive(Clone)]
+pub struct StaffPreflight {
+    state: Arc<Panel<PortalIdentity, PortalIdentity>>,
+    sessions: SessionLayer,
+}
+
+impl std::fmt::Debug for StaffPreflight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffPreflight").finish_non_exhaustive()
+    }
+}
+
+pub fn configured_staff_preflight_from(
+    pool: PgPool,
+    permission: Permission,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<StaffPreflight, Box<dyn std::error::Error>> {
+    let config = config_from(lookup)?;
+    let mut sessions = SessionLayer::new(pool.clone());
+    sessions.csrf.trusted_origins = vec![config.csrf_origin()];
+    let identity = PortalIdentity::configured_from(pool.clone(), lookup);
+    let state = Arc::new(Panel {
+        config,
+        required: Some(permission),
+        auth: Arc::new(Authorizer::new(pool.clone(), identity.clone())),
+        identity,
+        pool,
+    });
+    Ok(StaffPreflight { state, sessions })
+}
+
+impl StaffPreflight {
+    pub fn wrap(&self, routes: Router) -> Router {
+        guard_routes(routes, self.sessions.clone(), self.state.clone())
+    }
+
+    /// A matching Origin and a live authorized staff session qualify for a
+    /// longer body deadline. The full guard still checks CSRF after the read.
+    pub async fn permits_long_body(
+        &self,
+        headers: &axum::http::HeaderMap,
+        path: &str,
+    ) -> Result<bool, Response> {
+        oteryn_web::csrf::verify_origin(headers, &self.sessions.csrf.trusted_origins)
+            .map_err(IntoResponse::into_response)?;
+        if !headers.contains_key(header::ORIGIN) {
+            return Ok(false);
+        }
+        let session = oteryn_web::session::signed_in_session(&self.sessions, headers)
+            .await
+            .map_err(|error| match error {
+                sqlx::Error::Protocol(message) if message == "invalid session cookie" => {
+                    StatusCode::BAD_REQUEST.into_response()
+                }
+                _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            })?;
+        if let Some(session) = session {
+            staff_context(&self.state, &session, headers, path).await?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
 }
 
 /// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
@@ -213,7 +271,6 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
 ) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
-    let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: Some(permission),
@@ -221,6 +278,15 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
     });
+    guard_routes(routes, session, state)
+}
+
+fn guard_routes<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    session: SessionLayer,
+    state: Arc<Panel<I, A>>,
+) -> Router {
+    let admin_csrf = session.csrf.clone();
     routes
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -353,11 +419,27 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let Some(session) = request.extensions().get::<BrowserSession>() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let context = match staff_context(&s, session, request.headers(), request.uri().path()).await {
+        Ok(context) => context,
+        Err(response) => return response,
+    };
+    request.extensions_mut().insert(context);
+    request
+        .extensions_mut()
+        .insert(crate::rbac::MutationAuthorization::new(s.auth.clone()));
+    next.run(request).await
+}
+async fn staff_context<I: StaffSession, A: AccountStateReader + 'static>(
+    s: &Panel<I, A>,
+    session: &BrowserSession,
+    headers: &axum::http::HeaderMap,
+    path: &str,
+) -> Result<CheckContext, Response> {
     let Some(identity) = s.identity.resolve(session).await else {
-        return Redirect::to("/login").into_response();
+        return Err(Redirect::to("/login").into_response());
     };
     if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
+        return Err((StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(headers), text(language(headers), "mfa")))).into_response());
     }
     let proof = match (
         session.identity_hash().await,
@@ -384,30 +466,25 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
+    let permission = s.required.unwrap_or(if path == "/admin/roles" {
+        Permission::ManageRoles
+    } else {
+        Permission::Access
+    });
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
             }
-            return match refusal(&s.pool, context.account, request.uri().path()).await {
+            return Err(match refusal(&s.pool, context.account, path).await {
                 Ok(()) => StatusCode::FORBIDDEN.into_response(),
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            };
+            });
         }
     }
-    request.extensions_mut().insert(context);
-    request
-        .extensions_mut()
-        .insert(crate::rbac::MutationAuthorization::new(s.auth.clone()));
-    next.run(request).await
+    Ok(context)
 }
+
 async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     audit::append(

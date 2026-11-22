@@ -464,19 +464,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
     let session = BrowserSession::new(layer.pool.clone(), layer.config, ip, agent);
-    let mut identifiers = request
-        .headers()
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .filter_map(|v| v.trim().split_once('='))
-        .filter(|(name, _)| *name == COOKIE_NAME)
-        .map(|(_, value)| value);
-    if let Some(id) = identifiers.next() {
-        if !valid_id(id) || identifiers.next().is_some() {
-            return Err(sqlx::Error::Protocol("invalid session cookie".into()));
-        }
+    if let Some(id) = session_identifier(request.headers())? {
         let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
             "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
                 idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
@@ -500,10 +488,50 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
     Ok(session)
 }
 
-/// Check for a live signed-in session without touching its idle deadline.
-/// Request handlers must still apply their normal CSRF and authorization checks.
-pub async fn has_signed_in_session(layer: &SessionLayer, headers: &axum::http::HeaderMap) -> bool {
-    signed_in_csrf(layer, headers, layer.config).await.is_some()
+fn session_identifier(headers: &axum::http::HeaderMap) -> Result<Option<&str>, sqlx::Error> {
+    let mut identifiers = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|v| v.trim().split_once('='))
+        .filter(|(name, _)| *name == COOKIE_NAME)
+        .map(|(_, value)| value);
+    let id = identifiers.next();
+    if id.is_some_and(|id| !valid_id(id)) || identifiers.next().is_some() {
+        return Err(sqlx::Error::Protocol("invalid session cookie".into()));
+    }
+    Ok(id)
+}
+
+/// Load an existing signed-in session for a preflight check without extending
+/// its expiry or setting a cookie. The normal request guard still runs later.
+pub async fn signed_in_session(
+    layer: &SessionLayer,
+    headers: &axum::http::HeaderMap,
+) -> Result<Option<BrowserSession>, sqlx::Error> {
+    let Some(id) = session_identifier(headers)? else {
+        return Ok(None);
+    };
+    let row: Option<(Uuid, String, Uuid)> = sqlx::query_as(
+        "SELECT session_id, csrf_token, account_id FROM web_sessions
+         WHERE id_hash=$1 AND account_id IS NOT NULL
+         AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()",
+    )
+    .bind(hash(id))
+    .fetch_optional(&layer.pool)
+    .await?;
+    let Some((session_id, csrf, account_id)) = row else {
+        return Ok(None);
+    };
+    let session = BrowserSession::new(layer.pool.clone(), layer.config, None, "");
+    session.inner.lock().await.record = Some(Record {
+        session_id,
+        csrf,
+        id: id.into(),
+        account_id: Some(account_id),
+    });
+    Ok(Some(session))
 }
 
 /// Read presentation state without refreshing expiry, creating a session or setting cookies.
@@ -530,18 +558,7 @@ async fn signed_in_csrf(
     if config.validate().is_err() {
         return None;
     }
-    let mut identifiers = headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .filter_map(|v| v.trim().split_once('='))
-        .filter(|(name, _)| *name == COOKIE_NAME)
-        .map(|(_, value)| value);
-    let id = identifiers.next().filter(|id| valid_id(id))?;
-    if identifiers.next().is_some() {
-        return None;
-    }
+    let id = session_identifier(headers).ok()??;
     sqlx::query_scalar(
         "SELECT csrf_token FROM web_sessions WHERE id_hash=$1 AND account_id IS NOT NULL
          AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()",

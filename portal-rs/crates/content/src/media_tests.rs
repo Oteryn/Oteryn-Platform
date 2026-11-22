@@ -346,7 +346,16 @@ impl oteryn_admin::rbac::AccountStateReader for Staff {
     }
 }
 fn test_app(pool: PgPool, actor: Uuid) -> Router {
-    let sessions = SessionLayer::new(pool.clone());
+    let staff = oteryn_admin::web::configured_staff_preflight_from(
+        pool.clone(),
+        Permission::ManageMedia,
+        &|key| match key {
+            "OTERYN_ADMIN_PANEL" => Some("true".into()),
+            "OTERYN_ADMIN_HOST" => Some("staff.test".into()),
+            _ => None,
+        },
+    )
+    .unwrap();
     oteryn_admin::web::guarded(
         admin_router(pool.clone()),
         pool,
@@ -358,10 +367,7 @@ fn test_app(pool: PgPool, actor: Uuid) -> Router {
         Staff(actor),
         Permission::ManageMedia,
     )
-    .layer(axum::middleware::from_fn_with_state(
-        sessions,
-        multipart_csrf,
-    ))
+    .layer(axum::middleware::from_fn_with_state(staff, multipart_csrf))
     .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
 }
 async fn browser_lifecycle(pool: &PgPool) {
@@ -650,11 +656,36 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap();
     assert_eq!(form_page.status(), StatusCode::OK);
+    // A real lock prevents the preflight from reading the session row. The
+    // short budget must include that lookup, and origin checks precede it.
+    let mut lock = pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE web_sessions IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    let mut foreign_origin = with_stalled_body(make(csrf, "Foreign origin", "image/png")).await;
+    foreign_origin
+        .headers_mut()
+        .insert(header::ORIGIN, "https://other.test".parse().unwrap());
+    let refusal = tokio::time::timeout(Duration::from_secs(2), app.clone().oneshot(foreign_origin))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
+
+    let blocked_lookup = with_stalled_body(make(csrf, "Blocked lookup", "image/png")).await;
+    let refusal = tokio::time::timeout(Duration::from_secs(8), app.clone().oneshot(blocked_lookup))
+        .await
+        .expect("preflight must bound the session lookup")
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
+    lock.rollback().await.unwrap();
+
     let alt = "Signed-in native form stalled";
     let stalled = with_stalled_body(make(csrf, alt, "image/png")).await;
     assert!(!stalled.headers().contains_key("x-csrf-token"));
     let start = tokio::time::Instant::now();
-    let refusal = tokio::time::timeout(Duration::from_secs(70), app.oneshot(stalled))
+    let refusal = tokio::time::timeout(Duration::from_secs(70), app.clone().oneshot(stalled))
         .await
         .expect("the signed-in native form must time out within the test budget")
         .unwrap();
@@ -667,6 +698,42 @@ async fn browser_lifecycle(pool: &PgPool) {
             .await
             .unwrap()
     );
+
+    sqlx::query("UPDATE web_sessions SET data=data - 'mfa_grant' WHERE account_id=$1")
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
+    let missing_mfa = with_stalled_body(make(csrf, "MFA missing", "image/png")).await;
+    let refusal = tokio::time::timeout(Duration::from_secs(8), app.clone().oneshot(missing_mfa))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
+
+    let support = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'support-test-password','active','en',now())")
+        .bind(support)
+        .bind(format!("{support}@example.invalid"))
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(support)
+    .execute(pool)
+    .await
+    .unwrap();
+    crate::test_staff::browser(pool, support, &cookie)
+        .await
+        .unwrap();
+    let unauthorized = with_stalled_body(make(csrf, "Support stalled upload", "image/png")).await;
+    let refusal = tokio::time::timeout(Duration::from_secs(8), app.oneshot(unauthorized))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
