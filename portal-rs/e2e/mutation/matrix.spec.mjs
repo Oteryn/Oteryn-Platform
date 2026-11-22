@@ -8,6 +8,7 @@ import { test, expect } from '../fixtures.mjs';
 import { login, logout, mailLink, password, pool, seedPasswordRange, submit, waitForLoginBudget } from '../helpers.mjs';
 import { action, enrollMfa, loginWithRecoveryCode, player, query, rolePage } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
+import { paidTopup } from '../staff-commerce-helpers.mjs';
 
 import { prepare, sendForm, useFormMethod, rejected, wrongActor, invalid } from './matrix-helpers.mjs';
 import './publisher-cases.mjs';
@@ -4239,3 +4240,147 @@ for (const [prefix, revokeMethod] of [
     }
   });
 }
+
+test('staff commerce separates submission, approval, cancellation and wallet effects', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const db = pool();
+  try {
+    const owner = await seededPlayer(page, lang);
+    const staffPage = async role => {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const screen = await context.newPage();
+      const account = await seededPlayer(screen, lang, role);
+      await screen.goto(`/${lang}/account/privacy`);
+      return { screen, account, token: (await prepare(screen, formSelector)).fields._csrf };
+    };
+    const proposer = (await staffPage('platform_admin')).screen;
+    const reviewer = await staffPage('platform_admin');
+    await page.goto(`/${lang}/account/privacy`);
+    const wrongActors = [
+      { screen: page, token: (await prepare(page, formSelector)).fields._csrf },
+      await staffPage('content_editor'),
+    ];
+    const topup = await paidTopup(page, lang, db);
+    const digest = (id, target) => query(
+      `SELECT o.target_id,o.command,o.requires_approval,o.approved_by,o.result,
+         (SELECT count(*)::int FROM wallet_entries WHERE operation_id=o.id) AS ledger_adjustments,
+         (SELECT count(*)::int FROM premium_ledger WHERE request_id=o.id) AS premium_changes,
+         (SELECT count(*)::int FROM commerce_refunds WHERE operation_id=o.id) AS refunds
+       FROM commerce_operations o WHERE o.id=$1 AND o.target_id=$2`,
+      [id, target],
+    );
+    const error = lang === 'pl' ? 'Nieprawidłowe dane. Sprawdź identyfikatory, kwotę i powód.'
+      : 'Invalid input. Check the identifiers, amount and reason.';
+    const noMutation = async (screen, offer, snapshot, baseline) => {
+      await rejected({ page: screen, ...offer, snapshot, baseline });
+      for (const actor of wrongActors) {
+        expect((await sendForm(actor.screen, offer.url, { ...offer.fields, _csrf: actor.token })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+    };
+    const panel = '/admin/commerce';
+    const submitOrder = async (kind, target, extra, success = true) => {
+      expect((await proposer.goto(panel)).status()).toBe(200);
+      const selector = `main form[action="${panel}/${kind}"]`;
+      const values = { target, reason: 'Authorized local browser mutation matrix qualification.', ...extra };
+      const offer = await prepare(proposer, selector, values);
+      const id = offer.fields.request_id;
+      const snapshot = () => digest(id, target);
+      await noMutation(proposer, offer, snapshot, []);
+      const boundary = kind === 'grant' ? { days: '367' } : kind === 'adjust' ? { amount: '0' } : { reason: 'x'.repeat(9) };
+      await invalid({
+        page: proposer, ...offer, message: error, snapshot, baseline: [],
+        samples: [
+          { name: 'empty reason', patch: { reason: '' } },
+          { name: 'overlong reason', patch: { reason: 'x'.repeat(501) } },
+          { name: 'wrong target identifier type', patch: { target: 'not-a-uuid' } },
+          { name: 'outside the allowed range', patch: boundary },
+        ],
+      });
+      await submit(proposer, selector, values);
+      if (!success) {
+        await expect(proposer.locator('main h1')).toHaveText(lang === 'pl'
+          ? 'Żądanie jest sprzeczne z bieżącym stanem.' : 'The request conflicts with the current state.');
+        expect(await snapshot()).toEqual([]);
+        return;
+      }
+      await expect(proposer).toHaveURL(/\/admin\/commerce$/);
+      const submitted = await snapshot();
+      expect(submitted).toEqual([{
+        target_id: target, command: expect.objectContaining({ kind }),
+        requires_approval: ['grant', 'adjust', 'refund'].includes(kind), approved_by: null,
+        result: ['grant', 'adjust', 'refund'].includes(kind) ? null : expect.any(Object),
+        ledger_adjustments: 0, premium_changes: kind === 'revoke' ? 1 : 0, refunds: 0,
+      }]);
+      expect((await sendForm(proposer, offer.url, offer.fields)).status()).toBe(303);
+      expect(await snapshot()).toEqual(submitted);
+      return { id, snapshot, submitted };
+    };
+    const review = async ({ id, snapshot, submitted }, cancel = false) => {
+      const selector = `main form[action="${panel}/approvals/${id}"]`;
+      await expect(proposer.locator(`${selector} button`)).toHaveCount(0);
+      expect((await reviewer.screen.goto(panel)).status()).toBe(200);
+      const prepared = await prepare(reviewer.screen, selector);
+      const url = cancel ? new URL(`${panel}/cancellations/${id}`, prepared.url).href : prepared.url;
+      await noMutation(reviewer.screen, { ...prepared, url }, snapshot, submitted);
+      const self = (await prepare(proposer, selector)).fields._csrf;
+      expect((await sendForm(proposer, url, { ...prepared.fields, _csrf: self })).status()).toBe(403);
+      expect(await snapshot()).toEqual(submitted);
+      for (const faulty of ['bad', 'x'.repeat(64), '1', id.slice(0, -1)]) {
+        const malformed = url.replace(id, faulty);
+        const response = await sendForm(reviewer.screen, malformed, prepared.fields);
+        expect(response.status()).toBe(422);
+        expect(await response.text()).toContain(error);
+        expect(await snapshot()).toEqual(submitted);
+      }
+      if (cancel) await reviewer.screen.locator(`${selector} button[formaction$="/${id}"]`).click();
+      else await submit(reviewer.screen, selector);
+      await expect(reviewer.screen).toHaveURL(/\/admin\/commerce$/);
+      await expect(reviewer.screen.locator(selector)).toHaveCount(0);
+      const after = await snapshot();
+      expect(after[0].approved_by).toBe(reviewer.account.id);
+      expect((await sendForm(reviewer.screen, url, prepared.fields)).status()).toBe(303);
+      expect(await snapshot()).toEqual(after);
+      return after[0];
+    };
+
+    const grant = await submitOrder('grant', owner.id, { days: '7' });
+    expect((await review(grant)).premium_changes).toBe(1);
+    const premium = await query(
+      'SELECT event_type,duration_days,effective_until FROM premium_ledger WHERE request_id=$1 AND account_id=$2',
+      [grant.id, owner.id],
+    );
+    expect(premium).toEqual([{ event_type: 'GRANT', duration_days: 7, effective_until: expect.any(Date) }]);
+    expect((await page.goto(`/${lang}/panel/premium`)).status()).toBe(200);
+    await expect(page.locator('main')).toContainText(premium[0].effective_until.toISOString().slice(0, 10));
+    const revoke = await submitOrder('revoke', owner.id, {});
+    expect(await query('SELECT event_type FROM premium_ledger WHERE request_id=$1', [revoke.id])).toEqual([{ event_type: 'REVOKE' }]);
+
+    const correction = await submitOrder('adjust', owner.id, { amount: '13' });
+    expect((await review(correction)).ledger_adjustments).toBe(1);
+    expect(await query('SELECT available_delta::text FROM wallet_entries WHERE operation_id=$1 AND account_id=$2',
+      [correction.id, owner.id])).toEqual([{ available_delta: '13' }]);
+    await page.goto(`/${lang}/shop/history`);
+    await expect(page.locator('main dl dd').first()).toHaveText(String(Number(topup.coins) + 13));
+    const pendingCancellation = await submitOrder('adjust', owner.id, { amount: '17' });
+    const cancelled = await review(pendingCancellation, true);
+    expect(cancelled.result).toEqual({ status: 'cancelled' });
+    expect(cancelled.ledger_adjustments).toBe(0);
+
+    const check = await submitOrder('reconcile', topup.payment_intent_id, {});
+    expect((await check.snapshot())[0].result).toEqual({
+      resolution_code: 'reviewed_no_payment_state_change', state: 'succeeded', intent: topup.payment_intent_id,
+    });
+    await submitOrder('refund', topup.payment_intent_id, {}, false);
+    expect(await query('SELECT state FROM payment_intents WHERE id=$1', [topup.payment_intent_id]))
+      .toEqual([{ state: 'succeeded' }]);
+  } finally {
+    await db.end();
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
