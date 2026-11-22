@@ -183,10 +183,11 @@ async fn report_form(
 }
 async fn promotion_form<A: Accounts, V: PublicViews, L: PromotionLedger>(
     State(api): State<Arc<Moderation<A, V, L>>>,
-    Path((lang, _)): Path<(String, Uuid)>,
+    Path((lang, listing)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
-    let quote = api.promotion_quote().await.map_err(status)?;
+    let actor = session.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
+    let quote = api.promotion_quote(actor, listing).await.map_err(status)?;
     form(lang, session, "promote", Some(quote)).await
 }
 #[derive(Deserialize)]

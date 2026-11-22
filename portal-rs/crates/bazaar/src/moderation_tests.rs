@@ -386,7 +386,16 @@ async fn postgres_promotion_debit_is_atomic_and_idempotent() -> TestResult {
     let ledger = Ledger::default();
     let api = db.api(View::default(), ledger.clone());
     let id = Uuid::now_v7();
-    let quote = api.promotion_quote().await?;
+    let quote = api.promotion_quote(owner, listing).await?;
+    let foreign = Uuid::now_v7();
+    assert!(matches!(
+        api.promotion_quote(foreign, listing).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        api.promote(foreign, listing, id, quote).await,
+        Err(Error::Denied)
+    ));
     ledger.0.store(true, Ordering::SeqCst);
     assert!(matches!(
         api.promote(owner, listing, id, quote).await,
