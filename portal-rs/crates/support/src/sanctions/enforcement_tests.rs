@@ -1013,3 +1013,63 @@ async fn audit_w3_03_terminal_below_pending_refused_on_postgres() -> TestResult 
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn replacement_after_refusal_fences_on_games_accepted_revision() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    db.record(&apply()).await?;
+    let recorded = db.record(&revoke()).await?.ok_or("not recorded")?;
+    let body = std::str::from_utf8(RESULT_REVOKED)?
+        .replace("\"state\":\"REVOKED\"", "\"state\":\"REJECTED\"")
+        .replace(
+            "\"result_code\":\"OK\"",
+            "\"result_code\":\"LIFECYCLE_CONFLICT\"",
+        )
+        .replace(
+            "\"accepted_decision_revision\":2",
+            "\"accepted_decision_revision\":1",
+        )
+        .replace(
+            "\"stream_state\":\"REVOKED\"",
+            "\"stream_state\":\"ACTIVE\"",
+        )
+        .replace(
+            "\"effective_until_ms\":null",
+            "\"effective_until_ms\":1700003600000",
+        )
+        .replace(
+            "\"runtime_effect\":\"ONLINE_APPLIED\"",
+            "\"runtime_effect\":\"NONE\"",
+        );
+    let value = canonical::decode(body.as_bytes(), MAX_RESULT, 4)?;
+    let receipt = Receipt::decode(&value)?;
+    assert_eq!(receipt.command_digest, recorded.command_digest);
+    ingest(&db.pool, &receipt, body.as_bytes()).await?;
+
+    let retry = Command {
+        operation_id: id(0x103),
+        decision_revision: 3,
+        ..revoke()
+    };
+    assert!(matches!(
+        db.record(&Command {
+            prior_decision_revision: Some(2),
+            ..retry.clone()
+        })
+        .await,
+        Err(Error::Stale)
+    ));
+    assert!(matches!(
+        db.record(&Command {
+            decision_revision: 2,
+            ..retry.clone()
+        })
+        .await,
+        Err(Error::Stale)
+    ));
+    assert_eq!(db.record(&retry).await?.ok_or("not recorded")?.position, 3);
+    db.cleanup().await
+}

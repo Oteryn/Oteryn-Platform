@@ -347,7 +347,11 @@ pub async fn record(
     if taken {
         return Err(Error::Conflict);
     }
-    let latest = sqlx::query("SELECT decision_revision,intent,profile,account_id,character_id FROM support_enforcement_commands WHERE sanction_stream_id=$1 ORDER BY decision_revision DESC,position DESC LIMIT 1")
+    let latest = sqlx::query("SELECT c.decision_revision,c.intent,c.profile,c.account_id,c.character_id,
+            (convert_from(r.result,'UTF8')::jsonb->>'accepted_decision_revision')::bigint AS refused_high_water
+        FROM support_enforcement_commands c
+        LEFT JOIN support_enforcement_results r ON r.operation_id=c.operation_id AND r.state='REJECTED'
+        WHERE c.sanction_stream_id=$1 ORDER BY c.decision_revision DESC,c.position DESC LIMIT 1")
         .bind(command.sanction_stream_id)
         .fetch_optional(&mut **tx)
         .await?;
@@ -368,7 +372,13 @@ pub async fn record(
             let fresh = match command.intent {
                 Intent::Apply => false,
                 Intent::Replace | Intent::Revoke => {
-                    command.prior_decision_revision == Some(current)
+                    // A rejected request may leave Game on the previous decision.
+                    // The next operation advances the journal but fences on Game's receipt.
+                    let high_water = row
+                        .try_get::<Option<i64>, _>("refused_high_water")?
+                        .unwrap_or(current);
+                    command.decision_revision > current
+                        && command.prior_decision_revision == Some(high_water)
                 }
                 Intent::Expire => {
                     command.decision_revision == current
