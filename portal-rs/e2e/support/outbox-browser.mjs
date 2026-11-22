@@ -34,7 +34,7 @@ export async function startOutboxBrowser({ upstreamPort, certificate, caFile, en
     },
   });
   // Identity notifications use the same authenticated STARTTLS adapter as local.mjs.
-  await listen(sink, 587);
+  await listen(sink, 0);
   const proxy = https.createServer(tls, (request, response) => {
     const upstream = http.request({
       hostname: '127.0.0.1', port: upstreamPort, path: request.url,
@@ -57,6 +57,8 @@ export async function startOutboxBrowser({ upstreamPort, certificate, caFile, en
   }
   Object.assign(env, {
     SSL_CERT_FILE: caFile,
+    OTERYN_SMTP_PORT: String(sink.server.address().port),
+    OTERYN_SMTP_TLS_MODE: 'starttls',
     OTERYN_PUBLIC_ORIGIN: `https://localhost:${proxy.address().port}`,
     PORTAL_E2E_ORIGIN: `https://localhost:${proxy.address().port}`,
   });

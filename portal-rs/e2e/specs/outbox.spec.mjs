@@ -1,16 +1,51 @@
-// Run start.sh --outbox, then node run.mjs <out>/secrets/env.json test outbox.spec.mjs.
+// Run with the default local launcher or start.sh --outbox.
 // Game pulls Store operations, revocations and character intents through mTLS.
 // Payment funding uses the worker registry's wallet.top_up job.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { test, expect } from '../fixtures.mjs';
+import { test as base, expect } from '../fixtures.mjs';
 import { login, password, pool, seedPasswordRange, submit } from '../helpers.mjs';
 import { paidTopup } from '../staff-commerce-helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { gameJson, gamePeer, nil, portalCommand, seededAccount, seededPlayer, sourceTime } from '../outbox-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
+
+// Keep the default suite's catalogue and character feeds on its own database.
+const outboxEnv = process.env.PORTAL_E2E_OUTBOX_ENV
+  ? JSON.parse(await fs.readFile(process.env.PORTAL_E2E_OUTBOX_ENV, 'utf8'))
+  : null;
+const test = base.extend({
+  outboxEnvironment: [async ({}, use) => {
+    const previous = Object.fromEntries(Object.keys(outboxEnv ?? {}).map(key => [key, process.env[key]]));
+    Object.assign(process.env, outboxEnv);
+    try {
+      await use();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }, { auto: true }],
+});
+if (outboxEnv) test.use({ baseURL: outboxEnv.PORTAL_E2E_ORIGIN });
+
+async function changePassword(page, lang, account) {
+  await page.goto(`/${lang}/account/sudo`);
+  await submit(page, 'main form', { current_password: account.password });
+  await page.goto(`/${lang}/password/change`);
+  const next = password();
+  await seedPasswordRange(next);
+  await submit(page, 'main form', {
+    current_password: account.password,
+    password: next,
+    password_confirmation: next,
+  });
+  await expect(page).toHaveURL(/\/login$/);
+  return next;
+}
 
 async function fundThroughWorker(page, lang, accountId, verifyRetry = false) {
   const db = pool();
@@ -61,8 +96,12 @@ test('credential change publishes one replayable native security revocation', as
   const read = gamePeer('security-revocations');
   const route = '/internal/v1/identity/security-revocations/stream/read';
   const request = { schema: 'oteryn.security_revocation_stream_request.v1', after: null, limit: 500 };
+  const earlier = await seededPlayer(page, lang);
+  await changePassword(page, lang, earlier);
   const account = await seededPlayer(page, lang);
   const before = await gameJson(read, route, request);
+  expect(before.items.at(-1)).toMatchObject({ account_id: earlier.id, cause: 1 });
+  expect(before.next_cursor).toMatch(/^v1:[1-9]\d*$/);
   expect(before.items.filter(item => item.account_id === account.id)).toEqual([]);
 
   const secondSession = await browser.newContext({ baseURL: new URL(page.url()).origin, ignoreHTTPSErrors: true });
@@ -72,17 +111,7 @@ test('credential change publishes one replayable native security revocation', as
     await login(other, lang, account);
     expect((await other.goto(`/${lang}/password/change`)).status()).toBe(200);
 
-    await page.goto(`/${lang}/account/sudo`);
-    await submit(page, 'main form', { current_password: account.password });
-    await page.goto(`/${lang}/password/change`);
-    const next = password();
-    await seedPasswordRange(next);
-    await submit(page, 'main form', {
-      current_password: account.password,
-      password: next,
-      password_confirmation: next,
-    });
-    await expect(page).toHaveURL(/\/login$/);
+    const next = await changePassword(page, lang, account);
     await other.goto(`/${lang}/password/change`);
     await expect(other).toHaveURL(/\/login$/);
 
@@ -104,6 +133,15 @@ test('credential change publishes one replayable native security revocation', as
     expect(await gameJson(read, route, { ...request, after: revocations.next_cursor })).toEqual({
       schema: 'oteryn.security_revocation_stream_page.v1', items: [], next_cursor: null,
     });
+    const [published] = revocations.items;
+    expect(await query(`SELECT revocation_id,native_security_generation,cause,effective_at_ms,position
+      FROM identity_security_revocations WHERE account_id=$1`, [account.id])).toEqual([{
+      revocation_id: published.revocation_id,
+      native_security_generation: '2',
+      cause: 1,
+      effective_at_ms: String(published.effective_at_ms),
+      position: revocations.next_cursor.slice(3),
+    }]);
     await login(page, lang, { ...account, password: next });
     await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
   } finally {
@@ -220,6 +258,23 @@ test('character services retain pending commands, reconcile receipts and settle 
   expect(renameAck).toEqual({ contract_version: 2, result: 'accepted' });
   expect(await gameJson(command, `${commandPath}/receipt`, renameReceipt)).toEqual(renameAck);
   expect(await financialState()).toEqual([{ financial_state: 'SETTLED', amount: '70' }]);
+  const [{ reservation_id: reservation, settlement_id: settlement }] = await query(
+    'SELECT reservation_id,settlement_id FROM character_service_orders WHERE operation_id=$1', [rename.id],
+  );
+  expect(await query('SELECT id,status,amount FROM wallet_reservations WHERE account_id=$1', [account.id]))
+    .toEqual([{ id: reservation, status: 'captured', amount: '70' }]);
+  expect(await query(`SELECT id,kind,reference_id,amount FROM wallet_operations
+    WHERE account_id=$1 ORDER BY created_at,id`, [account.id])).toEqual([
+    { id: expect.any(String), kind: 'top_up', reference_id: account.id, amount: '1234' },
+    { id: reservation, kind: 'reserve', reference_id: null, amount: '70' },
+    { id: settlement, kind: 'capture', reference_id: reservation, amount: '70' },
+  ]);
+  expect(await query(`SELECT operation_id,available_delta,reserved_delta FROM wallet_entries
+    WHERE account_id=$1 ORDER BY created_at,id`, [account.id])).toEqual([
+    { operation_id: expect.any(String), available_delta: '1234', reserved_delta: '0' },
+    { operation_id: reservation, available_delta: '-70', reserved_delta: '70' },
+    { operation_id: settlement, available_delta: '0', reserved_delta: '-70' },
+  ]);
   await publishState('2', '9', null, renamed);
   await status(rename.id, messages.committed);
   await expect(page.getByRole('heading', { name: renamed, exact: true })).toBeVisible();

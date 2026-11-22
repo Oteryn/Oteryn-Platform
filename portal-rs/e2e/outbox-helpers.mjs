@@ -12,7 +12,7 @@ export const sourceTime = () => String(Math.floor(Date.now() / 1000));
 
 function harnessReport() {
   const file = process.env.PORTAL_E2E_OUTBOX_REPORT;
-  if (!file) throw new Error('Start the E2E harness with --outbox and run using its secrets/env.json');
+  if (!file) throw new Error('Start local.mjs or the E2E harness with --outbox, then run using the launcher’s env.json');
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
