@@ -30,7 +30,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/shop/test-checkout/{intent}` (cancel) | Yes | Yes | Foreign player | Yes | One event and zero credits |
 | `/{lang}/account/characters/new` | Queued, Game outcome pending | Yes | Anonymous | Yes | Submission replay |
 
-The unavailable Game-backed case checks both the views and every corresponding write. The POST cases verify missing and invalid CSRF, anonymous and authenticated refusal, and unchanged durable state. Collection deck and battle POSTs use portal-owned fixtures to exercise foreign ownership. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, or daily puzzle catalogue. The character creation matrix verifies the pending command and submission replay. [The Game-data spec](../specs/game-data.spec.mjs) uses `harness.mjs --game-data` to publish a CreateCharacter receipt and verify the confirmed outcome.
+The unavailable Game-backed case checks the views and writes. It verifies missing and invalid CSRF, valid-CSRF malformed inputs, anonymous and authenticated refusal, and unchanged durable state. Portal-owned collection fixtures also prove owner forfeit and deletion with Game offline, exact redirects, and replay refusal. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, or daily puzzle catalogue. The character creation matrix verifies the pending command and submission replay. [The Game-data spec](../specs/game-data.spec.mjs) uses `harness.mjs --game-data` to publish a CreateCharacter receipt and verify the confirmed outcome.
 
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 
@@ -44,10 +44,8 @@ b, c and d require their own write requests where middleware can be exercised.
 | Inventory write row | Positive and replay dependency |
 | --- | --- |
 | `POST /{lang}/collection/{character}/decks` | The composed collection router in `crates/minigames/src/collection/http.rs` uses `Ownership(Unavailable)` and a progress store with no configured source. LCFA character projection does not supply collection ownership. |
-| `POST /{lang}/collection/decks/{id}/delete` | Requires a saved deck associated with a verified character. The collection composition cannot create that deck through the browser. |
 | `POST /{lang}/collection/decks/{id}/battle` | Requires a saved deck and current private collection progress. Both depend on the unavailable collection adapters. |
 | `POST /{lang}/collection/battles/{id}` | Requires an active battle and a turn version issued by its start operation. The prerequisites for starting a battle are unavailable. |
-| `POST /{lang}/collection/battles/{id}/forfeit` | Requires a real battle owned by the actor. The composed collection router cannot start it. |
 | `POST /{lang}/pass/{season}/buy` | `crates/minigames/src/pass/web.rs::configured_router` supplies unavailable authority and payment adapters. The browser cannot resolve a purchasable season or settle a purchase. |
 | `POST /{lang}/pass/{season}/claim` | The same router supplies unavailable authority and reward adapters. The browser cannot establish claim eligibility and issue the reward. |
 | `POST /{lang}/puzzles/{id}/answer` | `Puzzles::publish` is a Rust service method with no composed ingress or operator CLI. The harness cannot publish an eligible daily definition to supply the puzzle ID. |

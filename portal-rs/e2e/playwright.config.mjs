@@ -11,7 +11,7 @@ export default defineConfig({
   testIgnore: gameDataInCi ? [] : ['**/game-data.spec.mjs'],
   globalSetup: gameDataInCi ? './game-data.setup.mjs' : undefined,
   testDir: '.',
-  testMatch: ['specs/**/*.@(spec|test).?(c|m)[jt]s?(x)', 'bazaar/legacy.spec.mjs'],
+  testMatch: ['specs/**/*.@(spec|test).?(c|m)[jt]s?(x)', 'bazaar/legacy.spec.mjs', 'mutation/matrix.spec.mjs'],
   timeout: 120_000, expect: { timeout: 10_000 },
   fullyParallel: false, workers: 1, retries: 0,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],

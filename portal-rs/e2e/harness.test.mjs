@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import { promisify } from 'node:util';
+import pg from 'pg';
+
+const execute = promisify(execFile);
+
+test('failed Game-data migration drops the disposable database and keeps logs', async () => {
+  const adminUrl = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
+  assert.ok(adminUrl, 'a disposable PostgreSQL administrator URL is required');
+  assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(new URL(adminUrl).hostname));
+  assert.ok(process.env.PORTAL_E2E_BINARY, 'the built portal binary is required');
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'portal-e2e-migrate-failure-'));
+  const output = path.join(scratch, 'harness');
+
+  await assert.rejects(execute(process.execPath, ['harness.mjs', '--game-data'], {
+    cwd: new URL('.', import.meta.url),
+    env: {
+      ...process.env,
+      OTERYN_ENV: 'invalid-migration-environment',
+      PORTAL_E2E_OUT: output,
+      PORTAL_E2E_KEEP_DATABASE: '0',
+    },
+    timeout: 30_000,
+  }), error => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /startup failed; diagnostics are in/);
+    return true;
+  });
+
+  const env = JSON.parse(await readFile(path.join(output, 'secrets', 'env.json'), 'utf8'));
+  const database = new URL(env.OTERYN_DATABASE_URL).pathname.slice(1);
+  assert.match(database, /^portal_e2e_[a-f0-9]+$/);
+  const log = await readFile(path.join(output, 'logs', 'migrate.log'), 'utf8');
+  assert.ok(log.length > 0, 'migration diagnostics remain on disk');
+  await assert.rejects(readFile(path.join(output, 'report.json')), { code: 'ENOENT' });
+
+  const admin = new pg.Client({ connectionString: adminUrl });
+  await admin.connect();
+  try {
+    const { rowCount } = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [database]);
+    assert.equal(rowCount, 0, 'the failed startup database is gone');
+  } finally {
+    await admin.end();
+  }
+  await rm(scratch, { recursive: true, force: true });
+});

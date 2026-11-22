@@ -250,7 +250,7 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
     const buy = uuid7();
     const claim = uuid7();
     const puzzle = uuid7();
-    const missing = uuid7();
+
 
     // Portal-owned records provide real foreign IDs. Game ownership and progress
     // remain unavailable, so the fixtures cannot authorize starting or playing.
@@ -307,11 +307,11 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
           : 'Collection is unavailable. Current private progress and ownership must be verified.',
         snapshot: collectionState,
         writes: [
-          { route: `collection/${character}/decks`, form: { name: 'Rejected deck', first: card }, owner: 503, other: 503 },
-          { route: `collection/decks/${deck}/battle`, owner: 503, other: 403 },
-          { route: `collection/decks/${deck}/delete`, ownerRoute: `collection/decks/${missing}/delete`, owner: 403, other: 403 },
-          { route: `collection/battles/${battle}`, form: { expected: '0', action: 'strike' }, owner: 503, other: 403 },
-          { route: `collection/battles/${battle}/forfeit`, ownerRoute: `collection/battles/${missing}/forfeit`, owner: 403, other: 403 },
+          { route: `collection/${character}/decks`, form: { name: 'Rejected deck', first: card }, malformed: { first: 'invalid' }, owner: 503, other: 503 },
+          { route: `collection/decks/${deck}/battle`, malformed: { account_id: owner.id }, owner: 503, other: 403 },
+          { route: `collection/decks/${deck}/delete`, malformed: { account_id: owner.id }, other: 403 },
+          { route: `collection/battles/${battle}`, form: { expected: '0', action: 'strike' }, malformed: { expected: 'invalid' }, owner: 503, other: 403 },
+          { route: `collection/battles/${battle}/forfeit`, malformed: { account_id: owner.id }, other: 403 },
         ],
       },
       {
@@ -321,15 +321,15 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
           : 'The season pass is currently unavailable. No coins were charged and no rewards were issued.',
         snapshot: passState,
         writes: [
-          { route: `pass/${season}/buy`, form: { operation: buy }, owner: 404, other: 404 },
-          { route: `pass/${season}/claim`, form: { operation: claim, reward: uuid7() }, owner: 404, other: 404 },
+          { route: `pass/${season}/buy`, form: { operation: buy }, malformed: { operation: 'invalid' }, owner: 404, other: 404 },
+          { route: `pass/${season}/claim`, form: { operation: claim, reward: uuid7() }, malformed: { reward: 'invalid' }, owner: 404, other: 404 },
         ],
       },
       {
         target: 'puzzles', status: 200, anonymousStatus: 303,
         message: lang === 'pl' ? 'Dzisiejsze zagadki są niedostępne.' : "Today's puzzles are unavailable.",
         snapshot: puzzleState,
-        writes: [{ route: `puzzles/${puzzle}/answer`, form: { choice: '0' }, owner: 404, other: 404 }],
+        writes: [{ route: `puzzles/${puzzle}/answer`, form: { choice: '0' }, malformed: { choice: 'invalid' }, invalidStatus: 400, owner: 404, other: 404 }],
       },
     ];
     for (const surface of surfaces) {
@@ -339,23 +339,55 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
       await expect(page.locator('main')).toContainText(surface.message);
       await expect(page.locator(formSelector)).toHaveCount(0);
       const baseline = await surface.snapshot();
-      for (const { route, ownerRoute = route, form = {}, owner: ownerStatus, other: otherStatus } of surface.writes) {
+      for (const { route, form = {}, malformed, invalidStatus = 422, owner: ownerStatus, other: otherStatus } of surface.writes) {
         await test.step(`POST /${lang}/${route}`, async () => {
           const url = new URL(`/${lang}/${route}`, page.url()).href;
           await rejected({ page, url, fields: form, snapshot: surface.snapshot, baseline });
           const attempts = [
-            [visitor, route, anonymousCsrf, surface.anonymousStatus],
-            [other, route, foreignCsrf, otherStatus],
-            [page, ownerRoute, ownerCsrf, ownerStatus],
+            [visitor, anonymousCsrf, surface.anonymousStatus],
+            [other, foreignCsrf, otherStatus],
           ];
-          for (const [actor, target, token, status] of attempts) {
-            const response = await post(actor, new URL(`/${lang}/${target}`, url).href, { ...form, _csrf: token });
+          if (ownerStatus !== undefined) attempts.push([page, ownerCsrf, ownerStatus]);
+          for (const [actor, token, status] of attempts) {
+            const response = await post(actor, url, { ...form, _csrf: token });
             expect(response.status()).toBe(status);
             if (status === 303) expect(response.headers().location).toBe(`/${lang}/login`);
             expect(await surface.snapshot()).toEqual(baseline);
           }
+          const invalid = await post(page, url, { ...form, ...malformed, _csrf: ownerCsrf });
+          expect(invalid.status()).toBe(invalidStatus);
+          expect(await surface.snapshot()).toEqual(baseline);
         });
       }
+    }
+
+    // Forfeit first so deletion can detach the preserved battle from its deck.
+    const cleanup = [
+      { route: `collection/battles/${battle}/forfeit`, verify: (before, after) => {
+        expect(after.decks).toEqual(before.decks);
+        const [original] = before.battles;
+        expect(after.battles).toEqual([{
+          ...original, updated_at: expect.any(String), state: { ...original.state, outcome: 'defeat' },
+        }]);
+      } },
+      { route: `collection/decks/${deck}/delete`, verify: (before, after) => {
+        expect(before.decks.map(row => row.id)).toEqual([deck]);
+        expect(after.decks).toBeNull();
+        expect(after.battles).toEqual([{ ...before.battles[0], deck_id: null }]);
+      } },
+    ];
+    for (const { route, verify } of cleanup) {
+      await test.step(`owner cleanup POST /${lang}/${route}`, async () => {
+        const url = new URL(`/${lang}/${route}`, page.url()).href;
+        const [before] = await collectionState();
+        const response = await post(page, url, { _csrf: ownerCsrf });
+        expect(response.status()).toBe(303);
+        expect(response.headers().location).toBe(`/${lang}/collection/${character}`);
+        const [after] = await collectionState();
+        verify(before, after);
+        expect((await post(page, url, { _csrf: ownerCsrf })).status()).toBe(403);
+        expect(await collectionState()).toEqual([after]);
+      });
     }
   } finally {
     await Promise.all([anonymous.close(), foreign.close()]);
