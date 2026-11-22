@@ -519,10 +519,8 @@ test('report submission explains pending, unjustified and rate limits', async ({
     await labels(player, [r['unjustified-limit']]);
     await submitReport();
     await labels(player, [r['unjustified-limit']]);
-    const response = player.waitForResponse(response =>
-      response.request().method() === 'POST' && new URL(response.url()).pathname === base && response.status() === 429);
-    await submitReport();
-    expect((await response).headers()['retry-after']).toBe('60');
+    const response = await submitForm(form, { target_reference: 'New report' }, { status: 429 });
+    expect(response.headers()['retry-after']).toBe('60');
     await expect(player.locator('body')).toHaveText(r['rate-limited']);
   });
 });

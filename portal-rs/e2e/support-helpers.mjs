@@ -69,10 +69,10 @@ export function copy(area, locale) {
 }
 
 export async function open(page, path, status = 200) {
-  expect((await page.goto(path)).status(), path).toBe(status);
+  expect((await page.goto(path, { waitUntil: 'domcontentloaded' })).status(), path).toBe(status);
 }
 
-export async function submitForm(form, values = {}, { button = 'button', bad, method = 'POST' } = {}) {
+export async function submitForm(form, values = {}, { button = 'button', bad, method = 'POST', status } = {}) {
   const page = form.page();
   const path = await form.getAttribute('action');
   for (const [name, value] of Object.entries(values)) {
@@ -91,8 +91,14 @@ export async function submitForm(form, values = {}, { button = 'button', bad, me
     await mutation(page, path, unsigned, 403, method);
   }
   if (bad) await mutation(page, path, { ...fields, ...bad }, bad.expected ?? 422, method);
-  if (method === 'POST') await control.click();
-  else await mutation(page, path, fields, 302, method);
+  const expected = status ?? (path.startsWith('/admin/') ? 303 : 302);
+  if (method !== 'POST') return mutation(page, path, fields, expected, method);
+  const [response] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === method && new URL(response.url()).pathname === path),
+    control.click(),
+  ]);
+  expect(response.status(), `${method} ${path}`).toBe(expected);
+  return response;
 }
 
 export async function mutation(page, path, fields, expected, method = 'POST') {
