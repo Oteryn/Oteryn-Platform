@@ -120,7 +120,6 @@ impl Registry {
                         account,
                         Account::SignedIn {
                             passkeys_eligible: false,
-                            staff: false,
                             ..
                         }
                     )

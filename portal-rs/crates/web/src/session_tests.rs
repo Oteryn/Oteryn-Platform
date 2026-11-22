@@ -508,62 +508,57 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
         .id
         .clone();
     let render = |staff_host: Option<String>, host: &'static str, cookie: String| {
-        let mut registry = oteryn_ui::Registry::default();
-        registry.account = true;
-        registry.staff_host = staff_host;
-        Router::new()
-            .route(
-                "/en/",
-                get(
-                    |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
-                        oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
+        let pool = db.pool.clone();
+        async move {
+            let mut registry = oteryn_ui::Registry::default();
+            registry.account = true;
+            registry.staff_host = staff_host;
+            let app = Router::new()
+                .route(
+                    "/en/",
+                    get(
+                        |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
+                            oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
+                        },
+                    ),
+                )
+                .layer(axum::middleware::from_fn_with_state(
+                    crate::chrome::Shell {
+                        registry,
+                        sessions: SessionLayer::new(pool),
                     },
-                ),
-            )
-            .layer(axum::middleware::from_fn_with_state(
-                crate::chrome::Shell {
-                    registry,
-                    sessions: SessionLayer::new(db.pool.clone()),
-                },
-                crate::chrome::middleware,
-            ))
-            .oneshot(
-                HttpRequest::get("/en/")
-                    .header(header::HOST, host)
-                    .header(header::COOKIE, format!("{COOKIE_NAME}={cookie}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+                    crate::chrome::middleware,
+                ));
+            let request = HttpRequest::get("/en/")
+                .header(header::HOST, host)
+                .header(header::COOKIE, format!("{COOKIE_NAME}={cookie}"))
+                .body(Body::empty())?;
+            let response = app.oneshot(request).await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+            Ok::<_, Box<dyn std::error::Error>>(html)
+        }
     };
     let panel = Some("staff.test".to_owned());
-    let html = |response: axum::response::Response| async move {
-        String::from_utf8(
-            to_bytes(response.into_body(), 65536)
-                .await
-                .unwrap()
-                .to_vec(),
-        )
-        .unwrap()
-    };
     assert!(
-        !html(render(panel.clone(), "staff.test", id.clone()).await?)
-            .await
+        !render(panel.clone(), "staff.test", id.clone())
+            .await?
             .contains("Staff dashboard")
     );
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' AND built_in")
         .bind(account).execute(&db.pool).await?;
-    let same_host = html(render(panel.clone(), "staff.test", id.clone()).await?).await;
+    let same_host = render(panel.clone(), "staff.test", id.clone()).await?;
     assert!(same_host.contains(r#"href="/admin">Staff dashboard</a>"#));
-    let public_host = html(render(panel.clone(), "public.test", id.clone()).await?).await;
+    let public_host = render(panel.clone(), "public.test", id.clone()).await?;
     assert!(public_host.contains(r#"href="https://staff.test/admin">Staff dashboard</a>"#));
     assert!(
-        !html(render(None, "staff.test", id).await?)
-            .await
+        !render(None, "staff.test", id)
+            .await?
             .contains("Staff dashboard")
     );
     assert!(
-        !html(render(panel, "staff.test", "malformed".into()).await?)
-            .await
+        !render(panel, "staff.test", "malformed".into())
+            .await?
             .contains("Staff dashboard")
     );
     db.close().await
@@ -603,6 +598,8 @@ async fn chrome_passkey_link_tracks_account_eligibility() -> TestResult {
         oteryn_ui::Group::Account,
         false,
     );
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' AND built_in")
+        .bind(account).execute(&db.pool).await?;
     for (status, verified, mandatory, expected) in [
         ("active", true, false, true),
         ("active", true, true, false),
