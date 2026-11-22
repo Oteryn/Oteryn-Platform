@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { test as base, expect } from '../fixtures.mjs';
 import { password, submit, waitForLoginBudget } from '../helpers.mjs';
 import { membership, query } from '../staff-rbac-helpers.mjs';
 import {
-  adminAgent, agentId, characterId, characterName, ledgerId, nodeId, resultRevision, staffSeedEnvironment,
+  adminAgent, agentId, characterId, characterName, ledgerId, nodeId, readStaffFixture, resultRevision,
   startStaffConsoleHarness, worldId,
 } from '../admin-agent.mjs';
 
@@ -46,10 +44,7 @@ async function unavailableSection(page, heading, unavailable) {
 }
 
 function harness(directory) {
-  const secret = name => fs.readFileSync(path.join(directory, 'secrets', name), 'utf8');
-  const settings = JSON.parse(secret('admin-agent.json'));
-  const env = staffSeedEnvironment(JSON.parse(secret('env.json')));
-  const seedBinary = secret('seed-binary');
+  const { settings, env, seedBinary } = readStaffFixture(directory);
   return {
     ...settings,
     databaseURL: env.OTERYN_DATABASE_URL,

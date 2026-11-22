@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { staffSeedEnvironment, startStaffConsoleHarness } from './admin-agent.mjs';
+import { readStaffFixture, staffSeedEnvironment, startStaffConsoleHarness } from './admin-agent.mjs';
 import { localDatabaseURL } from './local-database.mjs';
 
 function refusedBeforeProvisioning(t, databaseURL, overrides, message) {
@@ -96,4 +96,16 @@ test('external staff seed fixture requires both testing flags and a disposable d
     /require a local portal_e2e_ database/);
   assert.throws(() => staffSeedEnvironment({ ...saved, OTERYN_DATABASE_URL: saved.OTERYN_DATABASE_URL + '?host=remote.invalid' }),
     /Local PostgreSQL only/);
+});
+
+test('malformed private fixture JSON reports only the filename', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'staff-fixture-invalid-json-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const secrets = path.join(directory, 'secrets');
+  fs.mkdirSync(secrets);
+  fs.writeFileSync(path.join(secrets, 'admin-agent.json'), '{}');
+  for (const file of ['env.json', 'admin-agent.json']) {
+    fs.writeFileSync(path.join(secrets, file), '{"key": invalid_fixture_value}');
+    assert.throws(() => readStaffFixture(directory), { message: `Invalid staff fixture JSON in ${file}` });
+  }
 });

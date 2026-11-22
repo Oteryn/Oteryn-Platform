@@ -92,6 +92,23 @@ export function staffSeedEnvironment(saved) {
   };
 }
 
+export function readStaffFixture(directory) {
+  const secret = name => fs.readFileSync(path.join(directory, 'secrets', name), 'utf8');
+  const json = name => {
+    const contents = secret(name);
+    try {
+      return JSON.parse(contents);
+    } catch {
+      throw new Error(`Invalid staff fixture JSON in ${name}`);
+    }
+  };
+  return {
+    settings: json('admin-agent.json'),
+    env: staffSeedEnvironment(json('env.json')),
+    seedBinary: secret('seed-binary'),
+  };
+}
+
 // The browser qualification launcher already supplies a disposable database.
 // Start a separate harness so attaching an agent cannot change another spec.
 export async function startStaffConsoleHarness(databaseURL) {
@@ -180,12 +197,16 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
       host: '127.0.0.1', port: ports.http, path: request.url,
       method: request.method, headers: request.headers,
     }, incoming => {
+      incoming.on('error', () => response.destroy());
       response.writeHead(incoming.statusCode, incoming.headers);
       incoming.pipe(response);
     });
     upstream.on('error', () => {
       if (response.headersSent) response.destroy();
       else if (!response.destroyed) response.writeHead(502).end();
+    });
+    response.once('close', () => {
+      if (!response.writableFinished) upstream.destroy();
     });
     request.pipe(upstream);
   });
