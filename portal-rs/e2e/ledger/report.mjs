@@ -7,6 +7,8 @@ const inventory = JSON.parse(readFileSync(new URL('../inventory.json', import.me
 const forms = JSON.parse(readFileSync(new URL('./forms.json', import.meta.url)));
 const hitDirectory = process.env.PORTAL_E2E_LEDGER_HITS ??
   fileURLToPath(new URL('../test-results/ledger/', import.meta.url));
+const reportDirectory = process.env.PORTAL_E2E_LEDGER_REPORT_DIR ??
+  fileURLToPath(new URL('./', import.meta.url));
 const refusals = new Set([400, 401, 403, 404, 422]);
 const rows = new Map();
 const ids = new Set();
@@ -108,8 +110,8 @@ const markdown = [
   '',
 ];
 
-writeFileSync(new URL('./ledger.json', import.meta.url), JSON.stringify({ totals, rows: result }, null, 2) + '\n');
-writeFileSync(new URL('./LEDGER.md', import.meta.url), markdown.join('\n'));
+writeFileSync(join(reportDirectory, 'ledger.json'), JSON.stringify({ totals, rows: result }, null, 2) + '\n');
+writeFileSync(join(reportDirectory, 'LEDGER.md'), markdown.join('\n'));
 
 if (process.argv.includes('--gate') && unhit.length) {
   for (const entry of unhit) {

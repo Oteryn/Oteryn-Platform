@@ -39,6 +39,7 @@ export PORTAL_E2E_AUTH_DIRECTORY="$run_dir/auth"
 export PORTAL_E2E_SCRATCH="$run_dir/harness"
 export PLAYWRIGHT_JSON_OUTPUT_FILE="$run_dir/playwright.json"
 export PORTAL_E2E_LEDGER_HITS="$run_dir/ledger-hits"
+export PORTAL_E2E_LEDGER_REPORT_DIR="$run_dir"
 python3 "$e2e/inventory.py"
 python3 "$e2e/ledger/forms.py"
 cat >"$run_dir/portal" <<'WRAPPER'
@@ -447,6 +448,10 @@ if any(counts["not_run"] or counts["interrupted"] for counts in project_results.
 if stats["skipped"]:
     sys.exit("Playwright reported skipped tests")
 PYTHON
-cp "$run_dir/LLVMCOV.md" "$run_dir/llvmcov-summary.json" "$e2e/ledger/"
+if [[ ! -s "$run_dir/LEDGER.md" || ! -s "$run_dir/ledger.json" ]]; then
+    echo 'Request and form reports are missing. See the run directory.' >&2
+    exit 1
+fi
+cp "$run_dir"/{LEDGER.md,ledger.json,LLVMCOV.md,llvmcov-summary.json} "$e2e/ledger/"
 if (( suite_status != 0 )); then exit "$suite_status"; fi
 exit "$ledger_status"
