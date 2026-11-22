@@ -97,13 +97,56 @@ const invalidMessages = [
   [/^wiki(?:$|\/(?!places$))/, {pl: 'Nieprawidłowe filtry lub zapytanie', en: 'Invalid filters or search query'}],
 ];
 
-async function expectLocalizedError(page, locale, route, label) {
+function expectLocalizedError(document, locale, route, label) {
   const messages = invalidMessages.find(([pattern]) => pattern.test(route))?.[1] ?? invalidRequest;
-  expect.soft(await page.locator('html').getAttribute('lang'), label).toBe(locale);
-  const content = (await page.locator('main').allTextContents()).join(' ');
-  expect.soft(content, label).toContain(messages[locale]);
+  expect.soft(document.lang, label).toBe(locale);
+  expect.soft(document.content, label).toContain(messages[locale]);
 }
 
+async function inspectDocument(page, html, url, parameter) {
+  return page.evaluate(({html, url, parameter}) => {
+    const doc = html === null ? document : new DOMParser().parseFromString(html, 'text/html');
+    const path = new URL(url).pathname;
+    const controls = [...doc.querySelectorAll('main input, main select, main a[href]')];
+    return {
+      lang: doc.documentElement.lang,
+      mainCount: doc.querySelectorAll('main').length,
+      content: doc.querySelector('main')?.textContent ?? '',
+      markerCount: doc.querySelectorAll('query-probe, [data-query-probe="marker"]').length,
+      effectiveValues: controls.flatMap(element => {
+        if (element instanceof HTMLAnchorElement) {
+          const target = new URL(element.getAttribute('href'), url);
+          return target.pathname === path ? target.searchParams.getAll(parameter) : [];
+        }
+        return element.name === parameter ? [element.value] : [];
+      }),
+    };
+  }, {html, url, parameter});
+}
+
+async function readResponse(page, target, locale, browserNavigation) {
+  if (browserNavigation) {
+    const response = await page.goto(target, {waitUntil: 'domcontentloaded'});
+    return {
+      status: response.status(), url: response.url(), body: await response.text(),
+      elapsed: response.request().timing().responseStart,
+    };
+  }
+
+  const started = performance.now();
+  const response = await page.request.get(target, {
+    headers: {accept: 'text/html', 'accept-language': locale},
+    timeout: 10_000,
+  });
+  try {
+    return {
+      status: response.status(), url: response.url(), body: await response.text(),
+      elapsed: performance.now() - started,
+    };
+  } finally {
+    await response.dispose();
+  }
+}
 const freeText = new Set(['q', 'operation', 'target', 'character', 'item', 'creature', 'city']);
 const zeroBased = new Set(['/admin/media', 'support/tickets', 'admin/support/tickets']);
 
@@ -135,42 +178,32 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           query.delete(parameter);
           for (const value of probe.values) query.append(parameter, value);
           await waitForWikiBudget(path);
-          const response = await page.goto(`${path}?${query}`, {waitUntil: 'domcontentloaded'});
+          // Browser navigation exercises the rendered HTML at each project viewport.
+          // The console player search also requires real browser Fetch Metadata.
+          const browserNavigation = probe.name === 'HTML punctuation' || route === '/admin/console/players';
+          const response = await readResponse(page, `${path}?${query}`, locale, browserNavigation);
           const label = `${path} ${parameter} (${probe.name})`;
-          expect(new URL(response.url()).pathname, label).toBe(expectedPath);
-          expect.soft([200, 400], `${label} HTTP status`).toContain(response.status());
+          expect(new URL(response.url).pathname, label).toBe(expectedPath);
+          expect.soft([200, 400], `${label} HTTP status`).toContain(response.status);
 
-          const timing = response.request().timing();
-          expect.soft(timing.responseStart, `${label} response timing recorded`).toBeGreaterThanOrEqual(0);
-          expect.soft(timing.responseStart, `${label} time to first byte (ms)`).toBeLessThan(3_000);
+          expect.soft(response.elapsed, `${label} response timing recorded`).toBeGreaterThanOrEqual(0);
+          expect.soft(response.elapsed, `${label} response time (ms)`).toBeLessThan(3_000);
+          expect.soft(/<\/?query-probe[\s>]/i.test(response.body), `${label} raw HTML marker`).toBe(false);
 
-          const body = await response.text();
-          expect.soft(/<\/?query-probe[\s>]/i.test(body), `${label} raw HTML marker`).toBe(false);
-          expect.soft(await page.locator('query-probe, [data-query-probe="marker"]').count(),
-            `${label} inert HTML marker in DOM`).toBe(0);
-
-          if (response.status() === 400) {
-            await expectLocalizedError(page, expectedLocale, route, label);
+          const document = await inspectDocument(
+            page, browserNavigation ? null : response.body, response.url, parameter,
+          );
+          expect.soft(document.markerCount, `${label} inert HTML marker in DOM`).toBe(0);
+          if (response.status === 400) expectLocalizedError(document, expectedLocale, route, label);
+          if (response.status === 200) {
+            expect.soft(document.mainCount, `${label} listing content`).toBe(1);
           }
-          if (response.status() === 200) {
-            expect.soft(await page.locator('main').count(), `${label} listing content`).toBe(1);
-          }
-          if (response.status() === 200 && !freeText.has(parameter)) {
-            const effectiveValues = await page.locator('main input, main select, main a[href]').evaluateAll(
-              (elements, {name, path}) => elements.flatMap(element => {
-                if (element instanceof HTMLAnchorElement) {
-                  const target = new URL(element.href);
-                  return target.pathname === path ? target.searchParams.getAll(name) : [];
-                }
-                return element.name === name ? [element.value] : [];
-              }),
-              {name: parameter, path: expectedPath},
-            );
+          if (response.status === 200 && !freeText.has(parameter)) {
             const rejectedValues = parameter === 'page'
               ? probe.values.filter(value => invalidPage.has(value) && !(value === '0' && zeroBased.has(route)))
               : probe.values.filter(value => value !== valid && value !== locale);
             for (const value of rejectedValues) {
-              expect.soft(effectiveValues, `${label} effective filter`).not.toContain(value);
+              expect.soft(document.effectiveValues, `${label} effective filter`).not.toContain(value);
             }
           }
         });
@@ -186,7 +219,7 @@ test('wiki landing and entity aliases reject impossible pagination', async ({pag
     await waitForWikiBudget(path);
     const response = await page.goto(`${path}?page=${huge}`);
     expect.soft(response.status(), path).toBe(400);
-    await expectLocalizedError(page, locale, suffix, path);
+    expectLocalizedError(await inspectDocument(page, null, response.url(), "page"), locale, suffix, path);
   }
 });
 
