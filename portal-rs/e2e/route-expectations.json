@@ -159,6 +159,7 @@
     "actor": "staff",
     "method": "GET",
     "status": 403,
+    "disabled": {"flag": "OTERYN_ADMIN_CONSOLE", "status": 404},
     "reason": "Platform-only staff lack the Game read permission"
   },
   {
@@ -864,6 +865,46 @@
     "method": "POST",
     "status": 403,
     "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/operations/flags",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "permissioned Platform operations dashboard or read-only CSV export"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/operations/health",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "permissioned Platform operations dashboard or read-only CSV export"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/operations/rate-limits",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "permissioned Platform operations dashboard or read-only CSV export"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/operations/rate-limits.csv",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "permissioned Platform operations dashboard or read-only CSV export"
+  },
+  {
+    "crate": "admin",
+    "route": "/admin/operations/statistics",
+    "actor": "staff",
+    "method": "GET",
+    "status": 200,
+    "reason": "permissioned Platform operations dashboard or read-only CSV export"
   },
   {
     "crate": "content",
