@@ -9,7 +9,6 @@ use axum::{
     extract::{ConnectInfo, State},
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
-    routing::get,
 };
 use oteryn_identity::{
     consents::ConsentConfig,
@@ -22,9 +21,9 @@ pub fn routes() -> Router<AppState> {
         .route("/register", crate::html::get(show).post(submit))
         .route("/pl/register", crate::html::get(show).post(submit))
         .route("/en/register", crate::html::get(show).post(submit))
-        .route("/register/check-inbox", get(inbox))
-        .route("/pl/register/check-inbox", get(inbox))
-        .route("/en/register/check-inbox", get(inbox))
+        .route("/register/check-inbox", crate::html::get(inbox))
+        .route("/pl/register/check-inbox", crate::html::get(inbox))
+        .route("/en/register/check-inbox", crate::html::get(inbox))
 }
 #[derive(Template)]
 #[template(path = "account/register.html")]

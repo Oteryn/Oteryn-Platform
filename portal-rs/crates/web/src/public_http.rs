@@ -247,10 +247,15 @@ mod tests {
         ));
         let recovery = crate::router(state, "static")
             .layer(axum::Extension(FeatureFlags::from([FEATURE.to_owned()])));
-        for (app, path) in [(register, "/en/register"), (recovery, "/en/recovery-key")] {
+        for (app, path, locale) in [
+            (register.clone(), "/en/register", "en"),
+            (register.clone(), "/register/check-inbox", "pl"),
+            (register.clone(), "/pl/register/check-inbox", "pl"),
+            (register, "/en/register/check-inbox", "en"),
+            (recovery, "/en/recovery-key", "en"),
+        ] {
             let app = secure_public(app);
             let response = app
-                .clone()
                 .oneshot(
                     Request::get(path)
                         .header(header::ACCEPT, "application/json")
@@ -258,7 +263,7 @@ mod tests {
                 )
                 .await?;
             assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE, "{path}");
-            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], locale);
             assert!(!response.headers().contains_key(header::SET_COOKIE));
         }
         Ok(())
