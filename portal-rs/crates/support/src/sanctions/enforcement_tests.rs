@@ -1199,6 +1199,29 @@ async fn worker_expires_latest_confirmed_decision_once_and_waits_for_game() -> T
             r#""accepted_decision_revision":2"#,
             r#""accepted_decision_revision":1"#,
         );
+    let app = router(db.pool.clone(), on(6000), identities()?);
+    for false_expiry in [
+        body.replace(
+            r#""stream_state":"EXPIRED","effective_until_ms":null"#,
+            r#""stream_state":"ACTIVE","effective_until_ms":1700003600000"#,
+        ),
+        body.replace(
+            r#""accepted_decision_revision":1"#,
+            r#""accepted_decision_revision":2"#,
+        ),
+    ] {
+        assert_ne!(false_expiry, body);
+        assert_eq!(
+            status(&app, request(RESULTS_PATH, false_expiry, Some(RESULTS))).await?,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(db.count("support_enforcement_results").await?, 1);
+        let stored_status: String = sqlx::query_scalar("SELECT status FROM sanctions WHERE id=$1")
+            .bind(command.sanction_stream_id)
+            .fetch_one(&db.pool)
+            .await?;
+        assert_eq!(stored_status, "active");
+    }
     receive(&db, body.as_bytes()).await?;
     let mut tx = db.pool.begin().await?;
     let state = latest(

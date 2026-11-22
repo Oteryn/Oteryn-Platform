@@ -358,7 +358,8 @@ pub async fn record(
     let latest = sqlx::query("SELECT c.decision_revision,c.intent,c.profile,c.account_id,c.character_id,
             (convert_from(r.result,'UTF8')::jsonb->>'accepted_decision_revision')::bigint AS refused_high_water
         FROM support_enforcement_commands c
-        LEFT JOIN support_enforcement_results r ON r.operation_id=c.operation_id AND r.state='REJECTED'
+        LEFT JOIN support_enforcement_results r
+          ON r.operation_id=c.operation_id AND r.terminal AND r.state='REJECTED'
         WHERE c.sanction_stream_id=$1 ORDER BY c.decision_revision DESC,c.position DESC LIMIT 1")
         .bind(command.sanction_stream_id)
         .fetch_optional(&mut **tx)
@@ -621,6 +622,8 @@ pub struct Receipt {
     pub receipt_revision: i32,
     pub state: String,
     pub result_code: String,
+    accepted_decision_revision: i64,
+    stream_state: String,
 }
 impl Receipt {
     pub fn terminal(&self) -> bool {
@@ -664,8 +667,10 @@ impl Receipt {
         if !code_allowed {
             return Err(Error::Invalid);
         }
-        integer(value.get("accepted_decision_revision"), 0, i64::MAX)?;
-        let open = match string(value.get("stream_state"))? {
+        let accepted_decision_revision =
+            integer(value.get("accepted_decision_revision"), 0, i64::MAX)?;
+        let stream_state = string(value.get("stream_state"))?;
+        let open = match stream_state {
             "PENDING" | "ACTIVE" => true,
             "NONE" | "REVOKED" | "EXPIRED" => false,
             _ => return Err(Error::Invalid),
@@ -702,8 +707,21 @@ impl Receipt {
             receipt_revision: i32::try_from(receipt_revision).map_err(|_| Error::Invalid)?,
             state: state.into(),
             result_code: result_code.into(),
+            accepted_decision_revision,
+            stream_state: stream_state.into(),
         })
     }
+
+    fn confirms_command(&self, decision_revision: i64) -> bool {
+        let expected = match self.state.as_str() {
+            "APPLIED" | "REPLACED" => "ACTIVE",
+            "REVOKED" => "REVOKED",
+            "EXPIRED" => "EXPIRED",
+            _ => return true,
+        };
+        self.stream_state == expected && self.accepted_decision_revision == decision_revision
+    }
+
     fn fits(&self, intent: Intent) -> bool {
         match self.state.as_str() {
             "ACCEPTED_PENDING" => self.result_code != "PENDING_EXPIRY" || intent == Intent::Expire,
@@ -722,7 +740,7 @@ impl Receipt {
 /// result above a stored terminal, or a second terminal are `Conflict`.
 pub async fn ingest(pool: &PgPool, receipt: &Receipt, bytes: &[u8]) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
-    let command = sqlx::query("SELECT sanction_stream_id,intent,command_digest FROM support_enforcement_commands WHERE operation_id=$1 FOR UPDATE")
+    let command = sqlx::query("SELECT sanction_stream_id,intent,command_digest,decision_revision FROM support_enforcement_commands WHERE operation_id=$1 FOR UPDATE")
         .bind(receipt.operation_id)
         .fetch_optional(&mut *tx)
         .await?
@@ -749,6 +767,9 @@ pub async fn ingest(pool: &PgPool, receipt: &Receipt, bytes: &[u8]) -> Result<()
         } else {
             Err(Error::Conflict)
         };
+    }
+    if !receipt.confirms_command(command.try_get("decision_revision")?) {
+        return Err(Error::Invalid);
     }
     let terminal: Option<i32> = sqlx::query_scalar(
         "SELECT receipt_revision FROM support_enforcement_results WHERE operation_id=$1 AND terminal",
