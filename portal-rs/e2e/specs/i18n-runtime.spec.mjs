@@ -179,6 +179,54 @@ test.afterAll(async () => {
   await warmPlayerContext?.close();
 });
 
+test('isolated promotion and collection fixtures preserve exact cold and warm responses', async ({ browser }, info) => {
+  test.setTimeout(240_000);
+  const locale = info.project.metadata.locale;
+  const target = targetFor(promotionRoute, locale);
+  const expected = expectations.get(promotionRoute);
+  expect(expected?.actor).toBe('player');
+  const witness = `player ${locale} ${promotionRoute}`;
+  await withFreshCommercePortal(browser, locale, {
+    OTERYN_BAZAAR_MODERATION: 'true',
+    OTERYN_BAZAAR_PROMOTIONS: 'true',
+  }, async (quotePage, databaseURL, account) => {
+    expect((await quotePage.goto(target)).status(), witness).toBe(expected.status);
+    await assertLocale(quotePage, locale, witness);
+    const db = pool(databaseURL);
+    const revision = uuid7();
+    try {
+      await db.query(
+        `INSERT INTO bazaar_fee_revisions
+           (id, actor, coin_bps, gold_bps, listing_fee, promotion_price, reason)
+         VALUES ($1, $2, 1000, 250, 0, 100, 'Locale promotion fixture')`,
+        [revision, account.id],
+      );
+    } finally {
+      await db.end();
+    }
+    expect((await quotePage.goto(target)).status(), `${witness} (warm quote)`).toBe(200);
+    await expect(quotePage.locator('main input[name="fee_revision"]')).toHaveValue(revision);
+    await assertLocale(quotePage, locale, `${witness} (warm quote)`);
+  });
+
+  const cold = await playerContext.newPage();
+  const warm = await warmPlayerContext.newPage();
+  try {
+    for (const route of collectionRoutes) {
+      const path = targetFor(route, locale);
+      const coldExpected = expectations.get(route);
+      expect(coldExpected?.actor).toBe('player');
+      expect((await cold.goto(path)).status(), `${route} (cold ownership)`).toBe(coldExpected.status);
+      await assertLocale(cold, locale, `${route} (cold ownership)`);
+      expect((await warm.goto(path)).status(), `${route} (warm ownership)`).toBe(403);
+      await assertLocale(warm, locale, `${route} (warm ownership)`);
+    }
+  } finally {
+    await cold.close();
+    await warm.close();
+  }
+});
+
 test('locale parity across the GET route inventory', async ({ browser, page: anonymous }, info) => {
   test.setTimeout(1_200_000);
   const locale = info.project.metadata.locale;
@@ -193,6 +241,8 @@ test('locale parity across the GET route inventory', async ({ browser, page: ano
     for (const [actor, page] of [['anonymous', anonymous], ['player', player], ['staff', staff]]) {
       let documents = 0;
       for (const { route } of routes) {
+        // The player's promotion form needs a separate DB to check the absent fee revision.
+        if (actor === 'player' && route === promotionRoute) continue;
         const expected = expectations.get(route);
         expect(expected, `GET inventory route requires a harness expectation: ${route}`).toBeDefined();
         const target = new URL(targetFor(route, locale), process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
@@ -203,36 +253,6 @@ test('locale parity across the GET route inventory', async ({ browser, page: ano
             const result = await warmPlayer.goto(profile, { waitUntil: 'domcontentloaded' });
             expect.soft(result.status(), witness).toBe(200);
             await assertLocale(warmPlayer, locale, `${witness} (owned character)`);
-          }
-          if (actor === 'player' && route === promotionRoute) {
-            await withFreshCommercePortal(browser, locale, {
-              OTERYN_BAZAAR_MODERATION: 'true',
-              OTERYN_BAZAAR_PROMOTIONS: 'true',
-            }, async (quotePage, databaseURL, account) => {
-              expect((await quotePage.goto(target.pathname)).status(), witness).toBe(expected.status);
-              await assertLocale(quotePage, locale, witness);
-              const db = pool(databaseURL);
-              const revision = uuid7();
-              try {
-                await db.query(
-                  `INSERT INTO bazaar_fee_revisions
-                     (id, actor, coin_bps, gold_bps, listing_fee, promotion_price, reason)
-                   VALUES ($1, $2, 1000, 250, 0, 100, 'Locale promotion fixture')`,
-                  [revision, account.id],
-                );
-              } finally {
-                await db.end();
-              }
-              expect((await quotePage.goto(target.pathname)).status(), `${witness} (warm quote)`).toBe(200);
-              await expect(quotePage.locator('main input[name="fee_revision"]')).toHaveValue(revision);
-              await assertLocale(quotePage, locale, `${witness} (warm quote)`);
-            });
-            documents += 2;
-            return;
-          }
-          if (actor === 'player' && collectionRoutes.includes(route)) {
-            expect((await warmPlayer.goto(target.href)).status(), `${witness} (warm ownership)`).toBe(403);
-            await assertLocale(warmPlayer, locale, `${witness} (warm ownership)`);
           }
           await waitForWikiBudget(target.href, 2);
           const options = { headers: { accept: 'text/html', 'accept-language': locale } };
