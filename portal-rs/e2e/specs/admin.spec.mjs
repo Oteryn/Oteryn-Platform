@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {recoveryCodes} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,recoveryCodes} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -17,6 +17,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  }finally{await db.end();}
  await login(page,lang,staff);
  expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(403);
+ const saved=lang==='pl'?'en':'pl';
+ expect((await page.goto(`/language/${saved}`)).status()).toBe(200);
+ expect((await page.goto('/admin')).status()).toBe(403);
+ await expect(page.locator('html')).toHaveAttribute('lang',saved);
+ await expect(page.locator('main h1')).toHaveText(saved==='pl'?'Wymagane uwierzytelnianie wieloskładnikowe':'Multi-factor authentication required');
+ expect((await page.goto(`/language/${lang}`)).status()).toBe(200);
  await page.goto(`/${lang}/mfa`);
  await submit(page,'main form[action$="/mfa/enroll"]',{password:staff.password});
  const secret=await page.locator('main .op-prose').innerText();
@@ -29,7 +35,6 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
- fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
@@ -83,9 +88,10 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    try {
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-     await page.goto('/admin/roles');
+     await confirmStaffPassword(page,lang,staff.password);
+     fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
      const token=await page.locator('input[name=_csrf]').first().inputValue();
-     const fields={account:target,role,action:'grant',reason:'Assign privileged workflow role'};
+     const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);
      const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
      expect(refused.status()).toBe(403);

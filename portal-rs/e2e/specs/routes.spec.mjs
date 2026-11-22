@@ -2,40 +2,70 @@ import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
+import {isolatedAdmin,query} from '../staff-rbac-helpers.mjs';
 import {assertShell} from '../shell.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
-let cookies,account;
+let cookies,account,gmCookies;
 test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
-for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context},info)=>{
+for(const row of rows)test(`route ${row.crate} ${row.route}${row.route === '/console' || ['/console/dashboard','/console/worlds','/console/nodes','/console/database'].includes(row.route) ? ` (${row.actor})` : ''}`,async({page,context},info)=>{
  const lang=info.project.metadata.locale;
- if(row.actor==='staff') {
+ if (row.actor === 'gm') {
+   if (!gmCookies) {
+     const gm = await isolatedAdmin(page.context().browser(), info);
+     try {
+       const added = await query(`INSERT INTO account_roles(account_id,role_id)
+         SELECT a.id,r.id FROM accounts a CROSS JOIN roles r
+         WHERE a.email=$1 AND r.key='game_viewer' RETURNING account_id`, [gm.account.email]);
+       expect(added).toHaveLength(1);
+       gmCookies = await gm.context.cookies();
+     } finally {
+       await gm.context.close();
+     }
+   }
+   await context.addCookies(gmCookies);
+ } else if(row.actor==='staff') {
    const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
    await context.addCookies(staff.cookies);
  }else await context.addCookies(cookies);
  const target=sample(row.route,lang);
+ const disabled = row.disabled && process.env[row.disabled.flag] === 'false';
+ const expectedStatus = disabled ? row.disabled.status : row.status;
+ const redirect = disabled ? null : row.redirect;
+ if (redirect) {
+   const initial = await page.request.get(target, {headers: {'accept-language': lang}, maxRedirects: 0});
+   expect(initial.status()).toBe(redirect.status);
+   expect(initial.headers().location).toBe(sample(redirect.location, lang));
+ }
  const errors=[];
  let documentPath=new URL(target,'https://localhost:18443').pathname;
  page.on('pageerror',e=>errors.push(e.message));
  page.on('console',m=>{
    if(m.type()!=='error')return;
    const expected=documentPath;
-   if(new URL(m.location().url||'https://localhost/').pathname===expected&&m.text()===`Failed to load resource: the server responded with a status of ${row.status} (${({400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',422:'Unprocessable Entity',503:'Service Unavailable'})[row.status]})`)return;
+   if(new URL(m.location().url||'https://localhost/').pathname===expected&&m.text()===`Failed to load resource: the server responded with a status of ${expectedStatus} (${({400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',422:'Unprocessable Entity',503:'Service Unavailable'})[expectedStatus]})`)return;
    errors.push(m.text());
  });
  if (row.method === 'GET') await waitForWikiBudget(target, 2);
  const response=await page.request.fetch(target,{method:row.method,headers:{accept:'text/html',origin:'https://localhost:18443','accept-language':lang},...(row.method==='GET'?{}:{form:row.route==='/oauth/token'?{client_id:'e2e-local'}:{}})});
- expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
- if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');
+ expect(response.status(),`${target}: ${row.reason}`).toBe(expectedStatus);
+ if(expectedStatus===503)expect(response.headers()['cache-control']).toContain('no-store');
  documentPath=new URL(response.url()).pathname;
+ if (row.method === 'GET' && ['staff', 'gm'].includes(row.actor)) {
+   expect(documentPath, 'terminal staff route').toBe(new URL(redirect ? sample(redirect.location, lang) : target, response.url()).pathname);
+ }
  const text=await response.text();
  if(row.method==='GET'&&response.headers()['content-type']?.startsWith('text/html')&&/<html[\s>]/i.test(text)) {
-   expect((await page.goto(target)).status()).toBe(row.status);
+   expect((await page.goto(target)).status()).toBe(expectedStatus);
+   if (row.route === '/{lang}/account/privacy/export') {
+     expect(new URL(page.url()).pathname).toBe('/'+lang+'/account/sudo');
+     expect(new URL(page.url()).searchParams.get('return_to')).toBe('export');
+   }
    expect(new URL(page.url()).pathname).toBe(documentPath);
-   await assertShell(page,{status:row.status});
+   await assertShell(page,{status:expectedStatus});
  }
  if(row.route==='/oauth/token') {
    const anonymousClient=await page.request.post(target,{form:{}});

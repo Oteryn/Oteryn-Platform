@@ -113,35 +113,85 @@
   },
   {
     "crate": "admin",
+    "route": "/console",
+    "actor": "gm",
+    "method": "GET",
+    "status": 200,
+    "redirect": {"status": 303, "location": "/console/dashboard?lang={lang}"},
+    "disabled": {"flag": "OTERYN_ADMIN_CONSOLE", "status": 404},
+    "reason": "GM landing redirects to the first authorized section when enabled"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/dashboard",
+    "actor": "gm",
+    "method": "GET",
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/worlds",
+    "actor": "gm",
+    "method": "GET",
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/nodes",
+    "actor": "gm",
+    "method": "GET",
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/database",
+    "actor": "gm",
+    "method": "GET",
+    "status": 200,
+    "reason": "page requires the corresponding Game read permission"
+  },
+  {
+    "crate": "admin",
+    "route": "/console",
+    "actor": "staff",
+    "method": "GET",
+    "status": 403,
+    "reason": "Platform-only staff lack the Game read permission"
+  },
+  {
+    "crate": "admin",
     "route": "/console/dashboard",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "Platform-only staff lack the Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/worlds",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "Platform-only staff lack the Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "Platform-only staff lack the Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/database",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "Platform-only staff lack the Game read permission"
   },
   {
     "crate": "admin",
@@ -1012,8 +1062,8 @@
     "route": "/{lang}/account/privacy/export",
     "actor": "player",
     "method": "GET",
-    "status": 403,
-    "reason": "authorization required"
+    "status": 200,
+    "reason": "redirects to localized password confirmation before export"
   },
   {
     "crate": "identity",
@@ -1106,6 +1156,14 @@
   {
     "crate": "identity",
     "route": "/{lang}/account/passkeys",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/passkeys/manage",
     "actor": "player",
     "method": "GET",
     "status": 200,
