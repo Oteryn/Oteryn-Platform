@@ -93,6 +93,11 @@ export async function startPaintTrace(page) {
   const session = await page.context().newCDPSession(page);
   const candidates = [];
   const tasks = [];
+  const renderEvents = [];
+  const phases = new Set([
+    'UpdateLayoutTree', 'Layout', 'PrePaint', 'Paint', 'Layerize', 'Commit', 'RasterTask',
+    'Decode Image', 'ImageDecodeTask', 'EvaluateScript', 'FunctionCall',
+  ]);
   session.on('Tracing.dataCollected', ({ value }) => {
     for (const event of value) {
       if (event.name === 'largestContentfulPaint::Candidate') {
@@ -103,7 +108,12 @@ export async function startPaintTrace(page) {
         });
       }
       if (event.name === 'RunTask' && event.dur >= 50_000) {
-        tasks.push({ ts: event.ts, pid: event.pid, tid: event.tid, durationMs: event.dur / 1000 });
+        tasks.push({ ts: event.ts, pid: event.pid, tid: event.tid, durationMs: event.dur / 1000,
+          cpuMs: event.tdur == null ? undefined : event.tdur / 1000 });
+      }
+      if (phases.has(event.name) && event.dur >= 5_000) {
+        renderEvents.push({ name: event.name, ts: event.ts, pid: event.pid, tid: event.tid,
+          durationMs: event.dur / 1000, cpuMs: event.tdur == null ? undefined : event.tdur / 1000 });
       }
     }
   });
@@ -121,6 +131,8 @@ export async function startPaintTrace(page) {
       candidates: main,
       longTasks: last ? tasks.filter(task =>
         task.pid === last.pid && task.tid === last.tid && task.ts < last.ts) : [],
+      renderEvents: last ? renderEvents.filter(event =>
+        event.pid === last.pid && event.ts < last.ts) : [],
     };
   };
 }
