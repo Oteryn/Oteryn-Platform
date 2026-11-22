@@ -1,0 +1,37 @@
+{
+  "Overview": {
+    "agents": [], "worlds": [], "nodes": [], "players_online": 137, "db_available": true, "alerts": []
+  },
+  "World": {
+    "world_id": "gm-fixture-world", "name": "Verified frontier", "state": "ready",
+    "channels": ["frontier-a"], "ruleset_revision": "rules-7", "content_revision": "content-4",
+    "map_revision": "map-11", "policy_revision": "policy-3"
+  },
+  "Node": {
+    "node_id": "gm-fixture-node", "host": "fixture.internal", "build": "verified-build-42",
+    "uptime_seconds": 480, "worlds": ["gm-fixture-world"], "ready": true,
+    "cpu_percent": 18.5, "memory_bytes": "1073741824"
+  },
+  "DatabaseStatus": {
+    "tables": [], "connections": [{"role": "verified-runtime", "connections": 7}],
+    "locks_waiting": 2, "cache_hit_ratio": 0.97
+  },
+  "MigrationPage": {
+    "migrations": [{"version": "20261122004200", "description": "Fixture migration", "applied": true, "checksum_drift": false}],
+    "next_cursor": null
+  },
+  "LedgerPage": {
+    "entries": [{
+      "ledger_id": "verified-fixture-ledger", "request_id": "019b0760-0000-7000-8000-000000000031",
+      "admin_operation_id": "019b0760-0000-7000-8000-000000000032",
+      "operation": "world.list", "admin_id": "019b0760-0000-7000-8000-000000000033",
+      "risk_class": "R0", "target": {"world_id": "gm-fixture-world", "node_id": null, "character_id": null, "account_ref": null},
+      "status": "succeeded", "started_at": "2026-11-21T23:00:00Z",
+      "finished_at": "2026-11-21T23:00:01Z", "error_code": null
+    }], "next_cursor": null
+  },
+  "PolicyView": {
+    "operations": [{"operation": "world.get", "min_risk_class": "R0",
+      "allowed_permissions": ["game.world.read"], "worlds": ["gm-fixture-world"]}]
+  }
+}

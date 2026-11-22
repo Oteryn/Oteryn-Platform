@@ -344,6 +344,7 @@ async fn held(tx: &mut PgConnection, id: Uuid) -> Result<bool, Error> {
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaffCommand {
     Suspend {
+        id: Uuid,
         listing: Uuid,
         reason: String,
     },
@@ -354,9 +355,11 @@ pub enum StaffCommand {
     },
     ApproveInvalidation {
         id: Uuid,
+        reason: String,
     },
     ReviewReport {
         id: Uuid,
+        reason: String,
         accepted: bool,
     },
     Fees {
@@ -382,12 +385,23 @@ impl StaffCommand {
     pub fn target(&self) -> Uuid {
         match self {
             Self::Suspend { listing, .. } | Self::RequestInvalidation { listing, .. } => *listing,
-            Self::ApproveInvalidation { id }
+            Self::ApproveInvalidation { id, .. }
             | Self::ReviewReport { id, .. }
             | Self::Fees { id, .. }
             | Self::RestrictItem { id, .. } => *id,
         }
     }
+    pub fn reason(&self) -> &str {
+        match self {
+            Self::Suspend { reason, .. }
+            | Self::RequestInvalidation { reason, .. }
+            | Self::ApproveInvalidation { reason, .. }
+            | Self::ReviewReport { reason, .. }
+            | Self::Fees { reason, .. }
+            | Self::RestrictItem { reason, .. } => reason.trim(),
+        }
+    }
+
     pub fn action(&self) -> &'static str {
         match self {
             Self::Suspend { .. } => "bazaar.suspend",
@@ -412,7 +426,7 @@ pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) ->
         | StaffCommand::RequestInvalidation { listing, .. } => {
             lock_listing(tx, *listing).await?;
         }
-        StaffCommand::ApproveInvalidation { id } => {
+        StaffCommand::ApproveInvalidation { id, .. } => {
             let listing: Uuid = sqlx::query_scalar(
                 "SELECT listing_id FROM bazaar_invalidation_requests WHERE id=$1",
             )
@@ -446,18 +460,46 @@ pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) ->
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaffOutcome {
+    Applied,
+    Replay,
+}
+
 /// Execute inside a transaction that also records the authenticated staff audit.
 pub async fn execute_staff(
     tx: &mut PgConnection,
     actor: Uuid,
     command: &StaffCommand,
-) -> Result<(), Error> {
+) -> Result<StaffOutcome, Error> {
     valid_id(actor)?;
     valid_id(command.target())?;
     lock_staff_target(tx, command).await?;
     match command {
-        StaffCommand::Suspend { listing, reason } => {
+        StaffCommand::Suspend {
+            id,
+            listing,
+            reason,
+        } => {
+            valid_id(*id)?;
             reason_valid(reason)?;
+            // The staff gate serializes first use and retry, including across listings.
+            let previous: Option<(Uuid, Uuid, String)> = sqlx::query_as(
+                "SELECT actor,listing_id,reason FROM bazaar_suspension_requests WHERE id=$1",
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some((original_actor, original_listing, original_reason)) = previous {
+                return if original_actor == actor
+                    && original_listing == *listing
+                    && original_reason == *reason
+                {
+                    Ok(StaffOutcome::Replay)
+                } else {
+                    Err(Error::IdempotencyConflict)
+                };
+            }
             let (_, state) = lock_listing(tx, *listing).await?;
             // A settled listing cannot be invalidated. Holding it before dispatch
             // would prevent the very handoff needed to retire the hold.
@@ -477,6 +519,8 @@ pub async fn execute_staff(
             .map_err(|_| Error::IllegalTransition)?;
             sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,1,$2,$3) ON CONFLICT(listing_id) DO UPDATE SET revision=bazaar_moderation_holds.revision+1,actor=$2,reason=$3,updated_at=clock_timestamp()")
                 .bind(listing).bind(actor).bind(reason).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO bazaar_suspension_requests(id,actor,listing_id,reason) VALUES($1,$2,$3,$4)")
+                .bind(id).bind(actor).bind(listing).bind(reason).execute(&mut *tx).await?;
         }
         StaffCommand::RequestInvalidation {
             id,
@@ -496,20 +540,22 @@ pub async fn execute_staff(
             sqlx::query("INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason) VALUES($1,$2,$3,$4,$5)")
                 .bind(id).bind(listing).bind(revision).bind(actor).bind(reason).execute(&mut *tx).await?;
         }
-        StaffCommand::ApproveInvalidation { id } => {
-            // Discover listing first; lock listing before request, as the requester does.
-            let listing: Uuid = sqlx::query_scalar(
-                "SELECT listing_id FROM bazaar_invalidation_requests WHERE id=$1",
-            )
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(Error::NotFound)?;
-            cancellable(tx, listing).await?;
-            let (requester,revision,state,reviewer):(Uuid,i64,String,Option<Uuid>)=sqlx::query_as("SELECT requested_by,hold_revision,state,approved_by FROM bazaar_invalidation_requests WHERE id=$1 FOR UPDATE").bind(id).fetch_one(&mut *tx).await?;
+        StaffCommand::ApproveInvalidation { id, reason } => {
+            reason_valid(reason)?;
+            // lock_staff_target already locked the listing, then the request.
+            let (listing, requester, revision, state, reviewer): (Uuid, Uuid, i64, String, Option<Uuid>) =
+                sqlx::query_as("SELECT listing_id,requested_by,hold_revision,state,approved_by FROM bazaar_invalidation_requests WHERE id=$1")
+                    .bind(id).fetch_one(&mut *tx).await?;
             if requester == actor {
                 return Err(Error::Denied);
             }
+            if state == "approved" && reviewer == Some(actor) {
+                return Ok(StaffOutcome::Replay);
+            }
+            if state != "pending" {
+                return Err(Error::Denied);
+            }
+            cancellable(tx, listing).await?;
             let current: Option<i64> = sqlx::query_scalar(
                 "SELECT revision FROM bazaar_moderation_holds WHERE listing_id=$1",
             )
@@ -519,20 +565,15 @@ pub async fn execute_staff(
             if current != Some(revision) {
                 return Err(Error::Denied);
             }
-            if state == "approved" {
-                return if reviewer == Some(actor) {
-                    Ok(())
-                } else {
-                    Err(Error::Denied)
-                };
-            }
-            if state != "pending" {
-                return Err(Error::Denied);
-            }
             sqlx::query("UPDATE bazaar_invalidation_requests SET approved_by=$2,state='approved',updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(actor).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO bazaar_moderation_outbox(id,listing_id,kind) VALUES($1,$2,'reconcile_invalidation')").bind(id).bind(listing).execute(&mut *tx).await?;
         }
-        StaffCommand::ReviewReport { id, accepted } => {
+        StaffCommand::ReviewReport {
+            id,
+            accepted,
+            reason,
+        } => {
+            reason_valid(reason)?;
             let reporter: Uuid =
                 sqlx::query_scalar("SELECT reporter FROM bazaar_reports WHERE id=$1 FOR UPDATE")
                     .bind(id)
@@ -594,10 +635,10 @@ pub async fn execute_staff(
                 .bind(id).bind(world).bind(family).bind(production_key).bind(revision_ref).bind(minimum_value).bind(denied).bind(actor).bind(reason).execute(&mut *tx).await?;
         }
     }
-    Ok(())
+    Ok(StaffOutcome::Applied)
 }
 fn reason_valid(reason: &str) -> Result<(), Error> {
-    if text_valid(reason, 10, 500) {
+    if reason.chars().count() <= 500 && text_valid(reason, 10, 500) {
         Ok(())
     } else {
         Err(Error::InvalidInput)

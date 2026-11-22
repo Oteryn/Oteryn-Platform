@@ -263,6 +263,8 @@ async fn admin_index<A: AccountStateReader>(
 struct EventForm {
     #[serde(default, rename = "_csrf")]
     _csrf: Option<String>,
+    #[serde(default)]
+    reason: String,
     starts_at: String,
     ends_at: String,
     #[serde(default)]
@@ -314,6 +316,7 @@ impl EventForm {
             Some(pl)
         };
         Ok(Draft {
+            reason: self.reason.clone(),
             starts_at: date(&self.starts_at)?,
             ends_at: date(&self.ends_at)?,
             featured: self.featured.is_some(),
@@ -365,6 +368,7 @@ async fn form<A: AccountStateReader>(
         (
             EventForm {
                 _csrf: None,
+                reason: String::new(),
                 starts_at: formatted(e.starts_at),
                 ends_at: formatted(e.ends_at),
                 featured: e.featured.then(|| "true".to_owned()),
@@ -419,6 +423,7 @@ async fn form<A: AccountStateReader>(
             "published",
             "archived",
             "apply",
+            "reason",
         ]
         .iter()
         .map(|k| text(lang, k))
@@ -485,6 +490,8 @@ struct StatusForm {
     #[serde(default, rename = "_csrf")]
     _csrf: Option<String>,
     status: String,
+    #[serde(default)]
+    reason: String,
     lock_version: i64,
 }
 async fn status<A: AccountStateReader>(
@@ -495,7 +502,7 @@ async fn status<A: AccountStateReader>(
 ) -> Response {
     match s
         .events
-        .transition(&s.auth, c, id, f.lock_version, &f.status)
+        .transition(&s.auth, c, id, f.lock_version, &f.status, &f.reason)
         .await
     {
         Ok(()) => Redirect::to(&format!("/admin/events/{id}/edit")).into_response(),

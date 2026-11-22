@@ -1,6 +1,6 @@
 //! Allowlisted presentation of the pinned ADM-01 OperationResult union.
 use super::{
-    Field, FieldLabel as L, Operation, Record,
+    Field, FieldLabel as L, FieldValue, Operation, Record, RecordName,
     access::{Error, Policy},
     audit::LedgerRow,
     players,
@@ -40,32 +40,40 @@ fn list(v: &Value, key: &str) -> Result<String, Error> {
         .map(|v| v.join(", "))
 }
 fn field(label: L, value: String) -> Field {
-    Field { label, value }
+    Field {
+        label,
+        value: FieldValue::Text(value),
+    }
+}
+fn flag(label: L, value: bool, yes: &'static str, no: &'static str) -> Field {
+    Field {
+        label,
+        value: FieldValue::Label(if value { yes } else { no }),
+    }
 }
 fn world(v: &Value) -> Result<Record, Error> {
     Ok(Record {
-        name: format!("{} · {}", text(v, "world_id")?, text(v, "name")?),
+        name: RecordName::Text(format!("{} · {}", text(v, "world_id")?, text(v, "name")?)),
         fields: vec![
             field(L::State, text(v, "state")?),
-            field(
-                L::Revision,
-                format!(
-                    "map={} · content={} · ruleset={} · policy={}",
-                    text(v, "map_revision")?,
-                    text(v, "content_revision")?,
-                    text(v, "ruleset_revision")?,
-                    text(v, "policy_revision")?
-                ),
-            ),
+            field(L::MapRevision, text(v, "map_revision")?),
+            field(L::ContentRevision, text(v, "content_revision")?),
+            field(L::RulesetRevision, text(v, "ruleset_revision")?),
+            field(L::PolicyRevision, text(v, "policy_revision")?),
             field(L::Channels, list(v, "channels")?),
         ],
     })
 }
 fn node(v: &Value) -> Result<Record, Error> {
     Ok(Record {
-        name: text(v, "node_id")?,
+        name: RecordName::Text(text(v, "node_id")?),
         fields: vec![
-            field(L::Health, boolean(v, "ready")?.to_string()),
+            flag(
+                L::Health,
+                boolean(v, "ready")?,
+                "node-ready",
+                "node-not-ready",
+            ),
             field(L::Build, text(v, "build")?),
             field(L::Cpu, number(v, "cpu_percent")?),
             field(L::Memory, text(v, "memory_bytes")?),
@@ -80,10 +88,15 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
         Operation::Nodes => array(v, "nodes")?.iter().map(node).collect(),
         Operation::Node => Ok(vec![node(v)?]),
         Operation::Overview => Ok(vec![Record {
-            name: "Overview".into(),
+            name: RecordName::Label("record-overview"),
             fields: vec![
                 field(L::Players, number(v, "players_online")?),
-                field(L::Health, boolean(v, "db_available")?.to_string()),
+                flag(
+                    L::Health,
+                    boolean(v, "db_available")?,
+                    "available",
+                    "unavailable",
+                ),
                 field(L::Alerts, array(v, "alerts")?.len().to_string()),
             ],
         }]),
@@ -121,7 +134,7 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
                 }
             }
             Ok(vec![Record {
-                name: "Database".into(),
+                name: RecordName::Label("database"),
                 fields,
             }])
         }
@@ -129,10 +142,10 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
             .iter()
             .map(|m| {
                 Ok(Record {
-                    name: text(m, "version")?,
+                    name: RecordName::Text(text(m, "version")?),
                     fields: vec![
-                        field(L::Applied, boolean(m, "applied")?.to_string()),
-                        field(L::Drift, boolean(m, "checksum_drift")?.to_string()),
+                        flag(L::Applied, boolean(m, "applied")?, "yes", "no"),
+                        flag(L::Drift, boolean(m, "checksum_drift")?, "yes", "no"),
                     ],
                 })
             })

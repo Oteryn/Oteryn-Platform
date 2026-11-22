@@ -43,6 +43,25 @@ pub(super) async fn enqueue(
     sqlx::query("INSERT INTO account_email_change_mail(change_id,recipient,subject,body) VALUES($1,$2,$3,$4)").bind(change).bind(recipient).bind(text(locale,"title")?).bind(body).execute(&mut **tx).await?;
     Ok(())
 }
+
+fn link_origin(link: &str) -> Option<&str> {
+    const HTTPS: &str = "https://";
+    let (authority, route) = link.strip_prefix(HTTPS)?.split_once('/')?;
+    if authority.contains('@') {
+        return None;
+    }
+    authority.parse::<axum::http::uri::Authority>().ok()?;
+    let token = route
+        .strip_prefix("email-change/confirm/")
+        .or_else(|| route.strip_prefix("email-change/revert/"))?;
+    if !valid_token(token) {
+        return None;
+    }
+    let origin = &link[..HTTPS.len() + authority.len()];
+    url::Url::parse(origin).ok()?;
+    Some(origin)
+}
+
 /// T36's sender is reused; its current account-only recipient policy cannot
 /// deliver confirmation or old-address recovery mail. This owns that narrow seam.
 pub struct Worker {
@@ -120,31 +139,55 @@ impl Worker {
         if Instant::now() >= last_send {
             return Ok(false);
         }
-        let (message, url) = text
+        let Some((message, url, origin)) = text
             .rsplit_once("\n\n")
-            .ok_or_else(|| "invalid email payload".to_owned())?;
-        if !url.starts_with(&format!("{}/email-change/", self.service.origin)) {
-            return Err("invalid email link".into());
-        }
-        let escape = |value: &str| {
-            value
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
-                .replace('"', "&quot;")
+            .and_then(|(message, url)| Some((message, url, link_origin(url)?)))
+        else {
+            // An invalid stored payload cannot heal on retry. Keep the row
+            // distinguishable from a successful send and remove its token.
+            sqlx::query(
+                "UPDATE account_email_change_mail
+                 SET body='', next_attempt_at='infinity', updated_at=clock_timestamp()
+                 WHERE id=$1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| "email delivery unavailable".to_owned())?;
+            tx.commit()
+                .await
+                .map_err(|_| "email delivery unavailable".to_owned())?;
+            return Ok(true);
         };
-        let html = format!("<p><a href=\"{}\">{}</a></p>", escape(url), escape(message));
-        let email = oteryn_notify::Email {
-            id,
-            recipient,
-            subject,
-            text,
-            html,
-            unsubscribe: None,
+        let sent = if origin == self.service.origin {
+            let escape = |value: &str| {
+                value
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
+                    .replace('"', "&quot;")
+            };
+            let html = format!("<p><a href=\"{}\">{}</a></p>", escape(url), escape(message));
+            let email = oteryn_notify::Email {
+                id,
+                recipient,
+                subject,
+                text,
+                html,
+                unsubscribe: None,
+            };
+            let send_deadline = last_send.min(Instant::now() + Duration::from_secs(5));
+            matches!(
+                timeout_at(send_deadline, self.sender.send(&email)).await,
+                Ok(Ok(()))
+            )
+        } else {
+            // An origin change can be temporary. Preserve the original link and
+            // share SMTP's per-message backoff without logging either origin.
+            eprintln!("email-change mail deferred: public origin mismatch");
+            false
         };
-        let send_deadline = last_send.min(Instant::now() + Duration::from_secs(5));
-        let sent = timeout_at(send_deadline, self.sender.send(&email)).await;
-        if !matches!(sent, Ok(Ok(()))) {
+        if !sent {
             sqlx::query("UPDATE account_email_change_mail SET delivery_attempts=delivery_attempts+1,next_attempt_at=clock_timestamp()+make_interval(secs=>LEAST(3600,30*power(2,LEAST(delivery_attempts,7)))::double precision),updated_at=clock_timestamp() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_| "email delivery unavailable".to_owned())?;
         } else {
             sqlx::query("UPDATE account_email_change_mail SET delivered_at=now(),body='',updated_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;

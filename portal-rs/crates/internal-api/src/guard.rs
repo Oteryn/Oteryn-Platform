@@ -133,6 +133,8 @@ pub enum JsonRule {
     /// Premium requests permit member order and insignificant whitespace.
     Object,
     Canonical(&'static Shape),
+    /// Route-specific object decoder that enforces uniqueness and the supplied depth bound.
+    ValidatedObject(fn(&[u8], usize) -> bool),
 }
 /// Flags default off; group configuration and positive body bounds are required.
 #[derive(Debug, Clone)]
@@ -301,15 +303,25 @@ pub async fn check_body(
         }
     };
     let decoded = match policy.json {
-        JsonRule::Object => canonical::decode(&bytes, policy.max_body_bytes, policy.max_json_depth),
+        JsonRule::Object => {
+            canonical::decode(&bytes, policy.max_body_bytes, policy.max_json_depth).map(Some)
+        }
         JsonRule::Canonical(shape) => {
             canonical::decode_canonical(&bytes, policy.max_body_bytes, policy.max_json_depth, shape)
+                .map(Some)
+        }
+        JsonRule::ValidatedObject(validate) => {
+            if !validate(&bytes, policy.max_json_depth) {
+                return failure(StatusCode::BAD_REQUEST);
+            }
+            Ok(None)
         }
     };
     match decoded {
-        Ok(value) => {
+        Ok(Some(value)) => {
             parts.extensions.insert(value);
         }
+        Ok(None) => {}
         Err(_) => return failure(StatusCode::BAD_REQUEST),
     }
     next.run(Request::from_parts(parts, Body::from(bytes)))
