@@ -213,6 +213,20 @@
     },
     {
       "listener": "admission",
+      "path": "/health",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/gameauth/src/admission/http.rs:393",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "admission",
       "path": "/internal/v1/game-auth/native-admissions",
       "method": "POST",
       "registrations": [
@@ -399,6 +413,20 @@
     },
     {
       "listener": "gateway",
+      "path": "/health",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/gateway/src/lib.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "gateway",
       "path": "/ready",
       "method": "GET",
       "registrations": [
@@ -407,6 +435,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "gateway",
+      "path": "/ready",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/gateway/src/lib.rs:105",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -471,6 +513,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "gateway",
+      "path": "/version",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/gateway/src/lib.rs:106",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -825,6 +881,24 @@
     },
     {
       "listener": "internal",
+      "path": "/internal/v1/coins/accounts/{account_id}/balance",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wallet/src/wire.rs:76",
+          "guard": {
+            "kind": "mtls"
+          },
+          "implicitFrom": "GET",
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        }
+      ]
+    },
+    {
+      "listener": "internal",
       "path": "/internal/v1/coins/accounts/{account_id}/history",
       "method": "GET",
       "registrations": [
@@ -833,6 +907,24 @@
           "guard": {
             "kind": "mtls"
           },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        }
+      ]
+    },
+    {
+      "listener": "internal",
+      "path": "/internal/v1/coins/accounts/{account_id}/history",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wallet/src/wire.rs:76",
+          "guard": {
+            "kind": "mtls"
+          },
+          "implicitFrom": "GET",
           "refusal": {
             "tlsAlert": "certificate_required",
             "source": "bin/oteryn-portal/src/internal_tls.rs:111"
@@ -901,6 +993,24 @@
           "guard": {
             "kind": "mtls"
           },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        }
+      ]
+    },
+    {
+      "listener": "internal",
+      "path": "/internal/v1/coins/operations/{operation_id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wallet/src/wire.rs:76",
+          "guard": {
+            "kind": "mtls"
+          },
+          "implicitFrom": "GET",
           "refusal": {
             "tlsAlert": "certificate_required",
             "source": "bin/oteryn-portal/src/internal_tls.rs:111"
@@ -1350,6 +1460,16 @@
       "method": "POST",
       "registrations": [
         {
+          "source": "bin/oteryn-portal/src/game_routes.rs:359",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
+        {
           "source": "crates/playerdata/src/sessions.rs:168",
           "guard": {
             "kind": "mtls"
@@ -1367,6 +1487,16 @@
       "method": "POST",
       "registrations": [
         {
+          "source": "bin/oteryn-portal/src/game_routes.rs:359",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
+        {
           "source": "crates/playerdata/src/sessions.rs:168",
           "guard": {
             "kind": "mtls"
@@ -1383,6 +1513,16 @@
       "path": "/internal/v1/playerdata/journal/commands/receipt",
       "method": "POST",
       "registrations": [
+        {
+          "source": "bin/oteryn-portal/src/game_routes.rs:359",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
         {
           "source": "crates/playerdata/src/sessions.rs:168",
           "guard": {
@@ -1873,6 +2013,16 @@
       "method": "POST",
       "registrations": [
         {
+          "source": "bin/oteryn-portal/src/game_routes.rs:382",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
+        {
           "source": "crates/community/src/families.rs:147",
           "guard": {
             "kind": "mtls"
@@ -1907,6 +2057,16 @@
       "method": "POST",
       "registrations": [
         {
+          "source": "bin/oteryn-portal/src/game_routes.rs:382",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
+        {
           "source": "crates/community/src/families.rs:147",
           "guard": {
             "kind": "mtls"
@@ -1923,6 +2083,16 @@
       "path": "/internal/v2/game-public/character-online-session",
       "method": "POST",
       "registrations": [
+        {
+          "source": "bin/oteryn-portal/src/game_routes.rs:408",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
         {
           "source": "crates/stats/src/online/http.rs:38",
           "guard": {
@@ -1941,6 +2111,16 @@
       "method": "POST",
       "registrations": [
         {
+          "source": "bin/oteryn-portal/src/game_routes.rs:382",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
+        {
           "source": "crates/community/src/families.rs:147",
           "guard": {
             "kind": "mtls"
@@ -1957,6 +2137,16 @@
       "path": "/internal/v2/game-public/character-skills",
       "method": "POST",
       "registrations": [
+        {
+          "source": "bin/oteryn-portal/src/game_routes.rs:382",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
         {
           "source": "crates/community/src/families.rs:147",
           "guard": {
@@ -2103,6 +2293,16 @@
       "method": "POST",
       "registrations": [
         {
+          "source": "bin/oteryn-portal/src/game_routes.rs:409",
+          "guard": {
+            "kind": "mtls"
+          },
+          "refusal": {
+            "tlsAlert": "certificate_required",
+            "source": "bin/oteryn-portal/src/internal_tls.rs:111"
+          }
+        },
+        {
           "source": "crates/stats/src/online/http.rs:38",
           "guard": {
             "kind": "mtls"
@@ -2233,6 +2433,20 @@
     },
     {
       "listener": "public",
+      "path": "/",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:324",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/__test/payments/webhook",
       "method": "POST",
       "registrations": [
@@ -2263,6 +2477,20 @@
     },
     {
       "listener": "public",
+      "path": "/account",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:456",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/account/badges",
       "method": "GET",
       "registrations": [
@@ -2271,6 +2499,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/badges",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:473",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2302,6 +2544,20 @@
     },
     {
       "listener": "public",
+      "path": "/account/characters/{name}/achievements",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/account/characters/{name}/equipment",
       "method": "GET",
       "registrations": [
@@ -2310,6 +2566,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/characters/{name}/equipment",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2328,6 +2598,20 @@
     },
     {
       "listener": "public",
+      "path": "/account/characters/{name}/outfit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/account/characters/{name}/profile",
       "method": "GET",
       "registrations": [
@@ -2341,6 +2625,20 @@
     },
     {
       "listener": "public",
+      "path": "/account/characters/{name}/profile",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:476",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/account/game-logins",
       "method": "GET",
       "registrations": [
@@ -2349,6 +2647,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/game-logins",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/logins/web.rs:48",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2381,6 +2693,20 @@
     {
       "listener": "public",
       "path": "/account/recovery-key",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:40",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/recovery-key",
       "method": "POST",
       "registrations": [
         {
@@ -2401,6 +2727,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/recovery-key/confirm",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:44",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2445,6 +2785,20 @@
     },
     {
       "listener": "public",
+      "path": "/account/security",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:108",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/account/security/email",
       "method": "GET",
       "registrations": [
@@ -2453,6 +2807,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/security/email",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:46",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2492,6 +2860,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/sessions",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:39",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2563,6 +2945,20 @@
     {
       "listener": "public",
       "path": "/account/sudo",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:107",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/account/sudo",
       "method": "POST",
       "registrations": [
         {
@@ -2591,6 +2987,23 @@
     },
     {
       "listener": "public",
+      "path": "/admin",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/web.rs:254",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/analytics",
       "method": "GET",
       "registrations": [
@@ -2606,6 +3019,27 @@
               "game.analytics.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/analytics",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:129",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2631,6 +3065,27 @@
     },
     {
       "listener": "public",
+      "path": "/admin/analytics/activity",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:129",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/analytics/activity/data",
       "method": "GET",
       "registrations": [
@@ -2646,6 +3101,27 @@
               "game.analytics.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/analytics/activity/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:130",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2671,6 +3147,27 @@
     },
     {
       "listener": "public",
+      "path": "/admin/analytics/creatures",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:129",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/analytics/creatures/data",
       "method": "GET",
       "registrations": [
@@ -2686,6 +3183,27 @@
               "game.analytics.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/analytics/creatures/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:130",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2711,6 +3229,27 @@
     },
     {
       "listener": "public",
+      "path": "/admin/analytics/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:130",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/analytics/economy",
       "method": "GET",
       "registrations": [
@@ -2726,6 +3265,27 @@
               "game.analytics.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/analytics/economy",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:129",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2751,6 +3311,27 @@
     },
     {
       "listener": "public",
+      "path": "/admin/analytics/economy/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:130",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/analytics/health",
       "method": "GET",
       "registrations": [
@@ -2766,6 +3347,27 @@
               "game.analytics.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/analytics/health",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:129",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2791,6 +3393,27 @@
     },
     {
       "listener": "public",
+      "path": "/admin/analytics/health/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:130",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/analytics/levels",
       "method": "GET",
       "registrations": [
@@ -2806,6 +3429,27 @@
               "game.analytics.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/analytics/levels",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:129",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2831,6 +3475,27 @@
     },
     {
       "listener": "public",
+      "path": "/admin/analytics/levels/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/analytics/web.rs:130",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "admin.analytics.view",
+              "game.analytics.read"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/announcements",
       "method": "GET",
       "registrations": [
@@ -2843,6 +3508,24 @@
               "portal.announcements.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/announcements",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/announcements_staff.rs:41",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "portal.announcements.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2882,6 +3565,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/announcements/create",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/announcements_staff.rs:42",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "portal.announcements.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/announcements/{id}/edit",
       "method": "GET",
       "registrations": [
@@ -2894,6 +3595,24 @@
               "portal.announcements.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/announcements/{id}/edit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/announcements_staff.rs:43",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "portal.announcements.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -2932,6 +3651,28 @@
               "payments.reconcile"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/commerce",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/commerce/http.rs:54",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "products.premium.manage",
+              "marketplace.manage",
+              "payments.reconcile"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3038,6 +3779,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/console/access",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/access.rs:447",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "admin.roles.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/console/approvals",
       "method": "GET",
       "registrations": [
@@ -3050,6 +3809,24 @@
               "admin.roles.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/console/approvals",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/access.rs:446",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "admin.roles.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3075,6 +3852,27 @@
     },
     {
       "listener": "public",
+      "path": "/admin/console/audit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/access.rs:445",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "audit.view",
+              "game.audit.read"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/console/players",
       "method": "GET",
       "registrations": [
@@ -3090,6 +3888,27 @@
               "support.tickets.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/console/players",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/access.rs:441",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "game.player.read",
+              "support.tickets.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3129,6 +3948,23 @@
     {
       "listener": "public",
       "path": "/admin/control/approvals/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/control/controls_http.rs:46",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/control/approvals/{id}",
       "method": "POST",
       "registrations": [
         {
@@ -3155,6 +3991,23 @@
               "admin.access"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/control/step-up",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/control/controls_http.rs:42",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3188,6 +4041,24 @@
               "events.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/events",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/events/web.rs:189",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "events.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3222,6 +4093,24 @@
               "events.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/events/create",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/events/web.rs:190",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "events.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3278,6 +4167,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/events/{id}/edit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/events/web.rs:191",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "events.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/events/{id}/status",
       "method": "POST",
       "registrations": [
@@ -3324,6 +4231,24 @@
               "media.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/media",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/media.rs:123",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "media.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3380,6 +4305,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/media/{id}/content",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/media.rs:124",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "media.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/media/{id}/delete",
       "method": "POST",
       "registrations": [
@@ -3414,6 +4357,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/media/{id}/thumbnail",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/media.rs:125",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "media.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/moderation/enforcement",
       "method": "GET",
       "registrations": [
@@ -3426,6 +4387,24 @@
               "support.enforcement.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/moderation/enforcement",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/support_web.rs:122",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.enforcement.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3448,6 +4427,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/moderation/enforcement/create",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/support_web.rs:117",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.enforcement.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/moderation/enforcement/{id}",
       "method": "GET",
       "registrations": [
@@ -3460,6 +4457,24 @@
               "support.enforcement.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/moderation/enforcement/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/support_web.rs:123",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.enforcement.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3499,6 +4514,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/moderation/reports",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/support_web.rs:122",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.reports.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/moderation/reports/{id}",
       "method": "GET",
       "registrations": [
@@ -3511,6 +4544,24 @@
               "support.reports.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/moderation/reports/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/support_web.rs:123",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.reports.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3545,6 +4596,24 @@
               "cms.news.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/news",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/news.rs:138",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "cms.news.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3579,6 +4648,24 @@
               "cms.news.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/news/create",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/news.rs:139",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "cms.news.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3669,6 +4756,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/news/{id}/edit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/news.rs:140",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "cms.news.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/pages",
       "method": "GET",
       "registrations": [
@@ -3686,6 +4791,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/pages",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages/staff.rs:39",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "cms.pages.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/pages/{slug}/{locale}",
       "method": "GET",
       "registrations": [
@@ -3698,6 +4821,24 @@
               "cms.pages.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/pages/{slug}/{locale}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages/staff.rs:40",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "cms.pages.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3737,6 +4878,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/players",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/players/http.rs:69",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.tickets.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/players/{id}",
       "method": "GET",
       "registrations": [
@@ -3752,6 +4911,27 @@
               "account.security.kick"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/players/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/players/http.rs:70",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access"
+            ],
+            "any": [
+              "support.tickets.manage",
+              "account.security.kick"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3775,6 +4955,13 @@
               "verify-identity": "support.tickets.manage",
               "request-reset": "support.tickets.manage",
               "approve-reset": "admin.roles.manage"
+            },
+            "actionAll": {
+              "approve-reset": [
+                "admin.access",
+                "admin.roles.manage",
+                "support.tickets.manage"
+              ]
             }
           }
         }
@@ -3794,6 +4981,24 @@
               "admin.roles.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/roles",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/web.rs:255",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "admin.roles.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3833,6 +5038,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/support/tickets",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/support_web.rs:122",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.tickets.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/support/tickets/{id}",
       "method": "GET",
       "registrations": [
@@ -3845,6 +5068,24 @@
               "support.tickets.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/support/tickets/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/support_web.rs:123",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.tickets.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3884,6 +5125,24 @@
     },
     {
       "listener": "public",
+      "path": "/admin/wiki",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:69",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "wiki.access"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/wiki/articles",
       "method": "GET",
       "registrations": [
@@ -3896,6 +5155,24 @@
               "wiki.access"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/wiki/articles",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:71",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "wiki.access"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -3937,6 +5214,25 @@
     },
     {
       "listener": "public",
+      "path": "/admin/wiki/articles/create",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:70",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "wiki.access",
+              "wiki.articles.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/wiki/articles/{id}",
       "method": "POST",
       "registrations": [
@@ -3973,6 +5269,25 @@
     },
     {
       "listener": "public",
+      "path": "/admin/wiki/articles/{id}/edit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:72",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "wiki.access",
+              "wiki.articles.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/wiki/articles/{id}/preview/{locale}",
       "method": "GET",
       "registrations": [
@@ -3991,6 +5306,25 @@
     },
     {
       "listener": "public",
+      "path": "/admin/wiki/articles/{id}/preview/{locale}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:75",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "wiki.access",
+              "wiki.articles.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/admin/wiki/articles/{id}/revisions",
       "method": "GET",
       "registrations": [
@@ -4004,6 +5338,25 @@
               "wiki.articles.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/wiki/articles/{id}/revisions",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:74",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "wiki.access",
+              "wiki.articles.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4067,6 +5420,25 @@
     {
       "listener": "public",
       "path": "/admin/world",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/world/src/admin.rs:77",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "game_catalog.access",
+              "game_catalog.snapshots.view"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/world",
       "method": "POST",
       "registrations": [
         {
@@ -4107,6 +5479,24 @@
     {
       "listener": "public",
       "path": "/admin/{lang}/bazaar",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/bazaar.rs:169",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "marketplace.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/{lang}/bazaar",
       "method": "POST",
       "registrations": [
         {
@@ -4135,6 +5525,24 @@
               "support.reports.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/admin/{lang}/party",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/party.rs:273",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.reports.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4170,6 +5578,20 @@
     },
     {
       "listener": "public",
+      "path": "/announcements/ticker",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/today.rs:230",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/api/v1/account/summary",
       "method": "GET",
       "registrations": [
@@ -4178,6 +5600,20 @@
           "guard": {
             "kind": "bearer"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/api/v1/account/summary",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/player-api/src/account_feed.rs:183",
+          "guard": {
+            "kind": "bearer"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4196,6 +5632,20 @@
     },
     {
       "listener": "public",
+      "path": "/api/v1/feed",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/player-api/src/account_feed.rs:184",
+          "guard": {
+            "kind": "bearer"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/api/v1/game-auth/native-characters",
       "method": "GET",
       "registrations": [
@@ -4204,6 +5654,20 @@
           "guard": {
             "kind": "bearer"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/api/v1/game-auth/native-characters",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/player-api/src/lib.rs:50",
+          "guard": {
+            "kind": "bearer"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4226,10 +5690,24 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:33",
+          "source": "crates/payments/src/coin_http.rs:36",
           "guard": {
             "kind": "bearer"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/api/v1/native-account/coin-purchases/balance",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/payments/src/coin_http.rs:36",
+          "guard": {
+            "kind": "bearer"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4239,10 +5717,24 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:32",
+          "source": "crates/payments/src/coin_http.rs:35",
           "guard": {
             "kind": "bearer"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/api/v1/native-account/coin-purchases/catalogue",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/payments/src/coin_http.rs:35",
+          "guard": {
+            "kind": "bearer"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4252,7 +5744,7 @@
       "method": "POST",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:34",
+          "source": "crates/payments/src/coin_http.rs:37",
           "guard": {
             "kind": "bearer"
           }
@@ -4265,10 +5757,24 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:35",
+          "source": "crates/payments/src/coin_http.rs:38",
           "guard": {
             "kind": "bearer"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/api/v1/native-account/coin-purchases/requests/{request_id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/payments/src/coin_http.rs:38",
+          "guard": {
+            "kind": "bearer"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4318,6 +5824,20 @@
     {
       "listener": "public",
       "path": "/api/v1/stats/watches",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/watch/http.rs:17",
+          "guard": {
+            "kind": "bearer"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/api/v1/stats/watches",
       "method": "POST",
       "registrations": [
         {
@@ -4343,6 +5863,20 @@
     },
     {
       "listener": "public",
+      "path": "/api/v1/worlds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/worlds.rs:56",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/atlas/delivery.css",
       "method": "GET",
       "registrations": [
@@ -4351,6 +5885,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/atlas/delivery.css",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/delivery/http.rs:34",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4377,6 +5925,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/atlas/private-markers",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/spawns.rs:41",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4421,6 +5983,20 @@
     },
     {
       "listener": "public",
+      "path": "/atlas/spawns",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/spawns.rs:40",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/atlas/spawns-text/{lang}",
       "method": "GET",
       "registrations": [
@@ -4429,6 +6005,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/atlas/spawns-text/{lang}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/spawns.rs:39",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4447,6 +6037,20 @@
     },
     {
       "listener": "public",
+      "path": "/atlas/tiles/{version}/{floor}/{zoom}/{x}/{y}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/web.rs:48",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/characters",
       "method": "GET",
       "registrations": [
@@ -4455,6 +6059,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/characters",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4473,6 +6091,20 @@
     },
     {
       "listener": "public",
+      "path": "/characters/{name}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/characters/{name}/deaths",
       "method": "GET",
       "registrations": [
@@ -4481,6 +6113,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/characters/{name}/deaths",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/deaths/web.rs:78",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4499,6 +6145,20 @@
     },
     {
       "listener": "public",
+      "path": "/characters/{name}/skills",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:73",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/console/dashboard",
       "method": "GET",
       "registrations": [
@@ -4511,6 +6171,24 @@
               "game.ops.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/console/dashboard",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/mod.rs:377",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "game.ops.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4545,6 +6223,24 @@
               "game.db.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/console/database",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/mod.rs:389",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "game.db.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4579,6 +6275,24 @@
               "game.node.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/console/nodes",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/mod.rs:385",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "game.node.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4613,6 +6327,24 @@
               "game.world.read"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/console/worlds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/admin/src/console/mod.rs:381",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "game.world.read"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4654,6 +6386,27 @@
     },
     {
       "listener": "public",
+      "path": "/deaths",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/deaths/web.rs:75",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/download",
       "method": "GET",
       "registrations": [
@@ -4667,6 +6420,20 @@
     },
     {
       "listener": "public",
+      "path": "/download",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/download/{slug}",
       "method": "GET",
       "registrations": [
@@ -4675,6 +6442,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/download/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4694,6 +6475,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/email-change/confirm/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:50",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4725,6 +6527,20 @@
     },
     {
       "listener": "public",
+      "path": "/email-change/recover/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/email-change/revert/{token}",
       "method": "GET",
       "registrations": [
@@ -4733,6 +6549,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/email-change/revert/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:54",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4764,6 +6594,20 @@
     },
     {
       "listener": "public",
+      "path": "/en",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/surface.rs:40",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/",
       "method": "GET",
       "registrations": [
@@ -4777,6 +6621,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/surface.rs:42",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/account/badges",
       "method": "GET",
       "registrations": [
@@ -4785,6 +6643,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/badges",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:474",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4816,6 +6688,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/account/characters/{name}/achievements",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/account/characters/{name}/equipment",
       "method": "GET",
       "registrations": [
@@ -4824,6 +6710,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/characters/{name}/equipment",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4842,6 +6742,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/account/characters/{name}/outfit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/account/characters/{name}/profile",
       "method": "GET",
       "registrations": [
@@ -4850,6 +6764,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/characters/{name}/profile",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:481",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4868,6 +6796,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/account/game-logins",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/logins/web.rs:48",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/account/privacy/export",
       "method": "GET",
       "registrations": [
@@ -4876,6 +6818,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/privacy/export",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/export.rs:218",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4908,6 +6864,20 @@
     {
       "listener": "public",
       "path": "/en/account/recovery-key",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:40",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/recovery-key",
       "method": "POST",
       "registrations": [
         {
@@ -4928,6 +6898,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/recovery-key/confirm",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:44",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -4972,6 +6956,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/account/security",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:108",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/account/security/email",
       "method": "GET",
       "registrations": [
@@ -4980,6 +6978,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/security/email",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:46",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5019,6 +7031,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/sessions",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:39",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5090,6 +7116,20 @@
     {
       "listener": "public",
       "path": "/en/account/sudo",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:107",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/account/sudo",
       "method": "POST",
       "registrations": [
         {
@@ -5115,6 +7155,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/characters/{name}/deaths",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/deaths/web.rs:80",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/characters/{name}/skills",
       "method": "GET",
       "registrations": [
@@ -5123,6 +7177,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/characters/{name}/skills",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:73",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5141,6 +7209,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/deaths",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/deaths/web.rs:77",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/email-change/confirm/{token}",
       "method": "GET",
       "registrations": [
@@ -5149,6 +7231,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/email-change/confirm/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:50",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5175,6 +7271,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/email-change/revert/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:54",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5201,6 +7311,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/forgot-password",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:50",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5232,6 +7356,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/guilds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/guilds_pages.rs:67",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/guilds/{name}",
       "method": "GET",
       "registrations": [
@@ -5240,6 +7378,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/guilds/{name}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/guilds_pages.rs:68",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5258,6 +7410,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/help",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/houses",
       "method": "GET",
       "registrations": [
@@ -5266,6 +7432,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/houses",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/houses.rs:114",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5284,6 +7464,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/houses/{key}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/houses.rs:115",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/legal/cookies",
       "method": "GET",
       "registrations": [
@@ -5292,6 +7486,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/legal/cookies",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5310,6 +7518,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/legal/privacy",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/legal/terms",
       "method": "GET",
       "registrations": [
@@ -5323,6 +7545,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/legal/terms",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/login",
       "method": "GET",
       "registrations": [
@@ -5331,6 +7567,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/login",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/login_http.rs:45",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5375,6 +7625,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/mfa",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:74",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/mfa/challenge",
       "method": "GET",
       "registrations": [
@@ -5383,6 +7647,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/mfa/challenge",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:69",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5467,6 +7745,20 @@
     {
       "listener": "public",
       "path": "/en/mfa/login",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:68",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/mfa/login",
       "method": "POST",
       "registrations": [
         {
@@ -5492,6 +7784,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/online",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/online.rs:74",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/pages/{slug}",
       "method": "GET",
       "registrations": [
@@ -5505,6 +7811,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/pages/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:78",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/password/change",
       "method": "GET",
       "registrations": [
@@ -5513,6 +7833,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/password/change",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:103",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5558,6 +7892,20 @@
     {
       "listener": "public",
       "path": "/en/recovery-key",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:39",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/recovery-key",
       "method": "POST",
       "registrations": [
         {
@@ -5578,6 +7926,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/register",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/register.rs:24",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5622,6 +7984,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/register/check-inbox",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/register.rs:27",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/reset-password",
       "method": "GET",
       "registrations": [
@@ -5630,6 +8006,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/reset-password",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:54",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5661,6 +8051,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/reset-password/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:58",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/rules",
       "method": "GET",
       "registrations": [
@@ -5669,6 +8073,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/rules",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5687,6 +8105,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/search",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/search.rs:77",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/server-information",
       "method": "GET",
       "registrations": [
@@ -5695,6 +8127,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/server-information",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5713,6 +8159,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/stats/guilds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/guilds/http.rs:27",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/stats/world",
       "method": "GET",
       "registrations": [
@@ -5721,6 +8181,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/stats/world",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/world/http.rs:39",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5739,6 +8213,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/support",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/support/report-a-bug",
       "method": "GET",
       "registrations": [
@@ -5752,6 +8240,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/support/report-a-bug",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/verify-email",
       "method": "GET",
       "registrations": [
@@ -5760,6 +8262,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/verify-email",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/verify.rs:23",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5786,6 +8302,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/verify-email/resend",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/verify.rs:29",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5817,6 +8347,20 @@
     },
     {
       "listener": "public",
+      "path": "/en/wiki/calculators",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/calculators/web.rs:42",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/en/worlds",
       "method": "GET",
       "registrations": [
@@ -5825,6 +8369,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/en/worlds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/worlds.rs:55",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5849,6 +8407,27 @@
     },
     {
       "listener": "public",
+      "path": "/events",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/events/web.rs:30",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/events/{slug}",
       "method": "GET",
       "registrations": [
@@ -5868,6 +8447,27 @@
     },
     {
       "listener": "public",
+      "path": "/events/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/events/web.rs:31",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/favicon.ico",
       "method": "GET",
       "registrations": [
@@ -5876,6 +8476,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/favicon.ico",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/favicon.rs:5",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5895,6 +8509,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/forgot-password",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:86",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5926,6 +8561,20 @@
     },
     {
       "listener": "public",
+      "path": "/getting-started",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/guilds",
       "method": "GET",
       "registrations": [
@@ -5940,6 +8589,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/guilds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/guilds_pages.rs:63",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5964,6 +8634,27 @@
     },
     {
       "listener": "public",
+      "path": "/guilds/{name}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/guilds_pages.rs:64",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/healthz",
       "method": "GET",
       "registrations": [
@@ -5972,6 +8663,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/healthz",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:325",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -5990,6 +8695,20 @@
     },
     {
       "listener": "public",
+      "path": "/highscores",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/houses",
       "method": "GET",
       "registrations": [
@@ -5998,6 +8717,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/houses",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/houses.rs:114",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6016,6 +8749,20 @@
     },
     {
       "listener": "public",
+      "path": "/houses/{key}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/houses.rs:115",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/language/{lang}",
       "method": "GET",
       "registrations": [
@@ -6024,6 +8771,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/language/{lang}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/surface.rs:43",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6042,6 +8803,20 @@
     },
     {
       "listener": "public",
+      "path": "/legal/cookies",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/legal/privacy",
       "method": "GET",
       "registrations": [
@@ -6055,6 +8830,20 @@
     },
     {
       "listener": "public",
+      "path": "/legal/privacy",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/legal/terms",
       "method": "GET",
       "registrations": [
@@ -6063,6 +8852,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/legal/terms",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6082,6 +8885,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/login",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/login_http.rs:43",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6126,6 +8950,20 @@
     },
     {
       "listener": "public",
+      "path": "/mfa",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:74",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/mfa/challenge",
       "method": "GET",
       "registrations": [
@@ -6140,6 +8978,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/mfa/challenge",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:69",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6224,6 +9083,20 @@
     {
       "listener": "public",
       "path": "/mfa/login",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:68",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/mfa/login",
       "method": "POST",
       "registrations": [
         {
@@ -6240,10 +9113,11 @@
       "method": "CONNECT",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6253,10 +9127,11 @@
       "method": "DELETE",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6266,16 +9141,18 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:40",
+          "source": "crates/payments/src/coin_http.rs:43",
           "guard": {
             "kind": "logged-in"
-          }
+          },
+          "profile": "configured"
         },
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
-            "kind": "logged-in"
-          }
+            "kind": "anonymous"
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6285,10 +9162,19 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:43",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET",
+          "profile": "configured"
+        },
+        {
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6298,10 +9184,11 @@
       "method": "OPTIONS",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6311,10 +9198,11 @@
       "method": "PATCH",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6324,16 +9212,18 @@
       "method": "POST",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:40",
+          "source": "crates/payments/src/coin_http.rs:43",
           "guard": {
             "kind": "logged-in"
-          }
+          },
+          "profile": "configured"
         },
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
-            "kind": "logged-in"
-          }
+            "kind": "anonymous"
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6343,10 +9233,11 @@
       "method": "PUT",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6356,10 +9247,11 @@
       "method": "TRACE",
       "registrations": [
         {
-          "source": "crates/payments/src/coin_http.rs:46",
+          "source": "crates/payments/src/coin_http.rs:49",
           "guard": {
             "kind": "anonymous"
-          }
+          },
+          "profile": "unavailable"
         }
       ]
     },
@@ -6384,6 +9276,27 @@
     },
     {
       "listener": "public",
+      "path": "/news",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/news.rs:128",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/news/{slug}",
       "method": "GET",
       "registrations": [
@@ -6403,6 +9316,27 @@
     },
     {
       "listener": "public",
+      "path": "/news/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/news.rs:129",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/oauth/authorize",
       "method": "GET",
       "registrations": [
@@ -6411,6 +9345,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/oauth/authorize",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/gameauth/src/oauth/oauth_http.rs:40",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6461,6 +9409,27 @@
     },
     {
       "listener": "public",
+      "path": "/online",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/online.rs:72",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pages/{slug}",
       "method": "GET",
       "registrations": [
@@ -6474,6 +9443,20 @@
     },
     {
       "listener": "public",
+      "path": "/pages/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/password/change",
       "method": "GET",
       "registrations": [
@@ -6482,6 +9465,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/password/change",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:103",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6526,6 +9523,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/surface.rs:39",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/",
       "method": "GET",
       "registrations": [
@@ -6539,6 +9550,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/surface.rs:41",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/account/badges",
       "method": "GET",
       "registrations": [
@@ -6547,6 +9572,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/badges",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:475",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6578,6 +9617,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/account/characters/{name}/achievements",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/account/characters/{name}/equipment",
       "method": "GET",
       "registrations": [
@@ -6586,6 +9639,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/characters/{name}/equipment",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6604,6 +9671,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/account/characters/{name}/outfit",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:75",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/account/characters/{name}/profile",
       "method": "GET",
       "registrations": [
@@ -6612,6 +9693,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/characters/{name}/profile",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:477",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6630,6 +9725,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/account/game-logins",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/logins/web.rs:48",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/account/privacy/export",
       "method": "GET",
       "registrations": [
@@ -6638,6 +9747,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/privacy/export",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/export.rs:217",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6670,6 +9793,20 @@
     {
       "listener": "public",
       "path": "/pl/account/recovery-key",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:40",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/recovery-key",
       "method": "POST",
       "registrations": [
         {
@@ -6690,6 +9827,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/recovery-key/confirm",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:44",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6734,6 +9885,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/account/security",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:108",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/account/security/email",
       "method": "GET",
       "registrations": [
@@ -6742,6 +9907,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/security/email",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:46",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6781,6 +9960,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/sessions",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:39",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6852,6 +10045,20 @@
     {
       "listener": "public",
       "path": "/pl/account/sudo",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:107",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/account/sudo",
       "method": "POST",
       "registrations": [
         {
@@ -6877,6 +10084,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/characters/{name}/deaths",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/deaths/web.rs:79",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/characters/{name}/skills",
       "method": "GET",
       "registrations": [
@@ -6885,6 +10106,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/characters/{name}/skills",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/families/web.rs:73",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6903,6 +10138,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/deaths",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/deaths/web.rs:76",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/email-change/confirm/{token}",
       "method": "GET",
       "registrations": [
@@ -6911,6 +10160,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/email-change/confirm/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:50",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6937,6 +10200,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/email-change/revert/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:54",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6963,6 +10240,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/forgot-password",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:50",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -6994,6 +10285,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/guilds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/guilds_pages.rs:65",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/guilds/{name}",
       "method": "GET",
       "registrations": [
@@ -7002,6 +10307,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/guilds/{name}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/guilds_pages.rs:66",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7020,6 +10339,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/help",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/houses",
       "method": "GET",
       "registrations": [
@@ -7028,6 +10361,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/houses",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/houses.rs:114",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7046,6 +10393,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/houses/{key}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/houses.rs:115",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/legal/cookies",
       "method": "GET",
       "registrations": [
@@ -7054,6 +10415,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/legal/cookies",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7072,6 +10447,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/legal/privacy",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/legal/terms",
       "method": "GET",
       "registrations": [
@@ -7085,6 +10474,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/legal/terms",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/login",
       "method": "GET",
       "registrations": [
@@ -7093,6 +10496,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/login",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/login_http.rs:44",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7137,6 +10554,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/mfa",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:74",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/mfa/challenge",
       "method": "GET",
       "registrations": [
@@ -7145,6 +10576,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/mfa/challenge",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:69",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7229,6 +10674,20 @@
     {
       "listener": "public",
       "path": "/pl/mfa/login",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:68",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/mfa/login",
       "method": "POST",
       "registrations": [
         {
@@ -7254,6 +10713,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/online",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/online.rs:73",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/pages/{slug}",
       "method": "GET",
       "registrations": [
@@ -7267,6 +10740,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/pages/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:78",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/password/change",
       "method": "GET",
       "registrations": [
@@ -7275,6 +10762,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/password/change",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:103",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7320,6 +10821,20 @@
     {
       "listener": "public",
       "path": "/pl/recovery-key",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:39",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/recovery-key",
       "method": "POST",
       "registrations": [
         {
@@ -7340,6 +10855,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/register",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/register.rs:23",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7384,6 +10913,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/register/check-inbox",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/register.rs:26",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/reset-password",
       "method": "GET",
       "registrations": [
@@ -7392,6 +10935,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/reset-password",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:54",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7423,6 +10980,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/reset-password/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:58",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/rules",
       "method": "GET",
       "registrations": [
@@ -7431,6 +11002,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/rules",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7449,6 +11034,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/search",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/search.rs:76",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/server-information",
       "method": "GET",
       "registrations": [
@@ -7457,6 +11056,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/server-information",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7475,6 +11088,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/stats/guilds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/guilds/http.rs:26",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/stats/world",
       "method": "GET",
       "registrations": [
@@ -7483,6 +11110,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/stats/world",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/world/http.rs:38",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7501,6 +11142,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/support",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/support/report-a-bug",
       "method": "GET",
       "registrations": [
@@ -7514,6 +11169,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/support/report-a-bug",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/pages.rs:89",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/verify-email",
       "method": "GET",
       "registrations": [
@@ -7522,6 +11191,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/verify-email",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/verify.rs:22",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7548,6 +11231,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/pl/verify-email/resend",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/verify.rs:25",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7579,6 +11276,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/wiki/calculators",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/calculators/web.rs:41",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/pl/worlds",
       "method": "GET",
       "registrations": [
@@ -7592,6 +11303,20 @@
     },
     {
       "listener": "public",
+      "path": "/pl/worlds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/worlds.rs:54",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/readyz",
       "method": "GET",
       "registrations": [
@@ -7600,6 +11325,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/readyz",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:326",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7619,6 +11358,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/recovery-key",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:39",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7651,6 +11411,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/register",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/routes/register.rs:22",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7682,6 +11463,20 @@
     },
     {
       "listener": "public",
+      "path": "/register/abuse.js",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/abuse/http.rs:20",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/register/abuse/challenge",
       "method": "POST",
       "registrations": [
@@ -7708,6 +11503,20 @@
     },
     {
       "listener": "public",
+      "path": "/register/check-inbox",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/register.rs:25",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/reset-password",
       "method": "GET",
       "registrations": [
@@ -7716,6 +11525,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/reset-password",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/reset_http.rs:47",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7747,6 +11570,20 @@
     },
     {
       "listener": "public",
+      "path": "/reset-password/{token}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/robots.txt",
       "method": "GET",
       "registrations": [
@@ -7755,6 +11592,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/robots.txt",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/seo.rs:142",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7773,6 +11624,20 @@
     },
     {
       "listener": "public",
+      "path": "/rules",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/search",
       "method": "GET",
       "registrations": [
@@ -7781,6 +11646,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/search",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/search.rs:75",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7799,6 +11678,20 @@
     },
     {
       "listener": "public",
+      "path": "/server-information",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/servers",
       "method": "GET",
       "registrations": [
@@ -7807,6 +11700,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/servers",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7825,6 +11732,20 @@
     },
     {
       "listener": "public",
+      "path": "/sitemap.xml",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/seo.rs:151",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/static/playerdata/hunts.css",
       "method": "GET",
       "registrations": [
@@ -7833,6 +11754,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/static/playerdata/hunts.css",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/hunts_web.rs:58",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7877,6 +11812,20 @@
     },
     {
       "listener": "public",
+      "path": "/stats/guilds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/guilds/http.rs:25",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/stats/world",
       "method": "GET",
       "registrations": [
@@ -7885,6 +11834,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/stats/world",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/world/http.rs:37",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7903,6 +11866,20 @@
     },
     {
       "listener": "public",
+      "path": "/support",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/support/report-a-bug",
       "method": "GET",
       "registrations": [
@@ -7911,6 +11888,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/support/report-a-bug",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7935,6 +11926,27 @@
     },
     {
       "listener": "public",
+      "path": "/today",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/today.rs:228",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/today/data",
       "method": "GET",
       "registrations": [
@@ -7943,6 +11955,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/today/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/today/http.rs:141",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7961,6 +11987,20 @@
     },
     {
       "listener": "public",
+      "path": "/today/widget",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/today/http.rs:143",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/updates/{channel}/metadata/{filename}",
       "method": "GET",
       "registrations": [
@@ -7969,6 +12009,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/updates/{channel}/metadata/{filename}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/downloads/src/http.rs:18",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -7987,6 +12041,20 @@
     },
     {
       "listener": "public",
+      "path": "/updates/{channel}/policy-v1.json",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/downloads/src/http.rs:19",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/updates/{channel}/targets/{*target}",
       "method": "GET",
       "registrations": [
@@ -8000,6 +12068,20 @@
     },
     {
       "listener": "public",
+      "path": "/updates/{channel}/targets/{*target}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/downloads/src/http.rs:20",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/verify-email",
       "method": "GET",
       "registrations": [
@@ -8008,6 +12090,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/verify-email",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/verify.rs:21",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8034,6 +12130,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/verify-email/resend",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/routes/verify.rs:24",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8071,6 +12181,27 @@
     },
     {
       "listener": "public",
+      "path": "/wiki",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/wiki/src/web.rs:37",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/wiki/articles/{slug}",
       "method": "GET",
       "registrations": [
@@ -8079,6 +12210,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/wiki/articles/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:39",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8097,6 +12242,20 @@
     },
     {
       "listener": "public",
+      "path": "/wiki/creatures",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/wiki/creatures/{slug}",
       "method": "GET",
       "registrations": [
@@ -8105,6 +12264,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/wiki/creatures/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8123,6 +12296,20 @@
     },
     {
       "listener": "public",
+      "path": "/wiki/items",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/wiki/items/{slug}",
       "method": "GET",
       "registrations": [
@@ -8131,6 +12318,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/wiki/items/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8155,6 +12356,27 @@
     },
     {
       "listener": "public",
+      "path": "/wiki/search",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/wiki/src/web.rs:38",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/wiki/{kind}",
       "method": "GET",
       "registrations": [
@@ -8163,6 +12385,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/wiki/{kind}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/entities.rs:120",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8181,6 +12417,20 @@
     },
     {
       "listener": "public",
+      "path": "/wiki/{kind}/{key}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/entities.rs:121",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/wiki/{slug}",
       "method": "GET",
       "registrations": [
@@ -8189,6 +12439,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/wiki/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/redirects.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8207,6 +12471,20 @@
     },
     {
       "listener": "public",
+      "path": "/worlds",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/worlds.rs:53",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{language}/account/dashboard",
       "method": "GET",
       "registrations": [
@@ -8215,6 +12493,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{language}/account/dashboard",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/dashboard/mod.rs:214",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8233,6 +12525,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/account/bazaar",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:99",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/account/bazaar/sell",
       "method": "GET",
       "registrations": [
@@ -8241,6 +12547,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/bazaar/sell",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:101",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8286,6 +12606,20 @@
     {
       "listener": "public",
       "path": "/{lang}/account/bazaar/{listing}/promote",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/moderation_web.rs:90",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/bazaar/{listing}/promote",
       "method": "POST",
       "registrations": [
         {
@@ -8312,6 +12646,20 @@
     {
       "listener": "public",
       "path": "/{lang}/account/bazaar/{listing}/report",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/moderation_web.rs:86",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/bazaar/{listing}/report",
       "method": "POST",
       "registrations": [
         {
@@ -8332,6 +12680,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/characters/new",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/characters/src/create_web/http.rs:88",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8363,6 +12725,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/account/characters/requests/{operation}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/characters/src/create_web/http.rs:92",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/account/characters/suggest",
       "method": "GET",
       "registrations": [
@@ -8376,6 +12752,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/account/characters/suggest",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/characters/src/create_web/http.rs:96",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/account/characters/{character}/services",
       "method": "GET",
       "registrations": [
@@ -8384,6 +12774,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/characters/{character}/services",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:482",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8410,6 +12814,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/consents",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/web/src/lib.rs:331",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8441,6 +12859,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/account/hunts",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/hunts_web.rs:35",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/account/hunts/compare",
       "method": "GET",
       "registrations": [
@@ -8449,6 +12881,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/hunts/compare",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/hunts_web.rs:36",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8467,6 +12913,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/account/hunts/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/hunts_web.rs:37",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/account/hunts/{id}/share",
       "method": "GET",
       "registrations": [
@@ -8475,6 +12935,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/hunts/{id}/share",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/hunts_web.rs:38",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8501,6 +12975,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/notifications",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/account_lifecycle_http.rs:150",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8527,6 +13015,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/passkeys",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/passkeys_http.rs:35",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8611,6 +13113,20 @@
     {
       "listener": "public",
       "path": "/{lang}/account/privacy",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/privacy_web.rs:36",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/privacy",
       "method": "POST",
       "registrations": [
         {
@@ -8644,6 +13160,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/privacy/delete",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/account_lifecycle_http.rs:137",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8689,6 +13219,20 @@
     {
       "listener": "public",
       "path": "/{lang}/account/referrals",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/referrals/web.rs:137",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/account/referrals",
       "method": "POST",
       "registrations": [
         {
@@ -8714,6 +13258,72 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/account/security/wizard",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/security_wizard.rs:161",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/admin/store/codes",
+      "method": "GET",
+      "registrations": [
+        {
+          "source": "bin/oteryn-portal/src/code_routes.rs:126",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "store.codes.generate"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/admin/store/codes",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "bin/oteryn-portal/src/code_routes.rs:126",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "store.codes.generate"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/admin/store/codes",
+      "method": "POST",
+      "registrations": [
+        {
+          "source": "bin/oteryn-portal/src/code_routes.rs:126",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "store.codes.generate"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/admin/support/tickets",
       "method": "GET",
       "registrations": [
@@ -8731,6 +13341,24 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/admin/support/tickets",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/tickets/web.rs:127",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.tickets.manage"
+            ]
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/admin/support/tickets/{id}",
       "method": "GET",
       "registrations": [
@@ -8743,6 +13371,24 @@
               "support.tickets.manage"
             ]
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/admin/support/tickets/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/tickets/web.rs:128",
+          "guard": {
+            "kind": "staff",
+            "all": [
+              "admin.access",
+              "support.tickets.manage"
+            ]
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8812,6 +13458,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/announcements/ticker",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/today.rs:231",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/atlas",
       "method": "GET",
       "registrations": [
@@ -8820,6 +13480,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/atlas",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/web.rs:47",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8842,6 +13516,24 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/atlas/bestiary/{character}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/bestiary/web.rs:72",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET",
+          "refusal": {
+            "status": 401,
+            "source": "crates/atlas/src/bestiary/web.rs:106"
+          }
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/atlas/delivery",
       "method": "GET",
       "registrations": [
@@ -8850,6 +13542,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/atlas/delivery",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/atlas/src/delivery/http.rs:32",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8874,6 +13580,27 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/atlas/places",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/places/http.rs:36",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/playerdata/src/places/http.rs:48",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/atlas/places/participation",
       "method": "GET",
       "registrations": [
@@ -8888,6 +13615,27 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/atlas/places/participation",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/places/http.rs:40",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/playerdata/src/places/http.rs:49",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8925,6 +13673,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/bazaar",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:98",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/bazaar/sellers/{seller}",
       "method": "GET",
       "registrations": [
@@ -8933,6 +13695,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/bazaar/sellers/{seller}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/moderation_web.rs:85",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8951,6 +13727,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/bazaar/{listing}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:100",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/characters",
       "method": "GET",
       "registrations": [
@@ -8959,6 +13749,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/characters",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/profiles.rs:70",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -8977,6 +13781,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/characters/{name}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/profiles.rs:71",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/collection",
       "method": "GET",
       "registrations": [
@@ -8990,6 +13808,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/collection",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:83",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/collection-pvp",
       "method": "GET",
       "registrations": [
@@ -8998,6 +13830,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/collection-pvp",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/collection_pvp/http.rs:43",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9024,6 +13870,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/collection/battles/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:91",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9094,6 +13954,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/collection/{character}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:84",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/collection/{character}/cards/{id}/image",
       "method": "GET",
       "registrations": [
@@ -9102,6 +13976,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/collection/{character}/cards/{id}/image",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:86",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9133,6 +14021,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/league",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/league/web.rs:166",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/news",
       "method": "GET",
       "registrations": [
@@ -9141,6 +14043,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/news",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/news.rs:130",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9159,6 +14075,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/news/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/news.rs:131",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/panel/hirelings",
       "method": "GET",
       "registrations": [
@@ -9167,6 +14097,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/panel/hirelings",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/hirelings/src/web.rs:20",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9185,6 +14129,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/panel/history/{world}/{family}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/items/web.rs:110",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/panel/history/{world}/{family}/{character}",
       "method": "GET",
       "registrations": [
@@ -9193,6 +14151,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/panel/history/{world}/{family}/{character}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/items/web.rs:111",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9211,6 +14183,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/panel/items/{world}/{character}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/items/web.rs:106",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/panel/payments",
       "method": "GET",
       "registrations": [
@@ -9219,6 +14205,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/panel/payments",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/payments/src/account.rs:40",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9237,6 +14237,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/panel/payments/receipts/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/payments/src/account.rs:41",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/panel/premium",
       "method": "GET",
       "registrations": [
@@ -9250,6 +14264,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/panel/premium",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/payments/src/account.rs:39",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/party",
       "method": "GET",
       "registrations": [
@@ -9258,6 +14286,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/party",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/party.rs:288",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9315,6 +14357,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/pass",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/pass/web.rs:115",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/pass/{season}/buy",
       "method": "POST",
       "registrations": [
@@ -9354,6 +14410,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/puzzles",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/puzzles/http.rs:34",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/puzzles/{id}/answer",
       "method": "POST",
       "registrations": [
@@ -9380,6 +14450,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/puzzles/{id}/image",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/minigames/src/puzzles/http.rs:36",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/rankings/{kind}",
       "method": "GET",
       "registrations": [
@@ -9393,6 +14477,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/rankings/{kind}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/rankings.rs:72",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/referrals/{code}",
       "method": "GET",
       "registrations": [
@@ -9401,6 +14499,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/referrals/{code}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/referrals/web.rs:138",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9433,12 +14545,39 @@
     {
       "listener": "public",
       "path": "/{lang}/shop",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/store/src/web.rs:146",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/shop",
       "method": "POST",
       "registrations": [
         {
           "source": "crates/store/src/web.rs:146",
           "guard": {
             "kind": "anonymous"
+          }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/shop/codes/redeem",
+      "method": "POST",
+      "registrations": [
+        {
+          "source": "bin/oteryn-portal/src/code_routes.rs:137",
+          "guard": {
+            "kind": "logged-in"
           }
         }
       ]
@@ -9453,6 +14592,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/shop/coins",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/store/src/web.rs:147",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9484,6 +14637,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/shop/history",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/store/src/web.rs:148",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/shop/test-checkout/{intent}",
       "method": "GET",
       "registrations": [
@@ -9492,6 +14659,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/shop/test-checkout/{intent}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/store/src/web.rs:140",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9518,6 +14699,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/shop/transfer",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/store/src/web.rs:149",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9549,6 +14744,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/stats/characters/{id}/{tab}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/character/http.rs:29",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/stats/compare",
       "method": "GET",
       "registrations": [
@@ -9557,6 +14766,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/stats/compare",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/character/http.rs:30",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9575,6 +14798,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/stats/rankings/{kind}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/stats/src/rankings_http.rs:29",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/support/reports",
       "method": "GET",
       "registrations": [
@@ -9583,6 +14820,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/support/reports",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/reports/web.rs:27",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9614,6 +14865,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/support/reports/create",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/reports/web.rs:28",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/support/reports/{id}",
       "method": "GET",
       "registrations": [
@@ -9627,6 +14892,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/support/reports/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/reports/web.rs:29",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/support/tickets",
       "method": "GET",
       "registrations": [
@@ -9635,6 +14914,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/support/tickets",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/tickets/web.rs:99",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9666,6 +14959,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/support/tickets/create",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/tickets/web.rs:100",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/support/tickets/{id}",
       "method": "GET",
       "registrations": [
@@ -9674,6 +14981,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/support/tickets/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/support/src/tickets/web.rs:101",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9744,6 +15065,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/today",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/today.rs:229",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/today/data",
       "method": "GET",
       "registrations": [
@@ -9752,6 +15087,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/today/data",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/today/http.rs:142",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9770,6 +15119,20 @@
     },
     {
       "listener": "public",
+      "path": "/{lang}/today/widget",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/community/src/today/http.rs:144",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{lang}/unsubscribe",
       "method": "GET",
       "registrations": [
@@ -9778,6 +15141,20 @@
           "guard": {
             "kind": "signed-link"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{lang}/unsubscribe",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/identity/src/account_lifecycle_http.rs:151",
+          "guard": {
+            "kind": "signed-link"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9815,6 +15192,27 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/account/bazaar",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:132",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:193",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/account/bazaar/sell",
       "method": "GET",
       "registrations": [
@@ -9829,6 +15227,27 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/account/bazaar/sell",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:132",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:194",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9886,6 +15305,20 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/account/journal/reports",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/reports/http.rs:230",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/account/journal/reports/email",
       "method": "POST",
       "registrations": [
@@ -9907,6 +15340,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/account/journal/reports/notes",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/reports/http.rs:231",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9938,6 +15385,20 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/account/journal/reports/notes/export",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/reports/http.rs:235",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/account/journal/{character}/deaths",
       "method": "GET",
       "registrations": [
@@ -9946,6 +15407,20 @@
           "guard": {
             "kind": "logged-in"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/account/journal/{character}/deaths",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/playerdata/src/deaths/http.rs:125",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9965,6 +15440,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/bazaar",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:132",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:191",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -9990,6 +15486,34 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/bazaar/items",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:192",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/items/web.rs:73",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/items/web.rs:96",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -10039,6 +15563,34 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/bazaar/items/new",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:195",
+          "guard": {
+            "kind": "logged-in"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/items/web.rs:74",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/items/web.rs:100",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/bazaar/items/{id}",
       "method": "GET",
       "registrations": [
@@ -10053,6 +15605,27 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/bazaar/items/{id}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/items/web.rs:75",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/items/web.rs:101",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -10090,6 +15663,20 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/bazaar/items/{listing}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:197",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/bazaar/{listing}",
       "method": "GET",
       "registrations": [
@@ -10109,6 +15696,27 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/bazaar/{listing}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:142",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        },
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:196",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/events",
       "method": "GET",
       "registrations": [
@@ -10117,6 +15725,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/events",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/events/web.rs:41",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -10135,6 +15757,20 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/events/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/content/src/events/web.rs:42",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/wiki",
       "method": "GET",
       "registrations": [
@@ -10143,6 +15779,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/wiki",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:40",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -10161,6 +15811,20 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/wiki/articles/{slug}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:42",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/wiki/places",
       "method": "GET",
       "registrations": [
@@ -10169,6 +15833,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/wiki/places",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/places/mod.rs:63",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     },
@@ -10187,6 +15865,20 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/wiki/search",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/web.rs:41",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/wiki/{kind}",
       "method": "GET",
       "registrations": [
@@ -10200,6 +15892,20 @@
     },
     {
       "listener": "public",
+      "path": "/{locale}/wiki/{kind}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/entities.rs:122",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
+        }
+      ]
+    },
+    {
+      "listener": "public",
       "path": "/{locale}/wiki/{kind}/{key}",
       "method": "GET",
       "registrations": [
@@ -10208,6 +15914,20 @@
           "guard": {
             "kind": "anonymous"
           }
+        }
+      ]
+    },
+    {
+      "listener": "public",
+      "path": "/{locale}/wiki/{kind}/{key}",
+      "method": "HEAD",
+      "registrations": [
+        {
+          "source": "crates/wiki/src/entities.rs:123",
+          "guard": {
+            "kind": "anonymous"
+          },
+          "implicitFrom": "GET"
         }
       ]
     }

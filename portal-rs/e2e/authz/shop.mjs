@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -68,6 +69,7 @@ export async function exerciseShop(request, locale, token, accountId, restricted
       });
       try {
         expect(response.status(), source).toBe(status);
+        if (method === 'GET') await mirrorHead(request, path, url, response);
         if (before) await verifyRefusal(before);
         if (!allowed && !accountId) expect(response.headers().location).toBe(`/${locale}/login`);
         if (allowed && path.endsWith('/coins')) {

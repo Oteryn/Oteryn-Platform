@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -40,7 +41,7 @@ export async function exerciseCollection(request, locale, token, accountId, rout
     const id = path.includes('/decks/{id}') ? deck : path.includes('/battles/{id}') ? battle : fixture;
     const target = path.replace('{lang}', locale).replace('{character}', character).replace('{id}', id);
     await test.step(`${method} ${path}`, async () => {
-      const before = form && !accountId ? await snapshot() : null;
+      const before = form && (!accountId || !cleanup) ? await snapshot() : null;
       const response = await request.fetch(target, {
         method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
         ...(form && { form: { ...form, _csrf: token } }),
@@ -50,6 +51,7 @@ export async function exerciseCollection(request, locale, token, accountId, rout
         const source = accountId && !cleanup ? 'crates/minigames/src/collection/http.rs:120'
           : 'crates/minigames/src/collection/http.rs:145';
         expect(response.status(), source).toBe(accountId && !cleanup ? 503 : 303);
+        if (method === 'GET') await mirrorHead(request, path, target, response);
         if (before) await verifyRefusal(before);
         if (!accountId) expect(response.headers().location).toBe(`/${locale}/login`);
         if (accountId && cleanup === 'battle') {

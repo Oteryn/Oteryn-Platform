@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { expect } from '@playwright/test';
@@ -17,7 +18,7 @@ export function privateDatabase(reportPath, report) {
 }
 
 export function database(db = pool()) {
-  async function snapshot(sessionHash) {
+  async function snapshot(sessionHash, rateCharge) {
     const client = await db.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -38,7 +39,12 @@ export function database(db = pool()) {
                encode(sha256(convert_to((to_jsonb(t) - ARRAY['last_activity', 'updated_at'])::text, 'UTF8')), 'hex') AS stable
         FROM public.referral_activity t WHERE account_id = $1
       `, [session.account_id]) : { rows: [] };
-      const nonAuditTables = tables.filter(({ schema, name }) => schema !== 'public' || name !== 'audit_log');
+      const { rows: rates } = rateCharge ? await client.query(`
+        SELECT limiter_name,encode(key_hash,'hex') AS key,window_start::text AS window,count::int
+        FROM public.web_rate_limits
+      `) : { rows: [] };
+      const nonAuditTables = tables.filter(({ schema, name }) => schema !== 'public'
+        || (name !== 'audit_log' && (!rateCharge || name !== 'web_rate_limits')));
       const values = [];
       const parameter = value => '$' + values.push(value);
       const statements = nonAuditTables.map(({ schema, name }) => {
@@ -70,7 +76,7 @@ export function database(db = pool()) {
       `);
       const audit = new Map(auditRows.map(({ id, action, digest }) => [id, { action, digest }]));
       await client.query('COMMIT');
-      return { state, audit, session, activity };
+      return { state, audit, session, activity, rates, rateCharge };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -82,7 +88,33 @@ export function database(db = pool()) {
   return { snapshot, close: () => db.end() };
 }
 
+export function rateKey(...parts) {
+  const hash = createHash('sha256');
+  for (const part of parts) {
+    const length = Buffer.alloc(8);
+    length.writeBigUInt64BE(BigInt(Buffer.byteLength(part)));
+    hash.update(length).update(part);
+  }
+  return hash.digest('hex');
+}
+
+function assertRateCharge(before, after) {
+  expect(after.rateCharge).toEqual(before.rateCharge);
+  const index = rows => new Map(rows.map(({ limiter_name, key, window, count }) =>
+    [JSON.stringify([limiter_name, key, window]), count]));
+  const original = index(before.rates);
+  const current = index(after.rates);
+  const changed = [...new Set([...original.keys(), ...current.keys()])]
+    .filter(key => current.get(key) !== original.get(key));
+  expect(changed.length, 'exactly one rate-limit bucket changed').toBe(1);
+  const [policy, key] = JSON.parse(changed[0]);
+  expect(policy).toBe(before.rateCharge.policy);
+  expect(key === before.rateCharge.key, 'charged bucket belongs to the expected actor').toBe(true);
+  expect(current.get(changed[0])).toBe((original.get(changed[0]) ?? 0) + 1);
+}
+
 export function assertRefusalState(before, after, denialActions = []) {
+  if (before.rateCharge || after.rateCharge) assertRateCharge(before, after);
   if (JSON.stringify(before.activity) !== JSON.stringify(after.activity)) {
     expect(Boolean(after.activity && after.session && before.session), 'referral write has a tracked session')
       .toBe(true);

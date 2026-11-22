@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
@@ -48,6 +49,7 @@ export async function exerciseEditorial(request, locale, definition, publicRoute
           expect(response.status(), `${method} ${pattern} (${route.registrations[0].source})`)
             .toBe(allowed ? status : anonymous ? 303 : 403);
           if (anonymous) expect(response.headers().location).toBe('/login');
+          if (method === 'GET') await mirrorHead(request, pattern, target, response);
           if (before) assertRefusalState(before, await db.snapshot(sessionHash),
             definition.role ? ['admin.access.denied'] : []);
         } finally {

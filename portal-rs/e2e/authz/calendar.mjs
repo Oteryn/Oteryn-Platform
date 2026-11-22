@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
@@ -36,6 +37,7 @@ export async function exerciseCalendar(request, token, definition, routes, snaps
       });
       try {
         expect(response.status(), source).toBe(allowed ? form ? 303 : 200 : anonymous ? 303 : 403);
+        if (method === 'GET') await mirrorHead(request, pattern, target, response);
         if (anonymous) expect(response.headers().location).toBe('/login');
         if (before) await verifyRefusal(before, definition.role ? ['admin.access.denied'] : []);
         return allowed;
@@ -129,6 +131,7 @@ export async function exercisePublishedContent(request, locale, routes) {
       const response = await request.get(target, { maxRedirects: 0 });
       try {
         expect(response.status(), source).toBe(200);
+        await mirrorHead(request, path, target, response);
         expect((await response.text()).includes(title), 'published fixture rendered').toBe(true);
       } finally {
         await response.dispose();

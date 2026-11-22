@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 
 const id = '019a541b-a000-7000-8000-000000000001';
@@ -41,6 +42,7 @@ export async function exerciseUnavailableAuthorities(request, locale, anonymous,
       const response = await request.fetch(url, { method, headers: { 'x-csrf-token': token }, maxRedirects: 0 });
       try {
         expect(response.status(), refusal?.source ?? path).toBe(expected);
+        if (method === 'GET') await mirrorHead(request, path, url, response);
         if (listener === 'native') {
           expect(await response.json()).toEqual({ error: 'device_authorization_unavailable' });
         }
@@ -65,6 +67,7 @@ export async function exerciseProtocol(request, token, routes, snapshot, verifyR
       });
       try {
         expect(response.status(), refusal?.source ?? fixture.source).toBe(refusal?.status ?? fixture.status);
+        if (method === 'GET') await mirrorHead(request, path, path.replace('{request_id}', id), response);
         if (fixture.bearerChallenge) expect(response.headers()['www-authenticate']).toBe('Bearer');
         if (before) await verifyRefusal(before);
       } finally {

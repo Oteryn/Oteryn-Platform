@@ -28,13 +28,6 @@
     "reason": "Runtime authorization uses this router as an in-process probe. There is no HTTP listener for this registration."
   },
   {
-    "listener": "public",
-    "method": "GET",
-    "path": "/wiki/{slug}",
-    "source": "crates/wiki/src/entities.rs:120",
-    "reason": "The portal unconditionally mounts the concrete /wiki/{kind} entity route before falling back to the legacy redirect table. The identical path shape prevents the legacy article redirect from dispatching."
-  },
-  {
     "listener": "native",
     "method": "POST",
     "path": "/api/v1/game-auth/device-sessions",
@@ -376,20 +369,6 @@
     "path": "/{lang}/account/bazaar/{listing}/bids",
     "source": "bin/oteryn-portal/src/main.rs:225",
     "reason": "The generic Character Market router is outside both executable portal branches. The game runtime and authority-unavailable routers register their own locale paths."
-  },
-  {
-    "listener": "public",
-    "method": "POST",
-    "path": "/{locale}/account/bazaar/sell",
-    "source": "crates/bazaar/src/game/runtime/browser.rs:564",
-    "reason": "The browser runtime requires current signed custody and an accepted Game character cut to create the listing. The browser middleware persists a budget charge before invoking the authority check, so a refused request without that local prerequisite changes a non-exempt table."
-  },
-  {
-    "listener": "public",
-    "method": "POST",
-    "path": "/{locale}/account/bazaar/{listing}/bids",
-    "source": "crates/bazaar/src/game/runtime/browser.rs:564",
-    "reason": "The browser runtime requires an active listing with Game escrow evidence and an admissible buyer-character cut. The browser middleware persists a budget charge before invoking the authority check, so a refused request without that local prerequisite changes a non-exempt table."
   },
   {
     "listener": "public",

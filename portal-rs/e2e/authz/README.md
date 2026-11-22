@@ -1,9 +1,9 @@
 # Authorization matrix
 
 Regenerate the route inventory with `python3 authz/generate.py` from
-`portal-rs/e2e`. Use `--check` to verify the committed output. The inventory
-records the route-registration source for each listener, URL pattern and HTTP
-method. The actor definitions use permission defaults from the Rust RBAC catalog.
+`portal-rs/e2e`. Use `--check` to verify both the committed output and the fixture/limitation ledger.
+The inventory includes composition in `bin/oteryn-portal`, implicit Axum HEAD
+dispatch, and distinct configured and unavailable native checkout guards. The actor definitions use permission defaults from the Rust RBAC catalog.
 
 ## Database assertions
 
@@ -24,6 +24,10 @@ It has two narrowly scoped bookkeeping exclusions.
   row identity and other columns remain strict. All other accounts' rows stay
   in the fingerprint.
   [Session activity trigger](../../migrations/20261118130101_fb_referral_activity_flag.sql#L58)
+- Charged refusals for Bazaar sell/bid and store-code redemption assert the exact
+  limiter name and actor bucket. Exactly one counter increases by one. Every
+  other counter and business table stays in the comparison.
+  [Shared rate-limit policies](../../crates/web/src/ratelimit.rs#L78)
 
 Run the browser and private harnesses on separate disposable local databases
 with distinct listener ports. Once the browser launcher reports readiness,
@@ -66,7 +70,7 @@ The command exercises all four projects. The narrower configs run public and
 private listener checks (`playwright.config.mjs`), protected reads and editorial
 workflows (`protected.config.mjs`), account sessions, support and content
 (`sessions.config.mjs`), wiki editorial workflows (`wiki.config.mjs`), browser
-credentials (`credentials.config.mjs`), and termination
+credentials (`credentials.config.mjs`), store codes (`store-codes.config.mjs`), and termination
 (`termination.config.mjs`). Use
 separate disposable databases for concurrent project runs because refusal
 comparisons include every application table in the database.
@@ -77,20 +81,40 @@ marketplace integrations, start another disposable browser profile with
 `authz/checkout-unavailable.config.mjs` against that profile in all four
 projects.
 
+## Bazaar authorization with signed custody
+
+Run `authz/bazaar.config.mjs` on a **separate** disposable `local.mjs` profile
+with its real Game producers and worker active. The test seeds a signed
+destination and custody through the producer, then waits for the real listing
+to become active. During a refused request it suspends only the launcher and
+its matching worker, uses the direct native HTTPS listener, and resumes both
+processes in teardown. This keeps producer watermarks and worker effects
+outside the strict comparison.
+
+Start the browser launcher with a known scratch path and a direct native TLS
+listener on an unused port. Point `OTERYN_NATIVE_TLS_CERT_FILE` and
+`OTERYN_NATIVE_TLS_KEY_FILE` at the `cert.pem` and `key.pem` that the launcher
+creates in that directory. For the test invocation, set
+`PORTAL_E2E_AUTHZ_BAZAAR_LAUNCHER_PID` to that launcher PID and
+`PORTAL_E2E_BROWSER_NATIVE_ORIGIN` to its loopback HTTPS origin. The browser
+origin and direct listener use the same hostname and different ports.
+
 ## Executable coverage
 
-The inventory records 672 listener/path/method entries. The executable matrix
-covers 613 of these entries for each of the 19 actors, for 11,647 cells per
-project. The fixtures expect 7,538 allowed and 4,109 refused cells. The
-browser cases cover public reads, staff reads and mutations, player support,
-sessions and recovery keys, and the missing signatures on both payment
-webhooks. The isolated private listener covers Bazaar, account closure, and
-league mTLS. Set `PORTAL_E2E_BROWSER_PRIVATE_ORIGIN` when using another private
-port. The mTLS scope assignment and revocation probes also present a CA-valid certificate
-assigned to a different route identity and expects HTTP refusal. The native
-admission listener checks its service token independently.
+The inventory contains 1,036 listener, path, and method entries. Public browser
+cases use 19 actors. Explicit HEAD requests check the same authorization
+outcome as GET and assert an empty body. The fallback profile separately
+exercises all nine standard methods on the unavailable checkout registration,
+including GET and POST.
 
-[Local limitations](local-limitations.json) records the other 59 entries.
-Each entry identifies its source and the condition preventing a local matrix
-case, including pre-authorization writes that conflict with the strict
-refusal invariant.
+The transport handshake is checked once on each private listener per project.
+The HTTP probes present CA-valid peers and check exact route outcomes.
+[Private HTTP expectations](private-http.json) identifies routes that reject
+the wrong peer and routes whose authority configuration is unavailable in the
+standard private profile. The browser-backed private listener checks Bazaar,
+account closure and League separately. The native admission listener checks
+its service token in the actor runs.
+
+[Local limitations](local-limitations.json) records source-backed exceptions.
+Implicit HEAD inherits a local limitation only when its GET handler is
+unavailable under the same registration.

@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
 const pattern = '/native-account/coin-checkout/{order_id}';
-export const nativeCheckoutRoutes = [['GET', pattern], ['POST', pattern]];
+export const nativeCheckoutRoutes = [['GET', pattern], ['HEAD', pattern], ['POST', pattern]];
 
-async function closedOrder(owner) {
+export async function closedOrder(owner) {
   const [row] = await query(`
     WITH quote AS (
       INSERT INTO coin_purchase_quotes
@@ -22,14 +22,14 @@ async function closedOrder(owner) {
   return row.id;
 }
 
-export async function exerciseNativeCheckout(request, token, accountId, routes, snapshot, verifyRefusal) {
+export async function exerciseNativeCheckout(request, locale, token, accountId, routes, snapshot, verifyRefusal) {
   const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
   const [{ id: escrow }] = await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'");
   const foreign = await closedOrder(escrow);
   const owned = accountId ? await closedOrder(accountId) : foreign;
   for (const [method, routePath] of nativeCheckoutRoutes) {
     const route = routes.find(r => r.listener === 'public' && r.method === method && r.path === routePath);
-    const { guard, source } = route.registrations[0];
+    const { guard, source } = route.registrations.find(row => row.profile === 'configured');
     expect(guard.kind).toBe('logged-in');
     for (const [order, ownership] of accountId ? [[owned, true], [foreign, false]] : [[foreign, false]]) {
       await test.step(`${method} ${routePath}${accountId && !ownership ? ' as nonowner' : ''}`, async () => {
@@ -41,9 +41,16 @@ export async function exerciseNativeCheckout(request, token, accountId, routes, 
           ...(method === 'POST' && { form: { action: 'fail' } }),
         });
         try {
-          const status = accountId ? ownership ? method === 'GET' ? 200 : 303 : 404 : 303;
+          const status = accountId ? ownership ? method === 'POST' ? 303 : 200 : 404 : 303;
           expect(response.status(), source).toBe(status);
-          if (!accountId) expect(response.headers().location).toBe('/pl/login');
+          if (!accountId) expect(response.headers().location).toBe(`/${locale}/login`);
+          if (method === 'HEAD') expect((await response.body()).length).toBe(0);
+          if (ownership && method === 'GET') {
+            const html = await response.text();
+            expect(/<html\b[^>]*\blang="(pl|en)"/.exec(html)?.[1], "checkout document locale").toBe(locale);
+            const heading = locale === 'pl' ? 'Testowy zakup monet' : 'Sandbox coin checkout';
+            expect(html.includes(`<h1>${heading}</h1>`), 'localized checkout heading').toBe(true);
+          }
           if (ownership && method === 'POST') {
             expect(response.headers().location).toBe(target);
             expect((await query('SELECT state FROM coin_purchase_orders WHERE id=$1', [order]))[0].state).toBe('failed');

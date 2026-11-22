@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -27,6 +28,7 @@ export async function exerciseCharacterFamilies(request, accountId, routes) {
         const source = accountId ? 'crates/community/src/families/web.rs:428' : 'crates/web/src/chrome.rs:35';
         expect(response.status(), source).toBe(accountId ? 503 : 303);
         if (!accountId) expect(response.headers().location).toMatch(/^\/(pl|en)\/login$/);
+        await mirrorHead(request, path, found, response);
       } finally {
         await response.dispose();
       }

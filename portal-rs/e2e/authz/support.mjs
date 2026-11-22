@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -38,6 +39,10 @@ export async function exerciseSupport(request, locale, token, definition, routes
       try {
         expect(response.status(), source).toBe(anonymous ? refusedStatus : allowedStatus);
         const location = response.headers().location;
+        if (method === 'GET') {
+          const kind = path.startsWith(`/${locale}/support/reports/`) ? 'reports' : 'tickets';
+          await mirrorHead(request, `/{lang}/support/${kind}/{id}`, path, response);
+        }
         if (anonymous && (refusedStatus === 302 || refusedStatus === 303)) expect(location).toBe(`/${locale}/login`);
         if (before) await verifyRefusal(before);
         return location;
@@ -100,6 +105,7 @@ export async function exerciseSupport(request, locale, token, definition, routes
       });
       try {
         expect(response.status(), source).toBe(allowed ? fields ? 302 : 200 : anonymous ? 303 : 403);
+        if (method === 'GET') await mirrorHead(request, pattern, `${staffPath}${suffix}`, response);
         if (anonymous) expect(response.headers().location).toMatch(/^\/(?:pl\/|en\/)?login$/);
         if (before) await verifyRefusal(before, definition.role ? ['admin.access.denied'] : []);
         if (allowed && fields) expect(response.headers().location).toBe(staffPath);
@@ -143,6 +149,7 @@ export async function exerciseSupport(request, locale, token, definition, routes
         });
         try {
           expect(response.status(), source).toBe(allowed ? mutation ? 303 : 200 : anonymous ? 303 : 403);
+          if (!mutation) await mirrorHead(request, pattern, url, response);
           if (anonymous) expect(response.headers().location).toBe('/login');
           if (before) await verifyRefusal(before, definition.role ? ['admin.access.denied'] : []);
           if (allowed && mutation) {

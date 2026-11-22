@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 
@@ -22,6 +23,7 @@ export async function exerciseOAuth(request, accountId, routes) {
     const response = await request.get(`${path}?${authorization}`, { maxRedirects: 0 });
     try {
       expect(response.status(), source).toBe(accountId ? 200 : 303);
+      await mirrorHead(request, path, `${path}?${authorization}`, response);
       if (!accountId) expect(response.headers().location).toMatch(/^\/(pl|en)\/login$/);
     } finally {
       await response.dispose();

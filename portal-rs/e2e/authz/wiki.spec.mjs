@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
@@ -61,6 +62,7 @@ test.describe('wiki authorization', () => {
               if (guard.kind === 'anonymous') {
                 expect((await response.text()).includes('Local wiki authorization fixture')).toBe(true);
               }
+              if (method === 'GET') await mirrorHead(request, path, target, response);
               return allowed;
             } finally {
               await response.dispose();
@@ -71,6 +73,21 @@ test.describe('wiki authorization', () => {
         const slug = `local-wiki-${randomUUID()}`;
         const publicSlug = `${slug}-published`;
         await guideFixture(publicSlug, true);
+        for (const method of ['GET', 'HEAD']) {
+          await test.step(`${method} /wiki/{slug}`, async () => {
+            const response = await request.fetch(`/wiki/${publicSlug}?page=2&next=ignored`, {
+              method, maxRedirects: 0,
+            });
+            try {
+              expect(response.status()).toBe(301);
+              expect(response.headers().location).toBe(`/pl/wiki/articles/${publicSlug}?page=2`);
+              if (method === 'HEAD') expect((await response.body()).length).toBe(0);
+            } finally {
+              await response.dispose();
+            }
+          });
+        }
+
         const draft = {};
         for (const lang of ['pl', 'en']) {
           draft[`${lang}_slug`] = slug;

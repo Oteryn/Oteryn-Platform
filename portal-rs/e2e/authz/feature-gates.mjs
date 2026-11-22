@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -33,14 +34,11 @@ const puzzleImage = Buffer.from('UklGRiIAAABXRUJQVlA4TAYAAAAvAAAAAAfQ//73v/+BiOh
 
 async function publishedPuzzle() {
   const today = "(clock_timestamp() AT TIME ZONE 'UTC')::date";
-  const [existing] = await query(`SELECT id FROM puzzles_daily WHERE day=${today} AND kind='monster'`);
-  if (existing) return existing.id;
+  const [existing] = await query(`SELECT id,world_version FROM puzzles_daily WHERE day=${today} AND kind='monster'`);
+  if (existing) return existing;
   const [world] = await query(`
-    WITH version AS (
-      INSERT INTO world_versions(id,source_commit,status) VALUES(uuidv7(),repeat('b',40),'ready') RETURNING id
-    )
-    UPDATE world_active_version SET version_id=version.id,previous_version_id=world_active_version.version_id
-    FROM version WHERE singleton RETURNING version.id
+    INSERT INTO world_versions(id,source_commit,status)
+    VALUES(uuidv7(),repeat('b',40),'ready') RETURNING id
   `);
   const keys = ['authz-puzzle-first', 'authz-puzzle-second'];
   await query(`
@@ -60,9 +58,9 @@ async function publishedPuzzle() {
   };
   const [row] = await query(`
     INSERT INTO puzzles_daily(day,kind,world_version,definition,image)
-    VALUES(${today},'monster',$1,$2,$3) RETURNING id
+    VALUES(${today},'monster',$1,$2,$3) RETURNING id,world_version
   `, [world.id, definition, puzzleImage]);
-  return row.id;
+  return row;
 }
 
 export async function exerciseFeatureGates(request, locale, token, accountId, routes, snapshot, verifyRefusal) {
@@ -72,54 +70,67 @@ export async function exerciseFeatureGates(request, locale, token, accountId, ro
     INSERT INTO bazaar_fee_revisions(id,actor,coin_bps,gold_bps,listing_fee,promotion_price,reason)
     VALUES(uuidv7(),$1,1000,250,0,1,'Local authorization fixture') RETURNING id
   `, [seller]);
-  const puzzle = await publishedPuzzle();
   const [{ submission, world }] = await query(`
     SELECT uuidv7() AS submission, id AS world FROM world_status ORDER BY id LIMIT 1
   `);
   let operation = fixture;
-  for (const row of cases) {
-    const { method, path } = row;
-    const { guard } = routes.find(r => r.listener === 'public' && r.method === method && r.path === path)
-      .registrations[0];
-    const status = accountId ? row.signed : row.anonymous;
-    const form = row.characterCreation
-      ? { submission, world, name: 'Aldric Stone', sex: 'Female', vocation: 'Druid' }
-      : row.promotion ? { id: fixture, fee_revision: fee.id, amount: '1' } : row.form;
-    const target = path.replace('{lang}', locale).replace('{season}', fixture)
-      .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle).replace('{operation}', operation);
-    expect(guard.kind, path).toBe(path.includes('/sellers/') ? 'anonymous' : 'logged-in');
-    await test.step(`${method} ${path}`, async () => {
-      const refused = !accountId || (status >= 400 && status !== 503);
-      const before = method === 'POST' && refused ? await snapshot() : null;
-      const response = await request.fetch(target, {
-        method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
-        ...(form && { form: { ...form, _csrf: token } }),
+  const puzzle = await publishedPuzzle();
+  const [previous] = await query('SELECT version_id,previous_version_id FROM world_active_version WHERE singleton');
+  await query(`
+    UPDATE world_active_version SET version_id=$1,previous_version_id=NULL WHERE singleton
+  `, [puzzle.world_version]);
+  try {
+    for (const row of cases) {
+      const { method, path } = row;
+      const { guard } = routes.find(r => r.listener === 'public' && r.method === method && r.path === path)
+        .registrations[0];
+      const status = accountId ? row.signed : row.anonymous;
+      const form = row.characterCreation
+        ? { submission, world, name: 'Aldric Stone', sex: 'Female', vocation: 'Druid' }
+        : row.promotion ? { id: fixture, fee_revision: fee.id, amount: '1' } : row.form;
+      const target = path.replace('{lang}', locale).replace('{season}', fixture)
+        .replace('{seller}', seller).replace('{listing}', fixture).replace('{id}', puzzle.id).replace('{operation}', operation);
+      expect(guard.kind, path).toBe(path.includes('/sellers/') ? 'anonymous' : 'logged-in');
+      await test.step(`${method} ${path}`, async () => {
+        const refused = !accountId || (status >= 400 && status !== 503);
+        const before = method === 'POST' && refused ? await snapshot() : null;
+        const response = await request.fetch(target, {
+          method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
+          ...(form && { form: { ...form, _csrf: token } }),
+        });
+        try {
+          expect(response.status(), row.source).toBe(status);
+          if (method === 'GET') await mirrorHead(request, path, target, response);
+          if (status === 303) expect(response.headers().location).toBe(`/${locale}/${accountId ? 'puzzles' : 'login'}`);
+          if (row.puzzleImage && accountId) {
+            expect(response.headers()['content-type']).toBe('image/webp');
+            expect((await response.body()).equals(puzzleImage), 'published puzzle image rendered').toBe(true);
+          }
+          if (row.puzzleAnswer && accountId) {
+            const [answer] = await query("SELECT correct FROM puzzles_answers WHERE account_id=$1 AND puzzle_id=$2",
+              [accountId, puzzle.id]);
+            expect(answer?.correct, 'correct answer recorded for the actor').toBe(true);
+          }
+          if (row.characterCreation && accountId) {
+            const [created] = await query(
+              "SELECT id FROM character_commands WHERE account_id=$1 AND request_key=$2 AND command='CreateCharacter'",
+              [accountId, `web-create:${accountId}:${submission}`],
+            );
+            expect(Boolean(created), 'character request was durably queued for the actor').toBe(true);
+            operation = created.id;
+            expect(response.headers().location).toBe(`/${locale}/account/characters/requests/${operation}`);
+          }
+          if (before) await verifyRefusal(before);
+        } finally {
+          await response.dispose();
+        }
       });
-      try {
-        expect(response.status(), row.source).toBe(status);
-        if (status === 303) expect(response.headers().location).toBe(`/${locale}/${accountId ? 'puzzles' : 'login'}`);
-        if (row.puzzleImage && accountId) {
-          expect(response.headers()['content-type']).toBe('image/webp');
-          expect((await response.body()).equals(puzzleImage), 'published puzzle image rendered').toBe(true);
-        }
-        if (row.puzzleAnswer && accountId) {
-          const [answer] = await query("SELECT correct FROM puzzles_answers WHERE account_id=$1 AND puzzle_id=$2",
-            [accountId, puzzle]);
-          expect(answer?.correct, 'correct answer recorded for the actor').toBe(true);
-        }
-        if (row.characterCreation && accountId) {
-          const [created] = await query(
-            "SELECT id FROM character_commands WHERE account_id=$1 AND request_key=$2 AND command='CreateCharacter'",
-            [accountId, `web-create:${accountId}:${submission}`],
-          );
-          expect(Boolean(created), 'character request was durably queued for the actor').toBe(true);
-          operation = created.id;
-          expect(response.headers().location).toBe(`/${locale}/account/characters/requests/${operation}`);
-        }
-        if (before) await verifyRefusal(before);
-      } finally {
-        await response.dispose();
-      }
-    });
+    }
+  } finally {
+    const restored = await query(`
+      UPDATE world_active_version SET version_id=$1,previous_version_id=$2
+      WHERE singleton AND version_id=$3 RETURNING version_id,previous_version_id
+    `, [previous.version_id, previous.previous_version_id, puzzle.world_version]);
+    expect(restored, 'puzzle fixture restored the world pointers').toEqual([previous]);
   }
 }

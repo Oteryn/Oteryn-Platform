@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -56,6 +57,7 @@ export async function exerciseDownloads(request, routes) {
       const response = await request.get(target, { maxRedirects: 0 });
       try {
         expect(response.status(), source).toBe(200);
+        await mirrorHead(request, path, target, response);
         expect((await response.body()).equals(readFileSync(new URL(file, bundle))), 'published signed bytes match').toBe(true);
       } finally {
         await response.dispose();

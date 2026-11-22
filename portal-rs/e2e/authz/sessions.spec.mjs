@@ -80,6 +80,43 @@ async function secondSession(sessionHash) {
   return rows[0].session_id;
 }
 
+async function assertRevocationRefusals(request, method, pattern, selection, owned, foreign, origin, token, snapshot, verify) {
+  const target = pattern.replace('{id}', owned);
+  for (const [description, csrf] of [['missing', {}], ['invalid', { 'x-csrf-token': '0'.repeat(64) }]]) {
+    await test.step(`${description} CSRF on ${method} ${pattern}`, async () => {
+      const before = await snapshot();
+      const response = await request.fetch(target, { method, headers: { origin, ...csrf }, maxRedirects: 0 });
+      try {
+        expect(response.status()).toBe(403);
+        await verify(before);
+      } finally {
+        await response.dispose();
+      }
+    });
+  }
+  if (selection !== 'one') return;
+
+  // A foreign ID intentionally has the same redirect as an already-inactive ID.
+  const session = async () => query(`
+    SELECT encode(sha256(convert_to(to_jsonb(s)::text,'UTF8')),'hex') AS fingerprint
+    FROM web_sessions s WHERE session_id=$1
+  `, [foreign]);
+  const before = await session();
+  expect(before).toHaveLength(1);
+  const response = await request.fetch(pattern.replace('{id}', foreign), {
+    method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
+  });
+  try {
+    expect(response.status()).toBe(302);
+    expect(response.headers().location).toMatch(/^\/(pl|en)\/account\/sessions$/);
+    expect(await session(), 'the foreign session survives unchanged').toEqual(before);
+    expect(await query('SELECT 1 FROM security_events WHERE session_id=$1 AND kind=$2',
+      [foreign, 'session_revoked'])).toHaveLength(0);
+  } finally {
+    await response.dispose();
+  }
+}
+
 test.describe('session, support and content authorization', () => {
   for (const definition of actorDefinitions(roles)) {
     test(definition.key, async ({}, info) => {
@@ -92,6 +129,15 @@ test.describe('session, support and content authorization', () => {
         : undefined;
       const db = database();
       try {
+        let foreign;
+        if (!anonymous) {
+          const peer = await openActor(locale, { key: 'player', permissions: [] });
+          try {
+            foreign = await secondSession(await hashSession(peer.request));
+          } finally {
+            await peer.request.dispose();
+          }
+        }
         for (const prefix of aliases) {
           const { request, account, accountId, totpSecret } = await openActor(info.project.metadata.locale, definition, issuer);
           try {
@@ -125,7 +171,7 @@ test.describe('session, support and content authorization', () => {
               await exerciseReferrals(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
               await exerciseShop(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
               await exerciseParty(request, locale, token, accountId, definition, routes, snapshot, verify);
-              await exerciseNativeCheckout(request, token, accountId, routes, snapshot, verify);
+              await exerciseNativeCheckout(request, locale, token, accountId, routes, snapshot, verify);
               await exerciseOAuth(request, accountId, routes);
               await exerciseFeatureGates(request, locale, token, accountId, routes, snapshot, verify);
             }
@@ -137,6 +183,9 @@ test.describe('session, support and content authorization', () => {
               await test.step(`${method} ${pattern}`, async () => {
                 const id = anonymous ? signedOutFixture : await secondSession(sessionHash);
                 const target = pattern.replace('{id}', id);
+                if (!anonymous) {
+                  await assertRevocationRefusals(request, method, pattern, selection, id, foreign, origin, token, snapshot, verify);
+                }
                 const before = anonymous ? await db.snapshot(sessionHash) : null;
                 const response = await request.fetch(target, {
                   method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,

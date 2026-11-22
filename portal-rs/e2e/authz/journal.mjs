@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -41,6 +42,7 @@ export async function exerciseJournal(request, locale, token, accountId, restric
       });
       try {
         expect(response.status(), row.source).toBe(status);
+        if (method === 'GET') await mirrorHead(request, path, target, response);
         if (status === 303) expect(response.headers().location).toBe(`/${locale}/login`);
         if (before) await verifyRefusal(before);
         if (status === 204) {

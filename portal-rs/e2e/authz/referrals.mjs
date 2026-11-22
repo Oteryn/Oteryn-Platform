@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -31,6 +32,7 @@ export async function exerciseReferrals(request, locale, token, accountId, restr
       });
       try {
         expect(response.status(), source).toBe(status);
+        if (method === 'GET') await mirrorHead(request, path, path.replace('{lang}', locale).replace('{code}', referral.code), response);
         if (before) await verifyRefusal(before);
         if (status === 303) {
           expect(response.headers().location).toBe(accountId ? entry : `/${locale}/${creation ? 'login' : 'register'}`);

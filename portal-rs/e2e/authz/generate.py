@@ -3,6 +3,8 @@
 import argparse
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 PORTAL = Path(__file__).resolve().parents[2]
@@ -38,7 +40,8 @@ def arguments(source, opening):
 
 
 def sources():
-    for file in sorted((PORTAL / "crates").glob("*/src/**/*.rs")):
+    for file in sorted(path for root in ("crates", "bin")
+                       for path in (PORTAL / root).glob("*/src/**/*.rs")):
         if "tests" in file.parts or re.search(r'(?:^|_)(?:test|tests|test_db)\.rs$', file.name):
             continue
         source = code_only(file.read_text())
@@ -103,12 +106,12 @@ def section(source, pattern):
 
 
 def named_values(files, file, name):
-    crate = file.split("/")[1]
+    root, crate, *_ = file.split("/")
     simple = name.split("::")[-1]
     if "::" in name:
         module = name.split("::")[0]
         candidates = [text for path, text in files.items()
-                      if path.startswith(f"crates/{crate}/") and path.endswith(f"/{module}.rs")]
+                      if path.startswith(f"{root}/{crate}/") and path.endswith(f"/{module}.rs")]
     else:
         candidates = [files[file]]
     pattern = rf'\bconst {simple}\s*:\s*&str\s*=\s*({STRING})\s*;'
@@ -118,7 +121,7 @@ def named_values(files, file, name):
         values = {literal(m) for m in re.findall(pattern, files[sibling])}
     if not values and "::" not in name:
         values = {literal(m) for path, text in files.items()
-                  if path.startswith(f"crates/{crate}/") for m in re.findall(pattern, text)}
+                  if path.startswith(f"{root}/{crate}/") for m in re.findall(pattern, text)}
     if len(values) != 1:
         raise ValueError(f"{file}: ambiguous constant {name}: {values}")
     return values.pop()
@@ -126,12 +129,15 @@ def named_values(files, file, name):
 
 def handlers(expression):
     methods = re.findall(r'(?:^|\.|\.merge\()\s*(?:axum::routing::)?(' + "|".join((*METHODS, "any"))
-                         + r')(?:\(|::)', expression)
+                         + r')(?:_service)?(?:\(|::)', expression)
     if methods == ["any"]:
-        return dict.fromkeys(METHODS, expression)
+        return {method: method for method in METHODS}
     if not methods:
         raise ValueError(f"unresolved method router {expression}")
-    return dict.fromkeys(methods, expression)
+    result = {method: method for method in methods}
+    if "get" in result and "head" not in result:
+        result["head"] = "get"
+    return result
 
 
 def path_variants(files, file, source, position, path, handler):
@@ -149,6 +155,17 @@ def path_variants(files, file, source, position, path, handler):
         return [(direct, handler, None)]
     if re.fullmatch(r'[A-Z][A-Z0-9_]*(?:::[A-Z_]+)?', path) or re.fullmatch(r'\w+::[A-Z_]+', path):
         return [(resolve(path), handler, None)]
+    if file == "bin/oteryn-portal/src/game_routes.rs":
+        if path == "path" and handler.startswith("post_service(sessions"):
+            session_file = "crates/playerdata/src/sessions.rs"
+            values = section(files[session_file], r'const COMMANDS[^=]+=\s*&?\[(.*?)\];')
+            names = [name.strip() for name in values.split(",") if name.strip()]
+            return [(literal(name) or named_values(files, session_file, name), handler, None) for name in names]
+        if "family.path()" in path:
+            family = files["crates/community/src/families.rs"]
+            values = section(family, r'pub fn path\(.*?match self \{(.*?)\}')
+            prefix = strings(path)[0].split("{}")[0]
+            return [(prefix + suffix, handler, None) for suffix in strings(values)]
     if group == "web/src/redirects.rs":
         pairs = section(source, r'const MAPPINGS[^=]+=\s*&\[(.*?)\];')
         return [(old, handler, None) for old in strings(pairs)[::2]]
@@ -279,6 +296,8 @@ def guard_for(files, file, url, method, permission, permissions):
         return "public", {"kind": "provider-signature"}
 
     path = re.sub(r'^/(?:pl|en|\{lang(?:uage)?\}|\{locale\})(?=/)', '', url)
+    if file == "bin/oteryn-portal/src/code_routes.rs" and path == "/shop/codes/redeem":
+        return "public", {"kind": "logged-in"}
     if path.startswith(("/admin", "/console/")):
         if group == "admin/src/analytics/web.rs":
             required = ["Access"]
@@ -381,6 +400,10 @@ def guard_for(files, file, url, method, permission, permissions):
                     "request-reset": "request_reset", "approve-reset": "approve_reset",
                 }
                 result["actions"] = {action: player_permission(handler) for action, handler in actions.items()}
+                approval = section(players, r'pub async fn approve_reset\(.*?&self.auth,\s*context,\s*&\[(.*?)\]')
+                result["actionAll"] = {"approve-reset": [
+                    permissions[p] for p in re.findall(r"Permission::(\w+)", approval)
+                ]}
         if group == "world/src/admin.rs":
             required = section(files[file], r'if let Err\(status\) = authorize\(&s, context, Permission::(\w+)')
             result["all"].append(permissions[required])
@@ -483,13 +506,21 @@ def inventory(files, permissions):
         line = source.count("\n", 0, offset) + 1
         try:
             for url, expression, permission in path_variants(files, file, source, offset, path, handler):
-                for method in handlers(expression):
-                    listener, guard = guard_for(files, file, url, method, permission, permissions)
+                for method, dispatch in handlers(expression).items():
+                    listener, guard = guard_for(files, file, url, dispatch, permission, permissions)
+                    profile = None
+                    if file == "crates/payments/src/coin_http.rs" and url.startswith("/native-account/coin-checkout/"):
+                        profile = "unavailable" if expression.startswith("any(") else "configured"
+                        guard = {"kind": "anonymous" if profile == "unavailable" else "logged-in"}
                     row = rows.setdefault((listener, url, method), {
                         "listener": listener, "path": url, "method": method.upper(),
                         "registrations": []
                     })
                     item = {"source": f"{file}:{line}", "guard": guard}
+                    if method != dispatch:
+                        item["implicitFrom"] = dispatch.upper()
+                    if profile:
+                        item["profile"] = profile
                     refusal = refusal_for(files, listener, file, url)
                     if refusal:
                         item["refusal"] = refusal
@@ -510,6 +541,7 @@ def main():
     if args.check:
         if not OUTPUT.is_file() or OUTPUT.read_text() != generated:
             parser.exit(1, f"{OUTPUT.name} is stale; rerun {Path(__file__).name}\n")
+        subprocess.run([sys.executable, str(OUTPUT.with_name("check_coverage.py"))], check=True)
     else:
         OUTPUT.write_text(generated)
 

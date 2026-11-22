@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
 
@@ -84,6 +85,7 @@ export async function exerciseResourceReads(request, accountId, locale, token, r
         expect(guard.kind).toBe(hunts && !share || newListing ? 'logged-in' : 'anonymous');
         const policy = expected === 404 ? 'crates/bazaar/src/game/runtime/browser.rs:339' : source;
         expect(response.status(), policy).toBe(expected);
+        if (method === 'GET') await mirrorHead(request, path, comparison ? `${target}?ids=${ids.join(',')}` : target, response);
         if (expected === 303) expect(response.headers().location).toBe(`/${locale}/login`);
         if (hunts && expected === 200) {
           const html = await response.text();

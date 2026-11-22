@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import https from 'node:https';
+import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
 import { assertRefusalState, database, privateDatabase } from './database.mjs';
@@ -26,10 +27,10 @@ test('route sample GET /healthz', async ({ request }) => {
 });
 
 const privateRoutes = routes.filter(route => route.registrations.some(row => row.refusal)
-  && ['internal', 'admission'].includes(route.listener));
+  && route.listener === 'admission');
 const isolatedIngressRoutes = routes.filter(({ listener }) => ['bazaar', 'closure', 'league'].includes(listener));
 const listenerHealth = routes.filter(({ listener, method }) =>
-  ['gateway', 'admission'].includes(listener) && method === 'GET');
+  ['gateway', 'admission'].includes(listener) && ['GET', 'HEAD'].includes(method));
 const browserRoutes = [
   ...[
     '/admin', '/admin/roles', '/admin/announcements', '/admin/announcements/create',
@@ -38,12 +39,18 @@ const browserRoutes = [
     '/admin/moderation/reports', '/admin/news', '/admin/news/create', '/admin/pages',
     '/admin/players', '/admin/support/tickets', '/admin/wiki', '/admin/wiki/articles',
     '/admin/wiki/articles/create',
-  ].map(path => registration(path, 'GET')),
+  ].flatMap(path => ['GET', 'HEAD'].map(method => registration(path, method))),
   registration('/__test/payments/webhook', 'POST'),
   registration('/admin/roles', 'POST'),
 ];
 
-const publicReads = JSON.parse(readFileSync(new URL('./public-reads.json', import.meta.url), 'utf8'));
+const readFixtures = JSON.parse(readFileSync(new URL('./public-reads.json', import.meta.url), 'utf8'));
+const readKeys = new Set(readFixtures.map(({ method, path }) => `${method} ${path}`));
+const publicReads = readFixtures.flatMap(row => {
+  const head = routes.find(route => route.listener === 'public' && route.path === row.path && route.method === 'HEAD');
+  return row.method === 'GET' && head && !readKeys.has(`HEAD ${row.path}`)
+    ? [row, { ...row, method: 'HEAD' }] : [row];
+});
 for (const { method, path } of publicReads) {
   const route = routes.find(row => row.listener === 'public' && row.path === path && row.method === method);
   if (!route || route.registrations[0].guard.kind !== 'anonymous') {
@@ -59,6 +66,7 @@ async function assertPublicReads(request, locale, anonymous) {
       const response = await request.fetch(url, { method: row.method, maxRedirects: 0 });
       try {
         const status = anonymous ? row.status : row.signedInStatus ?? row.status;
+        if (row.method === 'HEAD') expect((await response.body()).length).toBe(0);
         expect(response.status(), `${row.method} ${url} (${row.source})`).toBe(status);
         if (!anonymous && row.signedInLocation) {
           expect(response.headers().location).toBe(row.signedInLocation);
@@ -124,7 +132,7 @@ test.describe('browser authorization', () => {
             const base = route.listener === 'gateway' ? harness.baseUrls.gateway : harness.baseUrls.nativeAdmission;
             const target = new URL(route.path, base);
             expect(target.hostname === '127.0.0.1' && target.protocol === 'http:').toBe(true);
-            const response = await request.get(target.href, { maxRedirects: 0 });
+            const response = await request.fetch(target.href, { method: route.method, maxRedirects: 0 });
             expect(response.status(), route.registrations[0].source).toBe(200);
             await response.dispose();
           });
@@ -144,32 +152,11 @@ function readHarness() {
 async function assertPrivateRoutes(request, harness) {
   const db = privateDatabase(process.env.PORTAL_E2E_HARNESS_REPORT, harness);
   try {
-    for (const route of [...privateRoutes, ...isolatedIngressRoutes]) {
+    for (const route of privateRoutes) {
       await test.step(`${route.method} ${route.path} on ${route.listener}`, async () => {
-        const refusal = route.registrations[0].refusal;
-        if (route.listener === 'admission') {
-          const before = await db.snapshot();
-          await assertServiceTokenRefused(request, harness, route);
-          assertRefusalState(before, await db.snapshot());
-          return;
-        }
-
-        const internal = route.listener === 'internal';
-        const ingress = internal ? harness : {
-          baseUrls: { internal: process.env.PORTAL_E2E_BROWSER_PRIVATE_ORIGIN || 'https://127.0.0.1:18447' },
-          internalServerName: 'localhost',
-          caFile: process.env.SSL_CERT_FILE,
-        };
-        if (internal) expect(refusal.tlsAlert, refusal.source).toBe('certificate_required');
-        await expect(internalRequest(ingress, route)).rejects.toMatchObject({
-          code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
-        });
-        if (internal && refusal.wrongIdentity) {
-          const before = await db.snapshot();
-          expect(await internalRequest(ingress, route, harness.clients['bootstrap-intents']),
-            refusal.wrongIdentity.source).toBe(refusal.wrongIdentity.status);
-          assertRefusalState(before, await db.snapshot());
-        }
+        const before = await db.snapshot();
+        await assertServiceTokenRefused(request, harness, route);
+        assertRefusalState(before, await db.snapshot());
       });
     }
   } finally {
@@ -191,7 +178,7 @@ function internalRequest(harness, route, client) {
       ...(client && { cert: readFileSync(client.cert), key: readFileSync(client.key) }),
       minVersion: 'TLSv1.3',
       ALPNProtocols: ['http/1.1'],
-      headers: route.method === 'GET' ? {} : { 'content-type': 'application/json', 'content-length': 2 },
+      headers: ['GET', 'HEAD'].includes(route.method) ? {} : { 'content-type': 'application/json', 'content-length': 2 },
     }, response => {
       response.resume();
       response.once('end', () => resolve(response.statusCode));
@@ -199,7 +186,7 @@ function internalRequest(harness, route, client) {
     });
     req.once('error', reject);
     req.setTimeout(5_000, () => req.destroy(new Error('mTLS request timed out')));
-    req.end(route.method === 'GET' ? undefined : '{}');
+    req.end(['GET', 'HEAD'].includes(route.method) ? undefined : '{}');
   });
 }
 
@@ -216,20 +203,64 @@ async function assertServiceTokenRefused(request, harness, route) {
   await response.dispose();
 }
 
-test('private ingress refuses missing credentials', async ({ request }) => {
+const privateCases = JSON.parse(readFileSync(new URL('./private-http.json', import.meta.url), 'utf8'));
+test('private ingress reaches the route over a CA-valid connection', async () => {
   const harness = readHarness();
-  const route = routes.find(row =>
-    row.listener === 'internal' && row.path.endsWith('/native-scope-assignments') && row.method === 'POST');
-  expect(route.registrations[0].guard.kind).toBe('mtls');
-  await expect(internalRequest(harness, route)).rejects.toMatchObject({
+  const configured = routes.filter(route => route.listener === 'internal');
+  const signature = ({ method, path }) => `${method} ${path}`;
+  expect(privateCases.map(signature).sort()).toEqual(configured.map(signature).sort());
+
+  // Transport admission is independent of the HTTP path or method.
+  const first = configured.find(route => route.path.endsWith('/native-scope-assignments'));
+  await expect(internalRequest(harness, first)).rejects.toMatchObject({
     code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
   });
-  const peerRefusal = route.registrations[0].refusal.wrongIdentity;
-  expect(await internalRequest(harness, route, harness.clients['bootstrap-intents']), peerRefusal.source)
-    .toBe(peerRefusal.status);
 
-  const admission = routes.find(row =>
-    row.listener === 'admission' && row.path.endsWith('/native-admissions') && row.method === 'POST');
-  expect(admission.registrations[0].guard.kind).toBe('service-token');
-  await assertServiceTokenRefused(request, harness, admission);
+  const db = privateDatabase(process.env.PORTAL_E2E_HARNESS_REPORT, harness);
+  const browserDb = database();
+  try {
+    for (const row of privateCases) {
+      await test.step(`${signature(row)} on internal with a CA-valid peer`, async () => {
+        const before = await db.snapshot();
+        const peer = harness.clients[row.peer];
+        expect(Boolean(peer), 'peer exists in the harness report').toBe(true);
+        expect(await internalRequest(harness, row, peer), row.source).toBe(row.status);
+        assertRefusalState(before, await db.snapshot());
+        if (row.authorizedPeer) {
+          const authorized = harness.clients[row.authorizedPeer];
+          expect(Boolean(authorized), 'authorized peer exists in the harness report').toBe(true);
+          expect(await internalRequest(harness, row, authorized), row.source).toBe(row.authorizedInvalidBodyStatus);
+        }
+      });
+    }
+    const caFile = process.env.SSL_CERT_FILE;
+    const root = dirname(caFile);
+    const browser = {
+      baseUrls: { internal: process.env.PORTAL_E2E_BROWSER_PRIVATE_ORIGIN || 'https://127.0.0.1:18447' },
+      internalServerName: 'localhost',
+      caFile,
+    };
+    const portfolio = { cert: join(root, 'closure-portfolio.pem'), key: join(root, 'closure-portfolio-key.pem') };
+    const character = { cert: join(root, 'closure-character.pem'), key: join(root, 'closure-character-key.pem') };
+    const bazaar = { cert: join(root, 'bazaar-game/bazaar-cert.pem'), key: join(root, 'bazaar-game/bazaar-key.pem') };
+    const league = { cert: join(root, 'league/league-game.pem'), key: join(root, 'league/league-game.key') };
+    const expectedPeer = { bazaar, closure: character, league };
+
+    await expect(internalRequest(browser, isolatedIngressRoutes[0])).rejects.toMatchObject({
+      code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
+    });
+    const browserBazaar = configured.filter(row => row.path.startsWith('/internal/v1/bazaar/'))
+      .map(row => ({ ...row, listener: 'bazaar' }));
+    for (const row of [...isolatedIngressRoutes, ...browserBazaar]) {
+      await test.step(`${signature(row)} on ${row.listener} with a CA-valid peer`, async () => {
+        const before = await browserDb.snapshot();
+        expect(await internalRequest(browser, row, portfolio), row.registrations[0].source).toBe(401);
+        assertRefusalState(before, await browserDb.snapshot());
+        expect(await internalRequest(browser, row, expectedPeer[row.listener]), row.registrations[0].source)
+          .toBe(400);
+      });
+    }
+  } finally {
+    await Promise.all([db.close(), browserDb.close()]);
+  }
 });

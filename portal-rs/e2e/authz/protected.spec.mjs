@@ -1,3 +1,4 @@
+import { mirrorHead } from './head.mjs';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { query } from '../staff-rbac-helpers.mjs';
@@ -8,10 +9,13 @@ import { editorialRoutes, exerciseEditorial } from './editorial.mjs';
 const { routes, roles } = JSON.parse(readFileSync(new URL('./routes.json', import.meta.url), 'utf8'));
 const fixtures = JSON.parse(readFileSync(new URL('./protected-reads.json', import.meta.url), 'utf8'));
 const publicRoutes = new Map(routes.filter(r => r.listener === 'public').map(r => [`${r.method} ${r.path}`, r]));
-const reads = fixtures.map(fixture => {
+const reads = fixtures.flatMap(fixture => {
   const route = publicRoutes.get(`GET ${fixture.path}`);
   if (!route) throw new Error(`No public registration for GET ${fixture.path}`);
-  return { ...fixture, guard: route.registrations[0].guard };
+  const { guard } = route.registrations[0];
+  const row = { ...fixture, guard, method: 'GET' };
+  const head = publicRoutes.get(`HEAD ${fixture.path}`);
+  return head ? [row, { ...row, method: 'HEAD' }] : [row];
 });
 
 function fixturePath(target, locale) {
@@ -41,12 +45,13 @@ test.describe('protected reads and identity writes', () => {
       try {
         for (const fixture of reads) {
           const target = fixturePath(fixture.target, locale);
-          await test.step(`GET ${fixture.path}`, async () => {
-            const response = await request.get(target, { maxRedirects: 0 });
+          await test.step(`${fixture.method} ${fixture.path}`, async () => {
+            const response = await request.fetch(target, { method: fixture.method, maxRedirects: 0 });
             try {
               const status = expectedRead(fixture, definition);
               const source = (definition.restricted && fixture.restrictedSource) || fixture.source;
-              expect.soft(response.status(), `GET ${target} (${source})`).toBe(status);
+              if (fixture.method === 'HEAD') expect((await response.body()).length).toBe(0);
+              expect.soft(response.status(), `${fixture.method} ${target} (${source})`).toBe(status);
               if (status === 302 || status === 303) {
                 const location = response.headers().location;
                 if (anonymous) expect.soft(location, target).toMatch(/^\/(?:pl\/|en\/)?login$/);
@@ -153,6 +158,7 @@ async function assertExport(request, locale, accountId) {
         expect(response.status(), 'owner-only export gate').toBe(accountId ? 200 : 303);
         if (!accountId) expect(response.headers().location).toMatch(/^\/(?:pl\/|en\/)?login$/);
         if (accountId) expect((await response.json()).account.id).toBe(accountId);
+        await mirrorHead(request, path, path, response);
       } finally {
         await response.dispose();
       }
