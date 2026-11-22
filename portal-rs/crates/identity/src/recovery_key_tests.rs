@@ -617,6 +617,40 @@ async fn postgres_browser_generate_confirm_and_revoke() -> Result {
         db.keys().recover("owner@example.test", raw, NEW, NEW).await,
         Err(Error::Rejected)
     ));
+    let replacement = db.key(id).await?;
+    for (password, revoked) in [("wrong", false), (CURRENT, true)] {
+        let delete = serde_urlencoded::to_string([
+            ("_csrf", "b".repeat(64)),
+            ("current_password", password.to_owned()),
+        ])?;
+        let response = db
+            .app()
+            .oneshot(
+                Request::delete("/en/account/recovery-key")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(delete))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            "/en/account/recovery-key"
+        );
+        let stored: bool = sqlx::query_scalar(
+            "SELECT revoked_at IS NOT NULL FROM account_recovery_keys WHERE account_id=$1",
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(stored, revoked);
+    }
+    assert!(matches!(
+        db.keys()
+            .recover("owner@example.test", &replacement, NEW, NEW)
+            .await,
+        Err(Error::Rejected)
+    ));
     db.close().await
 }
 

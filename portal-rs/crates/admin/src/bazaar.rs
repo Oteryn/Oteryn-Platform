@@ -523,11 +523,33 @@ async fn store<A: AccountStateReader>(
     State(api): State<Arc<StaffBazaar<A>>>,
     Path(lang): Path<String>,
     Extension(context): Extension<CheckContext>,
-    Form(input): Form<Input>,
+    input: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
     Locale::parse(&lang)?;
-    api.execute(context, input.command()?)
-        .await
-        .map_err(status)?;
-    Ok(Redirect::to(&format!("/admin/{lang}/bazaar")).into_response())
+    let Form(input) = match input {
+        Ok(form) => form,
+        Err(error) if error.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            return Ok(invalid_staff_form(&lang));
+        }
+        Err(error) => return Ok(error.into_response()),
+    };
+    let result = async { api.execute(context, input.command()?).await.map_err(status) }.await;
+    match result {
+        Ok(()) => Ok(Redirect::to(&format!("/admin/{lang}/bazaar")).into_response()),
+        Err(StatusCode::UNPROCESSABLE_ENTITY) => Ok(invalid_staff_form(&lang)),
+        Err(error) => Err(error),
+    }
+}
+
+fn invalid_staff_form(lang: &str) -> Response {
+    let language = if lang == "pl" {
+        oteryn_web::Language::Pl
+    } else {
+        oteryn_web::Language::En
+    };
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        language.text("error-422-description"),
+    )
+        .into_response()
 }

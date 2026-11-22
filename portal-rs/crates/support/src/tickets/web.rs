@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{OriginalUri, Path, Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -481,7 +481,7 @@ async fn mark_read(
     State(t): State<Tickets>,
     Path((language, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
-    Form(form): Form<ReadForm>,
+    form: std::result::Result<Form<ReadForm>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if let Err(e) = lang(&language) {
         return e.into_response();
@@ -489,6 +489,13 @@ async fn mark_read(
     let (owner, _) = match account(&t, &session, None).await {
         Ok(v) => v,
         Err(e) => return e.into_response(),
+    };
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            return fail(Error::Invalid, &language);
+        }
+        Err(rejection) => return rejection.into_response(),
     };
     match t
         .load_page(owner, false, id, form.after, Acknowledge::Reply(form.reply))
@@ -679,13 +686,19 @@ async fn status(
     Extension(session): Extension<BrowserSession>,
     staff: Option<Extension<CheckContext>>,
     peer: Option<ClientSource>,
+    method: Method,
     form: std::result::Result<Form<Mutation>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     let form = match form {
         Ok(Form(form)) => form,
         Err(_) => return fail(Error::Invalid, &language),
     };
-    mutate(t, (language, id), session, staff, peer, form, false).await
+    let mut response = mutate(t, (language, id), session, staff, peer, form, false).await;
+    if method == Method::PUT && response.status() == StatusCode::FOUND {
+        // Browsers can preserve PUT across a 302. The ticket detail accepts GET.
+        *response.status_mut() = StatusCode::SEE_OTHER;
+    }
+    response
 }
 async fn mutate(
     t: Tickets,

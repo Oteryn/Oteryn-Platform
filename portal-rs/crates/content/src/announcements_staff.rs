@@ -3,7 +3,7 @@ use super::*;
 use axum::{
     Extension, Form, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -203,6 +203,8 @@ struct Submission {
     #[serde(flatten)]
     fields: std::collections::HashMap<String, String>,
 }
+type FormInput = Result<Form<Submission>, axum::extract::rejection::FormRejection>;
+
 impl Submission {
     fn input(&self) -> Result<Input, StatusCode> {
         let field = |name: &str| self.fields.get(name).cloned().unwrap_or_default();
@@ -239,9 +241,10 @@ async fn create<A: AccountStateReader + Clone + 'static>(
     Extension(accounts): Extension<A>,
     Extension(context): Extension<CheckContext>,
     chrome: Option<Extension<Chrome>>,
-    Form(form): Form<Submission>,
-) -> Result<Response, StatusCode> {
-    submission_response(persist(pool, accounts, context, None, form).await, chrome)
+    headers: HeaderMap,
+    form: FormInput,
+) -> Response {
+    mutate(pool, accounts, context, None, chrome, &headers, form).await
 }
 async fn update<A: AccountStateReader + Clone + 'static>(
     State(pool): State<PgPool>,
@@ -249,26 +252,49 @@ async fn update<A: AccountStateReader + Clone + 'static>(
     Extension(context): Extension<CheckContext>,
     chrome: Option<Extension<Chrome>>,
     Path(id): Path<Uuid>,
-    Form(form): Form<Submission>,
-) -> Result<Response, StatusCode> {
-    submission_response(
-        persist(pool, accounts, context, Some(id), form).await,
-        chrome,
-    )
-}
-fn submission_response(
-    result: Result<Response, StatusCode>,
-    chrome: Option<Extension<Chrome>>,
-) -> Result<Response, StatusCode> {
-    match result {
-        Err(StatusCode::UNPROCESSABLE_ENTITY) => {
-            let chrome = chrome.map(|Extension(chrome)| chrome).unwrap_or_default();
-            Ok(oteryn_ui::error(&chrome, StatusCode::UNPROCESSABLE_ENTITY))
-        }
-        other => other,
-    }
+    headers: HeaderMap,
+    form: FormInput,
+) -> Response {
+    mutate(pool, accounts, context, Some(id), chrome, &headers, form).await
 }
 
+async fn mutate<A: AccountStateReader>(
+    pool: PgPool,
+    accounts: A,
+    context: CheckContext,
+    id: Option<Uuid>,
+    chrome: Option<Extension<Chrome>>,
+    headers: &HeaderMap,
+    form: FormInput,
+) -> Response {
+    let result = match form {
+        Ok(Form(form)) => persist(pool, accounts, context, id, form).await,
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            Err(StatusCode::UNPROCESSABLE_ENTITY)
+        }
+        Err(rejection) => return rejection.into_response(),
+    };
+    if matches!(result, Err(StatusCode::UNPROCESSABLE_ENTITY)) {
+        if let Some(Extension(chrome)) = chrome {
+            return oteryn_ui::error(&chrome, StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        let language = if headers
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("en"))
+        {
+            oteryn_web::Language::En
+        } else {
+            oteryn_web::Language::Pl
+        };
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            language.text("error-422-description"),
+        )
+            .into_response();
+    }
+    result.into_response()
+}
 async fn persist<A: AccountStateReader>(
     pool: PgPool,
     accounts: A,

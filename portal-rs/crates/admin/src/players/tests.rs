@@ -579,6 +579,40 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
         .split('"')
         .next()
         .unwrap();
+    for (lang, input, status, message) in [
+        (
+            "en",
+            "action=note&body=",
+            StatusCode::BAD_REQUEST,
+            "Check the request and try again.",
+        ),
+        (
+            "pl",
+            "action=verify-identity&ticket=text",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(&path)
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &cookie)
+                    .header("accept-language", lang)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={csrf}&{input}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            to_bytes(response.into_body(), 256).await.unwrap().as_ref(),
+            message.as_bytes(),
+        );
+    }
     for (token, status) in [
         ("wrong", StatusCode::FORBIDDEN),
         (csrf, StatusCode::SEE_OTHER),

@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -296,6 +296,7 @@ async fn change(
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
     oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
+    method: Method,
     headers: HeaderMap,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
@@ -311,7 +312,7 @@ async fn change(
         return Ok(*response);
     }
     let hash = session_hash(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
-    match service
+    let mut response = match service
         .change(
             &hash,
             PasswordChange {
@@ -338,7 +339,11 @@ async fn change(
             refuse(lang, &session, "password/change").await
         }
         Outcome::Unavailable => Err(StatusCode::SERVICE_UNAVAILABLE),
+    }?;
+    if method == Method::PUT && response.status() == StatusCode::FOUND {
+        *response.status_mut() = StatusCode::SEE_OTHER;
     }
+    Ok(response)
 }
 #[derive(Default, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]

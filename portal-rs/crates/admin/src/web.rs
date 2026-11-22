@@ -747,6 +747,15 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
     headers: axum::http::HeaderMap,
     form: Result<Form<RoleForm>, FormRejection>,
 ) -> Response {
+    let localized = |status: StatusCode| {
+        (
+            status,
+            oteryn_web::negotiate(&headers).text(&format!("error-{}-description", status.as_u16())),
+        )
+            .into_response()
+    };
+    let invalid = || localized(StatusCode::BAD_REQUEST);
+    let standalone = chrome.is_none();
     let fallback = oteryn_ui::Registry::default().chrome(
         language(&headers),
         "/admin/roles",
@@ -758,6 +767,9 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
     let Form(form) = match form {
         Ok(form) => form,
         Err(error) if error.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            if standalone {
+                return localized(StatusCode::UNPROCESSABLE_ENTITY);
+            }
             return staff_actions::Error::Invalid.response(chrome);
         }
         Err(error) => return error.into_response(),
@@ -782,7 +794,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 .map(str::parse)
                 .collect();
             let Ok(permissions) = permissions else {
-                return StatusCode::BAD_REQUEST.into_response();
+                return invalid();
             };
             if form.action == "set-permissions" {
                 let result = s
@@ -860,7 +872,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
             return staff_action_response(&s.pool, context.account, result, chrome).await;
         }
         "revoke" => revoke(&s, context, form.account, form.role).await,
-        _ => return StatusCode::BAD_REQUEST.into_response(),
+        _ => return invalid(),
     };
     match result {
         Ok(()) => Redirect::to("/admin/roles").into_response(),
@@ -868,7 +880,7 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
             Ok(()) => StatusCode::FORBIDDEN.into_response(),
             Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         },
-        Err(Error::InvalidInput | Error::RoleNotFound) => StatusCode::BAD_REQUEST.into_response(),
+        Err(Error::InvalidInput | Error::RoleNotFound) => invalid(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }

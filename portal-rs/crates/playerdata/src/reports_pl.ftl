@@ -11,3 +11,4 @@ optin = Wyślij mi link do raportu tygodniowego (wymaga też zgody na e-maile z 
 preferences = Zapisz preferencję e-mail
 drops = Dropy
 character-note = Notatka do postaci
+invalid-preference = Sprawdź ustawienie wiadomości e-mail i spróbuj ponownie.

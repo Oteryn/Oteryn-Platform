@@ -159,6 +159,19 @@ fn status(error: Error) -> Response {
     }
     .into_response()
 }
+fn invalid_mutation(headers: &HeaderMap) -> Response {
+    let language = if language(headers) == "en" {
+        oteryn_web::Language::En
+    } else {
+        oteryn_web::Language::Pl
+    };
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        language.text("error-422-description"),
+    )
+        .into_response()
+}
+
 fn language(headers: &HeaderMap) -> &'static str {
     if headers
         .get("accept-language")
@@ -475,11 +488,14 @@ async fn change<A: AccountStateReader, B: Backend>(
     let mut input =
         match web::read_request(deadline, Form::<Input>::from_request(request, &s)).await {
             Ok(Ok(Form(input))) => input,
+            Ok(Err(rejection)) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+                return invalid_mutation(&headers);
+            }
             Ok(Err(rejection)) => return rejection.into_response(),
             Err(status) => return status.into_response(),
         };
     if input.command.area() != area {
-        return status(Error::Invalid);
+        return invalid_mutation(&headers);
     }
     if let Command::Appeal { appeal_outcome, .. } = &mut input.command {
         *appeal_outcome = oteryn_web::normalize_textarea(appeal_outcome);
@@ -516,6 +532,7 @@ async fn change<A: AccountStateReader, B: Backend>(
             );
             (StatusCode::UNPROCESSABLE_ENTITY, shell(lang, body)).into_response()
         }
+        Err(Error::Invalid) => invalid_mutation(&headers),
         Err(error) => {
             use oteryn_web::chrome::TicketConflict;
             let reason = match error {
@@ -563,6 +580,29 @@ mod tests {
         assert_eq!(text("en", "internal"), "Internal staff note");
         assert_eq!(text("pl", "internal"), "Wewnętrzna notatka zespołu");
         assert!(!escape("<script>\"&").contains('<'));
+    }
+
+    #[tokio::test]
+    async fn invalid_submissions_use_the_panel_language() {
+        for (lang, message) in [
+            (
+                "en",
+                "Some information could not be accepted. Check your input and try again.",
+            ),
+            (
+                "pl",
+                "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.",
+            ),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert("accept-language", lang.parse().unwrap());
+            let response = invalid_mutation(&headers);
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            let body = axum::body::to_bytes(response.into_body(), 256)
+                .await
+                .unwrap();
+            assert_eq!(body.as_ref(), message.as_bytes());
+        }
     }
 }
 

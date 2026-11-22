@@ -2,7 +2,7 @@
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -28,9 +28,9 @@ fn escape(s: &str) -> String {
 fn label(lang: &str, key: &str) -> String {
     use fluent_bundle::{FluentBundle, FluentResource};
     let source = if lang == "pl" {
-        "news = Aktualności\nempty = Brak opublikowanych aktualności.\nnew = Nowy wpis\nsave = Zapisz\ndelete = Usuń\nslug = Adres\ntitle = Tytuł\nbody = Treść\npublication = Data publikacji (UTC)\nnext = Następna strona"
+        "news = Aktualności\nempty = Brak opublikowanych aktualności.\nnew = Nowy wpis\nsave = Zapisz\ndelete = Usuń\nslug = Adres\ntitle = Tytuł\nbody = Treść\npublication = Data publikacji (UTC)\nnext = Następna strona\nconflict = Wpis zmienił się od czasu otwarcia formularza. Odśwież stronę i spróbuj ponownie."
     } else {
-        "news = News\nempty = No news has been published yet.\nnew = New post\nsave = Save\ndelete = Delete\nslug = Slug\ntitle = Title\nbody = Body\npublication = Publication date (UTC)\nnext = Next page"
+        "news = News\nempty = No news has been published yet.\nnew = New post\nsave = Save\ndelete = Delete\nslug = Slug\ntitle = Title\nbody = Body\npublication = Publication date (UTC)\nnext = Next page\nconflict = The news entry changed after you opened the form. Reload and try again."
     };
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -142,7 +142,41 @@ pub fn admin_router(pool: PgPool) -> Router {
         .route("/admin/news/{id}/delete", post(delete))
         .with_state(pool)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
+        .layer(axum::middleware::from_fn(mutation_validation))
         .layer(axum::middleware::from_fn(headers))
+}
+async fn mutation_validation(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if request.method().is_safe() {
+        return next.run(request).await;
+    }
+    let locale = Query::<Options>::try_from_uri(request.uri())
+        .ok()
+        .and_then(|options| options.0.lang);
+    let language = match locale.as_deref() {
+        Some("en") => oteryn_web::Language::En,
+        Some("pl") => oteryn_web::Language::Pl,
+        _ if request
+            .headers()
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("en")) =>
+        {
+            oteryn_web::Language::En
+        }
+        _ => oteryn_web::Language::Pl,
+    };
+    let response = next.run(request).await;
+    let status = response.status();
+    let message = match status {
+        StatusCode::BAD_REQUEST => language.text("error-400-description"),
+        StatusCode::UNPROCESSABLE_ENTITY => language.text("error-422-description"),
+        StatusCode::CONFLICT => label(language.code(), "conflict"),
+        _ => return response,
+    };
+    (status, message).into_response()
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(
@@ -409,9 +443,14 @@ async fn update(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    method: axum::http::Method,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    save(&pool, &auth, context, Some(id), input).await
+    let mut response = save(&pool, &auth, context, Some(id), input).await?;
+    if method == axum::http::Method::PUT {
+        *response.status_mut() = StatusCode::SEE_OTHER;
+    }
+    Ok(response)
 }
 fn storage(e: sqlx::Error) -> StatusCode {
     if e.as_database_error().is_some_and(|e| {
@@ -529,6 +568,7 @@ async fn delete(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    method: axum::http::Method,
     Form(revision): Form<Revision>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
@@ -602,11 +642,12 @@ async fn delete(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    Ok((
-        StatusCode::FOUND,
-        [(axum::http::header::LOCATION, "/admin/news")],
-    )
-        .into_response())
+    let status = if method == axum::http::Method::DELETE {
+        StatusCode::SEE_OTHER
+    } else {
+        StatusCode::FOUND
+    };
+    Ok((status, [(axum::http::header::LOCATION, "/admin/news")]).into_response())
 }
 #[cfg(test)]
 #[path = "news_tests.rs"]

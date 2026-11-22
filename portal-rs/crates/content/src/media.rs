@@ -3,7 +3,7 @@
 use axum::{
     Extension, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -120,13 +120,46 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
 /// Routes must be wrapped in the staff guard before mounting.
 pub fn admin_router(pool: PgPool) -> Router {
     Router::new()
-        .route("/admin/media", get(index).post(upload))
+        .route(
+            "/admin/media",
+            axum::routing::post(upload)
+                .layer(axum::middleware::from_fn(mutation_validation))
+                .get(index),
+        )
         .route("/admin/media/{id}/content", get(content))
         .route("/admin/media/{id}/thumbnail", get(thumbnail))
-        .route("/admin/media/{id}", axum::routing::delete(delete))
-        .route("/admin/media/{id}/delete", axum::routing::post(delete))
+        .route(
+            "/admin/media/{id}",
+            axum::routing::delete(delete).layer(axum::middleware::from_fn(mutation_validation)),
+        )
+        .route(
+            "/admin/media/{id}/delete",
+            axum::routing::post(delete).layer(axum::middleware::from_fn(mutation_validation)),
+        )
         .with_state(pool)
         .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
+}
+async fn mutation_validation(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let lang = request
+        .headers()
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let language = if lang.starts_with("en") {
+        oteryn_web::Language::En
+    } else {
+        oteryn_web::Language::Pl
+    };
+    let response = next.run(request).await;
+    let key = match response.status() {
+        StatusCode::BAD_REQUEST => "error-400-description",
+        StatusCode::UNPROCESSABLE_ENTITY => "error-422-description",
+        _ => return response,
+    };
+    (response.status(), language.text(key)).into_response()
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     configured_router_from(pool, &|key| std::env::var(key).ok())
@@ -458,6 +491,7 @@ async fn delete(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    method: Method,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
@@ -536,7 +570,12 @@ async fn delete(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
+    let status = if method == Method::DELETE {
+        StatusCode::SEE_OTHER
+    } else {
+        StatusCode::FOUND
+    };
+    Ok((status, [(header::LOCATION, "/admin/media")]).into_response())
 }
 #[cfg(test)]
 #[path = "media_tests.rs"]

@@ -98,6 +98,21 @@ async fn db_codes_production_dispatch_issues_redeems_and_refuses_unfulfillable_i
         .0;
     assert_eq!(Uuid::parse_str(request_id)?.get_version_num(), 7);
     let batch = serde_json::json!({"request_id":request_id,"kind":"coins","amount":7,"count":1,"max_per_code":1,"max_per_account":1,"valid_from":now-60,"valid_until":now+3600,"note":"Dispatch regression"});
+    for (lang, message) in [
+        ("en", "Check the request and try again."),
+        ("pl", "Sprawdź żądanie i spróbuj ponownie."),
+    ] {
+        let path = format!("/{lang}/admin/store/codes");
+        for (field, invalid) in [("note", ""), ("amount", "not a number")] {
+            let mut input = batch.clone();
+            input[field] = invalid.into();
+            let response = send(&path, input)?.await?;
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = to_bytes(response.into_body(), 8192).await?;
+            assert_eq!(&body[..], message.as_bytes());
+        }
+    }
     let identity = oteryn_admin::web::PortalIdentity::configured_from(pool.clone(), &config);
     let authenticated = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());

@@ -3,7 +3,7 @@ use super::*;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Request, State},
+    extract::{Path, Request, State, rejection::FormRejection},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -447,42 +447,61 @@ async fn edit<A: AccountStateReader>(
 ) -> Response {
     form(&s, c, session, h, Some(id)).await
 }
+type MutationForm<T> = Result<Form<T>, FormRejection>;
+
+fn mutation_form<T>(form: MutationForm<T>, headers: &axum::http::HeaderMap) -> Result<T, Response> {
+    match form {
+        Ok(Form(fields)) => Ok(fields),
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            Err(mutation_error(Error::Invalid, headers))
+        }
+        Err(rejection) => Err(rejection.into_response()),
+    }
+}
+
 async fn save<A: AccountStateReader>(
     s: &Staff<A>,
     c: CheckContext,
     id: Option<Uuid>,
-    f: EventForm,
+    form: MutationForm<EventForm>,
+    headers: &axum::http::HeaderMap,
 ) -> Response {
+    let f = match mutation_form(form, headers) {
+        Ok(fields) => fields,
+        Err(response) => return response,
+    };
     let draft = match f.draft() {
         Ok(v) => v,
-        Err(e) => return response(e),
+        Err(e) => return mutation_error(e, headers),
     };
     let existing = match id {
         Some(id) => match f.lock_version {
             Some(v) => Some((id, v)),
-            None => return response(Error::Invalid),
+            None => return mutation_error(Error::Invalid, headers),
         },
         None => None,
     };
     match s.events.save(&s.auth, c, existing, draft).await {
         Ok(id) => Redirect::to(&format!("/admin/events/{id}/edit")).into_response(),
-        Err(e) => response(e),
+        Err(e) => mutation_error(e, headers),
     }
 }
 async fn save_new<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
-    Form(f): Form<EventForm>,
+    headers: axum::http::HeaderMap,
+    form: MutationForm<EventForm>,
 ) -> Response {
-    save(&s, c, None, f).await
+    save(&s, c, None, form, &headers).await
 }
 async fn save_existing<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
     Path(id): Path<Uuid>,
-    Form(f): Form<EventForm>,
+    headers: axum::http::HeaderMap,
+    form: MutationForm<EventForm>,
 ) -> Response {
-    save(&s, c, Some(id), f).await
+    save(&s, c, Some(id), form, &headers).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -498,14 +517,34 @@ async fn status<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
     Path(id): Path<Uuid>,
-    Form(f): Form<StatusForm>,
+    headers: axum::http::HeaderMap,
+    form: MutationForm<StatusForm>,
 ) -> Response {
+    let f = match mutation_form(form, &headers) {
+        Ok(fields) => fields,
+        Err(response) => return response,
+    };
     match s
         .events
         .transition(&s.auth, c, id, f.lock_version, &f.status, &f.reason)
         .await
     {
         Ok(()) => Redirect::to(&format!("/admin/events/{id}/edit")).into_response(),
-        Err(e) => response(e),
+        Err(e) => mutation_error(e, &headers),
     }
+}
+fn mutation_error(error: Error, headers: &axum::http::HeaderMap) -> Response {
+    if matches!(error, Error::Invalid) {
+        let language = if lang(headers) == "en" {
+            oteryn_web::Language::En
+        } else {
+            oteryn_web::Language::Pl
+        };
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            language.text("error-422-description"),
+        )
+            .into_response();
+    }
+    response(error)
 }

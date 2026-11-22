@@ -590,7 +590,11 @@ async fn postgres_player_routes_session_csrf_bad_input_and_success() -> TestResu
                 )))?,
         )
         .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers()[axum::http::header::LOCATION],
+        format!("/en/support/tickets/{}", ticket.id),
+    );
     assert_eq!(t.list(owner, false, 0).await?[0].status, "closed");
     db.finish().await
 }
@@ -1279,6 +1283,25 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
             .bind(id)
             .fetch_one(&db.pool)
     };
+    assert!(unread().await?);
+    let invalid = acknowledge("not-a-uuid").await?;
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        to_bytes(invalid.into_body(), 65536).await?.as_ref(),
+        b"The request could not be completed. Reload the ticket and try again.",
+    );
+    assert!(unread().await?);
+    let unsupported = router(tickets.clone(), "http://localhost:3000")
+        .oneshot(
+            Request::post(format!("/en/support/tickets/{id}/read"))
+                .header("cookie", &cookie)
+                .header("origin", "http://localhost:3000")
+                .header("x-csrf-token", &csrf)
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))?,
+        )
+        .await?;
+    assert_eq!(unsupported.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     assert!(unread().await?);
     // Owner mutations establish no viewing boundary.
     tickets

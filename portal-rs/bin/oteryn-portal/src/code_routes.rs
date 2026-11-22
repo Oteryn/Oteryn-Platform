@@ -240,6 +240,7 @@ async fn generate(
     State(state): State<Context>,
     Extension(context): Extension<oteryn_admin::rbac::CheckContext>,
     Extension(auth): Extension<oteryn_admin::rbac::MutationAuthorization>,
+    Path(lang): Path<String>,
     request: Request,
 ) -> Response {
     let input = if request
@@ -251,12 +252,12 @@ async fn generate(
     {
         match axum::Form::<Generate>::from_request(request, &state).await {
             Ok(form) => form.0,
-            Err(error) => return error.into_response(),
+            Err(error) => return localized_extraction_error(&lang, error.into_response()),
         }
     } else {
         match Json::<Generate>::from_request(request, &state).await {
             Ok(json) => json.0,
-            Err(error) => return error.into_response(),
+            Err(error) => return localized_extraction_error(&lang, error.into_response()),
         }
     };
     let actor = context.account;
@@ -264,13 +265,13 @@ async fn generate(
     let kind = match input.kind.as_str() {
         "coins" => Kind::Coins,
         "premium_days" => Kind::PremiumDays,
-        _ => return StatusCode::UNPROCESSABLE_ENTITY.into_response(),
+        _ => return invalid_input(&lang),
     };
     let (Ok(valid_from), Ok(valid_until)) = (
         OffsetDateTime::from_unix_timestamp(input.valid_from),
         OffsetDateTime::from_unix_timestamp(input.valid_until),
     ) else {
-        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+        return invalid_input(&lang);
     };
     let batch = Batch {
         request_id: input.request_id,
@@ -289,7 +290,7 @@ async fn generate(
     {
         Ok(result) => Json(serde_json::json!({"batch_id":result.batch_id,"codes":result.codes}))
             .into_response(),
-        Err(e) => failure(e),
+        Err(e) => failure(&lang, e),
     }
 }
 #[derive(Deserialize)]
@@ -301,8 +302,13 @@ struct Redeem {
 async fn redeem(
     State(state): State<Context>,
     Extension(session): Extension<BrowserSession>,
-    Json(input): Json<Redeem>,
+    Path(lang): Path<String>,
+    payload: Result<Json<Redeem>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
+    let Json(input) = match payload {
+        Ok(input) => input,
+        Err(error) => return localized_extraction_error(&lang, error.into_response()),
+    };
     let Some(account) = session.account_id().await else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
@@ -320,12 +326,34 @@ async fn redeem(
             Json(serde_json::json!({"redemption_id":result.redemption_id,"amount":result.amount}))
                 .into_response()
         }
-        Err(e) => failure(e),
+        Err(e) => failure(&lang, e),
     }
 }
-fn failure(error: Error) -> Response {
+fn localized_extraction_error(lang: &str, response: Response) -> Response {
+    if response.status() == StatusCode::UNPROCESSABLE_ENTITY {
+        invalid_input(lang)
+    } else {
+        response
+    }
+}
+
+fn invalid_input(lang: &str) -> Response {
+    let language = if lang == "pl" {
+        oteryn_web::Language::Pl
+    } else {
+        oteryn_web::Language::En
+    };
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        [(header::CONTENT_LANGUAGE, language.code())],
+        language.text("error-400-description"),
+    )
+        .into_response()
+}
+
+fn failure(lang: &str, error: Error) -> Response {
     match error {
-        Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
+        Error::Invalid => return invalid_input(lang),
         Error::Denied | Error::Refused => StatusCode::FORBIDDEN,
         Error::Conflict => StatusCode::CONFLICT,
         Error::Disabled | Error::Unavailable => StatusCode::SERVICE_UNAVAILABLE,

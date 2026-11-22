@@ -176,6 +176,13 @@ fn failure(lang: &str, e: Error) -> Response {
         },
     )
 }
+fn form_failure(lang: &str, rejection: axum::extract::rejection::FormRejection) -> Response {
+    if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY {
+        failure(lang, Error::Invalid)
+    } else {
+        rejection.into_response()
+    }
+}
 fn locale(lang: &str) -> Result<(), Error> {
     if matches!(lang, "pl" | "en") {
         Ok(())
@@ -484,11 +491,15 @@ async fn bid(
     HttpState(runtime): HttpState<Runtime>,
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
-    BrowserForm(input): BrowserForm<Bid>,
+    input: Result<BrowserForm<Bid>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if let Err(e) = locale(&lang) {
         return failure("en", e);
     }
+    let BrowserForm(input) = match input {
+        Ok(form) => form,
+        Err(rejection) => return form_failure(&lang, rejection),
+    };
     let Some(actor) = session.account_id().await else {
         return failure(&lang, Error::Denied);
     };
@@ -580,11 +591,15 @@ async fn control(
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
     headers: HeaderMap,
-    BrowserForm(input): BrowserForm<Control>,
+    input: Result<BrowserForm<Control>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if let Err(e) = locale(&lang) {
         return failure("en", e);
     }
+    let BrowserForm(input) = match input {
+        Ok(form) => form,
+        Err(rejection) => return form_failure(&lang, rejection),
+    };
     let Some(actor) = session.account_id().await else {
         return failure(&lang, Error::Denied);
     };
@@ -625,6 +640,44 @@ async fn candidate_page(
 #[cfg(test)]
 mod catalogue_tests {
     use super::*;
+    #[tokio::test]
+    async fn invalid_bid_and_control_forms_keep_browser_locale()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use axum::{
+            body::{Body, to_bytes},
+            extract::FromRequest,
+            http::Request,
+        };
+
+        let form = |body: String| {
+            Request::post("/")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body))
+        };
+        let id = Uuid::now_v7();
+        let bid = BrowserForm::<Bid>::from_request(
+            form(format!(
+                "request_id={id}&buyer_character_id={id}&maximum=bad"
+            ))?,
+            &(),
+        )
+        .await;
+        let control =
+            BrowserForm::<Control>::from_request(form("request_id=bad&action=resume".into())?, &())
+                .await;
+        let errors = [
+            bid.err().ok_or("invalid bid form accepted")?,
+            control.err().ok_or("invalid control form accepted")?,
+        ];
+        for (rejection, lang) in errors.into_iter().zip(["en", "pl"]) {
+            let response = form_failure(lang, rejection);
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            let body = to_bytes(response.into_body(), 262_144).await?;
+            assert!(std::str::from_utf8(&body)?.contains(&translated(lang, "denied")));
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     async fn postgres_terminal_history_cannot_hide_active_catalogue_candidate()
     -> Result<(), Box<dyn std::error::Error>> {

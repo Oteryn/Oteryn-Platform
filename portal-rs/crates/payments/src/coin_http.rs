@@ -71,6 +71,10 @@ async fn private(request: Request, next: Next) -> Response {
             .insert(name, HeaderValue::from_static(value));
     }
     response
+        .headers_mut()
+        .entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static("no-referrer"));
+    response
 }
 
 async fn unavailable() -> StatusCode {
@@ -293,6 +297,18 @@ fn checkout_uses_the_requested_locale_for_copy_and_order_state() -> Result<(), a
     Ok(())
 }
 
+impl CheckoutPage {
+    fn response(&self) -> Response {
+        let mut response = oteryn_web::render(self);
+        // Chromium sends Origin: null on form POSTs from a no-referrer page.
+        response.headers_mut().insert(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("same-origin"),
+        );
+        response
+    }
+}
+
 #[derive(Deserialize)]
 struct Decision {
     action: String,
@@ -325,7 +341,7 @@ async fn page(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let price = order.price.display_for_locale(&chrome.lang);
-    oteryn_web::render(&CheckoutPage {
+    CheckoutPage {
         labels: CheckoutPage::labels(&chrome.lang),
         lang: chrome.lang,
         csrf,
@@ -333,7 +349,8 @@ async fn page(
         coins: order.coins,
         price,
         state: order.state,
-    })
+    }
+    .response()
 }
 
 /// CSRF is verified by the session layer before this runs.
@@ -342,9 +359,9 @@ async fn act(
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
     chrome: Option<Extension<Chrome>>,
+    headers: HeaderMap,
     Form(decision): Form<Decision>,
 ) -> Response {
-    let chrome = chrome.map(|Extension(chrome)| chrome).unwrap_or_default();
     let Some(account) = session.account_id().await else {
         return Redirect::to("/pl/login").into_response();
     };
@@ -354,12 +371,35 @@ async fn act(
     let paid = match decision.action.as_str() {
         "pay" => true,
         "fail" => false,
-        _ => return oteryn_ui::error(&chrome, StatusCode::BAD_REQUEST),
+        _ => {
+            return match chrome {
+                Some(Extension(chrome)) => oteryn_ui::error(&chrome, StatusCode::BAD_REQUEST),
+                None => invalid_checkout_action(&headers),
+            };
+        }
     };
     match service.sandbox_complete(account, order, paid).await {
         Ok(_) => Redirect::to(&format!("{CHECKOUT_PATH}{order}")).into_response(),
         Err(error) => refusal(error),
     }
+}
+
+fn invalid_checkout_action(headers: &HeaderMap) -> Response {
+    let language = if headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("pl"))
+    {
+        oteryn_web::Language::Pl
+    } else {
+        oteryn_web::Language::En
+    };
+    (
+        StatusCode::BAD_REQUEST,
+        [(header::CONTENT_LANGUAGE, language.code())],
+        language.text("error-400-description"),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -387,6 +427,37 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.headers()[header::REFERRER_POLICY], policy);
             assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn checkout_form_keeps_the_origin_for_csrf_verification() {
+        let response = CheckoutPage {
+            csrf: "local-test-value".into(),
+            order_id: Uuid::now_v7(),
+            coins: 1,
+            price: "1.00 PLN".into(),
+            state: OrderState::AwaitingPayment,
+        }
+        .response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
+    }
+
+    #[tokio::test]
+    async fn invalid_checkout_action_has_localized_feedback() -> Result<(), axum::Error> {
+        for (lang, message) in [
+            ("en", "Check the request and try again."),
+            ("pl", "Sprawdź żądanie i spróbuj ponownie."),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static(lang));
+            let response = invalid_checkout_action(&headers);
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = to_bytes(response.into_body(), 256).await?;
+            assert_eq!(&body[..], message.as_bytes());
         }
         Ok(())
     }

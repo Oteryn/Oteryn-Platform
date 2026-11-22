@@ -264,6 +264,16 @@ async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
     let second = Uuid::now_v7();
     let listing = db.listing(Uuid::now_v7()).await;
     let id = Uuid::now_v7();
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        lock_staff_target(
+            &mut tx,
+            &StaffCommand::ApproveInvalidation { id: Uuid::nil() }
+        )
+        .await,
+        Err(Error::InvalidInput)
+    ));
+    tx.rollback().await?;
     db.staff(first, suspend(listing)).await?;
     db.staff(
         first,

@@ -241,28 +241,60 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .fetch_one(&pool)
         .await?;
     assert_eq!(count, 1);
-    let response = success.oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=next+password&password_confirmation=next+password")?).await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
-    assert_eq!(
-        response
-            .headers()
-            .get(header::LOCATION)
-            .ok_or("missing redirect")?,
-        "/login"
-    );
-    assert!(
-        response
-            .headers()
-            .get(header::SET_COOKIE)
-            .ok_or("missing cleared cookie")?
-            .to_str()?
-            .contains("Max-Age=0")
-    );
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
-        .bind(id)
-        .fetch_one(&pool)
-        .await?;
-    assert_eq!(count, 0);
+    let second: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id",
+    )
+    .bind(format!("{}@example.test", uuid::Uuid::now_v7()))
+    .bind(&stored)
+    .fetch_one(&pool)
+    .await?;
+    let second_raw = "c".repeat(64);
+    let second_cookie = format!("{}={second_raw}", session::COOKIE_NAME);
+    sqlx::query(
+        "INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')",
+    )
+    .bind(Sha256::digest(second_raw.as_bytes()).to_vec())
+    .bind(second)
+    .bind(&csrf)
+    .execute(&pool)
+    .await?;
+    for (method, account, cookie, token, status) in [
+        ("POST", id, &rotated, &next_csrf, StatusCode::FOUND),
+        ("PUT", second, &second_cookie, &csrf, StatusCode::SEE_OTHER),
+    ] {
+        let response = success
+            .clone()
+            .oneshot(request(
+                method,
+                "/en/password/change",
+                cookie,
+                token,
+                "current_password=test+password&password=next+password&password_confirmation=next+password",
+            )?)
+            .await?;
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .ok_or("missing redirect")?,
+            "/login"
+        );
+        assert!(
+            response
+                .headers()
+                .get(header::SET_COOKIE)
+                .ok_or("missing cleared cookie")?
+                .to_str()?
+                .contains("Max-Age=0")
+        );
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+                .bind(account)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(count, 0);
+    }
     db.close().await?;
     Ok(())
 }

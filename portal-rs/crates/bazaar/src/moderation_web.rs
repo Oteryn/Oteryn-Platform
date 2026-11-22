@@ -7,7 +7,7 @@ use axum::{
     http::{StatusCode, header},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_web::session::{BrowserSession, SessionLayer};
@@ -85,11 +85,15 @@ pub fn router<A: Accounts + 'static, V: PublicViews + 'static, L: PromotionLedge
         .route("/{lang}/bazaar/sellers/{seller}", get(seller::<A, V, L>))
         .route(
             "/{lang}/account/bazaar/{listing}/report",
-            get(report_form).post(report::<A, V, L>),
+            post(report::<A, V, L>)
+                .layer(middleware::from_fn(mutation_refusals))
+                .get(report_form),
         )
         .route(
             "/{lang}/account/bazaar/{listing}/promote",
-            get(promotion_form::<A, V, L>).post(promote::<A, V, L>),
+            post(promote::<A, V, L>)
+                .layer(middleware::from_fn(mutation_refusals))
+                .get(promotion_form::<A, V, L>),
         )
         .route_layer(middleware::from_fn_with_state(
             SessionLayer::new(pool.clone()),
@@ -100,6 +104,24 @@ pub fn router<A: Accounts + 'static, V: PublicViews + 'static, L: PromotionLedge
         .with_state(Arc::new(Moderation::new(
             pool, accounts, views, ledger, flags,
         )))
+}
+async fn mutation_refusals(request: axum::extract::Request, next: middleware::Next) -> Response {
+    let locale = Locale::parse(request.uri().path().split('/').nth(1).unwrap_or_default());
+    let response = next.run(request).await;
+    match (locale, response.status()) {
+        (Ok(locale), status @ (StatusCode::FORBIDDEN | StatusCode::UNPROCESSABLE_ENTITY)) => {
+            mutation_refusal(locale, status)
+        }
+        _ => response,
+    }
+}
+fn mutation_refusal(locale: Locale, status: StatusCode) -> Response {
+    let chrome = oteryn_ui::Registry::default().chrome(
+        locale.0,
+        &format!("/{}/bazaar", locale.0),
+        oteryn_ui::Account::Anonymous,
+    );
+    oteryn_ui::error(&chrome, status)
 }
 async fn no_store(req: axum::extract::Request, next: middleware::Next) -> Response {
     let mut response = next.run(req).await;
@@ -255,6 +277,28 @@ async fn promote<A: Accounts, V: PublicViews, L: PromotionLedger>(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
+    #[tokio::test]
+    async fn report_and_promotion_refusals_use_route_locale() {
+        for (lang, status, expected) in [
+            (
+                "en",
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Some information could not be accepted. Check your input and try again.",
+            ),
+            (
+                "pl",
+                StatusCode::FORBIDDEN,
+                "Nie masz uprawnień do wyświetlenia tej strony.",
+            ),
+        ] {
+            let response = mutation_refusal(Locale::parse(lang).unwrap(), status);
+            assert_eq!(response.status(), status);
+            let body = axum::body::to_bytes(response.into_body(), 262_144)
+                .await
+                .unwrap();
+            assert!(std::str::from_utf8(&body).unwrap().contains(expected));
+        }
+    }
     #[test]
     fn public_pages_are_localized_escaped_and_labelled() {
         for lang in ["pl", "en"] {

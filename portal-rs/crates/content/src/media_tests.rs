@@ -104,7 +104,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            axum::http::Method::POST,
         )
         .await
         .err(),
@@ -130,7 +131,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            axum::http::Method::POST,
         )
         .await
         .err(),
@@ -155,6 +157,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            axum::http::Method::POST,
         ),
     )
     .await
@@ -301,9 +304,51 @@ async fn browser_lifecycle(pool: &PgPool) {
             .status(),
         StatusCode::FORBIDDEN
     );
+    for language in [oteryn_web::Language::Pl, oteryn_web::Language::En] {
+        let mut upload = make(csrf, " ");
+        upload
+            .headers_mut()
+            .insert(header::ACCEPT_LANGUAGE, language.code().parse().unwrap());
+        let refused = app.clone().oneshot(upload).await.unwrap();
+        assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+            language.text("error-422-description").as_bytes()
+        );
+
+        for (method, path) in [
+            (Method::POST, "/admin/media/invalid/delete"),
+            (Method::DELETE, "/admin/media/invalid"),
+        ] {
+            let refused = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header(header::ACCEPT_LANGUAGE, language.code())
+                        .header("host", "staff.test")
+                        .header("origin", "https://staff.test")
+                        .header("cookie", &cookie)
+                        .header("x-csrf-token", csrf)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+                language.text("error-400-description").as_bytes()
+            );
+        }
+    }
     assert_eq!(
-        app.clone().oneshot(make(csrf, " ")).await.unwrap().status(),
-        StatusCode::UNPROCESSABLE_ENTITY
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM media")
+            .fetch_one(pool)
+            .await
+            .unwrap(),
+        0
     );
     assert_eq!(
         app.clone()
@@ -328,6 +373,37 @@ async fn browser_lifecycle(pool: &PgPool) {
     .await
     .unwrap();
     assert_eq!(audit_count, 1);
+    assert_eq!(
+        app.clone()
+            .oneshot(make(csrf, "Method alias"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FOUND
+    );
+    let alias: Uuid = sqlx::query_scalar("SELECT id FROM media WHERE alt_text='Method alias'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/admin/media/{alias}"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/admin/media");
+    assert_eq!(
+        read(pool, alias, false).await.err(),
+        Some(StatusCode::NOT_FOUND)
+    );
     sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT $1,'editorial_media.uploaded','test','null'::jsonb,'null'::jsonb,uuidv7() FROM generate_series(1,9)").bind(actor).execute(pool).await.unwrap();
     assert_eq!(
         app.clone()
