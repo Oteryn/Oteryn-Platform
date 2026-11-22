@@ -96,17 +96,20 @@ test('a moderator reaches the dashboard and reports with MFA, and passkeys stay 
   const form = page.locator('form:has(input[value="moderate"])');
   const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
   const notes = unique();
-  await csrfRejected(page, reportPath, { ...fields, status: 'reviewing', public_outcome: '', moderator_notes: notes });
   const readReport = () => query(
     'SELECT status, lock_version::int, assigned_to, moderator_notes FROM player_reports WHERE id=$1',
     [report],
   );
   const readAudit = () => query(
-    "SELECT actor, before->>'status' AS previous, after->>'status' AS current FROM audit_log WHERE action='support.report_status_changed' AND target=$1",
-    [report],
+    'SELECT * FROM audit_log WHERE target IN ($1, $2) ORDER BY id',
+    [report, reportPath],
   );
-  expect(await readReport()).toEqual([{ status: 'submitted', lock_version: 1, assigned_to: null, moderator_notes: null }]);
-  expect(await readAudit()).toEqual([]);
+  const submitted = [{ status: 'submitted', lock_version: 1, assigned_to: null, moderator_notes: null }];
+  const auditBefore = await readAudit();
+  expect(auditBefore).toEqual([]);
+  await csrfRejected(page, reportPath, { ...fields, status: 'reviewing', public_outcome: '', moderator_notes: notes });
+  expect(await readReport()).toEqual(submitted);
+  expect(await readAudit()).toEqual(auditBefore);
 
   const blankReason = await page.request.post(reportPath, {
     headers: { origin: new URL(page.url()).origin },
@@ -114,8 +117,8 @@ test('a moderator reaches the dashboard and reports with MFA, and passkeys stay 
     maxRedirects: 0,
   });
   expect(blankReason.status()).toBe(422);
-  expect(await readReport()).toEqual([{ status: 'submitted', lock_version: 1, assigned_to: null, moderator_notes: null }]);
-  expect(await readAudit()).toEqual([]);
+  expect(await readReport()).toEqual(submitted);
+  expect(await readAudit()).toEqual(auditBefore);
 
   await form.locator('select[name="status"]').selectOption('reviewing');
   await form.locator('[name="public_outcome"]').fill('');
@@ -125,7 +128,13 @@ test('a moderator reaches the dashboard and reports with MFA, and passkeys stay 
   expect((await updated).status()).toBe(303);
   await expect(page).toHaveURL(new RegExp(`${reportPath}$`));
   expect(await readReport()).toEqual([{ status: 'reviewing', lock_version: 2, assigned_to: moderator, moderator_notes: notes }]);
-  expect(await readAudit()).toEqual([{ actor: moderator, previous: 'submitted', current: 'reviewing' }]);
+  expect(await readAudit()).toEqual([expect.objectContaining({
+    actor: moderator,
+    action: 'support.report_status_changed',
+    target: report,
+    before: expect.objectContaining({ status: 'submitted' }),
+    after: expect.objectContaining({ status: 'reviewing' }),
+  })]);
   await visit(page, '/admin/moderation/reports/malformed', 400);
   await visit(page, '/admin/roles', 403);
   await visit(page, `/${lang}/account/passkeys`, 403);
