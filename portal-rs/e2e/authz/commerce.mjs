@@ -24,7 +24,8 @@ export async function exerciseCommerce(request, locale, token, definition, route
     const { guard, source } = routes.find(r => r.listener === 'public' && r.method === method && r.path === path)
       .registrations[0];
     const permitted = permission => definition.permissions.includes(permission);
-    const allowed = guard.all.every(permitted) && guard.any.some(permitted) && permitted(guard.actions.grant);
+    const hasPanelAccess = guard.any.some(permitted);
+    const allowed = guard.all.every(permitted) && hasPanelAccess && permitted(guard.actions.grant);
     const id = index === 0 ? proposal : approvals[index - 1].id;
     const targetPath = path.replace('{action}', 'grant').replace('{id}', id);
     await test.step(`${method} ${path}`, async () => {
@@ -38,7 +39,10 @@ export async function exerciseCommerce(request, locale, token, definition, route
         if (anonymous) expect(response.headers().location).toBe('/login');
         if (before) {
           const outerDenial = definition.role && !guard.all.every(permitted);
-          await verifyRefusal(before, outerDenial ? ['admin.access.denied'] : []);
+          // A denied command logs its refusal after the panel admits the actor.
+          const commandDenial = index === 0 && hasPanelAccess;
+          const audit = outerDenial ? ['admin.access.denied'] : commandDenial ? ['commerce.denied'] : [];
+          await verifyRefusal(before, audit);
         }
         if (allowed) {
           const [row] = await query('SELECT requires_approval,approved_by,result FROM commerce_operations WHERE id=$1', [id]);
