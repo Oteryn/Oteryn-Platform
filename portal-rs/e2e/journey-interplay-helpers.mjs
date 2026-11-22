@@ -80,6 +80,9 @@ export async function provision(browser, info, role, mfa = Boolean(role)) {
 }
 
 export async function follow(page, path) {
+  // The destination can render its own navigation just after the response.
+  // Wait for it before opening the portal menu, which overlays links on mobile.
+  await page.waitForLoadState('domcontentloaded');
   const selector = `a[href="${path}"]`;
   const link = page.locator(selector).filter({ visible: true }).first();
   if (await link.count()) return navigate(page, link, path);
