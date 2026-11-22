@@ -302,8 +302,8 @@ impl Reports {
         ) {
             return Err(StaffError::Denied);
         }
-        let row: (String, i64, String, String) = sqlx::query_as(
-            "SELECT status,lock_version,report_type,target_reference FROM player_reports WHERE id=$1 FOR UPDATE",
+        let row: (String, i64, String, String, Option<Uuid>) = sqlx::query_as(
+            "SELECT status,lock_version,report_type,target_reference,sanction_id FROM player_reports WHERE id=$1 FOR UPDATE",
         )
         .bind(id)
         .fetch_one(&mut **tx)
@@ -331,8 +331,8 @@ impl Reports {
                 return Err(StaffError::Invalid);
             }
         }
-        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=CASE WHEN $4::text IS NULL THEN moderator_notes ELSE nullif(btrim($4),'') END,assigned_to=$5,lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
-            .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=CASE WHEN $4::text IS NULL THEN moderator_notes ELSE nullif(btrim($4),'') END,assigned_to=$5,sanction_id=coalesce($6,sanction_id),lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
+            .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).bind(linked).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
         crate::tickets::staff::notify(
             tx,
             notifications,
@@ -343,7 +343,7 @@ impl Reports {
         let mut before = serde_json::json!({"status":row.0,"lock_version":version});
         let mut after = serde_json::json!({"status":status,"lock_version":version+1});
         if let Some(sanction) = linked {
-            before["sanction_id"] = serde_json::Value::Null;
+            before["sanction_id"] = serde_json::json!(row.4);
             after["sanction_id"] = serde_json::json!(sanction);
         }
         Ok((before, after))

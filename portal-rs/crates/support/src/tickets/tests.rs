@@ -19,6 +19,12 @@ impl Database {
     async fn with_connections(
         maximum: u32,
     ) -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::with_migrator(maximum, &oteryn_db::MIGRATOR).await
+    }
+    async fn with_migrator(
+        maximum: u32,
+        migrator: &sqlx::migrate::Migrator,
+    ) -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("Skipping PostgreSQL support test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -45,7 +51,7 @@ impl Database {
             })
             .connect(&url)
             .await?;
-        oteryn_db::migrate(&pool).await?;
+        migrator.run(&pool).await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -107,6 +113,99 @@ async fn staff(pool: &PgPool, id: Uuid) -> Option<CheckContext> {
         mfa_verified: true,
         session_proof: crate::test_staff::proof(pool, id).await.ok(),
     })
+}
+
+#[tokio::test]
+async fn postgres_staff_metadata_migration_preserves_verified_history() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let before = sqlx::migrate::Migrator::with_migrations(
+        oteryn_db::MIGRATOR
+            .iter()
+            .filter(|migration| migration.version < 20261122190100)
+            .cloned()
+            .collect(),
+    );
+    let db = Database::with_migrator(1, &before)
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let assignee = db.account("en").await?;
+    let ticket: Uuid = sqlx::query_scalar(
+        "INSERT INTO tickets(account_id,request_key,category,subject,lock_version)
+         VALUES ($1,$2,'account','Ticket with history',4) RETURNING id",
+    )
+    .bind(owner)
+    .bind(Uuid::now_v7())
+    .fetch_one(&db.pool)
+    .await?;
+    for (account, version) in [(owner, 2), (assignee, 4), (owner, 5)] {
+        sqlx::query(
+            "INSERT INTO audit_log(action,target,before,after,request_id)
+             VALUES ('support.ticket_assigned',$1,'null',$2,$3)",
+        )
+        .bind(ticket.to_string())
+        .bind(serde_json::json!({"assigned_to": account, "lock_version": version}))
+        .bind(Uuid::now_v7())
+        .execute(&db.pool)
+        .await?;
+    }
+    let sanction: Uuid = sqlx::query_scalar(
+        "INSERT INTO sanctions(account_id,category,status,public_reason,created_by,effective_at,expires_at)
+         VALUES ($1,'warning','active','Existing sanction',$2,now(),now()+interval '1 day') RETURNING id",
+    )
+    .bind(owner)
+    .bind(assignee)
+    .fetch_one(&db.pool)
+    .await?;
+    let mut reports = Vec::new();
+    for (reference, expected) in [
+        (owner.to_string(), Some(sanction)),
+        (assignee.to_string(), None),
+        ("Unresolved Player".into(), None),
+    ] {
+        let report: Uuid = sqlx::query_scalar(
+            "INSERT INTO player_reports(reporter_account_id,request_key,report_type,category,target_reference,status,public_outcome,lock_version)
+             VALUES ($1,$2,'player','conduct',$3,'actioned','Reviewed',2) RETURNING id",
+        )
+        .bind(assignee)
+        .bind(Uuid::now_v7())
+        .bind(reference)
+        .fetch_one(&db.pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO audit_log(action,target,before,after,request_id)
+             VALUES ('support.report_sanction_linked',$1,'null',$2,$3)",
+        )
+        .bind(report.to_string())
+        .bind(serde_json::json!({"sanction_id": sanction, "lock_version": 2}))
+        .bind(Uuid::now_v7())
+        .execute(&db.pool)
+        .await?;
+        reports.push((report, expected));
+    }
+    oteryn_db::migrate(&db.pool).await?;
+    let row: (Option<Uuid>, i64) =
+        sqlx::query_as("SELECT assigned_to,lock_version FROM tickets WHERE id=$1")
+            .bind(ticket)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(row, (Some(assignee), 4));
+    for (report, expected) in reports {
+        let row: (Option<Uuid>, i64) =
+            sqlx::query_as("SELECT sanction_id,lock_version FROM player_reports WHERE id=$1")
+                .bind(report)
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(row, (expected, 2));
+    }
+    let historical_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log
+         WHERE action IN ('support.ticket_assigned','support.report_sanction_linked')",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(historical_events, 6);
+    db.finish().await
 }
 
 #[tokio::test]

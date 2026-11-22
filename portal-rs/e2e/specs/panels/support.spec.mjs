@@ -151,6 +151,8 @@ test('ticket queue and moderation preserve owner privacy and refuse invalid writ
     await refused(team.page, 'assign_ticket', { assignee: '', reason: '' }, 422);
     await mutate(team.page, 'assign_ticket', { assignee: '', reason: assignReason });
     await expect(team.page.locator('main')).toContainText(team.id);
+    expect(await query('SELECT assigned_to FROM tickets WHERE id=$1', [id]))
+      .toEqual([{ assigned_to: team.id }]);
     await refused(team.page, 'assign_ticket', { assignee: team.id, reason: assignReason }, 409);
     await audit(id, 'support.ticket_assigned', team.id, assignReason,
       { assigned_to: null, lock_version: 1 }, { assigned_to: team.id, lock_version: 2 });
@@ -305,6 +307,8 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     await refused(moderator.page, 'link_sanction', { ...linking, lock_version: '2' }, 409);
     await mutate(moderator.page, 'link_sanction', linking);
     await expect(moderator.page.locator('main')).toContainText(sanction);
+    expect(await query('SELECT sanction_id FROM player_reports WHERE id=$1', [linkedReport.id]))
+      .toEqual([{ sanction_id: sanction }]);
     await audit(linkedReport.id, 'support.report_sanction_linked', moderator.id, linking.reason,
       { status: 'submitted', lock_version: 1, sanction_id: null },
       { status: 'actioned', lock_version: 2, sanction_id: sanction });

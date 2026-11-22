@@ -292,42 +292,30 @@ impl Backend for StaffSupport {
         record: &Record,
     ) -> std::result::Result<Details, StaffError> {
         self.available(area)?;
-        if record.version == 1
-            || area == Area::Enforcement
-            || (area == Area::Reports && !matches!(record.status.as_str(), "actioned" | "closed"))
-        {
-            return Ok(Details::default());
-        }
-        let mut connection = self
-            .pool
-            .acquire()
+        let query = match area {
+            Area::Tickets => "SELECT assigned_to FROM tickets WHERE id=$1 AND lock_version=$2",
+            Area::Reports => {
+                "SELECT sanction_id FROM player_reports WHERE id=$1 AND lock_version=$2"
+            }
+            Area::Enforcement => return Ok(Details::default()),
+        };
+        let reference: Option<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
+            .bind(record.id)
+            .bind(record.version)
+            .fetch_optional(&self.pool)
             .await
-            .map_err(|_| StaffError::Unavailable)?;
-        match area {
-            Area::Tickets => Ok(Details {
-                assigned_to: support_metadata(
-                    &mut connection,
-                    record.id,
-                    record.version,
-                    "support.ticket_assigned",
-                    "assigned_to",
-                )
-                .await?,
+            .map_err(|_| StaffError::Unavailable)?
+            .ok_or(StaffError::Conflict)?;
+        Ok(match area {
+            Area::Tickets => Details {
+                assigned_to: reference,
                 ..Details::default()
-            }),
-            Area::Reports => Ok(Details {
-                linked_sanction: support_metadata(
-                    &mut connection,
-                    record.id,
-                    record.version,
-                    "support.report_sanction_linked",
-                    "sanction_id",
-                )
-                .await?,
+            },
+            _ => Details {
+                linked_sanction: reference,
                 ..Details::default()
-            }),
-            Area::Enforcement => Ok(Details::default()),
-        }
+            },
+        })
     }
     async fn load(
         &self,
@@ -412,8 +400,8 @@ impl Backend for StaffSupport {
         let notifications = self.notifications.as_ref().ok_or(StaffError::Unavailable)?;
         match command {
             Command::AssignTicket { assignee } => {
-                let (status, current): (String, i64) = sqlx::query_as(
-                    "SELECT status,lock_version FROM tickets WHERE id=$1 FOR UPDATE",
+                let (status, current, before): (String, i64, Option<Uuid>) = sqlx::query_as(
+                    "SELECT status,lock_version,assigned_to FROM tickets WHERE id=$1 FOR UPDATE",
                 )
                 .bind(id)
                 .fetch_optional(&mut **tx)
@@ -424,18 +412,16 @@ impl Backend for StaffSupport {
                     return Err(StaffError::Conflict);
                 }
                 command.transition(&status)?;
-                let before =
-                    support_metadata(tx, id, version, "support.ticket_assigned", "assigned_to")
-                        .await?;
                 let assignee = assignee.unwrap_or(actor);
                 if before == Some(assignee) {
                     return Err(StaffError::Conflict);
                 }
                 let next: i64 = sqlx::query_scalar(
-                    "UPDATE tickets SET lock_version=lock_version+1,updated_at=clock_timestamp()
+                    "UPDATE tickets SET lock_version=lock_version+1,updated_at=clock_timestamp(),assigned_to=$2
                      WHERE id=$1 RETURNING lock_version",
                 )
                 .bind(id)
+                .bind(assignee)
                 .fetch_one(&mut **tx)
                 .await
                 .map_err(|_| StaffError::Unavailable)?;
@@ -482,32 +468,6 @@ impl Backend for StaffSupport {
         }
     }
 }
-/// Staff-only metadata comes from immutable support audit events. The owning
-/// resource's row revision gates writes and bounds the projection for a view.
-async fn support_metadata(
-    connection: &mut sqlx::PgConnection,
-    id: Uuid,
-    version: i64,
-    action: &str,
-    key: &str,
-) -> std::result::Result<Option<Uuid>, StaffError> {
-    if version == 1 {
-        return Ok(None);
-    }
-    sqlx::query_scalar(
-        "SELECT (after->>$4)::uuid FROM audit_log
-         WHERE action=$1 AND target=$2 AND after->'lock_version' <= to_jsonb($3::bigint)
-         ORDER BY after->'lock_version' DESC LIMIT 1",
-    )
-    .bind(action)
-    .bind(id.to_string())
-    .bind(version)
-    .bind(key)
-    .fetch_optional(connection)
-    .await
-    .map_err(|_| StaffError::Unavailable)
-}
-
 fn ticket_error(error: Error) -> StaffError {
     match error {
         Error::Invalid => StaffError::Invalid,
