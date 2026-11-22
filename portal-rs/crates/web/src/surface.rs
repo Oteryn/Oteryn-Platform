@@ -272,10 +272,10 @@ async fn policy(mut request: Request, next: Next) -> Response {
                 replacement.headers_mut().insert(name, value.clone());
             }
         }
-        for value in response.headers().get_all(header::SET_COOKIE) {
-            replacement
-                .headers_mut()
-                .append(header::SET_COOKIE, value.clone());
+        for name in [header::SET_COOKIE, header::CACHE_CONTROL] {
+            for value in response.headers().get_all(&name) {
+                replacement.headers_mut().append(&name, value.clone());
+            }
         }
         response = replacement;
     }
@@ -314,16 +314,16 @@ async fn policy(mut request: Request, next: Next) -> Response {
         header::VARY,
         HeaderValue::from_static("Accept, Accept-Language, Cookie"),
     );
-    let cache = if path.starts_with("/static/") && status.is_success() {
-        if hashed_name(&path) {
+    if path.starts_with("/static/") && status.is_success() {
+        let cache = if hashed_name(&path) {
             "public, max-age=31536000, immutable"
         } else {
             "public, max-age=300, must-revalidate"
-        }
+        };
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     } else {
-        "no-store"
-    };
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+        crate::chrome::ensure_no_store(headers);
+    }
     if is_head {
         *response.body_mut() = Body::empty();
     }
@@ -474,7 +474,15 @@ mod tests {
             )
             .route(
                 "/unavailable",
-                get(|| async { (StatusCode::SERVICE_UNAVAILABLE, "private failure") }),
+                get(|| async {
+                    let mut headers = HeaderMap::new();
+                    headers.append(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("private, no-store"),
+                    );
+                    headers.append(header::CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
+                    (StatusCode::SERVICE_UNAVAILABLE, headers, "private failure")
+                }),
             )
             .route(
                 "/limited",
@@ -519,6 +527,16 @@ mod tests {
                 assert_headers(&response);
                 if status == StatusCode::TOO_MANY_REQUESTS {
                     assert_eq!(response.headers()[header::RETRY_AFTER], "30");
+                }
+                if status == StatusCode::SERVICE_UNAVAILABLE {
+                    assert_eq!(
+                        response
+                            .headers()
+                            .get_all(header::CACHE_CONTROL)
+                            .iter()
+                            .collect::<Vec<_>>(),
+                        ["private, no-store", "max-age=0"],
+                    );
                 }
                 let body = html(response).await?;
                 assert!(body.contains(title));
