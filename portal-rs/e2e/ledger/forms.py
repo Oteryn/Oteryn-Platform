@@ -71,6 +71,7 @@ ACTIONS = {
 ASKAMA = re.compile(r"{{.*?}}|{%.*?%}|{#.*?#}", re.S)
 PARAM = re.compile(r"{([^{}]+)}")
 CONDITIONAL = re.compile(r"{%\s*if\b.*?%}(.*?)(?:{%\s*else\s*%}(.*?))?{%\s*endif\s*%}")
+CALCULATOR = "templates/wiki/calculators/page.html"
 
 
 class Forms(HTMLParser):
@@ -96,7 +97,7 @@ class Forms(HTMLParser):
         attrs = {key: self.restore(value or "") for key, value in attributes}
         if tag == "form":
             self.current = dict(line=self.getpos()[0], action=attrs.get("action", ""),
-                                method=attrs.get("method", "GET").upper(), fields=set(), buttons=[])
+                                method=attrs.get("method", "GET").upper(), fields=set(), buttons=[], hidden={})
             self.forms.append(self.current)
         elif self.current is not None:
             kind = attrs.get("type", "submit" if tag == "button" else "").lower()
@@ -107,6 +108,8 @@ class Forms(HTMLParser):
                 self.current["buttons"].append((attrs.get("formaction"), attrs.get("formmethod"), button))
             elif tag in {"input", "select", "textarea"} and attrs.get("name"):
                 self.current["fields"].add(attrs["name"])
+                if tag == "input" and kind == "hidden":
+                    self.current["hidden"][attrs["name"]] = attrs.get("value", "")
 
     def handle_endtag(self, tag):
         if tag == "form":
@@ -170,9 +173,15 @@ def generate():
                     "templates/admin": "admin", "templates/content": "content",
                     "templates/profile": "characters",
                 }.get("/".join(parts[:2]), parts[1] if parts[0] == "crates" else "web")
-                forms.append(dict(template=filename, line=form["line"], action=action, method=method,
-                                  route_pattern=route["route"] if route else None, crate=crate,
-                                  fields=sorted(form["fields"]), buttons=buttons))
+                entry = dict(template=filename, line=form["line"], action=action, method=method,
+                             route_pattern=route["route"] if route else None, crate=crate,
+                             fields=sorted(form["fields"]), buttons=buttons)
+                if filename == CALCULATOR:
+                    value = form["hidden"].get("calculator", "")
+                    if not re.fullmatch(r"[a-z]+", value):
+                        raise ValueError(f"{filename}:{form['line']} missing calculator operation")
+                    entry["operation"] = dict(name="calculator", value=value)
+                forms.append(entry)
     (LEDGER / "forms.json").write_text(json.dumps(forms, indent=2, ensure_ascii=False) + "\n",
                                        encoding="utf-8")
 

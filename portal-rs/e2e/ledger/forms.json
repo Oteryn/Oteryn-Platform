@@ -1895,7 +1895,11 @@
     ],
     "buttons": [
       null
-    ]
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "experience"
+    }
   },
   {
     "template": "templates/wiki/calculators/page.html",
@@ -1911,7 +1915,11 @@
     ],
     "buttons": [
       null
-    ]
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "stamina"
+    }
   },
   {
     "template": "templates/wiki/calculators/page.html",
@@ -1928,7 +1936,11 @@
     ],
     "buttons": [
       null
-    ]
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "training"
+    }
   },
   {
     "template": "templates/wiki/calculators/page.html",
@@ -1944,7 +1956,11 @@
     ],
     "buttons": [
       null
-    ]
+    ],
+    "operation": {
+      "name": "calculator",
+      "value": "loot"
+    }
   },
   {
     "template": "templates/wiki/entities_list.html",

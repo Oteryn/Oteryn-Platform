@@ -10,7 +10,7 @@ test('coverage requires a response from the matching passing attempt', t => {
   t.after(() => rmSync(directory, {recursive: true}));
   mkdirSync(join(directory, 'ledger'));
   mkdirSync(join(directory, 'test-results/ledger'), {recursive: true});
-  for (const file of ['inventory.json', 'ledger/forms.json', 'ledger/report.mjs']) {
+  for (const file of ['inventory.json', 'ledger/capture.mjs', 'ledger/forms.json', 'ledger/report.mjs']) {
     cpSync(new URL(`../${file}`, import.meta.url), join(directory, file));
   }
 
@@ -24,8 +24,17 @@ test('coverage requires a response from the matching passing attempt', t => {
     ]),
     spec('expected failure', [run('pl-1440', 'failed', [result('failed', 1, 0)])]),
   ]}]}];
+  const baselineCapture = {revision: 'a'.repeat(40), runId: '10000000-0000-4000-8000-000000000000', clean: true};
+  const candidateCapture = {...baselineCapture, runId: '20000000-0000-4000-8000-000000000000'};
   const config = {configFile: join(directory, 'playwright.config.mjs'), rootDir: directory};
-  writeFileSync(join(directory, 'test-results/results.json'), JSON.stringify({config, suites}));
+  const results = join(directory, 'test-results/results.json');
+  const captureFile = join(directory, 'test-results/ledger/requests.jsonl');
+  const report = (...args) => execFileSync(process.execPath, [join(directory, 'ledger/report.mjs'), ...args], {stdio: 'pipe'});
+  const saveResults = ledger => writeFileSync(results, JSON.stringify({config: {...config, metadata: {ledger}}, suites}));
+  const saveCaptures = (requests, capture) => writeFileSync(captureFile, requests.map(row =>
+    JSON.stringify({...row, capture})).join('\n'));
+  const rejects = (message, ...args) => assert.throws(() => report(...args),
+    error => error.status === 1 && error.stderr.toString().includes(message));
 
   const hit = {
     route_pattern: '/search', method: 'GET', status: 200, actor: 'anonymous', credential: 'none',
@@ -39,19 +48,49 @@ test('coverage requires a response from the matching passing attempt', t => {
     {...hit, test: 'search › expected failure', retry: 0},
     {...hit, status: null},
   ];
-  writeFileSync(join(directory, 'test-results/ledger/requests.jsonl'), requests.map(row => JSON.stringify(row)).join('\n'));
-  execFileSync(process.execPath, [join(directory, 'ledger/report.mjs')]);
+  saveResults(baselineCapture);
+  saveCaptures(requests, baselineCapture);
+  report();
 
-  const {rows} = JSON.parse(readFileSync(join(directory, 'ledger/ledger.json')));
+  const {rows, capture} = JSON.parse(readFileSync(join(directory, 'ledger/ledger.json')));
+  assert.deepEqual(capture, baselineCapture);
   const search = rows.find(row => row.id === 'F-web-26667257346850');
   assert.deepEqual(search.evidence, [{
     actor: 'anonymous', credential: 'none', status: 200, projects: ['pl-1440'],
     cases: [{spec: hit.spec, test: hit.test, project: 'pl-1440'}],
   }]);
   assert.equal(rows.find(row => row.id === 'R-identity-145836777639757').hit, false);
-  const capture = join(directory, 'test-results/ledger/requests.jsonl');
-  writeFileSync(capture, JSON.stringify({recorder_errors: ['session actor lookup']}) + '\n');
-  assert.throws(() => execFileSync(process.execPath, [join(directory, 'ledger/report.mjs')], {stdio: 'pipe'}),
-    error => error.status === 1 && error.stderr.toString().includes('Ledger capture failed'));
 
+  saveResults(candidateCapture);
+  rejects('Ledger captures do not match the Playwright run.', '--delta');
+  saveCaptures([{recorder_errors: ['session actor lookup']}], candidateCapture);
+  rejects('Ledger capture failed');
+
+  const loot = {...hit, route_pattern: '/{lang}/wiki/calculators', form_action: {
+    action: '/{lang}/wiki/calculators', buttons: [null], operation: {name: 'calculator', value: 'loot'},
+  }};
+  saveCaptures([loot], candidateCapture);
+  report('--delta'); // The report directory is outside any checkout.
+  const delta = readFileSync(join(directory, 'ledger/DELTA.md'), 'utf8');
+  assert.ok(delta.includes(`Tested revision \`${candidateCapture.revision}\`, run \`${candidateCapture.runId}\`. Baseline run \`${baselineCapture.runId}\`.`));
+  const [gained, unhit] = delta.split('## Baseline gaps still unhit');
+  assert.match(gained, /\| F-[^\n]+calculator=loot/);
+  for (const operation of ['experience', 'stamina', 'training']) {
+    assert.ok(!gained.includes(`calculator=${operation}`));
+    assert.ok(unhit.includes(`calculator=${operation}`));
+  }
+
+  saveResults(baselineCapture);
+  saveCaptures([loot], baselineCapture);
+  rejects('The baseline must be a separate Playwright run of the same captured revision.', '--delta');
+
+  const otherRevision = {...candidateCapture, revision: 'b'.repeat(40)};
+  saveResults(otherRevision);
+  saveCaptures([loot], otherRevision);
+  rejects('The baseline must be a separate Playwright run of the same captured revision.', '--delta');
+
+  const dirty = {...candidateCapture, clean: false};
+  saveResults(dirty);
+  saveCaptures([loot], dirty);
+  rejects('Ledger evidence requires a clean checkout at capture time.');
 });

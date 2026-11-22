@@ -4,10 +4,13 @@ import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 import os from 'node:os';
 import path from 'node:path';
+import { beginCapture } from './ledger/capture.mjs';
 import { installRecorder } from './ledger/record.mjs';
 if (process.env.TEST_WORKER_INDEX !== undefined) installRecorder();
 process.env.PORTAL_E2E_AUTH_DIRECTORY ||= fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-auth-'));
 export default defineConfig({
+  // Playwright serializes global metadata to both its workers and JSON reporter.
+  metadata: process.env.TEST_WORKER_INDEX === undefined ? { ledger: beginCapture() } : {},
   testDir: './specs', timeout: 120_000, expect: { timeout: 10_000 },
   fullyParallel: false, workers: 1, retries: 0,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],

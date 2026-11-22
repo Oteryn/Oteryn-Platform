@@ -141,7 +141,9 @@ test('player updates privacy with PUT and revokes other sessions through both DE
         headers: {origin, 'x-csrf-token': csrf}, maxRedirects: 0,
       });
       expect(revoked.status()).toBe(302);
-      expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(303);
+      const denied = await other.request.get(privacy, {maxRedirects: 0});
+      expect(denied.status()).toBe(303);
+      expect(denied.headers().location).toBe(`/${lang}/login`);
       expect((await page.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
     }
     await login(other, lang, account);
@@ -155,7 +157,9 @@ test('player updates privacy with PUT and revokes other sessions through both DE
       form: {_csrf: csrf}, headers: {origin}, maxRedirects: 0,
     });
     expect(revoked.status()).toBe(302);
-    expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(303);
+    const denied = await other.request.get(privacy, {maxRedirects: 0});
+    expect(denied.status()).toBe(303);
+    expect(denied.headers().location).toBe(`/${lang}/login`);
     expect((await page.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
   } finally {
     await peer.close();
@@ -220,10 +224,10 @@ for (const localized of [false, true]) {
     const prefix = localized ? `/${lang}` : '';
     expect((await page.goto(manage)).status()).toBe(200);
     const csrf = await page.locator('main form [name=_csrf]').inputValue();
-  const headers = {origin: new URL(page.url()).origin};
-  const form = {_csrf: csrf, current_password: account.password};
-  const generated = await page.request.post(manage, {form, headers});
-  expect(generated.status()).toBe(200);
+    const headers = {origin: new URL(page.url()).origin};
+    const form = {_csrf: csrf, current_password: account.password};
+    const generated = await page.request.post(manage, {form, headers});
+    expect(generated.status()).toBe(200);
     const key = /<[^>]+class="op-code"[^>]*>([^<]+)<\//.exec(await generated.text())?.[1].trim();
     expect(Boolean(key)).toBe(true);
     const confirmed = await page.request.post(`${manage}/confirm`, {
@@ -276,6 +280,7 @@ test('player changes the password through both PUT routes after sudo', async ({p
     expect(response.headers().location).toBe('/login');
     const denied = await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0});
     expect(denied.status()).toBe(303);
+    expect(denied.headers().location).toBe(`/${lang}/login`);
     account.password = next;
     await login(page, lang, account);
     expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);

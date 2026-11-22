@@ -81,16 +81,22 @@ function formAction(url, method, contentType, body, referer) {
 
   const action = candidates[0].action;
   const matching = candidates.filter(form => form.action === action);
-  const buttons = matching.flatMap(form => form.buttons).filter(Boolean);
+  const submitted = matching.filter(form => {
+    if (!form.operation) return true;
+    const values = fields.getAll(form.operation.name);
+    return values.length === 1 && values[0] === form.operation.value;
+  });
+  const buttons = submitted.flatMap(form => form.buttons).filter(Boolean);
   const selected = buttons.filter(button => fields.getAll(button.name).some(value =>
     matchesButton(button, value, url, referer)));
   if (selected.length) {
     return { action, buttons: [...new Map(selected.map(button => [JSON.stringify(button), button])).values()] };
   }
   // Fields that can also be submitter names must match a declared value.
-  if (matching.some(form => form.buttons.includes(null) &&
-      form.fields.some(name => fields.has(name) && !buttons.some(button => button.name === name)))) {
-    return { action, buttons: [null] };
+  const unnamed = submitted.find(form => form.buttons.includes(null) &&
+      form.fields.some(name => fields.has(name) && !buttons.some(button => button.name === name)));
+  if (unnamed) {
+    return { action, buttons: [null], ...(unnamed.operation && { operation: unnamed.operation }) };
   }
   return null;
 }
@@ -208,7 +214,8 @@ export async function flushRecorder(info) {
   const lines = attempt.hits.map(hit => hit.row);
   if (attempt.errors.size) lines.push({ recorder_errors: [...attempt.errors].sort() });
   mkdirSync(directory, { recursive: true });
-  appendFileSync(attempt.file, lines.map(row => JSON.stringify(row) + '\n').join(''));
+  const capture = info.config.metadata.ledger;
+  appendFileSync(attempt.file, lines.map(row => JSON.stringify({capture, ...row}) + '\n').join(''));
   attempts.delete(info);
   if (attempt.errors.size) throw new Error(`Ledger recorder failed: ${[...attempt.errors].sort().join(', ')}`);
 }
