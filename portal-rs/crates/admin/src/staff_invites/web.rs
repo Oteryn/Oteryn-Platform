@@ -1,4 +1,4 @@
-use super::{DELEGABLE_ROLES, Invites, Listing, PENDING, Pending, pending_for, valid_token};
+use super::{Invites, Listing, Pending, delegable_roles_sql, pending_for, valid_token};
 use crate::{
     rbac::{Authorizer, CheckContext, Error, Permission},
     web::{PortalIdentity, StaffSession, configured_guard, language, staff_context, text},
@@ -127,19 +127,14 @@ async fn manage(
     let lang = language(&headers);
     let result = async {
         let csrf = session.csrf_token().await?;
-        let roles = sqlx::query_as(DELEGABLE_ROLES)
+        let roles = sqlx::query_as(delegable_roles_sql())
             .bind(actor.account)
             .fetch_all(&app.invites.pool)
             .await?;
         let mut pending = pending_for(&app.invites.pool, actor.account, query.before).await?;
         let approval = if let Some(id) = query.approval {
             let mut conn = app.invites.pool.acquire().await?;
-            let invite: Pending =
-                sqlx::query_as(sqlx::AssertSqlSafe(format!("{PENDING} AND id=$1")))
-                    .bind(id)
-                    .fetch_optional(&mut *conn)
-                    .await?
-                    .ok_or(Error::Denied)?;
+            let invite = Pending::by_id(&mut conn, id).await?;
             app.invites
                 .check_approver(&mut conn, actor.account, &invite)
                 .await?;

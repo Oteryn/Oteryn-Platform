@@ -83,6 +83,7 @@ impl Fixture {
             email,
             locale,
             token,
+            ..
         } = delivery(&self.invites.pool, &self.key, &payload).await?
         else {
             return Err("invite should be deliverable".into());
@@ -499,4 +500,128 @@ async fn pending_invite_follows_role_reclassification() -> TestResult {
     f.invites.accept(f.recipient, &token).await?;
     assert_eq!(f.memberships().await?, 1);
     f.close().await
+}
+
+#[tokio::test]
+async fn stale_approval_blocks_delivery_and_can_be_replaced() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let f = Fixture::open().await?;
+    let (id, token) = f.create().await?;
+    let pool = &f.invites.pool;
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage')")
+        .bind(f.role)
+        .execute(pool)
+        .await?;
+
+    let original = account(pool, "original-approver@example.invalid").await?;
+    let replacement = account(pool, "replacement-approver@example.invalid").await?;
+    // Both approvers also hold a separate role that keeps their management
+    // permissions when the original approver loses the invited support role.
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id)
+         SELECT manager.id,r.id FROM unnest($1::uuid[]) AS manager(id)
+         CROSS JOIN roles r WHERE r.key='platform_admin'",
+    )
+    .bind([original.account, replacement.account].as_slice())
+    .execute(pool)
+    .await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$3),($2,$3)")
+        .bind(original.account)
+        .bind(replacement.account)
+        .bind(f.role)
+        .execute(pool)
+        .await?;
+    f.invites.approve(original, id).await?;
+    assert!(matches!(
+        f.invites.approve(replacement, id).await,
+        Err(Error::Denied)
+    ));
+
+    let payload: String =
+        sqlx::query_scalar("SELECT payload::text FROM outbox WHERE kind=$1 AND idempotency_key=$2")
+            .bind(MAIL_KIND)
+            .bind(id.to_string())
+            .fetch_one(pool)
+            .await?;
+    assert!(!pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
+    assert!(matches!(
+        delivery(pool, &f.key, &payload).await?,
+        DeliveryDecision::Send { .. }
+    ));
+
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1 AND role_id=$2")
+        .bind(original.account)
+        .bind(f.role)
+        .execute(pool)
+        .await?;
+    assert!(pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
+    assert!(matches!(
+        delivery(pool, &f.key, &payload).await?,
+        DeliveryDecision::AwaitingApproval
+    ));
+    assert!(matches!(
+        f.invites.accept(f.recipient, &token).await,
+        Err(Error::Denied)
+    ));
+    assert_eq!(f.memberships().await?, 0);
+
+    // The original 48-hour window has only one hour remaining at reapproval.
+    let expiry: OffsetDateTime = sqlx::query_scalar(
+        "UPDATE staff_invites SET created_at=statement_timestamp()-interval '47 hours',
+         expires_at=statement_timestamp()+interval '1 hour' WHERE id=$1 RETURNING expires_at",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
+    sqlx::query("UPDATE outbox SET run_after=$3 WHERE kind=$1 AND idempotency_key=$2")
+        .bind(MAIL_KIND)
+        .bind(id.to_string())
+        .bind(expiry)
+        .execute(pool)
+        .await?;
+    let (first, second) = tokio::join!(
+        f.invites.approve(replacement, id),
+        f.invites.approve(replacement, id),
+    );
+    assert!(matches!(
+        (first, second),
+        (Ok(()), Err(Error::Denied)) | (Err(Error::Denied), Ok(()))
+    ));
+
+    assert!(!pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
+    assert!(
+        matches!(delivery(pool, &f.key, &payload).await?, DeliveryDecision::Send { expires_at, .. } if expires_at == expiry)
+    );
+    let ready: bool = sqlx::query_scalar(
+        "SELECT state='pending' AND run_after<=clock_timestamp() FROM outbox WHERE kind=$1 AND idempotency_key=$2",
+    ).bind(MAIL_KIND).bind(id.to_string()).fetch_one(pool).await?;
+    assert!(ready);
+    f.invites.accept(f.recipient, &token).await?;
+    assert_eq!(f.memberships().await?, 1);
+    assert_eq!(
+        f.actions(id).await?,
+        [
+            ("staff.invite.created".into(), f.inviter.account),
+            ("staff.invite.approved".into(), original.account),
+            ("staff.invite.approved".into(), replacement.account),
+            ("staff.invite.accepted".into(), f.recipient.account),
+        ],
+    );
+    f.close().await
+}
+
+#[test]
+fn invitation_mail_localizes_the_actual_utc_expiry() -> TestResult {
+    let expires_at = OffsetDateTime::parse(
+        "2026-11-24T14:42:00+02:00",
+        &time::format_description::well_known::Rfc3339,
+    )?;
+    let (_, en) = mail_text("en", expires_at);
+    let (_, pl) = mail_text("pl", expires_at);
+    assert!(en.starts_with("This invitation expires on "));
+    assert!(en.contains("2026-11-24 12:42:00 UTC"));
+    assert!(pl.starts_with("Zaproszenie wygasa "));
+    assert!(pl.contains("24.11.2026 12:42:00 UTC"));
+    assert!(!en.contains("48 hours") && !pl.contains("48 godzin"));
+    Ok(())
 }

@@ -445,6 +445,13 @@ pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     }
 }
 pub(crate) fn text(lang: &str, key: &str) -> String {
+    text_with_args(lang, key, None)
+}
+pub(crate) fn text_with_args(
+    lang: &str,
+    key: &str,
+    args: Option<&fluent_bundle::FluentArgs<'_>>,
+) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
     };
@@ -463,7 +470,7 @@ pub(crate) fn text(lang: &str, key: &str) -> String {
     bundle
         .get_message(key)
         .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
+        .map(|p| bundle.format_pattern(p, args, &mut vec![]).into_owned())
         .unwrap_or_default()
 }
 #[derive(Template)]

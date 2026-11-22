@@ -77,17 +77,18 @@ impl Handler for StaffInviteMailer {
     fn deliver<'a>(&'a self, job: &'a oteryn_db::outbox::Job) -> DeliveryFuture<'a> {
         Box::pin(async move {
             use staff_invites::DeliveryDecision;
-            let (email, locale, token) =
+            let (email, locale, token, expires_at) =
                 match staff_invites::delivery(&self.mailer.pool, &self.key, &job.payload).await? {
                     DeliveryDecision::Send {
                         email,
                         locale,
                         token,
-                    } => (email, locale, token),
+                        expires_at,
+                    } => (email, locale, token, expires_at),
                     DeliveryDecision::AwaitingApproval => return Ok(DeliveryOutcome::Deferred),
                     DeliveryDecision::Closed => return Ok(DeliveryOutcome::Complete),
                 };
-            let (subject, body) = staff_invites::mail_text(&locale);
+            let (subject, body) = staff_invites::mail_text(&locale, expires_at);
             let message = Message::builder()
                 .from(self.mailer.from.clone())
                 .to(email
