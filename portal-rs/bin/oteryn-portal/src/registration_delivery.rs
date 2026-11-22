@@ -126,7 +126,10 @@ impl Handler for StaffInviteMailer {
                         token,
                         expires_at,
                     } => (email, locale, token, expires_at),
-                    DeliveryDecision::AwaitingApproval => return Ok(DeliveryOutcome::Deferred),
+                    DeliveryDecision::AwaitingApproval
+                    | DeliveryDecision::AwaitingIssuerAuthority => {
+                        return Ok(DeliveryOutcome::Deferred);
+                    }
                     DeliveryDecision::Closed => return Ok(DeliveryOutcome::Complete),
                 };
             let (subject, body) = staff_invites::mail_text(&locale, expires_at);

@@ -270,7 +270,7 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
         .await?;
     assert!(matches!(
         delivery(&f.invites.pool, &f.key, &payload).await?,
-        DeliveryDecision::Closed
+        DeliveryDecision::AwaitingIssuerAuthority
     ));
     assert!(matches!(
         f.invites.accept(f.recipient, &token).await,
@@ -309,9 +309,15 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
     .await?;
     assert!(matches!(
         delivery(&f.invites.pool, &f.key, &payload).await?,
-        DeliveryDecision::Closed
+        DeliveryDecision::AwaitingIssuerAuthority
     ));
     assert_eq!(f.memberships().await?, 0);
+    sqlx::query("UPDATE staff_invites SET created_at=now()-interval '49 hours',expires_at=now()-interval '1 hour' WHERE id=$1")
+        .bind(id).execute(&f.invites.pool).await?;
+    assert!(matches!(
+        delivery(&f.invites.pool, &f.key, &payload).await?,
+        DeliveryDecision::Closed
+    ));
     f.close().await
 }
 

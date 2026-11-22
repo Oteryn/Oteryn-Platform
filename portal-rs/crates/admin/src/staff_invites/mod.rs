@@ -34,6 +34,7 @@ pub enum DeliveryDecision {
         expires_at: OffsetDateTime,
     },
     AwaitingApproval,
+    AwaitingIssuerAuthority,
     Closed,
 }
 
@@ -42,13 +43,15 @@ impl std::fmt::Debug for DeliveryDecision {
         f.write_str(match self {
             Self::Send { .. } => "Send([redacted])",
             Self::AwaitingApproval => "AwaitingApproval",
+            Self::AwaitingIssuerAuthority => "AwaitingIssuerAuthority",
             Self::Closed => "Closed",
         })
     }
 }
 
 /// Decide from current delegation authority and the exact delivery credential.
-/// An invite that is still awaiting approval keeps its encrypted outbox job.
+/// A live invite that needs approval or a currently eligible issuer keeps its
+/// encrypted outbox job.
 pub async fn delivery(
     pool: &PgPool,
     key: &DeliveryKey,
@@ -58,10 +61,10 @@ pub async fn delivery(
     let token = key
         .open(&job.ciphertext)
         .ok_or("invalid staff invite ciphertext")?;
-    let address: Option<(String, String, OffsetDateTime, bool)> =
+    let address: Option<(String, String, OffsetDateTime, bool, bool)> =
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT i.email,i.locale,i.expires_at,{awaiting} FROM staff_invites i
-         WHERE {PENDING} AND i.id=$1 AND i.token_hash=$2 AND {issuer_authorized}",
+            "SELECT i.email,i.locale,i.expires_at,{issuer_authorized},{awaiting}
+             FROM staff_invites i WHERE {PENDING} AND i.id=$1 AND i.token_hash=$2",
             awaiting = awaiting_approval_sql(),
             issuer_authorized = current_manager_sql("a.id=i.invited_by"),
         )))
@@ -71,8 +74,9 @@ pub async fn delivery(
         .await
         .map_err(|_| "staff invite delivery unavailable")?;
     Ok(match address {
-        Some((_, _, _, true)) => DeliveryDecision::AwaitingApproval,
-        Some((email, locale, expires_at, false)) => DeliveryDecision::Send {
+        Some((_, _, _, false, _)) => DeliveryDecision::AwaitingIssuerAuthority,
+        Some((_, _, _, true, true)) => DeliveryDecision::AwaitingApproval,
+        Some((email, locale, expires_at, true, false)) => DeliveryDecision::Send {
             email,
             locale,
             token,
