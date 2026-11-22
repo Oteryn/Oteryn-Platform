@@ -404,17 +404,15 @@ async fn page(
             .into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
-    if missing_game_data && response.status() == StatusCode::SERVICE_UNAVAILABLE {
-        response.headers_mut().insert(
-            "x-oteryn-game-data",
-            axum::http::HeaderValue::from_static("unavailable"),
-        );
-    }
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("private, no-store"),
     );
-    response
+    if missing_game_data {
+        oteryn_ui::missing_game_data(response)
+    } else {
+        response
+    }
 }
 
 async fn response_policy(

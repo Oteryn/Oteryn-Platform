@@ -120,6 +120,7 @@ async fn render(state: App, lang: &str, raw: Option<String>) -> Response {
     if compare.is_some() && guild.is_none() {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let missing_game_data = !state.source.contract_accepted();
     let result = async {
         let mut summaries = list(state.config, state.source.as_ref()).await?;
         if let Some(name) = &guild {
@@ -172,7 +173,7 @@ async fn render(state: App, lang: &str, raw: Option<String>) -> Response {
         unavailable,
         cards: result.unwrap_or_default(),
     };
-    match page.render() {
+    let response = match page.render() {
         Ok(body) => (
             if unavailable {
                 StatusCode::SERVICE_UNAVAILABLE
@@ -183,6 +184,11 @@ async fn render(state: App, lang: &str, raw: Option<String>) -> Response {
         )
             .into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    if missing_game_data {
+        oteryn_ui::missing_game_data(response)
+    } else {
+        response
     }
 }
 async fn page(

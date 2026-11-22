@@ -214,6 +214,9 @@ async fn page<A: Authority>(
     drop(slot);
     match snapshots {
         Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),
+        Err(super::Error::MissingGameData) => oteryn_ui::missing_game_data(
+            Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
+        ),
         Err(_) => Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
     }
 }

@@ -71,6 +71,7 @@ impl EntityState {
     }
     async fn active_version_id(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
         match &self.catalog {
+            Some(c) if c.unconfigured() => Ok(None),
             Some(c) => c
                 .active_version_id()
                 .await
@@ -315,12 +316,8 @@ async fn collect(
     state: &EntityState,
     filters: &Filters,
     lang: &str,
+    version: uuid::Uuid,
 ) -> Result<(String, Vec<Row>), StatusCode> {
-    let version = state
-        .active_version_id()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let mut rows = Vec::new();
     let kinds = if filters.kind.is_empty() {
         KINDS.to_vec()
@@ -404,16 +401,17 @@ async fn listing(
         && filters.kind.is_empty()
         && filters.category.is_empty()
         && filters.classification.is_empty();
+    let version = match state.active_version_id().await {
+        Ok(Some(version)) => version,
+        Ok(None) => {
+            return oteryn_ui::missing_game_data(error(StatusCode::SERVICE_UNAVAILABLE, lang));
+        }
+        Err(status) => return error(status, lang),
+    };
     let result = if empty_search {
-        state
-            .active_version_id()
-            .await
-            .ok()
-            .flatten()
-            .map(|v| (v.to_string(), Vec::new()))
-            .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+        Ok((version.to_string(), Vec::new()))
     } else {
-        collect(state, &filters, lang).await
+        collect(state, &filters, lang, version).await
     };
     let (version, rows) = match result {
         Ok(v) => v,

@@ -266,7 +266,12 @@ async fn handle(
     )
     .await
     {
-        Ok(page) => page.response(StatusCode::OK),
+        Ok(Some(page)) => page.response(StatusCode::OK),
+        Ok(None) => oteryn_ui::missing_game_data(failure(
+            lang,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "rankings-unavailable",
+        )),
         Err(status) => failure(
             lang,
             status,
@@ -286,7 +291,7 @@ async fn load(
     selected: Option<&str>,
     vocation: &str,
     number: usize,
-) -> Result<Page, StatusCode> {
+) -> Result<Option<Page>, StatusCode> {
     let privacy_cut = crate::privacy::Cut::read(&state.db)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -295,6 +300,16 @@ async fn load(
     let worlds: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT DISTINCT split_part(subject,':',1) AS world FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY world LIMIT 257").fetch_all(&state.db).await.map_err(|_| unavailable)?.into_iter().collect();
     if worlds.len() > 256 {
         return Err(unavailable);
+    }
+    if selected.is_none() && worlds.is_empty() {
+        let conflicted: bool =
+            sqlx::query_scalar("SELECT public_projection_conflicted('highscores')")
+                .fetch_one(&state.db)
+                .await
+                .map_err(|_| unavailable)?;
+        if !conflicted {
+            return Ok(None);
+        }
     }
     let world = match selected {
         Some(w) if worlds.contains(w) => w,
@@ -402,7 +417,7 @@ async fn load(
     {
         return Err(unavailable);
     }
-    Ok(page)
+    Ok(Some(page))
 }
 
 /// Top `limit` visible characters of the level ranking on the first world, for

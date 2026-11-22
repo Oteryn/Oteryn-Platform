@@ -6,6 +6,17 @@ use axum::{
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 
+/// Mark a designed public refusal after the caller establishes that Game data is absent.
+pub fn missing_game_data(mut response: Response) -> Response {
+    if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+        response.headers_mut().insert(
+            "x-oteryn-game-data",
+            axum::http::HeaderValue::from_static("unavailable"),
+        );
+    }
+    response
+}
+
 /// Resolve a browser locale from its portal preference and Accept-Language.
 pub fn preferred_language(headers: &HeaderMap) -> &'static str {
     fn supported(value: &str) -> Option<&'static str> {

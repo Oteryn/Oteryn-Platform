@@ -143,6 +143,7 @@ async fn page(
             )
             .fetch_all(&state.db)
             .await;
+            let missing_game_data = worlds.as_ref().is_ok_and(Vec::is_empty);
             let worlds = worlds.unwrap_or_default();
             if worlds.len() > 1000 {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -157,7 +158,7 @@ async fn page(
                 worlds,
                 today: time::OffsetDateTime::now_utc().date().to_string(),
             };
-            return match page.render() {
+            let response = match page.render() {
                 Ok(body) => (
                     if unavailable {
                         StatusCode::SERVICE_UNAVAILABLE
@@ -168,6 +169,11 @@ async fn page(
                 )
                     .into_response(),
                 Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+            return if missing_game_data {
+                oteryn_ui::missing_game_data(response)
+            } else {
+                response
             };
         }
         let Ok(query) = serde_urlencoded::from_str::<Query>(raw.as_deref().unwrap_or_default())

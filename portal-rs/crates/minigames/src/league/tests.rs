@@ -510,6 +510,7 @@ async fn unavailable_defaults_and_http() -> TestResult {
             )
             .await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()["x-oteryn-game-data"], "unavailable");
         assert_eq!(response.headers()["cache-control"], "no-store");
         let body = to_bytes(response.into_body(), 100000).await?;
         assert!(String::from_utf8(body.to_vec())?.contains(&format!("lang=\"{lang}\"")));

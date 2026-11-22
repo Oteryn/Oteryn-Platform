@@ -121,7 +121,7 @@ pub fn configured_router() -> Router {
     unavailable_routes(true)
 }
 fn authority_refusal(lang: &str) -> Response {
-    (StatusCode::SERVICE_UNAVAILABLE, Html(format!("<!doctype html><html lang=\"{lang}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{0}</title></head><body><main><h1>{0}</h1><p>{1}</p></main></body></html>",text(lang,"authority-title"),text(lang,"authority-unavailable")))).into_response()
+    oteryn_ui::missing_game_data((StatusCode::SERVICE_UNAVAILABLE, Html(format!("<!doctype html><html lang=\"{lang}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{0}</title></head><body><main><h1>{0}</h1><p>{1}</p></main></body></html>",text(lang,"authority-title"),text(lang,"authority-unavailable")))).into_response())
 }
 fn unavailable_routes(enabled: bool) -> Router {
     if !enabled {

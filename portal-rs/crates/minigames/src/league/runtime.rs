@@ -39,7 +39,8 @@ impl GameAuthority {
                 .await?;
         schema::ensure(database_now > 0 && (database_now as u64).abs_diff(clock) <= 1)?;
         let r=sqlx::query("SELECT epoch::text,recovery_generation::text,ready,conflicted,event_complete,season_complete FROM league_feed_state WHERE authority=$1 FOR SHARE")
-            .bind(&c.authority).fetch_optional(&mut **tx).await?.ok_or(Error::Unavailable)?;
+            .bind(&c.authority).fetch_optional(&mut **tx).await?
+            .ok_or(if serving { Error::MissingGameData } else { Error::Unavailable })?;
         if r.try_get::<bool, _>("conflicted")?
             || r.try_get::<String, _>("epoch")? != recovery.projection_epoch
             || r.try_get::<String, _>("recovery_generation")? != recovery.recovery_generation
