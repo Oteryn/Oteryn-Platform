@@ -8,7 +8,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Query, State, rejection::FormRejection},
-    http::{StatusCode, header},
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -16,6 +16,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use std::{future::Future, sync::Arc};
 use uuid::Uuid;
@@ -353,10 +354,16 @@ fn location(lang: &Language, character: Uuid) -> String {
 }
 
 fn form_key(actor: CheckContext) -> Result<SigningKey, Error> {
-    // The server-side session binding is never sent to the browser. Reissuing
-    // the session invalidates outstanding forms as well as their CSRF tokens.
+    // Bind the form to the session and the server-held MFA grant. The session
+    // cookie alone cannot recreate this key, and session rotation changes it.
     let session = actor.session_proof.ok_or(Error::Denied)?;
-    Ok(SigningKey::from_bytes(&session.session_hash))
+    let seed = Sha256::new()
+        .chain_update(b"gm-enforcement-form-key-v1")
+        .chain_update(session.grant_hash)
+        .chain_update(session.session_hash)
+        .finalize()
+        .into();
+    Ok(SigningKey::from_bytes(&seed))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -430,10 +437,11 @@ fn render(page: Dossier<'_>, status: StatusCode) -> Response {
     }
     response
         .headers_mut()
-        .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
-    response
-        .headers_mut()
-        .insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     response
 }
 
@@ -627,5 +635,33 @@ async fn step_up<B: Backend>(
     match result {
         Ok(redirect) => redirect.into_response(),
         Err(error) => query.lang.refusal(error, query.character),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rbac::SessionProof;
+
+    #[test]
+    fn enforcement_form_key_binds_both_session_and_server_mfa_grant() -> Result<(), Error> {
+        let actor = |session_hash, grant_hash| CheckContext {
+            account: Uuid::now_v7(),
+            require_staff_mfa: true,
+            mfa_verified: true,
+            session_proof: Some(SessionProof {
+                session_hash,
+                grant_hash,
+            }),
+        };
+        let cookie_binding = [1; 32];
+        let grant = [2; 32];
+        let primary = form_key(actor(cookie_binding, grant))?.verifying_key();
+        assert_ne!(
+            primary,
+            form_key(actor(cookie_binding, [3; 32]))?.verifying_key()
+        );
+        assert_ne!(primary, form_key(actor([4; 32], grant))?.verifying_key());
+        Ok(())
     }
 }
