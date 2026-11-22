@@ -1399,11 +1399,12 @@ async fn r7_moderation_preserves_reports_filed_after_page_load() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let stale = app
+        .clone()
         .oneshot(
             Request::post(format!("/admin/en/party/{id}/moderate"))
                 .header(header::HOST, "staff.example.test")
-                .header(header::COOKIE, cookie)
-                .header("x-csrf-token", csrf)
+                .header(header::COOKIE, &cookie)
+                .header("x-csrf-token", &csrf)
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
                     "action=remove&reason=reviewed&report_ids={shown}"
@@ -1421,6 +1422,67 @@ async fn r7_moderation_preserves_reports_filed_after_page_load() {
     .fetch_all(&db.pool)
     .await
     .unwrap();
+    let other = db
+        .board
+        .create(db.trusted.owner, db.draft().await)
+        .await
+        .unwrap();
+    db.board
+        .report(db.trusted.reporter, other, "other post")
+        .await
+        .unwrap();
+    let other_report: Uuid =
+        sqlx::query_scalar("SELECT id FROM pd_party_reports WHERE post_id=$1 AND status='open'")
+            .bind(other)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    let unrelated = app
+        .oneshot(
+            Request::post(format!("/admin/en/party/{id}/moderate"))
+                .header(header::HOST, "staff.example.test")
+                .header(header::COOKIE, cookie)
+                .header("x-csrf-token", csrf)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "action=remove&reason=reviewed&report_ids={other_report}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unrelated.status(), StatusCode::NOT_FOUND);
+    let post_statuses: Vec<String> =
+        sqlx::query_scalar("SELECT status FROM pd_party_posts WHERE id IN ($1,$2)")
+            .bind(id)
+            .bind(other)
+            .fetch_all(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(post_statuses, ["active", "active"]);
+    let report_statuses: Vec<(String, String)> = sqlx::query_as(
+        "SELECT reason,status FROM pd_party_reports WHERE post_id IN ($1,$2) ORDER BY reason",
+    )
+    .bind(id)
+    .bind(other)
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        report_statuses,
+        [
+            ("late reason".to_owned(), "open".to_owned()),
+            ("other post".to_owned(), "open".to_owned()),
+            ("shown reason".to_owned(), "resolved".to_owned()),
+        ],
+    );
+    let removals: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='party.moderate' AND after->>'decision'='remove'",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(removals, 0);
     db.close().await;
     assert_eq!(statuses[0].1, "open", "late report was closed unseen");
     assert_eq!(statuses[1].1, "resolved");
