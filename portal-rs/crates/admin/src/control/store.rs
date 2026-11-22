@@ -737,6 +737,14 @@ impl Store {
         .await?)
     }
     pub async fn results(&self, id: Uuid, limit: u32) -> Result<Vec<ResultRow>, Error> {
+        self.results_in(&self.pool, id, limit).await
+    }
+    pub(crate) async fn results_in<'e>(
+        &self,
+        executor: impl sqlx::PgExecutor<'e>,
+        id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<ResultRow>, Error> {
         self.enabled()?;
         if id.is_nil() || !(1..=100).contains(&limit) {
             return Err(Error::InvalidInput);
@@ -747,7 +755,7 @@ impl Store {
         )
         .bind(id)
         .bind(i64::from(limit))
-        .fetch_all(&self.pool)
+        .fetch_all(executor)
         .await?)
     }
     /// An untargeted console view requires one live agent across all scopes.
@@ -777,9 +785,16 @@ impl Store {
     }
 
     pub async fn agents(&self) -> Result<Vec<Agent>, Error> {
+        self.agents_in(&self.pool).await
+    }
+
+    pub(crate) async fn agents_in<'e>(
+        &self,
+        executor: impl sqlx::PgExecutor<'e>,
+    ) -> Result<Vec<Agent>, Error> {
         self.enabled()?;
         Ok(sqlx::query_as("SELECT *, (last_seen_at>clock_timestamp()-interval '30 seconds' AND last_seen_at<=clock_timestamp()) AS connected
-            FROM admin_control_agents ORDER BY agent_id LIMIT 1024").fetch_all(&self.pool).await?)
+            FROM admin_control_agents ORDER BY agent_id LIMIT 1024").fetch_all(executor).await?)
     }
 }
 

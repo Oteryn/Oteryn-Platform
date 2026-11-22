@@ -84,13 +84,14 @@ impl StoredChannel {
     }
     async fn owner(
         &self,
+        conn: &mut sqlx::PgConnection,
         agent: Option<&str>,
         operation: &str,
         target: Option<&str>,
     ) -> Result<control::Agent, Error> {
         let mut candidates = self
             .store
-            .agents()
+            .agents_in(conn)
             .await
             .map_err(|_| Error::Unavailable)?
             .into_iter()
@@ -380,7 +381,7 @@ impl StoredChannel {
         Ok(request_id)
     }
     async fn authorized_request(
-        &self,
+        conn: &mut sqlx::PgConnection,
         actor: Uuid,
         agent: &control::Agent,
         operation: &str,
@@ -388,7 +389,6 @@ impl StoredChannel {
         params: &Value,
         request_id: Option<Uuid>,
     ) -> Result<Option<control::Request>, Error> {
-        let mut conn = self.pool.acquire().await?;
         let owns: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM admin_control_agents g
              WHERE g.agent_id=$1 AND g.owner_epoch=$2
@@ -409,7 +409,7 @@ impl StoredChannel {
         if !owns {
             return Err(Error::Unavailable);
         }
-        Self::latest_query(&mut conn, actor, operation, target, params, request_id).await
+        Self::latest_query(conn, actor, operation, target, params, request_id).await
     }
 
     async fn latest_query(
@@ -440,6 +440,7 @@ impl StoredChannel {
     }
     async fn verified_result(
         &self,
+        conn: &mut sqlx::PgConnection,
         agent: &control::Agent,
         request: Option<control::Request>,
     ) -> Result<Option<(control::Request, signer::ResultEnvelope)>, Error> {
@@ -467,13 +468,13 @@ impl StoredChannel {
              ) = g.owner_epoch::text)",
         )
         .bind(request.request_id).bind(&agent.agent_id).bind(agent.owner_epoch).bind(request.actor)
-        .fetch_one(&self.pool).await?;
+        .fetch_one(&mut *conn).await?;
         if !current {
             return Ok(None);
         }
         let rows = self
             .store
-            .results(request.request_id, 1)
+            .results_in(conn, request.request_id, 1)
             .await
             .map_err(|_| Error::Unavailable)?;
         let Some(row) = rows.first() else {
@@ -512,6 +513,16 @@ impl StoredChannel {
         }
         Ok(Some((request, result)))
     }
+
+    async fn read_fence(&self) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, Error> {
+        let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
+        control::store::ownership_lock(&mut tx, true)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        Ok(tx)
+    }
+
     pub(super) async fn snapshot(
         &self,
         actor: CheckContext,
@@ -521,36 +532,48 @@ impl StoredChannel {
         character: Option<&str>,
         params: Value,
     ) -> Result<Option<(Uuid, String, Value)>, access::Error> {
-        let agent = {
-            let mut conn = self.pool.acquire().await?;
-            let owner = self
-                .store
-                .sole_live_query_agent(&mut conn, operation)
-                .await
-                .map_err(|_| access::Error::Unavailable)?
-                .ok_or(access::Error::Unavailable)?;
-            self.require_result_key(owner)
-                .map_err(|_| access::Error::Unavailable)?
-        };
-        let target =
-            Self::target(&agent, None, character).map_err(|_| access::Error::Unavailable)?;
-        let selected = self
-            .authorized_request(actor.account, &agent, operation, &target, &params, None)
+        // Hold ownership eligibility while selecting and verifying the result.
+        let mut tx = self
+            .read_fence()
             .await
             .map_err(|_| access::Error::Unavailable)?;
+        let owner = self
+            .store
+            .sole_live_query_agent(&mut tx, operation)
+            .await
+            .map_err(|_| access::Error::Unavailable)?
+            .ok_or(access::Error::Unavailable)?;
+        let agent = self
+            .require_result_key(owner)
+            .map_err(|_| access::Error::Unavailable)?;
+        let target =
+            Self::target(&agent, None, character).map_err(|_| access::Error::Unavailable)?;
+        let selected = Self::authorized_request(
+            &mut tx,
+            actor.account,
+            &agent,
+            operation,
+            &target,
+            &params,
+            None,
+        )
+        .await
+        .map_err(|_| access::Error::Unavailable)?;
         if character.is_some()
             && let Some(request) = &selected
             && let Some(status) = terminal_dossier_status(request.status, request.expires_at)
             && admission.retry.is_none()
         {
+            tx.commit().await?;
             return Err(access::Error::Terminal(request.request_id, status));
         }
         if admission.retry.is_none()
             && let Some((request, result)) = self
-                .verified_result(&agent, selected)
+                .verified_result(&mut tx, &agent, selected)
                 .await
                 .map_err(|_| access::Error::Unavailable)?
         {
+            tx.commit().await?;
             return Ok(Some((
                 request.request_id,
                 result.completed_at.unwrap_or_default(),
@@ -558,7 +581,8 @@ impl StoredChannel {
             )));
         }
         let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_requests WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND expires_at>clock_timestamp() AND status IN ('queued','delivered','accepted','in_progress'))")
-            .bind(actor.account).bind(operation).bind(sqlx::types::Json(&target)).bind(&params).fetch_one(&self.pool).await?;
+            .bind(actor.account).bind(operation).bind(sqlx::types::Json(&target)).bind(&params).fetch_one(&mut *tx).await?;
+        tx.commit().await?;
         if (admission.retry.is_some() || !pending)
             && let Some(session) = admission.session
         {
@@ -608,11 +632,21 @@ impl Channel for StoredChannel {
         target: Option<&str>,
         request: Option<Uuid>,
     ) -> Result<AgentView, Error> {
-        let owner = self.owner(Some(agent), operation.name(), target).await?;
-        let scope = Self::target(&owner, target, None)?;
-        let selected = self
-            .authorized_request(actor, &owner, operation.name(), &scope, &json!({}), request)
+        let mut tx = self.read_fence().await?;
+        let owner = self
+            .owner(&mut tx, Some(agent), operation.name(), target)
             .await?;
+        let scope = Self::target(&owner, target, None)?;
+        let selected = Self::authorized_request(
+            &mut tx,
+            actor,
+            &owner,
+            operation.name(),
+            &scope,
+            &json!({}),
+            request,
+        )
+        .await?;
         let status = selected.as_ref().map_or(QueryStatus::Pending, |request| {
             use control::Status;
             match request.status {
@@ -623,14 +657,15 @@ impl Channel for StoredChannel {
                 }
                 Status::Queued | Status::Delivered | Status::Accepted => QueryStatus::Pending,
                 Status::InProgress => QueryStatus::InProgress,
-                Status::Succeeded => QueryStatus::Succeeded,
+                Status::Succeeded => QueryStatus::Unavailable,
                 Status::Failed => QueryStatus::Failed,
                 Status::Rejected => QueryStatus::Rejected,
                 Status::Expired => QueryStatus::Expired,
                 Status::Cancelled => QueryStatus::Cancelled,
             }
         });
-        let verified = self.verified_result(&owner, selected).await?;
+        let verified = self.verified_result(&mut tx, &owner, selected).await?;
+        tx.commit().await?;
         let mut view = AgentView {
             owner_epoch: owner.owner_epoch as u64,
             last_contact: SystemTime::UNIX_EPOCH
@@ -667,7 +702,11 @@ impl Channel for StoredChannel {
         operation: Operation,
         target: Option<&str>,
     ) -> Result<Uuid, Error> {
-        let owner = self.owner(Some(agent), operation.name(), target).await?;
+        let owner = {
+            let mut conn = self.pool.acquire().await?;
+            self.owner(&mut conn, Some(agent), operation.name(), target)
+                .await?
+        };
         let scope = Self::target(&owner, target, None)?;
         self.submit_query(
             context,

@@ -241,22 +241,84 @@ async fn retry_refuses_a_second_live_agent(
         .and_then(|s| s.split('"').next())
         .ok_or_else(missing)?;
 
+    let late_path = "/admin/console/players?lang=en&character=late-result-target";
+    browser_get(reads, cookie, late_path).await?;
+    let pending = poll(internal).await?;
+    assert_eq!(pending.len(), 1);
+    let pending = pending.into_iter().next().ok_or_else(missing)?;
+    assert_eq!(pending.operation, "player.character.get");
+
     let store = control::Store::new(pool.clone(), control::Config { enabled: true });
+    let mut registration = pool.begin().await?;
     store
-        .register_agent(&control::AgentHello {
-            agent_id: "separate-scope".into(),
-            build: "test-build".into(),
-            catalog_digest: vec![2; 32],
-            advertised_operations: vec![control::AdvertisedOperation {
-                operation: "world.list".into(),
-                operation_version: 1,
-                kind: control::Kind::Query,
-            }],
-            served_worlds: vec!["world-separate".into()],
-            served_nodes: vec![],
-            owner_epoch: 1,
-        })
+        .register_agent_in(
+            &mut registration,
+            &control::AgentHello {
+                agent_id: "separate-scope".into(),
+                build: "test-build".into(),
+                catalog_digest: vec![2; 32],
+                advertised_operations: vec![control::AdvertisedOperation {
+                    operation: "world.list".into(),
+                    operation_version: 1,
+                    kind: control::Kind::Query,
+                }],
+                served_worlds: vec!["world-separate".into()],
+                served_nodes: vec![],
+                owner_epoch: 1,
+            },
+        )
         .await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *registration)
+        .await?;
+    let read = reads.clone().oneshot(
+        Request::get(late_path)
+            .header("sec-fetch-site", "same-origin")
+            .header("host", "staff.test")
+            .header("cookie", cookie)
+            .body(Body::empty())?,
+    );
+    tokio::pin!(read);
+    tokio::select! {
+        response = &mut read => {
+            return Err(std::io::Error::other(format!(
+                "dossier read must wait for the ownership fence, received {}", response?.status()
+            )).into());
+        }
+        barrier = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(blocker)
+                .fetch_one(pool)
+                .await?;
+                if waiting {
+                    return Ok::<(), sqlx::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        }) => barrier??,
+    }
+    registration.commit().await?;
+    assert_eq!(read.await?.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    answer(
+        internal,
+        key,
+        pending,
+        json!({
+            "character_id":"late-result-target","world_id":"world-a","name":"Late result knight",
+            "level":42,"vocation":"knight","skills":[],"position":{"x":1,"y":2,"z":3},
+            "online":true,"premium":true,"guild":null,"house":null,"bank_balance":"123",
+            "last_logins":[],"sanctions":[]
+        }),
+    )
+    .await?;
+    let hidden = browser_get(reads, cookie, late_path).await?;
+    assert!(hidden.contains("Unavailable"));
+    assert!(!hidden.contains("Late result knight"));
+
     let retry = reads.clone().oneshot(
         Request::post("/admin/console/players/retry")
             .header("host", "staff.test")
@@ -717,19 +779,17 @@ async fn stored_console_browser_query_verified_result_and_ownership(
     sqlx::query("UPDATE admin_control_agents SET owner_epoch=2 WHERE agent_id='agent-a'")
         .execute(&pool)
         .await?;
-    assert!(
-        channel
-            .read(
-                actor,
-                "agent-a",
-                Operation::Worlds,
-                None,
-                Some(request.request_id)
-            )
-            .await?
-            .result
-            .is_none()
-    );
+    let old_epoch = channel
+        .read(
+            actor,
+            "agent-a",
+            Operation::Worlds,
+            None,
+            Some(request.request_id),
+        )
+        .await?;
+    assert!(old_epoch.result.is_none());
+    assert!(matches!(old_epoch.status, QueryStatus::Unavailable));
     sqlx::query("INSERT INTO admin_control_agents(agent_id, build, catalog_digest, advertised_operations, served_worlds, served_nodes, owner_epoch) SELECT 'agent-b',build,catalog_digest,advertised_operations,served_worlds,served_nodes,3 FROM admin_control_agents WHERE agent_id='agent-a'").execute(&pool).await?;
     sqlx::query("UPDATE admin_control_requests SET status='expired' WHERE request_id=$1")
         .bind(request.request_id)
