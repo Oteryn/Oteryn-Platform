@@ -271,6 +271,7 @@ async fn revoke(
     Extension(context): Extension<BrowserContext>,
     enabled: Option<Extension<Enabled>>,
     adapter: Option<Extension<ResetAdapter>>,
+    method: axum::http::Method,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
     let service = service(value, enabled, adapter)?;
@@ -278,7 +279,7 @@ async fn revoke(
     if let Err(response) = (context.rate)(String::new()).await {
         return Ok(response);
     }
-    match service
+    let mut response = match service
         .revoke(
             crate::mutation_actor::MutationActor::browser(id, context.csrf.clone()),
             &input.current_password,
@@ -287,7 +288,11 @@ async fn revoke(
     {
         Ok(()) => redirect(&format!("/{}/account/recovery-key", context.language)),
         Err(error) => failure(error, &context, "manage").await,
+    }?;
+    if method == axum::http::Method::DELETE && response.status() == StatusCode::FOUND {
+        *response.status_mut() = StatusCode::SEE_OTHER;
     }
+    Ok(response)
 }
 async fn recover(
     Extension(value): Extension<RecoveryKeys>,
