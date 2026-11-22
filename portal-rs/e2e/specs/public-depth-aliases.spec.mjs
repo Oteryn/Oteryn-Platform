@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
+import { disposableDatabaseUrl } from '../helpers.mjs';
 import { messages, visit } from '../public-depth-helpers.mjs';
 
 test('unprefixed wiki routes negotiate locale and stats aliases default to Polish', async ({ page }, info) => {
@@ -41,4 +42,25 @@ test('public feature catalogue keys have Polish and English definitions', () => 
   const en = keys('crates/ui/i18n/en').filter(key => prefixes.test(key));
   expect(en.length).toBeGreaterThan(0);
   expect(keys('crates/ui/i18n/pl').filter(key => prefixes.test(key))).toEqual(en);
+});
+
+test('fixture database URLs pin one disposable loopback destination', () => {
+  const url = 'postgresql://fixture@127.0.0.1/portal_e2e_depth';
+  expect(disposableDatabaseUrl({
+    PORTAL_E2E_DATABASE_URL: url,
+    OTERYN_DATABASE_URL: 'postgresql://elsewhere.invalid/postgres',
+    PGPORT: '1',
+  })).toBe('postgresql://fixture@127.0.0.1:5432/portal_e2e_depth');
+  expect(disposableDatabaseUrl({
+    OTERYN_DATABASE_URL: 'postgres://fixture@[::1]:6543/portal_e2e_depth?sslmode=disable',
+  })).toBe('postgres://fixture@[::1]:6543/portal_e2e_depth?sslmode=disable');
+  for (const override of ['host=elsewhere.invalid', '%68ostaddr=127.0.0.2', 'port=1',
+    'dbname=postgres', 'database=postgres', 'socket=/tmp', 'service=elsewhere', 'options=-csearch_path=other']) {
+    expect(() => disposableDatabaseUrl({ PORTAL_E2E_DATABASE_URL: `${url}?${override}` }))
+      .toThrow('no destination overrides');
+  }
+  for (const target of ['postgresql://elsewhere.invalid/portal_e2e_depth',
+    'postgresql://127.0.0.1/postgres', `${url}/other`, `${url}%2Fother`, 'not a URL']) {
+    expect(() => disposableDatabaseUrl({ PORTAL_E2E_DATABASE_URL: target })).toThrow();
+  }
 });

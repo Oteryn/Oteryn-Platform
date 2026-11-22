@@ -11,6 +11,9 @@ test('events list links to published localized content and excludes archived eve
   const body = { en: 'Festival details for visitors.', pl: 'Szczegóły festiwalu dla gości.' };
   test.setTimeout(240_000);
   const editor = await seedEditor(browser, info);
+  const detail = `${prefix}/${event}`;
+  const status = 'main form[action$="/status"]';
+  let publishedEdit;
   try {
     await visit(editor.page, '/admin/events/create', 200, { noStore: false });
     const now = Date.now();
@@ -23,10 +26,9 @@ test('events list links to published localized content and excludes archived eve
       en_body: body.en, pl_body: body.pl,
     });
     await expect(editor.page).toHaveURL(/\/admin\/events\/[\da-f-]+\/edit$/);
-    const detail = `${prefix}/${event}`;
     await visit(page, detail, 404);
-    const status = 'main form[action$="/status"]';
     await editor.page.locator(`${status} select[name=status]`).selectOption('published');
+    publishedEdit = new URL(editor.page.url()).pathname;
     await submit(editor.page, status);
     await visit(page, prefix, 200, { lang });
     await expect(page.locator('main h1')).toHaveText(t.events);
@@ -50,14 +52,26 @@ test('events list links to published localized content and excludes archived eve
     await visit(page, `${prefix}?page=4294967296`, 400);
     await visit(page, `${prefix}?page=-1`, 400);
     await visit(page, `${prefix}/Bad--Slug`, 404);
-    await editor.page.locator(`${status} select[name=status]`).selectOption('archived');
-    await submit(editor.page, status);
-    await visit(page, detail, 404);
-    await visit(page, prefix, 200, { lang });
-    await expect(page.locator(`main a[href="${detail}"]`)).toHaveCount(0);
   } finally {
-    await editor.context.close();
+    try {
+      if (publishedEdit) {
+        await visit(editor.page, publishedEdit, 200, { noStore: false });
+        await editor.page.locator(`${status} select[name=status]`).selectOption('archived');
+        const [archived] = await Promise.all([
+          editor.page.waitForResponse(response => response.request().isNavigationRequest()
+            && response.request().method() === 'POST'
+            && new URL(response.url()).pathname.endsWith('/status')),
+          submit(editor.page, status),
+        ]);
+        expect(archived.status()).toBe(303);
+      }
+    } finally {
+      await editor.context.close();
+    }
   }
+  await visit(page, detail, 404);
+  await visit(page, prefix, 200, { lang });
+  await expect(page.locator(`main a[href="${detail}"]`)).toHaveCount(0);
 });
 
 test('server information, help aliases and rules track localized editorial publication', async ({ page, browser }, info) => {

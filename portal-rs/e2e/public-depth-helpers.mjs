@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { expect } from './fixtures.mjs';
-import { login, password, pool, waitForWikiBudget } from './helpers.mjs';
+import { disposableDatabaseUrl, login, password, waitForWikiBudget } from './helpers.mjs';
 
 import { enrollMfa, loginWithRecoveryCode, query } from './staff-rbac-helpers.mjs';
 
@@ -60,13 +60,13 @@ export async function redirect(request, path, location, status = 303) {
 }
 
 async function seed(entity, input) {
-  const db = pool(); // Validates that the CLI can only target a disposable loopback database.
-  await db.end();
-  const binary = process.env.PORTAL_E2E_BINARY ?? new URL('../target/debug/oteryn-portal', import.meta.url).pathname;
+  const databaseUrl = disposableDatabaseUrl();
+  const binary = process.env.PORTAL_E2E_BINARY;
+  if (!binary) throw new Error('The E2E launcher must supply PORTAL_E2E_BINARY');
+  // SQLx reads PGHOSTADDR and other libpq defaults before applying the URL.
   const env = {
-    ...process.env,
     OTERYN_ENV: 'testing',
-    OTERYN_DATABASE_URL: process.env.PORTAL_E2E_DATABASE_URL ?? process.env.OTERYN_DATABASE_URL,
+    OTERYN_DATABASE_URL: databaseUrl,
   };
   const result = await run(binary, ['seed', entity, JSON.stringify(input)], { env })
     .catch(error => { throw new Error(`Seed CLI failed for ${entity} (exit ${error.code})`); });

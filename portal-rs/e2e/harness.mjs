@@ -144,7 +144,6 @@ const env = {
   OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
 };
 for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
-fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
 // ---- build, migrate ----------------------------------------------------------
 function run(program, args, options = {}) {
@@ -162,6 +161,9 @@ if (!binary) {
   fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
   fs.chmodSync(binary, 0o755);
 }
+binary = path.resolve(binary);
+env.PORTAL_E2E_BINARY = binary;
+fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 log('migrate');
 run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a'), fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a')] });
 
