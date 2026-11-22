@@ -645,8 +645,9 @@ async fn chrome_passkey_link_tracks_account_eligibility() -> TestResult {
         let mut request = HttpRequest::get("/en/")
             .header(header::COOKIE, format!("{COOKIE_NAME}={id}"))
             .body(Body::empty())?;
-        let account = chrome_account(&layer, &mut request).await;
-        let chrome = registry.chrome("en", "/en/", account);
+        let (presentation, account_id) = chrome_account(&layer, &mut request).await;
+        assert_eq!(account_id, Some(account));
+        let chrome = registry.chrome("en", "/en/", presentation);
         assert!(chrome.signed_in());
         assert_eq!(
             chrome.link("account-passkeys").is_some(),
