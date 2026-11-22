@@ -554,10 +554,10 @@ async fn read_signed_in(
         return Ok(None);
     };
     let row: Option<(Uuid, String, String, bool, bool)> = sqlx::query_as(
-        "SELECT ws.account_id, ws.csrf_token, a.status, a.email_verified_at IS NOT NULL,
+        "SELECT ws.account_id, ws.csrf_token, COALESCE(a.status, ''), a.email_verified_at IS NOT NULL,
                 COALESCE(a.login_mfa_required, true)
-         FROM web_sessions ws JOIN accounts a ON a.id=ws.account_id
-         WHERE ws.id_hash=$1 AND ws.idle_expires_at>clock_timestamp()
+         FROM web_sessions ws LEFT JOIN accounts a ON a.id=ws.account_id
+         WHERE ws.id_hash=$1 AND ws.account_id IS NOT NULL AND ws.idle_expires_at>clock_timestamp()
            AND ws.absolute_expires_at>clock_timestamp()",
     )
     .bind(hash(id))
