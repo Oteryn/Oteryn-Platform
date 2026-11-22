@@ -10,8 +10,35 @@ use axum::{
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::sync::Semaphore;
 
-// Leave half of the 16-connection portal pool available to other modules.
-pub(crate) const CRAWL_READ_SLOTS: usize = 8;
+// Reserve capacity for each landing page and leave half the portal pool
+// available to other modules. Match League's own concurrency limit.
+pub(crate) const LEAGUE_READ_SLOTS: usize = 4;
+
+pub(crate) struct LandingSlots {
+    collection: Semaphore,
+    puzzles: Semaphore,
+    league: Semaphore,
+}
+
+impl LandingSlots {
+    pub(crate) fn new() -> Self {
+        Self {
+            collection: Semaphore::new(2),
+            puzzles: Semaphore::new(2),
+            league: Semaphore::new(LEAGUE_READ_SLOTS),
+        }
+    }
+
+    fn for_module(&self, module: Option<&str>) -> Option<&Semaphore> {
+        match module {
+            Some("collection") => Some(&self.collection),
+            Some("puzzles") => Some(&self.puzzles),
+            Some("league") => Some(&self.league),
+            _ => None,
+        }
+    }
+}
+
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn unavailable() -> Response {
@@ -38,21 +65,22 @@ pub(crate) async fn deadline(req: Request, next: Next) -> Response {
 }
 
 pub(crate) async fn operation_deadline(
-    State(read_slots): State<Arc<Semaphore>>,
+    State(read_slots): State<Arc<LandingSlots>>,
     req: Request,
     next: Next,
 ) -> Response {
     let mut segments = req.uri().path().split('/').skip(1);
     let localized = segments.next().is_some_and(|lang| !lang.is_empty());
     let module = segments.next();
-    let read = matches!(*req.method(), Method::GET | Method::HEAD)
-        && matches!(module, Some("puzzles" | "collection" | "league"))
-        && segments.next().is_none();
-    if localized && read {
+    if localized
+        && matches!(*req.method(), Method::GET | Method::HEAD)
+        && segments.next().is_none()
+        && let Some(slots) = read_slots.for_module(module)
+    {
         // Queue landing pages before session refresh and rate-limit writes can
         // occupy pooled connections. Charge the wait to the existing deadline.
         return tokio::time::timeout(OPERATION_TIMEOUT, async {
-            let Ok(_slot) = read_slots.acquire().await else {
+            let Ok(_slot) = slots.acquire().await else {
                 return unavailable();
             };
             next.run(req).await

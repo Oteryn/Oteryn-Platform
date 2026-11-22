@@ -14,7 +14,7 @@ mod browser;
 /// minigame operation budget. Other modules and internal feeds retain their policy.
 pub fn with_browser_deadlines(app: axum::Router) -> axum::Router {
     app.layer(axum::middleware::from_fn_with_state(
-        std::sync::Arc::new(tokio::sync::Semaphore::new(browser::CRAWL_READ_SLOTS)),
+        std::sync::Arc::new(browser::LandingSlots::new()),
         browser::operation_deadline,
     ))
 }
