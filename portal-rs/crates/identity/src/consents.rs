@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
 
 /// Properties of the text the public renderer exposes.
+#[derive(Debug)]
 pub struct LegalEditionText {
     pub has_visible_body: bool,
     pub has_placeholder: bool,
