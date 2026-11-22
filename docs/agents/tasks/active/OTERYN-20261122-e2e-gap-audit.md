@@ -15,7 +15,7 @@ The audit branch started at `16452208`. The recorded baseline is 48 passed and
 to repair confirmed product defects, qualify designed unavailable views in
 the portal-only harness, and publish the existing audit branch.
 
-## Acceptance criteria
+## Initial acceptance criteria
 
 - Merge the current `origin/main` into `codex/e2e-gap-audit`.
 - Cover each product fix with a focused regression.
@@ -41,12 +41,27 @@ the portal-only harness, and publish the existing audit branch.
   completed with 30 passes and six shard timeouts. It exposed the character
   creation link defect and the need for a larger aggregate shard budget.
 
+## Independent review follow-up
+
+- Removed the moderator report-review grant and its migration. The crawl
+  companion test now requires a 403 for the moderator's report-list request.
+- Reused the panel's Host validation in the shared shell. A PostgreSQL
+  regression covers a disabled panel, a different host, a missing port, and
+  a matching host.
+- Checked protected destinations by actor and required the enforced CSP on
+  the passkeys document alongside the successful frame request.
+- Limited unavailable responses to exact routes and actors in the empty-Game
+  fixture. The crawl asserts localized fallback content and no-store.
+- Restored the generated inventory paths to their state on origin/main.
+- The final Playwright run passed 160 cases, with 40 in each project. The
+  affected Rust tests and the two crawl contract unit tests also passed.
+
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T14:41:22Z
-head: 30f1b89283bf90f32fef764589677a69a24b659f
+updated_at: 2026-11-22T16:08:52Z
+head: 998f7acd4192e3f535b692b812cb034a852defa1
 branch: codex/e2e-gap-audit
 pr: none
 status: ready
@@ -70,6 +85,15 @@ first_failure:
 rejected_hypotheses: []
 changed_paths: []
 validation:
+  - command: node run.mjs .harness/run/secrets/browser.json test specs/site-integrity.spec.mjs specs/fix-small.spec.mjs --workers=2 --trace=off
+    result: PASS
+    evidence: Review follow-up passed all 160 cases with 40 per project.
+  - command: targeted PostgreSQL staff navigation test and two chrome response tests
+    result: PASS
+    evidence: Three focused Rust tests passed.
+  - command: node --test e2e/crawl-contracts.test.mjs
+    result: PASS
+    evidence: Two contract checks passed.
   - command: node run.mjs .harness/run/secrets/browser.json test specs/site-integrity.spec.mjs specs/fix-small.spec.mjs --workers=3 --trace=off
     result: PASS
     evidence: All 144 site integrity cases passed, with 36 per project. The companion suite had 15 passes in the same run and its Polish desktop passkey case passed separately after a socket hangup.
