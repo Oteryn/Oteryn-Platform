@@ -1,9 +1,8 @@
 name: Portal RS CI
 
 on:
+  # Quality checks in this workflow run via the heavy workflow for labeled PRs and main pushes.
   workflow_call:
-
-# The heavy workflow calls these jobs for labeled PRs and pushes to main.
 
 permissions:
   contents: read

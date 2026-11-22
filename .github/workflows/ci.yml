@@ -275,6 +275,7 @@ jobs:
           --summary "$GITHUB_STEP_SUMMARY"
 
   portal_rs:
+    # Keep Rust checks on every CI candidate; the heavy workflow owns database and browser tests.
     name: Portal Rust lint
     permissions:
       contents: read

@@ -116,7 +116,7 @@ struct PublicPage<'a> {
     events: Vec<PublicEvent>,
     detail: bool,
     next: u64,
-    more: bool,
+    next_label: String,
 }
 async fn index(
     State(events): State<Events>,
@@ -126,16 +126,33 @@ async fn index(
     if let Err(e) = locale(&lang) {
         return response(e);
     }
-    match events.public_page(&lang, None, q.offset(200)).await {
-        Ok(rows) => oteryn_web::render(&PublicPage {
-            lang: &lang,
-            title: text(&lang, "events"),
-            empty: text(&lang, "empty"),
-            more: rows.len() == 200,
-            next: q.next(),
-            events: rows,
-            detail: false,
-        }),
+    const PAGE_SIZE: usize = 200;
+    match events
+        .public_page(
+            &lang,
+            None,
+            q.offset(PAGE_SIZE as i64),
+            PAGE_SIZE as i64 + 1,
+        )
+        .await
+    {
+        Ok(mut rows) => {
+            let next_label = if rows.len() > PAGE_SIZE {
+                rows.truncate(PAGE_SIZE);
+                text(&lang, "next")
+            } else {
+                String::new()
+            };
+            oteryn_web::render(&PublicPage {
+                lang: &lang,
+                title: text(&lang, "events"),
+                empty: text(&lang, "empty"),
+                next: q.next(),
+                next_label,
+                events: rows,
+                detail: false,
+            })
+        }
         Err(e) => response(e),
     }
 }
@@ -153,7 +170,7 @@ async fn show(
             empty: String::new(),
             events: rows,
             detail: true,
-            more: false,
+            next_label: String::new(),
             next: 0,
         }),
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
@@ -246,6 +263,8 @@ async fn admin_index<A: AccountStateReader>(
 struct EventForm {
     #[serde(default, rename = "_csrf")]
     _csrf: Option<String>,
+    #[serde(default)]
+    reason: String,
     starts_at: String,
     ends_at: String,
     #[serde(default)]
@@ -297,6 +316,7 @@ impl EventForm {
             Some(pl)
         };
         Ok(Draft {
+            reason: self.reason.clone(),
             starts_at: date(&self.starts_at)?,
             ends_at: date(&self.ends_at)?,
             featured: self.featured.is_some(),
@@ -348,6 +368,7 @@ async fn form<A: AccountStateReader>(
         (
             EventForm {
                 _csrf: None,
+                reason: String::new(),
                 starts_at: formatted(e.starts_at),
                 ends_at: formatted(e.ends_at),
                 featured: e.featured.then(|| "true".to_owned()),
@@ -402,6 +423,7 @@ async fn form<A: AccountStateReader>(
             "published",
             "archived",
             "apply",
+            "reason",
         ]
         .iter()
         .map(|k| text(lang, k))
@@ -468,6 +490,8 @@ struct StatusForm {
     #[serde(default, rename = "_csrf")]
     _csrf: Option<String>,
     status: String,
+    #[serde(default)]
+    reason: String,
     lock_version: i64,
 }
 async fn status<A: AccountStateReader>(
@@ -478,7 +502,7 @@ async fn status<A: AccountStateReader>(
 ) -> Response {
     match s
         .events
-        .transition(&s.auth, c, id, f.lock_version, &f.status)
+        .transition(&s.auth, c, id, f.lock_version, &f.status, &f.reason)
         .await
     {
         Ok(()) => Redirect::to(&format!("/admin/events/{id}/edit")).into_response(),
