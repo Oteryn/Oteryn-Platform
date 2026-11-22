@@ -27,7 +27,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .strip_prefix("/pl/")
         .or_else(|| path.strip_prefix("/en/"))
         .unwrap_or(path.trim_start_matches('/'));
-    if request.method() == axum::http::Method::GET
+    if matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD)
         && matches!(account, oteryn_ui::Account::Anonymous)
         // The passkey page doubles as the anonymous passkey sign-in ceremony.
         && local != "account/passkeys"
@@ -438,6 +438,44 @@ mod response_tests {
         routing::get,
     };
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn anonymous_head_uses_the_same_localized_gate_as_get()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let site = Router::new().layer(axum::middleware::from_fn_with_state(
+            Shell {
+                registry: Registry::default(),
+                sessions: SessionLayer::new(pool),
+            },
+            middleware,
+        ));
+        for lang in ["en", "pl"] {
+            for method in [axum::http::Method::GET, axum::http::Method::HEAD] {
+                let response = site
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(format!("/{lang}/account/sessions"))
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::SEE_OTHER);
+                assert_eq!(
+                    response.headers()[header::LOCATION],
+                    format!("/{lang}/login")
+                );
+                assert!(
+                    axum::body::to_bytes(response.into_body(), 0)
+                        .await?
+                        .is_empty()
+                );
+            }
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     async fn article_phrase_keeps_shared_navigation_and_footer()
     -> Result<(), Box<dyn std::error::Error>> {
