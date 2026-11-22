@@ -206,7 +206,17 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           if (response.status === 200) {
             expect.soft(document.mainCount, `${label} listing content`).toBe(1);
           }
-          if (response.status === 200 && !freeText.has(parameter)) {
+          const wikiFacet = /^wiki\/(search|items)$/.test(route)
+            && ['category', 'classification'].includes(parameter);
+          if (response.status === 200 && wikiFacet) {
+            // Catalog facets are exact text filters, so unmatched terms must
+            // round-trip safely and render the localized empty-result state.
+            expect.soft(document.effectiveValues, `${label} exact text filter`).toEqual(probe.values);
+            expect.soft(document.content, `${label} empty result`).toContain(
+              expectedLocale === 'pl' ? 'Brak opublikowanych wyników.' : 'No published results.',
+            );
+          }
+          if (response.status === 200 && !freeText.has(parameter) && !wikiFacet) {
             const rejectedValues = parameter === 'page'
               ? probe.values.filter(value => invalidPage.has(value) && !(value === '0' && zeroBased.has(route)))
               : probe.values.filter(value => value !== valid && value !== locale);
