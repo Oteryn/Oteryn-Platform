@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
-use crate::rbac::{AccountState, AccountStateUnavailable};
+use crate::rbac::{AccountState, AccountStateUnavailable, SessionProof};
+use sha2::{Digest, Sha256};
 #[test]
 fn transitions_success_refusal_and_bad_input() {
     let reply = Command::Reply {
@@ -190,12 +191,29 @@ async fn postgres_support_atomic_audit_and_refusal() {
         .unwrap();
     let actor = Uuid::now_v7();
     sqlx::query("INSERT INTO account_roles (account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'staff@example.invalid','unused','active','en',now())")
+        .bind(actor).execute(&pool).await.unwrap();
+    let grant = "support-test-mfa-grant";
+    let proof = SessionProof {
+        session_hash: [42; 32],
+        grant_hash: Sha256::digest(grant.as_bytes()).into(),
+    };
+    sqlx::query("INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true)")
+        .bind(actor)
+        .bind(&[1_u8; 32][..])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) SELECT $1,account_id,generation,$2,'grant',clock_timestamp()+interval '1 hour' FROM account_mfa_totp WHERE account_id=$3")
+        .bind(proof.grant_hash.as_slice()).bind(Sha256::digest(b"unused").to_vec()).bind(actor).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,idle_expires_at,absolute_expires_at,data,csrf_token,authorization_generation) SELECT $1,id,'support-test',now()+interval '1 hour',now()+interval '1 day',jsonb_build_object('mfa_grant',$2::text),'support-test-csrf',native_security_generation FROM accounts WHERE id=$3")
+        .bind(proof.session_hash.as_slice()).bind(grant).bind(actor).execute(&pool).await.unwrap();
     let auth = Authorizer::new(pool.clone(), Active);
     let context = CheckContext {
         account: actor,
         require_staff_mfa: true,
         mfa_verified: true,
-        session_proof: None,
+        session_proof: Some(proof),
     };
     let command = Command::Reply {
         body: "private".into(),
@@ -209,14 +227,30 @@ async fn postgres_support_atomic_audit_and_refusal() {
         execute(&pool, &auth, &TestBackend, context, id, 2, &command).await,
         Err(Error::Conflict)
     );
-    let denied = CheckContext {
-        account: Uuid::now_v7(),
+    let without_mfa = CheckContext {
+        mfa_verified: false,
+        session_proof: None,
         ..context
     };
     assert_eq!(
-        execute(&pool, &auth, &TestBackend, denied, id, 1, &command).await,
+        execute(&pool, &auth, &TestBackend, without_mfa, id, 1, &command).await,
         Err(Error::Denied)
     );
+    let mut grants = pool.begin().await.unwrap();
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(actor)
+        .execute(&mut *grants)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO account_roles (account_id,role_id) SELECT $1,id FROM roles WHERE key='game_support'")
+        .bind(actor).execute(&mut *grants).await.unwrap();
+    grants.commit().await.unwrap();
+    assert_eq!(
+        execute(&pool, &auth, &TestBackend, context, id, 1, &command).await,
+        Err(Error::Denied)
+    );
+    sqlx::query("INSERT INTO account_roles (account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(actor).execute(&pool).await.unwrap();
     assert_eq!(
         execute(&pool, &auth, &TestBackend, context, id, 0, &command).await,
         Err(Error::Invalid)
@@ -232,6 +266,15 @@ async fn postgres_support_atomic_audit_and_refusal() {
     assert_eq!(
         execute(&pool, &auth, &TestBackend, context, id, 1, &command).await,
         Err(Error::Unavailable)
+    );
+    sqlx::query("DELETE FROM account_mfa_tokens WHERE token_hash=$1")
+        .bind(proof.grant_hash.as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        execute(&pool, &auth, &TestBackend, context, id, 1, &command).await,
+        Err(Error::Denied)
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM support_probe")
         .fetch_one(&pool)
