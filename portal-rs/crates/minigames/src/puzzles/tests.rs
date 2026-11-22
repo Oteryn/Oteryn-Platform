@@ -274,6 +274,55 @@ fn choice_aliases_cannot_reference_the_same_entity() {
 }
 
 #[test]
+fn monster_publication_rejects_unknown_sprite_request_fields() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("publication.json");
+    let mut document = serde_json::json!({
+        "publication_id": Uuid::now_v7(),
+        "day": "2026-11-22",
+        "puzzles": [{
+            "definition": definition(Uuid::now_v7(), Kind::Monster),
+            "media": {
+                "kind": "monster",
+                "manifest": "sprites.json",
+                "request": { "kind": "creature", "appearance_id": 1 }
+            }
+        }]
+    });
+    for (input, pattern) in [
+        (
+            serde_json::json!({ "kind": "creature", "appearance_id": 1 }),
+            None,
+        ),
+        (
+            serde_json::json!({ "kind": "creature", "appearance_id": 1, "pattern": null }),
+            None,
+        ),
+        (
+            serde_json::json!({ "kind": "creature", "appearance_id": 1, "pattern": [1, 2, 3] }),
+            Some([1, 2, 3]),
+        ),
+    ] {
+        document["puzzles"][0]["media"]["request"] = input;
+        std::fs::write(&path, serde_json::to_vec(&document)?)?;
+        let parsed = serde_json::to_value(Publication::read(&path)?)?;
+        assert_eq!(
+            parsed["puzzles"][0]["media"]["request"],
+            serde_json::to_value(oteryn_world::sprites::Request {
+                kind: oteryn_world::sprites::Kind::Creature,
+                appearance_id: 1,
+                pattern,
+            })?
+        );
+    }
+    document["puzzles"][0]["media"]["request"] =
+        serde_json::json!({ "kind": "creature", "appearance_id": 1, "pattren": [1, 2, 3] });
+    std::fs::write(&path, serde_json::to_vec(&document)?)?;
+    assert!(matches!(Publication::read(&path), Err(Error::Invalid)));
+    Ok(())
+}
+
+#[test]
 fn media_are_verified_and_monster_pixels_are_silhouettes() -> TestResult {
     let dir = tempfile::tempdir()?;
     let bytes = webp();

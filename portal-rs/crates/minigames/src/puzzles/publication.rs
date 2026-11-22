@@ -1,4 +1,5 @@
 use super::{Definition, Error, Kind, Media, Puzzles};
+use oteryn_world::sprites;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
@@ -31,12 +32,31 @@ struct Puzzle {
 enum MediaSource {
     Monster {
         manifest: PathBuf,
-        request: oteryn_world::sprites::Request,
+        request: MonsterSpriteRequest,
     },
     Atlas {
         manifest: PathBuf,
         tile: String,
     },
+}
+
+/// Publication input must reject misspellings even when a default sprite exists.
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MonsterSpriteRequest {
+    kind: sprites::Kind,
+    appearance_id: u32,
+    pattern: Option<[u32; 3]>,
+}
+
+impl From<MonsterSpriteRequest> for sprites::Request {
+    fn from(request: MonsterSpriteRequest) -> Self {
+        Self {
+            kind: request.kind,
+            appearance_id: request.appearance_id,
+            pattern: request.pattern,
+        }
+    }
 }
 
 impl MediaSource {
@@ -50,9 +70,11 @@ impl MediaSource {
             .unwrap_or_else(|| Path::new("."));
         const MANIFEST_LIMIT: u64 = 16 * 1024 * 1024;
         match self {
-            Self::Monster { request, .. } => {
-                Media::monster(directory, &read_json(&manifest, MANIFEST_LIMIT)?, *request)
-            }
+            Self::Monster { request, .. } => Media::monster(
+                directory,
+                &read_json(&manifest, MANIFEST_LIMIT)?,
+                (*request).into(),
+            ),
             Self::Atlas { tile, .. } => {
                 Media::atlas(directory, &read_json(&manifest, MANIFEST_LIMIT)?, tile)
             }
