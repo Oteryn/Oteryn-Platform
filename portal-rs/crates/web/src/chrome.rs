@@ -21,7 +21,16 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let (account, passkeys_eligible, staff) =
+        if shell.registry.staff_host.is_some() || shell.registry.passkeys_mounted() {
+            crate::session::chrome_account_with_links(&shell.sessions, &mut request).await
+        } else {
+            (
+                crate::session::chrome_account(&shell.sessions, &mut request).await,
+                false,
+                false,
+            )
+        };
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -41,12 +50,13 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
-    if matches!(
-        chrome.account,
-        oteryn_ui::Account::SignedIn { staff: true, .. }
-    ) && let Some(host) = &shell.registry.staff_host
-    {
+    let mut chrome = shell.registry.chrome_with_account_links(
+        lang,
+        request.uri().path(),
+        account,
+        passkeys_eligible,
+    );
+    if staff && let Some(host) = &shell.registry.staff_host {
         chrome.staff_dashboard = Some(if crate::staff_host::matches(request.headers(), host) {
             "/admin".into()
         } else {

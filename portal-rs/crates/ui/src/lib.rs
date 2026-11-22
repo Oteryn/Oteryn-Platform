@@ -97,7 +97,21 @@ impl Registry {
             },
         );
     }
+    pub fn passkeys_mounted(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.section == "account-passkeys")
+    }
     pub fn chrome(&self, lang: &str, path: &str, account: Account) -> Chrome {
+        self.chrome_with_account_links(lang, path, account, false)
+    }
+    pub fn chrome_with_account_links(
+        &self,
+        lang: &str,
+        path: &str,
+        account: Account,
+        passkeys_eligible: bool,
+    ) -> Chrome {
         let lang = if lang == "en" { "en" } else { "pl" };
         let other = if lang == "en" { "pl" } else { "en" };
         let clean = path.split(['?', '#']).next().unwrap_or("/");
@@ -116,13 +130,8 @@ impl Registry {
             .iter()
             .filter(|e| {
                 e.section != "account-passkeys"
-                    || !matches!(
-                        account,
-                        Account::SignedIn {
-                            passkeys_eligible: false,
-                            ..
-                        }
-                    )
+                    || passkeys_eligible
+                    || matches!(account, Account::Anonymous)
             })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
@@ -205,8 +214,6 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
-        passkeys_eligible: bool,
-        staff: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -528,8 +535,6 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     csrf: "escaped<&token".into(),
-                    passkeys_eligible: false,
-                    staff: false,
                 },
             );
             let html = Home::new(&chrome, &HomeData::default()).render()?;

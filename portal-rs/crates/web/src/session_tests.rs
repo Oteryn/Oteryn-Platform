@@ -535,6 +535,7 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
                 .body(Body::empty())?;
             let response = app.oneshot(request).await?;
             assert_eq!(response.status(), StatusCode::OK);
+            assert!(!response.headers().contains_key(header::SET_COOKIE));
             let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
             Ok::<_, Box<dyn std::error::Error>>(html)
         }
@@ -547,6 +548,7 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
     );
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' AND built_in")
         .bind(account).execute(&db.pool).await?;
+    let session_before = snapshot(db.pool.clone()).await?;
     let same_host = render(panel.clone(), "staff.test", id.clone()).await?;
     assert!(same_host.contains(r#"href="/admin">Staff dashboard</a>"#));
     let public_host = render(panel.clone(), "public.test", id.clone()).await?;
@@ -561,6 +563,7 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
             .await?
             .contains("Staff dashboard")
     );
+    assert_eq!(snapshot(db.pool.clone()).await?, session_before);
     db.close().await
 }
 
@@ -612,8 +615,8 @@ async fn chrome_passkey_link_tracks_account_eligibility() -> TestResult {
         let mut request = HttpRequest::get("/en/")
             .header(header::COOKIE, format!("{COOKIE_NAME}={id}"))
             .body(Body::empty())?;
-        let account = chrome_account(&layer, &mut request).await;
-        let chrome = registry.chrome("en", "/en/", account);
+        let (account, passkeys, _) = chrome_account_with_links(&layer, &mut request).await;
+        let chrome = registry.chrome_with_account_links("en", "/en/", account, passkeys);
         assert!(chrome.signed_in());
         assert_eq!(
             chrome.link("account-passkeys").is_some(),
