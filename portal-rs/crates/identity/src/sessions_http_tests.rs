@@ -86,6 +86,35 @@ async fn postgres_session_page_csrf_owner_bad_input_and_signout() -> TestResult 
     let response = app
         .clone()
         .oneshot(request(
+            "DELETE",
+            "/en/account/sessions",
+            &cookie,
+            &format!("_csrf={csrf}"),
+        ))
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/en/account/sessions");
+    assert_eq!(
+        app.clone()
+            .oneshot(request("GET", "/en/account/sessions", &cookie, ""))
+            .await?
+            .status(),
+        StatusCode::OK,
+    );
+    let response = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("/en/account/sessions/{foreign}"),
+            &cookie,
+            &format!("_csrf={csrf}"),
+        ))
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/en/account/sessions");
+    let response = app
+        .clone()
+        .oneshot(request(
             "POST",
             &format!("/en/account/sessions/{id}"),
             &cookie,
