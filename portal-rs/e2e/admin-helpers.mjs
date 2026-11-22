@@ -7,9 +7,14 @@ import { csrfRejected, password } from './helpers.mjs';
 import { query } from './staff-rbac-helpers.mjs';
 
 function seed(entity, args) {
-  const database = new URL(process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL);
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(database.hostname)
-      || !database.pathname.startsWith('/portal_e2e_')) {
+  const connectionString = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
+  const database = URL.parse(connectionString);
+  const addressOptions = ['host', 'hostaddr', 'port', 'dbname', 'database'];
+  if (!database
+      || !['postgres:', 'postgresql:'].includes(database.protocol)
+      || !['localhost', '127.0.0.1', '[::1]'].includes(database.hostname)
+      || !database.pathname.startsWith('/portal_e2e_')
+      || addressOptions.some(option => database.searchParams.has(option))) {
     throw new Error('Admin fixtures require a local portal_e2e_ database');
   }
   const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
