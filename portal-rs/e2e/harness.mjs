@@ -87,6 +87,8 @@ const identities = [
   ['scope-assignment', 'GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES', scopes],
   ['bootstrap-intents', 'GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY'],
   ['lcfa', 'PORTAL_LCFA_INTERNAL_IDENTITY'],
+  ['journal-items', 'PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN'],
+  ['journal-progress', 'PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN'],
   ['character-commands', 'PORTAL_CHARACTER_COMMAND_IDENTITIES', []],
   ['character-services', 'PORTAL_CHARACTER_SERVICES_IDENTITY'],
   ['restore-notice', 'PORTAL_GAME_RESTORE_NOTICE_IDENTITY'],
