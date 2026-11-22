@@ -22,3 +22,7 @@ Form rows group template locations by action pattern, method, and submitter name
 Form evidence is based on query or form-encoded fields sent to the matching action. It includes deliberate API form probes. An unnamed submitter is inferred from declared form fields. An ordinary navigation with a matching form query can produce the same evidence as a browser submission. Dynamic ranking pagination buttons are identified by the submitted page relative to the referring page.
 
 Reports list observed actor and status combinations and their projects. Success means 2xx or 3xx. Refusal means 400, 401, 403, 404, or 422. Row IDs use a deterministic number derived from the row's identity and survive report reruns and insertion of unrelated rows. The gate writes both reports and returns nonzero if any route or form row has no hit, listing each missing row.
+
+## Checked-in baseline
+
+The checked-in reports cover the completed `pl-1440` project. It ran 460 tests, with 457 passing and three failing on the calculator page's color contrast. Its request evidence includes all 460 tests. The four-project run was still in progress when this baseline was published.
