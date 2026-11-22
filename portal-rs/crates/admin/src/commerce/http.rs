@@ -1,6 +1,9 @@
-use super::*;
+use super::{
+    audit_change::{CommerceAudit, ValueDecision},
+    *,
+};
 use crate::{
-    staff_actions::{self, Action as StaffAction, AuditChange, Guard, StepUp},
+    staff_actions::{self, Action as StaffAction, Guard, StepUp},
     web::{self, PanelConfig, StaffSession},
 };
 use askama::Template;
@@ -21,6 +24,12 @@ use oteryn_web::csrf::Verified;
 use oteryn_web::session::BrowserSession;
 use sqlx::Connection;
 use std::sync::Arc;
+
+pub(super) type StaffMutation = (
+    Extension<rbac::CheckContext>,
+    Extension<rbac::MutationAuthorization>,
+    Option<Extension<Verified>>,
+);
 
 /// The application injects trusted session and domain authority adapters here.
 pub fn router<I, A, E>(
@@ -198,6 +207,7 @@ struct Action {
     title: String,
     days: bool,
     amount: bool,
+    refund: bool,
     request: Uuid,
 }
 struct Pending {
@@ -236,6 +246,9 @@ struct Page {
     review_link: Option<String>,
     refund_verified: String,
     refund_withdrawn: String,
+    refund_requested: String,
+    value_verified: String,
+    value_withdrawn: String,
 }
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -286,6 +299,7 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
                 title: locale.text(key),
                 days: key == "grant",
                 amount: key == "adjust",
+                refund: key == "refund",
                 request: Uuid::now_v7(),
             }),
             Err(Error::Denied) => (),
@@ -377,6 +391,9 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         review_link,
         refund_verified: oteryn_ui::text(locale.0, "commerce-confirm-approve"),
         refund_withdrawn: oteryn_ui::text(locale.0, "commerce-confirm-cancel"),
+        refund_requested: oteryn_ui::text(locale.0, "commerce-request-refund-reason"),
+        value_verified: oteryn_ui::text(locale.0, "commerce-value-approve-reason"),
+        value_withdrawn: oteryn_ui::text(locale.0, "commerce-value-cancel-reason"),
     })
 }
 #[derive(Deserialize)]
@@ -387,9 +404,10 @@ struct Input {
     days: Option<u16>,
     amount: Option<i64>,
 }
-async fn submit<A: rbac::AccountStateReader, E: Effects>(
+async fn submit<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     State(s): State<Arc<Commerce<A, E>>>,
-    Extension(context): Extension<rbac::CheckContext>,
+    (Extension(context), Extension(authority), csrf): StaffMutation,
+    chrome: Option<Extension<Chrome>>,
     Path(action): Path<String>,
     headers: HeaderMap,
     form: Result<Form<Input>, FormRejection>,
@@ -405,22 +423,104 @@ async fn submit<A: rbac::AccountStateReader, E: Effects>(
         ("refund", None, None) => Command::Refund,
         _ => return failure(locale, Error::Invalid),
     };
-    match s
-        .submit(
-            context,
-            Request {
-                request_id: form.request_id,
-                target: form.target,
-                reason: form.reason,
-                command,
-            },
-        )
-        .await
-    {
+    let request = Request {
+        request_id: form.request_id,
+        target: form.target,
+        reason: form.reason,
+        command,
+    };
+    if request.command == Command::Refund {
+        let chrome = decision_chrome(chrome, locale);
+        let guard = Guard {
+            actor: context,
+            authority: &authority,
+            csrf: csrf.map(|value| value.0),
+        };
+        return match request_refund(&s, guard, request).await {
+            Ok(()) => Redirect::to("/admin/commerce").into_response(),
+            Err(error) => error.response(&chrome),
+        };
+    }
+    match s.submit(context, request).await {
         Ok(_) => Redirect::to("/admin/commerce").into_response(),
-        Err(e) => failure(locale, e),
+        Err(error) => failure(locale, error),
     }
 }
+
+async fn request_refund<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
+    service: &Arc<Commerce<A, E>>,
+    guard: Guard<'_>,
+    mut request: Request,
+) -> Result<(), staff_actions::Error> {
+    const REASON: &str = "refund_requested";
+    let reason = std::mem::take(&mut request.reason);
+    let actor = guard.actor;
+    let pool = &service.pool;
+    if !valid_id(request.request_id) || !valid_id(request.target) {
+        return Err(staff_actions::Error::Invalid);
+    }
+    service
+        .authorize(actor, &request.command)
+        .await
+        .map_err(approval_error)?;
+    let owner = payment_owner(
+        &mut *pool.acquire().await?,
+        &request.command,
+        request.target,
+    )
+    .await
+    .map_err(approval_error)?;
+    let service = service.clone();
+    staff_actions::run(
+        pool,
+        guard,
+        StaffAction {
+            permission: rbac::Permission::ReconcilePayments,
+            reason: &reason,
+            reason_codes: &[REASON],
+            step_up: StepUp::SessionMfa,
+        },
+        || {
+            request
+                .command
+                .validate(service.flags)
+                .map_err(approval_error)?;
+            if owner == actor.account {
+                return Err(staff_actions::Error::Forbidden);
+            }
+            Ok((vec![owner], request))
+        },
+        {
+            let service = service.clone();
+            move |conn, request| {
+                Box::pin(async move {
+                    let mut tx = conn.begin().await?;
+                    rbac::mutation_budget(&mut tx).await?;
+                    let hash = format!("{:x}", Sha256::digest(REASON.as_bytes()));
+                    let submission = service
+                        .submit_locked(&mut tx, actor, &request, &hash)
+                        .await
+                        .map_err(approval_error)?;
+                    let audit = match submission {
+                        Submission::Replay { .. } => None,
+                        Submission::Created { review, .. } => Some(
+                            CommerceAudit::RefundRequest {
+                                id: request.request_id,
+                                intent: request.target,
+                                amount: refund_amount(&review)?,
+                            }
+                            .into(),
+                        ),
+                    };
+                    tx.commit().await?;
+                    Ok(audit)
+                })
+            }
+        },
+    )
+    .await
+}
+
 #[derive(Deserialize)]
 struct ApprovalForm {
     #[serde(default)]
@@ -429,20 +529,20 @@ struct ApprovalForm {
 
 async fn approve<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     State(s): State<Arc<Commerce<A, E>>>,
-    Extension(context): Extension<rbac::CheckContext>,
-    Extension(authority): Extension<rbac::MutationAuthorization>,
+    (Extension(context), Extension(authority), csrf): StaffMutation,
     chrome: Option<Extension<Chrome>>,
-    csrf: Option<Extension<Verified>>,
     path: Result<Path<Uuid>, PathRejection>,
     headers: HeaderMap,
     form: Result<Form<ApprovalForm>, FormRejection>,
 ) -> Response {
     decide(
         s,
-        context,
-        authority,
+        Guard {
+            actor: context,
+            authority: &authority,
+            csrf: csrf.map(|value| value.0),
+        },
         chrome,
-        csrf.map(|value| value.0),
         path,
         headers,
         form,
@@ -451,18 +551,16 @@ async fn approve<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn decide<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     service: Arc<Commerce<A, E>>,
-    context: rbac::CheckContext,
-    authority: rbac::MutationAuthorization,
+    guard: Guard<'_>,
     chrome: Option<Extension<Chrome>>,
-    csrf: Option<Verified>,
     path: Result<Path<Uuid>, PathRejection>,
     headers: HeaderMap,
     form: Result<Form<ApprovalForm>, FormRejection>,
     cancel: bool,
 ) -> Response {
+    let context = guard.actor;
     let locale = Locale::from_headers(&headers);
     let Ok(Path(id)) = path else {
         return failure(locale, Error::Invalid);
@@ -472,41 +570,26 @@ async fn decide<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
             Ok(target) => target,
             Err(error) => return failure(locale, error),
         };
-    if !matches!(target.command, Command::Refund) {
-        let result = if cancel {
-            service.cancel(context, id).await
-        } else {
-            service.approve(context, id).await.map(|_| ())
-        };
-        return match result {
-            Ok(()) => Redirect::to("/admin/commerce").into_response(),
-            Err(error) => failure(locale, error),
-        };
-    }
     let Ok(Form(form)) = form else {
         return failure(locale, Error::Invalid);
     };
-    let chrome = chrome.map(|value| value.0).unwrap_or_else(|| Chrome {
-        lang: locale.0.to_owned(),
-        ..Chrome::default()
-    });
+    let chrome = decision_chrome(chrome, locale);
+    let reason_codes: &[_] = match (&target.command, cancel) {
+        (Command::Refund, false) => &["refund_verified"],
+        (Command::Refund, true) => &["refund_withdrawn"],
+        (Command::Grant { .. } | Command::Adjust { .. }, false) => &["value_verified"],
+        (Command::Grant { .. } | Command::Adjust { .. }, true) => &["value_withdrawn"],
+        _ => return failure(locale, Error::Denied),
+    };
     let pool = service.pool.clone();
     let flags = service.flags;
     let result = staff_actions::run(
         &pool,
-        Guard {
-            actor: context,
-            authority: &authority,
-            csrf,
-        },
+        guard,
         StaffAction {
-            permission: rbac::Permission::ReconcilePayments,
+            permission: target.command.permission(),
             reason: &form.reason,
-            reason_codes: if cancel {
-                &["refund_withdrawn"]
-            } else {
-                &["refund_verified"]
-            },
+            reason_codes,
             step_up: StepUp::SessionMfa,
         },
         || {
@@ -527,46 +610,20 @@ async fn decide<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
                         .cancel_locked(&mut tx, context, id, proposer, owner)
                         .await
                         .map_err(approval_error)?
-                        .map(|request| AuditChange::RefundCancellation {
-                            id,
-                            intent: request.target,
-                            proposer,
-                        })
-                } else if let Some((proposer, request, _, result)) = service
-                    .approve_locked(&mut tx, context, id, owner)
-                    .await
-                    .map_err(approval_error)?
-                {
-                    let amount = Amount {
-                        minor_units: result
-                            .get("amount")
-                            .and_then(Value::as_i64)
-                            .ok_or(staff_actions::Error::Unavailable)?,
-                        currency: result
-                            .get("currency")
-                            .and_then(Value::as_str)
-                            .ok_or(staff_actions::Error::Unavailable)?
-                            .to_owned(),
-                    };
-                    amount
-                        .validate()
-                        .map_err(|_| staff_actions::Error::Unavailable)?;
-                    let queued = result
-                        .get("queued")
-                        .and_then(Value::as_bool)
-                        .ok_or(staff_actions::Error::Unavailable)?;
-                    Some(AuditChange::RefundApproval {
-                        id,
-                        intent: request.target,
-                        proposer,
-                        amount,
-                        queued,
-                    })
+                        .map(|request| cancellation_audit(request, proposer))
+                        .transpose()?
                 } else {
-                    None
+                    service
+                        .approve_locked(&mut tx, context, id, owner)
+                        .await
+                        .map_err(approval_error)?
+                        .map(|(proposer, request, _, result)| {
+                            approval_audit(request, proposer, &result)
+                        })
+                        .transpose()?
                 };
                 tx.commit().await?;
-                Ok(audit)
+                Ok(audit.map(Into::into))
             })
         },
     )
@@ -575,6 +632,115 @@ async fn decide<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
         Ok(()) => Redirect::to("/admin/commerce").into_response(),
         Err(error) => error.response(&chrome),
     }
+}
+
+fn decision_chrome(chrome: Option<Extension<Chrome>>, locale: Locale) -> Chrome {
+    chrome.map(|value| value.0).unwrap_or_else(|| Chrome {
+        lang: locale.0.to_owned(),
+        ..Chrome::default()
+    })
+}
+
+fn refund_amount(result: &Value) -> Result<Amount, staff_actions::Error> {
+    let missing = staff_actions::Error::Unavailable;
+    let amount = Amount {
+        minor_units: result
+            .get("amount")
+            .and_then(Value::as_i64)
+            .ok_or(missing)?,
+        currency: result
+            .get("currency")
+            .and_then(Value::as_str)
+            .ok_or(staff_actions::Error::Unavailable)?
+            .to_owned(),
+    };
+    amount
+        .validate()
+        .map_err(|_| staff_actions::Error::Unavailable)?;
+    Ok(amount)
+}
+
+fn approval_audit(
+    request: Request,
+    proposer: Uuid,
+    result: &Value,
+) -> Result<CommerceAudit, staff_actions::Error> {
+    let Request {
+        request_id: id,
+        target,
+        command,
+        ..
+    } = request;
+    let read_id = |key: &str| {
+        result
+            .get(key)
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse().ok())
+            .ok_or(staff_actions::Error::Unavailable)
+    };
+    let change = match command {
+        Command::Refund => {
+            return Ok(CommerceAudit::RefundApproval {
+                id,
+                intent: target,
+                proposer,
+                amount: refund_amount(result)?,
+                queued: result
+                    .get("queued")
+                    .and_then(Value::as_bool)
+                    .ok_or(staff_actions::Error::Unavailable)?,
+            });
+        }
+        Command::Adjust { amount } => ValueDecision::WalletApproved {
+            coins: amount,
+            ledger: read_id("operation")?,
+        },
+        Command::Grant { days } => ValueDecision::PremiumApproved {
+            days,
+            entitlement: read_id("entitlement")?,
+            revision: result
+                .get("revision")
+                .and_then(Value::as_i64)
+                .ok_or(staff_actions::Error::Unavailable)?,
+        },
+        _ => return Err(staff_actions::Error::Forbidden),
+    };
+    Ok(CommerceAudit::ValueDecision {
+        id,
+        account: target,
+        proposer,
+        change,
+    })
+}
+
+fn cancellation_audit(
+    request: Request,
+    proposer: Uuid,
+) -> Result<CommerceAudit, staff_actions::Error> {
+    let Request {
+        request_id: id,
+        target,
+        command,
+        ..
+    } = request;
+    let change = match command {
+        Command::Refund => {
+            return Ok(CommerceAudit::RefundCancellation {
+                id,
+                intent: target,
+                proposer,
+            });
+        }
+        Command::Adjust { amount } => ValueDecision::WalletCancelled { coins: amount },
+        Command::Grant { days } => ValueDecision::PremiumCancelled { days },
+        _ => return Err(staff_actions::Error::Forbidden),
+    };
+    Ok(CommerceAudit::ValueDecision {
+        id,
+        account: target,
+        proposer,
+        change,
+    })
 }
 
 fn approval_error(error: Error) -> staff_actions::Error {
@@ -591,45 +757,6 @@ fn approval_error(error: Error) -> staff_actions::Error {
 // a domain effect. A second authorized reviewer can retire obsolete intents even
 // after the original requester has lost authority.
 impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
-    async fn cancel(&self, context: rbac::CheckContext, id: Uuid) -> Result<(), Error> {
-        if !self.flags.enabled {
-            return Err(Error::Disabled);
-        }
-        if !valid_id(id) {
-            return Err(Error::Invalid);
-        }
-        let mut tx = self.pool.begin().await?;
-        crate::rbac::mutation_budget(&mut tx).await?;
-        let (original, target, saved): (Uuid, Uuid, Value) = sqlx::query_as(
-            "SELECT actor_id,target_id,command FROM commerce_operations WHERE id=$1",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(Error::Invalid)?;
-        let saved: Command = serde_json::from_value(saved).map_err(|_| Error::Unavailable)?;
-        let owner = payment_owner(&mut tx, &saved, target).await?;
-        rbac::lock_accounts_and_mutation(&mut tx, &[context.account, original, owner]).await?;
-        if let Some(request) = self
-            .cancel_locked(&mut tx, context, id, original, owner)
-            .await?
-        {
-            record(
-                &mut tx,
-                context.account,
-                &request,
-                "commerce.cancelled",
-                json!({"pending":true}),
-                json!({"requested_by":original,"pending":false,"status":"cancelled"}),
-            )
-            .await?;
-            self.authorize_in(&mut tx, context, &request.command)
-                .await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-
     async fn cancel_locked(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -670,20 +797,20 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
 }
 async fn cancel<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     State(service): State<Arc<Commerce<A, E>>>,
-    Extension(context): Extension<rbac::CheckContext>,
-    Extension(authority): Extension<rbac::MutationAuthorization>,
+    (Extension(context), Extension(authority), csrf): StaffMutation,
     chrome: Option<Extension<Chrome>>,
-    csrf: Option<Extension<Verified>>,
     path: Result<Path<Uuid>, PathRejection>,
     headers: HeaderMap,
     form: Result<Form<ApprovalForm>, FormRejection>,
 ) -> Response {
     decide(
         service,
-        context,
-        authority,
+        Guard {
+            actor: context,
+            authority: &authority,
+            csrf: csrf.map(|value| value.0),
+        },
         chrome,
-        csrf.map(|value| value.0),
         path,
         headers,
         form,

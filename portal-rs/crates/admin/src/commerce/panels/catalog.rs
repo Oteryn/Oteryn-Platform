@@ -1,7 +1,8 @@
 use super::{Language, localized, render};
 use crate::{
+    commerce::audit_change::CommerceAudit,
     rbac::{CheckContext, MutationAuthorization, Permission},
-    staff_actions::{self, Action, AuditChange, Error, Guard, StepUp},
+    staff_actions::{self, Action, Error, Guard, StepUp},
 };
 use askama::Template;
 use axum::{
@@ -295,13 +296,16 @@ async fn stage(
                 if inserted.rows_affected() == 0 {
                     return Ok(None);
                 }
-                Ok(Some(AuditChange::CatalogPriceProposal {
-                    target: revision_id(proposed.revision())?,
-                    base: current,
-                    proposal: proposed.revision().to_owned(),
-                    before: old_price,
-                    after: price,
-                }))
+                Ok(Some(
+                    CommerceAudit::CatalogPriceProposal {
+                        target: revision_id(proposed.revision())?,
+                        base: current,
+                        proposal: proposed.revision().to_owned(),
+                        before: old_price,
+                        after: price,
+                    }
+                    .into(),
+                ))
             })
         },
     )
@@ -357,7 +361,7 @@ async fn activate(
                 .bind(&prior).bind(&revision).bind(actor.account).bind(activation).execute(&mut *conn).await?;
             sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1,activated_by=$2,updated_at=now() WHERE id=1")
                 .bind(&revision).bind(actor.account).execute(&mut *conn).await?;
-            Ok(Some(AuditChange::CatalogActivation { id: activation, before: prior, after: revision }))
+            Ok(Some(CommerceAudit::CatalogActivation { id: activation, before: prior, after: revision }.into()))
         }),
     ).await;
     finish(result, &chrome, "/admin/store-activation")

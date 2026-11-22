@@ -808,6 +808,24 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
         .split('"')
         .next()
         .unwrap();
+    for id in [adjustment_id, grant_id] {
+        for decision in ["approvals", "cancellations"] {
+            let response = second_app
+                .clone()
+                .oneshot(
+                    HttpRequest::post(format!("/admin/commerce/{decision}/{id}"))
+                        .header("host", "staff.test")
+                        .header("origin", "https://staff.test")
+                        .header("cookie", &second_cookie)
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .body(Body::from(format!("_csrf={csrf}")))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    }
     let response = second_app
         .clone()
         .oneshot(
@@ -816,7 +834,7 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &second_cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_verified")))
                 .unwrap(),
         )
         .await
@@ -837,7 +855,7 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &second_cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_verified")))
                 .unwrap(),
         )
         .await
@@ -870,6 +888,81 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
         "a2_configured_commerce_domain_adapters_commit_ledgers duration: {:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn refund_submission_audits_reason_atomically() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let payment = Uuid::now_v7();
+    let id = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'EUR','succeeded')")
+        .bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
+    let app = router(
+        h.pool.clone(),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Session(h.actor, h.pool.clone()),
+        Authority(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let (cookie, csrf) = login(app.clone()).await;
+    let submit = |token: &str, reason: &str| {
+        app.clone().oneshot(
+            HttpRequest::post("/admin/commerce/refund")
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={token}&reason={reason}&request_id={id}&target={payment}"
+                )))
+                .unwrap(),
+        )
+    };
+    assert_eq!(
+        submit("bad", "refund_requested").await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        submit(&csrf, "").await.unwrap().status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    sqlx::raw_sql("CREATE FUNCTION reject_refund_request() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test audit failure'; END $$; CREATE TRIGGER reject_refund_request BEFORE INSERT ON audit_log FOR EACH ROW WHEN (NEW.action='commerce.requested') EXECUTE FUNCTION reject_refund_request()")
+        .execute(&h.pool).await.unwrap();
+    assert_eq!(
+        submit(&csrf, "refund_requested").await.unwrap().status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(h.count("commerce_operations").await, 0);
+    sqlx::query("DROP TRIGGER reject_refund_request ON audit_log")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            submit(&csrf, "refund_requested").await.unwrap().status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert_eq!(h.count("commerce_operations").await, 1);
+    assert_eq!(h.count("commerce_refunds").await, 0);
+    let audits: Vec<(String, Value)> = sqlx::query_as(
+        "SELECT staff_reason,after FROM audit_log WHERE action='commerce.requested' AND request_id=$1",
+    ).bind(id).fetch_all(&h.pool).await.unwrap();
+    assert_eq!(
+        audits,
+        vec![(
+            "refund_requested".to_owned(),
+            json!({
+                "pending": true, "command": "refund", "operation": id, "amount": 250, "currency": "EUR"
+            })
+        )]
+    );
+    h.close().await;
 }
 
 #[tokio::test]
@@ -1072,7 +1165,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -1099,7 +1192,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -1113,25 +1206,29 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
         .execute(&h.pool)
         .await
         .unwrap();
-    for (path, token, expected) in [
+    for (path, token, reason, expected) in [
         (
             format!("/admin/commerce/cancellations/{}", blocked[0]),
             "bad",
+            "value_withdrawn",
             StatusCode::FORBIDDEN,
         ),
         (
             format!("/admin/commerce/cancellations/{}", blocked[0]),
             csrf,
+            "value_withdrawn",
             StatusCode::SEE_OTHER,
         ),
         (
             format!("/admin/commerce/cancellations/{}", blocked[0]),
             csrf,
+            "value_withdrawn",
             StatusCode::SEE_OTHER,
         ),
         (
             format!("/admin/commerce/approvals/{valid}"),
             csrf,
+            "value_verified",
             StatusCode::SEE_OTHER,
         ),
     ] {
@@ -1143,7 +1240,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                     .header("origin", "https://staff.test")
                     .header("cookie", &cookie)
                     .header("content-type", "application/x-www-form-urlencoded")
-                    .body(Body::from(format!("_csrf={token}")))
+                    .body(Body::from(format!("_csrf={token}&reason={reason}")))
                     .unwrap(),
             )
             .await
@@ -1158,7 +1255,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -1230,7 +1327,9 @@ async fn a3_l6_02_staff_routes_refuse_restricted_acquisitions() {
                     .header("origin", "https://staff.test")
                     .header("cookie", &second_cookie)
                     .header("content-type", "application/x-www-form-urlencoded")
-                    .body(Body::from(format!("_csrf={second_csrf}")))
+                    .body(Body::from(format!(
+                        "_csrf={second_csrf}&reason=value_verified"
+                    )))
                     .unwrap(),
             )
             .await
@@ -1324,7 +1423,7 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         }
         let failing = self
             .failures
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
                 |n| n.checked_sub(1),
@@ -1335,7 +1434,7 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         }
         if self
             .malformed
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
                 |n| n.checked_sub(1),
@@ -1361,6 +1460,59 @@ async fn queued_refund(h: &Harness) -> (Uuid, Uuid) {
         .unwrap();
     (refund.request_id, payment)
 }
+
+#[tokio::test]
+async fn payment_queue_seeds_evidence_from_candidates() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let (_, payment) = queued_refund(&h).await;
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
+         SELECT id,$1,'test',id::text,100,'PLN','succeeded'
+         FROM (SELECT uuidv7() AS id FROM generate_series(1,120)) payments")
+        .bind(h.target)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    let plan = |queue| {
+        sqlx::query_scalar::<_, Value>(AssertSqlSafe(format!(
+            "EXPLAIN (ANALYZE, FORMAT JSON) {}",
+            panels::payments::PAYMENTS,
+        )))
+        .bind(None::<Uuid>)
+        .bind(None::<Uuid>)
+        .bind(queue)
+        .bind(None::<Uuid>)
+        .fetch_one(&h.pool)
+    };
+    fn rows_read(plan: &Value, table: &str) -> u64 {
+        let own = if plan["Relation Name"].as_str() == Some(table) {
+            plan["Actual Rows"].as_u64().unwrap() * plan["Actual Loops"].as_u64().unwrap()
+        } else {
+            0
+        };
+        own + plan["Plans"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|child| rows_read(child, table))
+            .sum::<u64>()
+    }
+    let empty = plan(true).await.unwrap();
+    let empty = &empty[0]["Plan"];
+    assert_eq!(empty["Actual Rows"], 0);
+    assert_eq!(rows_read(empty, "payment_intents"), 0);
+    assert_eq!(rows_read(empty, "commerce_operations"), 0);
+
+    kill_refund_job(&h, payment).await;
+    let sparse = plan(true).await.unwrap();
+    let sparse = &sparse[0]["Plan"];
+    assert_eq!(sparse["Actual Rows"], 1);
+    assert_eq!(rows_read(sparse, "payment_intents"), 1);
+    let ordinary = plan(false).await.unwrap();
+    assert_eq!(ordinary[0]["Plan"]["Actual Rows"], 26);
+    h.close().await;
+}
+
 async fn dispatched_audits(h: &Harness) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='commerce.refund.dispatched'")
         .fetch_one(&h.pool)

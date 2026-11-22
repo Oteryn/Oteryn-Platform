@@ -4,6 +4,8 @@
 //! AdminPremiumTimeController, AdjustWalletBalance and ResolvePaymentReconciliation.
 //! Authentication and transactional account authority are trusted adapters. The
 //! configured surface uses current staff identity and the owning domain ledgers.
+#[doc(hidden)]
+pub mod audit_change;
 pub mod configured;
 mod effects;
 mod http;
@@ -194,7 +196,6 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             return Err(Error::Invalid);
         }
         let hash = format!("{:x}", Sha256::digest(request.reason.as_bytes()));
-        let command = serde_json::to_value(&request.command).map_err(|_| Error::Invalid)?;
         let mut tx = self.pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
         // Serialize with T10/T10b role writers. Check both staff permissions under
@@ -261,11 +262,51 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
             }
             return Err(error);
         }
+        let submission = self
+            .submit_locked(&mut tx, context, &request, &hash)
+            .await?;
+        let (pending, replayed) = match submission {
+            Submission::Replay { pending } => (pending, true),
+            Submission::Created {
+                pending,
+                review,
+                result,
+            } => {
+                record(
+                    &mut tx,
+                    context.account,
+                    &request,
+                    "commerce.requested",
+                    review,
+                    json!({"pending":pending,"reason_sha256":hash,"result":result}),
+                )
+                .await?;
+                (pending, false)
+            }
+        };
+        self.authorize_in(&mut tx, context, &request.command)
+            .await?;
+        tx.commit().await?;
+        Ok(Outcome {
+            id: request.request_id,
+            pending,
+            replayed,
+        })
+    }
+
+    async fn submit_locked(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        context: rbac::CheckContext,
+        request: &Request,
+        hash: &str,
+    ) -> Result<Submission, Error> {
+        let command = serde_json::to_value(&request.command).map_err(|_| Error::Invalid)?;
         let inserted = sqlx::query("INSERT INTO commerce_operations(id,actor_id,target_id,command,reason_sha256,requires_approval) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
-            .bind(request.request_id).bind(context.account).bind(request.target).bind(&command).bind(&hash).bind(request.command.approval()).execute(&mut *tx).await?.rows_affected();
+            .bind(request.request_id).bind(context.account).bind(request.target).bind(&command).bind(hash).bind(request.command.approval()).execute(&mut **tx).await?.rows_affected();
         if inserted == 0 {
             let row = sqlx::query("SELECT actor_id,target_id,command,reason_sha256,result FROM commerce_operations WHERE id=$1 FOR UPDATE")
-                .bind(request.request_id).fetch_one(&mut *tx).await?;
+                .bind(request.request_id).fetch_one(&mut **tx).await?;
             if row.try_get::<Uuid, _>("actor_id")? != context.account
                 || row.try_get::<Uuid, _>("target_id")? != request.target
                 || row.try_get::<Value, _>("command")? != command
@@ -274,52 +315,33 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
                 return Err(Error::Conflict);
             }
             let pending = row.try_get::<Option<Value>, _>("result")?.is_none();
-            self.authorize_in(&mut tx, context, &request.command)
-                .await?;
-            tx.commit().await?;
-            return Ok(Outcome {
-                id: request.request_id,
-                pending,
-                replayed: true,
-            });
+            return Ok(Submission::Replay { pending });
         }
-        let review = self.effects.inspect(&mut tx, &request).await?;
-        self.authorize_in(&mut tx, context, &request.command)
-            .await?;
+        let review = self.effects.inspect(tx, request).await?;
+        self.authorize_in(tx, context, &request.command).await?;
         sqlx::query("UPDATE commerce_operations SET review=$2 WHERE id=$1")
             .bind(request.request_id)
             .bind(&review)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         let pending = request.command.approval();
         let result = if !pending {
             let result = self
                 .effects
-                .apply(&mut tx, context.account, &request, &hash)
+                .apply(tx, context.account, request, hash)
                 .await?;
-            complete(&mut tx, request.request_id, None, result.clone()).await?;
+            complete(tx, request.request_id, None, result.clone()).await?;
             result
         } else {
             json!({"pending":true})
         };
-        record(
-            &mut tx,
-            context.account,
-            &request,
-            "commerce.requested",
-            review,
-            json!({"pending":pending,"reason_sha256":hash,"result":result}),
-        )
-        .await?;
-        self.authorize_in(&mut tx, context, &request.command)
-            .await?;
-        tx.commit().await?;
-        Ok(Outcome {
-            id: request.request_id,
+        Ok(Submission::Created {
             pending,
-            replayed: false,
+            review,
+            result,
         })
     }
+
     pub async fn approve(&self, context: rbac::CheckContext, id: Uuid) -> Result<Outcome, Error> {
         if !self.flags.enabled {
             return Err(Error::Disabled);
@@ -421,6 +443,17 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         complete(tx, id, Some(context.account), result.clone()).await?;
         Ok(Some((actor, request, hash, result)))
     }
+}
+
+enum Submission {
+    Replay {
+        pending: bool,
+    },
+    Created {
+        pending: bool,
+        review: Value,
+        result: Value,
+    },
 }
 
 struct ApprovalTarget {

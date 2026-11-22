@@ -28,7 +28,9 @@
 {% for offer in offers %}
 <article class="op-card"><h2>{{ offer.offer_key }}</h2>
 <p>{{ chrome.text("commerce-price") }} {{ offer.unit_price }} {{ offer.currency }}</p>
-<p>{{ chrome.text("commerce-max-quantity") }} {{ offer.max_quantity }} · {% if offer.available() %}{{ chrome.text("commerce-purchasable") }}{% else %}{{ chrome.text("commerce-not-purchasable") }}{% endif %}</p>
+<p>{{ chrome.text("commerce-max-quantity") }} {{ offer.max_quantity }}</p>
+<p>{{ chrome.text("commerce-catalog-purchase-flag") }} · {% if offer.purchasable %}{{ chrome.text("commerce-purchasable") }}{% else %}{{ chrome.text("commerce-not-purchasable") }}{% endif %}</p>
+<p>{{ chrome.text("commerce-browser-eligibility") }} · {% if offer.available() %}{{ chrome.text("commerce-purchasable") }}{% else %}{{ chrome.text("commerce-not-purchasable") }}{% endif %}</p>
 <ul>{% for unit in offer.units %}<li>{{ unit.product_id }} × {{ unit.quantity }}</li>{% endfor %}</ul>
 <form method="post" action="?lang={{ chrome.lang }}" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">

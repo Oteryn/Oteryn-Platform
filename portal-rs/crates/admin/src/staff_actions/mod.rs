@@ -4,7 +4,6 @@ use crate::{
     rbac::{self, CheckContext, MutationAuthorization, MutationCheck, Permission},
 };
 use axum::{http::StatusCode, response::Response};
-use oteryn_payments::{Amount, IntentState};
 use oteryn_ui::Chrome;
 use oteryn_web::csrf::Verified;
 use serde_json::{Value, json};
@@ -104,6 +103,7 @@ impl From<sqlx::Error> for Error {
 /// value types. Form data and arbitrary runtime values never reach this API.
 #[derive(Debug)]
 pub enum AuditChange {
+    Commerce(crate::commerce::audit_change::CommerceAudit),
     RoleGrant {
         account: Uuid,
         role: Uuid,
@@ -117,35 +117,6 @@ pub enum AuditChange {
         before: Vec<Permission>,
         after: Vec<Permission>,
     },
-    CatalogPriceProposal {
-        target: Uuid,
-        base: String,
-        proposal: String,
-        before: i64,
-        after: i64,
-    },
-    CatalogActivation {
-        id: Uuid,
-        before: Option<String>,
-        after: String,
-    },
-    PaymentReview {
-        id: Uuid,
-        intent: Uuid,
-        state: IntentState,
-    },
-    RefundApproval {
-        id: Uuid,
-        intent: Uuid,
-        proposer: Uuid,
-        amount: Amount,
-        queued: bool,
-    },
-    RefundCancellation {
-        id: Uuid,
-        intent: Uuid,
-        proposer: Uuid,
-    },
     #[cfg(test)]
     TestLocale {
         account: Uuid,
@@ -155,9 +126,7 @@ pub enum AuditChange {
 impl AuditChange {
     fn request_id(&self) -> Uuid {
         match self {
-            Self::PaymentReview { id, .. }
-            | Self::RefundApproval { id, .. }
-            | Self::RefundCancellation { id, .. } => *id,
+            Self::Commerce(change) => change.request_id(),
             _ => Uuid::now_v7(),
         }
     }
@@ -169,6 +138,7 @@ impl AuditChange {
             json!({"permissions": names})
         };
         match self {
+            Self::Commerce(change) => change.project(),
             Self::RoleGrant { account, role } => (
                 "rbac.role.granted",
                 account,
@@ -193,53 +163,6 @@ impl AuditChange {
                 role,
                 permissions(before),
                 permissions(after),
-            ),
-            Self::CatalogPriceProposal {
-                target,
-                base,
-                proposal,
-                before,
-                after,
-            } => (
-                "store.catalog.price.staged",
-                target,
-                json!({"revision": base, "unit_price": before}),
-                json!({"revision": proposal, "unit_price": after}),
-            ),
-            Self::CatalogActivation { id, before, after } => (
-                "store.catalog.activated",
-                id,
-                json!({"revision": before}),
-                json!({"revision": after}),
-            ),
-            Self::PaymentReview { id, intent, state } => (
-                "commerce.payment.reviewed",
-                intent,
-                json!({"payment_state": state}),
-                json!({"payment_state": state, "review": id}),
-            ),
-            Self::RefundApproval {
-                id,
-                intent,
-                proposer,
-                amount,
-                queued,
-            } => (
-                "commerce.approved",
-                intent,
-                json!({"pending": true}),
-                json!({"pending": false, "operation": id, "requested_by": proposer, "command": "refund",
-                       "result": {"intent": intent, "amount": amount.minor_units, "currency": amount.currency, "queued": queued}}),
-            ),
-            Self::RefundCancellation {
-                id,
-                intent,
-                proposer,
-            } => (
-                "commerce.cancelled",
-                intent,
-                json!({"pending": true}),
-                json!({"pending": false, "operation": id, "requested_by": proposer, "command": "refund", "status": "cancelled"}),
             ),
             #[cfg(test)]
             Self::TestLocale { account } => (

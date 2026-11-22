@@ -1,7 +1,8 @@
 use super::{Language, enabled, localized, payment_actions_enabled, render};
 use crate::{
-    rbac::{CheckContext, MutationAuthorization, Permission},
-    staff_actions::{self, Action, AuditChange, Error, Guard, StepUp},
+    commerce::{audit_change::CommerceAudit, http::StaffMutation},
+    rbac::Permission,
+    staff_actions::{self, Action, Error, Guard, StepUp},
 };
 use askama::Template;
 use axum::{
@@ -16,7 +17,7 @@ use axum::{
 };
 use oteryn_payments::IntentState;
 use oteryn_ui::Chrome;
-use oteryn_web::{csrf::Verified, session::BrowserSession};
+use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -152,7 +153,20 @@ fn review_path(uri: &OriginalUri) -> &'static str {
 
 // The list, detail and locked write all use the same evidence projection. The
 // digest covers the displayed facts and the generations of mutable records.
-const PAYMENTS: &str = "
+pub(in crate::commerce) const PAYMENTS: &str = "
+    WITH candidates AS MATERIALIZED (
+        SELECT payment_intent_id AS intent_id
+        FROM coin_purchase_orders
+        WHERE $3 AND review_required AND payment_intent_id IS NOT NULL
+        UNION
+        SELECT f.intent_id
+        FROM outbox job
+        JOIN commerce_refunds f
+          ON f.intent_id=CASE WHEN pg_input_is_valid(job.idempotency_key,'uuid')
+                             THEN job.idempotency_key::uuid END
+         AND job.idempotency_key=f.intent_id::text AND job.payload->>'operation'=f.operation_id::text
+        WHERE $3 AND job.kind='commerce.refund' AND job.state='dead'
+    )
     SELECT p.id,p.account_id,p.provider,p.currency,p.amount,p.state,o.exponent,
         evidence.refund_settled,evidence.refund_refused,
         to_char(p.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS updated_at,
@@ -163,7 +177,14 @@ const PAYMENTS: &str = "
         COALESCE(d.owed,0) AS outstanding_debt,
         needs_review.pending AS requires_review,
         to_char(review.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS reviewed_at
-    FROM payment_intents p
+    FROM (
+        SELECT p.* FROM payment_intents p WHERE NOT $3
+        UNION ALL
+        SELECT p.* FROM candidates c
+        CROSS JOIN LATERAL (
+            SELECT p.* FROM payment_intents p WHERE p.id=c.intent_id OFFSET 0
+        ) p
+    ) p
     LEFT JOIN commerce_refunds f ON f.intent_id=p.id
     LEFT JOIN commerce_operations refund ON refund.id=f.operation_id
     LEFT JOIN outbox job ON job.kind='commerce.refund' AND job.idempotency_key=p.id::text AND job.payload->>'operation'=f.operation_id::text
@@ -176,7 +197,7 @@ const PAYMENTS: &str = "
         ORDER BY released_at DESC, id DESC LIMIT 1
     ) release ON true
     LEFT JOIN LATERAL (
-        SELECT id,updated_at,bool_or(result IS NULL) OVER () AS pending
+        SELECT id,updated_at
         FROM commerce_operations WHERE target_id=p.id AND command->>'kind'='refund'
         ORDER BY updated_at DESC,id DESC LIMIT 1
     ) refund_request ON true
@@ -186,7 +207,8 @@ const PAYMENTS: &str = "
                 SELECT 1 FROM payment_events WHERE intent_id=p.id AND state='refunded'
             ))) AS refund_settled,
             COALESCE(refund.result->>'refund_outcome'='refused',false) AS refund_refused,
-            COALESCE(refund_request.pending,false) AS refund_requested,
+            EXISTS(SELECT 1 FROM commerce_operations
+                WHERE target_id=p.id AND command->>'kind'='refund' AND result IS NULL) AS refund_requested,
             EXISTS(SELECT 1 FROM wallet_operations WHERE id=p.id AND kind='top_up') AS credited
     ) evidence
     CROSS JOIN LATERAL (
@@ -334,9 +356,7 @@ pub(in crate::commerce) async fn record_review(
     uri: OriginalUri,
     chrome: Option<Extension<Chrome>>,
     headers: HeaderMap,
-    Extension(actor): Extension<CheckContext>,
-    Extension(authority): Extension<MutationAuthorization>,
-    csrf: Option<Extension<Verified>>,
+    (Extension(actor), Extension(authority), csrf): StaffMutation,
     Query(query): Query<Language>,
     form: Result<Form<ReviewForm>, FormRejection>,
 ) -> Response {
@@ -401,7 +421,7 @@ pub(in crate::commerce) async fn record_review(
                 ).bind(request_id).bind(actor.account).bind(id).bind(hash).bind(version).fetch_one(&mut *conn).await?;
                 return if replay { Ok(None) } else { Err(Error::Conflict) };
             }
-            Ok(Some(AuditChange::PaymentReview { id: request_id, intent: id, state }))
+            Ok(Some(CommerceAudit::PaymentReview { id: request_id, intent: id, state }.into()))
         }),
     ).await;
     match result {
