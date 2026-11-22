@@ -24,6 +24,13 @@ CHROMIUM_PATH=/usr/bin/chromium node run.mjs /absolute/scratch/env.json test
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
+For the query-parameter matrix, start a fresh local harness with
+`PORTAL_E2E_CATALOG_MODE=query-fixture node local.mjs`. This selects the legacy
+WorldStore read path and imports the checked-in synthetic WorldStore catalog
+through `seed query-catalog '{}'` before the listeners start. The native catalog
+harness keeps its default pinned fixture. Run the matrix with
+`node run.mjs /absolute/scratch/env.json test specs/query-params.spec.mjs --workers=1`.
+
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.

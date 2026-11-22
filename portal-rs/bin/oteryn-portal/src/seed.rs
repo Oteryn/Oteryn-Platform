@@ -175,6 +175,7 @@ pub async fn execute(
     match entity {
         "account" => account(pool, &args).await,
         "world" => world(pool, &args).await,
+        "query-catalog" => query_catalog(pool, &args).await,
         "oauth-native-client" => oauth_native_client(pool, &args).await,
         "signing-trust" => signing_trust(pool, settings, &args).await,
         "signing-custody" => signing_custody(pool, settings, &args).await,
@@ -187,6 +188,65 @@ pub async fn execute(
         )),
         _ => Err(bad(format!("unknown entity {entity:?}"))),
     }
+}
+
+/// Import the existing schema-validated WorldStore fixture for browser queries.
+async fn query_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+    use oteryn_world::{ImportMapping, SchemaScope, WorldOptions, WorldStore};
+
+    args.only(&[])?;
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await?;
+    if !database.starts_with("portal_e2e_") {
+        return Err(bad(
+            "query-catalog requires a disposable portal_e2e_ database",
+        ));
+    }
+    const FIXTURE_REVISION: &str = "0000000000000000000000000000000000000001";
+    let store = WorldStore::new(pool.clone(), WorldOptions { enabled: true });
+    let version = if let Some(version) = store
+        .active_version_id()
+        .await
+        .map_err(|_| SeedError::Unavailable("query catalog version"))?
+    {
+        let report = store
+            .import_report(version)
+            .await
+            .map_err(|_| SeedError::Unavailable("query catalog report"))?;
+        if report.is_none_or(|report| report.source_commit != FIXTURE_REVISION) {
+            return Err(SeedError::Conflict(
+                "another world catalog is active".into(),
+            ));
+        }
+        version
+    } else {
+        store
+            .import_directory(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../crates/world/tests/fixtures/valid"),
+                FIXTURE_REVISION,
+                vec![ImportMapping {
+                    path_glob: "content/synthetic/*.json".into(),
+                    schema_file: "tools/content-schema/envelope.schema.json".into(),
+                    kind: "Item".into(),
+                    key_field: "code".into(),
+                    records_pointer: "/payload".into(),
+                    schema_scope: SchemaScope::Document,
+                    hidden_when_true: Vec::new(),
+                }],
+            )
+            .await
+            .map_err(|_| SeedError::Unavailable("query catalog import"))?
+            .version_id
+    };
+    for key in ["fixture.alpha", "fixture.beta"] {
+        store
+            .allow("Item", key)
+            .await
+            .map_err(|_| SeedError::Unavailable("query catalog visibility"))?;
+    }
+    Ok(json!({"versionId": version}))
 }
 
 /// A JSON object whose keys are checked against each command's allow-list.

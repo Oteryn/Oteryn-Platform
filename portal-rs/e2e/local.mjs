@@ -47,28 +47,34 @@ Object.assign(env,{
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',allowed_worlds:['019b0760-0000-7000-8000-000000000001'],allowed_nodes:[],identity:{san:'spiffe://local.test/admin/e2e'}}]),
 });
-// The pinned lane producer still emits an unsupported negative compatibility candidate.
-// Never read raw Game content or fabricate a Today producer/catalogue.
-const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
-if(!process.env.PORTAL_E2E_CATALOG_FILE){
- const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-669d5af5/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
- if(generated.status!==0)throw new Error('Pinned negative catalog fixture generation failed');
+const queryCatalog=process.env.PORTAL_E2E_CATALOG_MODE==='query-fixture';
+if(queryCatalog&&process.env.PORTAL_E2E_CATALOG_FILE)throw new Error('Query fixture mode takes no external catalog artifact');
+if(queryCatalog){
+ env.OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED='false';
+} else {
+ // The pinned lane producer still emits an unsupported negative compatibility candidate.
+ // Never read raw Game content or fabricate a Today producer/catalogue.
+ const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
+ if(!process.env.PORTAL_E2E_CATALOG_FILE){
+  const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-669d5af5/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
+  if(generated.status!==0)throw new Error('Pinned negative catalog fixture generation failed');
+ }
+ if(process.env.PORTAL_E2E_CATALOG_FILE&&!process.env.OTERYN_WORLD_CATALOG_SHA256)throw new Error('External artifact requires independently configured OTERYN_WORLD_CATALOG_SHA256');
+ const catalog=JSON.parse(fs.readFileSync(catalogFile,'utf8'));
+ Object.assign(env,{
+  OTERYN_WORLD_CATALOG_FILE:catalogFile,
+  OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED:'true',
+  OTERYN_WORLD_CATALOG_SHA256:process.env.OTERYN_WORLD_CATALOG_SHA256||'4fe8ce4488c21396b588dc6b04179cde93c7a9b22b87427b6e4af3cda6e60d7d',
+  OTERYN_WORLD_CATALOG_SOURCE_REVISION:process.env.OTERYN_WORLD_CATALOG_SOURCE_REVISION||catalog.source_revision,
+  OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH:process.env.OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH||catalog.authority_epoch,
+  OTERYN_WORLD_CATALOG_RULESET_ID:process.env.OTERYN_WORLD_CATALOG_RULESET_ID||catalog.ruleset_id,
+  OTERYN_WORLD_CATALOG_PROFILE_ID:process.env.OTERYN_WORLD_CATALOG_PROFILE_ID||catalog.content_profile_id,
+  OTERYN_WORLD_CATALOG_SNAPSHOT_ID:process.env.OTERYN_WORLD_CATALOG_SNAPSHOT_ID||catalog.snapshot_id,
+ });
+ // A URL may be exercised against the same independently pinned negative fixture.
+ // The server must remain ready while bounded background transport is pending.
+ if(process.env.OTERYN_WORLD_CATALOG_URL){delete env.OTERYN_WORLD_CATALOG_FILE;env.OTERYN_WORLD_CATALOG_URL=process.env.OTERYN_WORLD_CATALOG_URL;}
 }
-if(process.env.PORTAL_E2E_CATALOG_FILE&&!process.env.OTERYN_WORLD_CATALOG_SHA256)throw new Error('External artifact requires independently configured OTERYN_WORLD_CATALOG_SHA256');
-const catalog=JSON.parse(fs.readFileSync(catalogFile,'utf8'));
-Object.assign(env,{
- OTERYN_WORLD_CATALOG_FILE:catalogFile,
- OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED:'true',
- OTERYN_WORLD_CATALOG_SHA256:process.env.OTERYN_WORLD_CATALOG_SHA256||'4fe8ce4488c21396b588dc6b04179cde93c7a9b22b87427b6e4af3cda6e60d7d',
- OTERYN_WORLD_CATALOG_SOURCE_REVISION:process.env.OTERYN_WORLD_CATALOG_SOURCE_REVISION||catalog.source_revision,
- OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH:process.env.OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH||catalog.authority_epoch,
- OTERYN_WORLD_CATALOG_RULESET_ID:process.env.OTERYN_WORLD_CATALOG_RULESET_ID||catalog.ruleset_id,
- OTERYN_WORLD_CATALOG_PROFILE_ID:process.env.OTERYN_WORLD_CATALOG_PROFILE_ID||catalog.content_profile_id,
- OTERYN_WORLD_CATALOG_SNAPSHOT_ID:process.env.OTERYN_WORLD_CATALOG_SNAPSHOT_ID||catalog.snapshot_id,
-});
-// A URL may be exercised against the same independently pinned negative fixture.
-// The server must remain ready while bounded background transport is pending.
-if(process.env.OTERYN_WORLD_CATALOG_URL){delete env.OTERYN_WORLD_CATALOG_FILE;env.OTERYN_WORLD_CATALOG_URL=process.env.OTERYN_WORLD_CATALOG_URL;}
 // Disposable test-provider material enables staff reconciliation without live payments.
 env.OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE=path.join(scratch,'commerce-test-provider.key');
 fs.writeFileSync(env.OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE,crypto.randomBytes(32),{mode:0o600});
@@ -109,6 +115,7 @@ fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.
 if(!process.env.PORTAL_E2E_BINARY) command('cargo',['build','--locked','-p','oteryn-portal']);
 const binary=process.env.PORTAL_E2E_BINARY||path.join(process.env.CARGO_TARGET_DIR||path.join(root,'target'),'debug/oteryn-portal');
 command(binary,['migrate']);
+if(queryCatalog)command(binary,['seed','query-catalog','{}'],{stdio:'ignore'});
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
 const bazaarSeed=new pg.Client({connectionString:databaseURL(dbName)});await bazaarSeed.connect();

@@ -40,7 +40,7 @@ const publicRoutes = {
     ['wiki/items', wikiFilters],
     ['wiki/places', {sort: 'name', purpose: '', party: '1'}],
     ['atlas/delivery', {
-      item: 'sword', creature: 'rat', q: 'e2e control query', level: '20', floor: '7',
+      item: 'fixture.alpha', creature: 'rat', q: 'e2e control query', level: '20', floor: '7',
       city: 'thais', rarity: '1', count: '10', tab: 'items',
     }],
   ],
@@ -175,6 +175,7 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
   const path = route.startsWith('/') ? route : `/${locale}/${route}`;
   const expectedPath = destination ?? path;
   const expectedLocale = destination ? 'pl' : locale;
+  let slowest = 0;
   await test.step(path, async () => {
     for (const [parameter, valid] of Object.entries(parameters)) {
       for (const probe of cases(parameter, valid, locale)) {
@@ -192,6 +193,7 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           expect.soft(new URL(response.url).pathname, label).toBe(expectedPath);
           expect.soft([200, 400], `${label} HTTP status`).toContain(response.status);
 
+          slowest = Math.max(slowest, response.elapsed);
           expect.soft(response.elapsed, `${label} response timing recorded`).toBeGreaterThanOrEqual(0);
           expect.soft(response.elapsed, `${label} response time (ms)`).toBeLessThan(3_000);
           expect.soft(/<\/?query-probe[\s>]/i.test(response.body), `${label} raw HTML marker`).toBe(false);
@@ -216,6 +218,7 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
       }
     }
   });
+  test.info().annotations.push({type: 'query-timing', description: `${path} max ${Math.round(slowest)} ms`});
 }
 
 test('wiki landing and entity aliases reject impossible pagination', async ({page}, info) => {
@@ -229,11 +232,43 @@ test('wiki landing and entity aliases reject impossible pagination', async ({pag
   }
 });
 
+test.beforeAll(async ({request}) => {
+  // Prime the serving process and its database pool before measuring probes.
+  await expect.poll(async () => {
+    const response = await request.get('/readyz');
+    try {
+      return response.status();
+    } finally {
+      await response.dispose();
+    }
+  }).toBe(200);
+  const response = await request.get('/en/news');
+  try {
+    expect(response.status(), 'editorial path warmed').toBe(200);
+  } finally {
+    await response.dispose();
+  }
+});
+
 for (const [group, routes] of Object.entries(publicRoutes)) {
   // The search group can cross several real shared WikiSearch quota windows.
   test(`public ${group} query parameters`, async ({page}, info) => {
     test.setTimeout(group === 'search' ? 900_000 : 360_000);
-    for (const route of routes) await checkRoute(page, info.project.metadata.locale, route);
+    const locale = info.project.metadata.locale;
+    if (group === 'search' && process.env.PORTAL_E2E_CATALOG_MODE === 'query-fixture') {
+      for (const suffix of ['wiki/items', 'wiki/search?q=fixture.alpha', 'atlas/delivery?item=fixture.alpha']) {
+        const path = `/${locale}/${suffix}`;
+        await waitForWikiBudget(path);
+        const response = await page.goto(path);
+        expect(response.status(), path).toBe(200);
+        if (suffix.startsWith('atlas/')) {
+          await expect(page.locator('main input[name=item]')).toHaveValue('fixture.alpha');
+        } else {
+          await expect(page.locator('main')).toContainText('fixture.alpha');
+        }
+      }
+    }
+    for (const route of routes) await checkRoute(page, locale, route);
   });
 }
 
@@ -261,7 +296,7 @@ async function authenticateStaff(page, locale) {
   const {accountId} = seed('account', {...account, locale});
   const {recoveryCodes} = seed('account-mfa', {accountId, password: account.password});
   await query(`INSERT INTO account_roles (account_id, role_id)
-    SELECT $1, id FROM roles WHERE key = 'platform_admin'`, [accountId]);
+    SELECT $1, id FROM roles WHERE key IN ('platform_admin', 'game_support')`, [accountId]);
   expect(recoveryCodes.length, 'seeded MFA recovery codes').toBeGreaterThan(0);
   await loginWithRecoveryCode(page, locale, account, recoveryCodes[0]);
   const response = await page.goto('/admin');
@@ -279,5 +314,7 @@ test('staff listing query parameters', async ({page}, info) => {
   test.setTimeout(600_000);
   const locale = info.project.metadata.locale;
   await authenticateStaff(page, locale);
+  const search = await page.goto(`/admin/console/players?lang=${locale}&q=Aldric`);
+  expect(search.status(), 'staff fixture can read console player search').toBe(200);
   for (const route of staffRoutes) await checkRoute(page, locale, route);
 });
