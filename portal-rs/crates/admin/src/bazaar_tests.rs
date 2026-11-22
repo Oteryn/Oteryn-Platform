@@ -369,6 +369,23 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
     )
     .await
     .unwrap();
+    api.execute(
+        context,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Different reason supplied by a retry".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='bazaar.invalidation.approve' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 1);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_moderation_outbox")
         .fetch_one(&db.pool)
         .await

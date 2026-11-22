@@ -101,8 +101,12 @@ impl<A: AccountStateReader> StaffBazaar<A> {
         .await?;
         self.check_in(&mut tx, context).await?;
         let before = snapshot(&mut tx, command.target()).await?;
-        moderation::execute_staff(&mut tx, context.account, &command).await?;
+        let outcome = moderation::execute_staff(&mut tx, context.account, &command).await?;
         self.check_in(&mut tx, context).await?;
+        if outcome == moderation::StaffOutcome::Replay {
+            tx.commit().await?;
+            return Ok(());
+        }
         let mut after = snapshot(&mut tx, command.target()).await?;
         after["reason"] = Value::String(command.reason().to_owned());
         audit::append(

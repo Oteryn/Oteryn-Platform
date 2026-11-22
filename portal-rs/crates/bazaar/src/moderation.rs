@@ -455,12 +455,18 @@ pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) ->
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaffOutcome {
+    Applied,
+    Replay,
+}
+
 /// Execute inside a transaction that also records the authenticated staff audit.
 pub async fn execute_staff(
     tx: &mut PgConnection,
     actor: Uuid,
     command: &StaffCommand,
-) -> Result<(), Error> {
+) -> Result<StaffOutcome, Error> {
     valid_id(actor)?;
     valid_id(command.target())?;
     lock_staff_target(tx, command).await?;
@@ -531,7 +537,7 @@ pub async fn execute_staff(
             }
             if state == "approved" {
                 return if reviewer == Some(actor) {
-                    Ok(())
+                    Ok(StaffOutcome::Replay)
                 } else {
                     Err(Error::Denied)
                 };
@@ -609,7 +615,7 @@ pub async fn execute_staff(
                 .bind(id).bind(world).bind(family).bind(production_key).bind(revision_ref).bind(minimum_value).bind(denied).bind(actor).bind(reason).execute(&mut *tx).await?;
         }
     }
-    Ok(())
+    Ok(StaffOutcome::Applied)
 }
 fn reason_valid(reason: &str) -> Result<(), Error> {
     if reason.chars().count() <= 500 && text_valid(reason, 10, 500) {
