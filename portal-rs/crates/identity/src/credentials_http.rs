@@ -344,8 +344,7 @@ struct SudoQuery {
 }
 
 async fn sudo(
-    Query(destination): Query<SudoQuery>,
-    Extension(lang): Extension<Language>,
+    (Query(destination), Extension(lang)): (Query<SudoQuery>, Extension<Language>),
     State(service): State<Credentials>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
