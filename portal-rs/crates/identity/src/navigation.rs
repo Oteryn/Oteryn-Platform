@@ -1,7 +1,7 @@
 //! Account section navigation, using existing feature flags.
 use oteryn_ui::{Group, Registry};
 /// Register enabled account sections; no route or authentication behavior changes.
-pub fn register(registry: &mut Registry) {
+pub fn register(registry: &mut Registry, export_enabled: bool) {
     let on = |flag| std::env::var(flag).as_deref() == Ok("true");
     registry.section(
         on("OTERYN_ACCOUNT_MFA") && on("OTERYN_ACCOUNT_LOGIN"),
@@ -28,7 +28,7 @@ pub fn register(registry: &mut Registry) {
         false,
     );
     registry.section(
-        on("OTERYN_ACCOUNT_EXPORT_ENABLED"),
+        export_enabled,
         "account-export",
         "shell-export",
         "account/privacy/export",

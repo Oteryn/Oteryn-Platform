@@ -396,7 +396,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             navigation.registration = true; // register::routes is always mounted.
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
             navigation.account = true; // /account is always mounted.
-            oteryn_identity::navigation::register(&mut navigation);
+            oteryn_identity::navigation::register(&mut navigation, export_enabled);
             oteryn_identity::navigation::register_identity_panel(&mut navigation.panels);
             oteryn_characters::navigation::register(&mut navigation);
             oteryn_characters::overview::register_navigation(&mut navigation);
