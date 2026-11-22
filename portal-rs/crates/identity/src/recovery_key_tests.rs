@@ -456,7 +456,10 @@ async fn postgres_browser_csrf_authorization_locales_and_rate_limit() -> Result 
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-store, private"
+        );
         let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
         assert!(html.contains(title));
         assert!(html.contains("for=\"key\""));
