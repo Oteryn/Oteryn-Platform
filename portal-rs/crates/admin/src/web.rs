@@ -795,6 +795,13 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 },
             )
             .await;
+            if matches!(result, Err(staff_actions::Error::Forbidden))
+                && refusal(&s.pool, context.account, "/admin/roles")
+                    .await
+                    .is_err()
+            {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
             return staff_action_response(result, chrome);
         }
         "revoke" => revoke(&s, context, form.account, form.role).await,

@@ -321,6 +321,39 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
     let protected: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
         .fetch_one(&db.pool)
         .await?;
+    let denial_count = || {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log
+             WHERE actor=$1 AND action='admin.access.denied' AND target='/admin/roles'",
+        )
+        .bind(db.actor.account)
+        .fetch_one(&db.pool)
+    };
+    let initial_denials = denial_count().await?;
+    for (index, (account, role)) in [(db.actor.account, role), (target, protected)]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            post(
+                &db,
+                &cookie,
+                &csrf,
+                format!("action=grant&account={account}&role={role}&reason=role_assignment")
+            )
+            .await?,
+            StatusCode::FORBIDDEN
+        );
+        let granted: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+        )
+        .bind(account)
+        .bind(role)
+        .fetch_one(&db.pool)
+        .await?;
+        assert!(!granted);
+        assert_eq!(denial_count().await?, initial_denials + index as i64 + 1);
+    }
     assert_eq!(
         post(
             &db,
