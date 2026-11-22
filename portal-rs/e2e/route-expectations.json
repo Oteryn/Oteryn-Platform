@@ -1121,7 +1121,8 @@
     "actor": "player",
     "method": "GET",
     "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "anonymousStatus": 303,
+    "reason": "signed-in management page, with anonymous requests sent to login"
   },
   {
     "crate": "identity",
