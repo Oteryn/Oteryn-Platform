@@ -31,7 +31,7 @@ revision-ref = Definition revision
 minimum-value = Minimum value
 pending = Pending reports
 holds = Suspended listings
-invalidations = Invalidation requests
+invalidations = Pending invalidation requests
 policies = Fee and item-policy history
 accepted = Accept report
 submit = Save
@@ -54,3 +54,6 @@ listing-state-awaiting-delivery = Awaiting delivery
 listing-state-completed = Completed
 listing-state-cancelled = Cancelled
 listing-state-expired = Expired
+
+invalidation-history = Approved invalidation history
+invalidation-next = More pending requests

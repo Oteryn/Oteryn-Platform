@@ -7,7 +7,7 @@ use crate::{
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
@@ -280,7 +280,9 @@ impl Input {
     source = r#"<!doctype html><html lang="{{ locale.0 }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ self.text("staff") }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ self.text("staff") }}</h1><p>{{ self.text("invalidation-help") }}</p><p>{{ self.text("policy-help") }}</p>
 <h2>{{ self.text("pending") }}</h2><ul class="op-stack">{% for r in reports %}<li class="op-panel"><p>{{ r.id }}</p><p>{{ r.listing_id }}</p><p>{{ self.text(&r.category) }}</p><p>{{ r.detail }}</p><form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="review"><input type="hidden" name="id" value="{{ r.id }}"><label for="review-{{ r.id }}">{{ self.text("review") }}</label><select id="review-{{ r.id }}" name="accepted" class="op-input"><option value="true">{{ self.text("accepted") }}</option><option value="false">{{ self.text("dismissed") }}</option></select><label for="reason-{{ r.id }}">{{ self.text("reason") }}</label><input class="op-input" id="reason-{{ r.id }}" name="reason" minlength="10" maxlength="500" required><button class="op-button" type="submit">{{ self.text("submit") }}</button></form></li>{% endfor %}</ul>
 <section class="op-stack"><h2>{{ self.text("holds") }}</h2><ul>{% for id in holds %}<li>{{ id }}</li>{% endfor %}</ul></section>
-<section class="op-stack"><h2>{{ self.text("invalidations") }}</h2><ul>{% for row in invalidations %}<li data-invalidation="{{ row.id }}" data-request-state="{{ row.request_state }}" data-listing-state="{{ row.listing_state }}">{{ row.id }} · {{ self.text("listing") }} {{ row.listing }} · {{ self.text(&row.request_label()) }} · {{ self.text("listing-state") }} · {{ self.text(&row.listing_label()) }}</li>{% endfor %}</ul></section>
+{% for section in invalidations %}<section class="op-stack"><h2>{{ self.text(section.label) }}</h2><ul>
+{% for row in section.rows %}<li data-invalidation="{{ row.id }}" data-request-state="{{ row.request_state }}" data-listing-state="{{ row.listing_state }}">{{ row.id }} · {{ self.text("listing") }} {{ row.listing }} · {{ self.text(&row.request_label()) }} · {{ self.text("listing-state") }} · {{ self.text(&row.listing_label()) }}</li>{% endfor %}
+</ul>{% if let Some(next) = section.next %}<a href="/admin/{{ locale.0 }}/bazaar?pending_after={{ next }}">{{ self.text("invalidation-next") }}</a>{% endif %}</section>{% endfor %}
 <section><h2>{{ self.text("fees") }}</h2><ul class="op-stack">{% for fee in fees %}<li class="op-panel"><p>{{ fee.id }}</p><p>{{ self.text("coin-bps") }}: {{ fee.coin_bps }}</p><p>{{ self.text("gold-bps") }}: {{ fee.gold_bps }}</p><p>{{ self.text("listing-fee") }}: {{ fee.listing_fee }}</p><p>{{ self.text("promotion-price") }}: {{ fee.promotion_price }}</p></li>{% endfor %}</ul></section>
 <section><h2>{{ self.text("restrict") }}</h2><p>{{ self.text("catalog-unavailable") }}</p><ul class="op-stack">{% for item in restrictions %}<li class="op-panel"><p>{{ self.text("world") }}: {{ item.world_id }}</p><p>{{ self.text("family") }}: {{ item.family }}</p><p>{{ self.text("production-key") }}: {{ item.production_key }}</p><p>{{ self.text("revision-ref") }}: {{ item.revision_ref }}</p><p>{{ self.text("minimum-value") }}: {{ item.minimum_value }}</p><p>{{ self.text("denied") }}: {% if item.denied %}{{ self.text("yes") }}{% else %}{{ self.text("no") }}{% endif %}</p></li>{% endfor %}</ul></section>
 {% for form in forms %}<section><h2>{{ self.text(form.action) }}</h2><form method="post" class="op-panel op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="{{ form.action }}">{% if form.action != "approve" %}<input type="hidden" name="id" value="{{ form.id }}">{% endif %}{% for field in form.fields %}<label for="{{ form.action }}-{{ field.name }}">{{ self.text(field.label) }}</label><input class="op-input" id="{{ form.action }}-{{ field.name }}" name="{{ field.name }}" type="text" value="{{ field.value }}" maxlength="500" required>{% endfor %}<button type="submit" class="op-button">{{ self.text("submit") }}</button></form></section>{% endfor %}</main></body></html>"#,
@@ -291,7 +293,7 @@ struct Page {
     csrf: String,
     reports: Vec<moderation::PendingReport>,
     holds: Vec<String>,
-    invalidations: Vec<InvalidationRow>,
+    invalidations: [InvalidationSection; 2],
     forms: Vec<PanelForm>,
     fees: Vec<FeeRow>,
     restrictions: Vec<RestrictionRow>,
@@ -318,6 +320,65 @@ struct RestrictionRow {
     minimum_value: i64,
     denied: bool,
 }
+const INVALIDATION_PAGE_SIZE: usize = 100;
+
+#[derive(Deserialize)]
+struct InvalidationPage {
+    pending_after: Option<Uuid>,
+}
+struct InvalidationSection {
+    label: &'static str,
+    rows: Vec<InvalidationRow>,
+    next: Option<Uuid>,
+}
+
+async fn invalidation_sections(
+    db: &mut sqlx::PgConnection,
+    pending_after: Option<Uuid>,
+) -> Result<[InvalidationSection; 2], sqlx::Error> {
+    let mut pending: Vec<InvalidationRow> = sqlx::query_as(
+        "SELECT request.id, listing.id AS listing, request.state AS request_state,
+                listing.state::text AS listing_state
+         FROM bazaar_invalidation_requests request
+         JOIN bazaar_listings listing ON listing.id = request.listing_id
+         WHERE request.state='pending' AND ($1::uuid IS NULL OR request.id > $1)
+         ORDER BY request.id LIMIT $2",
+    )
+    .bind(pending_after)
+    .bind(INVALIDATION_PAGE_SIZE as i64 + 1)
+    .fetch_all(&mut *db)
+    .await?;
+    let next = if pending.len() > INVALIDATION_PAGE_SIZE {
+        pending.truncate(INVALIDATION_PAGE_SIZE);
+        pending.last().map(|row| row.id)
+    } else {
+        None
+    };
+    let approved = sqlx::query_as(
+        "SELECT request.id, listing.id AS listing, request.state AS request_state,
+                listing.state::text AS listing_state
+         FROM bazaar_invalidation_requests request
+         JOIN bazaar_listings listing ON listing.id = request.listing_id
+         WHERE request.state='approved'
+         ORDER BY request.updated_at DESC, request.id DESC LIMIT $1",
+    )
+    .bind(INVALIDATION_PAGE_SIZE as i64)
+    .fetch_all(db)
+    .await?;
+    Ok([
+        InvalidationSection {
+            label: "invalidations",
+            rows: pending,
+            next,
+        },
+        InvalidationSection {
+            label: "invalidation-history",
+            rows: approved,
+            next: None,
+        },
+    ])
+}
+
 #[derive(sqlx::FromRow)]
 struct InvalidationRow {
     id: Uuid,
@@ -363,6 +424,7 @@ async fn index<A: AccountStateReader>(
     Path(lang): Path<String>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    Query(page): Query<InvalidationPage>,
 ) -> Result<Response, StatusCode> {
     let locale = Locale::parse(&lang)?;
     api.check(context).await.map_err(status)?;
@@ -384,16 +446,9 @@ async fn index<A: AccountStateReader>(
     .fetch_all(&mut *connection)
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let invalidations = sqlx::query_as(
-        "SELECT request.id, listing.id AS listing, request.state AS request_state,
-                listing.state::text AS listing_state
-         FROM bazaar_invalidation_requests request
-         JOIN bazaar_listings listing ON listing.id = request.listing_id
-         ORDER BY request.updated_at DESC, request.id DESC LIMIT 100",
-    )
-    .fetch_all(&mut *connection)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let invalidations = invalidation_sections(&mut connection, page.pending_after)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let fees=sqlx::query_as("SELECT id,coin_bps,gold_bps,listing_fee,promotion_price FROM bazaar_fee_revisions ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(&mut *connection).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let restrictions=sqlx::query_as("SELECT world_id,family,production_key,revision_ref,minimum_value,denied FROM bazaar_item_restrictions ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(&mut *connection).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let forms = vec![

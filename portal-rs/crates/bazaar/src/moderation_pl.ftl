@@ -31,7 +31,7 @@ revision-ref = Wersja definicji
 minimum-value = Minimalna wartość
 pending = Oczekujące zgłoszenia
 holds = Wstrzymane oferty
-invalidations = Wnioski o unieważnienie
+invalidations = Wnioski o unieważnienie oczekujące na decyzję
 policies = Historia opłat i ograniczeń przedmiotów
 accepted = Uznaj zgłoszenie
 submit = Zapisz
@@ -54,3 +54,6 @@ listing-state-awaiting-delivery = Oczekuje na dostawę
 listing-state-completed = Zakończona
 listing-state-cancelled = Anulowana
 listing-state-expired = Wygasła
+
+invalidation-history = Historia zatwierdzonych unieważnień
+invalidation-next = Więcej oczekujących wniosków

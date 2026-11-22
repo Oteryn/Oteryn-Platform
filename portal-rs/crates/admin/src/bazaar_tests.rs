@@ -733,3 +733,94 @@ async fn delta_bazaar_listing_before_staff_account_avoids_deadlock() {
         "staff moderation failed: {moderation:?}"
     );
 }
+
+#[tokio::test]
+async fn pending_invalidations_have_their_own_paginated_queue() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Db::new().await.expect("PostgreSQL required");
+    let listing = db.listing().await;
+    let pending = Uuid::now_v7();
+    let approver = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
+        VALUES($1,$2,1,$3,'Original pending investigation')",
+    )
+    .bind(pending)
+    .bind(listing)
+    .bind(db.actor)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,approved_by,reason,state)
+        SELECT uuidv7(),$1,n,$2,$3,'Previously approved investigation','approved'
+        FROM generate_series(2,101) n")
+        .bind(listing).bind(db.actor).bind(approver).execute(&db.pool).await.unwrap();
+
+    let page = db
+        .app()
+        .oneshot(
+            Request::get("/admin/en/bazaar")
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(page.into_body(), 2_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(&format!(
+        r#"data-invalidation="{pending}" data-request-state="pending""#
+    )));
+    assert!(html.contains("Approved invalidation history"));
+    assert_eq!(
+        html.matches(r#"data-request-state="approved""#).count(),
+        100
+    );
+    assert!(!html.contains("pending_after="));
+
+    sqlx::query(
+        "INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
+        SELECT uuidv7(),$1,n,$2,'Further pending investigation' FROM generate_series(102,201) n",
+    )
+    .bind(listing)
+    .bind(db.actor)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let mut conn = db.pool.acquire().await.unwrap();
+    let [first, history] = invalidation_sections(&mut conn, None).await.unwrap();
+    assert_eq!(first.rows.len(), 100);
+    let cursor = first.next.unwrap();
+    assert_eq!(cursor, first.rows.last().unwrap().id);
+    // The cursor must remain valid when a moderator approves a row between pages.
+    sqlx::query(
+        "UPDATE bazaar_invalidation_requests SET state='approved',approved_by=$2 WHERE id=$1",
+    )
+    .bind(cursor)
+    .bind(approver)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let [second, next_history] = invalidation_sections(&mut conn, Some(cursor))
+        .await
+        .unwrap();
+    assert_eq!(second.rows.len(), 1);
+    assert!(second.rows[0].id > cursor);
+    assert!(second.next.is_none());
+    assert_eq!(history.rows.len(), 100);
+    assert_eq!(next_history.rows.len(), 100);
+    assert!(
+        next_history
+            .rows
+            .iter()
+            .all(|row| row.request_state == "approved")
+    );
+    drop(conn);
+    db.end().await;
+}
