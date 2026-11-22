@@ -22,7 +22,6 @@ pub struct ExportConfig {
 struct ExportState {
     pool: PgPool,
     config: ExportConfig,
-    reauthentication: bool,
 }
 
 /// No account identifier is accepted from the caller. Ownership comes from the session.
@@ -198,7 +197,7 @@ async fn handler(
             value,
         )
             .into_response(),
-        Err(StatusCode::FORBIDDEN) if state.reauthentication => {
+        Err(StatusCode::FORBIDDEN) => {
             let needs_sudo: Result<bool, _> = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id
                  WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
@@ -237,33 +236,26 @@ async fn handler(
 }
 
 pub fn router(pool: PgPool, config: ExportConfig) -> Router {
-    router_with_reauthentication(pool, config, true)
-}
-
-fn router_with_reauthentication(
-    pool: PgPool,
-    config: ExportConfig,
-    reauthentication: bool,
-) -> Router {
     Router::new()
         .route("/pl/account/privacy/export", get(handler))
         .route("/en/account/privacy/export", get(handler))
-        .with_state(ExportState {
-            pool,
-            config,
-            reauthentication,
-        })
+        .with_state(ExportState { pool, config })
 }
 
-pub fn configured_router(pool: PgPool) -> Router {
-    router_with_reauthentication(
+pub fn configured_router(pool: PgPool, password_confirmation: bool) -> Router {
+    configured_browser_router(
         pool,
-        ExportConfig {
-            enabled: std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED")
-                .is_ok_and(|value| value == "true"),
-        },
-        std::env::var("OTERYN_ACCOUNT_CREDENTIALS").as_deref() == Ok("true"),
+        std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED").as_deref() == Ok("true"),
+        password_confirmation,
     )
+}
+
+fn configured_browser_router(pool: PgPool, enabled: bool, password_confirmation: bool) -> Router {
+    if enabled && password_confirmation {
+        router(pool, ExportConfig { enabled: true })
+    } else {
+        Router::new()
+    }
 }
 
 #[cfg(test)]
