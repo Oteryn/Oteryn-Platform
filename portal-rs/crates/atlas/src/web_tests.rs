@@ -58,6 +58,18 @@ async fn postgres_viewer_routes() -> TestResult {
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
+    let dir = tempfile::tempdir()?;
+    let app = router(Viewer {
+        enabled: true,
+        directory: dir.path().into(),
+        world: WorldStore::new(pool.clone(), WorldOptions { enabled: true }),
+    });
+    let cold = app
+        .clone()
+        .oneshot(Request::get("/en/atlas").body(Body::empty())?)
+        .await?;
+    assert_eq!(cold.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(cold.headers()[header::CACHE_CONTROL], "no-store");
     let version = "a".repeat(40);
     sqlx::query("INSERT INTO world_versions(id,source_commit,status) VALUES ('01900000-0000-7000-8000-000000000001',$1,'ready')").bind(&version).execute(&pool).await?;
     sqlx::query(
@@ -88,7 +100,6 @@ async fn postgres_viewer_routes() -> TestResult {
                 .await?;
         }
     }
-    let dir = tempfile::tempdir()?;
     let target = dir.path().join(&version).join("7");
     std::fs::create_dir_all(target.join("0/0"))?;
     let bytes = b"test-tile";
@@ -117,11 +128,6 @@ async fn postgres_viewer_routes() -> TestResult {
         }],
     };
     std::fs::write(target.join("manifest.json"), serde_json::to_vec(&m)?)?;
-    let app = router(Viewer {
-        enabled: true,
-        directory: dir.path().into(),
-        world: WorldStore::new(pool.clone(), WorldOptions { enabled: true }),
-    });
     for lang in ["pl", "en"] {
         let r = app
             .clone()

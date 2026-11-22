@@ -46,6 +46,17 @@ pub fn router(viewer: Viewer) -> Router {
     Router::new()
         .route("/{lang}/atlas", get(page))
         .route("/atlas/tiles/{version}/{floor}/{zoom}/{x}/{y}", get(tile))
+        .route_layer(axum::middleware::map_response(
+            |mut response: Response| async {
+                if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+                    response.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        header::HeaderValue::from_static("no-store"),
+                    );
+                }
+                response
+            },
+        ))
         .with_state(Arc::new(viewer))
 }
 
