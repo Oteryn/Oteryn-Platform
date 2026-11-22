@@ -27,6 +27,13 @@ sanction mismatch, nullable sanction ID, and dossier and inventory retries.
 - Refuse a dossier whose verified payload names a different character.
 - Preserve the contract gate for staff commands.
 
+The follow-up review fixes select the same latest request for display and retry
+admission, verify result epochs separately, corroborate account-scoped sanctions
+against the live LCFA portfolio, and share the single-live-agent eligibility
+rule. Real mTLS and browser tests cover reconnects, account mismatch, foreign
+retries and sanction permission revocation. A PostgreSQL test covers a second
+agent connecting after the retry form appears.
+
 Owned paths are the admin console projection and the GM browser spec and
 harness. The existing ADM framing is ratified. The pinned staff-actions v1
 profile is pending joint acceptance and lacks a staff result union. The five
@@ -37,8 +44,8 @@ separate Support enforcement implementation, outside this GM read scenario.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T16:21:47Z
-head: 75dd880336700456d24a4cf5d9f91cb98ab3edd4
+updated_at: 2026-11-22T17:47:04Z
+head: 18b9221cc227886c8c8bc029040dd41cc46ef187
 branch: codex/feat-gm-character
 pr: none
 status: ready
@@ -76,11 +83,8 @@ validation:
     result: PASS
     evidence: Built the portal binary exercised by the harness.
   - command: cargo test --locked -p oteryn-admin --lib
-    result: FAIL
-    evidence: PostgreSQL 18.6, 231 passed and three unrelated Bazaar or Commerce concurrency tests timed out during the browser run. All console tests passed.
-  - command: cargo test --locked -p oteryn-admin --lib with exact filters for the three timed-out cases
     result: PASS
-    evidence: Both Bazaar cases and the Commerce case passed exact reruns after the browser harness stopped.
+    evidence: PostgreSQL 18.6 with the browser harness stopped. 235 passed, zero failed or ignored.
   - command: Playwright gm-player-console.spec.mjs
     result: PASS
     evidence: pl-1440, pl-390, en-1440 and en-390 each passed on the first attempt. No runner errors.
