@@ -49,7 +49,7 @@ checkpoint_version: 1
 updated_at: 2026-11-22T18:59:46Z
 head: 751e84755968043f921d4ee9fe4fe7c95a425ecc
 branch: codex/feat-season-pass
-pr: none
+pr: 2030
 status: waiting
 context_routes: []
 owned_paths:
