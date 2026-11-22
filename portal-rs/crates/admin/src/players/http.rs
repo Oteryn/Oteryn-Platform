@@ -49,7 +49,10 @@ pub(crate) fn configured_router_from(
     let routes = routes(players);
     // Every handler checks its own permission; the guard admits any staff member
     // so a kick-only moderator reaches the kick view.
-    web::configured_guard_from(routes, pool, Permission::Access, lookup)
+    Ok(
+        web::configured_guard_from(routes, pool, Permission::Access, lookup)?
+            .layer(Extension(oteryn_web::csrf::LocalizedRefusal)),
+    )
 }
 pub fn router<A, I, S>(
     pool: PgPool,
@@ -66,6 +69,7 @@ where
 {
     let routes = routes(Players::new(pool.clone(), flags, staff.clone(), accounts));
     web::guarded(routes, pool, panel, identity, staff, Permission::Access)
+        .layer(Extension(oteryn_web::csrf::LocalizedRefusal))
 }
 fn routes<A: AccountStateReader + 'static, I: Accounts>(players: Players<A, I>) -> Router {
     Router::new()
