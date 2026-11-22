@@ -268,7 +268,10 @@ async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
     assert!(matches!(
         lock_staff_target(
             &mut tx,
-            &StaffCommand::ApproveInvalidation { id: Uuid::nil() }
+            &StaffCommand::ApproveInvalidation {
+                id: Uuid::nil(),
+                reason: "Reviewed invalidation evidence".into(),
+            }
         )
         .await,
         Err(Error::InvalidInput)
