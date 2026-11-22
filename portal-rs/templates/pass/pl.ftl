@@ -1,5 +1,7 @@
 title = Przepustka sezonowa
-unavailable = Przepustka sezonowa jest obecnie niedostępna. Nie pobrano coinów ani nie wydano nagród.
+unavailable = Przepustka sezonowa jest obecnie niedostępna.
+purchase-unknown = Nie udało się potwierdzić wyniku zakupu.
+check-purchase = Sprawdź swoją przepustkę sezonową przed ponowną próbą.
 xp = Punkty sezonu
 price = Cena w coinach
 buy = Kup ścieżkę płatną

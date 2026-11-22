@@ -92,13 +92,14 @@ All values used for keys, mail credentials and accounts are disposable local val
 | `OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED` | `crates/playerdata/src/logins/web.rs:26` |
 | `OTERYN_PREMIUM_ENABLED` | `crates/admin/src/commerce/http.rs:61` |
 | `OTERYN_PRIVACY_VERSION` | `crates/web/src/routes/register.rs:133` |
-| `OTERYN_PUBLIC_ORIGIN` | `bin/oteryn-portal/src/main.rs:101`, `bin/oteryn-portal/src/main.rs:162`, `bin/oteryn-portal/src/registration_delivery.rs:26`, `crates/atlas/src/spawns.rs:26`, `crates/community/src/party.rs:116`, `crates/identity/src/credentials_http.rs:76`, `crates/identity/src/privacy_web.rs:32`, `crates/identity/src/reset_http.rs:31`, `crates/identity/src/reset_delivery.rs:35`, `crates/identity/src/login_http.rs:23`, `crates/identity/src/mfa_http.rs:52`, `crates/identity/src/sessions_http.rs:28`, `crates/identity/src/passkeys_http.rs:24`, `crates/identity/src/email_change_http.rs:23`, `crates/store/src/web.rs:166`, `crates/support/src/tickets/web.rs:67`, `crates/support/src/reports/web.rs:17`, `crates/web/src/lib.rs:94`, `crates/web/src/routes/register.rs:137`, `crates/playerdata/src/logins/web.rs:34`, `crates/playerdata/src/places/http.rs:26`, `crates/minigames/src/puzzles/http.rs:58`, `crates/minigames/src/collection/http.rs:116`, `crates/minigames/src/collection_pvp/http.rs:25`, `crates/minigames/src/pass/web.rs:142` |
+| `OTERYN_PUBLIC_ORIGIN` | `bin/oteryn-portal/src/main.rs:101`, `bin/oteryn-portal/src/main.rs:162`, `bin/oteryn-portal/src/registration_delivery.rs:26`, `crates/atlas/src/spawns.rs:26`, `crates/community/src/party.rs:116`, `crates/identity/src/credentials_http.rs:76`, `crates/identity/src/privacy_web.rs:32`, `crates/identity/src/reset_http.rs:31`, `crates/identity/src/reset_delivery.rs:35`, `crates/identity/src/login_http.rs:23`, `crates/identity/src/mfa_http.rs:52`, `crates/identity/src/sessions_http.rs:28`, `crates/identity/src/passkeys_http.rs:24`, `crates/identity/src/email_change_http.rs:23`, `crates/store/src/web.rs:166`, `crates/support/src/tickets/web.rs:67`, `crates/support/src/reports/web.rs:17`, `crates/web/src/lib.rs:94`, `crates/web/src/routes/register.rs:137`, `crates/playerdata/src/logins/web.rs:34`, `crates/playerdata/src/places/http.rs:26`, `crates/minigames/src/puzzles/http.rs:58`, `crates/minigames/src/collection/http.rs:116`, `crates/minigames/src/collection_pvp/http.rs:25`, `crates/minigames/src/pass/web.rs:157` |
 | `OTERYN_REFUNDS_ENABLED` | `crates/admin/src/commerce/http.rs:64` |
 | `OTERYN_REPORTS_ENABLED` | `crates/support/src/reports/web.rs:48` |
 | `OTERYN_REPORTS_PENDING_LIMIT` | `crates/support/src/navigation.rs:16`, `crates/support/src/reports/web.rs:42` |
 | `OTERYN_REPORTS_UNJUSTIFIED_LIMIT` | `crates/support/src/navigation.rs:18`, `crates/support/src/reports/web.rs:44` |
 | `OTERYN_RESET_DELIVERY_KEY` | `crates/identity/src/reset_http.rs:24`, `crates/identity/src/reset_delivery.rs:33` |
-| `OTERYN_SEASON_PASS_ENABLED` | `crates/minigames/src/pass/web.rs:137` |
+| `OTERYN_SEASON_PASS_ENABLED` | `crates/minigames/src/pass/web.rs:147` |
+| `OTERYN_SEASON_PASS_WALLET_ENABLED` | `crates/minigames/src/pass/web.rs:153` (testing only) |
 | `OTERYN_SECURITY_WIZARD_ENABLED` | `crates/identity/src/security_wizard.rs:116` |
 | `OTERYN_SHOP_ENABLED` | `crates/store/src/navigation.rs:6`, `crates/store/src/web.rs:162` |
 | `OTERYN_SHOP_TEST_PAYMENTS_ENABLED` | `crates/store/src/web_payments.rs:109` |
@@ -260,6 +261,7 @@ OTERYN_PREMIUM_ENABLED
 OTERYN_REFUNDS_ENABLED
 OTERYN_REPORTS_ENABLED
 OTERYN_SEASON_PASS_ENABLED
+OTERYN_SEASON_PASS_WALLET_ENABLED
 OTERYN_SECURITY_WIZARD_ENABLED
 OTERYN_SHOP_ENABLED
 OTERYN_SHOP_TEST_PAYMENTS_ENABLED
@@ -480,6 +482,7 @@ The full-shell harness enables every literal `*_ENABLED` switch discovered in cr
 | `OTERYN_REFUNDS_ENABLED` | `true` |
 | `OTERYN_REPORTS_ENABLED` | `true` |
 | `OTERYN_SEASON_PASS_ENABLED` | `true` |
+| `OTERYN_SEASON_PASS_WALLET_ENABLED` | `true` |
 | `OTERYN_SECURITY_WIZARD_ENABLED` | `true` |
 | `OTERYN_SHOP_ENABLED` | `true` |
 | `OTERYN_SHOP_TEST_PAYMENTS_ENABLED` | `true` |

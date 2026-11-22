@@ -5,7 +5,7 @@
 mod debt;
 mod domain;
 mod eligibility;
-pub use eligibility::{safe_return_in, value_eligible_in};
+pub use eligibility::{safe_return_in, value_eligible_in, value_eligible_snapshot_in};
 mod ledger;
 pub use debt::{check_payer_in, credit_in, outstanding_debt, unlocked_in};
 pub use domain::*;
