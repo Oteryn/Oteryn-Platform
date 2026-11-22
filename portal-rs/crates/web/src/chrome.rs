@@ -33,8 +33,8 @@ impl std::fmt::Debug for StaffDashboard {
     }
 }
 
-/// The GM console accepts an explicit locale before its guard runs.
-fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
+/// Unprefixed panel routes can request a locale before their guards run.
+fn panel_locale(uri: &axum::http::Uri) -> Option<Language> {
     #[derive(serde::Deserialize)]
     struct LocaleQuery {
         lang: Option<String>,
@@ -46,6 +46,10 @@ fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
             | "/console/worlds"
             | "/console/nodes"
             | "/console/database"
+            | "/admin/store-catalog"
+            | "/admin/store-activation"
+            | "/admin/payment-review"
+            | "/admin/commerce/reconcile"
     ) {
         return None;
     }
@@ -62,7 +66,7 @@ fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
-        .or_else(|| console_locale(request.uri()))
+        .or_else(|| panel_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let browser = request.method() == axum::http::Method::GET

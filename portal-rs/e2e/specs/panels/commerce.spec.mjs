@@ -96,6 +96,13 @@ test('store orders and delivery are scoped to the signed-in buyer', async ({page
     await expect(other.locator('main')).not.toContainText(offer);
     await open(other, `${base}/${order}`, 404);
     await expect(other.locator('main')).not.toContainText(offer);
+    await query('UPDATE accounts SET email_verified_at=NULL WHERE id=$1', [buyer]);
+    for (const path of [base, `${base}/${order}`]) {
+      const response = await page.goto(path, {waitUntil: 'domcontentloaded'});
+      expect(response.status()).toBe(403);
+      expect(response.headers()['cache-control']).toBe('no-store');
+      await expect(page.locator('main')).not.toContainText(offer);
+    }
   } finally {
     await conn.query('ROLLBACK');
     conn.release();
@@ -131,13 +138,20 @@ function importGameCatalog(account, offer, price) {
 
 test('staff stage proposals and activate verified Game revisions with replay fencing', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;
-  const staffContext = await browser.newContext({baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport});
+  const opts = {baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport};
+  const staffContext = await browser.newContext(opts);
+  const importContext = await browser.newContext(opts);
   const offers = `/admin/store-catalog?lang=${lang}`;
   const activation = `/admin/store-activation?lang=${lang}`;
   const [{catalog_revision: previous}] = await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1');
   try {
     const {id} = await actor(staffContext, lang, 'platform_admin');
     const admin = await staffContext.newPage();
+    const importRole = unique();
+    const [{id: importRoleId}] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [importRole]);
+    await query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.access'),($1,'store.catalog.import')", [importRoleId]);
+    const {id: importerId, csrf: importCsrf} = await actor(importContext, lang, importRole);
+    const importer = await importContext.newPage();
     const {csrf: refusedCsrf} = await actor(page.context(), lang, 'security_admin');
     const offer = `commerce.${unique()}`;
     const current = importGameCatalog(id, offer, 21);
@@ -150,8 +164,20 @@ test('staff stage proposals and activate verified Game revisions with replay fen
     await expect(admin.locator(`nav[data-panel=admin] a[href="${activation}"]`)).toBeVisible();
     await open(admin, `${offers}&unexpected=true`, 400);
     await open(admin, `${activation}&unexpected=true`, 400);
+    const opposite = lang === 'pl' ? 'en' : 'pl';
+    await staffContext.addCookies([{name: 'portal_language', value: opposite, url: origin}]);
     await open(admin, offers);
+    await expect(admin.locator('html')).toHaveAttribute('lang', lang);
+    await expect(admin.locator(`header form[action="/${lang}/logout"]`).first()).toBeAttached();
+    await expect(admin.locator(`header form[action="/${opposite}/logout"]`)).toHaveCount(0);
     await expect(admin.locator('main')).toContainText(offer);
+    const item = admin.locator('main article').filter({hasText: offer});
+    await expect(item).toContainText(lang === 'pl'
+      ? 'Flaga zakupu w katalogu · Dostępna do zakupu'
+      : 'Catalog purchase flag · Available for purchase');
+    await expect(item).toContainText(lang === 'pl'
+      ? 'Zakup w sklepie przeglądarkowym · Niedostępna do zakupu'
+      : 'Browser Store checkout · Unavailable for purchase');
     await width(admin);
     const stage = admin.locator('main form');
     const csrf = await stage.locator('[name=_csrf]').inputValue();
@@ -162,7 +188,12 @@ test('staff stage proposals and activate verified Game revisions with replay fen
     await post(page, offers, {...fields, _csrf: refusedCsrf}, 403);
     await post(admin, offers, fields, 303);
     await post(admin, offers, fields, 303);
-    expect(await query('SELECT unit_price::int AS price FROM store_price_proposals WHERE base_revision=$1 AND offer_key=$2', [current, offer])).toEqual([{price: 31}]);
+    await open(importer, offers);
+    await post(importer, offers, {...fields, _csrf: importCsrf, price: '32'}, 303);
+    await open(importer, activation, 403);
+    expect(await query('SELECT unit_price::int AS price FROM store_price_proposals WHERE base_revision=$1 AND offer_key=$2 ORDER BY unit_price', [current, offer])).toEqual([{price: 31}, {price: 32}]);
+    expect(await query("SELECT staff_reason FROM audit_log WHERE actor=$1 AND action='store.catalog.price.staged'", [importerId]))
+      .toEqual([{staff_reason: 'price_correction'}]);
     expect(await query('SELECT 1 FROM store_offers WHERE offer_key=$1 AND unit_price=31', [offer])).toEqual([]);
     expect((await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1'))[0].catalog_revision).toBe(current);
     await open(admin, offers);
@@ -180,6 +211,7 @@ test('staff stage proposals and activate verified Game revisions with replay fen
     await csrfRejected(admin, activation, activate);
     await post(admin, activation, {...activate, revision: 'bad'}, 422);
     await post(page, activation, {...activate, _csrf: refusedCsrf}, 403);
+    await post(importer, activation, {...activate, _csrf: importCsrf}, 403);
     await post(admin, activation, activate, 303);
     const returnToA = await activationForm(current);
     await post(admin, activation, returnToA, 303);
@@ -191,6 +223,7 @@ test('staff stage proposals and activate verified Game revisions with replay fen
     expect(audit[0].after.unit_price).toBe(31);
   } finally {
     await query('UPDATE store_active_catalog SET catalog_revision=$1 WHERE id=1', [previous]);
+    await importContext.close();
     await staffContext.close();
   }
 });
@@ -277,7 +310,14 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
       _csrf: csrf, target: account, request_id: adjustment, amount: '30',
       reason: 'Exercise repayment from wallet credit',
     }, 303);
-    await post(second, `/admin/commerce/approvals/${adjustment}`, {_csrf: reviewerCsrf}, 303);
+    const adjustmentApproval = `/admin/commerce/approvals/${adjustment}`;
+    await csrfRejected(second, adjustmentApproval, {reason: 'value_verified'});
+    await post(second, adjustmentApproval, {_csrf: reviewerCsrf}, 422);
+    await post(second, adjustmentApproval, {_csrf: reviewerCsrf, reason: 'value_withdrawn'}, 422);
+    await post(second, adjustmentApproval, {_csrf: reviewerCsrf, reason: 'value_verified'}, 303);
+    await post(second, adjustmentApproval, {_csrf: reviewerCsrf, reason: 'value_verified'}, 303);
+    expect(await query("SELECT staff_reason FROM audit_log WHERE request_id=$1 AND action='commerce.approved'", [adjustment]))
+      .toEqual([{staff_reason: 'value_verified'}]);
     await post(admin, reconcile, beforeCredit, 409);
     await open(admin, `${base}&id=${reversed}`);
     await expect(admin.locator('main')).toContainText('20 COINS');
@@ -318,11 +358,12 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     await open(admin, `${base}&queue=true`);
     await expect(admin.getByRole('link', {name: reversed})).toBeVisible();
 
-    const common = {target: intent, reason: 'Verify payment and provider records'};
+    const common = {target: intent, reason: 'refund_requested'};
     const refund = '/admin/commerce/refund';
     const request = uuid7();
     await csrfRejected(admin, refund, {...common, request_id: request});
     await post(admin, refund, {...common, reason: '', _csrf: csrf, request_id: request}, 422);
+    await post(admin, refund, {...common, reason: 'Verify payment and provider records', _csrf: csrf, request_id: request}, 422);
     const cancelled = uuid7();
     await post(admin, refund, {...common, _csrf: csrf, request_id: cancelled}, 303);
     const cancellation = `/admin/commerce/cancellations/${cancelled}`;
@@ -338,6 +379,9 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     expect(await query('SELECT operation_id FROM commerce_refunds WHERE operation_id=$1', [cancelled])).toEqual([]);
 
     await post(admin, refund, {...common, _csrf: csrf, request_id: request}, 303);
+    await post(admin, refund, {...common, _csrf: csrf, request_id: request}, 303);
+    expect(await query("SELECT staff_reason FROM audit_log WHERE request_id=$1 AND action='commerce.requested'", [request]))
+      .toEqual([{staff_reason: 'refund_requested'}]);
     const approval = `/admin/commerce/approvals/${request}`;
     await open(second, '/admin/commerce');
     await csrfRejected(second, approval);

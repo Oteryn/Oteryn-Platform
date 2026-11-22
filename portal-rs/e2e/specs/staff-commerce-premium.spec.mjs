@@ -41,11 +41,22 @@ test('staff premium grant persists entitlement and audit; player cannot grant',a
   await admin.goto('/admin/commerce');
   await expect(admin.locator(`form[action="/admin/commerce/approvals/${request}"] button`),'the proposer cannot approve their own grant').toHaveCount(0);
   expect((await second.goto('/admin/commerce')).status(),'second staff commerce page').toBe(200);
-  await submit(second,`form[action="/admin/commerce/approvals/${request}"]`);
+  const approval = `/admin/commerce/approvals/${request}`;
+  const approvalSelector = `form[action="${approval}"]`;
+  const approvalForm = second.locator(approvalSelector);
+  const approvalCsrf = await approvalForm.locator('[name=_csrf]').inputValue();
+  const missingReason = await second.request.post(approval, {
+    form: {_csrf: approvalCsrf}, headers: {origin: new URL(second.url()).origin}, maxRedirects: 0,
+  });
+  expect(missingReason.status()).toBe(422);
+  await approvalForm.locator('select[name=reason]').selectOption('value_verified');
+  await submit(second, approvalSelector);
   await expect(second,'approval returns to commerce').toHaveURL(/\/admin\/commerce$/);
   const rows=await db.query('SELECT event_type,duration_days,delta_seconds,effective_until > now() AS active FROM premium_ledger WHERE request_id=$1 AND account_id=$2',[request,target]);
   expect(rows.rows,'grant must persist seven days of premium').toEqual([{event_type:'GRANT',duration_days:7,delta_seconds:'604800',active:true}]);
   expect((await db.query('SELECT event_name FROM premium_audit WHERE request_id=$1 AND account_id=$2',[request,target])).rows,'grant has an audit event').toEqual([{event_name:'products.premium_granted'}]);
+  expect((await db.query("SELECT staff_reason FROM audit_log WHERE request_id=$1 AND action='commerce.approved'", [request])).rows)
+    .toEqual([{staff_reason: 'value_verified'}]);
   await page.goto(`/${lang}/panel/premium`);
   const end=(await db.query('SELECT effective_until FROM premium_ledger WHERE request_id=$1',[request])).rows[0].effective_until;
   await expect(page.locator('main'),'premium panel shows persisted end date').toContainText(end.toISOString().slice(0,10));
