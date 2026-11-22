@@ -4,6 +4,7 @@ import { routeShape } from './registrations.mjs';
 // separately from redirects::MAPPINGS in the server's registration report.
 export function registeredRedirect(target, locale) {
   const path = target.pathname;
+  const pathLocale = /^\/(pl|en)(?:\/|$)/.exec(path)?.[1] ?? locale;
   switch (routeShape(path)) {
     case '/':
       return [303, '/' + locale + '/']; // web/surface.rs
@@ -12,10 +13,10 @@ export function registeredRedirect(target, locale) {
       return [303, '/account']; // web/routes/register.rs
     case '/mfa/challenge':
     case '/{lang}/mfa/challenge':
-      return [302, '/' + locale + '/']; // identity/mfa_http.rs
+      return [302, '/' + pathLocale + '/']; // identity/mfa_http.rs
     case '/account/security':
     case '/{lang}/account/security':
-      return [303, '/' + locale + '/password/change']; // identity/credentials_http.rs
+      return [303, '/' + pathLocale + '/password/change']; // identity/credentials_http.rs
     case '/forgot-password':
       return [301, '/pl/forgot-password']; // reset_http.rs registers the legacy handler for GET
     case '/events':

@@ -400,7 +400,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 coin_listener_apps(app, oteryn_wallet::wire::configured_router(db.clone()));
             let public_app = oteryn_minigames::with_browser_deadlines(public_app);
             let public_app = oteryn_web::secure_public(public_app);
-            if let Some(path) = route_report {
+            let public_app = if let Some(path) = route_report {
                 // Axum's Debug route slots also back the flag-boundary registration audit.
                 // This local file contains registrations only and is never served over HTTP.
                 let mut routers = vec![format!("{public_app:?}")];
@@ -410,9 +410,14 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     serde_json::to_vec(&serde_json::json!({
                         "routers": routers,
                         "legacy": oteryn_web::redirects::MAPPINGS,
+                        "mfaLoginRewrite": routers.len() > 1,
                     }))?,
                 )?;
-            }
+                observe_route_matches(public_app)
+                    .layer(axum::middleware::from_fn(report_route_match))
+            } else {
+                public_app
+            };
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
             ));
@@ -465,6 +470,40 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+// A testing-only witness for the pattern selected by Axum, including after
+// the MFA rewrite. The captured value is a registration, never a request URI.
+#[derive(Clone, Default)]
+struct RouteMatch(std::sync::Arc<std::sync::OnceLock<axum::http::HeaderValue>>);
+
+fn observe_route_matches(app: axum::Router) -> axum::Router {
+    app.route_layer(axum::middleware::from_fn(
+        |request: axum::extract::Request, next: axum::middleware::Next| async move {
+            if let Some(witness) = request.extensions().get::<RouteMatch>()
+                && let Some(path) = request.extensions().get::<axum::extract::MatchedPath>()
+                && let Ok(value) = path.as_str().parse()
+            {
+                let _ = witness.0.set(value);
+            }
+            next.run(request).await
+        },
+    ))
+}
+
+async fn report_route_match(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let witness = RouteMatch::default();
+    request.extensions_mut().insert(witness.clone());
+    let mut response = next.run(request).await;
+    if let Some(pattern) = witness.0.get() {
+        response
+            .headers_mut()
+            .insert("x-portal-e2e-matched-route", pattern.clone());
+    }
+    response
 }
 
 #[cfg(test)]

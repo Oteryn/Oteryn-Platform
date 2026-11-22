@@ -120,9 +120,12 @@ fn compose_with_snapshot(
         let recorded = crate::record_route_registrations("mfa-fallback", &app);
         assert!(recorded.is_ok(), "MFA route registrations: {recorded:?}");
     }
-    if let Some(snapshot) = fallback_routes {
+    let app = if let Some(snapshot) = fallback_routes {
         *snapshot = format!("{app:?}");
-    }
+        crate::observe_route_matches(app)
+    } else {
+        app
+    };
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()
         .fallback_service(app)

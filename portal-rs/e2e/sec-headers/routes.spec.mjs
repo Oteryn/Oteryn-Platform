@@ -5,9 +5,10 @@ import { seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
 import { cookie, expectSession, seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { additionalRoutes } from './additional-routes.mjs';
-import { publishProfileWatermark } from './ownership.mjs';
-import { checkHeaders } from './policy.mjs';
-import { projectPath, publicRegistrations, registrationFor, routeShape } from './registrations.mjs';
+import { publishOwnedCharacter, publishProfileWatermark } from './ownership.mjs';
+import { checkHeaders, sameOriginForm, shellPolicy, stylesForm, surface } from './policy.mjs';
+import { routePolicy } from './response-contracts.mjs';
+import { matchedRouteHeader, ordinaryLogin, projectPath, publicRegistrations, publicRoute, routeShape } from './registrations.mjs';
 import { registeredRedirect } from './redirects.mjs';
 import { challengeForm, getFromPortal, signIn, submitForm } from './session-actions.mjs';
 
@@ -46,7 +47,11 @@ function uncoveredGetPaths(registrations, locale, responseContracts) {
 }
 
 function matrix(locale) {
-  const { registrations, legacy } = publicRegistrations();
+  const report = publicRegistrations();
+  expect(report.mfaLoginRewrite, 'main sweep uses the MFA composition').toBe(true);
+  expect(report.registrations.filter(row => row.get && ordinaryLogin(row.path)).map(row => row.path))
+    .toEqual(['/en/login', '/login', '/pl/login']);
+  const { registrations, legacy } = report;
   const get = registrations.filter(row => row.get && projectPath(row.path, locale));
   expect(uncoveredGetPaths(registrations, locale, contracts),
     'composed public GET registrations without a security-header scenario').toEqual([]);
@@ -54,13 +59,14 @@ function matrix(locale) {
   const routes = get.map(({ path }) => {
     const contract = contracts.get(routeShape(path));
     const target = sample(contract.route, locale);
-    expect(registrationFor(registrations, target)?.path, 'concrete GET exercises ' + path).toBe(path);
+    const expectedPattern = ordinaryLogin(path) ? path.replace(/\/login$/, '/mfa/login') : path;
+    expect(publicRoute(report, target)?.path, 'concrete GET dispatch for ' + path).toBe(expectedPattern);
     return { ...contract, target };
   });
   const aliases = legacy.flatMap(([old, destination]) => {
     const target = sample(old, locale);
     if (routes.some(row => row.target === target)) return [];
-    const matched = registrationFor(registrations, target);
+    const matched = publicRoute(report, target);
     if (matched?.get) {
       const contract = contracts.get(routeShape(matched.path));
       expect(Boolean(contract), 'shadowing GET has a contract for ' + old).toBe(true);
@@ -84,12 +90,25 @@ function matrix(locale) {
   // even when the active composition has no matching GET handler.
   const probes = expectations.filter(row => !targets.has(sample(row.route, locale)))
     .map(row => ({ ...row, target: sample(row.route, locale) }));
-  return [...routes, ...aliases, ...probes];
+  return { report, routes: [...routes, ...aliases, ...probes] };
 }
 
-async function checkRoute(request, route, origin, locale) {
+// These legacy destinations are intentionally unmounted with the local
+// projection configuration. The exact fallback refusal remains part of the alias.
+const absentAliasDestination = /^\/pl\/(?:start|download(?:\/missing-e2e)?)$/;
+
+function destinationContract(report, path) {
+  const matched = publicRoute(report, path);
+  if (!matched && absentAliasDestination.test(path)) return { route: path, status: 404, reason: 'unmounted legacy destination', legacyFallback: true };
+  const contract = matched?.get && contracts.get(routeShape(matched.path));
+  expect(Boolean(contract), 'response contract for redirect destination ' + path).toBe(true);
+  return contract;
+}
+
+async function checkRoute(request, route, origin, locale, report) {
   let target = new URL(route.target, origin);
   const visited = new Set();
+  let contract = route;
   for (;;) {
     expect(visited.has(target.href), route.route + ' redirect cycle').toBe(false);
     expect(visited.size, route.route + ' redirect limit').toBeLessThan(10);
@@ -101,17 +120,25 @@ async function checkRoute(request, route, origin, locale) {
     });
     try {
       const status = response.status();
+      const matched = publicRoute(report, target.pathname);
+      // Axum deliberately omits MatchedPath on the private nest_service tail.
+      // The static scenario still requires the composed ServeDir registration.
+      const reportedPattern = matched?.path === '/static/{*__private__axum_nest_tail_param}' ? undefined : matched?.path;
+      expect.soft(response.headers()[matchedRouteHeader], target.pathname + ' selected Axum registration')
+        .toBe(reportedPattern);
+      const [expectedStatus, expectedLocation] = contract.location
+        ? [contract.status, contract.location]
+        : registeredRedirect(target, locale) || [contract.status, undefined];
       await checkHeaders(response, target.pathname + ' HTTP ' + status, {
-        cache: cacheFor(target.pathname, status), check: expect.soft,
+        ...routePolicy(contract, expectedStatus, matched?.path),
+        cache: cacheFor(target.pathname, expectedStatus), check: expect.soft,
       });
-      const [expectedStatus, expectedLocation] = route.location
-        ? [route.status, route.location]
-        : registeredRedirect(target, locale) || [route.status, undefined];
-      expect.soft(status, target.pathname + ' ' + route.reason).toBe(expectedStatus);
+      expect.soft(status, target.pathname + ' ' + contract.reason).toBe(expectedStatus);
       expect.soft(response.headers().location, target.pathname + ' Location').toBe(expectedLocation);
-      if (route.location || !expectedLocation) return;
+      if (!expectedLocation) return;
       target = new URL(expectedLocation, target);
       expect(target.origin, target.pathname + ' same-origin redirect').toBe(origin);
+      contract = destinationContract(report, target.pathname);
     } finally {
       await response.dispose();
     }
@@ -120,7 +147,7 @@ async function checkRoute(request, route, origin, locale) {
 
 test('every composed public GET and legacy alias has a scenario', ({}, info) => {
   const locale = info.project.metadata.locale;
-  const scenarios = matrix(locale);
+  const { routes: scenarios } = matrix(locale);
   expect(scenarios.every(row => ['player', 'staff'].includes(row.actor))).toBe(true);
   const withoutForgotPassword = new Map(contracts);
   withoutForgotPassword.delete('/forgot-password');
@@ -140,15 +167,75 @@ async function checkExistingAnnouncement(page) {
   expect(Boolean(draft), 'draft was stored by the staff form').toBe(true);
   const path = '/admin/announcements/' + draft.id + '/edit';
   expect(created.headers().location).toBe(path);
-  await checkHeaders(created, 'announcement create redirect');
+  await checkHeaders(created, 'announcement create redirect', { csp: sameOriginForm });
   const response = await page.goto(path);
   expect(response.status()).toBe(200);
-  await checkHeaders(response, 'existing announcement editor');
+  await checkHeaders(response, 'existing announcement editor', { csp: shellPolicy(sameOriginForm) });
   await expect(page.locator('main form [name=title]')).toHaveValue(title);
+  return { path, title };
+}
+
+async function checkReferralsMethod(request, root) {
+  for (const accept of ['application/json', 'text/html']) {
+    const response = await request.fetch(root + 'account/referrals', {
+      method: 'OPTIONS', headers: { accept }, maxRedirects: 0,
+    }).catch(() => { throw new Error('Portal OPTIONS failed for referrals'); });
+    expect(response.status()).toBe(405);
+    expect(response.headers().allow).toBe('GET,HEAD,POST');
+    expect(response.headers()[matchedRouteHeader]).toBe('/{lang}/account/referrals');
+    await checkHeaders(response, 'referrals OPTIONS with ' + accept, { csp: stylesForm, referrer: 'same-origin' });
+  }
+}
+
+async function checkExistingResources(page, browser, info, baseURL, draft) {
+  const locale = info.project.metadata.locale;
+  const viewerContext = await browser.newContext({
+    baseURL, ignoreHTTPSErrors: true, locale, viewport: info.project.use.viewport,
+  });
+  try {
+    const viewer = await viewerContext.newPage();
+    const account = await seedAccount(locale);
+    expect((await viewer.goto('/' + locale + '/login')).status()).toBe(200);
+    const mfa = await seedEntity('account-mfa', { accountId: account.id, password: account.password });
+    const passwordOnly = await signIn(viewer, account);
+    const challenge = '/' + locale + '/mfa/challenge';
+    expect(passwordOnly.status()).toBe(302);
+    expect(passwordOnly.headers().location).toBe(challenge);
+    expect((await viewer.goto(challenge)).status()).toBe(200);
+    const completed = await submitForm(viewer, challengeForm, { code: mfa.recoveryCodes[0] });
+    expect(completed.status()).toBe(302);
+    expect(completed.headers().location).toBe('/' + locale + '/');
+    await expectSession(await cookie(viewerContext), account.id);
+    const response = await viewer.goto(draft.path);
+    expect(response.status(), 'player cannot read the existing staff draft').toBe(403);
+    await checkHeaders(response, 'existing staff draft denied', { csp: shellPolicy(sameOriginForm) });
+    await expect(viewer.locator('main')).not.toContainText(draft.title);
+
+    const [{ id: world }] = await query('SELECT id FROM world_status WHERE name=$1', ['Local Bazaar World']);
+    const name = await publishOwnedCharacter(account.id, world);
+    const path = '/' + locale + '/account/characters/' + encodeURIComponent(name) + '/profile';
+    const owned = await viewer.goto(path);
+    expect(owned.status(), 'character owner can read the existing profile editor').toBe(200);
+    await checkHeaders(owned, 'owned character profile editor', { csp: surface });
+    await expect(viewer.locator('main form [name=hidden]')).toBeVisible();
+
+    const other = await seedAccount(locale);
+    // The staff browser must also exercise this endpoint as a regular player.
+    await page.context().clearCookies();
+    expect((await page.goto('/' + locale + '/login')).status()).toBe(200);
+    expect((await signIn(page, other)).status()).toBe(302);
+    await expectSession(await cookie(page.context()), other.id);
+    const denied = await page.goto(path);
+    expect(denied.status(), 'another player cannot read the existing profile editor').toBe(404);
+    await checkHeaders(denied, 'existing character editor denied', { csp: surface });
+    await expect(page.locator('main form [name=hidden]')).toHaveCount(0);
+  } finally {
+    await viewerContext.close();
+  }
 }
 
 for (const actor of ['player', 'staff']) {
-  test(actor + ' composed routes have security headers on every GET and redirect hop', async ({ page, baseURL }, info) => {
+  test(actor + ' composed routes have security headers on every GET and redirect hop', async ({ page, baseURL, browser }, info) => {
     test.setTimeout(180_000);
     const locale = info.project.metadata.locale;
     const account = await seedAccount(locale);
@@ -176,15 +263,19 @@ for (const actor of ['player', 'staff']) {
     await expectSession(await cookie(page.context()), account.id);
 
     const origin = new URL(baseURL).origin;
-    const routes = matrix(locale).filter(entry => entry.actor === actor);
-    if (actor === 'staff') await checkExistingAnnouncement(page);
+    const { report, routes: allRoutes } = matrix(locale);
+    const routes = allRoutes.filter(entry => entry.actor === actor);
+    const draft = actor === 'staff' ? await checkExistingAnnouncement(page) : null;
     for (const row of routes.filter(row => !ownerProfile(row))) {
-      await test.step(row.target, () => checkRoute(page.request, row, origin, locale));
+      await test.step(row.target, () => checkRoute(page.request, row, origin, locale, report));
     }
-    if (actor === 'player') {
+    if (draft) {
+      await checkExistingResources(page, browser, info, baseURL, draft);
+    } else {
+      await checkReferralsMethod(page.request, root);
       await publishProfileWatermark();
       for (const row of routes.filter(ownerProfile)) {
-        await test.step(row.target, () => checkRoute(page.request, row, origin, locale));
+        await test.step(row.target, () => checkRoute(page.request, row, origin, locale, report));
       }
     }
   });

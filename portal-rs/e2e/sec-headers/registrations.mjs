@@ -21,7 +21,7 @@ function parseRouter(router, routerIndex) {
 
 export function publicRegistrations(file = process.env.PORTAL_E2E_ROUTE_REPORT) {
   if (!file) throw new Error('Start local.mjs and give run.mjs the generated env.json');
-  const { routers, legacy } = JSON.parse(readFileSync(file, 'utf8'));
+  const { routers, legacy, mfaLoginRewrite } = JSON.parse(readFileSync(file, 'utf8'));
   if (!Array.isArray(routers) || !routers.length || !Array.isArray(legacy) || !legacy.length) {
     throw new Error('Incomplete composed public router report');
   }
@@ -31,7 +31,10 @@ export function publicRegistrations(file = process.env.PORTAL_E2E_ROUTE_REPORT) 
     seen.add(path);
     return true;
   });
-  return { registrations: registrations.sort((a, b) => a.path.localeCompare(b.path)), legacy };
+  if (typeof mfaLoginRewrite !== 'boolean' || routers.length !== (mfaLoginRewrite ? 2 : 1)) {
+    throw new Error('Missing MFA composition in the public router report');
+  }
+  return { registrations: registrations.sort((a, b) => a.path.localeCompare(b.path)), legacy, mfaLoginRewrite };
 }
 
 export function routeShape(path) {
@@ -66,4 +69,15 @@ export function registrationFor(registrations, path) {
   }
   matches.sort((a, b) => a.registration.routerIndex - b.registration.routerIndex || b.priority.localeCompare(a.priority));
   return matches[0]?.registration;
+}
+
+export const matchedRouteHeader = 'x-portal-e2e-matched-route';
+export const ordinaryLogin = path => /^\/(?:pl\/|en\/)?login$/.test(path);
+
+export function publicRoute(report, path) {
+  const beforeRewrite = registrationFor(report.registrations, path);
+  if (!report.mfaLoginRewrite || beforeRewrite?.routerIndex === 0 || !ordinaryLogin(path)) {
+    return beforeRewrite;
+  }
+  return registrationFor(report.registrations, path.replace(/\/login$/, '/mfa/login'));
 }
