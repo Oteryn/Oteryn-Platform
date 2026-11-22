@@ -496,15 +496,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     Ok(())
 }
 fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
-    }
+    oteryn_web::negotiate(headers).code()
 }
 fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
