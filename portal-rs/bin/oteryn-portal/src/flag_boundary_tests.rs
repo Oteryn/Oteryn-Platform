@@ -321,6 +321,11 @@ mod flag_boundary {
     }
 
     #[test]
+    fn staff_invite_returns_503_when_smtp_password_is_empty() -> TestResult {
+        run_case("staff_invite_returns_503_when_smtp_password_is_empty", false)
+    }
+
+    #[test]
     fn staff_invite_returns_503_when_shared_smtp_sender_is_missing() -> TestResult {
         run_case("staff_invite_returns_503_when_shared_smtp_sender_is_missing", false)
     }
@@ -444,6 +449,7 @@ mod flag_boundary {
         if matches!(
             test,
             "staff_invite_returns_503_when_smtp_password_is_missing"
+                | "staff_invite_returns_503_when_smtp_password_is_empty"
                 | "staff_invite_returns_503_when_shared_smtp_sender_is_missing"
         ) {
             command
@@ -454,10 +460,18 @@ mod flag_boundary {
                 .env("OTERYN_NOTIFY_UNSUBSCRIBE_KEY", "flag-boundary-notification-key-00000000")
                 .env("OTERYN_NOTIFY_UNSUBSCRIBE_URL", "https://localhost/unsubscribe")
                 .env("OTERYN_RESET_DELIVERY_KEY", "02".repeat(32));
-            if test == "staff_invite_returns_503_when_smtp_password_is_missing" {
-                command.env("OTERYN_SMTP_FROM", "portal@example.test");
-            } else {
-                command.env("OTERYN_SMTP_PASSWORD", "flag-boundary-fixture");
+            match test {
+                "staff_invite_returns_503_when_smtp_password_is_missing" => {
+                    command.env("OTERYN_SMTP_FROM", "portal@example.test");
+                }
+                "staff_invite_returns_503_when_smtp_password_is_empty" => {
+                    command
+                        .env("OTERYN_SMTP_FROM", "portal@example.test")
+                        .env("OTERYN_SMTP_PASSWORD", "");
+                }
+                _ => {
+                    command.env("OTERYN_SMTP_PASSWORD", "flag-boundary-fixture");
+                }
             }
         }
         if test == "flags_off_keep_routes_jobs_and_tables_inert" {
@@ -689,6 +703,7 @@ mod flag_boundary {
             }
             match test {
                 "staff_invite_returns_503_when_smtp_password_is_missing"
+                | "staff_invite_returns_503_when_smtp_password_is_empty"
                 | "staff_invite_returns_503_when_shared_smtp_sender_is_missing" => {
                     exercise_unavailable_staff_invite_delivery(&pool).await
                 }
@@ -752,6 +767,8 @@ mod flag_boundary {
                 error.to_string(),
                 "OTERYN_SMTP_PASSWORD is required and must be valid UTF-8"
             );
+        } else if std::env::var("OTERYN_SMTP_PASSWORD").as_deref() == Ok("") {
+            assert_eq!(error.to_string(), "SMTP configuration invalid");
         } else {
             assert_eq!(error.downcast_ref::<std::env::VarError>(), Some(&std::env::VarError::NotPresent));
         }
