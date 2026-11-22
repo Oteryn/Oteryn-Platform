@@ -45,6 +45,7 @@ for (const path of ['crates/', 'templates/']) readCatalogs(new URL(path, workspa
 // catalog. Approve the exact rendered prose on its own route.
 const signInProse = new Map([
   ['/en/account/passkeys', 'Adding or removing a passkey signs out all browser sessions. Your password remains available for sign-in.'],
+  ['/en/account/passkeys/manage', 'Adding or removing a passkey signs out all browser sessions. Your password remains available for sign-in.'],
   ['/oauth/authorize', 'Authorize game sign-in'],
 ]);
 
@@ -449,12 +450,13 @@ function sample(route, locale) {
 
 // Inventory statuses describe the authenticated actors. Login redirects and
 // public protocol refusals have their own expectations for the anonymous crawl.
-const signInRequired = /^\/(?:account(?:$|\/(?!passkeys(?:\/|$)))|mfa(?:\/challenge)?$|atlas\/places$|(?:panel|collection|collection-pvp|pass|puzzles|shop)(?:\/|$)|support\/(?:reports|tickets)(?:\/|$))/u;
+const signInRequired = /^\/(?:account(?:$|\/(?!passkeys$))|mfa(?:\/challenge)?$|atlas\/places$|(?:panel|collection|collection-pvp|pass|puzzles|shop)(?:\/|$)|support\/(?:reports|tickets)(?:\/|$))/u;
 const fragments = new Set(['/announcements/ticker', '/today/widget']);
 // Requests for unavailable assets that negotiate an HTML refusal keep the
 // document contract. This list covers resources served outside the HTML shell.
 const resources = new Map([
   ['/admin/analytics/data', 'application/json'],
+  ['/admin/operations/rate-limits.csv', 'text/csv'],
   ['/admin/analytics/creatures/data', 'application/json'],
   ['/admin/analytics/activity/data', 'application/json'],
   ['/admin/analytics/levels/data', 'application/json'],
@@ -495,6 +497,7 @@ function routeContract(target, inventoryStatus, actor, locale) {
     if (route === '/mfa/challenge') pathname = `/${lang}/`;
     if (route === '/register') pathname = '/account';
     if (route === '/account/security') pathname = `/${lang}/password/change`;
+    if (route === '/account/privacy/export') pathname = `/${lang}/account/sudo`;
   }
   if (fragments.has(route)) return { status, pathname, document: false };
   const json = /^\/atlas\/spawns-text\/(?:pl|en)$/u.test(route) || (actor === 'player' && playerJson.has(route));
@@ -506,6 +509,7 @@ function routeContract(target, inventoryStatus, actor, locale) {
 function destinations(actor, locale) {
   const targets = new Map();
   for (const row of expectations) {
+    if (row.actor === 'gm') continue;
     if (row.method !== 'GET' || (row.actor === 'staff') !== (actor === 'staff')) continue;
     targets.set(sample(row.route, locale), row.status);
   }
@@ -661,7 +665,78 @@ async function assertAnnouncements(page, locale, target) {
   }
 }
 
+async function refusedForm(page, locale, form, fields, status, message) {
+  const { url, data } = await form.evaluate(form => ({
+    url: form.action,
+    data: Object.fromEntries(new FormData(form)),
+  }));
+  expect(data._csrf, 'the rendered form supplies its own CSRF proof').toBeTruthy();
+  const response = await page.request.post(url, {
+    form: { ...data, ...fields },
+    headers: { origin: new URL(url).origin, accept: 'text/html', 'accept-language': locale },
+    maxRedirects: 0,
+  });
+  expect(response.status(), new URL(response.url()).pathname).toBe(status);
+  expect(response.headers()['content-type']).toContain('text/html');
+  const html = await response.text();
+  expect(html).toContain(`<html lang="${locale}"`);
+  expect(html).toContain(message ?? catalogText(`crates/ui/i18n/${locale}.ftl`, `error-${status}-description`));
+}
+
+async function assertPasswordRefusal(page, locale, actor) {
+  await submit(page, 'main form', { current_password: 'Incorrect local password!' });
+  await expect(page.locator('main [role=alert]')).toHaveText(
+    catalogText(`crates/identity/src/credentials_${locale}.ftl`, 'refused'),
+  );
+  await assertDocument(page, locale, 'password confirmation refusal', actor);
+}
+
 async function serverValidation(page, locale, actor, target, targets) {
+  const pathname = new URL(page.url()).pathname;
+  const ui = `crates/ui/i18n/${locale}.ftl`;
+  if ((actor === 'player' && pathname === `/${locale}/account/sudo`)
+      || (actor === 'staff' && pathname === `/${locale}/admin/roles/confirm`)) {
+    await assertPasswordRefusal(page, locale, actor);
+  }
+  if (actor === 'player' && pathname === `/${locale}/account/privacy/delete`) {
+    await refusedForm(page, locale, page.locator('main form'), {
+      current_password: 'Incorrect local password!', confirmation: 'NOT_TERMINATE',
+    }, 422);
+  }
+  if (actor === 'staff' && pathname === '/admin/roles') {
+    const roleForm = action => page.locator(`main form:has(button[value="${action}"])`);
+    for (const [action, fields, status, description] of [
+      ['create', { permissions: 'unknown.permission' }, 400],
+      ['create-grant-role', { key: 'invalid-grant', reason: 'unknown_reason' }, 422, 'staff-action-approved-reason-required'],
+      ['set-permissions', { permissions: 'unknown.permission' }, 400],
+      ['grant', { account: 'not-an-account-id', reason: 'role_assignment' }, 422],
+      ['revoke', { account: 'not-an-account-id' }, 422],
+    ]) {
+      await test.step(`refuse invalid role ${action}`, () => refusedForm(
+        page, locale, roleForm(action), { action, ...fields }, status,
+        description && catalogText(ui, description),
+      ));
+    }
+  }
+  if (actor === 'staff' && pathname === '/admin/commerce') {
+    const invalid = catalogText(`crates/admin/src/commerce/${locale}.ftl`, 'invalid');
+    for (const [action, fields] of [
+      ['grant', { days: '400' }],
+      ['revoke', { target: 'not-an-account-id' }],
+      ['adjust', { amount: '0' }],
+      ['refund', { target: 'not-a-payment-id' }],
+    ]) {
+      const form = page.locator(`main form[action="/admin/commerce/${action}"]`);
+      await refusedForm(page, locale, form, {
+        target: '019a541b-a000-7000-8000-000000000001',
+        reason: 'Localized validation fixture',
+        ...fields,
+      }, 422, invalid);
+    }
+  }
+  if (actor === 'staff' && announcementEdit.test(pathname)) {
+    await refusedForm(page, locale, page.locator('main form'), { starts_at: 'invalid-date' }, 422);
+  }
   if (actor === 'player' && target === `/${locale}/password/change`) {
     await submit(page, 'main form', {
       current_password: 'Incorrect local password!',
@@ -1057,6 +1132,10 @@ for (const { actor, group } of crawls) {
           await assertCheckout(page, locale, 'awaiting_payment');
           documents.add(url.pathname);
           await nativeValidation(page, locale, checked, uncovered);
+          for (const action of ['pay', 'fail']) {
+            await refusedForm(page, locale, page.locator(`main form:has(input[name=action][value=${action}])`),
+              { action: 'unsupported-payment-action' }, 400);
+          }
           await test.step('failed sandbox payment return instructions', async () => {
             const [response, navigation] = await Promise.all([
               posted(page, url.pathname),

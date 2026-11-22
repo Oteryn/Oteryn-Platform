@@ -644,11 +644,3 @@ impl std::fmt::Debug for CommittedRotation {
         f.write_str("CommittedRotation([redacted])")
     }
 }
-
-/// Load the signed-in identity for permission-aware presentation.
-pub(crate) async fn chrome_identity(
-    layer: &SessionLayer,
-    request: &mut Request,
-) -> Option<SignedInSession> {
-    read_signed_in(layer, request).await.ok().flatten()
-}

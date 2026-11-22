@@ -1,7 +1,6 @@
-import {exportOptions} from '../../helpers.mjs';
 import {expect, test} from '../../fixtures.mjs';
 import {createHash, randomBytes} from 'node:crypto';
-import {csrfRejected, pool} from '../../helpers.mjs';
+import {csrfRejected, exportOptions, pool} from '../../helpers.mjs';
 import {confirmStaffPassword, isolatedAdmin, membership, player, query, role, rolePage, unique} from '../../staff-rbac-helpers.mjs';
 import {assertShell} from '../../shell.mjs';
 
@@ -281,6 +280,12 @@ test('owner panel links follow export and cancellation eligibility', async ({pag
   await expect(deleteLink).toHaveCount(intake ? 1 : 0);
   expect((await page.request.get(exportPath, {maxRedirects: 0})).status()).toBe(credentials ? 303 : 403);
   expect((await page.request.get(deletePath, {maxRedirects: 0})).status()).toBe(intake ? 200 : 404);
+  const logoutCsrf = await page.locator(`header form[action="/${lang}/logout"] [name=_csrf]`).first().inputValue();
+  const unconfirmed = await page.request.post(exportPath, {
+    form: {_csrf: logoutCsrf}, headers: {origin}, maxRedirects: 0,
+  });
+  expect(unconfirmed.status()).toBe(403);
+  expect(unconfirmed.headers()['content-disposition']).toBeUndefined();
 
   await query("UPDATE web_sessions SET sudo_until=clock_timestamp()+interval '15 minutes' WHERE account_id=$1", [owner]);
   await query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '7 days')", [owner]);
@@ -292,5 +297,15 @@ test('owner panel links follow export and cancellation eligibility', async ({pag
   expect((await exported.json()).account.id).toBe(owner);
   await deleteLink.click();
   await expect(page).toHaveURL(new URL(deletePath, origin).href);
-  await expect(page.locator(`main form[action="${deletePath}/cancel"]`)).toBeVisible();
+  const cancel = page.locator(`main form[action="${deletePath}/cancel"]`);
+  await expect(cancel).toBeVisible();
+  const csrf = await cancel.locator('[name=_csrf]').inputValue();
+  const refusal = await page.request.post(`${deletePath}/cancel`, {
+    form: {_csrf: csrf, current_password: ''},
+    headers: {origin, accept: 'text/html'}, maxRedirects: 0,
+  });
+  expect(refusal.status()).toBe(422);
+  expect(await refusal.text()).toContain(`<html lang="${lang}"`);
+  expect(await query('SELECT cancelled_at FROM account_terminations WHERE account_id=$1', [owner]))
+    .toEqual([{cancelled_at: null}]);
 });

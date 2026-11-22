@@ -297,6 +297,14 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
       ...await reviewForm.evaluate(form => Object.fromEntries(new FormData(form))),
       reason: 'evidence_reviewed',
     });
+    for (const path of ['/admin/payment-review', '/admin/commerce/reconcile']) {
+      const invalid = await admin.request.post(`${path}?lang=${lang}`, {
+        form: {...await readReview(), version: 'unversioned-evidence'},
+        headers: {origin, accept: 'text/html'}, maxRedirects: 0,
+      });
+      expect(invalid.status()).toBe(422);
+      expect(await invalid.text()).toContain(`<html lang="${lang}"`);
+    }
     const staleReview = await readReview();
     // An order revision can change without a payment-state transition.
     await query('UPDATE coin_purchase_orders SET revision=revision+1 WHERE id=$1', [order]);

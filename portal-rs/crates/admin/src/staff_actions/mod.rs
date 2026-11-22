@@ -70,12 +70,6 @@ impl Error {
                 status,
                 &chrome.text("staff-action-step-up-required"),
             )
-        } else if matches!(self, Self::StepUp) {
-            oteryn_ui::error_with_message(
-                chrome,
-                status,
-                &chrome.text("staff-action-step-up-required"),
-            )
         } else {
             oteryn_ui::error(chrome, status)
         }
@@ -289,11 +283,9 @@ where
                 .await?;
         }
         check_step_up(&mut tx, guard.actor, action.step_up).await?;
-        if changed {
-            if let Some((account, role)) = affected {
-                Change::revoke_affected_browser_credentials(&mut tx, guard.actor, account, role)
-                    .await?;
-            }
+        if let Some((account, role)) = affected {
+            Change::revoke_affected_browser_credentials(&mut tx, guard.actor, account, role)
+                .await?;
         }
         Ok::<_, Error>(changed)
     }
