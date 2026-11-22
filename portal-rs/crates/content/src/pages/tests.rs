@@ -57,7 +57,19 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
     let Some((root, pool, schema)) = pages_database().await? else {
         return Ok(());
     };
-    assert_eq!(legal::install(&pool).await?, 3);
+    for profile in [None, Some("production"), Some("preprod")] {
+        assert!(matches!(
+            legal::install(&pool, profile).await,
+            Err(oteryn_admin::rbac::Error::InvalidInput)
+        ));
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pages")
+            .fetch_one(&pool)
+            .await?,
+        0
+    );
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 3);
     sqlx::query("UPDATE editorial_pages SET legal_version='relabeled-v1', body='KRS 0000000000'")
         .execute(&pool)
         .await?;
@@ -116,7 +128,7 @@ async fn postgres_installer_preserves_preexisting_draft_and_history_and_audits_o
     .await?;
 
     for installed in [1, 0, 0] {
-        assert_eq!(legal::install(&pool).await?, installed);
+        assert_eq!(legal::install(&pool, Some("testing")).await?, installed);
         let editions: Vec<(String, String, String, bool)> = sqlx::query_as(
             "SELECT locale,title,body,published_at IS NULL FROM editorial_pages
              WHERE page_id IN ($1,$2)",
@@ -255,8 +267,8 @@ Updated English source",
         .bind(Uuid::now_v7())
         .execute(&pool)
         .await?;
-    assert_eq!(legal::install(&pool).await?, 3);
-    assert_eq!(legal::install(&pool).await?, 0);
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 3);
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 0);
     let audited: Vec<String> = sqlx::query_scalar(
         "SELECT target FROM audit_log WHERE action='cms.legal.defaults_installed' ORDER BY target",
     )
@@ -442,7 +454,7 @@ Updated English source",
         .fetch_one(&pool)
         .await?;
     assert_eq!(versions, 8);
-    assert_eq!(legal::install(&pool).await?, 0);
+    assert_eq!(legal::install(&pool, Some("testing")).await?, 0);
     let edited: String = sqlx::query_scalar(
         "SELECT e.body FROM editorial_pages e JOIN pages p ON p.id=e.page_id
          WHERE p.slug='terms-of-service' AND e.locale='en'",

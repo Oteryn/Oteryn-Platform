@@ -117,9 +117,11 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
     let (status, title, body, version, draft_notice) = match result {
         Ok(Some(row)) => {
             let body: String = row.get("body");
+            let title: String = row.get("title");
             let version: String = row.get("version");
             let draft_notice = if legal(slug)
-                && oteryn_identity::consents::is_placeholder_edition(&version, &body)
+                && (oteryn_identity::consents::is_placeholder_edition(&version, &body)
+                    || oteryn_identity::consents::is_placeholder_edition("", &title))
             {
                 text(lang, "operator-draft")
             } else {
@@ -129,7 +131,7 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
             pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&body));
             (
                 StatusCode::OK,
-                row.get("title"),
+                title,
                 ammonia::clean(&html),
                 format!("{} {}", version, row.get::<String, _>("effective")),
                 draft_notice,

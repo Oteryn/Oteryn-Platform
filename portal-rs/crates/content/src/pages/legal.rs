@@ -44,8 +44,16 @@ const DOCUMENTS: [(&str, [Edition; 2]); 3] = [
     ),
 ];
 
+/// Built-in placeholder editions are available only in explicit local and testing profiles.
+pub fn permits_install(profile: Option<&str>) -> bool {
+    matches!(profile, Some("local" | "testing"))
+}
+
 /// Install the default bilingual documents, returning the number of document pairs installed.
-pub async fn install(pool: &PgPool) -> Result<usize, Error> {
+pub async fn install(pool: &PgPool, profile: Option<&str>) -> Result<usize, Error> {
+    if !permits_install(profile) {
+        return Err(Error::InvalidInput);
+    }
     let mut tx = pool.begin().await?;
     let mut installed = 0;
     let context = AuditContext {

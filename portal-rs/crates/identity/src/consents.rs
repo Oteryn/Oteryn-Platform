@@ -83,7 +83,7 @@ impl ConsentConfig {
         locale: &str,
     ) -> Result<(), sqlx::Error> {
         let documents: Vec<(String, String, String, bool)> = sqlx::query_as(
-            "SELECT p.slug,e.legal_version,e.body,
+            "SELECT p.slug,e.legal_version,concat_ws(chr(10),e.title,e.body),
                     COALESCE(v.content @> jsonb_build_object(
                         'final_approved',true,'title',e.title,'body',e.body,
                         'effective',e.legal_effective_date::text

@@ -2,6 +2,7 @@
 
 use std::process::ExitCode;
 
+use oteryn_content::pages::legal;
 use oteryn_core::Config;
 use oteryn_web::AppState;
 use tracing_subscriber::EnvFilter;
@@ -24,18 +25,14 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
     }
 }
 
-fn permits_legal_install(profile: Option<&str>) -> bool {
-    matches!(profile, Some("local" | "testing"))
-}
-
 #[cfg(test)]
 #[test]
 fn legal_install_requires_an_explicit_disposable_profile() {
     for profile in [None, Some("production"), Some("preprod"), Some("unknown")] {
-        assert!(!permits_legal_install(profile));
+        assert!(!legal::permits_install(profile));
     }
     for profile in ["local", "testing"] {
-        assert!(permits_legal_install(Some(profile)));
+        assert!(legal::permits_install(Some(profile)));
     }
 }
 
@@ -105,9 +102,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
-    if role == Role::InstallLegalPages
-        && !permits_legal_install(std::env::var("OTERYN_ENV").ok().as_deref())
-    {
+    let legal_profile = std::env::var("OTERYN_ENV").ok();
+    if role == Role::InstallLegalPages && !legal::permits_install(legal_profile.as_deref()) {
         return Err(
             "install-legal-pages requires explicit OTERYN_ENV=local or OTERYN_ENV=testing".into(),
         );
@@ -123,7 +119,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("migrations applied");
         }
         Role::InstallLegalPages => {
-            let installed = oteryn_content::pages::legal::install(&db).await?;
+            let installed = legal::install(&db, legal_profile.as_deref()).await?;
             tracing::info!(installed, "default legal document pairs installed");
         }
         Role::Worker => {
