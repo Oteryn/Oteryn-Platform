@@ -5,8 +5,9 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from '../../fixtures.mjs';
-import {actor, uuid7} from '../../game-sim-helpers.mjs';
-import {csrfRejected, pool, submit} from '../../helpers.mjs';
+import {uuid7} from '../../game-sim-helpers.mjs';
+import {csrfRejected, login, pool, submit} from '../../helpers.mjs';
+import {otherBrowser, seedAccount} from '../../security/auth-fixtures.mjs';
 
 const authority = process.env.OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY;
 const stamp = () => String(Math.floor(Date.now() / 1000));
@@ -135,19 +136,40 @@ async function seedPublicReadModels(db, character, world, name) {
   }
 }
 
+async function expectLoginRedirect(page, target, locale) {
+  const response = await page.request.get(target, {maxRedirects: 0});
+  expect(response.status()).toBe(303);
+  expect(response.headers().location).toMatch(new RegExp(`^/${locale}/login`));
+}
+
+async function signedInPlayer(browser, info) {
+  const locale = info.project.metadata.locale;
+  const account = await seedAccount(locale);
+  const context = await otherBrowser(browser, info);
+  try {
+    const page = await context.newPage();
+    await login(page, locale, account);
+    return {page, context, id: account.id};
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+}
+
 test('owner creates a character, sees Game results and reads their outfit', async ({browser, page}, info) => {
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
-  const owner = await actor(browser, info);
+  const owner = await signedInPlayer(browser, info);
   const db = pool();
   let other;
   try {
-    other = await actor(browser, info);
+    other = await signedInPlayer(browser, info);
     const create = `/${lang}/account/characters/new`;
-    expect((await page.goto(create)).status()).toBe(403);
+    await expectLoginRedirect(page, create, lang);
     expect((await owner.page.goto('/account')).status()).toBe(200);
     await owner.page.locator(`#characters ~ a[href="${create}"]`).click();
     const form = owner.page.locator('main form[method=post]');
+    await expect(form).toBeVisible();
     const world = await form.locator('select[name=world] option').evaluateAll(options => options.find(option => option.value)?.value);
     expect(world).toBeTruthy();
     await form.locator('select[name=world]').selectOption(world);
@@ -190,7 +212,7 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
     await row.locator(`[href="${outfit}"]`).click();
     await expect(owner.page.locator('main')).toContainText('outfit.citizen');
     expect((await other.page.request.get(outfit)).status()).toBe(404);
-    expect((await page.request.get(outfit)).status()).toBe(403);
+    await expectLoginRedirect(page, outfit, lang);
     expect((await owner.page.request.get(`/${lang}/account/characters/%22/outfit`)).status()).toBe(400);
 
     const services = `/${lang}/account/characters/${character}/services`;
