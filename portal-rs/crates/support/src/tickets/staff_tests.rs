@@ -1245,7 +1245,7 @@ async fn browser_appeals(
                 .clone()
                 .oneshot(request(&commit_cookie, "en", fresh, &valid, 6)?),
         );
-    wait_for_appeal_commit(pool, &application).await?;
+    wait_for_appeal_commit(pool, &application, &committing).await?;
     // Wait for the session deadline to abort COMMIT while its blocker remains held.
     // A request that only has the three-second mutation timer cannot finish in this window.
     let expired =
@@ -1383,28 +1383,44 @@ async fn appeal_decision_race(
     )
     .execute(pool)
     .await?;
+    // Stage expiry after the first authorization completes so slow setup does
+    // not consume the short proof lifetime before the transition begins.
+    sqlx::raw_sql(
+        "CREATE FUNCTION f4_expire_staff_proof() RETURNS trigger LANGUAGE plpgsql AS
+         $$
+         DECLARE expiry timestamptz := LEAST(
+             clock_timestamp() + interval '1700 milliseconds',
+             to_timestamp(current_setting('oteryn.mutation_deadline')::double precision)
+                 - interval '400 milliseconds');
+         BEGIN
+             IF TG_ARGV[0] = 'session' THEN
+                 UPDATE web_sessions SET absolute_expires_at=expiry WHERE account_id=NEW.actor;
+             ELSE
+                 UPDATE account_mfa_tokens SET expires_at=expiry
+                 WHERE account_id=NEW.actor AND purpose='grant';
+             END IF;
+             RETURN NEW;
+         END $$",
+    )
+    .execute(pool)
+    .await?;
     // Make each authorization component the earliest deadline in turn.
-    for (shorten, restore) in [
-        (
-            "UPDATE web_sessions SET absolute_expires_at=clock_timestamp()+interval '1700 milliseconds' WHERE account_id=$1",
-            "UPDATE web_sessions SET absolute_expires_at=clock_timestamp()+interval '1 hour',idle_expires_at=clock_timestamp()+interval '1 hour' WHERE account_id=$1",
-        ),
-        (
-            "UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1700 milliseconds' WHERE account_id=$1 AND purpose='grant'",
-            "UPDATE account_mfa_tokens SET expires_at=clock_timestamp()+interval '1 hour' WHERE account_id=$1 AND purpose='grant'",
-        ),
-    ] {
+    for proof in ["session", "mfa"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE OR REPLACE TRIGGER f4_expire_staff_proof BEFORE INSERT ON audit_log
+             FOR EACH ROW WHEN (NEW.action = 'support.enforcement_appeal_updated')
+             EXECUTE FUNCTION f4_expire_staff_proof('{proof}')"
+        )))
+        .execute(pool)
+        .await?;
         let mut blocker = pool.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(84209, 9130)")
             .execute(&mut *blocker)
             .await?;
-        sqlx::query(sqlx::AssertSqlSafe(shorten))
-            .bind(staff)
-            .execute(pool)
-            .await?;
         let staff_app = app.clone();
         let cookie = cookie.to_owned();
         let csrf = csrf.to_owned();
+        let started = tokio::time::Instant::now();
         let pending = tokio::spawn(async move {
             staff_post(
                 staff_app,
@@ -1417,16 +1433,15 @@ async fn appeal_decision_race(
             )
             .await
         });
-        wait_for_appeal_commit(pool, &application).await?;
+        wait_for_appeal_commit(pool, &application, &pending).await?;
+        // Keep the lock held and require the proof's deadline to win over the
+        // three-second request timer. The staged expiry rolls back as well.
         assert_eq!(
-            tokio::time::timeout(std::time::Duration::from_millis(2300), pending).await???,
+            tokio::time::timeout_at(started + std::time::Duration::from_millis(2900), pending)
+                .await???,
             StatusCode::SERVICE_UNAVAILABLE
         );
         blocker.rollback().await?;
-        sqlx::query(sqlx::AssertSqlSafe(restore))
-            .bind(staff)
-            .execute(pool)
-            .await?;
         let state: (String, String, i64) = sqlx::query_as(
             "SELECT s.status,a.status,a.version FROM sanctions s JOIN support_appeal_workflows a ON a.sanction_id=s.id WHERE s.id=$1")
             .bind(sanction).fetch_one(pool).await?;
@@ -1434,9 +1449,14 @@ async fn appeal_decision_race(
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1 AND action='support.enforcement_appeal_updated'")
             .bind(sanction.to_string()).fetch_one(pool).await?, 0);
     }
-    sqlx::raw_sql("DROP TRIGGER f4_wait_in_commit ON audit_log; DROP FUNCTION f4_wait_in_commit()")
-        .execute(pool)
-        .await?;
+    sqlx::raw_sql(
+        "DROP TRIGGER f4_wait_in_commit ON audit_log;
+         DROP FUNCTION f4_wait_in_commit();
+         DROP TRIGGER f4_expire_staff_proof ON audit_log;
+         DROP FUNCTION f4_expire_staff_proof()",
+    )
+    .execute(pool)
+    .await?;
 
     let lock = lock_appeal_owner(pool, owner).await?;
     let start = |form: &'static str| {
@@ -1490,16 +1510,23 @@ async fn appeal_decision_race(
     Ok(())
 }
 
-async fn wait_for_appeal_commit(pool: &PgPool, application: &str) -> TestResult {
-    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+async fn wait_for_appeal_commit<T>(
+    pool: &PgPool,
+    application: &str,
+    request: &tokio::task::JoinHandle<T>,
+) -> TestResult {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
             let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND query='COMMIT' AND wait_event_type='Lock' AND wait_event='advisory')")
                 .bind(application).fetch_one(pool).await?;
             if blocked {
-                return Ok::<_, sqlx::Error>(());
+                return Ok(());
+            }
+            if request.is_finished() {
+                return Err("request completed before blocking in COMMIT".into());
             }
             tokio::task::yield_now().await;
         }
-    }).await??;
-    Ok(())
+    })
+    .await?
 }
