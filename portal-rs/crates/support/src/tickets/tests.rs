@@ -485,6 +485,29 @@ async fn postgres_player_routes_session_csrf_bad_input_and_success() -> TestResu
     let t = db.tickets(1)?;
     let app = router(t.clone(), "http://localhost:3000");
     let (cookie, csrf) = db.cookie(owner).await?;
+    for (lang, message) in [
+        ("en", "You do not have permission to view this page."),
+        ("pl", "Nie masz uprawnień do wyświetlenia tej strony."),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/{lang}/support/tickets"))
+                    .header("cookie", &cookie)
+                    .header("origin", "http://localhost:3000")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "_csrf={}&request_key={}&category=other&subject=x&body=x",
+                        "b".repeat(64),
+                        Uuid::now_v7()
+                    )))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.headers()["content-language"], lang);
+        assert_eq!(to_bytes(response.into_body(), 65536).await?, message);
+    }
+    assert!(t.list(owner, false, 0).await?.is_empty());
     let response = app
         .clone()
         .oneshot(Request::get("/en/support/tickets").body(Body::empty())?)

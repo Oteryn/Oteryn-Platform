@@ -158,7 +158,27 @@ pub fn staff_router<
     )
 }
 async fn private(request: Request, next: Next) -> Response {
+    let language = match request.uri().path().split('/').nth(1) {
+        Some("en") => Some("en"),
+        Some("pl") => Some("pl"),
+        _ => None,
+    };
     let mut response = next.run(request).await;
+    if let Some(language) = language
+        && response.status() == StatusCode::FORBIDDEN
+        && !response.headers().contains_key(header::CONTENT_TYPE)
+    {
+        *response.body_mut() =
+            axum::body::Body::from(oteryn_ui::text(language, "error-403-description"));
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("text/plain; charset=utf-8"),
+        );
+        response.headers_mut().insert(
+            header::CONTENT_LANGUAGE,
+            header::HeaderValue::from_static(language),
+        );
+    }
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         header::HeaderValue::from_static("no-store"),
