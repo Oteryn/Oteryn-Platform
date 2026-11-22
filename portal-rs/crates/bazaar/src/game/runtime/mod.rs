@@ -381,10 +381,14 @@ impl Runtime {
         if replay == Some(Currency::Coins) {
             // The binding is append-only and committed with the funded bid.
             // Release its exclusive lock before revalidating current account policy.
+            let deadline: String =
+                sqlx::query_scalar("SELECT current_setting('oteryn.mutation_deadline')")
+                    .fetch_one(&mut *tx)
+                    .await?;
             tx.commit().await?;
             return self
                 .core(None)
-                .replay_coin_bid(listing, actor, maximum, &key.to_string())
+                .replay_coin_bid(listing, actor, maximum, &key.to_string(), &deadline)
                 .await
                 .map_err(core_error);
         }
@@ -647,6 +651,44 @@ pub(super) async fn check_bid_request(
 #[cfg(test)]
 mod request_key_tests {
     use super::*;
+    #[tokio::test]
+    async fn postgres_coin_bid_replay_respects_inherited_deadline()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use crate::game::authority_tests::{BrowserFixture, uid};
+
+        let _guard = oteryn_db::test_support::global_lock_guard().await?;
+        let db = BrowserFixture::new().await;
+        let listing = uid("20");
+        let mut writer = db.pool.begin().await?;
+        sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR UPDATE")
+            .bind(listing)
+            .execute(&mut *writer)
+            .await?;
+        let deadline: String =
+            sqlx::query_scalar("SELECT (extract(epoch FROM clock_timestamp()) - 1)::text")
+                .fetch_one(&mut *writer)
+                .await?;
+        let core = db.runtime.core(None);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            core.replay_coin_bid(listing, uid("13"), 15000, "expired-replay", &deadline),
+        )
+        .await?;
+        writer.rollback().await?;
+        db.end().await;
+        assert!(
+            matches!(
+                result,
+                Err(crate::Error::Database(ref error))
+                    if error.as_database_error().is_some_and(|db| {
+                        matches!(db.code().as_deref(), Some("55P03" | "57014"))
+                    })
+            ),
+            "{result:?}"
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn postgres_concurrent_request_key_binding_conflicts_before_effect()
     -> Result<(), Box<dyn std::error::Error>> {

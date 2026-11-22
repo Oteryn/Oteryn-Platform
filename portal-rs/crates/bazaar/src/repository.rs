@@ -244,8 +244,13 @@ impl<A: Accounts, R: Reservations, E: Evidence> Bazaar<A, R, E> {
         account: Uuid,
         maximum: i64,
         key: &str,
+        deadline: &str,
     ) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT set_config('oteryn.mutation_deadline', $1, true)")
+            .bind(deadline)
+            .execute(&mut *tx)
+            .await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing: Listing =
             sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR SHARE")
