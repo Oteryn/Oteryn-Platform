@@ -920,5 +920,8 @@ fn moderation_reason_fits_persisted_character_limit() {
     assert_eq!(at_limit.chars().count(), 500);
     assert!(reason_valid(&at_limit).is_ok());
     let beyond_limit = format!("{at_limit} ");
-    assert!(matches!(reason_valid(&beyond_limit), Err(Error::InvalidInput)));
+    assert!(matches!(
+        reason_valid(&beyond_limit),
+        Err(Error::InvalidInput)
+    ));
 }

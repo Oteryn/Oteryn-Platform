@@ -22,11 +22,11 @@ ADM-01 ratifies transport framing. The allowlisted `analytics.catalog` entry has
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T15:22:00Z
-head: 33145d6ec7662cd01f91e304ba09fa904edeaf37
+updated_at: 2026-11-22T15:30:30Z
+head: f3e40067d77a47a959b1efaf01b1bab3b3e8c812
 branch: codex/feat-gm-world
 pr: none
-status: validating
+status: ready
 context_routes: []
 owned_paths:
   - portal-rs/crates/content/src/events/
@@ -39,10 +39,10 @@ proven:
   - Live governing issue 2002 is open and owner correction defines the feature scope.
   - ADM-01 transport framing is ratified and existing ops reads use the control store.
   - The current portal binary built with the lockfile. The mTLS harness reached ready and seeded a disposable world on PostgreSQL 18.6.
-  - The ops and CMS scenario passed in all four browser projects. The Polish desktop Bazaar scenario passed through reconciliation and cancellation.
+  - Both browser scenarios passed in pl-1440, pl-390, en-1440 and en-390.
 derived: []
 unknown:
-  - Final browser results after fixture synchronization are pending.
+  - Acceptance evidence for an analytics.catalog result-body schema is unavailable.
 conflicts: []
 first_failure:
   marker: none
@@ -58,12 +58,18 @@ changed_paths:
 validation:
   - command: cargo test --locked -p oteryn-admin --lib
     result: PASS
-    evidence: 231 passed in the initial admin run. A later focused admin run passed 14 and reached the existing 10-second contention test deadline.
+    evidence: 231 passed in the initial admin run. Fourteen later focused cases passed. The existing contention test passed in isolation after timing out during resource contention.
   - command: cargo test --locked -p oteryn-admin -p oteryn-content -p oteryn-bazaar --lib --no-fail-fast -- events::tests moderation::tests
     result: PASS
     evidence: 15 Bazaar moderation and 6 CMS event tests passed on PostgreSQL 18.6.
+  - command: Playwright gm-world and gm-bazaar specs in all four configured projects
+    result: PASS
+    evidence: 8 passed. Browser cases covered unavailable ops reads, editorial transitions, moderation audit, independent approval and reconciled cancellation.
+  - command: cargo fmt --all --check
+    result: PASS
+    evidence: workspace formatting check passed.
 blockers: []
-next_action: Verify the full four-project browser rerun.
+next_action: Retain the qualified branch for review under issue 2002.
 ```
 
 ## Source branch closeout
@@ -71,5 +77,5 @@ next_action: Verify the full four-project browser rerun.
 ```yaml
 source_branch_disposition: retain
 source_branch_reason: Coordinator review of the corrected scope and coverage evidence.
-source_branch_evidence: GitHub readback confirmed the fixture commit 7d21e95c19b2bd583b4259806c834c4d9f2d1c8e.
+source_branch_evidence: GitHub readback confirmed the qualified implementation and fixtures at f3e40067d77a47a959b1efaf01b1bab3b3e8c812.
 ```
