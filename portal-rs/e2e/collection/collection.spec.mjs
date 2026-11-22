@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { login } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
-import { connect, exchange, fixture, harness, jsonBytes, wire, withUnknown } from './transport.mjs';
+import { connect, exchange, fixture, harness, jsonBytes, wire, withUnknown } from '../api/transport.mjs';
 
 const journal = '/internal/v1/playerdata';
 const portfolio = '/internal/v1/game-auth/native-account-characters';
@@ -9,7 +9,7 @@ const authority = 'oteryn-game-e2e';
 const accepted = '{"contract_version":1,"result":"accepted"}';
 const characterName = 'Aldric Vale';
 
-async function publish(portfolioPeer, itemsPeer, progressPeer, account, other) {
+async function publishPortfolio(portfolioPeer, account, other) {
   const [{ character, world, snapshot, beginId, endId, progressId, epoch }] = await query(
     `SELECT uuidv7() AS character, uuidv7() AS world, uuidv7() AS snapshot,
             uuidv7() AS "beginId", uuidv7() AS "endId", uuidv7() AS "progressId",
@@ -43,6 +43,11 @@ async function publish(portfolioPeer, itemsPeer, progressPeer, account, other) {
   });
   await wire(await exchange(portfolioPeer, 'POST', portfolio + '/watermark', portfolioWatermark), 200, accepted);
 
+  return { account, character, world, snapshot, beginId, endId, progressId, epoch, observed, seconds };
+}
+
+async function publishJournal(itemsPeer, progressPeer, subject) {
+  const { account, character, world, snapshot, beginId, endId, progressId, epoch, observed, seconds } = subject;
   for (const [kind, id] of [['begin', beginId], ['end', endId]]) {
     const record = JSON.parse(fixture('game-journal-items-v1', `record-items-${kind}.valid.json`));
     Object.assign(record, {
@@ -78,10 +83,22 @@ async function publish(portfolioPeer, itemsPeer, progressPeer, account, other) {
   await wire(await exchange(itemsPeer, 'POST', route, watermark), 401, '');
   await wire(await exchange(progressPeer, 'POST', route, watermark), 200,
     '{"contract_version":1,"result":"accepted","complete_through":"0"}');
-  return { character, inventoryTime: Number(seconds) * 1000, progressTime: observed };
+  return [Number(seconds) * 1000, observed];
 }
 
-test('collection shows only the owner the journal update times', async ({ page, browser }, info) => {
+function sourceLabels(lang) {
+  return lang === 'pl'
+    ? [
+        ['Posiadane przedmioty', 'Ostatnia aktualizacja ekwipunku'],
+        ['Postęp bestiariusza', 'Ostatnia aktualizacja danych bestiariusza konta'],
+      ]
+    : [
+        ['Inventory ownership', 'Last inventory update'],
+        ['Bestiary progress', 'Last account bestiary feed update'],
+      ];
+}
+
+test('collection shows only the owner the journal update times @read-enabled', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const pl = lang === 'pl';
   const index = `/${lang}/collection`;
@@ -100,10 +117,16 @@ test('collection shows only the owner the journal update times', async ({ page, 
     expect(anonymous.headers()['cache-control']).toBe('private, no-store');
     await login(page, lang, { email: accounts.coinAccount1.email, password: process.env.PORTAL_API_LOGIN_PASSWORD });
     await login(visitor, lang, { email: accounts.coinAccount2.email, password: process.env.PORTAL_API_OTHER_LOGIN_PASSWORD });
-    const evidence = await publish(
-      portfolioPeer, itemsPeer, progressPeer, accounts.coinAccount1.accountId, accounts.coinAccount2.accountId,
-    );
-    const detail = `${index}/${evidence.character}`;
+    const subject = await publishPortfolio(portfolioPeer, accounts.coinAccount1.accountId, accounts.coinAccount2.accountId);
+    const detail = `${index}/${subject.character}`;
+    expect((await page.goto(detail)).status()).toBe(200);
+    for (const [title, update] of sourceLabels(lang)) {
+      const section = page.getByRole('region', { name: title });
+      const unknown = pl ? 'Brak informacji' : 'Unknown';
+      await expect(section.getByText(`${update} ${unknown}`, { exact: true })).toBeVisible();
+    }
+
+    const times = await publishJournal(itemsPeer, progressPeer, subject);
 
     const overview = await page.goto(index);
     expect(overview.status()).toBe(200);
@@ -114,10 +137,8 @@ test('collection shows only the owner the journal update times', async ({ page, 
     expect(response.status()).toBe(200);
     expect(response.headers()['cache-control']).toBe('private, no-store');
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
-    for (const [title, update, millis] of [
-      [pl ? 'Posiadane przedmioty' : 'Inventory ownership', pl ? 'Ostatnia aktualizacja ekwipunku' : 'Last inventory update', evidence.inventoryTime],
-      [pl ? 'Postęp bestiariusza' : 'Bestiary progress', pl ? 'Ostatnia aktualizacja danych bestiariusza konta' : 'Last account bestiary feed update', evidence.progressTime],
-    ]) {
+    for (const [i, [title, update]] of sourceLabels(lang).entries()) {
+      const millis = times[i];
       const section = page.getByRole('region', { name: title });
       await expect(section.getByText(pl ? 'Niedostępne' : 'Unavailable', { exact: true })).toBeVisible();
       const timestamp = new Date(millis).toISOString().replace(/\.000Z$/, 'Z').replace(/(\.\d*?[1-9])0+Z$/, '$1Z');
@@ -129,7 +150,7 @@ test('collection shows only the owner the journal update times', async ({ page, 
     const refusal = await visitor.goto(detail);
     expect(refusal.status()).toBe(403);
     expect(refusal.headers()['cache-control']).toBe('private, no-store');
-    await expect(visitor.getByText(new Date(evidence.inventoryTime).toISOString().replace('.000Z', 'Z'), { exact: false })).toHaveCount(0);
+    await expect(visitor.getByText(new Date(times[0]).toISOString().replace('.000Z', 'Z'), { exact: false })).toHaveCount(0);
 
     for (const badId of ['malformed', '00000000-0000-4000-8000-000000000000']) {
       const invalid = await page.goto(`${index}/${badId}`);
@@ -138,5 +159,34 @@ test('collection shows only the owner the journal update times', async ({ page, 
     }
   } finally {
     await Promise.all([foreign.close(), portfolioPeer.dispose(), itemsPeer.dispose(), progressPeer.dispose()]);
+  }
+});
+
+test('populated journal evidence is hidden when the read flag is unset @read-disabled', async ({ page }, info) => {
+  const lang = info.project.metadata.locale;
+  const index = `/${lang}/collection`;
+  const { coinAccount1: owner, coinAccount2: other } = harness().seed;
+  const portfolioPeer = await connect('internal', 'lcfa');
+  const itemsPeer = await connect('internal', 'journal-items');
+  const progressPeer = await connect('internal', 'journal-progress');
+  try {
+    await login(page, lang, { email: owner.email, password: process.env.PORTAL_API_LOGIN_PASSWORD });
+    const subject = await publishPortfolio(portfolioPeer, owner.accountId, other.accountId);
+    await publishJournal(itemsPeer, progressPeer, subject);
+
+    const overview = await page.goto(index);
+    expect(overview.status()).toBe(200);
+    expect(overview.headers()['cache-control']).toBe('private, no-store');
+    await expect(page.getByRole('link', { name: characterName, exact: true })).toHaveCount(0);
+
+    const detail = await page.goto(`${index}/${subject.character}`);
+    expect(detail.status()).toBe(503);
+    expect(detail.headers()['cache-control']).toBe('private, no-store');
+    for (const [title, update] of sourceLabels(lang)) {
+      await expect(page.getByRole('region', { name: title })).toHaveCount(0);
+      await expect(page.getByText(update, { exact: false })).toHaveCount(0);
+    }
+  } finally {
+    await Promise.all([portfolioPeer.dispose(), itemsPeer.dispose(), progressPeer.dispose()]);
   }
 });

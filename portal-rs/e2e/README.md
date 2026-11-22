@@ -306,16 +306,20 @@ evidence-only commit can refer to the immutable tested source candidate.
 
 ## Collection journal evidence
 
-Run the collection spec through the API contract runner with a locally built
-portal binary and the same disposable PostgreSQL administrator URL as the
-cross-repository harness.
+Run both collection profiles with a locally built portal binary and the same
+disposable PostgreSQL administrator URL as the cross-repository harness.
 
 ```sh
-PORTAL_E2E_BINARY=/absolute/path/to/oteryn-portal node api/run.mjs collection.spec.mjs
+export PORTAL_E2E_BINARY=/absolute/path/to/oteryn-portal
+node collection/run.mjs
+node collection/run.mjs --read-disabled
 ```
 
-The runner uses the seed CLI for the two browser accounts. The spec publishes
-the current character portfolio, a complete inventory snapshot and an incomplete
-bestiary watermark over the private mTLS listener. It checks the owner-only
-timestamps and verifies that a bestiary record requiring the candidate catalogue
-mapping is refused. The four browser projects use the same real ingest path.
+Each invocation creates its own disposable database and uses the seed CLI for
+the browser accounts. Only the collection runner enables journal ingest. Both
+profiles publish the character portfolio, inventory snapshot and bestiary
+watermark over the private mTLS listener, and check refusal for a bestiary record
+that requires the candidate catalogue mapping. The first profile checks four
+localized browser projects for unknown and then known owner-only timestamps.
+The second leaves the read flag unset and checks all four projects with evidence
+already published.

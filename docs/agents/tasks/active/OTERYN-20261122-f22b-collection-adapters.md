@@ -23,7 +23,7 @@ delivery to the flagged Platform evidence view.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T14:44:07Z
+updated_at: 2026-11-22T15:25:39Z
 head: UNKNOWN
 branch: codex/feat-collection-adapters
 pr: none
@@ -49,10 +49,13 @@ changed_paths: []
 validation:
   - command: cargo test --locked -p oteryn-playerdata -p oteryn-minigames --lib collection
     result: PASS
-    evidence: PostgreSQL-backed tests passed, 17 in minigames and 1 in playerdata.
-  - command: node api/run.mjs collection.spec.mjs
+    evidence: PostgreSQL-backed tests passed, 17 in minigames and 1 in playerdata, including feed-lock contention.
+  - command: node collection/run.mjs and node collection/run.mjs --read-disabled
     result: PASS
-    evidence: pl-1440, pl-390, en-1440 and en-390 passed on the real mTLS listener.
+    evidence: All four projects passed in both profiles on separate databases, with journal ingest over mTLS.
+  - command: Shared API default-off producer and OAuth PKCE browser specs
+    result: PASS
+    evidence: Default-off journal ingest returned 503 and OAuth passed in all four projects.
   - command: cargo fmt --all --check
     result: PASS
     evidence: Formatting clean.
