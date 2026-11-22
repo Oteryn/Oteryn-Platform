@@ -364,11 +364,11 @@ pub fn error_with_message(chrome: &Chrome, status: StatusCode, message: &str) ->
 }
 
 /// Render a stale form refusal with a link to the current form's GET page.
-pub fn conflict(chrome: &Chrome, recovery_path: &str) -> Response {
+pub fn stale_form(chrome: &Chrome, recovery_path: &str) -> Response {
     render_error(
         chrome,
         StatusCode::CONFLICT,
-        &chrome.text("error-409-description"),
+        &chrome.text("error-409-stale-description"),
         Some(recovery_path),
     )
 }

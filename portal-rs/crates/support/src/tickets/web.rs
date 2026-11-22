@@ -224,7 +224,10 @@ fn fail(error: Error, language: &str) -> Response {
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         Error::NotFound => StatusCode::NOT_FOUND,
         Error::Denied => StatusCode::FORBIDDEN,
-        Error::Conflict | Error::RequestKeyConflict => StatusCode::CONFLICT,
+        Error::Conflict
+        | Error::RequestKeyConflict
+        | Error::StaleVersion
+        | Error::StateConflict => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     (code, text::text(language, "error")).into_response()

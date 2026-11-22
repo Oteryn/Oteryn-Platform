@@ -37,6 +37,10 @@ pub enum Error {
     RequestKeyConflict,
     #[error("ticket conflict")]
     Conflict,
+    #[error("ticket version mismatch")]
+    StaleVersion,
+    #[error("ticket state blocks the action")]
+    StateConflict,
     #[error("database unavailable")]
     Database(#[from] sqlx::Error),
     #[error("notification unavailable")]
@@ -219,7 +223,11 @@ impl Tickets {
         let mut tx = self.pool.begin().await?;
         let (ticket, _) = self
             .change_in(&mut tx, actor, staff, (id, version), change, true)
-            .await?;
+            .await
+            .map_err(|error| match error {
+                Error::StaleVersion | Error::StateConflict => Error::Conflict,
+                error => error,
+            })?;
         if let Some(context) = staff {
             self.check_staff_permissions(&mut tx, context).await?;
         }
@@ -327,7 +335,7 @@ impl Tickets {
             return Err(Error::Denied);
         }
         if ticket.lock_version != version {
-            return Err(Error::Conflict);
+            return Err(Error::StaleVersion);
         }
         let before = ticket.status.clone();
         let (status, notify, reply) = match change {
@@ -335,7 +343,7 @@ impl Tickets {
                 if (is_staff && !active(&ticket.status))
                     || (!is_staff && !matches!(ticket.status.as_str(), "open" | "waiting_user"))
                 {
-                    return Err(Error::Conflict);
+                    return Err(Error::StateConflict);
                 }
                 Self::message(tx, id, actor, body, is_staff, internal).await?;
                 (
@@ -352,7 +360,7 @@ impl Tickets {
             }
             Change::Status(status) => {
                 if !is_staff && status == "open" && ticket.status != "closed" {
-                    return Err(Error::Conflict);
+                    return Err(Error::StateConflict);
                 }
                 if active(status) && !active(&ticket.status) {
                     self.capacity(tx, ticket.account_id).await?;

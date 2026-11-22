@@ -316,6 +316,35 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     await expect(staffPage.locator('form:has(input[value=reply]) [name=lock_version]'))
       .not.toHaveValue(stale.lock_version);
     await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'resolved' });
+    const ticketSnapshot = async () => (await query(
+      `SELECT status, lock_version::text,
+              (SELECT count(*)::int FROM ticket_messages WHERE ticket_id=tickets.id) AS messages
+       FROM tickets WHERE id=$1`, [id],
+    ))[0];
+    const resolved = await ticketSnapshot();
+    expect(resolved.status).toBe('resolved');
+    await expect(replyForm.locator('[name=lock_version]')).toHaveValue(resolved.lock_version);
+    const latest = await replyForm.evaluate(form => Object.fromEntries(new FormData(form)));
+    const refusedReply = unique();
+    const stateConflict = await staffPage.request.post(`/admin/support/tickets/${id}`, {
+      headers: { accept: 'text/html', 'accept-language': lang, origin: new URL(staffPage.url()).origin },
+      form: { ...latest, body: refusedReply },
+      maxRedirects: 0,
+    });
+    expect(stateConflict.status()).toBe(409);
+    expect(stateConflict.headers()['content-language']).toBe(lang);
+    expect(stateConflict.headers()['cache-control']).toBe('no-store');
+    const stateHtml = await stateConflict.text();
+    const stateCopy = lang === 'pl'
+      ? 'Ta akcja jest niedostępna w bieżącym stanie zgłoszenia.'
+      : 'This action is unavailable in the ticket’s current state.';
+    expect(stateHtml).toContain(`<h1>${heading}</h1>`);
+    expect(stateHtml).toContain(`<p>${stateCopy}</p>`);
+    expect(stateHtml).not.toContain(description);
+    expect(stateHtml).not.toContain(openForm);
+    expect(stateHtml).not.toContain(refusedReply);
+    expect(await ticketSnapshot()).toEqual(resolved);
+
 
     const messages = [];
     for (const copy of [replyCopy, statusCopy]) {
@@ -339,6 +368,24 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     await action(staffPage, 'form:has(input[value=moderate])', {
       status: 'actioned', public_outcome: outcome, moderator_notes: unique(),
     });
+    await expect(staffPage.locator('main')).toContainText(outcome);
+    const reportForm = staffPage.locator('form:has(input[value=moderate])');
+    const reportFields = await reportForm.evaluate(form => Object.fromEntries(new FormData(form)));
+    const neutralConflict = await staffPage.request.post(`/admin/moderation/reports/${report}`, {
+      headers: { accept: 'text/html', 'accept-language': lang, origin: new URL(staffPage.url()).origin },
+      form: { ...reportFields, status: 'reviewing', public_outcome: '', moderator_notes: '' },
+      maxRedirects: 0,
+    });
+    expect(neutralConflict.status()).toBe(409);
+    const neutralHtml = await neutralConflict.text();
+    const neutralCopy = lang === 'pl'
+      ? 'Ta akcja jest sprzeczna z bieżącym stanem.'
+      : 'This action conflicts with the current state.';
+    expect(neutralHtml).toContain(`<h1>${heading}</h1>`);
+    expect(neutralHtml).toContain(`<p>${neutralCopy}</p>`);
+    expect(neutralHtml).not.toContain(description);
+    expect(neutralHtml).not.toContain(openForm);
+    expect(neutralHtml).not.toContain(stateCopy);
     const reportCopy = `actioned: ${outcome}`;
     const reportNotice = await mail(page, account.email, subject, reportCopy, outcome);
     expect(reportNotice.text === `${subject}\n\n${reportCopy}`, 'only the public report outcome is mailed').toBe(true);

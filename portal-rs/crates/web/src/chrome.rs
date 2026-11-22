@@ -15,6 +15,13 @@ pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
 }
+/// A ticket mutation's conflict reason from the authorized, locked domain check.
+#[derive(Clone, Debug)]
+pub enum TicketConflict {
+    StaleVersion(oteryn_db::outbox::Uuid),
+    State,
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
@@ -50,14 +57,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         &axum::http::Method::GET | &axum::http::Method::POST
     ) && !crate::surface::oauth_protocol_path(path)
         && crate::surface::error_accept(request.headers()).1;
-    // Ticket record routes serve the current form on GET at the same path.
-    let ticket_path = if browser && request.method() == axum::http::Method::POST {
-        path.strip_prefix("/admin/support/tickets/")
-            .and_then(|id| oteryn_db::outbox::Uuid::parse_str(id).ok())
-            .map(|id| format!("/admin/support/tickets/{id}"))
-    } else {
-        None
-    };
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
@@ -67,11 +66,19 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("text/html"));
         if !html {
-            let mut replacement = match (response.status(), ticket_path.as_deref()) {
-                (axum::http::StatusCode::CONFLICT, Some(path)) => {
-                    oteryn_ui::conflict(&chrome, path)
+            let status = response.status();
+            let mut replacement = match (status, response.extensions().get::<TicketConflict>()) {
+                (axum::http::StatusCode::CONFLICT, Some(TicketConflict::StaleVersion(id))) => {
+                    oteryn_ui::stale_form(&chrome, &format!("/admin/support/tickets/{id}"))
                 }
-                (status, _) => oteryn_ui::error(&chrome, status),
+                (axum::http::StatusCode::CONFLICT, Some(TicketConflict::State)) => {
+                    oteryn_ui::error_with_message(
+                        &chrome,
+                        status,
+                        &chrome.text("error-409-ticket-state-description"),
+                    )
+                }
+                _ => oteryn_ui::error(&chrome, status),
             };
             for name in [
                 header::ALLOW,
