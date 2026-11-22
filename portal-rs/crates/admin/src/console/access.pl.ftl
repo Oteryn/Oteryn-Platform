@@ -86,3 +86,4 @@ audit-value-rejected = Odrzucone
 audit-value-warning = Ostrzeżenie
 audit-value-restriction = Ograniczenie
 audit-value-suspension = Zawieszenie
+audit-target-hidden = Identyfikator strony ukryty

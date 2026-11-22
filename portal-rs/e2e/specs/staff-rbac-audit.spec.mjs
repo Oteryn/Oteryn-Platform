@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
+import { submit } from '../helpers.mjs';
 import { audit, enrollMfa, isolatedAdmin, loginWithRecoveryCode, membership, player, role } from '../staff-rbac-helpers.mjs';
 
 test('Platform audit shows role changes and keeps them from Game audit staff', async ({ page, browser }, info) => {
@@ -39,6 +41,19 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     await audit(staff.page, 'rbac.role.revoked', account.id, { lang });
     await expect(summary).toContainText('rbac.role.revoked');
     await expect(change.getByRole('cell')).toHaveText([yes, no]);
+
+    await test.step('a private editorial page target stays hidden in the audit summary', async () => {
+      const slug = `draft-client-case-${randomUUID()}`;
+      expect((await staff.page.goto(`/admin/pages/${slug}/en`)).status()).toBe(200);
+      await submit(staff.page, 'main form', { title: 'Private draft', body: 'Draft content' });
+      await expect(staff.page).toHaveURL(/\/admin\/pages$/);
+      const params = new URLSearchParams({ lang, operation: 'cms.page.saved', target: slug });
+      expect((await staff.page.goto(`/admin/console/audit?${params}`)).status()).toBe(200);
+      const main = staff.page.locator('main');
+      const pageSummary = main.locator('li > p').filter({ hasText: 'cms.page.saved' });
+      await expect(pageSummary).toContainText(lang === 'pl' ? 'Identyfikator strony ukryty' : 'Page target hidden');
+      await expect(main).not.toContainText(slug);
+    });
 
     const gameRole = await role(staff.page, 'admin.access game.audit.read');
     await membership(staff.page, account.id, gameRole, 'grant');

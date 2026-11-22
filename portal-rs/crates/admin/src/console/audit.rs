@@ -79,6 +79,13 @@ pub(crate) struct Change {
     pub after: String,
 }
 
+// Keep the legal targets aligned with content::pages::legal.
+const LEGAL_PAGE_TARGETS: &[&str] = &["terms-of-service", "privacy-policy", "cookie-policy"];
+
+fn editorial_page_action(action: &str) -> bool {
+    matches!(action, "cms.page.saved" | "cms.page.deleted")
+}
+
 // Match the stored action, even when the list uses a separate operation label.
 fn fields(action: &str, target: &str) -> &'static [&'static str] {
     match action {
@@ -107,21 +114,13 @@ fn fields(action: &str, target: &str) -> &'static [&'static str] {
             "published_at",
             "translation_published_at",
         ],
-        // Keep the legal targets aligned with content::pages::legal.
-        "cms.page.saved" | "cms.page.deleted"
-            if matches!(
-                target,
-                "terms-of-service" | "privacy-policy" | "cookie-policy"
-            ) =>
-        {
-            &[
-                "locale",
-                "title",
-                "published_at",
-                "legal_version",
-                "legal_effective_date",
-            ]
-        }
+        "cms.page.saved" | "cms.page.deleted" if LEGAL_PAGE_TARGETS.contains(&target) => &[
+            "locale",
+            "title",
+            "published_at",
+            "legal_version",
+            "legal_effective_date",
+        ],
         "cms.page.saved" | "cms.page.deleted" => &["locale", "title", "published_at"],
         "events.event_created" | "events.event_updated" => &["status"],
         "events.status_changed" => &["status", "version"],
@@ -329,6 +328,16 @@ struct AuditRow {
 }
 
 impl AuditRow {
+    fn target_summary(&self, lang: &str) -> std::borrow::Cow<'_, str> {
+        if editorial_page_action(&self.action)
+            && !LEGAL_PAGE_TARGETS.contains(&self.target.as_str())
+        {
+            tr(lang, "audit-target-hidden").into()
+        } else {
+            self.target.as_str().into()
+        }
+    }
+
     fn role_context(&self, lang: &str) -> String {
         if !matches!(
             self.action.as_str(),
@@ -394,7 +403,7 @@ pub(crate) async fn page<B: Backend>(
                             row.request_id,
                             row.actor.map(|id| id.to_string()).unwrap_or_default(),
                             row.operation,
-                            row.target,
+                            row.target_summary(lang),
                             row.recorded_at,
                             row.role_context(lang),
                         ),
