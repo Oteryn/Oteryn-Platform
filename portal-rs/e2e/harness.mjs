@@ -28,6 +28,7 @@ const argv = process.argv.slice(2);
 const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
+const roles = argv.includes('--serve-only') ? ['serve'] : ['serve', 'worker', 'gateway'];
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -179,7 +180,7 @@ async function close(code = 0) {
 }
 process.on('SIGINT', () => close(0));
 process.on('SIGTERM', () => close(0));
-for (const role of ['serve', 'worker', 'gateway']) {
+for (const role of roles) {
   const file = path.join(dirs.logs, `${role}.log`);
   const child = spawn(binary, [role], { cwd: root, env, stdio: ['ignore', fs.openSync(file, 'a'), fs.openSync(file, 'a')] });
   child.once('exit', status => { if (!closing) { log(`${role} exited (${status}); see ${file}`); close(1); } });
@@ -248,7 +249,7 @@ const report = {
   internalServerName: 'localhost',
   clients: Object.fromEntries(Object.entries(clients).map(([name, c]) => [name, { san: c.san, env: c.env, cert: c.cert, key: c.key }])),
   witnessDirectory: dirs.witness,
-  logs: Object.fromEntries(['migrate', 'serve', 'worker', 'gateway'].map(role => [role, path.join(dirs.logs, `${role}.log`)])),
+  logs: Object.fromEntries(['migrate', ...roles].map(role => [role, path.join(dirs.logs, `${role}.log`)])),
   seed,
   pending,
   pid: process.pid,

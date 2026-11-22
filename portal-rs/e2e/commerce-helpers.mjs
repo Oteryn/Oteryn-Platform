@@ -42,7 +42,7 @@ export async function seedMfa(player) {
 
 export async function signInPlayer(page, lang, databaseURL) {
   const player = await seedPlayer(lang, databaseURL);
-  await login(page, lang, player);
+  await login(page, lang, player, databaseURL);
   return player;
 }
 
@@ -89,7 +89,7 @@ export async function withUnpublishedDownloads(browser, locale, check) {
   const scratch = await mkdtemp(resolve(tmpdir(), 'portal-e2e-downloads-'));
   const out = resolve(scratch, 'harness');
   const origin = `http://localhost:${ports[0]}`;
-  const child = spawn(process.execPath, [resolve(portalRoot, 'e2e/harness.mjs')], {
+  const child = spawn(process.execPath, [resolve(portalRoot, 'e2e/harness.mjs'), '--serve-only'], {
     env: {
       ...process.env,
       ...Object.fromEntries(portNames.map((name, i) => [`PORTAL_E2E_${name}_PORT`, String(ports[i])])),
