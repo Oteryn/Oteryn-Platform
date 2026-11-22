@@ -532,7 +532,9 @@ pub(crate) async fn chrome_account(
         "SELECT s.csrf_token, EXISTS (
             SELECT 1 FROM account_roles ar
             JOIN role_permissions rp ON rp.role_id = ar.role_id
+            JOIN accounts a ON a.id = ar.account_id
             WHERE ar.account_id = s.account_id AND rp.permission = 'admin.access'
+                AND a.status = 'active' AND a.email_verified_at IS NOT NULL
         )
         FROM web_sessions s
         WHERE s.id_hash = $1 AND s.account_id IS NOT NULL
@@ -542,10 +544,7 @@ pub(crate) async fn chrome_account(
     .fetch_optional(&layer.pool)
     .await;
     match row {
-        Ok(Some((csrf, staff_access))) => oteryn_ui::Account::SignedIn {
-            csrf,
-            staff_access,
-        },
+        Ok(Some((csrf, staff_access))) => oteryn_ui::Account::SignedIn { csrf, staff_access },
         _ => oteryn_ui::Account::Anonymous,
     }
 }

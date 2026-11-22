@@ -485,7 +485,7 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
 }
 
 #[tokio::test]
-async fn staff_navigation_requires_an_enabled_panel_on_the_request_host() -> TestResult {
+async fn staff_navigation_requires_eligible_account_on_enabled_panel_host() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -495,36 +495,53 @@ async fn staff_navigation_requires_an_enabled_panel_on_the_request_host() -> Tes
     let grant = sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'")
         .bind(id).execute(&db.pool).await?;
     assert_eq!(grant.rows_affected(), 1);
-    let browser = BrowserSession::new(
-        db.pool.clone(),
-        SessionConfig::default(),
-        None,
-        "staff menu",
-    );
-    rotate(&browser, PrivilegeChange::Login(id)).await?;
-    let cookie = {
-        let inner = browser.inner.lock().await;
-        format!(
-            "{COOKIE_NAME}={}",
-            inner.record.as_ref().ok_or("missing session")?.id
-        )
-    };
-    for (configured, host, visible) in [
-        (None, "staff.example.test:8443", false),
+    let staff_host = "staff.example.test:8443";
+    for (configured, host, status, verified, visible) in [
+        (None, staff_host, "active", true, false),
         (
-            Some("staff.example.test:8443"),
+            Some(staff_host),
             "public.example.test:8443",
+            "active",
+            true,
             false,
         ),
-        (Some("staff.example.test:8443"), "staff.example.test", false),
         (
-            Some("staff.example.test:8443"),
+            Some(staff_host),
+            "staff.example.test",
+            "active",
+            true,
+            false,
+        ),
+        (
+            Some(staff_host),
             "STAFF.example.test:8443",
+            "active",
+            true,
             true,
         ),
+        (Some(staff_host), staff_host, "suspended", true, false),
+        (Some(staff_host), staff_host, "active", false, false),
     ] {
+        // Seed durable sessions after the state update because it normally revokes them.
+        sqlx::query("UPDATE accounts SET status=$1,email_verified_at=CASE WHEN $2 THEN clock_timestamp() ELSE NULL END WHERE id=$3")
+            .bind(status).bind(verified).bind(id).execute(&db.pool).await?;
+        let browser = BrowserSession::new(
+            db.pool.clone(),
+            SessionConfig::default(),
+            None,
+            "staff menu",
+        );
+        rotate(&browser, PrivilegeChange::Login(id)).await?;
+        let cookie = {
+            let inner = browser.inner.lock().await;
+            format!(
+                "{COOKIE_NAME}={}",
+                inner.record.as_ref().ok_or("missing session")?.id
+            )
+        };
         let mut registry = oteryn_ui::Registry::default();
         registry.account = true;
+        registry.login = true;
         let app = Router::new()
             .route(
                 "/en/",
@@ -552,10 +569,14 @@ async fn staff_navigation_requires_an_enabled_panel_on_the_request_host() -> Tes
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
         let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+        assert!(
+            html.contains("action=\"/en/logout\""),
+            "{status} verified={verified}: stored session is still recognized by chrome"
+        );
         assert_eq!(
             html.contains("href=\"/admin\""),
             visible,
-            "{configured:?} {host}"
+            "{configured:?} {host} {status} verified={verified}"
         );
     }
     db.close().await
