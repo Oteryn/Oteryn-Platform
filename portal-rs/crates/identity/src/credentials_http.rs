@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Query, Request, State},
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -64,12 +64,7 @@ impl oteryn_notify::AccountState for AccountState {
     }
 }
 pub fn configured_router(pool: sqlx::PgPool) -> Router {
-    configured_from(pool, &|key| std::env::var(key).ok())
-}
-
-fn configured_from(pool: sqlx::PgPool, lookup: &dyn Fn(&str) -> Option<String>) -> Router {
-    let player_credentials = lookup("OTERYN_ACCOUNT_CREDENTIALS").as_deref() == Some("true");
-    if !player_credentials && lookup("OTERYN_ADMIN_PANEL").as_deref() != Some("true") {
+    if !std::env::var("OTERYN_ACCOUNT_CREDENTIALS").is_ok_and(|v| v == "true") {
         return Router::new();
     }
     // Security messages never use unsubscribe links. Keep the optional service
@@ -89,19 +84,7 @@ fn configured_from(pool: sqlx::PgPool, lookup: &dyn Fn(&str) -> Option<String>) 
             unsubscribe,
         }),
     };
-    if player_credentials {
-        router(service)
-    } else {
-        // Role grants need password confirmation even on a staff-only deployment.
-        let routes = oteryn_admin::web::configured_guard_from(
-            credential_routes(service, false),
-            pool.clone(),
-            oteryn_admin::rbac::Permission::GrantRoles,
-            lookup,
-        )
-        .unwrap_or_default();
-        credential_policy(routes, pool)
-    }
+    router(service)
 }
 /// Supply the real T16/T21 revoker at composition once those modules are integrated.
 pub fn router(service: Credentials) -> Router {
@@ -121,39 +104,28 @@ pub fn router(service: Credentials) -> Router {
             .trusted_origins
             .push(format!("https://{authority}"));
     }
-    let pool = service.pool.clone();
-    let routes = credential_routes(service, true).route_layer(
-        axum::middleware::from_fn_with_state(sessions, session::middleware),
-    );
-    credential_policy(routes, pool)
-}
-
-fn credential_routes(service: Credentials, player_credentials: bool) -> Router {
+    let limiter = RateLimiter::new(service.pool.clone());
     let mut routes = Router::new();
     for prefix in ["", "/pl", "/en"] {
-        routes = routes.route(&format!("{prefix}/account/sudo"), get(show_sudo).post(sudo));
-        if player_credentials {
-            routes = routes
-                .route(
-                    &format!("{prefix}/password/change"),
-                    get(show_password).post(change).put(change),
-                )
-                .route(&format!("{prefix}/account/security"), get(security_landing));
-        }
+        routes = routes
+            .route(
+                &format!("{prefix}/password/change"),
+                get(show_password).post(change).put(change),
+            )
+            .route(&format!("{prefix}/account/sudo"), get(show_sudo).post(sudo))
+            .route(&format!("{prefix}/account/security"), get(security_landing));
     }
-    if !player_credentials {
-        routes = routes.route_layer(axum::middleware::from_fn(roles_only));
-    }
-    routes.with_state(service)
-}
-
-fn credential_policy(routes: Router, pool: sqlx::PgPool) -> Router {
     let routes = routes
+        .route_layer(axum::middleware::from_fn_with_state(
+            sessions,
+            session::middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
-            RateLimiter::new(pool),
+            limiter,
             oteryn_web::ratelimit::supply,
         ))
-        .layer(tower_http::limit::RequestBodyLimitLayer::new(8192));
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(8192))
+        .with_state(service);
     oteryn_web::ratelimit::finish_routes(routes)
 }
 async fn security_landing(Extension(lang): Extension<Language>) -> Redirect {
@@ -369,17 +341,6 @@ enum SudoDestination {
 struct SudoQuery {
     #[serde(default)]
     return_to: SudoDestination,
-}
-
-async fn roles_only(
-    Query(destination): Query<SudoQuery>,
-    request: Request,
-    next: axum::middleware::Next,
-) -> Response {
-    if !matches!(destination.return_to, SudoDestination::Roles) {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    next.run(request).await
 }
 
 async fn sudo(

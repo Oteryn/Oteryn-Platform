@@ -33,7 +33,6 @@ fn router(service: Passkeys, sessions: SessionLayer) -> Router {
     let limiter = RateLimiter::new(service.pool.clone());
     let routes = Router::new()
         .route("/{lang}/account/passkeys", get(page))
-        .route("/{lang}/account/passkeys/manage", get(manage))
         .route(
             "/{lang}/account/passkeys/register/start",
             post(register_start),
@@ -115,17 +114,6 @@ impl Page {
             .into_owned()
     }
 }
-async fn manage(
-    state: State<Passkeys>,
-    lang: Path<String>,
-    Extension(session): Extension<BrowserSession>,
-) -> Result<Response, StatusCode> {
-    if session.account_id().await.is_none() {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    page(state, lang, Extension(session)).await
-}
-
 async fn page(
     State(service): State<Passkeys>,
     Path(lang): Path<String>,

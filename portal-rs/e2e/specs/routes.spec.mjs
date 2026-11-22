@@ -21,11 +21,6 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
  const lang=info.project.metadata.locale;
  const gmRoute=row.actor==='game_master_senior';
  const target=sample(row.route,lang)+(gmRoute?`?lang=${lang}`:'');
- if(row.anonymousStatus) {
-   const anonymous=await page.request.get(target,{maxRedirects:0,headers:{'accept-language':lang}});
-   expect(anonymous.status(),'anonymous passkey management is refused').toBe(row.anonymousStatus);
-   expect(anonymous.headers().location).toBe(`/${lang}/login`);
- }
  if(gmRoute) {
    platformAdminCookies??=await staffCookies(browser,info,'platform_admin');
    await context.addCookies(platformAdminCookies);
@@ -38,6 +33,11 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
    const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
    await context.addCookies(staff.cookies);
  }else await context.addCookies(cookies);
+ if(row.redirect) {
+   const landing=await page.request.get(target,{maxRedirects:0});
+   expect(landing.status()).toBe(303);
+   expect(landing.headers().location).toBe(sample(row.redirect,lang));
+ }
  const errors=[];
  let documentPath=new URL(target,'https://localhost:18443').pathname;
  page.on('pageerror',e=>errors.push(e.message));
@@ -50,7 +50,6 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
  if (row.method === 'GET') await waitForWikiBudget(target, 2);
  const response=await page.request.fetch(target,{method:row.method,headers:{accept:'text/html',origin:'https://localhost:18443','accept-language':lang},...(row.method==='GET'?{}:{form:row.route==='/oauth/token'?{client_id:'e2e-local'}:{}})});
  expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
- if(row.anonymousStatus) expect(new URL(response.url()).pathname).toBe(target);
  if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');
  documentPath=new URL(response.url()).pathname;
  const text=await response.text();

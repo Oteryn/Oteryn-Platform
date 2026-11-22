@@ -114,10 +114,25 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await expect(adminNav.getByRole('link', {name: label.accounts})).toHaveAttribute('href', '/admin/players');
     await expect(adminNav.getByRole('link', {name: label.bazaar})).toHaveAttribute('href', `/admin/${lang}/bazaar`);
     await expect(adminNav.getByRole('link', {name: label.gm})).toHaveCount(0);
+    const alternate = lang === 'pl' ? 'en' : 'pl';
+    await staffContext.addCookies([{name: 'portal_language', value: alternate, url: origin}]);
+    expect((await visit(admin, '/admin/roles')).status()).toBe(200);
+    await expect(admin.locator('html')).toHaveAttribute('lang', alternate);
+    await expect(adminNav.getByRole('link', {name: labels[alternate].bazaar}))
+      .toHaveAttribute('href', `/admin/${alternate}/bazaar`);
+    await expect(admin.getByLabel(labels[alternate].reason, {exact: true}).first()).toBeVisible();
+    await expect(admin.locator('main a[href*="return_to=roles"]'))
+      .toHaveAttribute('href', `/${alternate}/account/sudo?return_to=roles`);
     for (const locale of ['pl', 'en']) {
       await staffContext.addCookies([{name: 'portal_language', value: locale === 'pl' ? 'en' : 'pl', url: origin}]);
       expect((await visit(admin, `/console/dashboard?lang=${locale}`)).status()).toBe(403);
       await expect(admin.locator('html')).toHaveAttribute('lang', locale);
+      await expect(admin.locator('main h1')).toHaveText(locale === 'pl' ? 'Brak dostępu' : 'Access denied');
+      await expect(admin.locator('#portal-navigation')).toHaveAttribute(
+        'aria-label', locale === 'pl' ? 'Nawigacja główna' : 'Main navigation',
+      );
+      const news = admin.locator(`#portal-navigation a[href="/${locale}/news"]`);
+      await expect(news.first()).toHaveText(locale === 'pl' ? 'Aktualności' : 'News');
     }
     await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
     expect((await visit(admin, '/console/worlds')).status()).toBe(403);
@@ -132,6 +147,16 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await gmNav.getByRole('link', {name: label.worlds, exact: true}).click();
     await expect(admin).toHaveURL(new RegExp(`/console/worlds\\?lang=${lang}$`));
     await expect(admin.locator('html')).toHaveAttribute('lang', lang);
+
+    const preferred = lang === 'pl' ? 'en' : 'pl';
+    await staffContext.addCookies([{name: 'portal_language', value: preferred, url: origin}]);
+    expect((await visit(admin, '/console/worlds')).status()).toBe(200);
+    await expect(admin.locator('html')).toHaveAttribute('lang', preferred);
+    await expect(admin.locator('main h1')).toHaveText(labels[preferred].worlds);
+    await expect(admin.locator('#portal-navigation')).toHaveAttribute(
+      'aria-label', preferred === 'pl' ? 'Nawigacja główna' : 'Main navigation',
+    );
+    await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
 
     const [{id: roleId}] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [unique()]);
     await rolePage(admin, roleId);

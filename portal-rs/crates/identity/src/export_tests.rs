@@ -27,6 +27,23 @@ async fn disabled_and_bad_input() -> TestResult {
     Ok(())
 }
 #[tokio::test]
+async fn browser_export_requires_mounted_password_confirmation() -> TestResult {
+    let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+    for (enabled, password_confirmation, mounted) in [
+        (false, false, false),
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        assert_eq!(
+            configured_browser_router(pool.clone(), enabled, password_confirmation).has_routes(),
+            mounted
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_owner_export_and_refusals() -> TestResult {
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
@@ -55,7 +72,7 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
-    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES ('owner@example.invalid','private-password-hash','active','en',now()) RETURNING id").fetch_one(&pool).await?;
+    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at,profile_display_name) VALUES ('owner@example.invalid','private-password-hash','active','en',now(),'Żółty Lis') RETURNING id").fetch_one(&pool).await?;
     sqlx::query("INSERT INTO accounts(email,password_hash,status,locale) VALUES ('other@example.invalid','other-private-hash','active','pl')").execute(&pool).await?;
     let token = "a".repeat(64);
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,sudo_until,data) VALUES ($1,$2,$3,'test browser',now()+interval '1 hour',now()+interval '1 day',now()+interval '5 minutes','{\"secret\":\"private-session-state\"}')")
@@ -92,6 +109,7 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
         .map_err(|s| s.to_string())?;
     let data: Value = serde_json::from_slice(&axum::body::to_bytes(body, usize::MAX).await?)?;
     assert_eq!(data["account"]["id"], id.to_string());
+    assert_eq!(data["account"]["display_name"], "Żółty Lis");
     assert_eq!(data["sessions"].as_array().map(Vec::len), Some(1));
     use tower::ServiceExt;
     for locale in ["pl", "en"] {

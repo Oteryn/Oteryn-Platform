@@ -113,6 +113,16 @@
   },
   {
     "crate": "admin",
+    "route": "/console",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
+    "method": "GET",
+    "status": 200,
+    "redirect": "/console/dashboard?lang={lang}",
+    "reason": "redirects to the first permitted Game page"
+  },
+  {
+    "crate": "admin",
     "route": "/console/dashboard",
     "actor": "game_master_senior",
     "staffRefusal": 403,
@@ -1114,15 +1124,6 @@
     "method": "GET",
     "status": 200,
     "reason": "page, redirect alias or resource read"
-  },
-  {
-    "crate": "identity",
-    "route": "/{lang}/account/passkeys/manage",
-    "actor": "player",
-    "method": "GET",
-    "status": 200,
-    "anonymousStatus": 303,
-    "reason": "signed-in management page, with anonymous requests sent to login"
   },
   {
     "crate": "identity",

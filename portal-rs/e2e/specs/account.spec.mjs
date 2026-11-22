@@ -7,7 +7,7 @@ import {register,login,csrfRejected,submit,pool} from '../helpers.mjs';
 function previousWeek(){const d=new Date();d.setUTCHours(0,0,0,0);d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7-7);return Math.floor(d.getTime()/1000);}
 
 const surfaces=[
- ['/account','overview'],['account/privacy','privacy'],['account/sessions','sessions'],['account/passkeys/manage','passkeys'],
+ ['/account','overview'],['account/privacy','privacy'],['account/sessions','sessions'],['account/passkeys','passkeys'],
  ['account/security/email','email change'],['password/change','password change'],['account/sudo','sudo'],['mfa','MFA settings'],
  ['account/characters/new','character creation'],['shop/history','wallet balance'],['panel/premium','premium'],['panel/payments','payments'],
  ['shop','store'],['shop/coins','top up'],['shop/history','wallet history'],['shop/transfer','transfer'],

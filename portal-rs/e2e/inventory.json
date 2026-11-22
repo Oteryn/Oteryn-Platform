@@ -221,6 +221,20 @@
       ]
     },
     {
+      "route": "/console",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_CONSOLE",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/console/mod.rs:424"
+      ]
+    },
+    {
       "route": "/console/dashboard",
       "crate": "admin",
       "flags": [
@@ -2117,19 +2131,6 @@
       ],
       "sources": [
         "crates/identity/src/passkeys_http.rs:35"
-      ]
-    },
-    {
-      "route": "/{lang}/account/passkeys/manage",
-      "crate": "identity",
-      "flags": [
-        "OTERYN_ACCOUNT_PASSKEYS"
-      ],
-      "methods": [
-        "GET"
-      ],
-      "sources": [
-        "crates/identity/src/passkeys_http.rs:36"
       ]
     },
     {
@@ -4273,7 +4274,7 @@
     {
       "section": "account-passkeys",
       "label": "shell-account-passkeys",
-      "path": "account/passkeys/manage",
+      "path": "account/passkeys",
       "crate": "identity",
       "group": "Account",
       "footer": false,

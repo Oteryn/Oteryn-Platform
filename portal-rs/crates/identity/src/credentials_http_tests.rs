@@ -39,116 +39,6 @@ async fn security_landing_preserves_the_language() {
     }
 }
 
-#[tokio::test]
-async fn postgres_staff_sudo_works_with_player_credentials_disabled()
--> Result<(), Box<dyn std::error::Error>> {
-    let Some(db) = database::Database::open().await? else {
-        return Ok(());
-    };
-    let pool = &db.pool;
-    let app = configured_from(pool.clone(), &|key| match key {
-        "OTERYN_ADMIN_PANEL" => Some("true".into()),
-        "OTERYN_ADMIN_HOST" => Some("staff.test".into()),
-        "OTERYN_MFA_KEY" => Some("07".repeat(32)),
-        _ => None,
-    });
-    let password = oteryn_identity::password::hash("test password")?;
-    let account: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO accounts(email,password_hash,status,locale,email_verified_at)
-         VALUES($1,$2,'active','en',now()) RETURNING id",
-    )
-    .bind("staff-sudo@example.test")
-    .bind(&password)
-    .fetch_one(pool)
-    .await?;
-    let generation: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO account_mfa_totp(account_id,secret,confirmed)
-         VALUES($1,$2,true) RETURNING generation",
-    )
-    .bind(account)
-    .bind(vec![0u8; 32])
-    .fetch_one(pool)
-    .await?;
-    let grant = "c".repeat(64);
-    sqlx::query(
-        "INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at)
-         VALUES($1,$2,$3,$4,'grant',clock_timestamp()+interval '15 minutes')",
-    )
-    .bind(Sha256::digest(grant.as_bytes()).to_vec())
-    .bind(account)
-    .bind(generation)
-    .bind(Sha256::digest(password.as_bytes()).to_vec())
-    .execute(pool)
-    .await?;
-    let raw = "a".repeat(64);
-    let csrf = "b".repeat(64);
-    let cookie = format!("{}={raw}", session::COOKIE_NAME);
-    sqlx::query(
-        "INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at,data,authorization_generation)
-         SELECT $1,id,$2,'test',now()+interval '1 hour',now()+interval '1 day',$3,native_security_generation
-         FROM accounts WHERE id=$4",
-    )
-    .bind(Sha256::digest(raw.as_bytes()).to_vec())
-    .bind(&csrf)
-    .bind(serde_json::json!({(oteryn_identity::mfa::SESSION_GRANT_KEY): grant}))
-    .bind(account)
-    .execute(pool)
-    .await?;
-    let send = |method: &str, path: &str, host: &'static str, token: &str, body: &str| {
-        let mut req = request(method, path, &cookie, token, body)?;
-        req.headers_mut().insert(header::HOST, host.parse()?);
-        req.headers_mut()
-            .insert(header::ORIGIN, "https://staff.test".parse()?);
-        Ok::<_, Box<dyn std::error::Error>>(app.clone().oneshot(req))
-    };
-    let sudo = "/en/account/sudo?return_to=roles";
-    assert_eq!(
-        send("GET", sudo, "staff.test", "", "")?.await?.status(),
-        StatusCode::FORBIDDEN
-    );
-    sqlx::query(
-        "INSERT INTO account_roles(account_id,role_id)
-         SELECT $1,id FROM roles WHERE key='platform_admin'",
-    )
-    .bind(account)
-    .execute(pool)
-    .await?;
-    for (path, host) in [
-        (sudo, "player.test"),
-        ("/en/account/sudo", "staff.test"),
-        ("/en/account/sudo?return_to=export", "staff.test"),
-        ("/en/password/change", "staff.test"),
-    ] {
-        assert_eq!(
-            send("GET", path, host, "", "")?.await?.status(),
-            StatusCode::NOT_FOUND
-        );
-    }
-    assert_eq!(
-        send("GET", sudo, "staff.test", "", "")?.await?.status(),
-        StatusCode::OK
-    );
-    let form = "current_password=test+password";
-    assert_eq!(
-        send("POST", sudo, "staff.test", "", form)?.await?.status(),
-        StatusCode::FORBIDDEN
-    );
-    let response = send("POST", sudo, "staff.test", &csrf, form)?.await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
-    assert_eq!(response.headers()[header::LOCATION], "/admin/roles");
-    let fresh: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM web_sessions
-         WHERE account_id=$1 AND sudo_until>clock_timestamp() AND id_hash<>$2)",
-    )
-    .bind(account)
-    .bind(Sha256::digest(raw.as_bytes()).to_vec())
-    .fetch_one(pool)
-    .await?;
-    assert!(fresh);
-    db.close().await?;
-    Ok(())
-}
-
 /// Cache a complete range for `password` so the change makes no range request.
 async fn cache_range(
     pool: &sqlx::PgPool,
@@ -237,41 +127,51 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
     )?;
     assert!(html.contains("Change password"));
     assert!(html.contains("name=\"_csrf\""));
-    let response = app
-        .clone()
-        .oneshot(request(
-            "POST",
+    let mut rotated = cookie;
+    let mut hash = hash;
+    let mut next_csrf = csrf;
+    for (path, destination) in [
+        ("/en/account/sudo", "/en/account/security"),
+        (
             "/en/account/sudo?return_to=export",
-            &cookie,
-            &csrf,
-            "current_password=test+password",
-        )?)
-        .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
-    assert_eq!(
-        response.headers()[header::LOCATION],
-        "/en/account/privacy/export"
-    );
-    let rotated = response
-        .headers()
-        .get(header::SET_COOKIE)
-        .ok_or("missing cookie")?
-        .to_str()?
-        .split(';')
-        .next()
-        .ok_or("missing cookie")?
-        .to_owned();
-    assert_ne!(rotated, cookie);
-    assert_eq!(service.require_sudo(&hash).await?, None);
-    let raw = rotated.split_once('=').ok_or("invalid cookie")?.1;
-    let hash = Sha256::digest(raw.as_bytes()).to_vec();
-    assert_eq!(service.require_sudo(&hash).await?, Some(id));
-    let next_csrf: String =
-        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
-            .bind(&hash)
-            .fetch_one(&pool)
+            "/en/account/privacy/export",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                path,
+                &rotated,
+                &next_csrf,
+                "current_password=test+password",
+            )?)
             .await?;
-    assert_ne!(csrf, next_csrf);
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[header::LOCATION], destination);
+        let new_cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .ok_or("missing cookie")?
+            .to_str()?
+            .split(';')
+            .next()
+            .ok_or("missing cookie")?
+            .to_owned();
+        assert_ne!(new_cookie, rotated);
+        assert_eq!(service.require_sudo(&hash).await?, None);
+        rotated = new_cookie;
+        let raw = rotated.split_once('=').ok_or("invalid cookie")?.1;
+        hash = Sha256::digest(raw.as_bytes()).to_vec();
+        assert_eq!(service.require_sudo(&hash).await?, Some(id));
+        let new_csrf: String =
+            sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
+                .bind(&hash)
+                .fetch_one(&pool)
+                .await?;
+        assert_ne!(new_csrf, next_csrf);
+        next_csrf = new_csrf;
+    }
     assert_eq!(app.clone().oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=next+password&password_confirmation=next+password")?).await?.status(),StatusCode::SERVICE_UNAVAILABLE);
     sqlx::query("UPDATE web_sessions SET sudo_until=now() WHERE id_hash=$1")
         .bind(&hash)
