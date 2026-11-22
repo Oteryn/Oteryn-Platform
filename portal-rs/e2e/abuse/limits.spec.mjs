@@ -1,0 +1,430 @@
+import { spawnSync } from 'node:child_process';
+import { randomUUID, createHash } from 'node:crypto';
+import { test, expect } from '../fixtures.mjs';
+import { csrfRejected, login, password } from '../helpers.mjs';
+import { query } from '../staff-rbac-helpers.mjs';
+
+const sharedMessage = { pl: 'Zbyt wiele żądań', en: 'Too many requests' };
+const reportMessage = {
+  pl: 'Zbyt wiele zgłoszeń. Spróbuj ponownie za minutę.',
+  en: 'Too many reports. Try again in one minute.',
+};
+const inviteMessage = {
+  pl: 'Jeśli adres spełnia warunki, zaproszenie trafi do kolejki. Dane kont nie są ujawniane.',
+  en: 'If the address is eligible, the invitation is queued. No account details are disclosed.',
+};
+const world = '019a0000-0000-7000-8000-00000000e001';
+const uuidPath = '[a-f0-9-]{36}';
+
+async function seedAccount(lang) {
+  const account = { email: `abuse-${randomUUID()}@example.invalid`, password: password() };
+  const result = spawnSync(process.env.PORTAL_E2E_BINARY, [
+    'seed', 'account', JSON.stringify({ ...account, locale: lang }),
+  ], {
+    encoding: 'utf8',
+    env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: process.env.PORTAL_E2E_DATABASE_URL },
+  });
+  expect(result.status, 'local account seed exit status').toBe(0);
+  return { ...account, id: JSON.parse(result.stdout).accountId };
+}
+
+async function withPlayers(browser, info, exercise) {
+  const lang = info.project.metadata.locale;
+  await query('SELECT 1'); // Validate the disposable database before invoking the seed CLI.
+  const contexts = [];
+  try {
+    const players = [];
+    for (let i = 0; i < 2; i++) {
+      const account = await seedAccount(lang);
+      const context = await browser.newContext({
+        baseURL: process.env.PORTAL_E2E_ORIGIN, ignoreHTTPSErrors: true,
+        locale: lang, viewport: info.project.use.viewport,
+        extraHTTPHeaders: { 'Accept-Language': lang },
+      });
+      contexts.push(context);
+      const page = await context.newPage();
+      await login(page, lang, account);
+      players.push({ page, id: account.id });
+    }
+    await exercise(players, lang);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+}
+
+async function formFields(page, route, selector = 'main form[method=post]') {
+  expect((await page.goto(route)).status(), route).toBe(200);
+  const form = page.locator(selector).first();
+  await expect(form).toBeVisible();
+  return form.evaluate(node => Object.fromEntries(new FormData(node)));
+}
+
+async function post(page, route, form) {
+  return page.request.post(route, {
+    form, headers: { origin: new URL(page.url()).origin, accept: 'text/html' }, maxRedirects: 0,
+  });
+}
+
+function redirect(response, status, location) {
+  expect(response.status(), new URL(response.url()).pathname).toBe(status);
+  expect(response.headers().location).toMatch(location);
+  return response.headers().location;
+}
+
+async function denied(response, lang, { message = sharedMessage[lang], retry } = {}) {
+  expect(response.status()).toBe(429);
+  const html = await response.text();
+  expect(html).toContain(message);
+  const header = response.headers()['retry-after'];
+  if (retry === 'minute-bucket') {
+    expect(header).toMatch(/^[1-9][0-9]?$/);
+    expect(Number(header)).toBeLessThanOrEqual(60);
+  } else {
+    expect(header).toBe(retry);
+  }
+}
+
+async function startMinute() {
+  // Leave enough of the production window to exercise the exact boundary.
+  await expect.poll(async () => Number((await query(
+    'SELECT extract(second FROM clock_timestamp()) AS seconds',
+  ))[0].seconds), { timeout: 65_000, intervals: [500] }).toBeLessThan(40);
+}
+
+async function expireBucket(policy, account, budget) {
+  const digest = createHash('sha256');
+  for (const part of [policy, account, '127.0.0.1']) {
+    const length = Buffer.alloc(8);
+    length.writeBigUInt64BE(BigInt(Buffer.byteLength(part)));
+    digest.update(length).update(part);
+  }
+  const rows = await query(
+    `UPDATE web_rate_limits SET window_start = window_start - interval '1 minute'
+     WHERE limiter_name=$1 AND key_hash=$2 AND window_start=date_trunc('minute', clock_timestamp())
+     RETURNING count::int AS count`, [policy, digest.digest()],
+  );
+  expect(rows.map(row => row.count)).toEqual([budget + 1]);
+}
+
+const createTicket = async (player, lang, suffix) => {
+  const route = `/${lang}/support/tickets`;
+  const fields = await formFields(player.page, `${route}/create`);
+  return post(player.page, route, { ...fields, subject: `Browser ticket ${suffix}`, body: 'Local abuse qualification message.' });
+};
+const ticketLocation = lang => new RegExp(`^/${lang}/support/tickets/${uuidPath}$`);
+
+test('ticket creation allows six, isolates a second account and resets', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([a, b], lang) => {
+    await startMinute();
+    for (let i = 1; i <= 6; i++) redirect(await createTicket(a, lang, i), 302, ticketLocation(lang));
+    await denied(await createTicket(a, lang, 7), lang, { retry: 'minute-bucket' });
+    redirect(await createTicket(b, lang, 7), 302, ticketLocation(lang));
+    await denied(await createTicket(a, lang, 7), lang, { retry: 'minute-bucket' });
+    await expireBucket('support-ticket-create', a.id, 6);
+    const seventh = redirect(await createTicket(a, lang, 7), 302, ticketLocation(lang));
+    for (let i = 8; i <= 10; i++) redirect(await createTicket(a, lang, i), 302, ticketLocation(lang));
+
+    const route = `/${lang}/support/tickets`;
+    const atCapacity = await createTicket(a, lang, 11);
+    redirect(atCapacity, 302, `${route}/create`);
+    expect(atCapacity.headers()['retry-after']).toBeUndefined();
+    expect((await a.page.goto(`${route}/create`)).status()).toBe(200);
+    await expect(a.page.locator('main [role=alert]')).toHaveText(lang === 'pl'
+      ? 'Nie udało się wykonać żądania. Odśwież zgłoszenie i spróbuj ponownie.'
+      : 'The request could not be completed. Reload the ticket and try again.');
+    redirect(await createTicket(b, lang, 11), 302, ticketLocation(lang));
+    const close = await formFields(a.page, seventh, 'main form[action$="/status"]');
+    redirect(await post(a.page, `${seventh}/status`, { ...close, status: 'closed' }), 302, seventh);
+    redirect(await createTicket(a, lang, 11), 302, ticketLocation(lang));
+    const counts = await query('SELECT account_id, count(*)::int AS count FROM tickets WHERE account_id=ANY($1) GROUP BY account_id', [[a.id, b.id]]);
+    expect(Object.fromEntries(counts.map(row => [row.account_id, row.count]))).toEqual({ [a.id]: 11, [b.id]: 2 });
+  });
+});
+
+test('ticket replies allow twelve, isolate a second account and reset', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([a, b], lang) => {
+    const route = `/${lang}/support/tickets`;
+    const existing = await query(
+      `WITH inserted AS (
+         INSERT INTO tickets(account_id,request_key,category,subject,last_message_at)
+         SELECT $1,uuidv7(),'other','Existing ticket ' || n,clock_timestamp()
+         FROM generate_series(1,10) AS n RETURNING id
+       )
+       INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,internal,body)
+       SELECT id,$1,'user',false,'Existing ticket message.' FROM inserted RETURNING ticket_id`, [a.id],
+    );
+    const aTickets = existing.map(({ ticket_id }) => `${route}/${ticket_id}`);
+    const bTicket = redirect(await createTicket(b, lang, 'B'), 302, ticketLocation(lang));
+    const reply = async (player, ticket, index) => {
+      const fields = await formFields(player.page, ticket, 'main form[action$="/reply"]');
+      return post(player.page, `${ticket}/reply`, { ...fields, body: `Local browser reply ${index}.` });
+    };
+    await startMinute();
+    for (const [i, ticket] of aTickets.entries()) redirect(await reply(a, ticket, i), 302, ticket);
+    for (const ticket of aTickets.slice(0, 3)) {
+      const fields = await formFields(a.page, ticket, 'main form[action$="/status"]');
+      redirect(await post(a.page, `${ticket}/status`, { ...fields, status: 'closed' }), 302, ticket);
+    }
+    for (let i = 10; i < 12; i++) {
+      const ticket = redirect(await createTicket(a, lang, i), 302, ticketLocation(lang));
+      redirect(await reply(a, ticket, i), 302, ticket);
+      aTickets.push(ticket);
+    }
+    const last = redirect(await createTicket(a, lang, 12), 302, ticketLocation(lang));
+    await denied(await reply(a, last, 12), lang, { retry: 'minute-bucket' });
+    redirect(await reply(b, bTicket, 1), 302, bTicket);
+    await denied(await reply(a, last, 12), lang, { retry: 'minute-bucket' });
+    await expireBucket('support-ticket-reply', a.id, 12);
+    redirect(await reply(a, last, 12), 302, last);
+    const ticketIds = [...aTickets, last, bTicket].map(ticket => ticket.split('/').at(-1));
+    const counts = await query(
+      'SELECT count(*)::int AS count FROM ticket_messages WHERE ticket_id=ANY($1) GROUP BY ticket_id',
+      [ticketIds],
+    );
+    expect(counts).toEqual(ticketIds.map(() => ({ count: 2 })));
+  });
+});
+
+test('player report submissions allow three, isolate a second account and reset', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([a, b], lang) => {
+    const route = `/${lang}/support/reports`;
+    const location = new RegExp(`^${route}/${uuidPath}$`);
+    const submit = async (player, index) => {
+      const fields = await formFields(player.page, `${route}/create`);
+      return post(player.page, route, {
+        ...fields, target_reference: `Local report target ${index}`, evidence_summary: 'Synthetic local evidence.',
+      });
+    };
+    for (let i = 1; i <= 3; i++) redirect(await submit(a, i), 302, location);
+    await denied(await submit(a, 4), lang, { message: reportMessage[lang], retry: '60' });
+    redirect(await submit(b, 4), 302, location);
+    await denied(await submit(a, 4), lang, { message: reportMessage[lang], retry: '60' });
+    expect(await query(
+      `UPDATE player_report_submission_limits SET window_started_at=clock_timestamp()-interval '61 seconds'
+       WHERE account_id=$1 RETURNING attempts`, [a.id],
+    )).toEqual([{ attempts: 3 }]);
+    redirect(await submit(a, 4), 302, location);
+    expect(await query('SELECT attempts FROM player_report_submission_limits WHERE account_id=$1', [a.id])).toEqual([{ attempts: 1 }]);
+    expect(await query('SELECT count(*)::int AS count FROM player_reports WHERE reporter_account_id=$1', [a.id])).toEqual([{ count: 4 }]);
+    redirect(await submit(a, 5), 302, location);
+    const pending = await submit(a, 6);
+    redirect(pending, 302, `${route}/create`);
+    expect(pending.headers()['retry-after']).toBeUndefined();
+    expect((await a.page.goto(`${route}/create`)).status()).toBe(200);
+    await expect(a.page.locator('main [role=alert]')).toHaveText(lang === 'pl'
+      ? 'Osiągnięto limit oczekujących zgłoszeń. Poczekaj na rozpatrzenie wcześniejszych zgłoszeń.'
+      : 'Your pending report limit has been reached. Wait for the existing reports to be reviewed.');
+    redirect(await submit(b, 6), 302, location);
+    expect((await query(
+      `UPDATE player_reports SET status='closed', public_outcome='Closed for qualification'
+       WHERE reporter_account_id=$1 AND target_reference='Local report target 1'
+       RETURNING id`, [a.id],
+    )).length).toBe(1);
+    expect(await query(
+      `UPDATE player_report_submission_limits SET window_started_at=clock_timestamp()-interval '61 seconds'
+       WHERE account_id=$1 RETURNING attempts`, [a.id],
+    )).toEqual([{ attempts: 3 }]);
+    redirect(await submit(a, 6), 302, location);
+    expect(await query(
+      "SELECT count(*)::int AS count FROM player_reports WHERE reporter_account_id=$1 AND status='submitted'", [a.id],
+    )).toEqual([{ count: 5 }]);
+  });
+});
+
+test('new email invitations suppress a 26th enqueue, isolate an inviter and reset', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([a, b], lang) => {
+    await query('UPDATE referral_campaign_settings SET enabled=true WHERE singleton');
+    const route = `/${lang}/account/referrals`;
+    const selector = 'form:has(input[name=kind][value=new])';
+    const fields = new Map();
+    for (const player of [a, b]) fields.set(player.id, await formFields(player.page, route, selector));
+    const recipient = index => `invite-${a.id}-${index}@example.invalid`;
+    const invite = async (player, index) => {
+      redirect(await post(player.page, route, { ...fields.get(player.id), email: recipient(index) }), 303, route);
+    };
+    const count = async player => (await query(
+      'SELECT count(*)::int AS count FROM referral_email_attempts WHERE inviter_id=$1', [player.id],
+    ))[0].count;
+    await invite(a, 1);
+    await a.page.goto(route);
+    await expect(a.page.locator('main')).toContainText(inviteMessage[lang]);
+    for (let i = 2; i <= 25; i++) await invite(a, i);
+    expect(await count(a)).toBe(25);
+    await invite(a, 26);
+    await a.page.goto(route);
+    await expect(a.page.locator('main')).toContainText(inviteMessage[lang]);
+    expect(await count(a)).toBe(25);
+    await invite(b, 26);
+    expect(await count(b)).toBe(1);
+    await invite(a, 26);
+    expect(await count(a)).toBe(25);
+    expect((await query(
+      `UPDATE referral_email_attempts SET created_at=clock_timestamp()-interval '24 hours 1 second'
+       WHERE inviter_id=$1 RETURNING id`, [a.id],
+    )).length).toBe(25);
+    await invite(a, 26);
+    expect(await count(a)).toBe(26);
+
+    await invite(a, 1);
+    expect(await count(a)).toBe(26);
+    expect((await query(
+      `UPDATE referral_email_invitations SET created_at=clock_timestamp()-interval '14 days 1 second'
+       WHERE inviter_id=$1 AND recipient=$2 RETURNING id`, [a.id, recipient(1)],
+    )).length).toBe(1);
+    await invite(a, 1);
+    expect(await count(a)).toBe(27);
+  });
+});
+
+test('Bazaar bid admission allows twenty requests, isolates a bidder and resets', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([a, b], lang) => {
+    const [fixture] = await query('SELECT uuidv7() AS listing, uuidv7() AS character');
+    const route = `/${lang}/account/bazaar/${fixture.listing}/bids`;
+    for (const player of [a, b]) {
+      const fields = await formFields(player.page, `/${lang}/support/tickets/create`);
+      player.csrf = fields._csrf;
+    }
+    const bid = async player => {
+      const [{ key }] = await query('SELECT uuidv7() AS key');
+      return post(player.page, route, { _csrf: player.csrf, request_id: key, buyer_character_id: fixture.character, maximum: '100' });
+    };
+    await csrfRejected(a.page, route, { request_id: fixture.listing, buyer_character_id: fixture.character, maximum: '100' });
+    await startMinute();
+    // A syntactically valid bid reaches the real handler and finds no listing.
+    // No Game publication or funded auction is necessary for this admission test.
+    for (let i = 0; i < 20; i++) expect((await bid(a)).status()).toBe(404);
+    await denied(await bid(a), lang, { retry: 'minute-bucket' });
+    expect((await bid(b)).status()).toBe(404);
+    await denied(await bid(a), lang, { retry: 'minute-bucket' });
+    await expireBucket('marketplace-bid', a.id, 20);
+    expect((await bid(a)).status()).toBe(404);
+  });
+});
+
+async function partyCharacters(players) {
+  await query("INSERT INTO world_status(id,name) VALUES($1,'Abuse Browser World') ON CONFLICT(id) DO NOTHING", [world]);
+  await query('UPDATE public_projection_state SET highest_epoch=1 WHERE id=1');
+  for (const player of players) {
+    const [{ id: character }] = await query('SELECT uuidv7() AS id');
+    const name = 'Aldric Vale';
+    player.character = character;
+    // Same persisted ownership and public-profile inputs as the party crate's
+    // production-authority test. The portal resolves and locks both proofs.
+    await query(`INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,
+      projection_revision,source_observed_at,content_digest)
+      VALUES($1,'oteryn-game-e2e','1','1',0,decode(repeat('00',32),'hex'))`, [player.id]);
+    await query(`INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
+      VALUES($1,$2,$3,$4,'AVAILABLE')`, [player.id, character, world, name]);
+    await query(`INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,
+      from_projection_revision,to_projection_revision,projection_epoch,recovery_generation)
+      VALUES($1,$2,$3,1,1,1,1,1)`, [character, player.id, world]);
+    await query(`INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload)
+      VALUES('character_profile',$1,1,1,0,$2::jsonb)`,
+    [character, JSON.stringify({ profile: [{ world_id: world, name, level: '120', vocation: 2 }] })]);
+  }
+  await query(`UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',
+    source_authority='oteryn-game-e2e',complete_through=extract(epoch FROM statement_timestamp())::bigint,
+    observed_at=extract(epoch FROM statement_timestamp())::bigint WHERE id=1`);
+  await query(`INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload)
+    VALUES('character_profile','',true,1,1,extract(epoch FROM statement_timestamp())::bigint,'{}')
+    ON CONFLICT(family,subject,is_watermark) DO UPDATE SET watermark=EXCLUDED.watermark`);
+}
+
+test('party caps five active and ten hourly posts, isolates an owner and resets', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([a, b], lang) => {
+    const route = `/${lang}/party`;
+    for (const player of [a, b]) {
+      const fields = await formFields(player.page, `/${lang}/support/tickets/create`);
+      player.csrf = fields._csrf;
+    }
+    await partyCharacters([a, b]);
+    const create = player => {
+      const now = Math.floor(Date.now() / 1000);
+      return post(player.page, route, {
+        _csrf: player.csrf, character: player.character, purpose: 'hunt', min_level: '1',
+        max_level: '200', profession: 'any', note: 'Local party limit qualification',
+        starts_at: String(now + 60), expires_at: String(now + 3600),
+      });
+    };
+    const active = player => query("SELECT id FROM pd_party_posts WHERE account_id=$1 AND status='active' ORDER BY id", [player.id]);
+    const remove = async id => redirect(await post(a.page, `${route}/${id}/remove`, { _csrf: a.csrf }), 303, route);
+
+    for (let i = 0; i < 5; i++) redirect(await create(a), 303, route);
+    expect(await active(a)).toHaveLength(5);
+    await denied(await create(a), lang);
+    redirect(await create(b), 303, route);
+    await denied(await create(a), lang);
+
+    for (const { id } of await active(a)) await remove(id);
+    for (let i = 0; i < 5; i++) {
+      redirect(await create(a), 303, route);
+      const [{ id }] = await active(a);
+      await remove(id);
+    }
+    expect(await active(a)).toEqual([]);
+    await denied(await create(a), lang);
+    redirect(await create(b), 303, route);
+    await denied(await create(a), lang);
+    expect((await query(
+      `UPDATE pd_party_posts SET created_at=clock_timestamp()-interval '1 hour 1 second'
+       WHERE account_id=$1 AND status='removed' RETURNING id`, [a.id],
+    )).length).toBe(10);
+    redirect(await create(a), 303, route);
+    expect(await active(a)).toHaveLength(1);
+    expect(await active(b)).toHaveLength(2);
+  });
+});
+
+test('returning invitations suppress the 21st enqueue in 30 days and reset', async ({ browser }, info) => {
+  await withPlayers(browser, info, async ([a, b], lang) => {
+    await query('UPDATE referral_campaign_settings SET enabled=true WHERE singleton');
+    await query("UPDATE portal_referral_coverage SET covered_since=clock_timestamp()-interval '13 months' WHERE id");
+    const candidates = await query(
+      `WITH targets AS (
+         INSERT INTO accounts(email,password_hash,status,locale,email_verified_at,created_at)
+         SELECT $1 || '-' || n || '@example.invalid', password_hash, 'active', locale,
+                clock_timestamp()-interval '13 months', clock_timestamp()-interval '13 months'
+         FROM accounts CROSS JOIN generate_series(1,22) AS n WHERE id=$2
+         RETURNING id,email
+       )
+       SELECT id,email FROM targets ORDER BY email`, [`returning-${a.id}`, a.id],
+    );
+    // These inactive targets never log in. Seed the same historical activity
+    // that the referral service's PostgreSQL tests use for an eligible buddy.
+    await query(
+      `WITH gate AS MATERIALIZED (SELECT set_config('oteryn.referrals_enabled','true',true))
+       INSERT INTO referral_activity(account_id,created_at,last_activity)
+       SELECT id,created_at,created_at FROM gate CROSS JOIN accounts WHERE id=ANY($1)
+       ON CONFLICT(account_id) DO UPDATE SET created_at=EXCLUDED.created_at,last_activity=EXCLUDED.last_activity`,
+      [candidates.map(target => target.id)],
+    );
+    const route = `/${lang}/account/referrals`;
+    const selector = 'form:has(input[name=kind][value=returning])';
+    const fields = new Map();
+    for (const player of [a, b]) fields.set(player.id, await formFields(player.page, route, selector));
+    const invite = async (player, index) => {
+      const response = await post(player.page, route, { ...fields.get(player.id), email: candidates[index].email });
+      redirect(response, 303, route);
+      expect(response.headers()['retry-after']).toBeUndefined();
+    };
+    const count = async player => (await query(
+      'SELECT count(*)::int AS count FROM referral_email_attempts WHERE inviter_id=$1', [player.id],
+    ))[0].count;
+    for (let i = 0; i < 20; i++) await invite(a, i);
+    expect(await count(a)).toBe(20);
+    await invite(a, 20);
+    await a.page.goto(route);
+    await expect(a.page.locator('main [role=status]')).toHaveText(inviteMessage[lang]);
+    expect(await count(a)).toBe(20);
+    await invite(b, 21);
+    expect(await count(b)).toBe(1);
+    await invite(a, 20);
+    expect(await count(a)).toBe(20);
+    expect((await query(
+      `UPDATE referral_email_attempts SET created_at=clock_timestamp()-interval '30 days 1 second'
+       WHERE inviter_id=$1 RETURNING id`, [a.id],
+    )).length).toBe(20);
+    await invite(a, 20);
+    expect(await count(a)).toBe(21);
+  });
+});
