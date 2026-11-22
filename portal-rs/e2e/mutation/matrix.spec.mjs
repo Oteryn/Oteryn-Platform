@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login, password, pool, submit } from '../helpers.mjs';
-import { player, query } from '../staff-rbac-helpers.mjs';
+import { enrollMfa, loginWithRecoveryCode, player, query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 
 async function prepare(page, selector, values) {
@@ -53,7 +53,7 @@ async function invalid({ page, url, fields, samples, message, snapshot, baseline
 
 const portal = fileURLToPath(new URL('../../', import.meta.url));
 
-async function seededPlayer(page, lang) {
+async function seededAccount(lang) {
   const db = pool();
   await db.end(); // Apply the harness's disposable database guard before invoking seed.
   const binary = process.env.PORTAL_E2E_BINARY
@@ -65,9 +65,40 @@ async function seededPlayer(page, lang) {
     stdio: 'ignore',
   });
   expect(status, 'seed CLI creates the disposable player').toBe(0);
-  await login(page, lang, account);
   const [{ id }] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
-  return { id };
+  return { ...account, id };
+}
+
+async function seededPlayer(page, lang) {
+  const account = await seededAccount(lang);
+  await login(page, lang, account);
+  return account;
+}
+
+async function seededStaff(page, lang, role, permission, allowed) {
+  const account = await seededAccount(lang);
+  expect(await query(
+    `INSERT INTO account_roles(account_id,role_id)
+     SELECT $1,id FROM roles WHERE key=$2 AND built_in RETURNING account_id`,
+    [account.id, role],
+  )).toEqual([{ account_id: account.id }]);
+  expect(await query(
+    `SELECT EXISTS(SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
+                   WHERE ar.account_id=$1 AND rp.permission=$2) AS allowed`,
+    [account.id, permission],
+  )).toEqual([{ allowed }]);
+  await login(page, lang, account);
+  await enrollMfa(page, lang, account);
+  const recovery = await page.locator('textarea[readonly]').first().inputValue();
+  await loginWithRecoveryCode(page, lang, account, recovery);
+  return account;
+}
+
+async function foreignPost(page, lang, url, fields, status, snapshot, baseline) {
+  expect((await page.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+  const { fields: { _csrf } } = await prepare(page, formSelector, {});
+  expect((await post(page, url, { ...fields, _csrf })).status()).toBe(status);
+  expect(await snapshot()).toEqual(baseline);
 }
 
 const formSelector = 'main form[method=post]';
@@ -324,14 +355,20 @@ for (const action of ['pay', 'reject', 'cancel']) {
 
 test('ticket owner reply and close enforce ownership and version', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
-  const foreign = await browser.newContext({
+  test.setTimeout(180_000);
+  const options = {
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
-  });
+    viewport: info.project.use.viewport,
+  };
+  const foreign = await browser.newContext(options);
+  const staff = await browser.newContext(options);
+  const anonymous = await browser.newContext(options);
   try {
     const other = await foreign.newPage();
     await seededPlayer(other, lang);
-    await other.goto(`/${lang}/support/tickets/create`);
-    const foreignToken = await other.locator(`${formSelector} [name=_csrf]`).inputValue();
+    const unpermitted = await staff.newPage();
+    await seededStaff(unpermitted, lang, 'content_editor', 'support.tickets.manage', false);
+    const signedOut = await anonymous.newPage();
 
     const owner = await seededPlayer(page, lang);
     await page.goto(`/${lang}/support/tickets/create`);
@@ -387,8 +424,9 @@ test('ticket owner reply and close enforce ownership and version', async ({ page
         const selector = `main form[action$="/${variant.action}"]`;
         const { url, fields } = await prepare(page, selector, variant.fields);
         await rejected({ page, url, fields, snapshot, baseline });
-        expect((await post(other, url, { ...fields, _csrf: foreignToken })).status()).toBe(404);
-        expect(await snapshot()).toEqual(baseline);
+        await foreignPost(other, lang, url, fields, 404, snapshot, baseline);
+        await foreignPost(unpermitted, lang, url, fields, 404, snapshot, baseline);
+        await wrongActor({ page: signedOut, lang, url, fields, status: 403, snapshot, baseline });
         await invalid({ page, url, fields, samples: variant.samples, message: error, snapshot, baseline });
         await variant.submit(selector);
         await expect(page.locator('main')).toContainText(variant.visible);
@@ -398,7 +436,7 @@ test('ticket owner reply and close enforce ownership and version', async ({ page
       });
     }
   } finally {
-    await foreign.close();
+    await Promise.all([foreign.close(), staff.close(), anonymous.close()]);
   }
 });
 
@@ -466,5 +504,71 @@ test('character creation queues one operation and exposes the pending Game outco
     expect(await snapshot()).toEqual(queued);
   } finally {
     await anonymous.close();
+  }
+});
+
+test('support ticket staff reply and status enforce RBAC and stale writes', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const options = {
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    viewport: info.project.use.viewport,
+  };
+  const support = await browser.newContext(options);
+  const editor = await browser.newContext(options);
+  const foreign = await browser.newContext(options);
+  const anonymous = await browser.newContext(options);
+  try {
+    const owner = await seededPlayer(page, lang);
+    const operator = await support.newPage();
+    const deniedStaff = await editor.newPage();
+    const otherPlayer = await foreign.newPage();
+    const signedOut = await anonymous.newPage();
+    await seededStaff(operator, lang, 'support', 'support.tickets.manage', true);
+    await seededStaff(deniedStaff, lang, 'content_editor', 'support.tickets.manage', false);
+    await seededPlayer(otherPlayer, lang);
+    await page.goto(`/${lang}/support/tickets/create`);
+    await submit(page, formSelector, { subject: 'Staff coverage ticket', body: 'Player question' });
+    await expect(page).toHaveURL(/\/support\/tickets\/[a-f0-9-]+$/);
+    const playerPath = new URL(page.url()).pathname;
+    const id = playerPath.split('/').at(-1);
+    const staffPath = `/admin/support/tickets/${id}`;
+    const snapshot = () => query(
+      `SELECT t.status, t.lock_version,
+        ARRAY(SELECT m.body FROM ticket_messages m WHERE m.ticket_id=t.id ORDER BY m.id) AS messages
+       FROM tickets t WHERE t.id=$1 AND t.account_id=$2`, [id, owner.id],
+    );
+    const cases = [
+      { action: 'reply', fields: { body: 'Support answer' }, invalidFields: [{ body: '' }, { body: 'x'.repeat(8001) }],
+        result: { status: 'waiting_user', lock_version: '2', messages: ['Player question', 'Support answer'] } },
+      { action: 'ticket_status', fields: { status: 'resolved' }, invalidFields: [{ status: '' }, { status: 'not-a-status' }],
+        result: { status: 'resolved', lock_version: '3', messages: ['Player question', 'Support answer'] } },
+    ];
+    for (const scenario of cases) {
+      await test.step(scenario.action, async () => {
+        expect((await operator.goto(staffPath)).status()).toBe(200);
+        const { url, fields } = await prepare(operator, `main form:has(input[value="${scenario.action}"])`, scenario.fields);
+        const baseline = await snapshot();
+        await rejected({ page: operator, url, fields, snapshot, baseline });
+        await wrongActor({ page: signedOut, lang, url, fields, status: 303, snapshot, baseline });
+        await foreignPost(otherPlayer, lang, url, fields, 403, snapshot, baseline);
+        await foreignPost(deniedStaff, lang, url, fields, 403, snapshot, baseline);
+        for (const patch of [...scenario.invalidFields, { lock_version: 'invalid' }, { action: 'invalid' }]) {
+          expect((await post(operator, url, { ...fields, ...patch })).status()).toBe(422);
+          expect(await snapshot()).toEqual(baseline);
+        }
+        const success = await post(operator, url, fields);
+        expect(success.status()).toBe(303);
+        expect(success.headers().location).toBe(staffPath);
+        expect(await snapshot()).toEqual([scenario.result]);
+        expect((await post(operator, url, fields)).status()).toBe(409);
+        expect(await snapshot()).toEqual([scenario.result]);
+      });
+    }
+    await page.goto(playerPath);
+    await expect(page.locator('main')).toContainText('Support answer');
+    await expect(page.locator('main')).toContainText(lang === 'pl' ? 'Rozwiązane' : 'Resolved');
+  } finally {
+    await Promise.all([support.close(), editor.close(), foreign.close(), anonymous.close()]);
   }
 });
