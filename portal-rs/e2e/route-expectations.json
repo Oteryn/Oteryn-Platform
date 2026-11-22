@@ -116,8 +116,8 @@
     "route": "/console/dashboard",
     "actor": "staff",
     "method": "GET",
-    "status": 200,
-    "reason": "page, redirect alias or resource read"
+    "status": 403,
+    "reason": "bootstrap platform admin lacks Game read permission"
   },
   {
     "crate": "admin",

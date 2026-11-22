@@ -120,6 +120,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
       [staff],
     );
 
+    expect((await visit(admin, `/console/dashboard?lang=${lang}`)).status()).toBe(200);
     await visit(admin, dashboardUrl);
     await adminNav.getByRole('link', {name: label.gm}).click();
     const gmNav = admin.getByRole('navigation', {name: label.gm, exact: true});
