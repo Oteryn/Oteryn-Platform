@@ -141,7 +141,7 @@ test('staff invitations reach verified registered and existing accounts through 
     await login(admin,lang,manager);
     const recovery=await enrollMfa(admin,lang,manager);
     await loginWithRecoveryCode(admin,lang,manager,recovery[0]);
-    expect((await admin.goto('/admin/roles')).status()).toBe(200);
+    expect((await admin.goto(`/admin/roles?lang=${browserLanguage}`)).status()).toBe(200);
     await admin.locator(`a[href="${manage}?lang=${browserLanguage}"]`).click();
     await expect(admin.locator('html')).toHaveAttribute('lang',browserLanguage);
     expect((await admin.goto(`/admin/console/access?lang=${lang}`)).status()).toBe(200);

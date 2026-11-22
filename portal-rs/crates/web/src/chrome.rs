@@ -33,12 +33,13 @@ impl std::fmt::Debug for StaffDashboard {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct LocaleQuery {
+    lang: Option<String>,
+}
+
 /// The GM console accepts an explicit locale before its guard runs.
 fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
-    #[derive(serde::Deserialize)]
-    struct LocaleQuery {
-        lang: Option<String>,
-    }
     if !matches!(
         uri.path(),
         "/console"

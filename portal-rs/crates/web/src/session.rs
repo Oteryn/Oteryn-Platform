@@ -261,7 +261,7 @@ pub async fn rotate_in_transaction(
     let inner = session.inner.lock().await;
     let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
     let account = record.account_id.ok_or(sqlx::Error::RowNotFound)?;
-    reissue_in_transaction(tx, account, &hash(&record.id), Some(until)).await
+    reissue_in_transaction(tx, account, &hash(&record.id), until.into()).await
 }
 
 /// Reissue a locked authenticated session and retain its validated session data.
