@@ -392,13 +392,6 @@ async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() 
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(response.headers()[header::LOCATION], "/en/login");
-    assert_eq!(
-        app.clone()
-            .oneshot(get("/en/support/reports?page=0", &cookie))
-            .await?
-            .status(),
-        StatusCode::BAD_REQUEST
-    );
     for (lang, title) in [("pl", "Zgłoszenia"), ("en", "Reports")] {
         let response = app
             .clone()

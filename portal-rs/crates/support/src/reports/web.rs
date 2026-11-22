@@ -202,10 +202,7 @@ async fn index(
     page.reports = service
         .list(owner, paging.page)
         .await
-        .map_err(|e| match e {
-            Error::Invalid => StatusCode::BAD_REQUEST.into_response(),
-            other => status(other).into_response(),
-        })?;
+        .map_err(|e| status(e).into_response())?;
     page.render().map_err(IntoResponse::into_response)
 }
 async fn create(
