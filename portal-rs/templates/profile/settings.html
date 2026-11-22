@@ -13,6 +13,7 @@
 <p>{{ name }}</p>
 <form method="post" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="expected_revision" value="{{ revision }}">
 <label class="op-button op-button--secondary" for="show_guild">
 <input type="checkbox" id="show_guild" name="show_guild" value="1"{% if value.show_guild %} checked{% endif %}>
 <span>{{ guild }}</span>

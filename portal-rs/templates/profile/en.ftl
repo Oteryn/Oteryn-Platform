@@ -5,6 +5,7 @@ save = Save settings
 missing = Character not found.
 unavailable = Character settings are temporarily unavailable.
 invalid = Invalid settings. Check the form and try again.
+edit-conflict = The character profile settings have changed. Reload the form and review your changes.
 updated = Character profile settings saved.
 
 hidden = Hide character

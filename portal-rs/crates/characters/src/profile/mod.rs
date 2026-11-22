@@ -13,6 +13,7 @@ pub enum Error {
     Unavailable,
     BadInput,
     RateLimited,
+    Conflict,
 }
 impl From<sqlx::Error> for Error {
     fn from(_: sqlx::Error) -> Self {
@@ -237,17 +238,29 @@ impl Service {
         name: &str,
         now: i64,
     ) -> Result<(String, Preferences), Error> {
+        let (name, preferences, _) = self.edit_with_revision(account, name, now).await?;
+        Ok((name, preferences))
+    }
+
+    async fn edit_with_revision(
+        &self,
+        account: Uuid,
+        name: &str,
+        now: i64,
+    ) -> Result<(String, Preferences, i64), Error> {
         let mut tx = self.begin().await?;
-        sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
-            .bind(account)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(Error::NotFound)?;
+        let revision = sqlx::query_scalar(
+            "SELECT privacy_revision FROM accounts WHERE id=$1 AND status='active' FOR SHARE",
+        )
+        .bind(account)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::NotFound)?;
         Self::share_feed(&mut tx).await?;
         let c = self.owned(&mut tx, account, name, now).await?;
         let p = Self::preferences(&mut tx, account, c.0).await?;
         tx.commit().await?;
-        Ok((c.1, p))
+        Ok((c.1, p, revision))
     }
     pub async fn update(
         &self,
@@ -257,7 +270,7 @@ impl Service {
         now: i64,
     ) -> Result<(), Error> {
         let account_hide = Some(value.hide_all_characters);
-        self.update_with_account_hide(account, name, value, account_hide, now)
+        self.update_with_account_hide(account, name, value, account_hide, None, now)
             .await
     }
 
@@ -267,6 +280,7 @@ impl Service {
         name: &str,
         value: Preferences,
         account_hide: Option<bool>,
+        expected_revision: Option<i64>,
         now: i64,
     ) -> Result<(), Error> {
         if value.comment.chars().count() > 500
@@ -277,7 +291,14 @@ impl Service {
         // Retry only rolled-back serialization/deadlock failures, with bounded attempts.
         for attempt in 0..3 {
             match self
-                .save(account, name, value.clone(), account_hide, now)
+                .save(
+                    account,
+                    name,
+                    value.clone(),
+                    account_hide,
+                    expected_revision,
+                    now,
+                )
                 .await
             {
                 Err(SaveError::Sql(e))
@@ -301,23 +322,28 @@ impl Service {
         name: &str,
         value: Preferences,
         account_hide: Option<bool>,
+        expected_revision: Option<i64>,
         now: i64,
     ) -> Result<(), SaveError> {
         let mut tx = self.begin().await.map_err(SaveError::Domain)?;
         oteryn_db::mutation_budget(&mut tx).await?;
-        let status =
-            sqlx::query_scalar::<_, String>("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
-                .bind(account)
-                .fetch_optional(&mut *tx)
-                .await?;
-        if status.as_deref() != Some("active") {
+        let Some(revision) = sqlx::query_scalar::<_, i64>(
+            "SELECT privacy_revision FROM accounts WHERE id=$1 AND status='active' FOR UPDATE",
+        )
+        .bind(account)
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
             return Err(SaveError::Domain(Error::NotFound));
-        }
+        };
         Self::share_feed(&mut tx).await?;
         let c = self
             .owned(&mut tx, account, name, now)
             .await
             .map_err(SaveError::Domain)?;
+        if expected_revision.is_some_and(|expected| expected != revision) {
+            return Err(SaveError::Domain(Error::Conflict));
+        }
         let id = c.0;
         let previous = Self::preferences(&mut tx, account, id)
             .await

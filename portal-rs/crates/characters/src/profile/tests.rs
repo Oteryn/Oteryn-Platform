@@ -80,6 +80,55 @@ async fn profile_fixture() -> Result<Option<ProfileFixture>, Box<dyn std::error:
 }
 
 #[tokio::test]
+async fn postgres_profile_form_conflicts_preserve_the_saved_revision()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let fixture = profile_fixture()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required")?;
+    let service = Service::new(fixture.pool.clone(), fixture.settings, true);
+    let (_, _, revision) = service
+        .edit_with_revision(fixture.account, "Aldric", 1000)
+        .await
+        .map_err(|error| format!("edit Aldric: {error:?}"))?;
+    let fields = format!("expected_revision={revision}&comment=First+edit");
+    let (first, second) = tokio::join!(
+        http::save_form(&service, fixture.account, "Aldric", fields.as_bytes(), 1000),
+        http::save_form(&service, fixture.account, "Aldric", fields.as_bytes(), 1000),
+    );
+    assert!(matches!(
+        (first, second),
+        (Ok(()), Err(Error::Conflict)) | (Err(Error::Conflict), Ok(()))
+    ));
+    let stale = format!("expected_revision={revision}&comment=Other+edit");
+    assert_eq!(
+        http::save_form(&service, fixture.account, "Aldric", stale.as_bytes(), 1000).await,
+        Err(Error::Conflict),
+    );
+    let (_, saved, current) = service
+        .edit_with_revision(fixture.account, "Aldric", 1000)
+        .await
+        .map_err(|error| format!("read Aldric: {error:?}"))?;
+    assert_eq!(saved.comment, "First edit");
+    assert_eq!(current, revision + 1);
+    let events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM character_profile_events WHERE account_id=$1 AND event_type='character.profile_preferences_updated'",
+    )
+    .bind(fixture.account)
+    .fetch_one(&fixture.pool)
+    .await?;
+    assert_eq!(events, 1);
+    fixture.pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP SCHEMA {} CASCADE",
+        fixture.schema
+    )))
+    .execute(&fixture.admin)
+    .await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dyn std::error::Error>>
 {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;

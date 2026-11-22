@@ -16,6 +16,7 @@ struct Page<'a> {
     title: String,
     name: String,
     csrf: &'a str,
+    revision: i64,
     guild: String,
     main: String,
     save: String,
@@ -78,6 +79,7 @@ fn failure(error: Error, lang: &str) -> Response {
         Error::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
         Error::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "invalid"),
         Error::BadInput => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
+        Error::Conflict => (StatusCode::CONFLICT, "edit-conflict"),
     };
     (status, text(lang, key)).into_response()
 }
@@ -123,15 +125,16 @@ async fn edit_inner(
         Err(r) => return *r,
     };
     let result = match now() {
-        Ok(now) => service(pool).edit(account, name, now).await,
+        Ok(now) => service(pool).edit_with_revision(account, name, now).await,
         Err(e) => Err(e),
     };
     match result {
-        Ok((name, value)) => match (Page {
+        Ok((name, value, revision)) => match (Page {
             lang,
             title: text(lang, "title"),
             name,
             csrf,
+            revision,
             guild: text(lang, "guild"),
             main: text(lang, "main"),
             save: text(lang, "save"),
@@ -149,6 +152,7 @@ async fn edit_inner(
 struct Form {
     preferences: Preferences,
     rendered_hide_all: Option<bool>,
+    expected_revision: Option<i64>,
 }
 
 fn parse(body: &[u8]) -> Result<Form, Error> {
@@ -163,12 +167,20 @@ fn parse(body: &[u8]) -> Result<Form, Error> {
         ..Preferences::default()
     };
     let mut rendered_hide_all = None;
+    let mut expected_revision = None;
     let mut seen = std::collections::HashSet::new();
     for (key, value) in fields {
         if !seen.insert(key.clone()) {
             return Err(Error::BadInput);
         }
         match key.as_str() {
+            "expected_revision" => {
+                let revision: i64 = value.parse().map_err(|_| Error::BadInput)?;
+                if revision < 0 {
+                    return Err(Error::BadInput);
+                }
+                expected_revision = Some(revision);
+            }
             "_csrf" => {}
             "comment" => {
                 p.comment = value.replace("\r\n", "\n");
@@ -215,6 +227,7 @@ fn parse(body: &[u8]) -> Result<Form, Error> {
     Ok(Form {
         preferences: p,
         rendered_hide_all,
+        expected_revision,
     })
 }
 
@@ -233,7 +246,14 @@ pub(super) async fn save_form(
         .filter(|&rendered| rendered != submitted)
         .map(|_| submitted);
     service
-        .update_with_account_hide(account, name, form.preferences, account_hide, now)
+        .update_with_account_hide(
+            account,
+            name,
+            form.preferences,
+            account_hide,
+            form.expected_revision,
+            now,
+        )
         .await
 }
 /// The mounting router must enforce session CSRF before this browser mutation.

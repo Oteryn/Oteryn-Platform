@@ -5,6 +5,7 @@ save = Zapisz ustawienia
 missing = Nie znaleziono postaci.
 unavailable = Ustawienia postaci są chwilowo niedostępne.
 invalid = Nieprawidłowe ustawienia. Sprawdź formularz i spróbuj ponownie.
+edit-conflict = Ustawienia profilu postaci uległy zmianie. Odśwież formularz i sprawdź swoje zmiany.
 updated = Zapisano ustawienia profilu postaci.
 
 hidden = Ukryj postać
