@@ -1,7 +1,8 @@
 import fs from 'node:fs';
+import * as OTPAuth from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
 import { login, register, submit, waitForWikiBudget } from '../helpers.mjs';
-import { isolatedAdmin } from '../staff-rbac-helpers.mjs';
+import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 const inventory = JSON.parse(read('../inventory.json'));
@@ -263,62 +264,80 @@ async function serverValidation(page, locale, actor, target, targets) {
   }
 }
 
+async function signInStaff(page, locale) {
+  const account = await register(page, locale);
+  await query(
+    "INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",
+    [account.email],
+  );
+  await login(page, locale, account);
+  expect((await page.goto(`/${locale}/mfa`)).status()).toBe(200);
+  await submit(page, 'main form[action$="/mfa/enroll"]', { password: account.password });
+  const provisioning = await page.locator('main .op-prose').innerText();
+  const totp = provisioning.startsWith('otpauth:')
+    ? OTPAuth.URI.parse(provisioning)
+    : new OTPAuth.TOTP({ secret: provisioning, algorithm: 'SHA1', digits: 6, period: 30 });
+  await submit(page, 'main form[action$="/mfa/confirm"]', { password: account.password, code: totp.generate() });
+  // The confirmation replaces the document. Wait for the recovery-code view
+  // before reading it, since a count on the old DOM can return zero.
+  const recovery = page.locator('textarea[readonly]').first();
+  await expect(recovery).toBeVisible();
+  await loginWithRecoveryCode(page, locale, account, await recovery.inputValue());
+  expect((await page.goto(`/admin?lang=${locale}`)).status()).toBe(200);
+}
+
 for (const actor of ['anonymous', 'player', 'staff']) {
-  test(`${actor} HTML pages use the requested language`, async ({ page, browser }, info) => {
+  test(`${actor} HTML pages use the requested language`, async ({ page }, info) => {
     test.setTimeout(600_000);
     const locale = info.project.metadata.locale;
-    const staff = actor === 'staff' ? await isolatedAdmin(browser, info) : undefined;
-    if (staff) page = staff.page;
-    try {
-      if (actor === 'player') await login(page, locale, await register(page, locale));
-      const origin = new URL(`/${locale}/`, process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
-      expect((await page.goto(`/language/${locale}`)).status()).toBe(200);
-      const targets = destinations(actor, locale);
-      const documents = new Set();
-      const checked = new Set();
-      const uncovered = new Set();
-      for (const [target, status] of targets) {
-        if (target.startsWith('/language/')) continue;
-        await test.step(target, async () => {
-          const url = new URL(target, origin);
-          if (/^\/(?:admin|console)(?:\/|$)/u.test(url.pathname)) url.searchParams.set('lang', locale);
-          await waitForWikiBudget(target, 2);
-          const probe = await page.request.get(url.href, { headers: { accept: 'text/html', 'accept-language': locale } });
-          if (status !== undefined && actor !== 'anonymous') expect.soft(probe.status(), target).toBe(status);
-          if (!probe.headers()['content-type']?.startsWith('text/html')) return;
-          const source = await probe.text();
-          // The inventory also includes HTML fragments consumed by other pages.
-          if (!/<(?:!doctype\s+html|html(?:\s|>))/iu.test(source)) return;
-          const final = new URL(probe.url());
-          if (documents.has(final.pathname + final.search)) return;
-          documents.add(final.pathname + final.search);
-          const navigation = await page.goto(url.href);
-          expect.soft(navigation.status(), target).toBe(probe.status());
-          await assertDocument(page, locale, target);
-          if (navigation.ok()) {
-            await addLinkedPages(page, targets, locale, actor);
-            await nativeValidation(page, locale, checked, uncovered);
-          }
-          if (navigation.ok()) await serverValidation(page, locale, actor, target, targets);
-        });
-      }
-      expect(documents.size, `${actor}: HTML documents visited`).toBeGreaterThan(0);
-      await info.attach('i18n-coverage', {
-        body: JSON.stringify({ documents: [...documents].map((url) => new URL(url, origin).pathname),
-          nativeValidation: [...checked], formsWithoutNativeValidation: [...uncovered] }),
-        contentType: 'application/json',
+    if (actor === 'staff') await signInStaff(page, locale);
+    if (actor === 'player') await login(page, locale, await register(page, locale));
+    const origin = new URL(`/${locale}/`, process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
+    expect((await page.goto(`/language/${locale}`)).status()).toBe(200);
+    const targets = destinations(actor, locale);
+    const documents = new Set();
+    const checked = new Set();
+    const uncovered = new Set();
+    for (const [target, status] of targets) {
+      if (target.startsWith('/language/')) continue;
+      await test.step(target, async () => {
+        const url = new URL(target, origin);
+        if (/^\/(?:admin|console)(?:\/|$)/u.test(url.pathname)) url.searchParams.set('lang', locale);
+        await waitForWikiBudget(target, 2);
+        const probe = await page.request.get(url.href, { headers: { accept: 'text/html', 'accept-language': locale } });
+        if (status !== undefined && actor !== 'anonymous') expect.soft(probe.status(), target).toBe(status);
+        if (!probe.headers()['content-type']?.startsWith('text/html')) return;
+        const source = await probe.text();
+        // The inventory also includes HTML fragments consumed by other pages.
+        if (!/<(?:!doctype\s+html|html(?:\s|>))/iu.test(source)) return;
+        const final = new URL(probe.url());
+        if (documents.has(final.pathname + final.search)) return;
+        documents.add(final.pathname + final.search);
+        const navigation = await page.goto(url.href);
+        expect.soft(navigation.status(), target).toBe(probe.status());
+        await assertDocument(page, locale, target);
+        if (navigation.ok()) {
+          await addLinkedPages(page, targets, locale, actor);
+          await nativeValidation(page, locale, checked, uncovered);
+        }
+        if (navigation.ok()) await serverValidation(page, locale, actor, target, targets);
       });
-    } finally {
-      await staff?.context.close();
     }
+    expect(documents.size, `${actor}: HTML documents visited`).toBeGreaterThan(0);
+    await info.attach('i18n-coverage', {
+      body: JSON.stringify({ documents: [...documents].map((url) => new URL(url, origin).pathname),
+        nativeValidation: [...checked], formsWithoutNativeValidation: [...uncovered] }),
+      contentType: 'application/json',
+    });
   });
 }
 
 test('invalid sign-in submits a localized server error', async ({ page }, info) => {
   const locale = info.project.metadata.locale;
   await login(page, locale, { email: 'i18n-missing@example.invalid', password: 'Invalid local input!' });
+  await expect(page).toHaveURL(new RegExp(`/${locale}/login$`, 'u'));
   await expect(page.locator('main [role=alert]')).toHaveText(
-    catalogText(`templates/account/login/${locale}.ftl`, 'login-error'),
+    catalogText(`templates/account/mfa/${locale}.ftl`, 'mfa-error'),
   );
   await assertDocument(page, locale, 'sign-in refusal');
 });
