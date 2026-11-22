@@ -1,4 +1,6 @@
-use super::{Invites, Listing, Pending, delegable_roles_sql, pending_for, valid_token};
+use super::{
+    InviteRequest, Invites, Listing, Pending, delegable_roles_sql, pending_for, valid_token,
+};
 use crate::{
     rbac::{Authorizer, CheckContext, Error, Permission},
     web::{PortalIdentity, StaffSession, configured_guard, selected_language, staff_context, text},
@@ -244,11 +246,15 @@ async fn create(
     let Ok(fields) = serde_urlencoded::from_bytes::<Vec<(String, String)>>(&form) else {
         return failure(lang, Error::InvalidInput);
     };
+    let reason = fields
+        .iter()
+        .find_map(|(name, value)| (name == "reason").then_some(value.as_str()))
+        .unwrap_or_default();
     if let Some((_, id)) = fields.iter().find(|(name, _)| name == "approve") {
         let Ok(id) = id.parse() else {
             return failure(lang, Error::InvalidInput);
         };
-        return match app.invites.approve(actor, id).await {
+        return match app.invites.approve(actor, id, reason).await {
             Ok(()) => manage_redirect(lang),
             Err(error) => failure(lang, error),
         };
@@ -279,12 +285,28 @@ async fn create(
     }
     match app
         .invites
-        .create(actor, key, email, roles, lang, request_key)
+        .create(
+            actor,
+            key,
+            email,
+            roles,
+            lang,
+            InviteRequest {
+                key: request_key,
+                reason,
+            },
+        )
         .await
     {
         Ok(_) => manage_redirect(lang),
         Err(error) => failure(lang, error),
     }
+}
+
+#[derive(Deserialize)]
+struct Revocation {
+    #[serde(default)]
+    reason: String,
 }
 
 async fn revoke(
@@ -294,6 +316,7 @@ async fn revoke(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
     Query(query): Query<LocaleQuery>,
+    Form(form): Form<Revocation>,
 ) -> Response {
     let lang = selected_language(&headers, query.lang.as_deref());
     if let Err(response) = limit(
@@ -307,7 +330,7 @@ async fn revoke(
     {
         return *response;
     }
-    match app.invites.revoke(actor, id).await {
+    match app.invites.revoke(actor, id, &form.reason).await {
         Ok(()) => manage_redirect(lang),
         Err(error) => failure(lang, error),
     }

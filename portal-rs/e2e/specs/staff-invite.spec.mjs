@@ -8,6 +8,7 @@ import {cookie,deviceCookie,hash} from '../security/auth-fixtures.mjs';
 test.use({trace:'off',screenshot:'off'});
 
 const manage='/admin/staff-invites';
+const reason='Verified staff onboarding request';
 const address=()=>`invite-${crypto.randomUUID()}@example.invalid`;
 const origin=()=>new URL(process.env.OTERYN_PUBLIC_ORIGIN || 'https://localhost:18443').origin;
 
@@ -29,13 +30,26 @@ function seedAccount(lang) {
   return {...account,id:result.accountId};
 }
 
-async function send(page,email,roles,lang) {
+async function send(page,email,roles,lang,checkRequiredReason=false) {
   const action=`${manage}?lang=${lang}`;
   const form=page.locator(`form[action="${action}"]`);
   await csrfRejected(page,action,{email,role:roles[0].id});
-  await form.getByRole('textbox').fill(email);
+  await form.locator('[name="email"]').fill(email);
+  await form.locator('[name="reason"]').fill(reason);
   for(const {key} of roles) {
     await form.getByRole('checkbox',{name:key,exact:true}).check();
+  }
+  if(checkRequiredReason) {
+    const fields=await form.evaluate(form=>{
+      const fields=new URLSearchParams(new FormData(form));
+      fields.set('reason','   ');
+      return fields.toString();
+    });
+    const refused=await page.request.post(action,{
+      data:fields, headers:{origin:origin(),'content-type':'application/x-www-form-urlencoded'},maxRedirects:0,
+    });
+    expect(refused.status()).toBe(400);
+    expect(await query('SELECT id FROM staff_invites WHERE email=$1',[email])).toEqual([]);
   }
   const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===manage);
   await form.getByRole('button').click();
@@ -211,7 +225,7 @@ test('staff invitations reach verified registered and existing accounts through 
     const revoked=admin.waitForResponse(r=>r.request().method()==='POST'
       && new URL(r.url()).pathname===revokePath
       && new URLSearchParams(r.request().postData()).has('_csrf'));
-    await submit(admin,`form[action="${revokePath}?lang=${lang}"]`);
+    await submit(admin,`form[action="${revokePath}?lang=${lang}"]`,{reason});
     const revokeResponse=await revoked;
     expect(revokeResponse.status()).toBe(303);
     expect(revokeResponse.headers().location).toBe(manageLocalized);
@@ -258,14 +272,14 @@ test('protected invitations retain queued mail until current authority and indep
       await loginWithRecoveryCode(actorPage,lang,account,codes[0]);
     }
     expect((await issuerPage.goto(localized)).status()).toBe(200);
-    const invite=await send(issuerPage,recipient.email,roles,lang);
+    const invite=await send(issuerPage,recipient.email,roles,lang,true);
     const pending=issuerPage.locator('article').filter({hasText:recipient.email});
     const approvalLink=pending.locator('a[href*="?approval="]');
     await expect(approvalLink).toBeVisible();
     const approvalPath=await approvalLink.getAttribute('href');
     const csrf=await issuerPage.locator(`form[action="${localized}"] input[name="_csrf"]`).inputValue();
     const selfApproval=await issuerPage.request.post(localized,{
-      form:{_csrf:csrf,approve:invite},headers:{origin:origin()},maxRedirects:0,
+      form:{_csrf:csrf,approve:invite,reason},headers:{origin:origin()},maxRedirects:0,
     });
     expect(selfApproval.status()).toBe(403);
     const [original]=await query(
@@ -301,7 +315,7 @@ test('protected invitations retain queued mail until current authority and indep
     const approvalResponse=approverPage.waitForResponse(r=>r.request().method()==='POST'
       && new URL(r.url()).pathname===manage
       && new URLSearchParams(r.request().postData()).has('_csrf'));
-    await submit(approverPage,approvalForm);
+    await submit(approverPage,approvalForm,{reason});
     const approved=await approvalResponse;
     expect(approved.status()).toBe(303);
     expect(approved.headers().location).toBe(localized);

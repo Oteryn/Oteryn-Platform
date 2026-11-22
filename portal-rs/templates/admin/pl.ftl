@@ -6,6 +6,7 @@ grant = Przypisz rolę
 revoke = Odbierz rolę
 mfa = Wymagane uwierzytelnianie wieloskładnikowe
 
+invite-reason = Powód
 invite-title = Zaproszenia do zespołu
 invite-heading = Zaproszenie do zespołu
 invite-email = Adres e-mail

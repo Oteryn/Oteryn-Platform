@@ -241,6 +241,19 @@ struct Invites<A> {
     auth: Authorizer<A>,
 }
 
+struct InviteRequest<'a> {
+    key: Uuid,
+    reason: &'a str,
+}
+
+fn invite_reason(reason: &str) -> Result<&str, Error> {
+    let reason = reason.trim();
+    if reason.is_empty() || reason.chars().count() > 500 || reason.chars().any(char::is_control) {
+        return Err(Error::InvalidInput);
+    }
+    Ok(reason)
+}
+
 impl<A: AccountStateReader> Invites<A> {
     async fn create(
         &self,
@@ -249,8 +262,10 @@ impl<A: AccountStateReader> Invites<A> {
         email: &str,
         mut roles: Vec<Uuid>,
         locale: &str,
-        request_key: Uuid,
+        request: InviteRequest<'_>,
     ) -> Result<Uuid, Error> {
+        let reason = invite_reason(request.reason)?;
+        let request_key = request.key;
         let email = normalize_email(email);
         roles.sort_unstable();
         roles.dedup();
@@ -264,18 +279,18 @@ impl<A: AccountStateReader> Invites<A> {
         let mut tx = self.pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
         rbac::authorize_mutation(&mut tx, &[], &self.auth, actor, &MANAGE).await?;
-        if let Some((id, original_email, original_roles)) = sqlx::query_as::<
+        if let Some((id, original_email, original_roles, original_locale)) = sqlx::query_as::<
             _,
-            (Uuid, String, Vec<Uuid>),
+            (Uuid, String, Vec<Uuid>, String),
         >(
-            "SELECT id,email,role_ids FROM staff_invites WHERE invited_by=$1 AND request_key=$2",
+            "SELECT id,email,role_ids,locale FROM staff_invites WHERE invited_by=$1 AND request_key=$2",
         )
         .bind(actor.account)
         .bind(request_key)
         .fetch_optional(&mut *tx)
         .await?
         {
-            if original_email != email || original_roles != roles {
+            if original_email != email || original_roles != roles || original_locale != locale {
                 return Err(Error::InvalidInput);
             }
             tx.commit().await?;
@@ -307,7 +322,8 @@ impl<A: AccountStateReader> Invites<A> {
             actor.account,
             id,
             "staff.invite.created",
-            json!({"roles":roles,"requires_approval":requires_approval}),
+            json!(null),
+            json!({"status":"pending","roles":roles,"requires_approval":requires_approval,"reason":reason}),
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
@@ -315,7 +331,8 @@ impl<A: AccountStateReader> Invites<A> {
         Ok(id)
     }
 
-    async fn approve(&self, actor: CheckContext, id: Uuid) -> Result<(), Error> {
+    async fn approve(&self, actor: CheckContext, id: Uuid, reason: &str) -> Result<(), Error> {
+        let reason = invite_reason(reason)?;
         let mut tx = self.pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
         let observed = Pending::by_id(&mut tx, id).await?;
@@ -345,7 +362,8 @@ impl<A: AccountStateReader> Invites<A> {
             actor.account,
             id,
             "staff.invite.approved",
-            json!({"roles":invite.role_ids,"previous_approver":invite.approved_by}),
+            json!({"approved_by":invite.approved_by}),
+            json!({"approved_by":actor.account,"roles":invite.role_ids,"reason":reason}),
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
@@ -387,7 +405,8 @@ impl<A: AccountStateReader> Invites<A> {
         check_roles(conn, actor, roles).await
     }
 
-    async fn revoke(&self, actor: CheckContext, id: Uuid) -> Result<(), Error> {
+    async fn revoke(&self, actor: CheckContext, id: Uuid, reason: &str) -> Result<(), Error> {
+        let reason = invite_reason(reason)?;
         let mut tx = self.pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
         rbac::authorize_mutation(&mut tx, &[], &self.auth, actor, &MANAGE).await?;
@@ -407,7 +426,8 @@ impl<A: AccountStateReader> Invites<A> {
             actor.account,
             id,
             "staff.invite.revoked",
-            json!({}),
+            json!({"status":"pending"}),
+            json!({"status":"revoked","reason":reason}),
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
@@ -484,7 +504,8 @@ impl<A: AccountStateReader> Invites<A> {
             actor.account,
             id,
             "staff.invite.accepted",
-            json!({"roles":roles}),
+            json!({"status":"pending"}),
+            json!({"status":"accepted","roles":roles}),
         )
         .await?;
         self.auth.session_in(&mut tx, actor).await?;
@@ -504,6 +525,7 @@ async fn record(
     actor: Uuid,
     id: Uuid,
     action: &str,
+    before: serde_json::Value,
     after: serde_json::Value,
 ) -> Result<(), Error> {
     audit::append(
@@ -515,7 +537,7 @@ async fn record(
             },
             action,
             target: &id.to_string(),
-            before: json!(null),
+            before,
             after,
         },
     )

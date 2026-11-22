@@ -4,6 +4,15 @@ use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+const REASON: &str = "Verified support staffing request";
+
+fn request(key: Uuid) -> InviteRequest<'static> {
+    InviteRequest {
+        key,
+        reason: REASON,
+    }
+}
+
 struct Fixture {
     root: PgPool,
     schema: String,
@@ -69,7 +78,7 @@ impl Fixture {
                 " Recipient@Example.Invalid ",
                 vec![self.role],
                 "en",
-                Uuid::now_v7(),
+                request(Uuid::now_v7()),
             )
             .await?;
         let payload: String = sqlx::query_scalar(
@@ -239,7 +248,7 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
                 "recipient@example.invalid",
                 vec![other],
                 "en",
-                Uuid::now_v7(),
+                request(Uuid::now_v7()),
             )
             .await,
         Err(Error::Denied)
@@ -296,7 +305,7 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
                 "recipient@example.invalid",
                 vec![admin],
                 "en",
-                Uuid::now_v7(),
+                request(Uuid::now_v7()),
             )
             .await,
         Err(Error::Denied)
@@ -331,7 +340,14 @@ async fn invalid_delivery_mailboxes_cannot_be_issued() -> TestResult {
     ] {
         assert!(matches!(
             f.invites
-                .create(f.inviter, &f.key, email, vec![f.role], "en", Uuid::now_v7(),)
+                .create(
+                    f.inviter,
+                    &f.key,
+                    email,
+                    vec![f.role],
+                    "en",
+                    request(Uuid::now_v7())
+                )
                 .await,
             Err(Error::InvalidInput)
         ));
@@ -359,7 +375,7 @@ async fn expired_revoked_and_wrong_account_are_refused() -> TestResult {
     ));
 
     let (revoked, revoked_token) = f.create().await?;
-    f.invites.revoke(f.inviter, revoked).await?;
+    f.invites.revoke(f.inviter, revoked, REASON).await?;
     assert!(matches!(
         f.invites.accept(f.recipient, &revoked_token).await,
         Err(Error::Denied)
@@ -403,7 +419,7 @@ async fn privileged_invite_requires_independent_current_authority() -> TestResul
             "recipient@example.invalid",
             vec![platform],
             "en",
-            Uuid::now_v7(),
+            request(Uuid::now_v7()),
         )
         .await?;
     let payload: String =
@@ -423,14 +439,14 @@ async fn privileged_invite_requires_independent_current_authority() -> TestResul
         Err(Error::Denied)
     ));
     assert!(matches!(
-        f.invites.approve(f.inviter, id).await,
+        f.invites.approve(f.inviter, id, REASON).await,
         Err(Error::Denied)
     ));
     assert_eq!(f.memberships().await?, 0);
 
     let second = account(pool, "approver@example.invalid").await?;
     assert!(matches!(
-        f.invites.approve(second, id).await,
+        f.invites.approve(second, id, REASON).await,
         Err(Error::Denied)
     ));
     sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2),($3,$2)")
@@ -440,14 +456,14 @@ async fn privileged_invite_requires_independent_current_authority() -> TestResul
         .execute(pool)
         .await?;
     assert!(matches!(
-        f.invites.approve(f.recipient, id).await,
+        f.invites.approve(f.recipient, id, REASON).await,
         Err(Error::Denied)
     ));
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(f.recipient.account)
         .execute(pool)
         .await?;
-    f.invites.approve(second, id).await?;
+    f.invites.approve(second, id, REASON).await?;
     assert!(matches!(
         delivery(pool, &f.key, &payload).await?,
         DeliveryDecision::Send { .. }
@@ -487,7 +503,7 @@ async fn issuance_retry_and_visibility_are_scoped_to_the_issuer() -> TestResult 
     let other = account(pool, "other-manager@example.invalid").await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
         .bind(other.account).execute(pool).await?;
-    let request = Uuid::now_v7();
+    let request_key = Uuid::now_v7();
     let issue = || {
         f.invites.create(
             f.inviter,
@@ -495,18 +511,35 @@ async fn issuance_retry_and_visibility_are_scoped_to_the_issuer() -> TestResult 
             "recipient@example.invalid",
             vec![f.role],
             "en",
-            request,
+            request(request_key),
         )
     };
     let (first, retry) = tokio::join!(issue(), issue());
     let id = first?;
     assert_eq!(retry?, id);
+    assert!(matches!(
+        f.invites
+            .create(
+                f.inviter,
+                &f.key,
+                "recipient@example.invalid",
+                vec![f.role],
+                "pl",
+                request(request_key),
+            )
+            .await,
+        Err(Error::InvalidInput)
+    ));
+    assert!(matches!(
+        f.invites.revoke(f.inviter, id, "  ").await,
+        Err(Error::InvalidInput)
+    ));
     let pending = pending_for(pool, f.inviter.account, None).await?;
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].id, id);
     assert!(pending_for(pool, other.account, None).await?.is_empty());
     assert!(matches!(
-        f.invites.revoke(other, id).await,
+        f.invites.revoke(other, id, REASON).await,
         Err(Error::Denied)
     ));
     let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM outbox WHERE kind=$1")
@@ -514,7 +547,31 @@ async fn issuance_retry_and_visibility_are_scoped_to_the_issuer() -> TestResult 
         .fetch_one(pool)
         .await?;
     assert_eq!(jobs, 1);
-    f.invites.revoke(f.inviter, id).await?;
+    f.invites.revoke(f.inviter, id, REASON).await?;
+    let audit: Vec<(String, Option<String>, String, String)> = sqlx::query_as(
+        "SELECT action,before->>'status',after->>'status',after->>'reason'
+         FROM audit_log WHERE target=$1 ORDER BY created_at,id",
+    )
+    .bind(id.to_string())
+    .fetch_all(pool)
+    .await?;
+    assert_eq!(
+        audit,
+        [
+            (
+                "staff.invite.created".into(),
+                None,
+                "pending".into(),
+                REASON.into()
+            ),
+            (
+                "staff.invite.revoked".into(),
+                Some("pending".into()),
+                "revoked".into(),
+                REASON.into()
+            ),
+        ]
+    );
     assert_eq!(issue().await?, id);
     assert!(pending_for(pool, f.inviter.account, None).await?.is_empty());
     f.close().await
@@ -576,7 +633,7 @@ async fn pending_invite_follows_role_reclassification() -> TestResult {
         .bind(f.role)
         .execute(pool)
         .await?;
-    f.invites.approve(second, id).await?;
+    f.invites.approve(second, id, REASON).await?;
     assert!(!pending_for(pool, f.inviter.account, None).await?[0].awaiting_approval);
     assert!(matches!(
         delivery(pool, &f.key, &payload).await?,
@@ -616,9 +673,9 @@ async fn stale_approval_blocks_delivery_and_can_be_replaced() -> TestResult {
         .bind(f.role)
         .execute(pool)
         .await?;
-    f.invites.approve(original, id).await?;
+    f.invites.approve(original, id, REASON).await?;
     assert!(matches!(
-        f.invites.approve(replacement, id).await,
+        f.invites.approve(replacement, id, REASON).await,
         Err(Error::Denied)
     ));
 
@@ -665,8 +722,8 @@ async fn stale_approval_blocks_delivery_and_can_be_replaced() -> TestResult {
         .execute(pool)
         .await?;
     let (first, second) = tokio::join!(
-        f.invites.approve(replacement, id),
-        f.invites.approve(replacement, id),
+        f.invites.approve(replacement, id, REASON),
+        f.invites.approve(replacement, id, REASON),
     );
     assert!(matches!(
         (first, second),

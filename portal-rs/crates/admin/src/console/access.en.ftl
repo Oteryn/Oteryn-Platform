@@ -87,3 +87,4 @@ audit-value-warning = Warning
 audit-value-restriction = Restriction
 audit-value-suspension = Suspension
 audit-target-hidden = Page target hidden
+audit-field-approved-by = Approver

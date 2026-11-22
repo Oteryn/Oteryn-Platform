@@ -19,6 +19,8 @@
     <form method="post" action="/admin/staff-invites?lang={{ lang }}">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <input type="hidden" name="approve" value="{{ invite.id }}">
+      <label for="approve-reason">{{ self.tr("invite-reason") }}</label>
+      <input class="op-input" id="approve-reason" name="reason" maxlength="500" required>
       <button class="op-button">{{ self.tr("invite-approve") }}</button>
     </form>
   </section>
@@ -34,6 +36,8 @@
       <div><label><input type="checkbox" name="role" value="{{ id }}"> {{ key }}</label></div>
       {% endfor %}
     </fieldset>
+    <label for="invite-reason">{{ self.tr("invite-reason") }}</label>
+    <input class="op-input" id="invite-reason" name="reason" maxlength="500" required>
     <p>{{ self.tr("invite-expiry") }}</p>
     <div><button class="op-button">{{ self.tr("invite-send") }}</button></div>
   </form>
@@ -52,6 +56,8 @@
       {% endif %}
       <form method="post" action="/admin/staff-invites/{{ invite.id }}/revoke?lang={{ lang }}">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <label for="revoke-reason-{{ invite.id }}">{{ self.tr("invite-reason") }}</label>
+        <input class="op-input" id="revoke-reason-{{ invite.id }}" name="reason" maxlength="500" required>
         <button class="op-button op-button--secondary">{{ self.tr("invite-revoke") }}</button>
       </form>
     </article>

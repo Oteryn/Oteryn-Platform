@@ -87,3 +87,4 @@ audit-value-warning = Ostrzeżenie
 audit-value-restriction = Ograniczenie
 audit-value-suspension = Zawieszenie
 audit-target-hidden = Identyfikator strony ukryty
+audit-field-approved-by = Osoba zatwierdzająca

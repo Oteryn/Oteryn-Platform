@@ -134,6 +134,15 @@ const ACTION_FIELDS: &[(&[&str], &[&str])] = &[
     ),
     (&["events.status_changed"], &["status", "version"]),
     (&["portal.announcement_saved"], &["state"]),
+    (
+        &[
+            "staff.invite.created",
+            "staff.invite.revoked",
+            "staff.invite.accepted",
+        ],
+        &["status"],
+    ),
+    (&["staff.invite.approved"], &["approved_by"]),
 ];
 
 fn fields(action: &str, target: &str) -> impl Iterator<Item = &'static str> {
@@ -214,6 +223,7 @@ fn workflow_label(lang: &str, field: &str, text: &str) -> String {
                 | "active"
                 | "expired"
                 | "revoked"
+                | "accepted"
         ),
         _ => false,
     };
@@ -267,6 +277,7 @@ fn display(lang: &str, field: &str, value: &Value) -> Option<String> {
         {
             Some(workflow_label(lang, field, text))
         }
+        ("approved_by", Value::String(text)) => Uuid::parse_str(text).ok().map(|id| id.to_string()),
         ("locale" | "legal_effective_date", Value::String(text)) if !text.is_empty() => {
             Some(text.clone())
         }
