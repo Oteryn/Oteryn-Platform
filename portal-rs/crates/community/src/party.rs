@@ -428,6 +428,10 @@ fn form_error(lang: &str, rejection: axum::extract::rejection::FormRejection) ->
     if rejection.status() != StatusCode::UNPROCESSABLE_ENTITY {
         return rejection.into_response();
     }
+    invalid_input(lang)
+}
+
+fn invalid_input(lang: &str) -> Response {
     let language = if lang == "pl" {
         oteryn_web::Language::Pl
     } else {
@@ -439,6 +443,18 @@ fn form_error(lang: &str, rejection: axum::extract::rejection::FormRejection) ->
         language.text("error-422-description"),
     )
         .into_response()
+}
+
+fn mutation_response<T>(
+    lang: &str,
+    target: &str,
+    result: Result<T, Error>,
+) -> Result<Response, Error> {
+    match result {
+        Ok(_) => Ok(Redirect::to(target).into_response()),
+        Err(Error::Invalid) => Ok(invalid_input(lang)),
+        Err(error) => Err(error),
+    }
 }
 
 async fn create(
@@ -453,8 +469,11 @@ async fn create(
         Err(error) => return Ok(form_error(&lang, error)),
     };
     let owner = account(&board, &session).await?;
-    board.create(owner, draft).await?;
-    Ok(Redirect::to(&format!("/{lang}/party")).into_response())
+    mutation_response(
+        &lang,
+        &format!("/{lang}/party"),
+        board.create(owner, draft).await,
+    )
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -474,10 +493,12 @@ async fn report(
         Ok(form) => form,
         Err(error) => return Ok(form_error(&lang, error)),
     };
-    board
-        .report(account(&board, &session).await?, id, &input.reason)
-        .await?;
-    Ok(Redirect::to(&format!("/{lang}/party")).into_response())
+    let reporter = account(&board, &session).await?;
+    mutation_response(
+        &lang,
+        &format!("/{lang}/party"),
+        board.report(reporter, id, &input.reason).await,
+    )
 }
 async fn remove(
     State(board): State<Board>,
@@ -524,23 +545,28 @@ async fn moderate(
         Ok(form) => form,
         Err(error) => return Ok(form_error(&lang, error)),
     };
-    let report_ids = input
+    let Ok(report_ids) = input
         .report_ids
         .split(',')
         .map(str::parse::<Uuid>)
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| Error::Invalid)?;
-    board
-        .moderate(
-            context,
-            &authority,
-            id,
-            &input.action,
-            &input.reason,
-            &report_ids,
-        )
-        .await?;
-    Ok(Redirect::to(&format!("/admin/{lang}/party")).into_response())
+    else {
+        return Ok(invalid_input(&lang));
+    };
+    mutation_response(
+        &lang,
+        &format!("/admin/{lang}/party"),
+        board
+            .moderate(
+                context,
+                &authority,
+                id,
+                &input.action,
+                &input.reason,
+                &report_ids,
+            )
+            .await,
+    )
 }
 
 #[cfg(test)]
