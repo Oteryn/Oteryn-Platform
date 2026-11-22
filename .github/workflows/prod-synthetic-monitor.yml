@@ -90,6 +90,7 @@ jobs:
     environment: production-monitor-alert
     permissions:
       actions: read
+      checks: read
       issues: write
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -218,16 +219,34 @@ jobs:
             }
             const outcomes = ['success', 'failure', 'timed_out'];
             const noProbe = ['skipped', 'cancelled'];
+            async function cancelledBeforeJobs(runId, attempt) {
+              const { data: run } = await github.rest.actions.getWorkflowRunAttempt({
+                ...repo, run_id: runId, attempt_number: attempt,
+              });
+              if (run.id !== runId || run.run_attempt !== attempt || run.status !== 'completed' ||
+                  run.conclusion !== 'cancelled' || !Number.isSafeInteger(run.check_suite_id)) return false;
+              const { data: suite } = await github.rest.checks.getSuite({ ...repo, check_suite_id: run.check_suite_id });
+              return suite.id === run.check_suite_id && suite.app?.slug === 'github-actions' &&
+                suite.status === 'completed' && suite.conclusion === 'cancelled' && suite.latest_check_runs_count === 0;
+            }
             async function readAttempt(runId, attempt, producing) {
+              let sawJobs = false;
               for (let read = 0; read < 3; read++) {
                 const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
                   ...repo, run_id: runId, attempt_number: attempt, per_page: 100,
                 });
+                if (jobs.length) sawJobs = true;
                 if (jobs.some(job => job.run_id !== runId || job.run_attempt !== attempt)) {
                   throw new Error(`Actions returned jobs outside requested run ${runId} attempt ${attempt}`);
                 }
                 const probes = jobs.filter(job => job.name === 'monitor');
                 if (probes.length > 1) throw new Error(`Multiple probes for run ${runId} attempt ${attempt}`);
+                // Actions can copy a completed job into a rerun's listing. The incident
+                // job name identifies the attempt that actually produced its probe.
+                const reused = jobs.map(job => /^incident \(probe attempt ([1-9][0-9]*)\)$/.exec(job.name))
+                  .filter(Boolean).map(match => Number(match[1]));
+                if (reused.length === 1 && reused[0] < attempt &&
+                    (producing === undefined || producing === reused[0])) return { reused: reused[0] };
                 const [probe] = probes;
                 if (probe) {
                   if (probe.status === 'completed' && (producing === undefined || producing === attempt)) {
@@ -236,16 +255,13 @@ jobs:
                   }
                   continue;
                 }
-                // The job name records the attempt from needs.monitor.outputs. An incident
-                // job by itself does not prove a prior probe was reused.
-                const reused = jobs.map(job => /^incident \(probe attempt ([1-9][0-9]*)\)$/.exec(job.name))
-                  .filter(Boolean).map(match => Number(match[1]));
-                if (reused.length === 1 && reused[0] < attempt &&
-                    (producing === undefined || producing === reused[0])) return { reused: reused[0] };
                 if (producing === undefined && jobs.some(job => job.name === 'preflight' &&
                     job.status === 'completed' && (noProbe.includes(job.conclusion) ||
                       ['failure', 'timed_out'].includes(job.conclusion)))) return {};
               }
+              // Concurrency can cancel a queued run before GitHub creates any jobs.
+              // Require both a cancelled attempt and a terminal check suite with no checks.
+              if (producing === undefined && !sawJobs && await cancelledBeforeJobs(runId, attempt)) return {};
               throw new Error(`Monitor outcome or intentional skip is not visible for run ${runId} attempt ${attempt}`);
             }
 
