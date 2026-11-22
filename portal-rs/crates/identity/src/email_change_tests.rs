@@ -932,6 +932,12 @@ async fn assisted_change_requires_owner_proof_and_blocks_promotion_until_reversa
     .bind(token_hash(&cancellation))
     .fetch_one(&db.pool)
     .await?;
+    let mut reservation = db.pool.begin().await?;
+    crate::accounts::claim_lock(&mut reservation, "new@example.invalid").await?;
+    assert!(
+        crate::accounts::address_available(&mut reservation, None, "new@example.invalid").await?
+    );
+    reservation.commit().await?;
     assert_eq!(service.confirm(&unapproved).await?, Outcome::Refused);
     // A confirmation persisted by the previous implementation is insufficient.
     sqlx::query("UPDATE account_email_changes SET confirmed_at=now() WHERE id=$1")
@@ -947,6 +953,12 @@ async fn assisted_change_requires_owner_proof_and_blocks_promotion_until_reversa
         service.request(owner, input(true, false)).await?,
         Outcome::Requested
     );
+    let mut reservation = db.pool.begin().await?;
+    crate::accounts::claim_lock(&mut reservation, "new@example.invalid").await?;
+    assert!(
+        !crate::accounts::address_available(&mut reservation, None, "new@example.invalid").await?
+    );
+    reservation.commit().await?;
     let (confirm, revert) = tokens(&db.pool).await?;
     assert_eq!(service.confirm(&unapproved).await?, Outcome::Refused);
     assert_eq!(service.confirm(&confirm).await?, Outcome::Confirmed);

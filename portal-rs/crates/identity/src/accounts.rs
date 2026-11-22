@@ -88,7 +88,7 @@ pub async fn claim_lock(conn: &mut PgConnection, email: &str) -> Result<(), sqlx
     Ok(())
 }
 /// An address is taken while another account holds it as primary or backup,
-/// claims it in a pending change, or may still revert to it as the old
+/// claims it in an owner-authorized pending change, or may still revert to it as the old
 /// primary address of an applied change.
 pub async fn address_available(
     conn: &mut PgConnection,
@@ -99,6 +99,6 @@ pub async fn address_available(
     if !email.contains('@') {
         return Ok(false);
     }
-    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM accounts WHERE lower(email)=lower($2) AND id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_backup_emails b JOIN accounts a ON a.id=b.account_id WHERE a.status<>'closed' AND lower(b.email)=lower($2) AND b.account_id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE lower(new_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE kind='primary' AND lower(old_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NOT NULL AND reverted_at IS NULL AND revert_until>clock_timestamp())")
+    sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM accounts WHERE lower(email)=lower($2) AND id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_backup_emails b JOIN accounts a ON a.id=b.account_id WHERE a.status<>'closed' AND lower(b.email)=lower($2) AND b.account_id IS DISTINCT FROM $1) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE lower(new_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND (NOT initiated_by_staff OR owner_approved_at IS NOT NULL) AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND expires_at>clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM account_email_changes WHERE kind='primary' AND lower(old_email)=lower($2) AND account_id IS DISTINCT FROM $1 AND applied_at IS NOT NULL AND reverted_at IS NULL AND revert_until>clock_timestamp())")
         .bind(owner).bind(email).fetch_one(conn).await
 }
