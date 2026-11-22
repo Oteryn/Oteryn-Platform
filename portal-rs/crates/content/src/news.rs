@@ -77,13 +77,9 @@ impl Options {
             "pl"
         }
     }
-    fn offset(&self, size: i64) -> Result<i64, StatusCode> {
+    fn offset(&self, size: i64) -> Option<i64> {
         let n = self.page.unwrap_or(1);
-        if !(1..=MAX_PAGE).contains(&n) {
-            Err(StatusCode::BAD_REQUEST)
-        } else {
-            Ok((n - 1) * size)
-        }
+        (1..=MAX_PAGE).contains(&n).then(|| (n - 1) * size)
     }
 }
 #[derive(Debug, Default, Deserialize)]
@@ -218,7 +214,8 @@ fn excerpt(body: &str, limit: usize) -> String {
     format!("{}…", cut.trim_end_matches([',', '.', ';', ':', '-', '–']))
 }
 async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>, StatusCode> {
-    let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 11 OFFSET $2").bind(lang).bind(q.offset(10)?).fetch_all(pool).await.map_err(unavailable)?;
+    let offset = q.offset(10).ok_or(StatusCode::BAD_REQUEST)?;
+    let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 11 OFFSET $2").bind(lang).bind(offset).fetch_all(pool).await.map_err(unavailable)?;
     let mut html = String::new();
     let has_next = rows.len() > 10 && q.page.unwrap_or(1) < MAX_PAGE;
     if rows.is_empty() {
@@ -276,7 +273,7 @@ async fn admin_index(
     let rows = sqlx::query(
         "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
-    .bind(q.offset(25)?)
+    .bind(q.offset(25).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?)
     .fetch_all(&pool)
     .await
     .map_err(unavailable)?;

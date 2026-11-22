@@ -265,6 +265,16 @@ async fn postgres_news_lifecycle() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let _ = to_bytes(response.into_body(), 1024).await.unwrap();
+    let response = admin_router(pool.clone())
+        .layer(Extension(context))
+        .oneshot(
+            Request::get("/admin/news?page=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(context.account)
