@@ -504,6 +504,16 @@ async fn change<A: AccountStateReader, B: Backend>(
             );
             (StatusCode::CONFLICT, shell(lang, body)).into_response()
         }
+        Err(Error::Invalid) if matches!(input.command, Command::Appeal { .. }) => {
+            let lang = language(&headers);
+            let body = format!(
+                "<p>{}</p><a href=\"{}/{id}\">{}</a>",
+                escape(&text(lang, "appeal_invalid")),
+                base(area),
+                escape(&text(lang, "appeal_return"))
+            );
+            (StatusCode::UNPROCESSABLE_ENTITY, shell(lang, body)).into_response()
+        }
         Err(e) => status(e),
     }
 }

@@ -41,3 +41,5 @@ uphold = Utrzymanie sankcji
 choose_decision = Wybierz decyzję
 conflict = Ta strona uległa zmianie.
 reload = Odśwież stronę
+appeal_invalid = Wybierz, czy utrzymać, czy uchylić sankcję, i wpisz uzasadnienie decyzji. Uzasadnienie nie może być puste ani przekraczać 4000 znaków.
+appeal_return = Wróć do odwołania

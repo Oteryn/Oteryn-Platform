@@ -41,3 +41,5 @@ uphold = Uphold sanction
 choose_decision = Choose a decision
 conflict = This page has changed.
 reload = Reload the page
+appeal_invalid = Choose whether to uphold or overturn the sanction and enter a non-blank decision reason of up to 4,000 characters.
+appeal_return = Back to appeal

@@ -194,6 +194,27 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
         expect(blocked.headers()['cache-control']).toContain('no-store');
         expect(await query('SELECT status FROM support_appeal_workflows WHERE sanction_id=$1', [id]))
           .toEqual([{ status: 'requested' }]);
+
+        await selector.selectOption(decision);
+        await outcomeField.fill('   ');
+        const [invalid] = await Promise.all([
+          staff.page.waitForResponse(response => response.request().method() === 'POST'
+            && new URL(response.url()).pathname === staffPath),
+          form.locator('button[type=submit]').click(),
+        ]);
+        expect(invalid.status()).toBe(422);
+        expect(invalid.headers()['cache-control']).toContain('no-store');
+        await expect(staff.page.locator('main')).toContainText(
+          lang === 'pl' ? 'Uzasadnienie nie może być puste' : 'enter a non-blank decision reason',
+        );
+        const edit = staff.page.getByRole('link', { name: lang === 'pl' ? 'Wróć do odwołania' : 'Back to appeal' });
+        await expect(edit).toHaveAttribute('href', staffPath);
+        await edit.click();
+        await expect(form).toBeVisible();
+        expect(await query(
+          'SELECT action FROM audit_log WHERE action=$1 AND target=$2',
+          ['support.enforcement_appeal_updated', id],
+        )).toHaveLength(0);
       }
       await action(staff.page, 'form:has(input[value=appeal])', { appeal_status: decision, appeal_outcome: outcome });
       await expect(staff.page.locator('main')).toContainText(outcome);
