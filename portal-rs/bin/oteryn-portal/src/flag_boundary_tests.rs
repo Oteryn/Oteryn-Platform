@@ -711,7 +711,7 @@ mod flag_boundary {
     }
 
     async fn exercise_game_staff_routes(pool: &PgPool) -> TestResult {
-        let (_target, staff) = seed_browser_accounts(pool).await?;
+        let (target, staff) = seed_browser_accounts(pool).await?;
         let address = std::env::var("OTERYN_BIND")?.parse()?;
         let mut tx = pool.begin().await?;
         oteryn_admin::audit::append(
@@ -739,6 +739,7 @@ mod flag_boundary {
             "/admin/commerce",
             "/admin/en/bazaar",
         ];
+        let player_detail = format!("/admin/players/{target}");
         for role in [
             "platform_admin",
             "game_master_senior",
@@ -766,6 +767,30 @@ mod flag_boundary {
                 assert_eq!(
                     response.split_whitespace().nth(1),
                     Some(expected),
+                    "{role} GET {path}"
+                );
+            }
+            if role.starts_with("game_") {
+                for (method, path, expected) in [
+                    ("GET", "/admin/players", "403"),
+                    ("POST", "/admin/players", "405"),
+                    ("GET", player_detail.as_str(), "403"),
+                    ("POST", player_detail.as_str(), "403"),
+                ] {
+                    let response = exchange(address, None, method, path).await?;
+                    assert_eq!(
+                        response.split_whitespace().nth(1),
+                        Some(expected),
+                        "{role} {method} {path}"
+                    );
+                }
+            }
+            if matches!(role, "game_dba" | "game_release") {
+                let path = "/admin/console/players";
+                let response = exchange(address, None, "GET", path).await?;
+                assert_eq!(
+                    response.split_whitespace().nth(1),
+                    Some("403"),
                     "{role} GET {path}"
                 );
             }
@@ -807,8 +832,9 @@ mod flag_boundary {
                 }
             }
             if role == "game_viewer" {
-                let response = exchange(address, None, "GET", "/console/dashboard").await?;
+                let response = exchange(address, None, "GET", "/console/dashboard?lang=en").await?;
                 assert_eq!(response.split_whitespace().nth(1), Some("200"));
+                assert!(!response.contains("Platform metrics"));
                 let id = "019ad000-0000-7000-8000-000000000003".parse::<Uuid>()?;
                 let path = format!("/admin/moderation/enforcement/{id}");
                 let response = exchange(address, None, "POST", &path).await?;
@@ -2488,6 +2514,8 @@ mod flag_boundary {
             "&lock_version=1&action=ticket_status&status=closed"
         } else if path.starts_with("/admin/moderation/reports/") {
             "&lock_version=1&action=moderate&status=reviewing&public_outcome=reviewing&moderator_notes=fixture"
+        } else if path.starts_with("/admin/players/") {
+            "&action=note&body=unexpected+game+staff+note"
         } else if path.starts_with("/admin/moderation/enforcement/") {
             "&lock_version=1&action=sanction&create=true&status=active&target=019ad000-0000-7000-8000-000000000001&category=suspension&public_reason=Test&moderator_notes=&effective_at=100&expires_at=200"
         } else if path.ends_with("/account/consents") {
