@@ -434,6 +434,24 @@ pub async fn middleware(
         Ok(session) => {
             request.extensions_mut().insert(session.clone());
             if let Err(status) = crate::csrf::verify(&layer.csrf, &session, &mut request).await {
+                if status == StatusCode::FORBIDDEN
+                    && request
+                        .extensions()
+                        .get::<crate::csrf::LocalizedRefusal>()
+                        .is_some()
+                {
+                    let lang = crate::surface::negotiate(request.headers()).code();
+                    let fallback = oteryn_ui::Registry::default().chrome(
+                        lang,
+                        request.uri().path(),
+                        oteryn_ui::Account::Anonymous,
+                    );
+                    let chrome = request
+                        .extensions()
+                        .get::<oteryn_ui::Chrome>()
+                        .unwrap_or(&fallback);
+                    return oteryn_ui::error(chrome, status);
+                }
                 return status.into_response();
             }
             let mut response = next.run(request).await;
@@ -504,14 +522,14 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
-) -> oteryn_ui::Account {
+) -> (oteryn_ui::Account, Option<Uuid>) {
     let config = request
         .extensions()
         .get::<SessionConfig>()
         .copied()
         .unwrap_or(layer.config);
     if config.validate().is_err() {
-        return oteryn_ui::Account::Anonymous;
+        return (oteryn_ui::Account::Anonymous, None);
     }
     let mut identifiers = request
         .headers()
@@ -523,17 +541,17 @@ pub(crate) async fn chrome_account(
         .filter(|(name, _)| *name == COOKIE_NAME)
         .map(|(_, value)| value);
     let Some(id) = identifiers.next().filter(|id| valid_id(id)) else {
-        return oteryn_ui::Account::Anonymous;
+        return (oteryn_ui::Account::Anonymous, None);
     };
     if identifiers.next().is_some() {
-        return oteryn_ui::Account::Anonymous;
+        return (oteryn_ui::Account::Anonymous, None);
     }
     let row: Result<Option<(String, Option<Uuid>)>, _> = sqlx::query_as(
         "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
         .bind(hash(id)).fetch_optional(&layer.pool).await;
     match row {
-        Ok(Some((csrf, Some(_)))) => oteryn_ui::Account::SignedIn { csrf },
-        _ => oteryn_ui::Account::Anonymous,
+        Ok(Some((csrf, Some(account)))) => (oteryn_ui::Account::SignedIn { csrf }, Some(account)),
+        _ => (oteryn_ui::Account::Anonymous, None),
     }
 }
 

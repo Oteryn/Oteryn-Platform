@@ -15,13 +15,31 @@ pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
 }
+pub type StaffAccess = std::sync::Arc<
+    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct StaffDashboard {
+    pub url: String,
+    pub allows: StaffAccess,
+}
+
+impl std::fmt::Debug for StaffDashboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffDashboard").finish_non_exhaustive()
+    }
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -41,8 +59,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
-    request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
         && !request.uri().path().starts_with("/internal/")
@@ -51,6 +67,14 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .get(header::ACCEPT)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.contains("text/html"));
+    let mut chrome = shell.registry.chrome(lang, path, account);
+    if browser
+        && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
+        && (staff.allows)(id).await
+    {
+        chrome.staff_dashboard = Some(staff.url.clone());
+    }
+    request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
         let html = response
