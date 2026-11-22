@@ -444,6 +444,16 @@ pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
         "pl"
     }
 }
+pub(crate) fn selected_language(
+    headers: &axum::http::HeaderMap,
+    lang: Option<&str>,
+) -> &'static str {
+    match lang {
+        Some("pl") => "pl",
+        Some("en") => "en",
+        _ => language(headers),
+    }
+}
 pub(crate) fn text(lang: &str, key: &str) -> String {
     text_with_args(lang, key, None)
 }
@@ -498,6 +508,7 @@ const ROLE_PAGE_SIZE: i64 = 50;
 #[derive(Deserialize, Default)]
 struct RolePageQuery {
     after: Option<Uuid>,
+    lang: Option<String>,
 }
 pub(crate) async fn role_page(
     pool: &PgPool,
@@ -548,7 +559,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = selected_language(&headers, query.lang.as_deref());
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),

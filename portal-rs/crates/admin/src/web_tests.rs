@@ -149,7 +149,7 @@ fn localized_responsive_labelled_template() {
         .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
-        assert!(html.contains("href=\"/admin/staff-invites\""));
+        assert!(html.contains(&format!("href=\"/admin/staff-invites?lang={lang}\"")));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));

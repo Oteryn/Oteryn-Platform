@@ -26,14 +26,17 @@ function seedAccount(lang) {
   return {...account,id:result.accountId};
 }
 
-async function send(page,email,role) {
-  const form=page.locator(`form[action="${manage}"]`);
-  await csrfRejected(page,manage,{email,role});
+async function send(page,email,role,lang) {
+  const action=`${manage}?lang=${lang}`;
+  const form=page.locator(`form[action="${action}"]`);
+  await csrfRejected(page,action,{email,role});
   await form.getByRole('textbox').fill(email);
   await form.getByRole('checkbox',{name:'support',exact:true}).check();
   const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===manage);
   await form.getByRole('button').click();
-  expect((await response).status()).toBe(303);
+  const result=await response;
+  expect(result.status()).toBe(303);
+  expect(result.headers().location).toBe(action);
   await expect(page.locator('article').filter({hasText:email})).toContainText('support');
   const [invite]=await query('SELECT id FROM staff_invites WHERE email=$1',[email]);
   return invite.id;
@@ -97,8 +100,10 @@ async function expectInviteQuota(page,path,form,unlimitedStatus,policy) {
 test('staff invitations reach verified registered and existing accounts through email and MFA',async({browser,page},info)=>{
   test.setTimeout(300_000);
   const lang=info.project.metadata.locale;
+  const browserLanguage=lang==='pl' ? 'en' : 'pl';
+  const manageLocalized=`${manage}?lang=${lang}`;
   const staff=await browser.newContext({
-    baseURL:origin(),ignoreHTTPSErrors:true,locale:lang,viewport:info.project.use.viewport,
+    baseURL:origin(),ignoreHTTPSErrors:true,locale:browserLanguage,viewport:info.project.use.viewport,
   });
   try {
     const manager=seedAccount(lang);
@@ -115,16 +120,16 @@ test('staff invitations reach verified registered and existing accounts through 
     const recovery=await enrollMfa(admin,lang,manager);
     await loginWithRecoveryCode(admin,lang,manager,recovery[0]);
     expect((await admin.goto('/admin/roles')).status()).toBe(200);
-    await admin.locator(`a[href="${manage}"]`).click();
+    await admin.locator(`a[href="${manage}?lang=${browserLanguage}"]`).click();
+    await expect(admin.locator('html')).toHaveAttribute('lang',browserLanguage);
+    expect((await admin.goto(`/admin/console/access?lang=${lang}`)).status()).toBe(200);
+    await admin.locator(`a[href="${manageLocalized}"]`).click();
     await expect(admin.locator('html')).toHaveAttribute('lang',lang);
     await expect(admin.getByRole('heading',{
       name:lang==='pl' ? 'Zaproszenia do zespołu' : 'Staff invitations',exact:true,
     })).toBeVisible();
-    expect((await admin.goto(`/admin/console/access?lang=${lang}`)).status()).toBe(200);
-    await admin.locator(`a[href="${manage}"]`).click();
-
     const fresh=address();
-    const freshId=await send(admin,fresh,support.id);
+    const freshId=await send(admin,fresh,support.id,lang);
     const freshLink=await invitation(page,fresh,lang);
     await visit(page,freshLink,200);
     await expect(page.locator(`main a[href="/${lang}/register"]`)).toBeVisible();
@@ -155,7 +160,7 @@ test('staff invitations reach verified registered and existing accounts through 
     expect(await memberships(fresh)).toEqual(['support']);
     await visit(page,freshLink,403);
 
-    const existingId=await send(admin,existing.email,support.id);
+    const existingId=await send(admin,existing.email,support.id,lang);
     const existingLink=await invitation(page,existing.email,lang);
     await visit(page,existingLink,403);
     expect(await memberships(existing.email)).toEqual([]);
@@ -182,9 +187,16 @@ test('staff invitations reach verified registered and existing accounts through 
     expect((await page.goto('/admin/roles')).status()).toBe(403);
 
     const revokedEmail=address();
-    const revokedId=await send(admin,revokedEmail,support.id);
+    const revokedId=await send(admin,revokedEmail,support.id,lang);
     const revokedLink=await invitation(page,revokedEmail,lang);
-    await submit(admin,`form[action="${manage}/${revokedId}/revoke"]`);
+    const revokePath=`${manage}/${revokedId}/revoke`;
+    const revoked=admin.waitForResponse(r=>r.request().method()==='POST'
+      && new URL(r.url()).pathname===revokePath
+      && new URLSearchParams(r.request().postData()).has('_csrf'));
+    await submit(admin,`form[action="${revokePath}?lang=${lang}"]`);
+    const revokeResponse=await revoked;
+    expect(revokeResponse.status()).toBe(303);
+    expect(revokeResponse.headers().location).toBe(manageLocalized);
     await expect(admin.locator('article').filter({hasText:revokedEmail})).toHaveCount(0);
     await visit(page,revokedLink,403);
 
@@ -192,9 +204,9 @@ test('staff invitations reach verified registered and existing accounts through 
     await audit(admin,'staff.invite.accepted',freshId);
     await audit(admin,'staff.invite.accepted',existingId);
     await audit(admin,'staff.invite.revoked',revokedId);
-    expect((await admin.goto(manage)).status()).toBe(200);
-    const manageCsrf=await admin.locator(`form[action="${manage}"] input[name="_csrf"]`).inputValue();
-    await expectInviteQuota(admin,manage,{_csrf:manageCsrf},400,"staff-invite-manage");
+    expect((await admin.goto(manageLocalized)).status()).toBe(200);
+    const manageCsrf=await admin.locator(`form[action="${manageLocalized}"] input[name="_csrf"]`).inputValue();
+    await expectInviteQuota(admin,manageLocalized,{_csrf:manageCsrf},400,"staff-invite-manage");
     expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
     const redeemCsrf=await page.locator('main input[name="_csrf"]').first().inputValue();
     await expectInviteQuota(page,`/${lang}/staff-invite`,{_csrf:redeemCsrf,token:'invalid'},403,'staff-invite-accept');

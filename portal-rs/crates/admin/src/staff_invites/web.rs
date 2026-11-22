@@ -1,7 +1,7 @@
 use super::{Invites, Listing, Pending, delegable_roles_sql, pending_for, valid_token};
 use crate::{
     rbac::{Authorizer, CheckContext, Error, Permission},
-    web::{PortalIdentity, StaffSession, configured_guard, language, staff_context, text},
+    web::{PortalIdentity, StaffSession, configured_guard, selected_language, staff_context, text},
 };
 use askama::Template;
 use axum::{
@@ -115,6 +115,16 @@ impl Management {
 struct PageQuery {
     before: Option<Uuid>,
     approval: Option<Uuid>,
+    lang: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LocaleQuery {
+    lang: Option<String>,
+}
+
+fn manage_redirect(lang: &str) -> Response {
+    Redirect::to(&format!("{MANAGE_PATH}?lang={lang}")).into_response()
 }
 
 async fn manage(
@@ -124,7 +134,7 @@ async fn manage(
     headers: HeaderMap,
     Query(query): Query<PageQuery>,
 ) -> Response {
-    let lang = language(&headers);
+    let lang = selected_language(&headers, query.lang.as_deref());
     let result = async {
         let csrf = session.csrf_token().await?;
         let roles = sqlx::query_as(delegable_roles_sql())
@@ -216,9 +226,10 @@ async fn create(
     Extension(actor): Extension<CheckContext>,
     ClientSource(ip): ClientSource,
     headers: HeaderMap,
+    Query(query): Query<LocaleQuery>,
     RawForm(form): RawForm,
 ) -> Response {
-    let lang = language(&headers);
+    let lang = selected_language(&headers, query.lang.as_deref());
     if let Err(response) = limit(
         &app,
         lang,
@@ -238,7 +249,7 @@ async fn create(
             return failure(lang, Error::InvalidInput);
         };
         return match app.invites.approve(actor, id).await {
-            Ok(()) => Redirect::to(MANAGE_PATH).into_response(),
+            Ok(()) => manage_redirect(lang),
             Err(error) => failure(lang, error),
         };
     }
@@ -271,7 +282,7 @@ async fn create(
         .create(actor, key, email, roles, lang, request_key)
         .await
     {
-        Ok(_) => Redirect::to(MANAGE_PATH).into_response(),
+        Ok(_) => manage_redirect(lang),
         Err(error) => failure(lang, error),
     }
 }
@@ -282,8 +293,9 @@ async fn revoke(
     ClientSource(ip): ClientSource,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Query(query): Query<LocaleQuery>,
 ) -> Response {
-    let lang = language(&headers);
+    let lang = selected_language(&headers, query.lang.as_deref());
     if let Err(response) = limit(
         &app,
         lang,
@@ -296,7 +308,7 @@ async fn revoke(
         return *response;
     }
     match app.invites.revoke(actor, id).await {
-        Ok(()) => Redirect::to(MANAGE_PATH).into_response(),
+        Ok(()) => manage_redirect(lang),
         Err(error) => failure(lang, error),
     }
 }
