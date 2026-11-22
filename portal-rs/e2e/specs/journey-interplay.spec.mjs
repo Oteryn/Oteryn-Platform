@@ -263,7 +263,7 @@ test('two players trade, report harassment, appeal through support and face staf
       await seller.page.reload();
       await expect(main(seller)).toContainText(outcome);
       await expect(main(seller)).toContainText(t('Action taken', 'Podjęto działanie'));
-      expect((await buyer.page.reload()).status()).toBe(200);
+      expect((await buyer.page.goto(local('party'))).status()).toBe(200);
       await expect(form(buyer, 'party')).toHaveCount(0);
       await expect(main(buyer)).toContainText(t(
         'Posting is unavailable until your account and character ownership can be verified.',
