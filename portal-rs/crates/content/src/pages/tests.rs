@@ -310,6 +310,46 @@ Updated English source",
         .next()
         .ok_or("invalid token")?;
     crate::test_staff::browser(&pool, ctx.account, &cookie).await?;
+    for (locale, field, status, message) in [
+        (
+            "en",
+            "published_at=text",
+            StatusCode::BAD_REQUEST,
+            "Check the request and try again.",
+        ),
+        (
+            "pl",
+            "reviewed_source_revision=text",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.",
+        ),
+    ] {
+        let response = staff
+            .clone()
+            .oneshot(
+                Request::post(format!("/admin/pages/malformed-page/{locale}"))
+                    .header("host", "staff.test")
+                    .header(header::COOKIE, &cookie)
+                    .header(header::ORIGIN, "https://staff.test")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "_csrf={token}&title=Hello&body=Content&action=save&{field}"
+                    )))?,
+            )
+            .await?;
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            to_bytes(response.into_body(), 256).await?.as_ref(),
+            message.as_bytes()
+        );
+    }
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM pages WHERE slug='malformed-page')"
+        )
+        .fetch_one(&pool)
+        .await?
+    );
     for (csrf, status) in [
         ("bad", StatusCode::FORBIDDEN),
         (token, StatusCode::SEE_OTHER),
