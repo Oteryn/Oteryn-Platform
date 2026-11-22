@@ -3,7 +3,7 @@
 use axum::{
     Router,
     body::Body,
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -189,6 +189,24 @@ async fn localized_home(request: Request) -> Response {
 pub(crate) fn path_language(path: &str) -> Option<Language> {
     Language::parse(path.split('/').nth(1).unwrap_or_default())
 }
+pub(crate) fn request_language(request: &Request) -> Language {
+    #[derive(serde::Deserialize)]
+    struct ConsoleLocale {
+        lang: Option<String>,
+    }
+
+    let path = request.uri().path();
+    path_language(path)
+        .or_else(|| {
+            // The Game console uses a query parameter for its localized pages.
+            if path != "/console" && !path.starts_with("/console/") {
+                return None;
+            }
+            let Query(locale) = Query::<ConsoleLocale>::try_from_uri(request.uri()).ok()?;
+            Language::parse(locale.lang.as_deref()?)
+        })
+        .unwrap_or_else(|| negotiate(request.headers()))
+}
 async fn switch_language(Path(lang): Path<String>) -> Response {
     let Some(language) = Language::parse(&lang) else {
         return StatusCode::BAD_REQUEST.into_response();
@@ -216,7 +234,7 @@ fn wants_json(headers: &HeaderMap) -> bool {
 }
 
 async fn policy(mut request: Request, next: Next) -> Response {
-    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let lang = request_language(&request);
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();
@@ -547,6 +565,35 @@ mod tests {
             .await?;
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert!(html(response).await?.contains("Request too large"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn console_refusals_honor_the_selected_language() -> TestResult {
+        let app = Router::new()
+            .route(
+                "/console/dashboard",
+                get(|| async { StatusCode::FORBIDDEN }),
+            )
+            .layer(axum::middleware::from_fn(policy));
+        for (selected, browser) in [("en", "pl"), ("pl", "en")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::get(format!("/console/dashboard?lang={selected}"))
+                        .header(header::COOKIE, format!("portal_language={browser}"))
+                        .header(header::ACCEPT_LANGUAGE, browser)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], selected);
+            assert!(
+                html(response)
+                    .await?
+                    .contains(&format!(r#"<html lang="{selected}""#))
+            );
+        }
         Ok(())
     }
 
