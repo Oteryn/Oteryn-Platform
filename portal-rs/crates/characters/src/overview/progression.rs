@@ -12,9 +12,6 @@ pub(super) struct Facts {
 /// Read only the two public progression fields, joined to the viewer's own
 /// character IDs. The profile projection has its own epoch and freshness fence.
 pub(super) async fn load(pool: &PgPool, account: Uuid) -> HashMap<Uuid, Facts> {
-    if !crate::navigation::flag("PORTAL_PUBLIC_PROFILES_ENABLED") {
-        return HashMap::new();
-    }
     let rows = sqlx::query_as::<_, (Uuid, String, Uuid, String, String)>(
         r#"SELECT c.character_id, c.name, c.world_id,
                   p.payload->'profile'->0->>'level', p.payload->'profile'->0->>'vocation'

@@ -97,7 +97,29 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     let authority = "oteryn:character-authority:primary";
     sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=EXTRACT(EPOCH FROM now())::bigint,observed_at=EXTRACT(EPOCH FROM now())::bigint WHERE id=1").bind(authority).execute(&pool).await?;
     sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'1','1',0,$3)").bind(id).bind(authority).bind(vec![0u8;32]).execute(&pool).await?;
-    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(id).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&pool).await?;
+    let character = Uuid::now_v7();
+    let world = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(id).bind(character).bind(world).execute(&pool).await?;
+    for migration in [
+        include_str!("../../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&pool).await?;
+    }
+    sqlx::query("UPDATE public_projection_state SET highest_epoch=1 WHERE id=1")
+        .execute(&pool)
+        .await?;
+    let profile = serde_json::json!({"profile":[{"name":"Aldric","world_id":world,"level":"412","vocation":4}]});
+    sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('character_profile',$1,false,1,1,0,$2), ('character_profile','',true,1,1,floor(extract(epoch FROM now()))::bigint,'{}')")
+        .bind(character.to_string()).bind(profile).execute(&pool).await?;
+    let facts = progression::load(&pool, id).await;
+    let facts = facts.get(&character).ok_or("fresh progression missing")?;
+    assert_eq!((facts.level, facts.vocation), (412, 4));
+    assert!(progression::load(&pool, Uuid::now_v7()).await.is_empty());
+    sqlx::query("UPDATE public_snapshots SET watermark=0 WHERE is_watermark")
+        .execute(&pool)
+        .await?;
+    assert!(progression::load(&pool, id).await.is_empty());
     let settings = Settings {
         enabled: true,
         environment: oteryn_core::Environment::Testing,

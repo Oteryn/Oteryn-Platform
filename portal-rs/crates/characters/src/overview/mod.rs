@@ -206,7 +206,9 @@ async fn load(
         .as_ref()
         .and_then(|view| view.observed_at.clone())
         .unwrap_or_else(|| t("unavailable"));
-    let progression = if read_state == Some(ReadState::Ready) {
+    let progression = if read_state == Some(ReadState::Ready)
+        && crate::navigation::flag("PORTAL_PUBLIC_PROFILES_ENABLED")
+    {
         progression::load(pool, account).await
     } else {
         Default::default()
