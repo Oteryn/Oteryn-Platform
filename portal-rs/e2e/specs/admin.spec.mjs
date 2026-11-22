@@ -21,7 +21,9 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const codes=await page.locator('textarea[readonly]').allTextContents();
+ const recoveryCodes=page.locator('textarea[readonly]');
+ await expect(recoveryCodes.first()).toBeVisible();
+ const codes=await recoveryCodes.allTextContents();
  expect(codes.length).toBeGreaterThan(0);
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
