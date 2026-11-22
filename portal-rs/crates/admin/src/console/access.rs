@@ -21,6 +21,8 @@ pub struct Flags {
 pub enum Error {
     Denied,
     BadInput,
+    Conflict,
+    Terminal(uuid::Uuid, super::QueryStatus),
     Unavailable,
 }
 impl IntoResponse for Error {
@@ -28,7 +30,8 @@ impl IntoResponse for Error {
         match self {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::BadInput => StatusCode::BAD_REQUEST,
-            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Conflict => StatusCode::CONFLICT,
+            Self::Unavailable | Self::Terminal(..) => StatusCode::SERVICE_UNAVAILABLE,
         }
         .into_response()
     }
@@ -109,6 +112,15 @@ pub trait Backend: Clone + Send + Sync + 'static {
         input: &super::players::Input,
         operation: &'static str,
     ) -> impl Future<Output = Result<Option<super::players::Snapshot>, Error>> + Send;
+    fn retry_player_query(
+        &self,
+        _: CheckContext,
+        _: &super::players::Input,
+        _: &'static str,
+        _: uuid::Uuid,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async { Err(Error::Denied) }
+    }
     fn ledger(
         &self,
         actor: CheckContext,
@@ -191,6 +203,62 @@ impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
         }
     }
 }
+impl<A: crate::rbac::AccountStateReader + Clone + 'static> StoredMetadata<A> {
+    async fn player_query(
+        &self,
+        actor: CheckContext,
+        input: &super::players::Input,
+        operation: &'static str,
+        retry: Option<uuid::Uuid>,
+    ) -> Result<Option<super::players::Snapshot>, Error> {
+        input.validate()?;
+        match operation {
+            "player.search" if input.q.is_some() => (),
+            "player.character.get" | "player.inventory.get" | "sanction.list"
+                if input.character.is_some() => {}
+            _ => return Err(Error::BadInput),
+        }
+        let permission = if operation == "sanction.list" {
+            "game.sanction.read"
+        } else {
+            "game.player.read"
+        };
+        if !self.permitted(actor, permission).await {
+            return Err(Error::Denied);
+        }
+        let Some(channel) = &self.channel else {
+            return Err(Error::Unavailable);
+        };
+        let params = if let Some(q) = &input.q {
+            serde_json::json!({"query":q})
+        } else {
+            serde_json::json!({})
+        };
+        let Some((request_id, observed_at, value)) = channel
+            .snapshot(
+                actor,
+                super::stored::SnapshotAdmission {
+                    session: self.session.as_ref(),
+                    retry,
+                },
+                operation,
+                permission,
+                input.character.as_deref(),
+                params,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(super::projection::snapshot(
+            operation,
+            request_id,
+            observed_at,
+            input.character.as_deref(),
+            &value,
+        )?))
+    }
+}
 impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMetadata<A> {
     fn for_session(&self, session: oteryn_web::session::BrowserSession) -> Self {
         let mut backend = self.clone();
@@ -224,50 +292,21 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         input: &super::players::Input,
         operation: &'static str,
     ) -> Result<Option<super::players::Snapshot>, Error> {
-        input.validate()?;
-        match operation {
-            "player.search" if input.q.is_some() => (),
-            "player.character.get" | "player.inventory.get" | "sanction.list"
-                if input.character.is_some() => {}
-            _ => return Err(Error::BadInput),
-        }
-        let permission = if operation == "sanction.list" {
-            "game.sanction.read"
-        } else {
-            "game.player.read"
-        };
-        if !self.permitted(actor, permission).await {
-            return Err(Error::Denied);
-        }
-        let Some(channel) = &self.channel else {
-            return Err(Error::Unavailable);
-        };
-        let params = if let Some(q) = &input.q {
-            serde_json::json!({"query":q})
-        } else {
-            serde_json::json!({})
-        };
-        let Some((request_id, observed_at, value)) = channel
-            .snapshot(
-                actor,
-                self.session.as_ref(),
-                operation,
-                permission,
-                input.character.as_deref(),
-                params,
-            )
-            .await?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(super::projection::snapshot(
-            operation,
-            request_id,
-            observed_at,
-            input.character.as_deref(),
-            &value,
-        )?))
+        self.player_query(actor, input, operation, None).await
     }
+
+    async fn retry_player_query(
+        &self,
+        actor: CheckContext,
+        input: &super::players::Input,
+        operation: &'static str,
+        request: uuid::Uuid,
+    ) -> Result<(), Error> {
+        self.player_query(actor, input, operation, Some(request))
+            .await?;
+        Ok(())
+    }
+
     async fn ledger(
         &self,
         actor: CheckContext,
@@ -283,7 +322,10 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         let Some((query_id, _, value)) = channel
             .snapshot(
                 actor,
-                self.session.as_ref(),
+                super::stored::SnapshotAdmission {
+                    session: self.session.as_ref(),
+                    retry: None,
+                },
                 "admin.ledger.query",
                 "game.audit.read",
                 None,
@@ -341,7 +383,10 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         let Some((_, _, value)) = channel
             .snapshot(
                 actor,
-                self.session.as_ref(),
+                super::stored::SnapshotAdmission {
+                    session: self.session.as_ref(),
+                    retry: None,
+                },
                 "admin.policy.get",
                 "game.ops.read",
                 None,
@@ -439,10 +484,15 @@ where
         ),
     ] {
         let page = match area {
-            "players" => Router::new().route(
-                path,
-                get(super::players::page::<B>).post(super::players::search::<B>),
-            ),
+            "players" => Router::new()
+                .route(
+                    path,
+                    get(super::players::page::<B>).post(super::players::search::<B>),
+                )
+                .route(
+                    "/admin/console/players/retry",
+                    axum::routing::post(super::players::retry::<B>),
+                ),
             "audit" => Router::new().route(path, get(super::audit::page::<B>)),
             "approvals" => Router::new().route(path, get(super::approvals::page::<B>)),
             _ => Router::new().route(path, get(page::<B>)),
@@ -542,6 +592,9 @@ pub(crate) struct Page {
     pub search: bool,
     pub csrf: String,
     pub filters: bool,
+    pub retries: Vec<super::players::Retry>,
+    pub retry_csrf: String,
+    pub retry_label: String,
     pub submit: String,
     pub query_label: String,
     pub character_label: String,
@@ -569,6 +622,9 @@ impl Page {
             search: false,
             csrf: String::new(),
             filters: false,
+            retries: vec![],
+            retry_csrf: String::new(),
+            retry_label: tr(lang, "retry-query"),
             submit: tr(lang, "submit"),
             query_label: tr(lang, "query"),
             character_label: tr(lang, "character"),

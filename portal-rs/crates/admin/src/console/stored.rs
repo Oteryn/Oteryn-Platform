@@ -19,7 +19,34 @@ struct QuerySpec<'a> {
     target: control::Target,
     params: Value,
     risk: control::RiskClass,
+    retry: Option<Uuid>,
 }
+
+#[derive(Clone, Copy)]
+pub(super) struct SnapshotAdmission<'a> {
+    pub session: Option<&'a BrowserSession>,
+    pub retry: Option<Uuid>,
+}
+
+fn terminal_dossier_status(
+    status: control::Status,
+    expires_at: OffsetDateTime,
+) -> Option<QueryStatus> {
+    use control::Status;
+    match status {
+        Status::Rejected => Some(QueryStatus::Rejected),
+        Status::Failed => Some(QueryStatus::Failed),
+        Status::Cancelled => Some(QueryStatus::Cancelled),
+        Status::Expired => Some(QueryStatus::Expired),
+        Status::Queued | Status::Delivered | Status::Accepted | Status::InProgress
+            if expires_at <= OffsetDateTime::now_utc() =>
+        {
+            Some(QueryStatus::Expired)
+        }
+        _ => None,
+    }
+}
+
 impl StoredChannel {
     pub fn configured(pool: PgPool) -> Result<Self, Box<dyn std::error::Error>> {
         let config = control::Config::from_env();
@@ -139,6 +166,7 @@ impl StoredChannel {
             target,
             params,
             risk,
+            retry,
         } = query;
         let (ring, key_id) = self.signer.as_ref().ok_or(Error::Unavailable)?;
         let session_hash = session.identity_hash().await.ok_or(Error::Denied)?;
@@ -202,6 +230,34 @@ impl StoredChannel {
         let evidence: Option<(OffsetDateTime, String)> = sqlx::query_as("SELECT t.created_at,COALESCE(s.ip::text,'') FROM account_mfa_tokens t JOIN web_sessions s ON s.account_id=t.account_id WHERE t.token_hash=$1 AND t.account_id=$2 AND t.purpose='grant' AND t.created_at<=clock_timestamp() AND t.expires_at>clock_timestamp() AND s.id_hash=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() FOR SHARE OF t,s")
             .bind(Sha256::digest(grant.as_bytes()).to_vec()).bind(actor.account).bind(&session_hash).fetch_optional(&mut *tx).await?;
         let (mfa_at, ip) = evidence.ok_or(Error::Denied)?;
+        if target.character_id.is_some() {
+            // Admission holds the actor lock. A stale or replayed retry cannot
+            // replace a newer request, and a racing GET cannot retry a failure.
+            let latest: Option<(Uuid, control::Status, OffsetDateTime)> = sqlx::query_as(
+                "SELECT request_id,status,expires_at FROM admin_control_requests
+                 WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND kind='query'
+                 ORDER BY issued_at DESC, request_id DESC LIMIT 1 FOR UPDATE",
+            )
+            .bind(actor.account)
+            .bind(operation)
+            .bind(sqlx::types::Json(&target))
+            .bind(&params)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let terminal = latest.and_then(|(id, status, expires_at)| {
+                terminal_dossier_status(status, expires_at).map(|_| id)
+            });
+            match (retry, terminal) {
+                (None, Some(id)) => {
+                    tx.commit().await?;
+                    return Ok(id);
+                }
+                (Some(expected), current) if current != Some(expected) => {
+                    return Err(Error::Invalid);
+                }
+                _ => {}
+            }
+        }
         let pending: Option<Uuid> = sqlx::query_scalar("SELECT request_id FROM admin_control_requests WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND kind='query' AND expires_at>clock_timestamp() AND status IN ('queued','delivered','accepted','in_progress') ORDER BY request_id LIMIT 1")
             .bind(actor.account).bind(operation).bind(sqlx::types::Json(&target)).bind(&params)
             .fetch_optional(&mut *tx).await?;
@@ -352,7 +408,7 @@ impl StoredChannel {
                           AND t.after->>'status'='succeeded' LIMIT 1),
                      CASE WHEN a.target=g.agent_id THEN a.after->>'owner_epoch'
                           ELSE g.owner_epoch::text END) = g.owner_epoch::text))
-             ORDER BY r.issued_at DESC LIMIT 1",
+             ORDER BY r.issued_at DESC, r.request_id DESC LIMIT 1",
         )
         .bind(actor)
         .bind(operation)
@@ -364,20 +420,6 @@ impl StoredChannel {
         .fetch_optional(&self.pool)
         .await?;
         Ok(request)
-    }
-    async fn verified(
-        &self,
-        actor: Uuid,
-        agent: &control::Agent,
-        operation: &str,
-        target: &control::Target,
-        params: &Value,
-        request_id: Option<Uuid>,
-    ) -> Result<Option<(control::Request, signer::ResultEnvelope)>, Error> {
-        let request = self
-            .authorized_request(actor, agent, operation, target, params, request_id)
-            .await?;
-        self.verified_result(agent, request).await
     }
     async fn verified_result(
         &self,
@@ -437,7 +479,7 @@ impl StoredChannel {
     pub(super) async fn snapshot(
         &self,
         actor: CheckContext,
-        session: Option<&BrowserSession>,
+        admission: SnapshotAdmission<'_>,
         operation: &str,
         permission: &str,
         character: Option<&str>,
@@ -449,10 +491,22 @@ impl StoredChannel {
             .map_err(|_| access::Error::Unavailable)?;
         let target =
             Self::target(&agent, None, character).map_err(|_| access::Error::Unavailable)?;
-        if let Some((request, result)) = self
-            .verified(actor.account, &agent, operation, &target, &params, None)
+        let selected = self
+            .authorized_request(actor.account, &agent, operation, &target, &params, None)
             .await
-            .map_err(|_| access::Error::Unavailable)?
+            .map_err(|_| access::Error::Unavailable)?;
+        if character.is_some()
+            && let Some(request) = &selected
+            && let Some(status) = terminal_dossier_status(request.status, request.expires_at)
+            && admission.retry.is_none()
+        {
+            return Err(access::Error::Terminal(request.request_id, status));
+        }
+        if admission.retry.is_none()
+            && let Some((request, result)) = self
+                .verified_result(&agent, selected)
+                .await
+                .map_err(|_| access::Error::Unavailable)?
         {
             return Ok(Some((
                 request.request_id,
@@ -462,7 +516,9 @@ impl StoredChannel {
         }
         let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_requests WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND expires_at>clock_timestamp() AND status IN ('queued','delivered','accepted','in_progress'))")
             .bind(actor.account).bind(operation).bind(sqlx::types::Json(&target)).bind(&params).fetch_one(&self.pool).await?;
-        if !pending && let Some(session) = session {
+        if (admission.retry.is_some() || !pending)
+            && let Some(session) = admission.session
+        {
             self.submit_query(
                 actor,
                 session,
@@ -473,10 +529,14 @@ impl StoredChannel {
                     target,
                     params,
                     risk: control::RiskClass::R1,
+                    retry: admission.retry,
                 },
             )
             .await
-            .map_err(|_| access::Error::Unavailable)?;
+            .map_err(|error| match error {
+                Error::Invalid if admission.retry.is_some() => access::Error::Conflict,
+                _ => access::Error::Unavailable,
+            })?;
         }
         Ok(None)
     }
@@ -576,6 +636,7 @@ impl Channel for StoredChannel {
                 target: scope,
                 params: json!({}),
                 risk: control::RiskClass::R0,
+                retry: None,
             },
         )
         .await
@@ -585,3 +646,32 @@ impl Channel for StoredChannel {
 #[cfg(test)]
 #[path = "stored_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod dossier_status_tests {
+    use super::*;
+
+    #[test]
+    fn dossier_retry_requires_a_failure_or_expired_pending_request() {
+        use control::Status;
+        let now = OffsetDateTime::now_utc();
+        let future = now + time::Duration::hours(1);
+        for (status, key) in [
+            (Status::Rejected, "rejected"),
+            (Status::Failed, "failed"),
+            (Status::Cancelled, "cancelled"),
+            (Status::Expired, "expired"),
+        ] {
+            assert_eq!(
+                terminal_dossier_status(status, future).map(QueryStatus::key),
+                Some(key)
+            );
+        }
+        assert_eq!(
+            terminal_dossier_status(Status::Delivered, now).map(QueryStatus::key),
+            Some("expired")
+        );
+        assert!(terminal_dossier_status(Status::Delivered, future).is_none());
+        assert!(terminal_dossier_status(Status::Succeeded, now).is_none());
+    }
+}

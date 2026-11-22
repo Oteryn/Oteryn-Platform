@@ -48,3 +48,9 @@ sanction-jail = Więzienie
 sanction-unknown = Nieznana kara
 sanction-active = Aktywna
 sanction-inactive = Nieaktywna
+
+query-failed = Zapytanie nie powiodło się
+query-rejected = Zapytanie odrzucone
+query-expired = Zapytanie wygasło
+query-cancelled = Zapytanie anulowane
+retry-query = Ponów zapytanie

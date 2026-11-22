@@ -48,3 +48,9 @@ sanction-jail = Jail
 sanction-unknown = Unknown sanction
 sanction-active = Active
 sanction-inactive = Inactive
+
+query-failed = Query failed
+query-rejected = Query rejected
+query-expired = Query expired
+query-cancelled = Query cancelled
+retry-query = Retry query
