@@ -1400,20 +1400,3 @@ async fn r7_moderation_preserves_reports_filed_after_page_load() {
     assert_eq!(statuses[1].1, "resolved");
     assert_eq!(rendered_ids, Some(shown.to_string().as_str()));
 }
-
-#[tokio::test]
-async fn submission_quota_refusal_uses_the_selected_language() {
-    for (lang, title) in [("pl", "Zbyt wiele żądań"), ("en", "Too many requests")] {
-        let response = submission_refusal(Error::Limited, lang);
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert!(
-            !response
-                .headers()
-                .contains_key(axum::http::header::RETRY_AFTER)
-        );
-        let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
-            .await
-            .expect("localized party refusal body");
-        assert!(String::from_utf8_lossy(&body).contains(title));
-    }
-}

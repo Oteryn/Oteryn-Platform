@@ -422,28 +422,15 @@ async fn page(
         account(&board, &session).await.is_ok(),
     )
 }
-fn submission_refusal(error: Error, lang: &str) -> Response {
-    if !matches!(error, Error::Limited) {
-        return error.into_response();
-    }
-    let chrome = oteryn_ui::Registry::default().chrome(lang, "/", oteryn_ui::Account::Anonymous);
-    oteryn_ui::error(&chrome, StatusCode::TOO_MANY_REQUESTS)
-}
-
 async fn create(
     State(board): State<Board>,
     Path(lang): Path<String>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Form(draft): Form<Draft>,
-) -> Result<Response, Response> {
-    language(&lang).map_err(IntoResponse::into_response)?;
-    let owner = account(&board, &session)
-        .await
-        .map_err(IntoResponse::into_response)?;
-    board
-        .create(owner, draft)
-        .await
-        .map_err(|error| submission_refusal(error, &lang))?;
+) -> Result<Response, Error> {
+    language(&lang)?;
+    let owner = account(&board, &session).await?;
+    board.create(owner, draft).await?;
     Ok(Redirect::to(&format!("/{lang}/party")).into_response())
 }
 #[derive(Deserialize)]
@@ -458,15 +445,11 @@ async fn report(
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Form(input): Form<Reason>,
-) -> Result<Response, Response> {
-    language(&lang).map_err(IntoResponse::into_response)?;
-    let reporter = account(&board, &session)
-        .await
-        .map_err(IntoResponse::into_response)?;
+) -> Result<Response, Error> {
+    language(&lang)?;
     board
-        .report(reporter, id, &input.reason)
-        .await
-        .map_err(|error| submission_refusal(error, &lang))?;
+        .report(account(&board, &session).await?, id, &input.reason)
+        .await?;
     Ok(Redirect::to(&format!("/{lang}/party")).into_response())
 }
 async fn remove(
