@@ -439,8 +439,58 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .await?,
         "accepted"
     );
+    let start: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&pool)
+            .await?;
+    let create_legacy = |effective_at, expires_at| {
+        format!(
+            "lock_version=1&action=sanction&create=true&status=active&target={owner}&category=warning&public_reason=Created&moderator_notes=&effective_at={effective_at}&expires_at={expires_at}"
+        )
+    };
+    if scenario == Some("expiry") {
+        let oversized = Uuid::now_v7();
+        assert_eq!(
+            post(
+                "moderation/enforcement",
+                oversized,
+                create_legacy(start, start + 8760 * 3600 + 1)
+            )
+            .await?,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            post(
+                "moderation/enforcement",
+                oversized,
+                create_legacy(start, start + 3599)
+            )
+            .await?,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            post(
+                "moderation/enforcement",
+                oversized,
+                create_legacy(start - 7200, start - 3600)
+            )
+            .await?,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sanctions WHERE id=$1")
+                .bind(oversized)
+                .fetch_one(&pool)
+                .await?,
+            0
+        );
+    }
     let created = Uuid::now_v7();
-    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&create=true&status=active&target={owner}&category=warning&public_reason=Created&moderator_notes=&effective_at=1794000000&expires_at=1894000000")).await?,StatusCode::SEE_OTHER);
+    let end = start + 8760 * 3600;
+    assert_eq!(
+        post("moderation/enforcement", created, create_legacy(start, end)).await?,
+        StatusCode::SEE_OTHER
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sanctions WHERE id=$1")
             .bind(created)
@@ -497,7 +547,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .bind(owner)
         .execute(&pool)
         .await?;
-    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Revoked&moderator_notes=&effective_at=1794000000&expires_at=1894000000")).await?,StatusCode::SEE_OTHER);
+    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Revoked&moderator_notes=&effective_at={start}&expires_at={end}")).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         post(
             "moderation/reports",
@@ -613,6 +663,15 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
             "moderation/enforcement",
             lapsed,
             "lock_version=1&action=revoke_sanction&public_reason=Reviewed".into(),
+        )
+        .await?,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        post(
+            "moderation/enforcement",
+            lapsed,
+            format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Reviewed&moderator_notes=&effective_at={start}&expires_at={end}"),
         )
         .await?,
         StatusCode::CONFLICT

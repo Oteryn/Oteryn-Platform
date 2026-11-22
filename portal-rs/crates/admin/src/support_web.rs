@@ -589,7 +589,7 @@ fn form_field(lang: &str, action: &str, field: &str) -> String {
     };
     let control = match field {
         "duration_hours" => format!(
-            "<input class=\"op-input\" type=\"number\" name=\"{field}\" min=\"1\" max=\"8760\" required>"
+            "<input class=\"op-input\" type=\"number\" name=\"{field}\" min=\"1\" max=\"{MAX_SANCTION_DURATION_HOURS}\" required>"
         ),
         "assignee" => {
             "<input class=\"op-input\" name=\"assignee\" maxlength=\"36\" size=\"24\">".to_owned()

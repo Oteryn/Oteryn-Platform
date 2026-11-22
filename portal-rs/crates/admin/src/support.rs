@@ -13,6 +13,9 @@ use sqlx::{PgPool, Postgres, Transaction};
 use std::future::Future;
 use uuid::Uuid;
 
+const MAX_SANCTION_DURATION_HOURS: i64 = 8760;
+const SECONDS_PER_HOUR: i64 = 3600;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
     Tickets,
@@ -145,7 +148,7 @@ impl Command {
                     && matches!(category.as_str(), "warning" | "restriction" | "suspension")
                     && text(public_reason, 4000, true)
                     && text(moderator_notes, 8000, false)
-                    && (1..=8760).contains(duration_hours)
+                    && (1..=MAX_SANCTION_DURATION_HOURS).contains(duration_hours)
             }
             Self::RevokeSanction { public_reason } => text(public_reason, 4000, true),
             Self::Reply { body, .. } => text(body, 8000, true),
@@ -165,6 +168,7 @@ impl Command {
                 ) && text(moderator_notes, 8000, false)
             }
             Self::Sanction {
+                create,
                 status,
                 target,
                 category,
@@ -172,7 +176,6 @@ impl Command {
                 moderator_notes,
                 effective_at,
                 expires_at,
-                ..
             } => {
                 matches!(status.as_str(), "active" | "expired" | "revoked")
                     && !target.is_nil()
@@ -181,6 +184,13 @@ impl Command {
                     && text(moderator_notes, 8000, false)
                     && *effective_at > 0
                     && expires_at > effective_at
+                    && (!create
+                        || expires_at
+                            .checked_sub(*effective_at)
+                            .is_some_and(|duration| {
+                                (SECONDS_PER_HOUR..=MAX_SANCTION_DURATION_HOURS * SECONDS_PER_HOUR)
+                                    .contains(&duration)
+                            }))
             }
             Self::Appeal {
                 appeal_status,
@@ -214,6 +224,7 @@ impl Command {
             Self::LinkSanction { .. } => matches!(current, "submitted" | "reviewing"),
             Self::ApplySanction { .. } | Self::Sanction { create: true, .. } => current == "absent",
             Self::RevokeSanction { .. } => current == "active",
+            Self::Sanction { status, .. } if status == "revoked" => current == "active",
             Self::Sanction { .. } => matches!(current, "active" | "expired" | "revoked"),
             Self::Appeal { .. } => matches!(current, "requested" | "reviewing"),
         };

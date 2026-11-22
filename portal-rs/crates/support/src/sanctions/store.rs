@@ -658,7 +658,9 @@ impl Service {
                         return Err(StaffError::Invalid);
                     }
                     command.transition("absent")?;
-                    let inserted = sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) VALUES($1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8) ON CONFLICT (id) DO NOTHING")
+                    let inserted = sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) SELECT $1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8
+                        WHERE to_timestamp($7::bigint::double precision/1000)>clock_timestamp()
+                        ON CONFLICT (id) DO NOTHING")
                         .bind(id).bind(target).bind(category).bind(public_reason.trim()).bind(moderator_notes).bind(decision.effective_at_ms).bind(decision.expires_at_ms).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
                     if inserted.rows_affected() != 1 {
                         return Err(StaffError::Conflict);
@@ -693,7 +695,22 @@ impl Service {
                     {
                         return Err(StaffError::Conflict);
                     }
-                    sqlx::query("UPDATE sanctions SET status=$2,public_reason=$3,moderator_notes=nullif(btrim($4),''),lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(status).bind(public_reason.trim()).bind(moderator_notes).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                    let updated = sqlx::query(
+                        "UPDATE sanctions
+                         SET status=$2,public_reason=$3,moderator_notes=nullif(btrim($4),''),
+                             lock_version=lock_version+1,updated_at=clock_timestamp()
+                         WHERE id=$1 AND ($2 NOT IN ('active','revoked') OR expires_at IS NULL OR expires_at>clock_timestamp())",
+                    )
+                    .bind(id)
+                    .bind(status)
+                    .bind(public_reason.trim())
+                    .bind(moderator_notes)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?;
+                    if updated.rows_affected() != 1 {
+                        return Err(StaffError::Conflict);
+                    }
                 }
                 status.clone()
             }
