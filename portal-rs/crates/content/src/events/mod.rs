@@ -73,8 +73,17 @@ pub fn valid_slug(s: &str) -> bool {
 fn bounded(s: &str, limit: usize) -> bool {
     !s.is_empty() && s.chars().count() <= limit
 }
+fn audit_reason(reason: &str) -> Result<&str, Error> {
+    let reason = reason.trim();
+    if !bounded(reason, 500) || reason.chars().any(char::is_control) {
+        return Err(Error::Invalid);
+    }
+    Ok(reason)
+}
+
 #[derive(Debug, Clone)]
 pub struct Draft {
+    pub reason: String,
     pub starts_at: OffsetDateTime,
     pub ends_at: OffsetDateTime,
     pub featured: bool,
@@ -101,6 +110,7 @@ pub struct Event {
     pub ends_at: OffsetDateTime,
     pub featured: bool,
     pub lock_version: i64,
+    pub published_by: Option<Uuid>,
 }
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PublicEvent {

@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
+import {prepareAdminControl} from './support/admin-control-fixture.mjs';
 import { startLocalOutbox } from './support/local-outbox.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
@@ -50,7 +51,6 @@ Object.assign(env,{
  OTERYN_ACTIVE_CHARACTER_LIMIT:'10',OTERYN_TOTAL_CHARACTER_LIMIT:'20',OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY:characterSourceAuthority,OTERYN_LCFA_SOURCE_AUTHORITY:characterSourceAuthority,OTERYN_ACCOUNT_CHARACTERS_AUTHORITY:characterSourceAuthority,
  PORTAL_PUBLIC_PROJECTIONS_AUTHORITY:'e2e-local',PORTAL_PUBLIC_PROJECTIONS_SAN:'e2e-local',PORTAL_WORLD_DAILY_WORLDS:'019b0760-0000-7000-8000-000000000001',PORTAL_ATLAS_DELIVERY_ENABLED:'1',PORTAL_WORLD_ENABLED:'1',
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
- PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',allowed_worlds:['019b0760-0000-7000-8000-000000000001'],allowed_nodes:[],identity:{san:'spiffe://local.test/admin/e2e'}}]),
 });
 // The pinned lane producer still emits an unsupported negative compatibility candidate.
 // Never read raw Game content or fabricate a Today producer/catalogue.
@@ -91,6 +91,7 @@ Object.assign(env,{
  OTERYN_INTERNAL_TLS_CLIENT_CA_FILE:`${scratch}/ca.pem`,
 });
 const internalOrigin=`https://${env.OTERYN_INTERNAL_TLS_BIND}`;
+Object.assign(env, prepareAdminControl(scratch, openssl, internalOrigin));
 const league=await leagueProducer({root,scratch,env,openssl,internalOrigin});
 const bazaarConfig=prepareBazaar(env,scratch,internalOrigin);
 // Dedicated Character/portfolio certificates; neither is a browser identity.

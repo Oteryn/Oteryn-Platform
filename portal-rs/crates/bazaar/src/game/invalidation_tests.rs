@@ -8,6 +8,7 @@ async fn approve(db: &BrowserFixture, listing: Uuid) {
         (
             uid("81"),
             StaffCommand::Suspend {
+                id: Uuid::now_v7(),
                 listing,
                 reason: "Fixture suspension".into(),
             },
@@ -20,7 +21,13 @@ async fn approve(db: &BrowserFixture, listing: Uuid) {
                 reason: "Fixture invalidation".into(),
             },
         ),
-        (uid("82"), StaffCommand::ApproveInvalidation { id: request }),
+        (
+            uid("82"),
+            StaffCommand::ApproveInvalidation {
+                id: request,
+                reason: "Documented moderation decision".into(),
+            },
+        ),
     ] {
         execute_staff(&mut tx, actor, &command).await.unwrap();
     }

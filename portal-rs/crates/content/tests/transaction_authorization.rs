@@ -97,6 +97,7 @@ async fn event_save_and_transition_complete_with_one_connection() -> TestResult 
     let events = Events::new(db.pool.clone());
     let now = time::OffsetDateTime::now_utc();
     let draft = Draft {
+        reason: "Editorial test change".into(),
         starts_at: now,
         ends_at: now + time::Duration::hours(1),
         featured: false,
@@ -115,7 +116,7 @@ async fn event_save_and_transition_complete_with_one_connection() -> TestResult 
     .await??;
     tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        events.transition(&auth, db.actor, id, 1, "published"),
+        events.transition(&auth, db.actor, id, 1, "published", "Editorial test change"),
     )
     .await??;
     assert_eq!(events.load(id).await?.0.status, "published");
@@ -391,6 +392,7 @@ fn notice() -> oteryn_content::announcements::Input {
 }
 fn event_draft() -> Draft {
     Draft {
+        reason: "Editorial test change".into(),
         starts_at: time::OffsetDateTime::now_utc(),
         ends_at: time::OffsetDateTime::now_utc() + time::Duration::hours(1),
         featured: false,
@@ -431,7 +433,14 @@ async fn editorial_mutations_require_access() -> TestResult {
     ));
     assert!(matches!(
         events
-            .transition(&auth, db.actor, event, 1, "published")
+            .transition(
+                &auth,
+                db.actor,
+                event,
+                1,
+                "published",
+                "Editorial test change"
+            )
             .await,
         Err(oteryn_content::events::Error::Authorization(_))
     ));
@@ -487,7 +496,14 @@ async fn editorial_mutations_bound_fence_and_resource_waits() -> TestResult {
                         .await
                         .is_err(),
                     _ => events
-                        .transition(&auth, db.actor, event, 1, "published")
+                        .transition(
+                            &auth,
+                            db.actor,
+                            event,
+                            1,
+                            "published",
+                            "Editorial test change",
+                        )
                         .await
                         .is_err(),
                 }
@@ -650,7 +666,14 @@ async fn editorial_writers_reject_grant_expired_during_resource_wait() -> TestRe
                     .await
                     .is_err(),
                 _ => Events::new(pool)
-                    .transition(&auth, context, event_id, 1, "published")
+                    .transition(
+                        &auth,
+                        context,
+                        event_id,
+                        1,
+                        "published",
+                        "Editorial test change",
+                    )
                     .await
                     .is_err(),
             }

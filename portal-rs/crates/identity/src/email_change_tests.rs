@@ -570,6 +570,114 @@ impl oteryn_notify::EmailSender for RejectOld {
     }
 }
 #[tokio::test]
+async fn email_change_mail_quarantines_invalid_links_and_retries_other_origins() -> TestResult {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Debug, Default)]
+    struct RecordingSender(AtomicUsize);
+    impl oteryn_notify::EmailSender for RecordingSender {
+        fn send<'a>(&'a self, _: &'a oteryn_notify::Email) -> oteryn_notify::NotifyFuture<'a, ()> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async { Err("unexpected email delivery".into()) })
+        }
+    }
+
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    sqlx::query(
+        "WITH account AS (
+            INSERT INTO accounts(email,password_hash,status,locale)
+            VALUES ('old@example.invalid','!fixture','active','en') RETURNING id
+         ), change AS (
+            INSERT INTO account_email_changes(account_id,kind,old_email,new_email,
+                confirmation_hash,revert_hash,immediate,apply_after,expires_at,revert_until)
+            SELECT id,'primary','old@example.invalid','new@example.invalid',
+                sha256('confirm'::bytea),sha256('revert'::bytea),false,
+                now()+interval '1 day',now()+interval '2 days',now()+interval '30 days'
+            FROM account RETURNING id
+         )
+         INSERT INTO account_email_change_mail(change_id,recipient,subject,body)
+         SELECT id,recipient,'Fixture',body FROM change CROSS JOIN (VALUES
+            ('missing@example.invalid','missing link'),
+            ('bad-token@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/confirm/bad'),
+            ('bad-route@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/cancel/' || repeat('a',64)),
+            ('query@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/revert/' || repeat('a',64) || '?extra=1'),
+            ('fragment@example.invalid',E'message\n\nhttps://portal.example.invalid/email-change/revert/' || repeat('a',64) || '#extra'),
+            ('userinfo@example.invalid',E'message\n\nhttps://other.example.invalid@portal.example.invalid/email-change/revert/' || repeat('a',64)),
+            ('confirm@example.invalid',E'message\n\nhttps://other.example.invalid/email-change/confirm/' || repeat('a',64)),
+            ('revert@example.invalid',E'message\n\nhttps://portal.example.invalid:8443/email-change/revert/' || repeat('b',64))
+         ) AS mail(recipient,body)",
+    )
+    .execute(&db.pool)
+    .await?;
+    let service = Service {
+        pool: db.pool.clone(),
+        enabled: true,
+        origin: "https://portal.example.invalid".into(),
+        security: Arc::new(TransactionalSecurity(crate::mfa::Mfa::new(
+            db.pool.clone(),
+            [9; 32],
+        ))),
+    };
+    let sender = Arc::new(RecordingSender::default());
+    let worker = super::mail::Worker {
+        service,
+        sender: sender.clone(),
+    };
+    #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
+    struct MailState {
+        recipient: String,
+        digest: Vec<u8>,
+        erased: bool,
+        unsent: bool,
+        quarantined: bool,
+        delivery_attempts: i32,
+        backed_off: bool,
+        updated_at: OffsetDateTime,
+    }
+    let state = || {
+        sqlx::query_as::<_, MailState>(
+            "SELECT recipient, sha256(convert_to(body, 'UTF8')) AS digest,
+                    body='' AS erased, delivered_at IS NULL AS unsent,
+                    next_attempt_at='infinity' AS quarantined, delivery_attempts,
+                    next_attempt_at BETWEEN updated_at+interval '29 seconds'
+                                        AND updated_at+interval '31 seconds' AS backed_off, updated_at
+             FROM account_email_change_mail ORDER BY recipient",
+        )
+        .fetch_all(&db.pool)
+    };
+    let before = state().await?;
+    worker.tick().await?;
+    assert_eq!(sender.0.load(Ordering::Relaxed), 0);
+    let first = state().await?;
+    assert_eq!(first.len(), before.len());
+    assert_eq!(first.len(), 8);
+    for (after, before) in first.iter().zip(&before) {
+        assert_eq!(after.recipient, before.recipient);
+        assert!(after.unsent);
+        match after.recipient.as_str() {
+            "confirm@example.invalid" | "revert@example.invalid" => {
+                assert_eq!(after.digest, before.digest);
+                assert!(!after.erased);
+                assert!(!after.quarantined);
+                assert_eq!(after.delivery_attempts, 1);
+                assert!(after.backed_off);
+            }
+            _ => {
+                assert!(after.erased);
+                assert!(after.quarantined);
+                assert_eq!(after.delivery_attempts, 0);
+            }
+        }
+    }
+    worker.tick().await?;
+    assert_eq!(sender.0.load(Ordering::Relaxed), 0);
+    assert_eq!(state().await?, first);
+    db.close().await
+}
+
+#[tokio::test]
 async fn bzb_failed_email_does_not_starve_later_delivery() -> TestResult {
     let started = std::time::Instant::now();
     let Some((db, service, account)) = setup().await? else {
