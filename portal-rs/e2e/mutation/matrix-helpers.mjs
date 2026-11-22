@@ -1,0 +1,67 @@
+import { test, expect } from '../fixtures.mjs';
+import { csrfRejected } from '../helpers.mjs';
+
+export async function prepare(page, selector, values) {
+  const form = page.locator(selector);
+  await expect(form).toHaveCount(1);
+  const { url, fields } = await form.evaluate(element => ({
+    url: new URL(element.getAttribute('action') || element.ownerDocument.URL, element.baseURI).href,
+    fields: Object.fromEntries(new FormData(element)),
+  }));
+  expect(Boolean(fields._csrf), 'the rendered form supplies a CSRF token').toBe(true);
+  return { url, fields: { ...fields, ...values } };
+}
+
+export async function sendForm(page, url, form, method = 'POST') {
+  return page.request.fetch(url, {
+    method, form, headers: { origin: new URL(url).origin }, maxRedirects: 0,
+  });
+}
+
+export async function useFormMethod(page, url, method, submitForm) {
+  if (method === 'POST') {
+    await submitForm();
+    return;
+  }
+  const changeMethod = route => route.continue(
+    route.request().method() === 'POST' ? { method } : {},
+  );
+  await page.route(url, changeMethod);
+  try {
+    await submitForm();
+  } finally {
+    await page.unroute(url, changeMethod);
+  }
+}
+
+export async function rejected({ page, url, fields, snapshot, baseline, method = 'POST' }) {
+  if (method === 'POST') {
+    await csrfRejected(page, url, fields);
+  } else {
+    const { _csrf, ...missing } = fields;
+    expect((await sendForm(page, url, missing, method)).status()).toBe(403);
+  }
+  expect(await snapshot()).toEqual(baseline);
+  expect((await sendForm(page, url, { ...fields, _csrf: 'invalid' }, method)).status()).toBe(403);
+  expect(await snapshot()).toEqual(baseline);
+}
+
+export async function wrongActor({ page, lang, url, fields, status, snapshot, baseline, method = 'POST' }) {
+  await page.goto(`/${lang}/login`);
+  const csrf = await page.locator('main form [name=_csrf]').inputValue();
+  expect(Boolean(csrf), 'anonymous actor has its own CSRF token').toBe(true);
+  const response = await sendForm(page, url, { ...fields, _csrf: csrf }, method);
+  expect(response.status()).toBe(status);
+  expect(await snapshot()).toEqual(baseline);
+}
+
+export async function invalid({ page, url, fields, samples, message, snapshot, baseline, method = 'POST' }) {
+  for (const { name, patch } of samples) {
+    await test.step(name, async () => {
+      const response = await sendForm(page, url, { ...fields, ...patch }, method);
+      expect(response.status()).toBe(422);
+      expect(await response.text()).toContain(message);
+      expect(await snapshot()).toEqual(baseline);
+    });
+  }
+}

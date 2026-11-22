@@ -34,7 +34,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/shop/test-checkout/{intent}` (cancel) | Yes | Yes | Foreign player | Yes | One event and zero credits |
 | `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous | Yes | Submission replay |
 
-The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, daily puzzle answers, and collection PvP and set purchases. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, daily puzzle catalogue, or the collection PvP gameplay and wallet adapters. The standard matrix proves that the character creation form persists one pending command. The separate Game publisher run proves the terminal receipt and visible creation result.
+The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, daily puzzle answers, and collection PvP and set purchases. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, daily puzzle catalogue, or the collection PvP gameplay and wallet adapters. The standard matrix proves that the character creation form persists one pending command. The publisher matrix proves the terminal receipt, durable portfolio, and visible creation result.
 
 Additional refusal boundaries were verified in all four projects. Hunt sharing
 returns 503 because the browser composition closes the share route pending its
@@ -44,6 +44,12 @@ sets purchases off. A signed-in browser receives 503 on the attempted purchase,
 and no store order is persisted. Stats watch POST and DELETE refuse browser
 cookies with 401 and no subscription. These routes are bearer-only and the
 configured policy denies all bearer principals until the T66 adapter is wired.
+
+The publisher matrix also asserts a–d for both profile methods and both route
+prefixes. It uses a different player and an account with the content editor
+role as non-owners, requires localized validation for invalid inputs, and
+reads the stored profile after each form submission. Profile saves advance
+the privacy revision, so the replay criterion is inapplicable.
 
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 
@@ -58,3 +64,14 @@ and the local Portal binary. Run the publisher spec with one worker because
 its four projects publish the online snapshot for the same seeded world.
 The publisher submits a real CreateCharacter receipt and an LCFA portfolio.
 The publisher files were temporary and are outside the pushed branch.
+
+To run the profile matrix, place the publisher commit’s `harness.mjs` and
+`game-publishers.mjs` in an isolated local copy containing this matrix.
+Run `harness.mjs --game-data` in that copy, then pass its report path to
+the following command from `portal-rs/e2e`.
+
+```sh
+PORTAL_E2E_GAME_DATA_REPORT=/absolute/path/report.json \
+  node node_modules/@playwright/test/cli.js test \
+  --config mutation/publisher.config.mjs --workers=1 --retries=0
+```
