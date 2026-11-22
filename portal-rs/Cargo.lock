@@ -2651,6 +2651,7 @@ dependencies = [
  "ed25519-dalek",
  "fluent-bundle",
  "jsonschema",
+ "lettre",
  "oteryn-bazaar",
  "oteryn-characters",
  "oteryn-core",

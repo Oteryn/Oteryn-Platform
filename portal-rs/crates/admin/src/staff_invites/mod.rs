@@ -254,7 +254,11 @@ impl<A: AccountStateReader> Invites<A> {
         let email = normalize_email(email);
         roles.sort_unstable();
         roles.dedup();
-        if request_key.is_nil() || !valid_bare_email(&email) || !(1..=32).contains(&roles.len()) {
+        if request_key.is_nil()
+            || !valid_bare_email(&email)
+            || email.parse::<lettre::message::Mailbox>().is_err()
+            || !(1..=32).contains(&roles.len())
+        {
             return Err(Error::InvalidInput);
         }
         let mut tx = self.pool.begin().await?;

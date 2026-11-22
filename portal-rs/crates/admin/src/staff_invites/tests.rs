@@ -322,22 +322,20 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
 }
 
 #[tokio::test]
-async fn mailbox_with_display_name_cannot_be_issued() -> TestResult {
+async fn invalid_delivery_mailboxes_cannot_be_issued() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let f = Fixture::open().await?;
-    assert!(matches!(
-        f.invites
-            .create(
-                f.inviter,
-                &f.key,
-                "Team Member <recipient@example.invalid>",
-                vec![f.role],
-                "en",
-                Uuid::now_v7(),
-            )
-            .await,
-        Err(Error::InvalidInput)
-    ));
+    for email in [
+        "Team Member <recipient@example.invalid>",
+        "staff@[192.0.2.1]",
+    ] {
+        assert!(matches!(
+            f.invites
+                .create(f.inviter, &f.key, email, vec![f.role], "en", Uuid::now_v7(),)
+                .await,
+            Err(Error::InvalidInput)
+        ));
+    }
     let (invites, jobs): (i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM staff_invites),(SELECT count(*) FROM outbox WHERE kind=$1)",
     )
