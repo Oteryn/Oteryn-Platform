@@ -40,7 +40,7 @@ fn router(pool: PgPool) -> Router {
                 let mut response = next.run(request).await;
                 response.headers_mut().insert(
                     header::CACHE_CONTROL,
-                    "private, no-store".parse().expect("static header"),
+                    header::HeaderValue::from_static("private, no-store"),
                 );
                 response
             },
