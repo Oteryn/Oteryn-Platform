@@ -72,6 +72,16 @@ function expectRequest(request, operation, actor, target = null, params = {}) {
   expect(request.admin_operation_id).toBe(request.request_id);
 }
 
+async function pollDossierChildren(agent) {
+  const requests = await agent.poll(3);
+  expect(requests).toHaveLength(2);
+  expect(requests.map(request => request.operation).sort()).toEqual(['player.inventory.get', 'sanction.list']);
+  return {
+    inventory: requests.find(request => request.operation === 'player.inventory.get'),
+    sanctions: requests.find(request => request.operation === 'sanction.list'),
+  };
+}
+
 async function expectReadAudit(request, actor, target) {
   expect(await query(`SELECT actor, admin_control_target FROM audit_log
     WHERE request_id=$1 AND operation=$2 AND outcome='succeeded'`,
@@ -205,30 +215,42 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     await expect(page.locator('main')).toContainText('42, 27, 7');
     await expectReadAudit(dossier[0], gm.accountId, {character_id: characterId});
 
-    const publishPortfolios = async (...portfolios) => {
+    const publishPortfolios = async (portfolios, { cover, lagSeconds = 0 } = {}) => {
+      if (cover) {
+        // LCFA uses whole seconds and allows one second of clock uncertainty.
+        const completeThrough = Math.floor(Date.parse(cover) / 1000) + 2;
+        await expect.poll(() => Math.floor(Date.now() / 1000)).toBeGreaterThanOrEqual(completeThrough);
+      }
       const [{epoch}] = await query("SELECT (COALESCE(highest_epoch::numeric, 0)+1)::text epoch FROM account_character_feed WHERE id=1");
-      await publishStaffPortfolio(setup, portfolios, epoch);
+      await publishStaffPortfolio(setup, portfolios, epoch, lagSeconds);
     };
     const subjectPortfolio = {account: subject.accountId, character: characterId};
-    await publishPortfolios(subjectPortfolio);
-    const childRequests = await agent.poll(3);
-    expect(childRequests.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
-    for (const request of childRequests) {
-      expectRequest(request, request.operation, gm.accountId, characterId);
-      await agent.answer(request, 'success', request.operation === 'sanction.list' ? subject.accountId : undefined);
-    }
+    await publishPortfolios([subjectPortfolio], {lagSeconds: 4});
+    const {inventory: subjectInventory, sanctions: subjectSanctions} = await pollDossierChildren(agent);
+    expectRequest(subjectInventory, 'player.inventory.get', gm.accountId, characterId);
+    expectRequest(subjectSanctions, 'sanction.list', gm.accountId, characterId);
+    await agent.answer(subjectInventory, 'success');
+    const completed = await agent.answer(subjectSanctions, 'success', subject.accountId);
     expect((await page.reload()).status()).toBe(200);
     const section = name => page.locator('main section').filter({has: page.getByRole('heading', {name, exact: true})});
     await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
+    await expect(section(copy.sanctions)).toContainText(copy.unavailable);
+    await expect(section(copy.sanctions)).not.toContainText(accountSanctionId);
+    const sanctionReads = () => query("SELECT id FROM audit_log WHERE request_id=$1 AND outcome='succeeded' ORDER BY id",
+      [subjectSanctions.request_id]);
+    expect(await sanctionReads()).toEqual([]);
+    expect(await agent.poll()).toEqual([]);
+
+    await publishPortfolios([subjectPortfolio], {cover: completed});
+    expect((await page.reload()).status()).toBe(200);
+    await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
     await expect(section(copy.sanctions)).toContainText(`${sanctionId} · ${copy.activeSanction}`);
     await expect(section(copy.sanctions)).toContainText(`${accountSanctionId} · ${copy.inactiveSanction}`);
-    for (const request of childRequests) {
+    for (const request of [subjectInventory, subjectSanctions]) {
       await expectReadAudit(request, gm.accountId, {character_id: characterId});
     }
-    const sanctionReads = () => query("SELECT id FROM audit_log WHERE request_id=$1 AND outcome='succeeded' ORDER BY id",
-      [childRequests[1].request_id]);
     const priorSanctionReads = await sanctionReads();
-    await publishPortfolios(subjectPortfolio, {account: gm.accountId, character: characterId});
+    await publishPortfolios([subjectPortfolio, {account: gm.accountId, character: characterId}], {cover: completed});
     expect((await page.reload()).status()).toBe(200);
     await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
     await expect(section(copy.sanctions)).toContainText(copy.unavailable);
@@ -298,10 +320,9 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
 
     await agent.answer(await retryQuery('player.character.get', firstDossier), 'success');
     expect((await page.reload()).status()).toBe(200);
-    const children = await agent.poll(3);
-    expect(children.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
-    for (const request of children) expectRequest(request, request.operation, gm.accountId, wrongSanctionCharacterId);
-    const [inventory, sanctions] = children;
+    const {inventory, sanctions} = await pollDossierChildren(agent);
+    expectRequest(inventory, 'player.inventory.get', gm.accountId, wrongSanctionCharacterId);
+    expectRequest(sanctions, 'sanction.list', gm.accountId, wrongSanctionCharacterId);
     await agent.answer(inventory, 'refusal');
     await agent.answer(await retryQuery('player.inventory.get', inventory), 'success');
     expect((await page.reload()).status()).toBe(200);
@@ -334,14 +355,13 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expectRequest(accountDossiers[0], 'player.character.get', gm.accountId, wrongAccountSanctionCharacterId);
     await agent.answer(accountDossiers[0], 'success');
     expect((await page.reload()).status()).toBe(200);
-    const accountChildren = await agent.poll(3);
-    expect(accountChildren.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
-    await publishPortfolios(subjectPortfolio, {account: gm.accountId, character: wrongAccountSanctionCharacterId});
-    const [, wrongAccountSanction] = accountChildren;
-    for (const request of accountChildren) {
-      expectRequest(request, request.operation, gm.accountId, wrongAccountSanctionCharacterId);
-      await agent.answer(request, 'success', request === wrongAccountSanction ? subject.accountId : undefined);
-    }
+    const {inventory: accountInventory, sanctions: wrongAccountSanction} = await pollDossierChildren(agent);
+    expectRequest(accountInventory, 'player.inventory.get', gm.accountId, wrongAccountSanctionCharacterId);
+    expectRequest(wrongAccountSanction, 'sanction.list', gm.accountId, wrongAccountSanctionCharacterId);
+    await agent.answer(accountInventory, 'success');
+    const wrongAccountCompleted = await agent.answer(wrongAccountSanction, 'success', subject.accountId);
+    await publishPortfolios([subjectPortfolio, {account: gm.accountId, character: wrongAccountSanctionCharacterId}],
+      {cover: wrongAccountCompleted});
     const wrongAccount = await page.reload();
     expect(wrongAccount.status()).toBe(200);
     await expect(section(copy.inventory)).toContainText(`${itemId} · 42 · bag · 2`);
@@ -364,9 +384,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expect((await page.reload()).status()).toBe(200);
     await expect(page.locator('main > p')).toContainText(afterReconnect[0].request_id);
 
-    const reconnectedChildren = await agent.poll(3);
-    expect(reconnectedChildren.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
-    const [newInventory, refusedSanction] = reconnectedChildren;
+    const {inventory: newInventory, sanctions: refusedSanction} = await pollDossierChildren(agent);
     await agent.answer(newInventory, 'success');
     await agent.answer(refusedSanction, 'refusal');
     const acceptedRetry = await retryQuery('sanction.list', refusedSanction);
@@ -386,9 +404,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     expectRequest(latestDossiers[0], 'player.character.get', gm.accountId, wrongAccountSanctionCharacterId);
     await agent.answer(latestDossiers[0], 'success');
     expect((await page.reload()).status()).toBe(200);
-    const latestChildren = await agent.poll(3);
-    expect(latestChildren.map(request => request.operation)).toEqual(['player.inventory.get', 'sanction.list']);
-    const [latestInventory, latestSanctions] = latestChildren;
+    const {inventory: latestInventory, sanctions: latestSanctions} = await pollDossierChildren(agent);
     await agent.answer(latestInventory, 'success');
     await agent.answer(latestSanctions, 'refusal');
     expect((await page.reload()).status()).toBe(200);

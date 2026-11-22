@@ -220,7 +220,7 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
   };
 }
 
-export async function publishStaffPortfolio({ internalPort, caFile, lcfaClient, lcfaAuthority }, portfolios, epoch) {
+export async function publishStaffPortfolio({ internalPort, caFile, lcfaClient, lcfaAuthority }, portfolios, epoch, lagSeconds = 0) {
   const peer = new https.Agent({
     ca: fs.readFileSync(caFile), cert: fs.readFileSync(lcfaClient.cert), key: fs.readFileSync(lcfaClient.key),
     servername: 'localhost', minVersion: 'TLSv1.3',
@@ -251,7 +251,7 @@ export async function publishStaffPortfolio({ internalPort, caFile, lcfaClient, 
       }), 200);
     }
     assert.equal(await publish('/watermark', {
-      ...common, operation: 'PublishProjectionWatermarkV1', complete_through: timestamp, observed_at: timestamp,
+      ...common, operation: 'PublishProjectionWatermarkV1', complete_through: String(Number(timestamp) - lagSeconds), observed_at: timestamp,
     }), 200);
   } finally {
     peer.destroy();
@@ -325,6 +325,7 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
       };
       const signature = sign(null, signingBytes(envelope), { key: resultKey, format: 'jwk' }).toString('base64url');
       assert.deepEqual(await post('results', { ...envelope, signature }), { status: 'recorded' });
+      return completed;
     },
     close: () => tls.destroy(),
   };
