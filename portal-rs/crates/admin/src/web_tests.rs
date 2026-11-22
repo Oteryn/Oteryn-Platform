@@ -138,6 +138,9 @@ fn localized_responsive_labelled_template() {
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
+            can_grant: true,
+            reason_label: "Reason".into(),
+            navigation: Vec::new(),
             revoke: text(lang, "revoke"),
             csrf: "token".into(),
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
@@ -251,7 +254,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         StatusCode::FORBIDDEN
     );
     sqlx::query(
-        "INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.roles.manage')",
+        "INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.roles.manage'),($1,'admin.roles.grant')",
     )
     .bind(role)
     .execute(&pool)
@@ -355,7 +358,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
                 .header("origin", "https://staff.test")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
-                    "account={target}&role={ordinary}&action=grant"
+                    "account={target}&role={ordinary}&action=grant&reason=Reference+role+grant"
                 )))
                 .unwrap(),
         )
@@ -381,7 +384,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
                     .header("origin", "https://staff.test")
                     .header("content-type", "application/x-www-form-urlencoded")
                     .body(Body::from(format!(
-                        "account={account}&role={ordinary}&action={action}"
+                        "account={account}&role={ordinary}&action={action}&reason=Reference+role+grant"
                     )))
                     .unwrap(),
             )

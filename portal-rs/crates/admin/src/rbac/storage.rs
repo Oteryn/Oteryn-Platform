@@ -69,6 +69,26 @@ impl<A: AccountStateReader> Authorizer<A> {
         self.change_impl(context, request_id, change, true).await
     }
 
+    /// Grant an ordinary role under the staff-action transaction's existing locks.
+    pub(crate) async fn grant_from_staff_action(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: CheckContext,
+        account: Uuid,
+        role: Uuid,
+    ) -> Result<bool, Error> {
+        self.check_in(connection, context, Permission::ManageRoles)
+            .await?;
+        ensure_panel_role_grant(connection, role).await?;
+        if !grant_membership(connection, &self.accounts, context.account, account, role).await? {
+            return Ok(false);
+        }
+        Change::Grant { account, role }
+            .revoke_browser_credentials(connection, context)
+            .await?;
+        Ok(true)
+    }
+
     async fn change_impl(
         &self,
         context: CheckContext,
@@ -112,12 +132,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 _ => None,
             };
             if let Some(role) = protected_role {
-                let protected: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.id=$1 AND (r.key IN ('owner','platform_admin') OR EXISTS(SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND rp.permission='admin.roles.manage')))",
-                ).bind(role).fetch_one(&mut *tx).await?;
-                if protected {
-                    return Err(Error::Denied);
-                }
+                ensure_panel_role_grant(&mut tx, role).await?;
             }
         }
         let (action, target, before, after, result) = match change {
@@ -195,30 +210,17 @@ impl<A: AccountStateReader> Authorizer<A> {
                 if account.is_nil() {
                     return Err(Error::InvalidInput);
                 }
-                require_role(&mut tx, role).await?;
                 let grant = matches!(change, Change::Grant { .. });
-                // Nobody grants a role to themselves; another manager must.
-                if grant && account == context.account {
-                    return Err(Error::Denied);
-                }
-                // Revocation must remain possible even for a disabled or deleted account.
-                if grant
-                    && !matches!(
-                        self.accounts.state_in(&mut tx, account).await,
-                        Ok(AccountState::Active)
-                    )
-                {
-                    return Err(Error::Denied);
-                }
-                if !grant
-                    && !oteryn_db::protected_role_survives(&mut tx, account, Some(role)).await?
-                {
-                    return Err(Error::Denied);
-                }
                 let affected = if grant {
-                    sqlx::query("INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-                        .bind(account).bind(role).execute(&mut *tx).await?.rows_affected()
+                    u64::from(
+                        grant_membership(&mut tx, &self.accounts, context.account, account, role)
+                            .await?,
+                    )
                 } else {
+                    require_role(&mut tx, role).await?;
+                    if !oteryn_db::protected_role_survives(&mut tx, account, Some(role)).await? {
+                        return Err(Error::Denied);
+                    }
                     sqlx::query("DELETE FROM account_roles WHERE account_id = $1 AND role_id = $2")
                         .bind(account)
                         .bind(role)
@@ -301,16 +303,13 @@ fn permission_ids(permissions: &[Permission]) -> Vec<&'static str> {
     ids
 }
 
-async fn require_role(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    role: Uuid,
-) -> Result<(), Error> {
+async fn require_role(connection: &mut sqlx::PgConnection, role: Uuid) -> Result<(), Error> {
     if role.is_nil() {
         return Err(Error::InvalidInput);
     }
     let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roles WHERE id = $1)")
         .bind(role)
-        .fetch_one(&mut **tx)
+        .fetch_one(connection)
         .await?;
     if !exists {
         return Err(Error::RoleNotFound);
@@ -345,4 +344,49 @@ fn restrict_analytics(key: &str, built_in: bool, permissions: &[Permission]) -> 
         return Err(Error::Denied);
     }
     Ok(())
+}
+
+/// Restricted roles remain subject to the existing four-eyes workflow.
+async fn ensure_panel_role_grant(
+    connection: &mut sqlx::PgConnection,
+    role: Uuid,
+) -> Result<(), Error> {
+    let protected: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.id=$1 AND (r.key IN ('owner','platform_admin') OR EXISTS(SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND rp.permission='admin.roles.manage')))",
+    )
+    .bind(role)
+    .fetch_one(connection)
+    .await?;
+    if protected {
+        Err(Error::Denied)
+    } else {
+        Ok(())
+    }
+}
+
+async fn grant_membership(
+    connection: &mut sqlx::PgConnection,
+    accounts: &impl AccountStateReader,
+    actor: Uuid,
+    account: Uuid,
+    role: Uuid,
+) -> Result<bool, Error> {
+    require_role(connection, role).await?;
+    // A different manager must make the grant, and the recipient must be active.
+    if account == actor
+        || !matches!(
+            accounts.state_in(connection, account).await,
+            Ok(AccountState::Active)
+        )
+    {
+        return Err(Error::Denied);
+    }
+    let result = sqlx::query(
+        "INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(account)
+    .bind(role)
+    .execute(connection)
+    .await?;
+    Ok(result.rows_affected() == 1)
 }
