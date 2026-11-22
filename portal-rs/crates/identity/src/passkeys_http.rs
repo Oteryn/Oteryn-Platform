@@ -4,7 +4,7 @@ use axum::{
     extract::{ConnectInfo, Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::post,
 };
 use oteryn_identity::passkeys::{Completion, Error, Passkeys};
 use oteryn_web::{
@@ -32,8 +32,11 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
 fn router(service: Passkeys, sessions: SessionLayer) -> Router {
     let limiter = RateLimiter::new(service.pool.clone());
     let routes = Router::new()
-        .route("/{lang}/account/passkeys", get(page))
-        .route("/{lang}/account/passkeys/manage", get(manage))
+        .route("/{lang}/account/passkeys", oteryn_web::html::get(page))
+        .route(
+            "/{lang}/account/passkeys/manage",
+            oteryn_web::html::get(manage),
+        )
         .route(
             "/{lang}/account/passkeys/register/start",
             post(register_start),

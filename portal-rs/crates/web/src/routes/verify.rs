@@ -9,7 +9,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::post,
 };
 use oteryn_identity::verify;
 use serde::Deserialize;
@@ -18,17 +18,29 @@ const FLASH: SessionKey<String> = SessionKey::new("identity.verification_flash")
 const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/verify-email", get(verification).post(verification))
-        .route("/pl/verify-email", get(verification).post(verification))
-        .route("/en/verify-email", get(verification).post(verification))
-        .route("/verify-email/resend", get(resend_form).merge(post(resend)))
+        .route(
+            "/verify-email",
+            crate::html::get(verification).post(verification),
+        )
+        .route(
+            "/pl/verify-email",
+            crate::html::get(verification).post(verification),
+        )
+        .route(
+            "/en/verify-email",
+            crate::html::get(verification).post(verification),
+        )
+        .route(
+            "/verify-email/resend",
+            crate::html::get(resend_form).merge(post(resend)),
+        )
         .route(
             "/pl/verify-email/resend",
-            get(resend_form).merge(post(resend)),
+            crate::html::get(resend_form).merge(post(resend)),
         )
         .route(
             "/en/verify-email/resend",
-            get(resend_form).merge(post(resend)),
+            crate::html::get(resend_form).merge(post(resend)),
         )
 }
 #[derive(Clone, Deserialize)]

@@ -1,4 +1,7 @@
 //! Shared portal presentation. No module, database or session dependencies.
+
+mod accept;
+pub use accept::accepts_html;
 pub mod panels;
 
 use askama::Template;

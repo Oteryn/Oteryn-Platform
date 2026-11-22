@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::post,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::login::{self, Credentials};
@@ -62,9 +62,9 @@ fn router(pool: PgPool, enabled: bool, sessions: SessionLayer) -> Router {
     }
     let limiter = RateLimiter::new(pool.clone());
     let routes = Router::new()
-        .route("/login", get(show).post(submit))
-        .route("/pl/login", get(show).post(submit))
-        .route("/en/login", get(show).post(submit))
+        .route("/login", oteryn_web::html::get(show).post(submit))
+        .route("/pl/login", oteryn_web::html::get(show).post(submit))
+        .route("/en/login", oteryn_web::html::get(show).post(submit))
         .route("/logout", post(logout))
         .route("/pl/logout", post(logout))
         .route("/en/logout", post(logout))

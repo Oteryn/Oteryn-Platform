@@ -5,7 +5,6 @@ use axum::{
     extract::{Extension, Path, State},
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
-    routing::get,
 };
 use oteryn_web::session::{BrowserSession, SessionKey};
 
@@ -134,8 +133,8 @@ pub fn routes(campaign: Campaign) -> Router {
         return Router::new();
     }
     Router::new()
-        .route("/{lang}/account/referrals", get(page).post(submit))
-        .route("/{lang}/referrals/{code}", get(landing).post(accept))
+        .route("/{lang}/account/referrals", oteryn_web::html::get(page).post(submit))
+        .route("/{lang}/referrals/{code}", oteryn_web::html::get(landing).post(accept))
         .with_state(campaign)
         .layer(axum::extract::DefaultBodyLimit::max(4096))
         .layer(axum::middleware::from_fn(

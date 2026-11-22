@@ -3,7 +3,7 @@ use crate::commands::{Sex, Vocation};
 use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -147,6 +147,7 @@ async fn form<S, F, Fut>(
     State(state): State<Web<S, F>>,
     Extension(session): Extension<S>,
     Path(lang): Path<String>,
+    headers: HeaderMap,
     filters: Result<Query<WorldFilters>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Response, StatusCode>
 where
@@ -155,6 +156,12 @@ where
     Fut: Future<Output = Result<BrowserContext, sqlx::Error>> + Send,
 {
     locale(&lang)?;
+    if !oteryn_ui::accepts_html(&headers) {
+        let path = format!("/{lang}/account/characters/new");
+        let chrome =
+            oteryn_ui::Registry::default().chrome(&lang, &path, oteryn_ui::Account::Anonymous);
+        return Ok(oteryn_ui::error(&chrome, StatusCode::NOT_ACCEPTABLE));
+    }
     let context = context(&state, session, SessionAction::Take).await?;
     let account = account(&context)?;
     if !state.creation.available() {

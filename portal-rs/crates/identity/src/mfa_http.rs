@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::post,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::{
@@ -44,7 +44,11 @@ pub async fn session_satisfied(mfa: &Mfa, session: &BrowserSession) -> bool {
     };
     mfa.satisfied(id, &grant).await.unwrap_or(false)
 }
-pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
+pub fn configured(
+    app: Router,
+    pool: PgPool,
+    fallback_routes: Option<&mut String>,
+) -> Result<Router, sqlx::Error> {
     if !std::env::var("OTERYN_ACCOUNT_MFA").is_ok_and(|v| v == "true") {
         return Ok(app);
     }
@@ -59,14 +63,32 @@ pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
         .collect();
     let native_enabled = oteryn_gameauth::devices::owner_panel_enabled()
         && std::env::var("OTERYN_ACCOUNT_CREDENTIALS").as_deref() == Ok("true");
-    Ok(compose(app, pool, mfa, sessions, native_enabled))
+    Ok(compose_with_snapshot(
+        app,
+        pool,
+        mfa,
+        sessions,
+        native_enabled,
+        fallback_routes,
+    ))
 }
+#[cfg(test)]
 fn compose(
     app: Router,
     pool: PgPool,
     mfa: Mfa,
     sessions: SessionLayer,
     native_enabled: bool,
+) -> Router {
+    compose_with_snapshot(app, pool, mfa, sessions, native_enabled, None)
+}
+fn compose_with_snapshot(
+    app: Router,
+    pool: PgPool,
+    mfa: Mfa,
+    sessions: SessionLayer,
+    native_enabled: bool,
+    fallback_routes: Option<&mut String>,
 ) -> Router {
     let context = Context {
         mfa,
@@ -76,13 +98,16 @@ fn compose(
     let mut routes = Router::new();
     for prefix in ["", "/pl", "/en"] {
         routes = routes
-            .route(&format!("{prefix}/mfa/login"), get(show_login).post(login))
+            .route(
+                &format!("{prefix}/mfa/login"),
+                oteryn_web::html::get(show_login).post(login),
+            )
             .route(
                 &format!("{prefix}/mfa/challenge"),
-                get(show_challenge).post(challenge),
+                oteryn_web::html::get(show_challenge).post(challenge),
             )
             .route(&format!("{prefix}/mfa/email"), post(email))
-            .route(&format!("{prefix}/mfa"), get(settings))
+            .route(&format!("{prefix}/mfa"), oteryn_web::html::get(settings))
             .route(&format!("{prefix}/mfa/enroll"), post(enroll))
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
             .route(&format!("{prefix}/mfa/devices"), post(remove_device))
@@ -112,6 +137,12 @@ fn compose(
         let recorded = crate::record_route_registrations("mfa-fallback", &app);
         assert!(recorded.is_ok(), "MFA route registrations: {recorded:?}");
     }
+    let app = if let Some(snapshot) = fallback_routes {
+        *snapshot = format!("{app:?}");
+        crate::observe_route_matches(app)
+    } else {
+        app
+    };
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()
         .fallback_service(app)

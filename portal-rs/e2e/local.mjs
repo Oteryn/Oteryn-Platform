@@ -214,7 +214,7 @@ function start(role,instanceEnv,log){
 }
 const children=[start('serve',env,'serve'),start('worker',env,'worker'),start('serve',queryEnv,'query-serve')];
 // Use the same data with native panel routes disabled in a separate portal.
-children.push(start('serve',{
+const nativePanelOffEnv={
  ...env,
  OTERYN_PANEL_NATIVE_DEVICES_ENABLED:'false',
  OTERYN_BIND:`127.0.0.1:${nativePanelOffPort}`,
@@ -223,7 +223,9 @@ children.push(start('serve',{
  OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18449',
  PORTAL_NATIVE_ADMISSION_BIND:'127.0.0.1:18093',
  OTERYN_NATIVE_TLS_BIND:'',OTERYN_NATIVE_TLS_CERT_FILE:'',OTERYN_NATIVE_TLS_KEY_FILE:'',
-},'native-panel-off'));
+};
+delete nativePanelOffEnv.PORTAL_E2E_ROUTE_REPORT;
+children.push(start('serve',nativePanelOffEnv,'native-panel-off'));
 league.start();
 if(splitStaffOrigin){
  const staffProxy=https.createServer(tls,proxyRequest).listen(443,'127.0.0.1');

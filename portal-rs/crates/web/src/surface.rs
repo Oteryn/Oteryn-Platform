@@ -2,7 +2,6 @@
 
 use axum::{
     Router,
-    body::Body,
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -11,6 +10,10 @@ use axum::{
 };
 
 use crate::AppState;
+
+pub(crate) const HSTS: &str = "max-age=63072000; includeSubDomains";
+pub(crate) const PERMISSIONS: &str = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
+pub(crate) const REFERRER: &str = "strict-origin-when-cross-origin";
 
 /// Per-response script nonce. Handlers may read this request extension.
 #[derive(Clone, Debug)]
@@ -221,7 +224,6 @@ async fn policy(mut request: Request, next: Next) -> Response {
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();
-    let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
     let nonce = if getrandom::fill(&mut random).is_ok() {
         random
@@ -270,7 +272,12 @@ async fn policy(mut request: Request, next: Next) -> Response {
                 )
         };
         // Preserve protocol metadata, but discard internal content and entity headers.
-        for name in [header::ALLOW, header::RETRY_AFTER] {
+        for name in [
+            header::ALLOW,
+            header::RETRY_AFTER,
+            header::CONTENT_SECURITY_POLICY,
+            header::REFERRER_POLICY,
+        ] {
             if let Some(value) = response.headers().get(&name) {
                 replacement.headers_mut().insert(name, value.clone());
             }
@@ -287,24 +294,22 @@ async fn policy(mut request: Request, next: Next) -> Response {
         "default-src 'none'; script-src 'self' 'nonce-{nonce}'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     );
     if let Ok(value) = HeaderValue::from_str(&csp) {
-        headers.insert(header::CONTENT_SECURITY_POLICY, value);
+        headers
+            .entry(header::CONTENT_SECURITY_POLICY)
+            .or_insert(value);
     }
     headers.insert(
         header::STRICT_TRANSPORT_SECURITY,
-        HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        HeaderValue::from_static(HSTS),
     );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
-    headers.insert(
-        "permissions-policy",
-        HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
-    );
+    headers
+        .entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static(REFERRER));
+    headers.insert("permissions-policy", HeaderValue::from_static(PERMISSIONS));
     headers.insert(
         "cross-origin-opener-policy",
         HeaderValue::from_static("same-origin"),
@@ -327,9 +332,6 @@ async fn policy(mut request: Request, next: Next) -> Response {
         "no-store"
     };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    if is_head {
-        *response.body_mut() = Body::empty();
-    }
     response
 }
 
@@ -343,7 +345,7 @@ fn hashed_name(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::to_bytes;
+    use axum::body::{Body, to_bytes};
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;
 
@@ -406,6 +408,36 @@ mod tests {
         assert!(csp.contains("frame-ancestors 'none'"));
         assert!(csp.contains("'nonce-"));
         assert!(!csp.contains("unsafe-inline"));
+    }
+
+    #[tokio::test]
+    async fn explicit_response_policy_survives_surface_rendering() -> TestResult {
+        const EXPLICIT_CSP: &str = "default-src 'none'; frame-ancestors 'none'";
+        let app = finish(Router::new().route(
+            "/en/{status}",
+            get(|Path(status): Path<u16>| async move {
+                (
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+                    [
+                        (header::CONTENT_SECURITY_POLICY, EXPLICIT_CSP),
+                        (header::REFERRER_POLICY, "no-referrer"),
+                    ],
+                )
+            }),
+        ));
+        for status in [StatusCode::OK, StatusCode::NOT_FOUND] {
+            let response = app
+                .clone()
+                .oneshot(HttpRequest::get(format!("/en/{}", status.as_u16())).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers()[header::CONTENT_SECURITY_POLICY],
+                EXPLICIT_CSP
+            );
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+        }
+        Ok(())
     }
 
     #[tokio::test]

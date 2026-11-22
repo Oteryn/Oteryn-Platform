@@ -132,6 +132,15 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             let oauth_mfa = oauth_mfa.clone();
             async move {
                 use axum::response::IntoResponse;
+                // Authorize is a browser GET. Negotiate before replacing the
+                // session's post-login destination or preparing browser proof.
+                if matches!(
+                    *request.method(),
+                    axum::http::Method::GET | axum::http::Method::HEAD
+                ) && let Some(response) = public_http::html_refusal(&request)
+                {
+                    return response;
+                }
                 let Some(session) = request
                     .extensions()
                     .get::<session::BrowserSession>()
@@ -381,6 +390,11 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                             })
                         {
                             return StatusCode::NOT_FOUND.into_response();
+                        }
+                        if matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD)
+                            && let Some(response) = public_http::html_refusal(&request)
+                        {
+                            return response;
                         }
                         request
                             .extensions_mut()
@@ -722,6 +736,14 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         Ok(())
     }
+}
+
+mod public_http;
+pub use public_http::secure_public;
+
+/// Route constructors for HTML handlers with one-time browser session state.
+pub mod html {
+    pub use super::public_http::html_get as get;
 }
 
 mod surface;

@@ -13,7 +13,7 @@ async fn icon() -> ([(header::HeaderName, &'static str); 4], String) {
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
             (
                 header::CONTENT_SECURITY_POLICY,
-                "default-src 'none'; sandbox",
+                "default-src 'none'; sandbox; frame-ancestors 'none'",
             ),
         ],
         include_str!("../../../templates/components/compass.html").replacen(

@@ -45,6 +45,45 @@ fn request(path: &str, body: &str, csrf: &str, peer: bool) -> Request<Body> {
     request
 }
 #[tokio::test]
+async fn postgres_passkey_media_refusal_creates_no_anonymous_session() {
+    let Some(db) = database::Database::open().await.unwrap() else {
+        return;
+    };
+    let app = oteryn_web::secure_public(app(&db, None).await);
+    let agent = "passkey-media-negotiation-test";
+    for (accept, status, sessions) in [
+        ("application/json", StatusCode::NOT_ACCEPTABLE, 0),
+        ("text/html", StatusCode::OK, 1),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/en/account/passkeys")
+                    .header("accept", accept)
+                    .header("user-agent", agent)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response.headers().get_all("set-cookie").iter().count(),
+            sessions
+        );
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM web_sessions WHERE user_agent_summary=$1 AND account_id IS NULL",
+        )
+        .bind(agent)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(rows, sessions as i64);
+    }
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn postgres_browser_csrf_peer_input_and_limiter_refusals() {
     let Some(db) = database::Database::open().await.unwrap() else {
         return;

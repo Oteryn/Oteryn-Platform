@@ -20,7 +20,7 @@ const MAX_CONCURRENT_READS: usize = 4;
 
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><style>body{margin:auto;padding:1rem;max-width:90rem;font:1rem/1.5 system-ui;color:#eee;background:#151b25}article{padding:1rem;border:1px solid #708090;border-radius:.5rem;overflow-wrap:anywhere}section{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.3rem}h1{font-size:clamp(1.5rem,4vw,2.5rem)}</style></head><body><main><h1>{{ title }}</h1><p role=\"status\">{{ message }}</p><h2>{{ outcomes }}</h2><section>{% for row in events %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><p>{{ result }}: {{ row.result }}</p></article>{% endfor %}</section><h2>{{ standings }}</h2><section>{% for row in seasons %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><table><thead><tr><th>{{ rank }}</th><th>{{ guild }}</th><th>{{ points }}</th></tr></thead><tbody>{% for g in row.guilds %}<tr><td>{{ g.rank }}</td><td>{{ g.guild_name }}</td><td>{{ g.total_score }}</td></tr>{% endfor %}</tbody></table></article>{% endfor %}</section></main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/league.css\"></head><body><main class=\"league-page\"><h1>{{ title }}</h1><p role=\"status\">{{ message }}</p><h2>{{ outcomes }}</h2><section>{% for row in events %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><p>{{ result }}: {{ row.result }}</p></article>{% endfor %}</section><h2>{{ standings }}</h2><section>{% for row in seasons %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><table><thead><tr><th>{{ rank }}</th><th>{{ guild }}</th><th>{{ points }}</th></tr></thead><tbody>{% for g in row.guilds %}<tr><td>{{ g.rank }}</td><td>{{ g.guild_name }}</td><td>{{ g.total_score }}</td></tr>{% endfor %}</tbody></table></article>{% endfor %}</section></main></body></html>",
     ext = "html"
 )]
 struct Page {
@@ -246,7 +246,10 @@ mod tests {
             assert!(!p.message.is_empty());
             let html = p.render()?;
             assert!(html.contains("width=device-width"));
-            assert!(html.contains("min(100%,22rem)"));
+            assert!(html.contains("/static/css/league.css"));
+            assert!(!html.contains("<style"));
+            let css = include_str!("../../../../static/css/league.css");
+            assert!(css.contains("min(100%,22rem)"));
             assert!(!html.contains("<form"));
         }
         Ok(())
