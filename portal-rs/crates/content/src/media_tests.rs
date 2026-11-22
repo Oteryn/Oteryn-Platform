@@ -282,9 +282,9 @@ async fn browser_lifecycle(pool: &PgPool) {
         .split('"')
         .next()
         .unwrap();
-    let make = |token: &str, alt: &str, mime: &str| {
+    let make_with_image = |token: &str, alt: &str, mime: &str, image: &[u8]| {
         let mut body = format!("--boundary\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{token}\r\n--boundary\r\nContent-Disposition: form-data; name=\"alt_text\"\r\n\r\n{alt}\r\n--boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"x.png\"\r\nContent-Type: {mime}\r\n\r\n").into_bytes();
-        body.extend(fixture(ImageFormat::Png, 640, 160));
+        body.extend_from_slice(image);
         body.extend_from_slice(b"\r\n--boundary--\r\n");
         Request::post("/admin/media?lang=en")
             .header("host", "staff.test")
@@ -297,6 +297,8 @@ async fn browser_lifecycle(pool: &PgPool) {
             .body(Body::from(body))
             .unwrap()
     };
+    let png = fixture(ImageFormat::Png, 640, 160);
+    let make = |token: &str, alt: &str, mime: &str| make_with_image(token, alt, mime, &png);
     assert_eq!(
         app.clone()
             .oneshot(make("wrong", "Image", "image/png"))
@@ -375,11 +377,46 @@ async fn browser_lifecycle(pool: &PgPool) {
     .await
     .unwrap();
     assert_eq!(audit_count, 1);
-    let generic = app
-        .clone()
-        .oneshot(make(csrf, "Generic MIME", "application/octet-stream"))
-        .await
+    // Incompressible pixels produce a valid PNG close to the upload cap.
+    let mut state = 1_u32;
+    let pixels = image::RgbImage::from_fn(1600, 1536, |_, _| {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        let [r, g, b, _] = state.to_le_bytes();
+        image::Rgb([r, g, b])
+    });
+    let mut png = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(pixels)
+        .write_to(&mut png, ImageFormat::Png)
         .unwrap();
+    let png = png.into_inner();
+    assert!((7 * 1024 * 1024..=MAX_BYTES).contains(&png.len()));
+    let mut request = make_with_image(csrf, "Generic MIME", "application/octet-stream", &png);
+    request
+        .headers_mut()
+        .insert("x-csrf-token", csrf.parse().unwrap());
+    let body = to_bytes(
+        std::mem::replace(request.body_mut(), Body::empty()),
+        MAX_BYTES + 16384,
+    )
+    .await
+    .unwrap();
+    // Release each 10 Mbps chunk on a clock tick over roughly six seconds.
+    let period = Duration::from_secs(1);
+    let ticks = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+    *request.body_mut() = Body::from_stream(futures_util::stream::unfold(
+        (body, ticks),
+        |(mut remaining, mut ticks)| async move {
+            if remaining.is_empty() {
+                return None;
+            }
+            ticks.tick().await;
+            let chunk = remaining.split_to(remaining.len().min(1_250_000));
+            Some((Ok::<_, std::convert::Infallible>(chunk), (remaining, ticks)))
+        },
+    ));
+    let generic = app.clone().oneshot(request).await.unwrap();
     assert_eq!(generic.status(), StatusCode::FOUND);
     let mime: String =
         sqlx::query_scalar("SELECT mime_type FROM media WHERE alt_text='Generic MIME'")

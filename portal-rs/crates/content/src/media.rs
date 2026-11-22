@@ -17,9 +17,13 @@ use oteryn_admin::{
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
-use std::io::Cursor;
+use std::{io::Cursor, time::Duration};
 use uuid::Uuid;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
+// Header CSRF is verified before reading the body. Allow the full byte cap
+// over a slower uplink while keeping the pre-authentication form read short.
+const AUTHENTICATED_UPLOAD_TIMEOUT: Duration = Duration::from_secs(15);
+const FORM_CSRF_UPLOAD_TIMEOUT: Duration = Duration::from_secs(3);
 static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
@@ -188,7 +192,7 @@ fn validate_part_headers(body: &[u8], boundary: &str) -> Result<(), StatusCode> 
     }
 }
 
-async fn checked_body(request: &mut Request) -> Result<Bytes, StatusCode> {
+async fn checked_body(request: &mut Request, deadline: Duration) -> Result<Bytes, StatusCode> {
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -196,13 +200,10 @@ async fn checked_body(request: &mut Request) -> Result<Bytes, StatusCode> {
         .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
     let boundary = multer::parse_boundary(content_type).map_err(invalid)?;
     let body = std::mem::replace(request.body_mut(), axum::body::Body::empty());
-    let bytes = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        axum::body::to_bytes(body, MAX_BYTES + 16384),
-    )
-    .await
-    .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
-    .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+    let bytes = tokio::time::timeout(deadline, axum::body::to_bytes(body, MAX_BYTES + 16384))
+        .await
+        .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
+        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
     validate_part_headers(&bytes, &boundary)?;
     Ok(bytes)
 }
@@ -217,7 +218,9 @@ impl<S: Send + Sync> FromRequest<S> for CheckedMultipart {
 
     async fn from_request(mut request: Request, state: &S) -> Result<Self, Self::Rejection> {
         if request.extensions().get::<CheckedPartHeaders>().is_none() {
-            *request.body_mut() = axum::body::Body::from(checked_body(&mut request).await?);
+            *request.body_mut() = axum::body::Body::from(
+                checked_body(&mut request, AUTHENTICATED_UPLOAD_TIMEOUT).await?,
+            );
         }
         Multipart::from_request(request, state)
             .await
@@ -241,7 +244,7 @@ async fn multipart_csrf(
             .get(header::CONTENT_TYPE)
             .cloned()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-        let bytes = checked_body(&mut request).await?;
+        let bytes = checked_body(&mut request, FORM_CSRF_UPLOAD_TIMEOUT).await?;
         let mut copy = axum::http::Request::new(axum::body::Body::from(bytes.clone()));
         copy.extensions_mut().extend(request.extensions().clone());
         copy.headers_mut()
