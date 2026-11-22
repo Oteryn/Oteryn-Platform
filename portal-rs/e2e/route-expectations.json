@@ -1105,6 +1105,47 @@
   },
   {
     "crate": "identity",
+    "route": "/{lang}/mfa/manage",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/replace/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/native-devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/profile",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "active owner can open profile settings"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/profile",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation",
+    "case": "route identity /{lang}/account/profile POST"
+  },
+  {
+    "crate": "identity",
     "route": "/{lang}/account/passkeys",
     "actor": "player",
     "method": "GET",
@@ -2474,6 +2515,30 @@
   {
     "crate": "identity",
     "route": "/mfa/devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/manage",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/replace/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/native-devices",
     "actor": "player",
     "method": "POST",
     "status": 403,

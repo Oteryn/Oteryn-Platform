@@ -2093,6 +2093,116 @@
       ]
     },
     {
+      "route": "/{lang}/mfa/manage",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:89"
+      ]
+    },
+    {
+      "route": "/mfa/manage",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:prefix alias"
+      ]
+    },
+    {
+      "route": "/{lang}/mfa/replace/confirm",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:90"
+      ]
+    },
+    {
+      "route": "/mfa/replace/confirm",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:prefix alias"
+      ]
+    },
+    {
+      "route": "/{lang}/mfa/native-devices",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PANEL_NATIVE_DEVICES_ENABLED"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:95"
+      ]
+    },
+    {
+      "route": "/mfa/native-devices",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PANEL_NATIVE_DEVICES_ENABLED"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:prefix alias"
+      ]
+    },
+    {
+      "route": "/{lang}/account/profile",
+      "crate": "identity",
+      "flags": [],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/profile_http.rs:33"
+      ]
+    },
+    {
       "route": "/mfa/devices",
       "crate": "identity",
       "flags": [

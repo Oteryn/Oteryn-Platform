@@ -98,6 +98,8 @@ for row in rows.values():
         row['flags']=sorted(set(row['flags']+['OTERYN_ADMIN_PANEL']))
     if '/admin/analytics' in row['route']:
         row['flags']=sorted(set(row['flags']+['OTERYN_ADMIN_ANALYTICS_PRESENT']))
+    if row['crate']=='identity' and row['route'].endswith('/mfa/native-devices'):
+        row['flags']=sorted(set(row['flags']+['OTERYN_PANEL_NATIVE_DEVICES_ENABLED']))
 for row in rows.values():
     if row['crate']=='bazaar' and row['route']=='/{lang}/bazaar/items/{id}/{action}':
         row['notApplicable']='Compatibility item action adapter is not mounted when the qualified Bazaar runtime is selected; current actions use account/bazaar listing bids and control endpoints (bazaar.spec.mjs). The absence is asserted as 404.'

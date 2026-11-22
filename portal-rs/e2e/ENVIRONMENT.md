@@ -411,9 +411,6 @@ fixture-backed Game client. This stub is test support, not a production adapter.
 | `PORTAL_ACCOUNT_CLOSURE_INTENT_TTL_SECONDS` | `300` (1..300) |
 | `PORTAL_ACCOUNT_CLOSURE_MAX_PENDING` | `40` (1..40) |
 | `PORTAL_ACCOUNT_CLOSURE_STALE_SECONDS` | `30` (2..30), with fixed 1-second clock uncertainty |
-| `PORTAL_E2E_NATIVE_DEVICE_CLIENT` | Local OAuth allowlist and seed CLI client for device ticket issuance |
-| `PORTAL_E2E_NATIVE_DEVICE_ORIGIN` | Direct loopback TLS listener for the real remembered-device ticket route |
-| `PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN` | Loopback browser origin for the second portal process with its native settings flag off |
 | `PORTAL_E2E_GAME_CLOSURE_CONTROL_URL` | Test-only loopback producer fault control, never a production URL |
 
 Game pulls with the v1 `ListPendingCharacterCommandsV1` and
@@ -432,6 +429,14 @@ issuance to simulate elapsed days. It never inserts commands, receipts, projecti
 or eligibility. Request-time Character blockers, password, sudo and CSRF stay real.
 
 The closure producer reads `/internal/v1/game-auth/account-closure/lifecycle/read` with its Character mTLS identity before each new decision. It checks current phase, lifecycle/recovery generation, the five-second observation window and financial eligibility; refusal leaves the command pending. No key ID is used for this read.
+
+## Native device panel fixtures
+
+| Configuration | Local value |
+| --- | --- |
+| `PORTAL_E2E_NATIVE_DEVICE_CLIENT` | Local OAuth allowlist and seed CLI client for device ticket issuance |
+| `PORTAL_E2E_NATIVE_DEVICE_ORIGIN` | Direct loopback TLS listener for the real remembered-device ticket route |
+| `PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN` | Loopback browser origin for the second portal process with its native settings flag off |
 
 ## Full-shell qualification configuration
 
