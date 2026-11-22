@@ -60,8 +60,8 @@ impl std::fmt::Debug for OwnerLink {
     }
 }
 
-/// The GM console accepts an explicit locale before its guard runs.
-fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
+/// Unprefixed panel routes can request a locale before their guards run.
+fn panel_locale(uri: &axum::http::Uri) -> Option<Language> {
     #[derive(serde::Deserialize)]
     struct LocaleQuery {
         lang: Option<String>,
@@ -73,6 +73,10 @@ fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
             | "/console/worlds"
             | "/console/nodes"
             | "/console/database"
+            | "/admin/store-catalog"
+            | "/admin/store-activation"
+            | "/admin/payment-review"
+            | "/admin/commerce/reconcile"
     ) {
         return None;
     }
@@ -89,10 +93,34 @@ fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
-        .or_else(|| console_locale(request.uri()))
+        .or_else(|| panel_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let browser = request.method() == axum::http::Method::GET
+        && !request.uri().path().starts_with("/api/")
+        && !request.uri().path().starts_with("/internal/")
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+    let (account, account_id) = if browser && request.extensions().get::<StaffDashboard>().is_some()
+    {
+        match crate::session::chrome_identity(&shell.sessions, &mut request).await {
+            Some(identity) => (
+                oteryn_ui::Account::SignedIn {
+                    csrf: identity.csrf,
+                },
+                Some(identity.account_id),
+            ),
+            None => (oteryn_ui::Account::Anonymous, None),
+        }
+    } else {
+        (
+            crate::session::chrome_account(&shell.sessions, &mut request).await,
+            None,
+        )
+    };
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -112,14 +140,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let browser = request.method() == axum::http::Method::GET
-        && !request.uri().path().starts_with("/api/")
-        && !request.uri().path().starts_with("/internal/")
-        && request
-            .headers()
-            .get(header::ACCEPT)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.contains("text/html"));
     let mut chrome = shell.registry.chrome(lang, path, account);
     if browser
         && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())

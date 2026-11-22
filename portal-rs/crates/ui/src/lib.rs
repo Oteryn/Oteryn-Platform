@@ -869,4 +869,45 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn account_menu_respects_overview_registration() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for enabled in [false, true] {
+                let mut registry = registry();
+                registry.section(
+                    enabled,
+                    "account-overview",
+                    "shell-account-overview",
+                    "/account",
+                    Group::Account,
+                    false,
+                );
+                registry.section(
+                    true,
+                    "account-security",
+                    "shell-account-security",
+                    "password/change",
+                    Group::Account,
+                    false,
+                );
+                let chrome = registry.chrome(
+                    lang,
+                    "/account/sessions",
+                    Account::SignedIn {
+                        csrf: "fixture".into(),
+                    },
+                );
+                let header = ShellHeader { chrome: &chrome }.render()?;
+                assert_eq!(header.contains("class=\"account-overview\""), enabled);
+                assert_eq!(header.contains("href=\"/account\""), enabled);
+                if !enabled {
+                    assert!(header.contains("href=\"#podglad-konta\" data-account-link"));
+                }
+                assert!(header.contains(&format!("href=\"/{lang}/password/change\"")));
+                assert!(header.contains("id=\"podglad-konta\""));
+            }
+        }
+        Ok(())
+    }
 }

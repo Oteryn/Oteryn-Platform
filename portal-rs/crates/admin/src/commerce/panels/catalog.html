@@ -1,0 +1,45 @@
+<!doctype html><html lang="{{ chrome.lang }}"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ chrome.text(title) }}</title></head><body><main class="op-container op-stack">
+<a href="/admin">{{ chrome.text("panel-admin") }}</a>
+<h1>{{ chrome.text(title) }}</h1>
+{% if !current.is_empty() %}<p>{{ chrome.text("commerce-active") }} <code>{{ current }}</code></p>{% endif %}
+{% if activation %}
+{% for item in revisions %}
+<article class="op-card"><h2>{{ chrome.text("commerce-revision") }}</h2><p><code>{{ item.revision }}</code></p>
+<ul>{% for change in item.changes %}
+<li>{{ change.offer }} · {% if change.before.is_empty() %}—{% else %}{{ change.before }}{% endif %} → {% if change.after.is_empty() %}—{% else %}{{ change.after }}{% endif %}</li>
+{% else %}<li>{{ chrome.text("commerce-no-price-changes") }}</li>{% endfor %}</ul>
+<form method="post" action="?lang={{ chrome.lang }}" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="current" value="{{ current }}">
+<input type="hidden" name="generation" value="{{ generation }}">
+<input type="hidden" name="revision" value="{{ item.revision }}">
+<label class="op-field">{{ chrome.text("staff-action-reason") }} <select class="op-input" name="reason" required><option value=""></option><option value="game_catalog_verified">{{ chrome.text("commerce-confirm-catalog") }}</option></select></label>
+<button class="op-button">{{ chrome.text("commerce-activate") }}</button>
+</form></article>
+{% else %}<p>{{ chrome.text("commerce-no-revisions") }}</p>{% endfor %}
+{% else %}
+{% if !proposals.is_empty() %}
+<section><h2>{{ chrome.text("commerce-price-proposals") }}</h2>
+<p>{{ chrome.text("commerce-price-proposals-note") }}</p>
+<ul>{% for (offer, price) in proposals %}<li>{{ offer }} · {{ price }} COINS</li>{% endfor %}</ul></section>
+{% endif %}
+{% for offer in offers %}
+<article class="op-card"><h2>{{ offer.offer_key }}</h2>
+<p>{{ chrome.text("commerce-price") }} {{ offer.unit_price }} {{ offer.currency }}</p>
+<p>{{ chrome.text("commerce-max-quantity") }} {{ offer.max_quantity }}</p>
+<p>{{ chrome.text("commerce-catalog-purchase-flag") }} · {% if offer.purchasable %}{{ chrome.text("commerce-purchasable") }}{% else %}{{ chrome.text("commerce-not-purchasable") }}{% endif %}</p>
+<p>{{ chrome.text("commerce-browser-eligibility") }} · {% if offer.available() %}{{ chrome.text("commerce-purchasable") }}{% else %}{{ chrome.text("commerce-not-purchasable") }}{% endif %}</p>
+<ul>{% for unit in offer.units %}<li>{{ unit.product_id }} × {{ unit.quantity }}</li>{% endfor %}</ul>
+<form method="post" action="?lang={{ chrome.lang }}" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="current" value="{{ current }}">
+<input type="hidden" name="offer" value="{{ offer.offer_key }}">
+<label class="op-field">{{ chrome.text("commerce-new-price") }} <input class="op-input" type="number" name="price" min="1" required></label>
+<label class="op-field">{{ chrome.text("staff-action-reason") }} <select class="op-input" name="reason" required><option value=""></option><option value="price_correction">{{ chrome.text("commerce-confirm-price") }}</option></select></label>
+<button class="op-button">{{ chrome.text("commerce-stage") }}</button>
+</form></article>
+{% else %}<p>{{ chrome.text("commerce-no-offers") }}</p>{% endfor %}
+{% endif %}
+</main></body></html>

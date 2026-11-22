@@ -70,6 +70,12 @@ impl Error {
                 status,
                 &chrome.text("staff-action-step-up-required"),
             )
+        } else if matches!(self, Self::StepUp) {
+            oteryn_ui::error_with_message(
+                chrome,
+                status,
+                &chrome.text("staff-action-step-up-required"),
+            )
         } else {
             oteryn_ui::error(chrome, status)
         }
@@ -103,6 +109,7 @@ impl From<sqlx::Error> for Error {
 /// value types. Form data and arbitrary runtime values never reach this API.
 #[derive(Debug)]
 pub enum AuditChange {
+    Commerce(crate::commerce::audit_change::CommerceAudit),
     RoleGrant {
         account: Uuid,
         role: Uuid,
@@ -123,6 +130,13 @@ pub enum AuditChange {
 }
 
 impl AuditChange {
+    fn request_id(&self) -> Uuid {
+        match self {
+            Self::Commerce(change) => change.request_id(),
+            _ => Uuid::now_v7(),
+        }
+    }
+
     fn project(self) -> (&'static str, Uuid, Value, Value) {
         let permissions = |permissions: Vec<Permission>| {
             let mut names: Vec<_> = permissions.into_iter().map(Permission::as_str).collect();
@@ -130,6 +144,7 @@ impl AuditChange {
             json!({"permissions": names})
         };
         match self {
+            Self::Commerce(change) => change.project(),
             Self::RoleGrant { account, role } => (
                 "rbac.role.granted",
                 account,
@@ -264,7 +279,8 @@ where
         };
         let changed = change.is_some();
         if let Some(change) = change {
-            record(&mut tx, guard.actor, Uuid::now_v7(), change, Some(reason)).await?;
+            let request_id = change.request_id();
+            record(&mut tx, guard.actor, request_id, change, Some(reason)).await?;
         }
         for permission in permissions {
             guard

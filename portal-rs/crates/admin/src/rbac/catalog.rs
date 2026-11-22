@@ -564,6 +564,24 @@ pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
         Permission::ManageMarketplace,
         Some("OTERYN_BAZAAR_MODERATION"),
     ),
+    (
+        "/admin/store-catalog?lang={lang}",
+        "commerce-catalog",
+        Permission::ImportStoreCatalog,
+        Some("OTERYN_PANEL_STORE_CATALOG_ENABLED"),
+    ),
+    (
+        "/admin/store-activation?lang={lang}",
+        "commerce-activation",
+        Permission::ActivateStoreCatalog,
+        Some("OTERYN_PANEL_STORE_CATALOG_ENABLED"),
+    ),
+    (
+        "/admin/payment-review?lang={lang}",
+        "commerce-payment-review",
+        Permission::ReconcilePayments,
+        Some("OTERYN_PANEL_PAYMENTS_ENABLED"),
+    ),
 ];
 
 use crate::console::Operation;

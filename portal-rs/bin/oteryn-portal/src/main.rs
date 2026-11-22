@@ -277,6 +277,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let email_change_enabled = email_change.has_routes();
             let app = app.merge(email_change);
             let app = app.merge(oteryn_admin::commerce::configured_router(db.clone())?);
+            let app = app.merge(oteryn_admin::commerce::panels::configured(db.clone())?);
             let app = app.merge(oteryn_admin::controls::http::configured_router(db.clone())?);
             let app = sessions_http::configured(app, db.clone());
             let app = app.merge(privacy_web::configured_router(db.clone()));
@@ -403,6 +404,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             oteryn_identity::navigation::register(&mut navigation);
             oteryn_characters::navigation::register(&mut navigation);
             oteryn_store::navigation::register(&mut navigation);
+            oteryn_store::web::register_order_history(&mut navigation.panels);
+            let app = app.merge(oteryn_store::web::mount_order_history(db.clone()));
             oteryn_content::navigation::register(&mut navigation);
             oteryn_wiki::navigation::register(&mut navigation);
             oteryn_community::navigation::register(&mut navigation);

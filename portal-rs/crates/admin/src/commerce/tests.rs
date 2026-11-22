@@ -808,6 +808,24 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
         .split('"')
         .next()
         .unwrap();
+    for id in [adjustment_id, grant_id] {
+        for decision in ["approvals", "cancellations"] {
+            let response = second_app
+                .clone()
+                .oneshot(
+                    HttpRequest::post(format!("/admin/commerce/{decision}/{id}"))
+                        .header("host", "staff.test")
+                        .header("origin", "https://staff.test")
+                        .header("cookie", &second_cookie)
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .body(Body::from(format!("_csrf={csrf}")))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    }
     let response = second_app
         .clone()
         .oneshot(
@@ -816,7 +834,7 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &second_cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_verified")))
                 .unwrap(),
         )
         .await
@@ -837,7 +855,7 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &second_cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_verified")))
                 .unwrap(),
         )
         .await
@@ -870,6 +888,105 @@ async fn a2_configured_commerce_domain_adapters_commit_ledgers() {
         "a2_configured_commerce_domain_adapters_commit_ledgers duration: {:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn refund_submission_audits_reason_atomically() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let payment = Uuid::now_v7();
+    let id = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'EUR','succeeded')")
+        .bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
+    let app_for = |flags| {
+        router(
+            h.pool.clone(),
+            crate::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Session(h.actor, h.pool.clone()),
+            Authority(h.pool.clone()),
+            h.effects(),
+            flags,
+        )
+    };
+    let app = app_for(flags());
+    let (cookie, csrf) = login(app.clone()).await;
+    let submit = |app: &axum::Router, token: &str, reason: &str| {
+        app.clone().oneshot(
+            HttpRequest::post("/admin/commerce/refund")
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={token}&reason={reason}&request_id={id}&target={payment}"
+                )))
+                .unwrap(),
+        )
+    };
+    assert_eq!(
+        submit(&app, "bad", "refund_requested")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        submit(&app, &csrf, "").await.unwrap().status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let disabled = app_for(Flags {
+        refunds: false,
+        ..flags()
+    });
+    assert_eq!(
+        submit(&disabled, &csrf, "refund_requested")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(h.count("commerce_operations").await, 0);
+    sqlx::raw_sql("CREATE FUNCTION reject_refund_request() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test audit failure'; END $$; CREATE TRIGGER reject_refund_request BEFORE INSERT ON audit_log FOR EACH ROW WHEN (NEW.action='commerce.requested') EXECUTE FUNCTION reject_refund_request()")
+        .execute(&h.pool).await.unwrap();
+    assert_eq!(
+        submit(&app, &csrf, "refund_requested")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(h.count("commerce_operations").await, 0);
+    sqlx::query("DROP TRIGGER reject_refund_request ON audit_log")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            submit(&app, &csrf, "refund_requested")
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert_eq!(h.count("commerce_operations").await, 1);
+    assert_eq!(h.count("commerce_refunds").await, 0);
+    let audits: Vec<(String, Value)> = sqlx::query_as(
+        "SELECT staff_reason,after FROM audit_log WHERE action='commerce.requested' AND request_id=$1",
+    ).bind(id).fetch_all(&h.pool).await.unwrap();
+    assert_eq!(
+        audits,
+        vec![(
+            "refund_requested".to_owned(),
+            json!({
+                "pending": true, "command": "refund", "operation": id, "amount": 250, "currency": "EUR"
+            })
+        )]
+    );
+    h.close().await;
 }
 
 #[tokio::test]
@@ -1072,7 +1189,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -1099,7 +1216,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -1113,25 +1230,29 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
         .execute(&h.pool)
         .await
         .unwrap();
-    for (path, token, expected) in [
+    for (path, token, reason, expected) in [
         (
             format!("/admin/commerce/cancellations/{}", blocked[0]),
             "bad",
+            "value_withdrawn",
             StatusCode::FORBIDDEN,
         ),
         (
             format!("/admin/commerce/cancellations/{}", blocked[0]),
             csrf,
+            "value_withdrawn",
             StatusCode::SEE_OTHER,
         ),
         (
             format!("/admin/commerce/cancellations/{}", blocked[0]),
             csrf,
+            "value_withdrawn",
             StatusCode::SEE_OTHER,
         ),
         (
             format!("/admin/commerce/approvals/{valid}"),
             csrf,
+            "value_verified",
             StatusCode::SEE_OTHER,
         ),
     ] {
@@ -1143,7 +1264,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                     .header("origin", "https://staff.test")
                     .header("cookie", &cookie)
                     .header("content-type", "application/x-www-form-urlencoded")
-                    .body(Body::from(format!("_csrf={token}")))
+                    .body(Body::from(format!("_csrf={token}&reason={reason}")))
                     .unwrap(),
             )
             .await
@@ -1158,7 +1279,7 @@ async fn a3_commerce_queue_pagination_and_terminal_disposition() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=value_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -1230,7 +1351,9 @@ async fn a3_l6_02_staff_routes_refuse_restricted_acquisitions() {
                     .header("origin", "https://staff.test")
                     .header("cookie", &second_cookie)
                     .header("content-type", "application/x-www-form-urlencoded")
-                    .body(Body::from(format!("_csrf={second_csrf}")))
+                    .body(Body::from(format!(
+                        "_csrf={second_csrf}&reason=value_verified"
+                    )))
                     .unwrap(),
             )
             .await
@@ -1324,7 +1447,7 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         }
         let failing = self
             .failures
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
                 |n| n.checked_sub(1),
@@ -1335,7 +1458,7 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         }
         if self
             .malformed
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
                 |n| n.checked_sub(1),
@@ -1361,6 +1484,75 @@ async fn queued_refund(h: &Harness) -> (Uuid, Uuid) {
         .unwrap();
     (refund.request_id, payment)
 }
+
+#[tokio::test]
+async fn payment_queue_seeds_evidence_from_candidates() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let (_, payment) = queued_refund(&h).await;
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
+         SELECT id,$1,'test',id::text,100,'PLN','succeeded'
+         FROM (SELECT uuidv7() AS id FROM generate_series(1,1500)) payments")
+        .bind(h.target)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    // Measure a populated history with current planner statistics.
+    sqlx::query("ANALYZE payment_intents")
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    let plan = |queue| {
+        sqlx::query_scalar::<_, Value>(AssertSqlSafe(format!(
+            "EXPLAIN (ANALYZE, FORMAT JSON) {}",
+            panels::payments::PAYMENTS,
+        )))
+        .bind(None::<Uuid>)
+        .bind(None::<Uuid>)
+        .bind(queue)
+        .bind(None::<Uuid>)
+        .fetch_one(&h.pool)
+    };
+    fn relation_work(plan: &Value, table: &str) -> (f64, f64) {
+        let own = if plan["Relation Name"].as_str() == Some(table) {
+            let loops = plan["Actual Loops"].as_f64().unwrap();
+            let rows = [
+                "Actual Rows",
+                "Rows Removed by Filter",
+                "Rows Removed by Index Recheck",
+            ]
+            .iter()
+            .map(|key| plan[*key].as_f64().unwrap_or_default())
+            .sum::<f64>();
+            (loops, rows * loops)
+        } else {
+            (0.0, 0.0)
+        };
+        plan["Plans"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|child| relation_work(child, table))
+            .fold(own, |(loops, rows), (child_loops, child_rows)| {
+                (loops + child_loops, rows + child_rows)
+            })
+    }
+    let empty = plan(true).await.unwrap();
+    let empty = &empty[0]["Plan"];
+    assert_eq!(empty["Actual Rows"].as_f64(), Some(0.0));
+    assert_eq!(relation_work(empty, "payment_intents"), (0.0, 0.0));
+    assert_eq!(relation_work(empty, "commerce_operations"), (0.0, 0.0));
+
+    kill_refund_job(&h, payment).await;
+    let sparse = plan(true).await.unwrap();
+    let sparse = &sparse[0]["Plan"];
+    assert_eq!(sparse["Actual Rows"].as_f64(), Some(1.0));
+    assert_eq!(relation_work(sparse, "payment_intents"), (1.0, 1.0));
+    let ordinary = plan(false).await.unwrap();
+    assert_eq!(ordinary[0]["Plan"]["Actual Rows"].as_f64(), Some(26.0));
+    h.close().await;
+}
+
 async fn dispatched_audits(h: &Harness) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='commerce.refund.dispatched'")
         .fetch_one(&h.pool)
@@ -1376,6 +1568,63 @@ async fn refund_row(h: &Harness, operation: Uuid) -> (String, Option<Uuid>, Opti
     .await
     .unwrap()
 }
+#[tokio::test]
+async fn postgres_refund_dispatch_locks_payer_before_refund() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let (operation, payment) = queued_refund(&h).await;
+    let adapter = h.effects().payments;
+    let stub = RefundStub::default();
+    let mut reconciliation = h.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(h.target)
+        .execute(&mut *reconciliation)
+        .await
+        .unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reconciliation)
+        .await
+        .unwrap();
+    let probe = async {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(blocker)
+                .fetch_one(&h.pool)
+                .await
+                .unwrap();
+                if waiting {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("dispatch waits for the payer lock");
+        let locked = sqlx::query(
+            "SELECT operation_id FROM commerce_refunds WHERE operation_id=$1 FOR UPDATE NOWAIT",
+        )
+        .bind(operation)
+        .fetch_optional(&mut *reconciliation)
+        .await;
+        reconciliation.rollback().await.unwrap();
+        assert!(
+            locked
+                .expect("dispatch must not lock the refund before the payer")
+                .is_some()
+        );
+    };
+    let (delivered, ()) = tokio::join!(
+        adapter.deliver_refund_with(&stub, &h.pool, operation),
+        probe
+    );
+    delivered.unwrap();
+    assert_eq!(stub.keys(), vec![payment]);
+    assert_eq!(dispatched_audits(&h).await, 1);
+    h.close().await;
+}
+
 /// Another session can lock the refund row with NOWAIT while the provider call
 /// is in flight: the external call holds no row lock and no open transaction.
 #[tokio::test]
@@ -2337,7 +2586,7 @@ async fn commerce_review_owner_cannot_cancel_refund() {
                 .header("origin", "https://staff.test")
                 .header("cookie", cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=refund_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -2545,18 +2794,49 @@ async fn reconcile_loads_charged_back_intent() {
     let payment = Uuid::now_v7();
     sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','chargeback')").bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
     let op = Uuid::now_v7();
-    let response = app
+    let detail = app
+        .clone()
         .oneshot(
-            HttpRequest::post("/admin/commerce/reconcile")
+            HttpRequest::get(format!("/admin/commerce/reconcile?id={payment}"))
                 .header("host", "staff.test")
-                .header("origin", "https://staff.test")
-                .header("cookie", cookie)
-                .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!(
-                    "_csrf={token}&request_id={op}&target={payment}&reason=Reviewed+support+request"
-                )))
+                .header("cookie", &cookie)
+                .body(Body::empty())
                 .unwrap(),
         )
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    let detail =
+        String::from_utf8(to_bytes(detail.into_body(), 200000).await.unwrap().to_vec()).unwrap();
+    let version = detail
+        .split_once("name=\"version\" value=\"")
+        .unwrap()
+        .1
+        .split('"')
+        .next()
+        .unwrap();
+    let post = |fields: String| {
+        HttpRequest::post("/admin/commerce/reconcile")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "_csrf={token}&request_id={op}&reason=evidence_reviewed&{fields}"
+            )))
+            .unwrap()
+    };
+    assert_eq!(
+        app.clone()
+            .oneshot(post(format!("target={payment}")))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "legacy target-only reconciliation cannot record a review"
+    );
+    let response = app
+        .oneshot(post(format!("id={payment}&version={version}")))
         .await
         .unwrap();
     assert_eq!(
@@ -2571,5 +2851,381 @@ async fn reconcile_loads_charged_back_intent() {
             .await
             .unwrap();
     assert_eq!(state, "chargeback");
+    h.close().await;
+}
+
+#[tokio::test]
+async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() {
+    use crate::web::{PanelConfig, guarded};
+    use axum::Extension;
+    use oteryn_ui::Chrome;
+    use panels::{catalog, payments};
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL is required");
+    let app = |staff| {
+        [
+            (
+                catalog::staging(h.pool.clone()),
+                rbac::Permission::ImportStoreCatalog,
+            ),
+            (
+                catalog::activation(h.pool.clone()),
+                rbac::Permission::ActivateStoreCatalog,
+            ),
+            (
+                payments::routes(h.pool.clone()),
+                rbac::Permission::ReconcilePayments,
+            ),
+        ]
+        .into_iter()
+        .fold(axum::Router::new(), |app, (routes, permission)| {
+            app.merge(guarded(
+                routes,
+                h.pool.clone(),
+                PanelConfig {
+                    admin_panel: true,
+                    host: "staff.test".into(),
+                },
+                Session(staff, h.pool.clone()),
+                Authority(h.pool.clone()),
+                permission,
+            ))
+        })
+        .layer(Extension(Chrome::default()))
+    };
+    let staff = app(h.actor);
+    let response = staff
+        .clone()
+        .oneshot(
+            HttpRequest::get("/admin/store-catalog?lang=en")
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let csrf: String =
+        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE account_id=$1 AND user_agent_summary IS DISTINCT FROM 'staff-fixture'")
+            .bind(h.actor)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+
+    use oteryn_store::{catalog::Catalog, purchase};
+    let game_document = br#"{"offers":[{"category":"items","currency":"TIBIA_COIN","item":{"charges":1,"key":"oteryn:item.tibia.i28552","revision":"definition-r1"},"key":"test.offer","price":10,"source_line":1,"title":"Test offer"}],"schema":"OTERYN_STORE_RUNTIME_CATALOGUE/v1","source":{}}"#;
+    let offer = Catalog::parse(game_document).unwrap();
+    let other_document = std::str::from_utf8(game_document)
+        .unwrap()
+        .replace("\"price\":10", "\"price\":30");
+    let game_digest = format!("{:x}", Sha256::digest(other_document.as_bytes()));
+    let other = Catalog::parse(other_document.as_bytes()).unwrap();
+    assert_eq!(other.revision(), game_digest);
+    let proposal = offer.with_price("test.offer", 20).unwrap();
+    let mut tx = h.pool.begin().await.unwrap();
+    for catalog in [&offer, &other, &proposal] {
+        // Include a historically staged S-5 row to test the upgrade boundary.
+        oteryn_store::catalog::insert_revision(&mut tx, catalog, h.actor)
+            .await
+            .unwrap();
+    }
+    sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1 WHERE id=1")
+        .bind(offer.revision())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let mut generation = 0_i64;
+    let activate = |from: &Catalog, to: &Catalog, generation| {
+        format!(
+            "current={}&revision={}&generation={generation}",
+            from.revision(),
+            to.revision()
+        )
+    };
+    let first_activation = activate(&offer, &other, generation);
+    for (path, form, status) in [
+        (
+            "/admin/store-catalog",
+            format!("current={}&offer=test.offer&price=-1", offer.revision()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/admin/store-catalog",
+            format!("current={}&offer=test.offer&price=20", offer.revision()),
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            "/admin/store-activation",
+            format!("current={}&revision=invalid&generation=0", offer.revision()),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/admin/store-activation",
+            activate(&offer, &proposal, 0),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "/admin/store-activation",
+            first_activation.clone(),
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let request = |token: &str| {
+            HttpRequest::post(path)
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "{form}&reason={}&_csrf={token}",
+                    if path == "/admin/store-catalog" {
+                        "price_correction"
+                    } else {
+                        "game_catalog_verified"
+                    }
+                )))
+                .unwrap()
+        };
+        assert_eq!(
+            staff
+                .clone()
+                .oneshot(request("bad"))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            staff
+                .clone()
+                .oneshot(request(&csrf))
+                .await
+                .unwrap()
+                .status(),
+            status
+        );
+    }
+    let post_activation = |form: &str| {
+        HttpRequest::post("/admin/store-activation")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "{form}&reason=game_catalog_verified&_csrf={csrf}"
+            )))
+            .unwrap()
+    };
+    h.effects()
+        .wallet
+        .adjust(
+            Uuid::now_v7(),
+            h.target,
+            100,
+            h.actor,
+            "Test catalog purchase funding",
+        )
+        .await
+        .unwrap();
+    let source = "oteryn-game/store-consumer";
+    let purchases = purchase::database(
+        h.pool.clone(),
+        purchase::Settings {
+            purchase_enabled: true,
+            delivery_enabled: true,
+            environment: "testing".into(),
+            source_authority: source.into(),
+            peer_identity: "store-test-peer".into(),
+            enabled_unit_kinds: vec!["ITEM".into()],
+            ..purchase::Settings::default()
+        },
+        false,
+    );
+    let quoted = serde_json::to_vec(&purchase::PurchaseRequest {
+        contract_version: 1,
+        operation: "PurchaseStoreOfferV1".into(),
+        source_authority: source.into(),
+        purchase_request_id: Uuid::now_v7().to_string(),
+        account_id: h.target.to_string(),
+        character_id: Uuid::now_v7().to_string(),
+        world_id: Uuid::now_v7().to_string(),
+        catalog_revision: game_digest.clone(),
+        offer_key: "test.offer".into(),
+        currency: "COINS".into(),
+        unit_price: "30".into(),
+        quantity: 1,
+    })
+    .unwrap();
+    let answer: Value =
+        serde_json::from_slice(&purchases.purchase(&quoted).await.unwrap()).unwrap();
+    assert_eq!(answer["result"], "ACCEPTED");
+
+    generation =
+        sqlx::query_scalar("SELECT max(activation_sequence) FROM store_catalog_activations")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    let response = staff
+        .clone()
+        .oneshot(post_activation(&activate(&other, &offer, generation)))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let response = staff
+        .clone()
+        .oneshot(post_activation(&first_activation))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(h.count("store_catalog_activations").await, 2);
+    let audit_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='store.catalog.activated'")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(audit_count, 2);
+    assert_eq!(h.count("store_price_proposals").await, 1);
+
+    // This router has no payment adapter. Reviewing the production-shaped
+    // intent still records evidence and leaves its state and amount untouched.
+    let intent = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
+                 VALUES($1,$2,'external',$3,250,'EUR','pending')")
+        .bind(intent).bind(h.target).bind(intent.to_string()).execute(&h.pool).await.unwrap();
+    let detail = staff
+        .clone()
+        .oneshot(
+            HttpRequest::get(format!("/admin/payment-review?id={intent}"))
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(detail.into_body(), 100_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let version = html
+        .split_once("name=\"version\" value=\"")
+        .unwrap()
+        .1
+        .split_once('"')
+        .unwrap()
+        .0;
+    let review = Uuid::now_v7();
+    let submit_review = |reason: &str, token: &str| {
+        HttpRequest::post("/admin/payment-review?lang=en")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "id={intent}&request_id={review}&version={version}&reason={reason}&_csrf={token}"
+            )))
+            .unwrap()
+    };
+    for (reason, token, expected) in [
+        ("", csrf.as_str(), StatusCode::UNPROCESSABLE_ENTITY),
+        ("evidence_reviewed", "bad", StatusCode::FORBIDDEN),
+        ("evidence_reviewed", csrf.as_str(), StatusCode::SEE_OTHER),
+        ("evidence_reviewed", csrf.as_str(), StatusCode::SEE_OTHER),
+    ] {
+        assert_eq!(
+            staff
+                .clone()
+                .oneshot(submit_review(reason, token))
+                .await
+                .unwrap()
+                .status(),
+            expected
+        );
+    }
+    // A different intent version cannot reuse the old review form.
+    sqlx::query("UPDATE payment_intents SET updated_at=updated_at+interval '1 second' WHERE id=$1")
+        .bind(intent)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        staff
+            .clone()
+            .oneshot(submit_review("evidence_reviewed", &csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let ledger: (String, i64) =
+        sqlx::query_as("SELECT state,amount FROM payment_intents WHERE id=$1")
+            .bind(intent)
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(ledger, ("pending".into(), 250));
+    let reasons: Vec<String> = sqlx::query_scalar(
+        "SELECT staff_reason FROM audit_log WHERE action='commerce.payment.reviewed' AND target=$1",
+    )
+    .bind(intent.to_string())
+    .fetch_all(&h.pool)
+    .await
+    .unwrap();
+    assert_eq!(reasons, vec!["evidence_reviewed"]);
+
+    for (route, status) in [
+        (
+            "/admin/store-catalog?unexpected=true",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/admin/store-activation?unexpected=true",
+            StatusCode::BAD_REQUEST,
+        ),
+        ("/admin/store-catalog?lang=en", StatusCode::OK),
+        ("/admin/store-activation?lang=en", StatusCode::OK),
+        ("/admin/payment-review?lang=en&queue=true", StatusCode::OK),
+        (
+            "/admin/payment-review?id=invalid",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let request = || {
+            HttpRequest::get(route)
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap()
+        };
+        assert_eq!(
+            staff.clone().oneshot(request()).await.unwrap().status(),
+            status
+        );
+        assert_eq!(
+            app(h.target).oneshot(request()).await.unwrap().status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    let activated: String =
+        sqlx::query_scalar("SELECT catalog_revision FROM store_active_catalog WHERE id=1")
+            .fetch_one(&h.pool)
+            .await
+            .unwrap();
+    assert_eq!(activated, offer.revision());
     h.close().await;
 }

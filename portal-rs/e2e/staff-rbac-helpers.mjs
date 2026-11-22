@@ -29,7 +29,8 @@ export async function enrollMfa(page,lang,account){
  await submit(page,'form[action$="/mfa/enroll"]',{password:account.password});
  const totp=new OTPAuth.TOTP({secret:await page.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
  await submit(page,'form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
- return recoveryCodes(page);
+ await expect(page.locator('textarea[readonly]').first()).toBeVisible();
+ return page.locator('textarea[readonly]').allTextContents();
 }
 
 export async function loginWithRecoveryCode(page,lang,account,code){

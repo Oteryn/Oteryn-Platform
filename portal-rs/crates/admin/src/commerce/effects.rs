@@ -260,8 +260,21 @@ impl TestPaymentAdapter {
     ) -> Result<Option<(Uuid, oteryn_payments::Intent)>, Error> {
         let mut tx = pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
-        let row = sqlx::query("SELECT r.intent_id,r.account_id,r.amount,r.currency,r.provider,r.provider_reference,o.result->>'refund_outcome' AS refund_outcome,r.state='refunding' AND r.claimed_at > now() - make_interval(secs => $2) AS claim_live FROM commerce_refunds r JOIN commerce_operations o ON o.id=r.operation_id WHERE r.operation_id=$1 AND o.approved_by IS NOT NULL AND o.result IS NOT NULL FOR UPDATE OF r,o")
-            .bind(operation).bind(REFUND_CLAIM_STALE_AFTER.as_secs_f64()).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
+        // Reconciliation, webhook intake and staff mutations lock the payer
+        // before the refund and intent. Take the shared account lock first.
+        let payer: Uuid =
+            sqlx::query_scalar("SELECT account_id FROM commerce_refunds WHERE operation_id=$1")
+                .bind(operation)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(Error::Denied)?;
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR SHARE")
+            .bind(payer)
+            .execute(&mut *tx)
+            .await?;
+        rbac::mutation_budget(&mut tx).await?;
+        let row = sqlx::query("SELECT r.intent_id,r.account_id,r.amount,r.currency,r.provider,r.provider_reference,o.result->>'refund_outcome' AS refund_outcome,r.state='refunding' AND r.claimed_at > now() - make_interval(secs => $2) AS claim_live FROM commerce_refunds r JOIN commerce_operations o ON o.id=r.operation_id WHERE r.operation_id=$1 AND r.account_id=$3 AND o.approved_by IS NOT NULL AND o.result IS NOT NULL FOR UPDATE OF r,o")
+            .bind(operation).bind(REFUND_CLAIM_STALE_AFTER.as_secs_f64()).bind(payer).fetch_optional(&mut *tx).await?.ok_or(Error::Denied)?;
         if row
             .try_get::<Option<String>, _>("provider_reference")?
             .is_some()

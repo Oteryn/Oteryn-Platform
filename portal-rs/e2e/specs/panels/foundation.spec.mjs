@@ -3,6 +3,7 @@ import {expect, test} from '../../fixtures.mjs';
 import {createHash, randomBytes} from 'node:crypto';
 import {csrfRejected, pool} from '../../helpers.mjs';
 import {confirmStaffPassword, isolatedAdmin, membership, player, query, role, rolePage, unique} from '../../staff-rbac-helpers.mjs';
+import {assertShell} from '../../shell.mjs';
 
 const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
 const visit = (page, url) => page.goto(url, {waitUntil: 'domcontentloaded'});
@@ -140,11 +141,24 @@ test('panel navigation enforces scope and role grants require a reason', async (
     }
     await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
     expect((await visit(admin, '/console/worlds')).status()).toBe(403);
+    for (const section of ['dashboard', 'worlds', 'nodes', 'database']) {
+      expect((await visit(admin, `/console/${section}?lang=${lang}`)).status(), section).toBe(403);
+      if (section === 'dashboard') {
+        expect(new URL(admin.url()).pathname).toBe('/console/dashboard');
+        await expect(admin.locator('html')).toHaveAttribute('lang',lang);
+        await assertShell(admin,{status:403});
+      }
+    }
+    // Shell probes include the other language and may update the locale cookie.
+    await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
     await query(
       "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'",
       [staff],
     );
 
+    for (const section of ['dashboard', 'worlds', 'nodes', 'database']) {
+      expect((await visit(admin, `/console/${section}?lang=${lang}`)).status(), section).toBe(200);
+    }
     await visit(admin, dashboardUrl);
     await adminNav.getByRole('link', {name: label.gm}).click();
     const gmNav = admin.getByRole('navigation', {name: label.gm, exact: true});
