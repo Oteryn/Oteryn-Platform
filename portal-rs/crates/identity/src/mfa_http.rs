@@ -42,7 +42,11 @@ pub async fn session_satisfied(mfa: &Mfa, session: &BrowserSession) -> bool {
     };
     mfa.satisfied(id, &grant).await.unwrap_or(false)
 }
-pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
+pub fn configured(
+    app: Router,
+    pool: PgPool,
+    fallback_routes: Option<&mut String>,
+) -> Result<Router, sqlx::Error> {
     if !std::env::var("OTERYN_ACCOUNT_MFA").is_ok_and(|v| v == "true") {
         return Ok(app);
     }
@@ -55,9 +59,25 @@ pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
         .ok()
         .into_iter()
         .collect();
-    Ok(compose(app, pool, mfa, sessions))
+    Ok(compose_with_snapshot(
+        app,
+        pool,
+        mfa,
+        sessions,
+        fallback_routes,
+    ))
 }
+#[cfg(test)]
 fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Router {
+    compose_with_snapshot(app, pool, mfa, sessions, None)
+}
+fn compose_with_snapshot(
+    app: Router,
+    pool: PgPool,
+    mfa: Mfa,
+    sessions: SessionLayer,
+    fallback_routes: Option<&mut String>,
+) -> Router {
     let context = Context {
         mfa,
         limiter: RateLimiter::new(pool),
@@ -99,6 +119,9 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     {
         let recorded = crate::record_route_registrations("mfa-fallback", &app);
         assert!(recorded.is_ok(), "MFA route registrations: {recorded:?}");
+    }
+    if let Some(snapshot) = fallback_routes {
+        *snapshot = format!("{app:?}");
     }
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()

@@ -2,8 +2,10 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { test, expect } from '@playwright/test';
 import { cookie, expectSession, seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
-import { checkHeaders, checkIssued, deviceCookie, sessionCookie } from './policy.mjs';
-import { challengeForm, loginForm, logoutForm, signIn, submitForm } from './session-actions.mjs';
+import { checkHeaders, checkIssued, deviceCookie, matchesPortalCsp, sessionCookie } from './policy.mjs';
+import { challengeForm, getFromPortal, loginForm, logoutForm, signIn, submitForm } from './session-actions.mjs';
+
+test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
 async function checkRedirect(response, status, location) {
   expect(response.status(), 'redirect status').toBe(status);
@@ -30,7 +32,7 @@ async function endSession(page, context, locale, authenticated) {
   checkIssued(await checkRedirect(response, 302, '/' + locale + '/'), sessionCookie, '0');
   expect((await context.cookies()).some(entry => entry.name === sessionCookie), 'browser removed the session').toBe(false);
   await expectSession(authenticated, undefined);
-  const protectedPage = await page.request.get('/account', {
+  const protectedPage = await getFromPortal(page.request, '/account', {
     headers: { accept: 'text/html', 'accept-language': locale }, maxRedirects: 0,
   });
   await checkRedirect(protectedPage, 303, '/' + locale + '/login');
@@ -39,15 +41,15 @@ async function endSession(page, context, locale, authenticated) {
 test('anonymous language redirect issues a host-only cookie and home stays no-store', async ({ page }, info) => {
   const locale = info.project.metadata.locale;
   const headers = { accept: 'text/html', 'accept-language': locale };
-  await checkRedirect(await page.request.get('/', { headers, maxRedirects: 0 }), 303, '/' + locale + '/');
-  const language = await page.request.get('/language/' + locale, { headers, maxRedirects: 0 });
+  await checkRedirect(await getFromPortal(page.request, '/', { headers, maxRedirects: 0 }), 303, '/' + locale + '/');
+  const language = await getFromPortal(page.request, '/language/' + locale, { headers, maxRedirects: 0 });
   checkIssued(await checkRedirect(language, 303, '/' + locale + '/'), 'portal_language', '31536000');
   const home = await page.goto('/' + locale + '/');
   expect(home.status()).toBe(200);
   expect(home.headers()['content-type']).toMatch(/^text\/html\b/);
   await checkHeaders(home, 'anonymous home');
 
-  const asset = await page.request.get('/static/css/tokens.css', { maxRedirects: 0 });
+  const asset = await getFromPortal(page.request, '/static/css/tokens.css', { maxRedirects: 0 });
   expect(asset.status()).toBe(200);
   await checkHeaders(asset, 'public stylesheet', { cache: 'public, max-age=300, must-revalidate' });
 });
@@ -141,7 +143,7 @@ for (const { label, status, headers } of [
     // Use the unprefixed root for header/Host handling and a known HTML page
     // for media negotiation. Each response is checked before following a redirect.
     const target = status === 406 ? '/' + locale + '/' : '/';
-    const response = await request.get(target, {
+    const response = await getFromPortal(request, target, {
       headers: { accept: 'text/html', 'accept-language': locale, ...headers },
       maxRedirects: 0,
     });
@@ -181,4 +183,52 @@ test('Chromium refuses to render a portal page in a cross-origin iframe', async 
   } finally {
     await new Promise(resolve => embedder.close(resolve));
   }
+});
+
+test('CSP validator requires the full policy with unique directives', () => {
+  const strict = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+  expect(matchesPortalCsp(strict)).toBe(true);
+  expect(matchesPortalCsp("frame-ancestors 'none'")).toBe(false);
+  expect(matchesPortalCsp(strict + "; FRAME-ANCESTORS 'none'")).toBe(false);
+  expect(matchesPortalCsp(strict.replace("object-src 'none'", "object-src *"))).toBe(false);
+  expect(matchesPortalCsp(strict.replace("; base-uri 'none'", ""))).toBe(false);
+  expect(matchesPortalCsp(strict.replace("default-src 'self'", "default-src *"))).toBe(false);
+});
+
+test('unacceptable reset GET preserves the one-time confirmation', async ({ page }, info) => {
+  const locale = info.project.metadata.locale;
+  const account = await seedAccount(locale);
+  const target = '/' + locale + '/forgot-password';
+  expect((await page.goto(target)).status()).toBe(200);
+  const notice = page.locator('main [role=status]');
+  await expect(notice).toHaveCount(0);
+  await checkRedirect(await submitForm(page, 'main form', { email: account.email }), 302, target);
+  const refused = await getFromPortal(page.request, target, {
+    headers: { accept: 'application/x-portal-e2e-unknown' }, maxRedirects: 0,
+  });
+  expect(refused.status()).toBe(406);
+  expect(refused.headers()['content-language']).toBe(locale);
+  await checkHeaders(refused, 'reset media refusal');
+  expect((await page.goto(target)).status()).toBe(200);
+  await expect(notice).toHaveText(locale === 'pl'
+    ? 'Jeśli konto z tym adresem istnieje, wysłaliśmy link do zresetowania hasła.'
+    : 'If an account exists for that email, a password reset link has been sent.');
+  expect((await page.reload()).status()).toBe(200);
+  await expect(notice).toHaveCount(0);
+});
+
+test('League applies its same-origin stylesheet under CSP', async ({ page }, info) => {
+  const asset = new URL('/static/css/league.css', info.project.use.baseURL).href;
+  const stylesheet = page.waitForResponse(response => response.url() === asset
+    && response.request().resourceType() === 'stylesheet');
+  const [response, document] = await Promise.all([
+    stylesheet, page.goto('/' + info.project.metadata.locale + '/league'),
+  ]);
+  expect(document.status()).toBe(200);
+  await checkHeaders(document, 'League document');
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-type']).toMatch(/^text\/css\b/);
+  await checkHeaders(response, 'League stylesheet', { cache: 'public, max-age=300, must-revalidate' });
+  await expect(page.locator('main.league-page section').first()).toHaveCSS('display', 'grid');
+  await expect(page.locator('main.league-page')).toHaveCSS('max-width', '1440px');
 });

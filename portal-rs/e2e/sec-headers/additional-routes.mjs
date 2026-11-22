@@ -1,5 +1,5 @@
-// Concrete GET registrations absent from the checked-in inventory. The
-// community family router registers two prefixes for each path template.
+// Response contracts for composed registrations absent from route-expectations.json.
+// The live registration report selects which contracts become scenarios.
 const playerRoutes = [
   ['community', '/characters/{name}/skills', 503, 'cold Skills projection'],
   ['community', '/{lang}/characters/{name}/skills', 503, 'cold Skills projection'],
@@ -12,6 +12,14 @@ const playerRoutes = [
   ['store', '/{lang}/shop/test-checkout/{intent}', 404, 'missing checkout intent'],
   ['web', '/{lang}/account/consents', 200, 'enabled account consent page'],
   ['web', '/{lang}/account/badges', 200, 'localized badge page'],
+  ['identity', '/forgot-password', 200, 'legacy redirect reaches the password reset form'],
+  ['payments', '/api/v1/native-account/coin-purchases/balance', 401, 'native bearer required'],
+  ['payments', '/api/v1/native-account/coin-purchases/catalogue', 401, 'native bearer required'],
+  ['payments', '/api/v1/native-account/coin-purchases/requests/{request_id}', 401, 'native bearer required'],
+  ['payments', '/native-account/coin-checkout/{order_id}', 404, 'missing checkout order'],
+  ['web', '/static', 404, 'static directory has no index'],
+  ['web', '/static/', 404, 'static directory has no index'],
+  ['web', '/static/{*asset}', 200, 'static stylesheet'],
 ];
 
 const staffRoutes = [
@@ -19,6 +27,8 @@ const staffRoutes = [
   ['content', '/admin/announcements/create', 200, 'new announcement form'],
   ['content', '/admin/announcements/{id}/edit', 404, 'missing announcement'],
   ['portal', '/{lang}/admin/store/codes', 200, 'store code issuance form'],
+  ['admin', '/admin/support/tickets', 200, 'staff ticket queue'],
+  ['admin', '/admin/support/tickets/{id}', 404, 'missing ticket'],
 ];
 
 export const additionalRoutes = Object.entries({ player: playerRoutes, staff: staffRoutes })

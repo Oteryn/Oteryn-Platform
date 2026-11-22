@@ -270,7 +270,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_playerdata::logins::web::configured_router(
                 db.clone(),
             ));
-            let app = mfa_http::configured(app, db.clone())?;
+            let route_report = (config.environment == oteryn_core::Environment::Testing)
+                .then(|| std::env::var_os("PORTAL_E2E_ROUTE_REPORT"))
+                .flatten();
+            let mut fallback_routes = route_report.as_ref().map(|_| String::new());
+            let app = mfa_http::configured(app, db.clone(), fallback_routes.as_mut())?;
             let app = app.merge(oteryn_web::search::routes(
                 oteryn_web::search::SearchState {
                     pool: db.clone(),
@@ -396,6 +400,19 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 coin_listener_apps(app, oteryn_wallet::wire::configured_router(db.clone()));
             let public_app = oteryn_minigames::with_browser_deadlines(public_app);
             let public_app = oteryn_web::secure_public(public_app);
+            if let Some(path) = route_report {
+                // Axum's Debug route slots also back the flag-boundary registration audit.
+                // This local file contains registrations only and is never served over HTTP.
+                let mut routers = vec![format!("{public_app:?}")];
+                routers.extend(fallback_routes.filter(|snapshot| !snapshot.is_empty()));
+                std::fs::write(
+                    path,
+                    serde_json::to_vec(&serde_json::json!({
+                        "routers": routers,
+                        "legacy": oteryn_web::redirects::MAPPINGS,
+                    }))?,
+                )?;
+            }
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
             ));

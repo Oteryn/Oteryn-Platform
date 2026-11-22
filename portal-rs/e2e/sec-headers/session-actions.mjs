@@ -5,6 +5,14 @@ export const loginForm = 'main form[action$="/login"]';
 export const challengeForm = 'main form[action$="/mfa/challenge"]';
 export const logoutForm = 'form[action$="/logout"]';
 
+export async function getFromPortal(request, target, options) {
+  try {
+    return await request.get(target, options);
+  } catch {
+    throw new Error('Portal GET failed for ' + new URL(target, 'https://localhost').pathname);
+  }
+}
+
 export async function submitForm(page, selector, fields) {
   try {
     return await postForm(page, selector, fields);

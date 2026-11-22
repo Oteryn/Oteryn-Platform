@@ -8,6 +8,55 @@ const referrerPolicies = ['strict-origin-when-cross-origin', 'strict-origin', 's
 export const sessionCookie = '__Host-oteryn_session';
 export const deviceCookie = '__Host-oteryn_mfa_device';
 
+// Exact directive/source sets from public_http.rs, surface.rs, and the
+// module policies. chrome.rs adds self-only font/img directives to HTML.
+const browser = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+const sameOrigin = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+const stylesOnly = "default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'";
+const icon = "default-src 'none'; sandbox; frame-ancestors 'none'";
+const modulePolicies = [
+  sameOrigin,
+  sameOrigin + "; form-action 'self'",
+  sameOrigin + "; img-src 'self' data:",
+  sameOrigin.replace("base-uri 'none'", "base-uri 'self'") + "; form-action 'self'", // staff media
+  stylesOnly,
+  stylesOnly + "; form-action 'self'",
+  stylesOnly + "; form-action 'self'; img-src 'self'", // worlds
+  stylesOnly + "; form-action 'self'; img-src 'self'; script-src '<nonce>'", // atlas
+];
+
+function parseCsp(value) {
+  return value.split(';').map(part => part.trim()).filter(Boolean).map(part => {
+    const [name, ...sources] = part.split(/\s+/);
+    return [name.toLowerCase(), sources.map(source => /^'nonce-[a-f0-9]{64}'$/.test(source) ? "'<nonce>'" : source).sort()];
+  });
+}
+
+function signature(entries) {
+  return JSON.stringify([...entries].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function shellPolicy(value) {
+  const result = parseCsp(value);
+  for (const name of ['font-src', 'img-src']) {
+    if (!result.some(([directive]) => directive === name)) result.push([name, ["'self'"]]);
+  }
+  return result;
+}
+
+const expectedPolicies = new Set([
+  parseCsp(browser),
+  parseCsp(browser.replace("script-src 'self'", "script-src 'self' '<nonce>'")),
+  parseCsp(icon),
+  ...modulePolicies.flatMap(policy => [parseCsp(policy), shellPolicy(policy)]),
+].map(signature));
+
+export function matchesPortalCsp(value) {
+  const directives = parseCsp(value);
+  return new Set(directives.map(([name]) => name)).size === directives.length
+    && expectedPolicies.has(signature(directives));
+}
+
 export async function checkHeaders(response, label, { cache, check = expect } = {}) {
   const fields = await response.headersArray();
   const values = name => fields.filter(field => field.name.toLowerCase() === name).map(field => field.value);
@@ -19,18 +68,11 @@ export async function checkHeaders(response, label, { cache, check = expect } = 
   check(values('permissions-policy').flatMap(value => value.split(',').map(part => part.trim())).sort(),
     label + ' permissions policy').toEqual(permissions);
 
-  const policies = values('content-security-policy').flatMap(value => value.split(','))
-    .map(policy => policy.split(';').map(directive => directive.trim().split(/\s+/)));
-  check(policies.length, label + ' CSP policy count').toBeGreaterThan(0);
+  const policies = values('content-security-policy');
+  check(policies.length, label + ' one enforced CSP').toBe(1);
   for (const policy of policies) {
-    const scriptSources = policy.filter(([name]) => /^(?:default-src|script-src(?:-elem|-attr)?)$/i.test(name));
-    check(scriptSources.flat().every(source => source.toLowerCase() !== "'unsafe-inline'"),
-      label + ' forbids unsafe-inline scripts').toBe(true);
+    check(matchesPortalCsp(policy), label + ' configured CSP directives and sources').toBe(true);
   }
-  check(policies.some(policy => policy.some(([name, ...sources]) =>
-    name === 'frame-ancestors' && sources.length === 1 && sources[0] === "'none'"))
-    || values('x-frame-options').some(value => value.toUpperCase() === 'DENY'),
-  label + ' denies framing').toBe(true);
 
   if (cache) {
     check(values('cache-control'), label + ' configured asset cache').toEqual([cache]);
