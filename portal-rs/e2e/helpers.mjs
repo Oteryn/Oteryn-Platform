@@ -4,13 +4,15 @@ import crypto from 'node:crypto';
 import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
-export const pool = () => {
+export const fixtureDatabaseURL = () => {
  const connectionString=process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
  if(!connectionString)throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
- const url=new URL(connectionString);
- if(!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!url.pathname.startsWith('/portal_e2e_'))throw new Error('Fixtures require a local portal_e2e_ database');
- return new pg.Pool({connectionString});
+ let url;
+ try { url=new URL(connectionString); } catch { throw new Error('Invalid disposable PostgreSQL URL'); }
+ if(!['postgres:', 'postgresql:'].includes(url.protocol)||url.search||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!url.pathname.startsWith('/portal_e2e_'))throw new Error('Fixtures require a local portal_e2e_ database');
+ return connectionString;
 };
+export const pool = () => new pg.Pool({connectionString: fixtureDatabaseURL()});
 export async function csrfRejected(page, action, fields={}) {
   const clean=Object.fromEntries(Object.entries(fields).filter(([key,value])=>!['_csrf','csrf'].includes(key) && value!==undefined));
   const payload=new URL(action,page.url()).pathname==='/admin/media'?{multipart:{alt_text:'Local test image',image:{name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAHklEQVR4nGNQzrP5T03MMGrgqIGjBo4aOGrgSDUQANpkzt/P0xIDAAAAAElFTkSuQmCC','base64')}}}:{form:clean};

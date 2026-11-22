@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
-import { pool } from './helpers.mjs';
+import { fixtureDatabaseURL, pool } from './helpers.mjs';
 import { characterSourceAuthority } from './game-closure-producer.mjs';
 import { uuid7 } from './game-sim-helpers.mjs';
 
@@ -23,12 +23,10 @@ export function sha256(bytes) {
 }
 
 function binary(args, extraEnv = {}) {
-  // pool() checks that the database belongs to the disposable loopback harness.
-  const db = pool();
-  void db.end();
+  const databaseURL = fixtureDatabaseURL();
   const result = spawnSync(process.env.PORTAL_GAMEAPI_REAL_BINARY, args, {
     cwd: portal,
-    env: { ...process.env, ...extraEnv },
+    env: { ...process.env, ...extraEnv, OTERYN_DATABASE_URL: databaseURL },
     encoding: 'utf8',
     timeout: 30000,
   });
