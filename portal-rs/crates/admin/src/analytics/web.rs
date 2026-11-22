@@ -63,6 +63,8 @@ struct Cell {
     end_utc: String,
     cut_utc: String,
     age: u64,
+    #[serde(skip)]
+    drill_down: String,
 }
 #[derive(Template)]
 #[template(path = "admin/analytics.html", config = "src/web_askama.toml")]
@@ -80,6 +82,7 @@ struct Page {
     to: String,
     policy: String,
     family: String,
+    drill_down: String,
 }
 pub fn configured_router(
     pool: PgPool,
@@ -329,6 +332,7 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
         if records.len() <= 8192 && covered {
             for record in records {
                 let cell = (|| -> Result<Cell, sqlx::Error> {
+                    let start: String = record.try_get("start")?;
                     let end: String = record.try_get("end")?;
                     let expired = wire::uint(&end)
                         .ok()
@@ -349,11 +353,11 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
                         key: record.try_get("key")?,
                         state,
                         values,
-                        start: record.try_get("start")?,
+                        start: start.clone(),
                         end: end.clone(),
                         epoch: record.try_get("epoch")?,
                         revision: record.try_get("revision")?,
-                        start_utc: utc(&record.try_get::<String, _>("start")?),
+                        start_utc: utc(&start),
                         end_utc: utc(&end),
                         cut_utc: utc(&record.try_get::<String, _>("observed")?),
                         age: now.saturating_sub(
@@ -361,6 +365,13 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
                                 .map_err(|_| sqlx::Error::Protocol("invalid watermark".into()))?,
                         ),
                         observed: record.try_get("observed")?,
+                        drill_down: bucket_link(
+                            request.uri().path(),
+                            world,
+                            family_name,
+                            &start,
+                            &end,
+                        ),
                     })
                 })();
                 match cell {
@@ -453,6 +464,7 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
             "Epoka / rewizja"
         },
         cells,
+        drill_down: oteryn_ui::text(if english { "en" } else { "pl" }, "ops-drill-down"),
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
         from: selection.start.map(input_time).unwrap_or_default(),
         to: selection.end.map(input_time).unwrap_or_default(),
@@ -468,6 +480,10 @@ async fn read_bounded<I: StaffSession, A: AccountStateReader>(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+fn bucket_link(path: &str, world: Uuid, family: &str, start: &str, end: &str) -> String {
+    format!("{path}?world={world}&family={family}&start={start}&end={end}")
+}
+
 fn selection(query: Option<&str>, path: &str) -> Result<Selection, ()> {
     let query = query.unwrap_or_default();
     if query.len() > 512 {
@@ -554,4 +570,27 @@ fn utc(s: &str) -> String {
         .map(input_time)
         .map(|s| format!("{s} UTC"))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod drill_down_tests {
+    use super::*;
+
+    #[test]
+    fn drill_down_preserves_world_family_and_bucket() -> Result<(), ()> {
+        let world = Uuid::now_v7();
+        let path = "/admin/analytics/activity";
+        let link = bucket_link(path, world, "world_activity_hourly", "3600", "7200");
+        let (route, query) = link.split_once('?').ok_or(())?;
+        let selection = selection(Some(query), route)?;
+        assert_eq!(route, path);
+        assert_eq!(selection.world, Some(world));
+        assert!(matches!(
+            selection.family,
+            Some(wire::Family::WorldActivityHourly)
+        ));
+        assert_eq!((selection.start, selection.end), (Some(3600), Some(7200)));
+        assert!(super::selection(Some("world=invalid"), route).is_err());
+        Ok(())
+    }
 }
