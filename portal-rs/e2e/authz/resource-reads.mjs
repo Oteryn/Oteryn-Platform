@@ -24,7 +24,7 @@ async function seedHunts(accountId) {
       SELECT $1,id,generation,1,character,started,started+60,started+3600,false,
              jsonb_build_object(
                 'session_id',id,'character_id',character,'started_at',started,'ended_at',started+60,
-                'duration_seconds',60,'places','{"fixture":60}'::jsonb,
+                'duration_seconds',60,'places','{"place:fixture":60}'::jsonb,
                 'experience_gained',100,'experience_lost',0,
                 'loot','{}'::jsonb,'supplies','{}'::jsonb,'damage_dealt','[]'::jsonb,'damage_taken','[]'::jsonb,
                 'healing_done',0,'healing_received',0,'monsters_killed','{}'::jsonb,'party',NULL

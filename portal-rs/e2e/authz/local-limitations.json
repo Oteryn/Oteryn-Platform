@@ -1,6 +1,20 @@
 [
   {
     "listener": "public",
+    "method": "POST",
+    "path": "/oauth/authorize",
+    "source": "crates/web/src/lib.rs:226",
+    "reason": "The public OAuth boundary persists a source budget charge before it checks browser identity. The anonymous actor's refusal changes web_rate_limits as well as appending denial events."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/oauth/token",
+    "source": "crates/web/src/lib.rs:226",
+    "reason": "The same persistent source budget is consumed before exchanging an authorization code. A refused exchange with no grant changes web_rate_limits."
+  },
+  {
+    "listener": "public",
     "method": "GET",
     "path": "/{locale}/account/journal/{character}/deaths",
     "source": "crates/playerdata/src/deaths/http.rs:121",

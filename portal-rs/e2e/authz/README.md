@@ -8,10 +8,9 @@ method. The actor definitions use permission defaults from the Rust RBAC catalog
 ## Database assertions
 
 Refusal assertions preserve all existing rows in `public.audit_log` and
-`public.oauth_security_events` and require the expected list of newly
-appended refusals. The non-audit check fingerprints every
-regular application table in a repeatable-read transaction. It has two narrowly
-scoped bookkeeping exclusions.
+require the expected list of newly appended refusals. The non-audit check
+fingerprints every regular application table in a repeatable-read transaction.
+It has two narrowly scoped bookkeeping exclusions.
 
 - On `public.web_sessions`, exclude `last_seen_at`, `updated_at`, and
   `idle_expires_at` only for the session presented on the tested request.
@@ -81,17 +80,17 @@ projects.
 ## Executable coverage
 
 The inventory records 672 listener/path/method entries. The executable matrix
-covers 614 of these entries for each of the 19 actors, for 11,666 cells per
-project. The fixtures expect 7,556 allowed and 4,110 refused cells. The
+covers 612 of these entries for each of the 19 actors, for 11,628 cells per
+project. The fixtures expect 7,520 allowed and 4,108 refused cells. The
 browser cases cover public reads, staff reads and mutations, player support,
 sessions and recovery keys, and the missing signatures on both payment
 webhooks. The isolated private listener covers Bazaar, account closure, and
 league mTLS. Set `PORTAL_E2E_BROWSER_PRIVATE_ORIGIN` when using another private
-port. The mTLS scope assignment probe also presents a CA-valid certificate
+port. The mTLS scope assignment and revocation probes also present a CA-valid certificate
 assigned to a different route identity and expects HTTP refusal. The native
 admission listener checks its service token independently.
 
-[Local limitations](local-limitations.json) records the other 58 entries.
+[Local limitations](local-limitations.json) records the other 60 entries.
 Each entry identifies its source and the condition preventing a local matrix
 case, including pre-authorization writes that conflict with the strict
 refusal invariant.

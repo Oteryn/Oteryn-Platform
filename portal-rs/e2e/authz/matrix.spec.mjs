@@ -132,6 +132,10 @@ test.describe('browser authorization', () => {
               await expect(internalRequest(ingress, route)).rejects.toMatchObject({
                 code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
               });
+              if (internal && refusal.wrongIdentity) {
+                expect(await internalRequest(ingress, route, harness.clients['bootstrap-intents']),
+                  refusal.wrongIdentity.source).toBe(refusal.wrongIdentity.status);
+              }
             } else {
               await assertServiceTokenRefused(request, harness, route);
             }
