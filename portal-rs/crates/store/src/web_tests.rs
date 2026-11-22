@@ -905,7 +905,7 @@ async fn order_history_handlers_scope_reads_and_reject_malformed_references() ->
     let account = Uuid::now_v7();
     let other = Uuid::now_v7();
     for id in [account, other] {
-        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at) VALUES($1,$2,'test','active',now())")
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test','active',now(),'pl')")
             .bind(id)
             .bind(format!("{id}@example.test"))
             .execute(&db.pool)
