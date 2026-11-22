@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import * as OTPAuth from 'otpauth';
+import {enrollMfa} from '../staff-rbac-helpers.mjs';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
  test.setTimeout(300_000);
@@ -16,12 +16,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  }finally{await db.end();}
  await login(page,lang,staff);
  expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(403);
- await page.goto(`/${lang}/mfa`);
- await submit(page,'main form[action$="/mfa/enroll"]',{password:staff.password});
- const secret=await page.locator('main .op-prose').innerText();
- const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
- await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const codes=await page.locator('textarea[readonly]').allTextContents();
+ const codes=await enrollMfa(page,lang,staff);
  expect(codes.length).toBeGreaterThan(0);
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
