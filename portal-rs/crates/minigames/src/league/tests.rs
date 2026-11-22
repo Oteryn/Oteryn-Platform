@@ -424,6 +424,19 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
     assert_eq!(receipts, 4);
     db.close().await
 }
+fn current_settlement() -> std::result::Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let now = runtime::now()?;
+    let end = now.checked_sub(5).ok_or("settlement requires a valid clock")?;
+    let mut snapshot: schema::EventSnapshot = serde_json::from_slice(&wire("settlement")?)?;
+    snapshot.source_observed_at = end.to_string();
+    let event = snapshot.event.first_mut().ok_or("settlement event missing")?;
+    event.scheduled_start = (end - 100).to_string();
+    event.scheduled_end = end.to_string();
+    event.lock_at = (end - 110).to_string();
+    event.decided_at = vec![end.to_string()];
+    Ok(serde_json::to_vec(&snapshot)?)
+}
+
 #[tokio::test]
 async fn concurrent_league_requests_wait_for_read_slots() -> TestResult {
     use axum::{
@@ -442,7 +455,7 @@ async fn concurrent_league_requests_wait_for_read_slots() -> TestResult {
     enqueue_publication(
         &db,
         &config,
-        &publication(&config, admission::EVENT, wire("settlement")?)?,
+        &publication(&config, admission::EVENT, current_settlement()?)?,
     )
     .await?;
     advance_watermarks(&db, &config, "3").await?;
@@ -508,7 +521,7 @@ async fn league_samples_clock_after_pool_admission_and_still_rejects_skew() -> T
     enqueue_publication(
         &db,
         &config,
-        &publication(&config, admission::EVENT, wire("settlement")?)?,
+        &publication(&config, admission::EVENT, current_settlement()?)?,
     )
     .await?;
     advance_watermarks(&db, &config, "3").await?;
