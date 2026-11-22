@@ -1,5 +1,5 @@
 //! Account section navigation, using existing feature flags.
-use oteryn_ui::{Entry, Group, Registry};
+use oteryn_ui::{Group, Registry};
 /// Register enabled account sections; no route or authentication behavior changes.
 pub fn register(registry: &mut Registry) {
     registry.section(
@@ -26,16 +26,13 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
-    registry.register(
+    registry.section(
         std::env::var("OTERYN_ACCOUNT_PASSKEYS").as_deref() == Ok("true"),
-        Entry {
-            section: "account-passkeys",
-            label: "shell-account-passkeys",
-            path: "account/passkeys",
-            group: Group::Account,
-            footer: false,
-            requires_passkey_eligibility: true,
-        },
+        "account-passkeys",
+        "shell-account-passkeys",
+        "account/passkeys",
+        Group::Account,
+        false,
     );
     registry.section(
         std::env::var("OTERYN_ACCOUNT_RECOVERY_KEYS").as_deref() == Ok("true"),

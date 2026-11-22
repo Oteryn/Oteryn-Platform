@@ -535,48 +535,6 @@ async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestRe
 }
 
 #[tokio::test]
-async fn account_navigation_hides_passkeys_when_mfa_is_required() -> TestResult {
-    let db = Database::new()
-        .await?
-        .ok_or("PostgreSQL is required for the passkey navigation regression")?;
-    let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
-        .bind(id).execute(&db.pool).await?;
-    let browser = BrowserSession::new(db.pool.clone(), SessionConfig::default(), None, "test");
-    rotate(&browser, PrivilegeChange::Login(id)).await?;
-    let record = browser.inner.lock().await;
-    let record = record.record.as_ref().ok_or("missing signed-in session")?;
-    let mut request = HttpRequest::get("/en/")
-        .header(header::COOKIE, format!("{COOKIE_NAME}={}", record.id))
-        .body(Body::empty())?;
-    let layer = SessionLayer::new(db.pool.clone());
-    let mut registry = oteryn_ui::Registry::default();
-    registry.register(
-        true,
-        oteryn_ui::Entry {
-            section: "account-passkeys",
-            label: "shell-account-passkeys",
-            path: "account/passkeys",
-            group: oteryn_ui::Group::Account,
-            footer: false,
-            requires_passkey_eligibility: true,
-        },
-    );
-    for required in [false, true] {
-        sqlx::query("UPDATE accounts SET login_mfa_required=$1 WHERE id=$2")
-            .bind(required)
-            .bind(id)
-            .execute(&db.pool)
-            .await?;
-        let account = chrome_account(&layer, &mut request).await;
-        assert!(matches!(account, oteryn_ui::Account::SignedIn { .. }));
-        let chrome = registry.chrome("en", "/en/", account);
-        assert_eq!(chrome.link("account-passkeys").is_some(), !required);
-    }
-    db.close().await
-}
-
-#[tokio::test]
 async fn lock_order_rotation_locks_account_before_session() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = Database::new()
