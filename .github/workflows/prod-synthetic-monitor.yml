@@ -47,9 +47,15 @@ jobs:
     environment: production-monitor-probe
     permissions:
       contents: read
+    outputs:
+      probe_attempt: ${{ steps.identity.outputs.attempt }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Record probe attempt
+        id: identity
+        run: printf 'attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,6 +89,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Update monitor incident
+        env:
+          MONITOR_PROBE_ATTEMPT: ${{ needs.monitor.outputs.probe_attempt }}
+          MONITOR_PROBE_RESULT: ${{ needs.monitor.result }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
@@ -111,6 +120,11 @@ jobs:
             })).filter(issue => issue.title === stateTitle && !issue.pull_request);
             if (states.length > 1) throw new Error('Multiple production monitor state issues');
             const state = states[0];
+            function hasBotMarker(item, marker) {
+              // github-actions[bot] is the identity used by this workflow's GITHUB_TOKEN.
+              return item.user?.id === 41898282 && item.user.type === 'Bot' &&
+                item.body?.split(/\r?\n/).includes(marker);
+            }
             async function reconcile(record) {
               const incidents = (await github.paginate(github.rest.issues.listForRepo, {
                 ...repo, state: 'all', labels: label, per_page: 100,
@@ -119,7 +133,7 @@ jobs:
               const marker = `<!-- prod-monitor:${record.sequence} -->`;
               if (record.failed) {
                 const body = `Failing step: ${record.pending.step}\n\nRun: ${record.pending.url}\n\n${marker}`;
-                if (incidents.some(issue => issue.body?.includes(marker))) return;
+                if (incidents.some(issue => hasBotMarker(issue, marker))) return;
                 if (!incident) {
                   await ensureLabel(label, 'b60205');
                   await ensureLabel(pending('failing'), 'fbca04');
@@ -128,14 +142,14 @@ jobs:
                 }
                 const issue = { ...repo, issue_number: incident.number };
                 const comments = await github.paginate(github.rest.issues.listComments, issue);
-                if (!comments.some(comment => comment.body?.includes(marker))) {
+                if (!comments.some(comment => hasBotMarker(comment, marker))) {
                   await github.rest.issues.createComment({ ...issue, body });
                 }
               } else if (incident) {
                 const issue = { ...repo, issue_number: incident.number };
                 await ensureLabel(pending('recovered'), 'fbca04');
                 const comments = await github.paginate(github.rest.issues.listComments, issue);
-                if (!comments.some(comment => comment.body?.includes(marker))) {
+                if (!comments.some(comment => hasBotMarker(comment, marker))) {
                   await github.rest.issues.createComment({
                     ...issue, body: `recovered\n\nRun: ${record.pending.url}\n\n${marker}`,
                   });
@@ -170,26 +184,61 @@ jobs:
             if (BigInt(current.run_number) !== currentRun || BigInt(current.run_attempt) < currentAttempt) {
               throw new Error('Current monitor run is not visible in Actions history');
             }
+            async function readJobs(runId, attempt) {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
+                ...repo, run_id: runId, attempt_number: attempt, per_page: 100,
+              });
+              if (jobs.some(job => job.run_id !== runId || job.run_attempt !== attempt)) {
+                throw new Error(`Actions returned jobs outside requested run ${runId} attempt ${attempt}`);
+              }
+              return jobs;
+            }
+
+            const [, producingAttempt] = parseSequence(
+              `${currentRun}.${process.env.MONITOR_PROBE_ATTEMPT || currentAttempt}`);
+            if (producingAttempt > currentAttempt) throw new Error('Probe attempt exceeds current workflow attempt');
+            const exactAttempt = Number(currentAttempt);
+            const currentJobs = await readJobs(context.runId, exactAttempt);
+            const jobLists = new Map([[exactAttempt, currentJobs]]);
+            if (producingAttempt < currentAttempt) {
+              // A failed-jobs rerun may reuse monitor's outputs, including its original attempt.
+              // Only accept that when the incident is visible and monitor did not run in this attempt.
+              if (!currentJobs.some(job => job.name === 'incident') ||
+                  currentJobs.some(job => job.name === 'monitor')) {
+                throw new Error('Current attempt cannot verify reuse of an earlier monitor outcome');
+              }
+              jobLists.set(Number(producingAttempt), await readJobs(context.runId, Number(producingAttempt)));
+            }
+            const outcomes = ['success', 'failure', 'timed_out'];
+            const producingProbe = jobLists.get(Number(producingAttempt)).find(job => job.name === 'monitor');
+            if (producingProbe?.status !== 'completed' || !outcomes.includes(producingProbe.conclusion) ||
+                (producingProbe.conclusion === 'success' ? 'success' : 'failure') !== process.env.MONITOR_PROBE_RESULT) {
+              throw new Error(`Monitor outcome is not visible for run ${currentRun} attempt ${producingAttempt}`);
+            }
+
             function second(value) {
               const time = Date.parse(value);
               if (!Number.isFinite(time)) throw new Error('Invalid monitor history timestamp');
               return Math.floor(time / 1000);
             }
             const timestamp = value => new Date(value * 1000).toISOString().replace('.000Z', 'Z');
-            const anchorNumber = lastRun || 1n;
-            let anchorTime = saved?.createdAt;
+            const firstUnreconciled = lastRun + 1n;
+            let anchorTime = saved?.createdAt || (lastRun === currentRun ? current.created_at : undefined);
             if (!anchorTime) {
-              // Bootstrap or upgrade a checkpoint written before it stored a timestamp.
-              // This request has no search filters and so is not subject to the search cap.
+              // Legacy checkpoints did not store a timestamp. Prefer the checkpoint if
+              // retained, and otherwise start at the first unreconciled run.
+              let nextTime;
               for await (const { data } of github.paginate.iterator(github.rest.actions.listWorkflowRuns, workflow)) {
-                const anchor = data.find(run => BigInt(run.run_number) === anchorNumber);
-                if (anchor) {
-                  anchorTime = anchor.created_at;
+                nextTime ||= data.find(run => BigInt(run.run_number) === firstUnreconciled)?.created_at;
+                const checkpoint = lastRun && data.find(run => BigInt(run.run_number) === lastRun);
+                if (checkpoint || (!lastRun && nextTime) ||
+                    data.some(run => BigInt(run.run_number) < lastRun)) {
+                  anchorTime = checkpoint?.created_at || nextTime;
                   break;
                 }
-                if (data.some(run => BigInt(run.run_number) < anchorNumber)) break;
               }
-              if (!anchorTime) throw new Error(`Monitor history gap at run ${anchorNumber}`);
+              anchorTime ||= nextTime;
+              if (!anchorTime) throw new Error(`Monitor history gap at run ${firstUnreconciled}`);
             }
 
             async function readWindow(from, to) {
@@ -221,15 +270,15 @@ jobs:
             }
             const ordered = runs.filter(run => {
               const number = BigInt(run.run_number);
-              return number >= anchorNumber && number <= currentRun;
+              return number >= firstUnreconciled && number <= currentRun;
             }).sort((a, b) => a.run_number - b.run_number);
-            let expected = anchorNumber;
+            let expected = firstUnreconciled;
             for (const run of ordered) {
               if (BigInt(run.run_number) !== expected) throw new Error(`Monitor history gap at run ${expected}`);
               expected++;
             }
-            if (expected !== currentRun + 1n || !ordered.some(run =>
-              run.id === context.runId && BigInt(run.run_attempt) >= currentAttempt)) {
+            if (expected !== currentRun + 1n || (currentRun > lastRun && !ordered.some(run =>
+              run.id === context.runId && BigInt(run.run_attempt) >= currentAttempt))) {
               throw new Error(`Monitor history gap or incomplete current attempt at run ${currentRun}`);
             }
 
@@ -247,24 +296,25 @@ jobs:
               await complete(next);
             }
 
-            let currentProbeVisible = currentRun === lastRun;
-            for (const run of ordered) {
+            // Only unreconciled run numbers must be continuous. Replay any retained
+            // attempts of the checkpoint run before processing the following runs.
+            const checkpoint = currentRun === lastRun ? current
+              : runs.find(run => BigInt(run.run_number) === lastRun);
+            for (const run of checkpoint ? [checkpoint, ...ordered] : ordered) {
               if (run.head_branch !== branch) continue;
               const number = BigInt(run.run_number);
               if (number < currentRun && run.status !== 'completed') {
                 throw new Error('An earlier monitor run has not completed');
               }
               const startAttempt = number === lastRun ? Number(lastAttempt) + 1 : 1;
-              for (let attempt = startAttempt; attempt <= run.run_attempt; attempt++) {
-                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, {
-                  ...repo, run_id: run.id, attempt_number: attempt, per_page: 100,
-                });
+              const endAttempt = number === currentRun ? exactAttempt : run.run_attempt;
+              for (let attempt = startAttempt; attempt <= endAttempt; attempt++) {
+                const jobs = (run.id === context.runId ? jobLists.get(attempt) : undefined)
+                  ?? await readJobs(run.id, attempt);
                 const probe = jobs.find(job => job.name === 'monitor');
                 if (!probe) continue;
                 if (probe.status !== 'completed') throw new Error('Monitor outcome is not yet durable');
-                if (probe.conclusion !== 'success' && probe.conclusion !== 'failure' &&
-                    probe.conclusion !== 'timed_out') continue;
-                if (run.id === context.runId) currentProbeVisible = true;
+                if (!outcomes.includes(probe.conclusion)) continue;
                 await apply({
                   sequence: `${run.run_number}.${attempt}`,
                   createdAt: run.created_at,
@@ -276,8 +326,6 @@ jobs:
                 });
               }
             }
-            if (!currentProbeVisible) throw new Error('Current probe outcome is not visible in Actions history');
-
 
       - name: Deliver pending monitor email
         if: ${{ !cancelled() }}

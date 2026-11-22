@@ -26,7 +26,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   const runDirectory = process.env.MONITOR_RUN_DIRECTORY;
   const counter = join(runDirectory, 'requests');
   const diagnostics = join(runDirectory, 'diagnostics');
-  const localAuth = process.env.MONITOR_LOCAL_AUTH === '1' && process.env.MONITOR_ANONYMOUS_ONLY !== '1';
+  const localAuth = process.env.MONITOR_LOCAL_AUTH === '1';
   const { MONITOR_EMAIL: email, MONITOR_PASSWORD: password, MONITOR_TOTP_SECRET: secret } = process.env;
   if (localAuth) {
     try {
