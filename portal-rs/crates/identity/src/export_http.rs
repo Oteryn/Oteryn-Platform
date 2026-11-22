@@ -110,9 +110,10 @@ async fn handler(
             .await
             .map_err(IntoResponse::into_response)
     };
-    let result = tokio::time::timeout_at(deadline, result)
-        .await
-        .unwrap_or_else(|_| Err(StatusCode::SERVICE_UNAVAILABLE.into_response()));
+    let result = match tokio::time::timeout_at(deadline, result).await {
+        Ok(result) => result,
+        Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
+    };
     let response = match result {
         Ok(value) => (
             [(
