@@ -169,10 +169,9 @@ impl Tickets {
         body: &str,
         staff: bool,
         internal: bool,
-    ) -> Result<()> {
-        sqlx::query("INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,internal,body) VALUES($1,$2,$3,$4,$5)")
-            .bind(id).bind(actor).bind(if staff {"staff"} else {"user"}).bind(internal).bind(body.trim()).execute(&mut **tx).await?;
-        Ok(())
+    ) -> Result<Uuid> {
+        Ok(sqlx::query_scalar("INSERT INTO ticket_messages(ticket_id,author_account_id,author_kind,internal,body) VALUES($1,$2,$3,$4,$5) RETURNING id")
+            .bind(id).bind(actor).bind(if staff {"staff"} else {"user"}).bind(internal).bind(body.trim()).fetch_one(&mut **tx).await?)
     }
     fn validate_change(
         &self,
@@ -215,10 +214,29 @@ impl Tickets {
         version: i64,
         change: Change<'_>,
     ) -> Result<Ticket> {
-        self.validate_change(actor, staff, version, change)?;
+        self.change_direct(actor, staff, (id, version), change, None)
+            .await
+    }
+
+    async fn change_direct(
+        &self,
+        actor: Uuid,
+        staff: Option<CheckContext>,
+        binding: (Uuid, i64),
+        change: Change<'_>,
+        reason: Option<&str>,
+    ) -> Result<Ticket> {
+        self.validate_change(actor, staff, binding.1, change)?;
         let mut tx = self.pool.begin().await?;
-        let (ticket, _) = self
-            .change_in(&mut tx, actor, staff, (id, version), change, true)
+        let (ticket, _, _) = self
+            .change_in(
+                &mut tx,
+                actor,
+                staff,
+                binding,
+                change,
+                MutationSource::Direct(reason),
+            )
             .await?;
         if let Some(context) = staff {
             self.check_staff_permissions(&mut tx, context).await?;
@@ -254,8 +272,8 @@ impl Tickets {
         staff: Option<CheckContext>,
         binding: (Uuid, i64),
         change: Change<'_>,
-        audit_staff: bool,
-    ) -> Result<(Ticket, String)> {
+        source: MutationSource<'_>,
+    ) -> Result<(Ticket, String, Option<Uuid>)> {
         let (id, version) = binding;
         let is_staff = self.validate_change(actor, staff, version, change)?;
         // Always acquire account locks before ticket locks, including reopen operations.
@@ -330,14 +348,14 @@ impl Tickets {
             return Err(Error::Conflict);
         }
         let before = ticket.status.clone();
-        let (status, notify, reply) = match change {
+        let (status, notify, message_id) = match change {
             Change::Reply { body, internal } => {
                 if (is_staff && !active(&ticket.status))
                     || (!is_staff && !matches!(ticket.status.as_str(), "open" | "waiting_user"))
                 {
                     return Err(Error::Conflict);
                 }
-                Self::message(tx, id, actor, body, is_staff, internal).await?;
+                let message_id = Self::message(tx, id, actor, body, is_staff, internal).await?;
                 (
                     if internal {
                         ticket.status.clone()
@@ -347,7 +365,7 @@ impl Tickets {
                         "waiting_staff".into()
                     },
                     is_staff && !internal,
-                    true,
+                    Some(message_id),
                 )
             }
             Change::Status(status) => {
@@ -357,13 +375,42 @@ impl Tickets {
                 if active(status) && !active(&ticket.status) {
                     self.capacity(tx, ticket.account_id).await?;
                 }
-                (status.to_owned(), is_staff, false)
+                (status.to_owned(), is_staff, None)
             }
         };
+        let reply = message_id.is_some();
         ticket = sqlx::query_as("UPDATE tickets SET status=$2,lock_version=lock_version+1,unread_reply=CASE WHEN $3 THEN true ELSE unread_reply END,last_message_at=CASE WHEN $4 THEN now() ELSE last_message_at END,closed_at=CASE WHEN $2 IN ('resolved','closed') THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 RETURNING *")
             .bind(id).bind(status).bind(notify && reply).bind(reply).fetch_one(&mut **tx).await?;
-        if is_staff && audit_staff {
-            audit::append(tx,audit::Entry {context:audit::AuditContext {actor:Some(actor),request_id:Uuid::now_v7()},action:match change { Change::Reply {internal:true,..}=>"support.ticket_internal_note_added",Change::Reply {..}=>"support.ticket_replied",Change::Status(_)=>"support.ticket_status_changed"},target:&id.to_string(),before:serde_json::json!({"status":before,"lock_version":version}),after:serde_json::json!({"status":ticket.status,"lock_version":ticket.lock_version})}).await.map_err(|_|Error::Denied)?;
+        if let MutationSource::Direct(reason) = source
+            && is_staff
+        {
+            let mut after = ticket.audit_change(message_id);
+            if let Some(reason) = reason {
+                use sha2::{Digest, Sha256};
+                after["reason_sha256"] =
+                    serde_json::json!(format!("{:x}", Sha256::digest(reason.trim().as_bytes())));
+            }
+            audit::append(
+                tx,
+                audit::Entry {
+                    context: audit::AuditContext {
+                        actor: Some(actor),
+                        request_id: Uuid::now_v7(),
+                    },
+                    action: match change {
+                        Change::Reply { internal: true, .. } => {
+                            "support.ticket_internal_note_added"
+                        }
+                        Change::Reply { .. } => "support.ticket_replied",
+                        Change::Status(_) => "support.ticket_status_changed",
+                    },
+                    target: &id.to_string(),
+                    before: serde_json::json!({"status":before,"lock_version":version}),
+                    after,
+                },
+            )
+            .await
+            .map_err(|_| Error::Denied)?;
         }
         if notify {
             let owner_locale =
@@ -384,7 +431,7 @@ impl Tickets {
                 owner_locale,
                 id
             );
-            if audit_staff {
+            if matches!(source, MutationSource::Direct(_)) {
                 self.notifications
                     .enqueue(tx, ticket.account_id, &EmailTemplate::Support { body })
                     .await
@@ -397,7 +444,7 @@ impl Tickets {
                     .map_err(|_| Error::Notification)?;
             }
         }
-        Ok((ticket, before))
+        Ok((ticket, before, message_id))
     }
     pub async fn list(&self, account: Uuid, staff: bool, page: u32) -> Result<Vec<Ticket>> {
         self.enabled()?;
@@ -474,6 +521,22 @@ impl Tickets {
         Ok((ticket, messages, read_reply))
     }
 }
+impl Ticket {
+    fn audit_change(&self, message_id: Option<Uuid>) -> serde_json::Value {
+        let mut after =
+            serde_json::json!({"status": self.status, "lock_version": self.lock_version});
+        if let Some(id) = message_id {
+            after["message_id"] = serde_json::json!(id);
+        }
+        after
+    }
+}
+
+pub(crate) enum MutationSource<'a> {
+    Direct(Option<&'a str>),
+    Queue,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Change<'a> {
     Reply { body: &'a str, internal: bool },

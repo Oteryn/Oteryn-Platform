@@ -4,6 +4,7 @@ use oteryn_admin::{
     rbac::{self, Authorizer, CheckContext, Permission},
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -506,6 +507,22 @@ impl Service {
     }
 }
 
+#[derive(sqlx::FromRow)]
+struct StaffSanction {
+    status: String,
+    lock_version: i64,
+    account_id: Uuid,
+    category: String,
+    effective_at_ms: i64,
+    expires_at_ms: Option<i64>,
+    public_reason: String,
+    moderator_notes: Option<String>,
+}
+
+fn text_digest(text: &str) -> String {
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+}
+
 impl Service {
     /// Platform moderation only. This seam never enables or emits game commands.
     /// Caller commits the admin authorization, returned audit diff and notifications together.
@@ -541,7 +558,8 @@ impl Service {
                 create: true,
                 target,
                 ..
-            } => *target,
+            }
+            | Command::ApplySanction { target, .. } => *target,
             _ => sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
                 .bind(id)
                 .fetch_optional(&mut **tx)
@@ -583,21 +601,71 @@ impl Service {
         if !matches!(state.as_deref(), Some("active" | "suspended")) {
             return Err(StaffError::Denied);
         }
-        let current:Option<(String,i64,Uuid,String,i64,Option<i64>)>=sqlx::query_as("SELECT status,lock_version,account_id,category,(extract(epoch FROM effective_at)*1000)::bigint,(extract(epoch FROM expires_at)*1000)::bigint FROM sanctions WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        let current: Option<StaffSanction> = sqlx::query_as(
+            "SELECT status,lock_version,account_id,category,public_reason,moderator_notes,
+                    (extract(epoch FROM effective_at)*1000)::bigint AS effective_at_ms,
+                    (extract(epoch FROM expires_at)*1000)::bigint AS expires_at_ms
+             FROM sanctions WHERE id=$1 FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
         // Bind staff decisions to both the sanction and the appeal they viewed.
         // Player acknowledgements/resubmissions advance only the workflow counter.
         let workflow: Option<(String,i64)> = sqlx::query_as("SELECT status,version FROM support_appeal_workflows WHERE sanction_id=$1 AND owner_id=$2 FOR UPDATE")
             .bind(id).bind(target).fetch_optional(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
         if let Some(row) = &current {
             let shown = row
-                .1
+                .lock_version
                 .checked_add(workflow.as_ref().map_or(1, |w| w.1) - 1)
                 .ok_or(StaffError::Conflict)?;
             if shown != version {
                 return Err(StaffError::Conflict);
             }
         }
-        let before = current.as_ref().map_or(Value::Null,|r|json!({"status":r.0,"lock_version":version,"sanction_version":r.1,"appeal_version":workflow.as_ref().map(|w|w.1),"appeal_status":workflow.as_ref().map_or("none", |w|w.0.as_str()),"category":r.3,"effective_at_ms":r.4,"expires_at_ms":r.5}));
+        let timed_command;
+        let command = if let Command::ApplySanction {
+            target,
+            category,
+            public_reason,
+            moderator_notes,
+            duration_hours,
+        } = command
+        {
+            let now: i64 =
+                sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?;
+            timed_command = Command::Sanction {
+                create: true,
+                status: "active".into(),
+                target: *target,
+                category: category.clone(),
+                public_reason: public_reason.clone(),
+                moderator_notes: moderator_notes.clone(),
+                effective_at: now,
+                expires_at: now + duration_hours * 3600,
+            };
+            &timed_command
+        } else {
+            command
+        };
+        let before = current.as_ref().map_or(Value::Null, |row| {
+            json!({
+                "status": row.status,
+                "lock_version": version,
+                "sanction_version": row.lock_version,
+                "appeal_version": workflow.as_ref().map(|w| w.1),
+                "appeal_status": workflow.as_ref().map_or("none", |w| w.0.as_str()),
+                "category": row.category,
+                "effective_at_ms": row.effective_at_ms,
+                "expires_at_ms": row.expires_at_ms,
+                "public_reason_sha256": text_digest(&row.public_reason),
+                "moderator_notes_sha256": row.moderator_notes.as_deref().map(text_digest),
+            })
+        });
         let next = match command {
             Command::Sanction {
                 create,
@@ -625,31 +693,41 @@ impl Service {
                     if current.is_some() {
                         return Err(StaffError::Conflict);
                     }
-                    if version != 1 || status != "active" {
+                    if version != 1
+                        || status != "active"
+                        || !oteryn_admin::support::valid_sanction_duration(
+                            expires_at - effective_at,
+                        )
+                    {
                         return Err(StaffError::Invalid);
                     }
                     command.transition("absent")?;
-                    sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) VALUES($1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8)")
+                    let inserted = sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) SELECT $1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8
+                        WHERE to_timestamp($7::bigint::double precision/1000)>clock_timestamp()
+                        ON CONFLICT (id) DO NOTHING")
                         .bind(id).bind(target).bind(category).bind(public_reason.trim()).bind(moderator_notes).bind(decision.effective_at_ms).bind(decision.expires_at_ms).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                    if inserted.rows_affected() != 1 {
+                        return Err(StaffError::Conflict);
+                    }
                     crate::appeals::Appeals { enabled: true }
                         .register(tx, id, target)
                         .await
                         .map_err(|_| StaffError::Unavailable)?;
                 } else {
                     let row = current.as_ref().ok_or(StaffError::NotFound)?;
-                    command.transition(&row.0)?;
+                    command.transition(&row.status)?;
                     // Decisions cannot be retargeted, reclassified, rescheduled or revived.
                     // A replacement decision gets a new identity through create.
-                    if row.2 != target
-                        || row.3 != *category
+                    if row.account_id != target
+                        || row.category != *category
                         || (status == "active"
-                            && row.5.is_some()
-                            && (row.4 / 1000 != *effective_at
-                                || row.5.map(|time| time / 1000) != Some(*expires_at)))
+                            && row.expires_at_ms.is_some()
+                            && (row.effective_at_ms / 1000 != *effective_at
+                                || row.expires_at_ms.map(|time| time / 1000) != Some(*expires_at)))
                     {
                         return Err(StaffError::Invalid);
                     }
-                    if (matches!(row.0.as_str(), "revoked" | "expired") && *status != row.0)
+                    if (matches!(row.status.as_str(), "revoked" | "expired") && *status != row.status)
                         || (status == "expired"
                             && !sqlx::query_scalar::<_, bool>(
                                 "SELECT COALESCE(expires_at<=clock_timestamp(),false) FROM sanctions WHERE id=$1",
@@ -661,9 +739,40 @@ impl Service {
                     {
                         return Err(StaffError::Conflict);
                     }
-                    sqlx::query("UPDATE sanctions SET status=$2,public_reason=$3,moderator_notes=nullif(btrim($4),''),lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(status).bind(public_reason.trim()).bind(moderator_notes).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                    let updated = sqlx::query(
+                        "UPDATE sanctions
+                         SET status=$2,public_reason=$3,moderator_notes=nullif(btrim($4),''),
+                             lock_version=lock_version+1,updated_at=clock_timestamp()
+                         WHERE id=$1 AND ($2 NOT IN ('active','revoked') OR expires_at IS NULL OR expires_at>clock_timestamp())",
+                    )
+                    .bind(id)
+                    .bind(status)
+                    .bind(public_reason.trim())
+                    .bind(moderator_notes)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?;
+                    if updated.rows_affected() != 1 {
+                        return Err(StaffError::Conflict);
+                    }
                 }
                 status.clone()
+            }
+            Command::RevokeSanction { .. } => {
+                let row = current.as_ref().ok_or(StaffError::NotFound)?;
+                command.transition(&row.status)?;
+                let revoked = sqlx::query(
+                    "UPDATE sanctions SET status='revoked',lock_version=lock_version+1,updated_at=clock_timestamp()
+                     WHERE id=$1 AND (expires_at IS NULL OR expires_at>clock_timestamp())",
+                )
+                .bind(id)
+                .execute(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+                if revoked.rows_affected() != 1 {
+                    return Err(StaffError::Conflict);
+                }
+                "revoked".to_owned()
             }
             Command::Appeal {
                 appeal_status,
@@ -698,7 +807,7 @@ impl Service {
                 let next = if status == crate::appeals::Status::Accepted {
                     "revoked"
                 } else {
-                    &row.0
+                    &row.status
                 };
                 sqlx::query("UPDATE sanctions SET status=$2,lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(next).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
                 next.to_owned()
@@ -706,7 +815,9 @@ impl Service {
             _ => return Err(StaffError::Invalid),
         };
         let body = match command {
-            Command::Sanction { public_reason, .. } => public_reason.trim().to_owned(),
+            Command::Sanction { public_reason, .. } | Command::RevokeSanction { public_reason } => {
+                public_reason.trim().to_owned()
+            }
             Command::Appeal {
                 appeal_status,
                 appeal_outcome,
@@ -715,7 +826,11 @@ impl Service {
         };
         crate::tickets::staff::notify(tx, notifications, target, body).await?;
         let (category, effective_at_ms, expires_at_ms) = if let Some(row) = &current {
-            (row.3.as_str(), row.4, row.5)
+            (
+                row.category.as_str(),
+                row.effective_at_ms,
+                row.expires_at_ms,
+            )
         } else if let Command::Sanction {
             category,
             effective_at,
@@ -735,9 +850,25 @@ impl Service {
             Command::Appeal { appeal_status, .. } => Some(appeal_status.as_str()),
             _ => Some(workflow.as_ref().map_or("none", |w| w.0.as_str())),
         };
+        let (public_reason, moderator_notes): (String, Option<String>) =
+            sqlx::query_as("SELECT public_reason,moderator_notes FROM sanctions WHERE id=$1")
+                .bind(id)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
         Ok((
             before,
-            json!({"status":next,"account_id":target,"category":category,"effective_at_ms":effective_at_ms,"expires_at_ms":expires_at_ms,"appeal_status":appeal_status,"lock_version":if current.is_none(){1}else{version+1+i64::from(matches!(command,Command::Appeal{..}))}}),
+            json!({
+                "status": next,
+                "account_id": target,
+                "category": category,
+                "effective_at_ms": effective_at_ms,
+                "expires_at_ms": expires_at_ms,
+                "appeal_status": appeal_status,
+                "lock_version": if current.is_none() { 1 } else { version+1+i64::from(matches!(command, Command::Appeal { .. })) },
+                "public_reason_sha256": text_digest(&public_reason),
+                "moderator_notes_sha256": moderator_notes.as_deref().map(text_digest),
+            }),
         ))
     }
 }
