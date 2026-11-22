@@ -74,6 +74,7 @@ export function redirectDestination(url, actor, locale) {
   if (url.pathname === '/') return `/${locale}/`;
   if (selectedLocale) return `/${selectedLocale}/`;
   if (actor === 'anonymous') {
+    if (url.pathname === '/admin') return '/login?return_to=/admin';
     if ((staffRoute(route) && !staffAnalytics(route)) || route === 'password/change') return '/login';
     if (isPrivate(route) || /^(?:shop|puzzles|collection)(?:\/|$)/.test(route)) return `/${lang}/login`;
   } else {

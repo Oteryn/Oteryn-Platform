@@ -23,6 +23,7 @@ test('Game login history requires an explicit localized authority refusal for si
 test('staff audit is reachable only for a signed-in staff actor', () => {
   const audit = url('/admin/console/audit?lang=en');
   assert.equal(redirectDestination(audit, 'anonymous', 'en'), '/login');
+  assert.equal(redirectDestination(url('/admin'), 'anonymous', 'en'), '/login?return_to=/admin');
   assert.equal(redirectDestination(audit, 'player', 'en'), undefined);
   assert.equal(staffDenied('admin/console/audit', 'player'), true);
   assert.equal(staffDenied('admin/console/audit', 'platform_admin'), false);

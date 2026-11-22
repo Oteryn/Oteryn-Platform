@@ -60,6 +60,9 @@ export function routePolicy(contract, status, matched) {
   }
   if (local === '/static/playerdata/hunts.css') return { csp: stylesForm, referrer: 'no-referrer' };
   if (matches(/^\/account\/hunts(?:\/|$)/, local)) return { csp: shellPolicy(stylesForm), referrer: 'no-referrer' };
+  if (local === '/admin/console/enforcement') {
+    return { csp: shellPolicy(sameOriginForm), referrer: 'no-referrer' };
+  }
   if (matches(/^\/account\/journal\/reports|^\/(?:admin|console)\b|^\/\{lang\}\/admin\b/, local)) {
     const nonDocument = redirect || matches(/^\/admin\/analytics(?:\/[^/]+)?\/data$|^\/admin\/store\/codes$|\/notes\/export$/, local);
     return { csp: nonDocument ? sameOriginForm : shellPolicy(sameOriginForm) };

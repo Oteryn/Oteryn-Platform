@@ -34,6 +34,7 @@ const staffRoutes = [
 ];
 
 const gmRoutes = [
+  ['admin', '/admin/console/enforcement', 200, 'Game viewer can open the read-only enforcement search'],
   ['admin', '/console', 303, 'the Game viewer lands on their first authorized console section'],
 ];
 
