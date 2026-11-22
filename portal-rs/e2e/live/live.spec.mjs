@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { requestGate } from './request-gate.mjs';
 import { isGameUnavailable } from './game-unavailable.mjs';
 import { credentialURL, diagnosticURL, publicURL, redactURLs } from './crawl-url.mjs';
 
@@ -17,35 +17,6 @@ try {
   axeSource = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
 } catch (error) {
   if (error.code !== 'MODULE_NOT_FOUND') throw error;
-}
-
-function requestGate(origins, language, userAgent) {
-  let tail = Promise.resolve();
-  const cache = new Map();
-  return (url, method = 'GET') => {
-    if (!['GET', 'HEAD'].includes(method) || !publicURL(url, origins)) {
-      throw new Error(`read-only gate rejected ${method} ${diagnosticURL(url)}`);
-    }
-    const key = `${method} ${diagnosticURL(url)}`;
-    if (cache.has(key)) return cache.get(key);
-    const response = tail.then(async () => {
-      const [count, lastStart] = JSON.parse(readFileSync(budgetPath, 'utf8'));
-      if (count >= 2000) throw new Error('shared 2000-request budget exhausted');
-      await delay(Math.max(0, lastStart + 350 - Date.now()));
-      writeFileSync(budgetPath, JSON.stringify([count + 1, Date.now()]));
-      const result = await fetch(url, {
-        method,
-        redirect: 'manual',
-        signal: AbortSignal.timeout(15_000),
-        headers: { 'user-agent': userAgent, 'accept-language': language },
-      });
-      const { headers, status } = result;
-      return { headers, status, body: Buffer.from(await result.arrayBuffer()) };
-    });
-    tail = response.catch(() => {});
-    cache.set(key, response);
-    return response;
-  };
 }
 
 function canonical(value, base) {
@@ -277,7 +248,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
     api.hostname = 'api.oteryn.com';
   }
   const origins = new Set([home.origin, www.origin, api.origin]);
-  const request = requestGate(origins, language, userAgent);
+  const request = requestGate(origins, language, userAgent, budgetPath);
   const findings = new Map();
   const notes = new Set();
   const defect = (category, url, evidence) => {
