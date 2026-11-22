@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { pool } from '../helpers.mjs';
 import { readFileSync, readdirSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -90,20 +91,40 @@ test('announcements draft, severity, expired window, approval and public action'
  await submitForm(mainForm(page), { body_pl: 'Zmienione ogłoszenie.', translation_published_at: stamp(-18) });
  await visit(anonymous.page, ticker('pl'));
  await expect(anonymous.page.locator('body')).toContainText('Zmienione ogłoszenie.');
- for (const locale of locales) {
-  const response = await anonymous.page.request.get('/news', { headers: { 'Accept-Language': locale } });
-  expect(response.status()).toBe(200);
-  expect(response.headers()['content-language']).toBe(locale);
-  const html = await response.text();
-  expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${locale}"`));
-  expect(html).toContain(t(locale, values.action_label_pl, values.action_label));
- }
  await submitForm(mainForm(page), { publication_state: 'draft' });
  for (const locale of locales) {
   await visit(anonymous.page, ticker(locale));
   await expect(anonymous.page.locator('body')).not.toContainText(slug);
  }
 
+});
+
+test('unprefixed news renders the announcement in the resolved page locale', async ({request}, {project}) => {
+ const locale = project.metadata.locale;
+ const id = randomUUID();
+ const db = pool();
+ const english = `English action ${id}`;
+ const polish = `Polska akcja ${id}`;
+ try {
+  await db.query(`
+   INSERT INTO announcements (
+    id, publication_state, severity, starts_at, title, body, action_label, action_url,
+    title_pl, body_pl, action_label_pl, translation_published_at, translation_source_updated_at,
+    created_by, updated_by
+   ) VALUES ($1, 'published', 'warning', now(), 'English title', 'English body', $2, '/en/rules',
+    'Polski tytuł', 'Polska treść', $3, now(), now(), $1, $1)
+  `, [id, english, polish]);
+  const response = await request.get('/news', { headers: { 'Accept-Language': locale } });
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-language']).toBe(locale);
+  const html = await response.text();
+  expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${locale}"`));
+  expect(html).toContain(t(locale, polish, english));
+  expect(html).not.toContain(t(locale, english, polish));
+ } finally {
+  await db.query('DELETE FROM announcements WHERE id=$1', [id]);
+  await db.end();
+ }
 });
 
 test('downloads CLI restricts publication and anonymous origin serves signed bytes', async ({content}) => {
