@@ -2,15 +2,43 @@ import { expect } from '@playwright/test';
 import pg from 'pg';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
-export const pool = () => {
+function databaseURL() {
  const connectionString=process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
  if(!connectionString)throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
  const url=new URL(connectionString);
  if(!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||!url.pathname.startsWith('/portal_e2e_'))throw new Error('Fixtures require a local portal_e2e_ database');
- return new pg.Pool({connectionString});
-};
+ return connectionString;
+}
+export const pool = () => new pg.Pool({connectionString: databaseURL()});
+
+export function seedEntity(entity, args) {
+  const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
+  const binary = process.env.PORTAL_E2E_BINARY || path.join(target, 'debug', 'oteryn-portal');
+  const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
+    env: { ...process.env, OTERYN_DATABASE_URL: databaseURL() },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  // The account-MFA result contains disposable credentials. Keep output private
+  // even on failure by asserting only the exit code and parsing in memory.
+  expect(result.status, `seed CLI command ${entity}`).toBe(0);
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new Error(`seed CLI command ${entity} returned invalid JSON`);
+  }
+}
+
+export function seedAccount(locale) {
+  const account = { email: `browser-seed-${crypto.randomUUID()}@example.invalid`, password: password() };
+  const { accountId } = seedEntity('account', { ...account, locale });
+  return { ...account, accountId };
+}
 export async function csrfRejected(page, action, fields={}) {
   const clean=Object.fromEntries(Object.entries(fields).filter(([key,value])=>!['_csrf','csrf'].includes(key) && value!==undefined));
   const payload=new URL(action,page.url()).pathname==='/admin/media'?{multipart:{alt_text:'Local test image',image:{name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAHklEQVR4nGNQzrP5T03MMGrgqIGjBo4aOGrgSDUQANpkzt/P0xIDAAAAAElFTkSuQmCC','base64')}}}:{form:clean};

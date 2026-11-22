@@ -1,9 +1,9 @@
 import { test, expect } from '../fixtures.mjs';
-import { login, register } from '../helpers.mjs';
+import { login, seedAccount } from '../helpers.mjs';
 
 test('league, collection and puzzles serve a concurrent signed-in crawl', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
-  const account = await register(page, lang);
+  const account = seedAccount(lang);
   await login(page, lang, account);
 
   const league = `/${lang}/league`;
