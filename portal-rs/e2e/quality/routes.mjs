@@ -58,3 +58,11 @@ export function matches(pattern, pathname) {
   }).join('');
   return new RegExp(`^${regex}$`).test(pathname);
 }
+
+export function documentLanguage(pathname, pattern, locale) {
+  const prefix = pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1];
+  if (prefix) return prefix;
+  const segment = pattern.split('/').indexOf('{lang}');
+  const explicit = pathname.split('/')[segment];
+  return (explicit === 'pl' || explicit === 'en') && matches(pattern, pathname) ? explicit : locale;
+}
