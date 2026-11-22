@@ -66,18 +66,6 @@ struct Cell {
     #[serde(skip)]
     drill_down: String,
 }
-impl Cell {
-    fn label(&self) -> &'static str {
-        match self.state.as_str() {
-            "visible" => "ops-analytics-visible",
-            "suppressed" => "ops-analytics-suppressed",
-            "incomplete" => "ops-analytics-incomplete",
-            "expired" => "ops-analytics-expired",
-            _ => "ops-unavailable",
-        }
-    }
-}
-
 #[derive(Template)]
 #[template(path = "admin/analytics.html", config = "src/web_askama.toml")]
 struct Page {

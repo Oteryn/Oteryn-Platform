@@ -49,13 +49,25 @@
         <th scope="col">{{ self.text("ops-analytics-cut") }}</th>
         <th scope="col">{{ self.text("ops-analytics-values") }}</th>
       </tr></thead>
+      {% let drill_down = self.text("ops-drill-down") %}
+      {% let visible = self.text("ops-analytics-visible") %}
+      {% let suppressed = self.text("ops-analytics-suppressed") %}
+      {% let incomplete = self.text("ops-analytics-incomplete") %}
+      {% let expired = self.text("ops-analytics-expired") %}
+      {% let unavailable_state = self.text("ops-unavailable") %}
       <tbody>{% for cell in cells %}
         <tr data-state="{{ cell.state }}">
-          <td><a href="{{ cell.drill_down }}" title="{{ self.text("ops-drill-down") }}">{{ cell.start_utc }}–{{ cell.end_utc }}</a></td>
+          <td><a href="{{ cell.drill_down }}" title="{{ drill_down }}">{{ cell.start_utc }}–{{ cell.end_utc }}</a></td>
           <td>{{ cell.key }}</td>
           <td>{{ cell.epoch }} / {{ cell.revision }}</td>
           <td>{{ cell.cut_utc }} / {{ cell.age }} s</td>
-          <td>{{ self.text(cell.label()) }}{% for value in cell.values %} {{ value }}{% endfor %}</td>
+          <td>{% match cell.state.as_str() %}
+            {% when "visible" %}{{ visible }}
+            {% when "suppressed" %}{{ suppressed }}
+            {% when "incomplete" %}{{ incomplete }}
+            {% when "expired" %}{{ expired }}
+            {% else %}{{ unavailable_state }}
+          {% endmatch %}{% for value in cell.values %} {{ value }}{% endfor %}</td>
         </tr>
       {% endfor %}</tbody>
     </table>
