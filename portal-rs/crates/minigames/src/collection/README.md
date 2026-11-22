@@ -11,8 +11,8 @@ main's newer journal-sessions contract. The lockfile was regenerated with cargo.
 
 The existing contracts contain no collection HTTP wire, and Laravel has no
 collection implementation. The plan §4, §5.10 and §6.1 govern this mechanic.
-G-11 revision 2 governs private bestiary access; its proposal is not activation
-authority. No producer transport or Game schema changes are implemented here.
+G-11 revision 4 defines the accepted bestiary wire. The catalogue definition
+mapping is a candidate. The collection consumes Platform-held evidence.
 
 ## Source and activation boundary
 
@@ -31,15 +31,10 @@ matched to the world release commit and served from private database storage.
 Publication is immutable and idempotent. A missing mapping is unavailable.
 
 `OTERYN_COLLECTION_ENABLED` and `OTERYN_WORLD_ENABLED` accept only exact `true`;
-both default off. Disabled collection mounts no routes. Enabling collection alone
-does not enable private source access. The configured production router uses a
-denying authority and disabled progress reads because T77 still depends on T72's
-production ownership, transfer, restore, erasure and baseline authority. T72 must
-supply a fresh `Ownership` adapter and accepted, configured ProgressStore through
-`router`; it must also supply the private character selector/link. The landing
-page truthfully reports unavailable in the meantime. No header or browser form
-can provide ownership evidence. This is an explicit integration seam, not a claim
-that G-11 is accepted or that the Game producer is ready.
+both default off. Disabled collection mounts no routes. The separate journal
+read flag controls the character selector and private source availability view.
+Card unlocks still require a verified catalogue mapping and a configured progress
+store.
 
 Every private card/deck/battle action requires an active verified account.
 Card unlocks are derived anew from complete fresh owner-only T77 progress with
@@ -55,8 +50,8 @@ battle history without changing its immutable combat snapshot.
 Browser routes use the shared session and CSRF middleware, a 4096-byte body limit,
 private no-store responses, CSP and Polish/English Fluent text. Paths:
 
-- `GET /{lang}/collection`: source availability landing page.
-- `GET /{lang}/collection/{character}`: cards, decks and resume/forfeit.
+- `GET /{lang}/collection`: private character selector and source availability landing page.
+- `GET /{lang}/collection/{character}`: private inventory and bestiary availability when journal reads are enabled.
 - `POST /{lang}/collection/{character}/decks`: create/update a private deck.
 - `POST /{lang}/collection/decks/{id}/delete`: delete the owner's deck.
 - `POST /{lang}/collection/decks/{id}/battle`: start a mirrored PvE encounter.
@@ -93,3 +88,13 @@ connection is acquired for these mutation checks. Publication uses the same
 world fence. Browser operations have a three-second deadline, 250 ms transaction
 pool admission, 500 ms local lock waits and two-second statement limits; dropping
 a cancelled operation rolls back its transaction.
+
+### Private journal evidence
+
+`OTERYN_COLLECTION_JOURNAL_READ_ENABLED=true` enables the owner-only evidence
+view when `OTERYN_COLLECTION_ENABLED=true`. It uses the configured T72 G-10 and
+G-11 source authorities and displays the time of the completed inventory
+snapshot at the current custody cut and the account-wide bestiary watermark.
+Both sources display unavailable while the catalogue mapping remains a
+candidate. Missing evidence has an unknown update time. The read flag defaults
+to off and the view performs only local PostgreSQL reads.
