@@ -110,6 +110,16 @@ test('party creation validates form input and refuses an unproven Game character
   expect(refused.status()).toBe(403);
   expect(refused.headers()['cache-control']).toContain('no-store');
 
+  const [navigation] = await Promise.all([
+    page.waitForResponse(response => response.request().isNavigationRequest()
+      && response.request().method() === 'POST' && new URL(response.url()).pathname === target),
+    form.getByRole('button').click(),
+  ]);
+  expect(navigation.status()).toBe(403);
+  await expect(page).toHaveURL(url => url.pathname === target);
+  await expect(page.locator('html')).toHaveAttribute('lang', lang);
+  await expect(page.getByRole('heading', {level: 1})).toHaveText(lang === 'pl' ? 'Brak dostępu' : 'Access denied');
+
   const db = pool();
   try {
     expect((await db.query('SELECT id FROM pd_party_posts WHERE account_id=$1', [player.id])).rows).toEqual([]);
