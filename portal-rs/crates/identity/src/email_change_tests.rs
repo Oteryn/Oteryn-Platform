@@ -570,6 +570,68 @@ impl oteryn_notify::EmailSender for RejectOld {
     }
 }
 #[tokio::test]
+async fn invalid_email_change_mail_is_quarantined_once() -> TestResult {
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    sqlx::query(
+        "WITH account AS (
+            INSERT INTO accounts(email,password_hash,status,locale)
+            VALUES ('old@example.invalid','!fixture','active','en') RETURNING id
+         ), change AS (
+            INSERT INTO account_email_changes(account_id,kind,old_email,new_email,
+                confirmation_hash,revert_hash,immediate,apply_after,expires_at,revert_until)
+            SELECT id,'primary','old@example.invalid','new@example.invalid',
+                sha256('confirm'::bytea),sha256('revert'::bytea),false,
+                now()+interval '1 day',now()+interval '2 days',now()+interval '30 days'
+            FROM account RETURNING id
+         )
+         INSERT INTO account_email_change_mail(change_id,recipient,subject,body)
+         SELECT id,recipient,'Fixture',body FROM change CROSS JOIN (VALUES
+            ('old@example.invalid','missing link'),
+            ('new@example.invalid',E'message\n\nhttps://wrong.invalid/email-change/revert/invalid')
+         ) AS mail(recipient,body)",
+    )
+    .execute(&db.pool)
+    .await?;
+    let service = Service {
+        pool: db.pool.clone(),
+        enabled: true,
+        origin: "https://portal.example.invalid".into(),
+        security: Arc::new(TransactionalSecurity(crate::mfa::Mfa::new(
+            db.pool.clone(),
+            [9; 32],
+        ))),
+    };
+    let worker = super::mail::Worker {
+        service,
+        sender: Arc::new(
+            oteryn_notify::SmtpSender::new(
+                "localhost",
+                "local".into(),
+                "unused".into(),
+                "portal@example.invalid".into(),
+            )
+            .map_err(|_| "local SMTP configuration invalid")?,
+        ),
+    };
+    worker.tick().await?;
+    let state = || {
+        sqlx::query_as::<_, (Uuid, bool, bool, OffsetDateTime)>(
+            "SELECT id, body='' AND delivered_at IS NULL, next_attempt_at='infinity', updated_at
+             FROM account_email_change_mail ORDER BY id",
+        )
+        .fetch_all(&db.pool)
+    };
+    let first = state().await?;
+    assert_eq!(first.len(), 2);
+    assert!(first.iter().all(|row| row.1 && row.2));
+    worker.tick().await?;
+    assert_eq!(state().await?, first);
+    db.close().await
+}
+
+#[tokio::test]
 async fn bzb_failed_email_does_not_starve_later_delivery() -> TestResult {
     let started = std::time::Instant::now();
     let Some((db, service, account)) = setup().await? else {

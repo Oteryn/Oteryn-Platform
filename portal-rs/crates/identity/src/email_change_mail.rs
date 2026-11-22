@@ -120,12 +120,27 @@ impl Worker {
         if Instant::now() >= last_send {
             return Ok(false);
         }
-        let (message, url) = text
+        let origin = format!("{}/email-change/", self.service.origin);
+        let Some((message, url)) = text
             .rsplit_once("\n\n")
-            .ok_or_else(|| "invalid email payload".to_owned())?;
-        if !url.starts_with(&format!("{}/email-change/", self.service.origin)) {
-            return Err("invalid email link".into());
-        }
+            .filter(|(_, url)| url.starts_with(&origin))
+        else {
+            // An invalid stored payload cannot heal on retry. Keep the row
+            // distinguishable from a successful send and remove its token.
+            sqlx::query(
+                "UPDATE account_email_change_mail
+                 SET body='', next_attempt_at='infinity', updated_at=clock_timestamp()
+                 WHERE id=$1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| "email delivery unavailable".to_owned())?;
+            tx.commit()
+                .await
+                .map_err(|_| "email delivery unavailable".to_owned())?;
+            return Ok(true);
+        };
         let escape = |value: &str| {
             value
                 .replace('&', "&amp;")
