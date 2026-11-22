@@ -4,18 +4,38 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
-use fluent_bundle::{FluentBundle, FluentResource};
+use fluent_bundle::{FluentResource, concurrent::FluentBundle};
+use std::sync::OnceLock;
+
+fn catalogue(lang: &str) -> Option<&'static FluentBundle<FluentResource>> {
+    static EN: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
+    static PL: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
+    let (cache, locale, source) = if lang == "en" {
+        (
+            &EN,
+            unic_langid::langid!("en"),
+            include_str!("../i18n/en.ftl"),
+        )
+    } else {
+        (
+            &PL,
+            unic_langid::langid!("pl"),
+            include_str!("../i18n/pl.ftl"),
+        )
+    };
+    cache
+        .get_or_init(|| {
+            let resource = FluentResource::try_new(source.to_owned()).ok()?;
+            let mut bundle = FluentBundle::new_concurrent(vec![locale]);
+            bundle.add_resource(resource).ok()?;
+            Some(bundle)
+        })
+        .as_ref()
+}
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {
-    let (locale, source) = if lang == "en" {
-        (unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
-    } else {
-        (unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
-    };
-    let mut bundle = FluentBundle::new(vec![locale]);
-    if let Ok(resource) = FluentResource::try_new(source.to_owned())
-        && bundle.add_resource(resource).is_ok()
+    if let Some(bundle) = catalogue(lang)
         && let Some(pattern) = bundle.get_message(key).and_then(|m| m.value())
     {
         return bundle
@@ -380,6 +400,26 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shell_reuses_the_correct_catalogue_for_each_language()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let en = catalogue("en").ok_or("English catalogue missing")?;
+        let pl = catalogue("pl").ok_or("Polish catalogue missing")?;
+        assert!(!std::ptr::eq(en, pl));
+        assert!(std::ptr::eq(
+            en,
+            catalogue("en").ok_or("English catalogue missing")?
+        ));
+        assert!(std::ptr::eq(
+            pl,
+            catalogue("pl").ok_or("Polish catalogue missing")?
+        ));
+        assert_eq!(text("en", "stage-my-account"), "My account");
+        assert_eq!(text("pl", "stage-my-account"), "Moje konto");
+        assert_eq!(text("en", "missing-test-key"), "");
+        Ok(())
+    }
+
     fn registry() -> Registry {
         let mut registry = Registry {
             login: true,
