@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.label("title") }}</title>
+</head>
+<body>
+<main>
+<h1>{{ self.label("title") }}</h1>
+{% match evidence %}
+{% when Some with (sources) %}
+<a href="/{{ lang }}/collection">{{ self.label("characters") }}</a>
+<section aria-labelledby="inventory">
+<h2 id="inventory">{{ self.label("inventory") }}</h2>
+<p>{{ self.label("source-unavailable") }}</p>
+<p>{{ self.label("inventory-update") }} {{ self.updated(sources.inventory_updated_ms) }}</p>
+</section>
+<section aria-labelledby="bestiary">
+<h2 id="bestiary">{{ self.label("bestiary") }}</h2>
+<p>{{ self.label("source-unavailable") }}</p>
+<p>{{ self.label("bestiary-update") }} {{ self.updated(sources.bestiary_feed_updated_ms) }}</p>
+</section>
+{% when None %}
+{% if characters.is_empty() %}
+<p>{{ self.label("unavailable") }}</p>
+{% else %}
+<h2>{{ self.label("characters") }}</h2>
+<ul>
+{% for (id, name) in characters %}
+<li><a href="/{{ lang }}/collection/{{ id }}">{{ name }}</a></li>
+{% endfor %}
+</ul>
+{% endif %}
+{% endmatch %}
+</main>
+</body>
+</html>
