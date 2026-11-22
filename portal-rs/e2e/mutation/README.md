@@ -169,6 +169,9 @@ OTERYN_CHARACTER_SERVICES_EXCHANGE_ENABLED=true
 OTERYN_CHARACTER_SERVICES_PROJECTION_AUTHORITY=oteryn-game-e2e
 OTERYN_CHARACTER_SERVICES_COMMAND_AUTHORITY=oteryn-game-e2e
 OTERYN_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS=2
+PORTAL_CHARACTER_SERVICES_EXCHANGE_ENABLED=true
+PORTAL_CHARACTER_SERVICES_PROJECTION_ENABLED=true
+PORTAL_CHARACTER_SERVICES_PROJECTION_AUTHORITY=oteryn-game-e2e
 PORTAL_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS=2
 PORTAL_CHARACTER_SERVICES_FRESHNESS_SECONDS=30
 ```
@@ -179,3 +182,22 @@ and submits the real schedule and cancellation forms. Replaying each
 submission preserves its single command. The service history renders both
 accepted Game receipts and removes the cancellation form after the active
 state is published again.
+
+Paid rename uses the same projection and command exchange. Add these settings
+to the isolated publisher copy and provide an ephemeral local
+`OTERYN_SHOP_TEST_PAYMENT_KEY` in the harness environment.
+
+```dotenv
+OTERYN_CHARACTER_SERVICES_RENAME_ENABLED=true
+OTERYN_CHARACTER_RENAME_PRICE=1
+OTERYN_SHOP_ENABLED=true
+OTERYN_SHOP_TOP_UPS_ENABLED=true
+OTERYN_SHOP_TEST_PAYMENTS_ENABLED=true
+OTERYN_PAYMENTS_ENABLED=true
+OTERYN_SHOP_TOP_UP_PACKAGES=[{"key":"e2e-coins","coins":1234,"minor_units":250,"currency":"PLN"}]
+```
+
+The browser buys coins through the test provider. An accepted Game receipt
+settles one reserved coin, and the published portfolio and service history show
+the new name. Missing and invalid CSRF, foreign players and staff, invalid
+names and prices, and replay preserve the checked wallet and order state.

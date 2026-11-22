@@ -4,7 +4,7 @@ import { login, password, submit } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 import { GamePublishers } from '../game-publishers.mjs';
-import { prepare, sendForm, rejected, invalid, useFormMethod } from './matrix-helpers.mjs';
+import { prepare, sendForm, rejected } from './matrix-helpers.mjs';
 
 test('Game publication drives character deletion scheduling and cancellation exactly once', async ({ page, browser }, info) => {
   test.setTimeout(300_000);
