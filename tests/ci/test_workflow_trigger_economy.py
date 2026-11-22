@@ -278,7 +278,7 @@ scope = portal_heavy.split("\n  scope:\n", 1)[1].split("\n  rust_heavy:\n", 1)[0
 assert "!github.event.pull_request.draft" in scope
 assert "contains(github.event.pull_request.labels.*.name, 'heavy-tests')" in scope
 assert "(github.event.action != 'labeled' || github.event.label.name == 'heavy-tests')" in scope
-assert "needs: [scope, rust_heavy, build, full, verify]" in portal_heavy
+assert "needs: [scope, rust_heavy, build, e2e]" in portal_heavy
 for job in ("rust_heavy", "build"):
     assert f"\n  {job}:\n" in portal_heavy
     assert "needs: scope" in portal_heavy.split(f"\n  {job}:\n", 1)[1].split("\n\n", 1)[0]

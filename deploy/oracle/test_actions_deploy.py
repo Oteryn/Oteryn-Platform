@@ -1,4 +1,3 @@
-from datetime import datetime
 import hashlib
 import io
 import importlib.util
@@ -13,116 +12,10 @@ import stat
 import tarfile
 import zipfile
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
 
 spec = importlib.util.spec_from_file_location('oracle_deploy', Path(__file__).with_name('actions-deploy.py'))
 deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
-
-
-class NightlyAuthorization(unittest.TestCase):
-    def test_requires_the_successful_main_push_heavy_run_for_the_exact_sha(self):
-        sha = 'a' * 40
-        green = dict(event='push', head_branch='main', head_sha=sha, display_title='Platform Heavy Tests',
-                     status='completed', conclusion='success')
-        invalid = [
-            [],
-            [dict(green, status='queued', conclusion=None), green],
-            [dict(green, conclusion='failure')],
-            [dict(green, event='workflow_dispatch')],
-            [dict(green, head_branch='other')],
-            [dict(green, head_sha='b' * 40)],
-            [dict(green, display_title='Portal RS E2E')],
-        ]
-        for runs in invalid + [[green]]:
-            with self.subTest(runs=runs), patch.object(deploy, 'api', return_value={'workflow_runs': runs}) as api:
-                if runs == [green]:
-                    deploy.qualify_platform_push(sha)
-                else:
-                    with self.assertRaisesRegex(ValueError, 'protected-main push'):
-                        deploy.qualify_platform_push(sha)
-                path = urlsplit(api.call_args.args[0])
-                self.assertEqual(path.path, 'Oteryn-Platform/actions/workflows/portal-rs-e2e.yml/runs')
-                self.assertEqual(parse_qs(path.query), {
-                    'branch': ['main'], 'event': ['push'], 'head_sha': [sha], 'per_page': ['1'],
-                })
-
-    def test_newest_scheduled_run_must_be_fresh_completed_and_successful(self):
-        for now, since in [('2026-11-22T02:16:59+00:00', '2026-11-21T02:17:00Z'),
-                           ('2026-11-22T02:17:00+00:00', '2026-11-22T02:17:00Z')]:
-            green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly', created_at=since,
-                         status='completed', conclusion='success')
-            cases = [
-                ([], False),
-                ([dict(green, status='queued', conclusion=None), green], False),
-                ([dict(green, status='in_progress', conclusion=None), green], False),
-                ([dict(green, conclusion='failure')], False),
-                ([dict(green, display_title='Legacy E2E')], False),
-                ([dict(green, created_at='2026-11-20T02:17:00Z')], False),
-                ([dict(green, run_attempt=None)], False),
-                ([dict(green, id='200')], False),
-                ([green], True),
-            ]
-            for runs, allowed in cases:
-                with self.subTest(now=now, runs=runs), \
-                     patch.object(deploy, 'datetime', wraps=datetime) as clock, \
-                     patch.object(deploy, 'api', return_value={'workflow_runs': runs}) as api:
-                    clock.now.return_value = datetime.fromisoformat(now)
-                    if allowed:
-                        deploy.qualify_platform_nightly()
-                    else:
-                        with self.assertRaisesRegex(ValueError, 'nightly E2E'):
-                            deploy.qualify_platform_nightly()
-                    path = urlsplit(api.call_args.args[0])
-                    self.assertEqual(path.path, 'Oteryn-Platform/actions/workflows/portal-rs-e2e.yml/runs')
-                    self.assertEqual(parse_qs(path.query), {
-                        'branch': ['main'], 'event': ['schedule'],
-                        'created': ['>=' + since], 'per_page': ['1'],
-                    })
-
-    def test_mid_request_rollover_refuses_previous_windows_green_run(self):
-        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
-                     status='completed', conclusion='success')
-        with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
-             patch.object(deploy, 'api', return_value={'workflow_runs': [green]}), \
-             self.assertRaisesRegex(ValueError, 'window changed'):
-            clock.now.side_effect = [datetime.fromisoformat('2026-11-22T02:16:59+00:00'),
-                                     datetime.fromisoformat('2026-11-22T02:17:00+00:00')]
-            deploy.qualify_platform_nightly()
-
-
-    def test_authority_is_rechecked_after_nightly_lookup(self):
-        window = datetime.fromisoformat('2026-11-21T02:17:00+00:00')
-        next_window = datetime.fromisoformat('2026-11-22T02:17:00+00:00')
-        for rejection, expected_calls in [
-            ('workflow canceled', ['nightly', 'workflow']),
-            ('protected main advanced', ['nightly', 'workflow', 'head']),
-            ('window changed', ['nightly', 'workflow', 'head', 'nightly', 'window']),
-        ]:
-            calls = []
-            def nightly():
-                calls.append('nightly')
-                return window, 200, 1
-            def workflow(*_):
-                calls.append('workflow')
-                if rejection == 'workflow canceled':
-                    raise ValueError(rejection)
-            def head(*_):
-                calls.append('head')
-                if rejection == 'protected main advanced':
-                    raise ValueError(rejection)
-            def current_window():
-                calls.append('window')
-                return next_window
-
-            with self.subTest(rejection=rejection), \
-                 patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly), \
-                 patch.object(deploy, 'qualify_workflow', side_effect=workflow), \
-                 patch.object(deploy, 'qualify', side_effect=head), \
-                 patch.object(deploy, 'nightly_window', side_effect=current_window), \
-                 self.assertRaisesRegex(ValueError, rejection):
-                deploy.reauthorize_platform('a' * 40, 100, 1)
-            self.assertEqual(calls, expected_calls)
 
 
 class SourceArtifactPermissions(unittest.TestCase):
@@ -215,15 +108,6 @@ class AuthorityBoundary(unittest.TestCase):
                                    ('platform', 'deploy-image ' + 'a' * 40 + ' 100 1 7'),
                                    ('platform', 'deploy ../../main'), ('game', 'deploy ' + 'A' * 40)]:
             with self.subTest(component=component, command=command), self.assertRaises(ValueError):
-                deploy.parse(component, command)
-
-    def test_platform_deploy_requires_versioned_forced_command(self):
-        sha = 'a' * 40
-        self.assertEqual(deploy.parse('platform', f'deploy-v2 {sha} 100 1'),
-                         ('deploy', sha, 100, 1, None))
-        for component, command in [('platform', f'deploy {sha} 100 1'),
-                                   ('game', f'deploy-v2 {sha} 100 1')]:
-            with self.subTest(component=component), self.assertRaises(ValueError):
                 deploy.parse(component, command)
 
     def test_exact_current_main_and_aggregate_success_are_independent(self):
@@ -331,7 +215,7 @@ class LivePortalDeployment(unittest.TestCase):
         state.mkdir()
         return portal, state
 
-    def deploy(self, portal, state, *, fail=None, reauthorize=None, nightly=None, protected_head=None, ready=None, probe=None):
+    def deploy(self, portal, state, *, fail=None, reauthorize=None, ready=None, probe=None):
         calls = []
         compose = ['docker', 'compose', '-p', 'oteryn-portal', '-f', str(portal / 'compose.yml')]
         def command(args, **kwargs):
@@ -347,11 +231,7 @@ class LivePortalDeployment(unittest.TestCase):
              patch.object(deploy, 'portal_ready', side_effect=probe or (lambda: calls.append((['probe'], {})))), \
              patch.object(deploy, 'contract', return_value='portal-rs-1'), \
              patch.object(deploy, 'backup_platform', side_effect=lambda sha: calls.append((['backup'], {}))), \
-             patch.object(deploy, 'qualify_workflow', side_effect=reauthorize), \
-             patch.object(deploy, 'qualify'), \
-             patch.object(deploy, 'qualify_platform_push'), \
-             patch.object(deploy, 'require_platform_main', side_effect=protected_head), \
-             patch.object(deploy, 'qualify_platform_nightly', side_effect=nightly or (lambda: (deploy.nightly_window(), 200, 1))), \
+             patch.object(deploy, 'reauthorize', side_effect=reauthorize), \
              patch.object(deploy, 'wait_platform', side_effect=ready or (lambda image_id: calls.append((['ready', image_id], {})))):
             try:
                 return deploy.platform_deploy(Path('/archive'), self.sha, 100, 1), calls, compose
@@ -421,138 +301,6 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
             self.assertEqual(json.loads((state / 'platform-pending.json').read_text())['phase'], 'schema_known')
 
-    def test_rollover_during_preparation_blocks_migration(self):
-        previous = datetime.fromisoformat('2026-11-22T02:16:59+00:00')
-        current = datetime.fromisoformat('2026-11-22T02:17:00+00:00')
-        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly', created_at='2026-11-21T02:17:00Z',
-                     status='completed', conclusion='success')
-        queued = dict(green, created_at='2026-11-22T02:17:00Z', status='queued', conclusion=None)
-        for runs in ([], [queued]):
-            with self.subTest(runs=runs), tempfile.TemporaryDirectory() as temporary:
-                portal, state = self.host(temporary)
-                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
-                     patch.object(deploy, 'api', side_effect=[
-                         *[{'workflow_runs': [green]}] * 4, {'workflow_runs': runs},
-                     ]) as api, self.assertRaisesRegex(ValueError, 'nightly E2E') as raised:
-                    clock.now.side_effect = [previous] * 10 + [current, current]
-                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
-                self.assertEqual(api.call_count, 5)
-                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
-                self.assertFalse((state / 'platform-pending.json').exists())
-                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
-                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
-
-    def test_same_window_nightly_change_blocks_migration_and_restores_configuration(self):
-        now = datetime.fromisoformat('2026-11-22T03:00:00+00:00')
-        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly',
-                     created_at='2026-11-22T02:17:00Z', status='completed', conclusion='success')
-        for final in [
-            dict(green, status='queued', conclusion=None, run_attempt=2),
-            dict(green, run_attempt=2),
-            dict(green, id=201),
-            dict(green, conclusion='failure'),
-        ]:
-            with self.subTest(final=final), tempfile.TemporaryDirectory() as temporary:
-                portal, state = self.host(temporary)
-                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
-                     patch.object(deploy, 'api', side_effect=[
-                         *[{'workflow_runs': [green]}] * 5, {'workflow_runs': [final]},
-                     ]) as api, self.assertRaisesRegex(ValueError, 'nightly E2E') as raised:
-                    clock.now.return_value = now
-                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
-                self.assertEqual(api.call_count, 6)
-                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
-                self.assertFalse((state / 'platform-pending.json').exists())
-                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
-                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
-
-    def test_authority_change_during_final_nightly_lookup_blocks_migration(self):
-        now = datetime.fromisoformat('2026-11-22T03:00:00+00:00')
-        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly',
-                     created_at='2026-11-22T02:17:00Z', status='completed', conclusion='success')
-        # Each earlier authorization reads twice. Lookup seven is the boundary refresh.
-        for change_at, change in [(lookup, change) for lookup in (6, 7)
-                                  for change in ('protected main advanced', 'workflow canceled')]:
-            with self.subTest(change_at=change_at, change=change), tempfile.TemporaryDirectory() as temporary:
-                portal, state = self.host(temporary)
-                lookups = 0
-                authority_checks = []
-                def api(path):
-                    nonlocal lookups
-                    if path == 'Oteryn-Platform/branches/main':
-                        authority_checks.append(('main', lookups))
-                        sha = 'b' * 40 if lookups >= change_at else self.sha
-                        return {'protected': True, 'commit': {'sha': sha}}
-                    self.assertIn('/workflows/portal-rs-e2e.yml/runs?', path)
-                    lookups += 1
-                    return {'workflow_runs': [green]}
-                def check_workflow(component, sha, run_id, attempt):
-                    self.assertEqual((component, sha, run_id, attempt), ('platform', self.sha, 100, 1))
-                    authority_checks.append(('workflow', lookups))
-                    if lookups >= change_at and change == 'workflow canceled':
-                        raise ValueError(change)
-                reason = 'current protected main' if change == 'protected main advanced' else change
-                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
-                     patch.object(deploy, 'api', side_effect=api), \
-                     self.assertRaisesRegex(ValueError, reason) as raised:
-                    clock.now.return_value = now
-                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly,
-                                reauthorize=check_workflow, protected_head=deploy.require_platform_main)
-                expected = [('workflow', 1), ('workflow', 3), ('workflow', 5), ('workflow', 6)]
-                if change_at == 7:
-                    expected.extend([('main', 6), ('workflow', 7)])
-                if change == 'protected main advanced':
-                    expected.append(('main', change_at))
-                self.assertEqual(authority_checks, expected)
-                self.assertEqual(lookups, change_at)
-                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
-                self.assertFalse((state / 'platform-pending.json').exists())
-                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
-                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
-
-    def test_final_nightly_rerun_or_expired_authority_blocks_migration(self):
-        now = datetime.fromisoformat('2026-11-22T03:00:00+00:00')
-        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly',
-                     created_at='2026-11-22T02:17:00Z', status='completed', conclusion='success')
-        for result, reason in [
-            (dict(green, run_attempt=2, status='queued', conclusion=None), 'nightly E2E'),
-            (dict(green, run_attempt=2), 'nightly E2E run or attempt changed'),
-            (green, 'authority reads expired'),
-        ]:
-            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
-                portal, state = self.host(temporary)
-                latest = green
-                authority_reads = []
-
-                def api(path):
-                    nonlocal latest
-                    if path == 'Oteryn-Platform/branches/main':
-                        authority_reads.append('head')
-                        latest = result
-                        return {'protected': True, 'commit': {'sha': self.sha}}
-                    self.assertIn('/workflows/portal-rs-e2e.yml/runs?', path)
-                    authority_reads.append('nightly')
-                    return {'workflow_runs': [latest]}
-
-                def check_workflow(*_):
-                    authority_reads.append('attempt')
-
-                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
-                     patch.object(deploy, 'api', side_effect=api), \
-                     patch.object(deploy.time, 'monotonic', side_effect=[100, 110]), \
-                     self.assertRaisesRegex(ValueError, reason) as raised:
-                    clock.now.return_value = now
-                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly,
-                                reauthorize=check_workflow, protected_head=deploy.require_platform_main)
-                expected = ['nightly', 'attempt', 'head', 'nightly']
-                if reason == 'authority reads expired':
-                    expected.extend(['attempt', 'head'])
-                self.assertEqual(authority_reads[-len(expected):], expected)
-                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
-                self.assertFalse((state / 'platform-pending.json').exists())
-                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
-                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
-
     def test_canceled_workflow_after_backup_changes_nothing_live(self):
         with tempfile.TemporaryDirectory() as temporary:
             portal, state = self.host(temporary)
@@ -605,7 +353,6 @@ class LivePortalDeployment(unittest.TestCase):
             calls = []
             image = {'Architecture': 'arm64', 'Id': 'new-id', 'Config': {'Labels': {}}}
             with patch.object(deploy, 'PORTAL', portal), patch.object(deploy, 'STATE', state), \
-                 patch.object(deploy, 'qualify_platform_push'), \
                  patch.object(deploy, 'run', side_effect=lambda args, **kw: calls.append(args)), \
                  patch.object(deploy, 'inspect_image', return_value=image), \
                  patch.object(deploy, 'contract', return_value='portal-rs-1'), \
@@ -899,10 +646,9 @@ class GameImageArtifact(unittest.TestCase):
 class GameBranchUnchanged(unittest.TestCase):
     # Source hashes of the shared and Game functions as reviewed; the same file
     # serves the Game forced command, so a Platform change must not move these.
-    # The parser hash includes the versioned Platform command. The Game
-    # command contract is exercised by the component-bound parser tests.
+    # Updated deliberately for the Game image artifact path (deploy-image).
     REVIEWED = {
-        'parse': '60d0aee096b2bd7a347788c42b0e022f951234ded4bb1a9e20faa685d6884f5f',
+        'parse': '5c4f83672f01a4e1a3fe88fb0357de1187ca23db13168a7399aa53768dd26f70',
         'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
         'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
         'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',

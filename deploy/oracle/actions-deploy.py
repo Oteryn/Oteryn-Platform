@@ -8,7 +8,6 @@ the arm64 image artifact of the same qualified Game run on stdin. Host
 secrets/configuration, World content, custody and the incarnation controller
 remain separately installed.
 """
-from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
 import json
@@ -21,7 +20,6 @@ import tarfile
 import tempfile
 import time
 import traceback
-from urllib.parse import urlencode
 import urllib.request
 import zipfile
 
@@ -30,8 +28,6 @@ STATE = ROOT / 'state/actions'
 BUILD = Path('/opt/oteryn-build')
 REPOS = {'platform': 'Oteryn-Platform', 'game': 'Oteryn-Game'}
 SHA = r'[0-9a-f]{40}'
-PLATFORM_MIGRATION_AUTH_MAX_AGE_SECONDS = 10
-PLATFORM_HEAVY_RUNS = 'Oteryn-Platform/actions/workflows/portal-rs-e2e.yml/runs?'
 # The Game runtime image (Debian slim plus three release binaries) is a few
 # hundred MiB as `docker save` output. 1 GiB of zip stream and 3 GiB unpacked
 # leave several times that headroom while bounding what one transfer may write
@@ -52,9 +48,9 @@ def parse(component, command):
         if not match:
             raise ValueError('only status or deploy-image <full protected-main SHA> <run> <attempt> <artifact> is allowed')
         return 'deploy', match[1], int(match[2]), int(match[3]), int(match[4])
-    match = re.fullmatch(r'deploy-v2 (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
+    match = re.fullmatch(r'deploy (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
     if not match:
-        raise ValueError('only status or deploy-v2 <full protected-main SHA> <run> <attempt> is allowed')
+        raise ValueError('only status or deploy <full protected-main SHA> is allowed')
     return 'deploy', match[1], int(match[2]), int(match[3]), None
 
 
@@ -146,79 +142,6 @@ def durable_replace(source, path):
 def reauthorize(component, sha, run_id, attempt):
     qualify(component, sha)
     qualify_workflow(component, sha, run_id, attempt)
-
-
-def nightly_window():
-    now = datetime.now(timezone.utc)
-    cutoff = now.replace(hour=2, minute=17, second=0, microsecond=0)
-    return cutoff if now >= cutoff else cutoff - timedelta(days=1)
-
-
-def qualify_platform_nightly():
-    window = nightly_window()
-    since = window.strftime('%Y-%m-%dT%H:%M:%SZ')
-    query = urlencode({'branch': 'main', 'event': 'schedule', 'created': '>=' + since, 'per_page': 1})
-    runs = api(PLATFORM_HEAVY_RUNS + query)['workflow_runs']
-    if nightly_window() != window:
-        raise ValueError('nightly E2E window changed during deployment authorization')
-    if not runs or runs[0]['display_title'] != 'Portal RS E2E Nightly' or runs[0]['created_at'] < since:
-        raise ValueError(f'no scheduled nightly E2E on main for the window starting {since}')
-    latest = runs[0]
-    if latest['status'] != 'completed' or latest['conclusion'] != 'success':
-        raise ValueError(f'nightly E2E on main for the window starting {since} must complete successfully')
-    identity = (latest.get('id'), latest.get('run_attempt'))
-    if any(type(value) is not int or value < 1 for value in identity):
-        raise ValueError('nightly E2E run or attempt is invalid')
-    return window, *identity
-
-
-def qualify_platform_push(sha):
-    query = urlencode({'branch': 'main', 'event': 'push', 'head_sha': sha, 'per_page': 1})
-    runs = api(PLATFORM_HEAVY_RUNS + query)['workflow_runs']
-    expected = {'event': 'push', 'head_branch': 'main', 'head_sha': sha,
-                'display_title': 'Platform Heavy Tests', 'status': 'completed', 'conclusion': 'success'}
-    if not runs or any(runs[0].get(key) != value for key, value in expected.items()):
-        raise ValueError('protected-main push has not passed its Platform heavy gate')
-
-
-def reauthorize_platform(sha, run_id, attempt):
-    approved = qualify_platform_nightly()
-    qualify_workflow('platform', sha, run_id, attempt)
-    qualify('platform', sha)
-    final = qualify_platform_nightly()
-    if final[0] != approved[0] or nightly_window() != approved[0]:
-        raise ValueError('nightly E2E window changed during deployment authorization')
-    if final != approved:
-        raise ValueError('nightly E2E run or attempt changed during deployment authorization')
-    return final
-
-
-def require_platform_main(sha):
-    branch = api(REPOS['platform'] + '/branches/main')
-    if branch.get('protected') is not True or branch['commit']['sha'] != sha:
-        raise ValueError('source must equal current protected main')
-
-
-def authorize_platform_migration(sha, run_id, attempt):
-    qualify_platform_push(sha)
-    approved = reauthorize_platform(sha, run_id, attempt)
-    started = time.monotonic()
-    qualify_workflow('platform', sha, run_id, attempt)
-    require_platform_main(sha)
-    # A rerun can start during either authority read, so refresh the nightly.
-    final = qualify_platform_nightly()
-    if final[0] != approved[0]:
-        raise ValueError('nightly E2E window changed before migration')
-    if final != approved:
-        raise ValueError('nightly E2E run or attempt changed before migration')
-    # The nightly request can itself outlive the protected head or the active
-    # deploy attempt. These reads share the same deadline as the nightly read.
-    qualify_workflow('platform', sha, run_id, attempt)
-    require_platform_main(sha)
-    if nightly_window() != approved[0]:
-        raise ValueError('nightly E2E window changed before migration')
-    if time.monotonic() - started >= PLATFORM_MIGRATION_AUTH_MAX_AGE_SECONDS:
-        raise ValueError('deployment authority reads expired before migration')
 
 
 def journal(component, sha, phase, **facts):
@@ -423,7 +346,6 @@ def wait_platform(image_id):
 
 
 def platform_deploy(directory, sha, run_id, attempt):
-    qualify_platform_push(sha)
     image = portal_image(sha)
     schema = contract(directory)
     run(['docker', 'build', '--label', REVISION + '=' + sha,
@@ -437,9 +359,9 @@ def platform_deploy(directory, sha, run_id, attempt):
     # effect, so a host that cannot be probed never rolls back a good release.
     portal_containers()
     portal_ready()
-    reauthorize_platform(sha, run_id, attempt)
+    reauthorize('platform', sha, run_id, attempt)
     backup_platform(sha)
-    reauthorize_platform(sha, run_id, attempt)
+    reauthorize('platform', sha, run_id, attempt)
     journal('platform', sha, 'prepared', schema=schema,
             previous_image=inspect(PORTAL_CONTAINERS['portal'])['Image'], platform_image=info['Id'])
     for path, before, _ in texts:
@@ -448,17 +370,8 @@ def platform_deploy(directory, sha, run_id, attempt):
     try:
         for path, _, after in texts:
             rewrite(path, after)
+        reauthorize('platform', sha, run_id, attempt)
         journal('platform', sha, 'schema_unknown')
-        # main() holds the deployment lock through this check and Compose start.
-        authorize_platform_migration(sha, run_id, attempt)
-    except BaseException:
-        # Migration has not been invoked. Clear the journal only after the
-        # previous configuration has been restored successfully.
-        for path, before, _ in texts:
-            rewrite(path, before)
-        (STATE / 'platform-pending.json').unlink()
-        raise
-    try:
         run(current + ['run', '--rm', '-T', 'portal', 'migrate'])
         journal('platform', sha, 'schema_known')
         run(current + ['up', '-d', *PORTAL_APPS])
