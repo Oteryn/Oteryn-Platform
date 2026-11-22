@@ -1,10 +1,33 @@
 import {expect} from '@playwright/test';
 import * as OTPAuth from 'otpauth';
+import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {pool,csrfRejected,submit,register,login} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
-export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
+export async function staffState(browser, info) {
+ const file=path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`);
+ if(fs.existsSync(file)) {
+  const state=JSON.parse(fs.readFileSync(file,'utf8'));
+  const cookie=state.cookies.find(({name})=>name==='__Host-oteryn_session');
+  if(cookie) {
+   const hash=crypto.createHash('sha256').update(cookie.value).digest();
+   const [{active}]=await query(`
+    SELECT EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$1
+      AND idle_expires_at > clock_timestamp() AND absolute_expires_at > clock_timestamp()) AS active
+   `,[hash]);
+   if(active)return state;
+  }
+ }
+ const {context,page}=await isolatedAdmin(browser,info);
+ try {
+  expect((await page.goto('/admin')).status(),'fresh staff session opens the admin panel').toBe(200);
+  const state=await context.storageState();
+  fs.writeFileSync(file,JSON.stringify(state),{mode:0o600});
+  return state;
+ }finally{await context.close();}
+}
+export async function staff(browser,info){const context=await browser.newContext({storageState:await staffState(browser,info),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
 export async function query(sql,args=[]){const db=pool();try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
 export async function player(page,lang){const account=await register(page,lang);await login(page,lang,account);return {...account,id:(await query('SELECT id FROM accounts WHERE email=$1',[account.email]))[0].id};}
 // roles.html has select controls and named submit buttons; submit() cannot fill selects.
