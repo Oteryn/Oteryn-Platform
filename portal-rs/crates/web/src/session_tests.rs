@@ -655,13 +655,15 @@ async fn appeal_quota_pool_wait_uses_session_deadline() -> TestResult {
     for _ in 0..4 {
         held.push(db.pool.acquire().await?);
     }
-    let database: String =
-        sqlx::query_scalar("SELECT (extract(epoch FROM clock_timestamp())+0.2)::text")
+    let database: OffsetDateTime =
+        sqlx::query_scalar("SELECT clock_timestamp() + interval '200 milliseconds'")
             .fetch_one(&mut *held[0])
             .await?;
     let deadline = SessionMutationDeadline {
         database,
-        local: tokio::time::Instant::now() + std::time::Duration::from_millis(200),
+        request: BrowserMutationDeadline(
+            tokio::time::Instant::now() + std::time::Duration::from_millis(200),
+        ),
     };
     let mut keys = Keys::source([127, 0, 0, 1].into());
     keys.account = Some(Uuid::now_v7().to_string());

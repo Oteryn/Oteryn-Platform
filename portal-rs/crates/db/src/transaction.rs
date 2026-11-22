@@ -68,28 +68,36 @@ where
     }
 }
 
-/// Keep the database mutation deadline (and any earlier authorization expiry)
-/// armed through deferred work during COMMIT. Requires an initialized budget.
+/// Arm the timer and queue an absolute deadline check as the transaction's last write.
+/// The timer bounds deferred waits. The guard checks the database clock after deferred
+/// work, even if scheduling delayed timer arming or delivery.
 pub async fn arm_commit(
     connection: &mut PgConnection,
     authorization_expiry: Option<sqlx::types::time::OffsetDateTime>,
 ) -> Result<bool, sqlx::Error> {
+    sqlx::query("SET CONSTRAINTS mutation_commit_deadline DEFERRED")
+        .execute(&mut *connection)
+        .await?;
     // PostgreSQL does not re-arm an already active transaction timeout.
     sqlx::query("SET LOCAL transaction_timeout = 0")
         .execute(&mut *connection)
         .await?;
-    let armed: Option<String> = sqlx::query_scalar(
-        "WITH remaining AS MATERIALIZED (
-            SELECT floor((least(
-                extract(epoch FROM $1::timestamptz),
-                current_setting('oteryn.mutation_deadline')::numeric
-            ) - extract(epoch FROM clock_timestamp())) * 1000)::bigint AS ms
+    let armed = sqlx::query(
+        "WITH deadline AS MATERIALIZED (
+            SELECT least($1::timestamptz,
+                to_timestamp(current_setting('oteryn.mutation_deadline')::double precision)) AS expires_at
+         ), remaining AS MATERIALIZED (
+            SELECT expires_at, floor(extract(epoch FROM (expires_at - clock_timestamp()))
+                * 1000)::bigint AS ms FROM deadline
+         ), armed AS MATERIALIZED (
+            SELECT expires_at, set_config('transaction_timeout', ms::text || 'ms', true)
+            FROM remaining WHERE ms > 0
          )
-         SELECT set_config('transaction_timeout', ms::text || 'ms', true)
-         FROM remaining WHERE ms > 0",
+         INSERT INTO mutation_commit_deadlines (expires_at)
+         SELECT expires_at FROM armed",
     )
     .bind(authorization_expiry)
-    .fetch_optional(connection)
+    .execute(connection)
     .await?;
-    Ok(armed.is_some())
+    Ok(armed.rows_affected() == 1)
 }

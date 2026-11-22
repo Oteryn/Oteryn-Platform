@@ -2,8 +2,8 @@ use super::{Entry, Error, browser_session_expiry, player_entries, submit_player}
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, Request, State, rejection::FormRejection},
-    http::{StatusCode, header},
+    extract::{MatchedPath, Path, Query, Request, State, rejection::FormRejection},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
@@ -11,11 +11,32 @@ use axum::{
 use oteryn_web::{
     Language,
     ratelimit::{ClientSource, Keys, RateLimiter},
-    session::{BrowserSession, SessionLayer, SessionMutationDeadline},
+    session::{BrowserMutationDeadline, BrowserSession, SessionLayer, SessionMutationDeadline},
 };
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
+
+const APPEAL_DETAIL: &str = "/{lang}/support/appeals/{id}";
+
+/// Apply outside shared chrome so appeal POSTs use one budget from their first lookup.
+pub fn with_browser_deadline(app: Router) -> Router {
+    app.layer(middleware::from_fn(
+        |mut request: Request, next: Next| async move {
+            if request.method() == Method::POST
+                && request
+                    .extensions()
+                    .get::<MatchedPath>()
+                    .is_some_and(|path| path.as_str() == APPEAL_DETAIL)
+            {
+                request
+                    .extensions_mut()
+                    .insert(BrowserMutationDeadline::start());
+            }
+            next.run(request).await
+        },
+    ))
+}
 
 pub(crate) fn router(pool: PgPool, origin: &str, submissions: bool) -> Router {
     let mut session = SessionLayer::new(pool.clone()).with_bounded_refresh();
@@ -27,7 +48,7 @@ pub(crate) fn router(pool: PgPool, origin: &str, submissions: bool) -> Router {
     };
     Router::new()
         .route("/{lang}/support/appeals", get(index))
-        .route("/{lang}/support/appeals/{id}", detail)
+        .route(APPEAL_DETAIL, detail)
         .layer(Extension(Submissions(submissions)))
         .route_layer(middleware::from_fn_with_state(
             session,
@@ -83,11 +104,14 @@ impl Page<'_> {
 async fn localize_refusal(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_owned();
     let mut response = next.run(request).await;
-    if response.status() == StatusCode::FORBIDDEN
-        && !response.headers().contains_key(header::CONTENT_TYPE)
+    let status = response.status();
+    if matches!(
+        status,
+        StatusCode::FORBIDDEN | StatusCode::SERVICE_UNAVAILABLE
+    ) && !response.headers().contains_key(header::CONTENT_TYPE)
         && let Some(lang @ ("en" | "pl")) = path.split('/').nth(1)
     {
-        let localized = refusal(lang, &path, StatusCode::FORBIDDEN, None);
+        let localized = refusal(lang, &path, status, None);
         let (parts, body) = localized.into_parts();
         response.headers_mut().remove(header::CONTENT_LENGTH);
         response.headers_mut().extend(parts.headers);

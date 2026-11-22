@@ -387,6 +387,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 },
                 oteryn_web::chrome::middleware,
             ));
+            let app = oteryn_support::appeals::web::with_browser_deadline(app);
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);

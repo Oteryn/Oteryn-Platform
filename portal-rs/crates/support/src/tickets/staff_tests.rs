@@ -1077,20 +1077,93 @@ async fn browser_appeals(
     assert!(blocked.headers().contains_key("retry-after"));
     quota_lock.rollback().await?;
 
-    let mut session_lock = pool.begin().await?;
+    for (lang, title) in [
+        ("en", "Temporarily unavailable"),
+        ("pl", "Usługa chwilowo niedostępna"),
+    ] {
+        let mut session_lock = pool.begin().await?;
+        sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
+            .bind(oteryn_identity::mfa::digest(&bearer))
+            .execute(&mut *session_lock)
+            .await?;
+        let refresh_timeout = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            player_app
+                .clone()
+                .oneshot(request(&owner_cookie, lang, fresh, &valid, 5)?),
+        )
+        .await??;
+        assert_eq!(refresh_timeout.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(refresh_timeout.headers()["cache-control"], "no-store");
+        assert!(
+            refresh_timeout.headers()["content-type"]
+                .to_str()?
+                .starts_with("text/html")
+        );
+        let body = String::from_utf8(
+            to_bytes(refresh_timeout.into_body(), 100000)
+                .await?
+                .to_vec(),
+        )?;
+        assert!(body.contains(title));
+        assert!(body.contains(&format!("lang=\"{lang}\"")));
+        session_lock.rollback().await?;
+    }
+
+    let chrome_app = crate::appeals::web::with_browser_deadline(player_app.clone().layer(
+        axum::middleware::from_fn_with_state(
+            oteryn_web::chrome::Shell {
+                registry: oteryn_ui::Registry::default(),
+                sessions: oteryn_web::session::SessionLayer::new(pool.clone()),
+            },
+            oteryn_web::chrome::middleware,
+        ),
+    ));
+    // Both shared chrome and standalone refresh must refuse while the pool is still exhausted.
+    let mut held = Vec::new();
+    for _ in 0..pool.options().get_max_connections() {
+        held.push(pool.acquire().await?);
+    }
+    for app in [player_app.clone(), chrome_app.clone()] {
+        let pool_timeout = tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            app.oneshot(request(&owner_cookie, "en", fresh, &valid, 5)?),
+        )
+        .await??;
+        assert_eq!(pool_timeout.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+    drop(held);
+
+    // Spend part of the same budget in shared chrome, then hold the row lock
+    // through the remaining time available to session refresh.
+    let mut shared_lock = pool.begin().await?;
     sqlx::query("SELECT id_hash FROM web_sessions WHERE id_hash=$1 FOR UPDATE")
         .bind(oteryn_identity::mfa::digest(&bearer))
-        .execute(&mut *session_lock)
+        .execute(&mut *shared_lock)
         .await?;
-    let refresh_timeout = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        player_app
-            .clone()
-            .oneshot(request(&owner_cookie, "en", fresh, &valid, 5)?),
-    )
-    .await??;
-    assert_eq!(refresh_timeout.status(), StatusCode::SERVICE_UNAVAILABLE);
-    session_lock.rollback().await?;
+    let mut shared_leases = Vec::new();
+    for _ in 1..pool.options().get_max_connections() {
+        shared_leases.push(pool.acquire().await?);
+    }
+    let started_at = tokio::time::Instant::now();
+    let response =
+        tokio::spawn(chrome_app.oneshot(request(&owner_cookie, "en", fresh, &valid, 5)?));
+    while started_at.elapsed() < std::time::Duration::from_millis(1800) {
+        assert!(
+            !response.is_finished(),
+            "chrome must wait for the exhausted pool"
+        );
+        tokio::task::yield_now().await;
+    }
+    drop(shared_leases.pop());
+    let response =
+        tokio::time::timeout_at(started_at + std::time::Duration::from_secs(4), response)
+            .await???;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+    assert!(body.contains("Temporarily unavailable"));
+    shared_lock.rollback().await?;
+    drop(shared_leases);
 
     // The submission must roll back if the session expires after the write,
     // while the audit append is blocked.
