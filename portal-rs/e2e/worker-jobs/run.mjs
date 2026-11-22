@@ -9,6 +9,11 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
+const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 15) || typeof process.execve !== 'function') {
+  throw new Error('Worker jobs require native Node.js 22.15+ with process.execve support');
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const binary = process.env.PORTAL_E2E_BINARY;
 if (!binary || !path.isAbsolute(binary)) {

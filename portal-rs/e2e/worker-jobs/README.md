@@ -1,7 +1,9 @@
 # Portal worker qualification
 
-This suite uses the PostgreSQL 18.6, native Node 22 and Chromium prerequisites in
+This suite uses the PostgreSQL 18.6 and Chromium prerequisites in
 [the E2E README](../README.md) and [environment guide](../ENVIRONMENT.md).
+The worker launcher requires native Node.js 22.15 or later with `process.execve`
+support and checks this before starting the harness.
 Supply the existing loopback `PORTAL_E2E_ADMIN_DATABASE_URL` through the
 environment and point `PORTAL_E2E_BINARY` at the exact built binary.
 
@@ -35,7 +37,8 @@ temporary harness directory.
 | `identity.account-closure-audit`, `stats.death-retention` | Retention removes aged audit payloads and copied death details while preserving durable closure receipts and recent data. |
 | `cleanup.support` | Scheduled claim and completion. The registered handler is a placeholder with no effect ([worker.rs](../../bin/oteryn-portal/src/worker.rs#L66)). |
 
-The automatic schedule test checks all 24 locally configured recurring kinds.
+The automatic schedule test starts both workers against an empty isolated queue
+and checks that all 24 locally configured recurring kinds complete there.
 Per-job transient failure, permanent failure and mid-job shutdown are only
 verified where the table describes those paths. Successful closure finalization
 requires Game receipts and a qualified empty character projection. Bazaar
@@ -53,6 +56,8 @@ refund delivery still need their own worker fault qualification.
 
 Malformed email-change mail previously returned before acknowledging the row,
 so each sweep could pick the same message and block eligible mail behind it.
-The identity worker now retains a terminal unsent row and removes the sensitive
-payload. The per-message state is visible in PostgreSQL.
-[email_change_mail.rs](../../crates/identity/src/email_change_mail.rs#L123)
+The identity worker retains a terminal unsent row and removes the sensitive
+payload when the route or token is invalid. A structurally valid link for a
+different public origin retains its payload and receives the same per-message
+backoff as a transient SMTP failure. The per-message state is visible in PostgreSQL.
+[email_change_mail.rs](../../crates/identity/src/email_change_mail.rs#L47)

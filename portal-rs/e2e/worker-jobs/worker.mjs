@@ -18,9 +18,9 @@ export const test = base.extend({
       await use({
         db,
         env,
-        start: (overrides = {}) => {
+        start: (overrides = {}, databaseURL = env.OTERYN_DATABASE_URL) => {
           const name = `worker-jobs-${crypto.randomUUID()}`;
-          const url = new URL(env.OTERYN_DATABASE_URL);
+          const url = new URL(databaseURL);
           url.searchParams.set('application_name', name);
           const child = spawn(process.env.PORTAL_E2E_OUTBOX_BINARY, ['worker'], {
             env: { ...env, ...overrides, OTERYN_DATABASE_URL: url.toString() },

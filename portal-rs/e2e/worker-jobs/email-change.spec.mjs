@@ -44,11 +44,32 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
   await submit(page, 'main form', { current_password: account.password });
   const recoveryKey = (await page.locator('.op-code').innerText()).trim();
   await submit(page, 'main form', { current_password: account.password, recovery_key: recoveryKey });
-  await page.goto(`/${lang}/account/security/email`);
-  await submit(page, 'main form', {
+  const emailPath = `/${lang}/account/security/email`;
+  const changeInput = {
     email: nextEmail, email_confirmation: nextEmail, current_password: account.password,
     proof: recoveryKey, recovery: true,
-  });
+  };
+  const mismatchedEmail = account.email.replace('outbox-', 'mismatched-');
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect((await page.goto(emailPath)).status()).toBe(200);
+  const refusal = page.waitForResponse(response => response.request().method() === 'POST'
+    && new URL(response.url()).pathname === emailPath && response.status() !== 403);
+  await submit(page, 'main form', { ...changeInput, email_confirmation: mismatchedEmail });
+  const refused = await refusal;
+  expect(refused.status()).toBe(302);
+  expect(refused.headers().location).toBe(emailPath);
+  await expect(page.getByRole('status')).toHaveText(lang === 'pl'
+    ? 'Odmowa lub nieprawidłowe dane.' : 'Request refused or invalid input.');
+  expect(await query(
+    `SELECT (SELECT count(*)::int FROM account_email_changes WHERE account_id=$1) AS changes,
+            (SELECT count(*)::int FROM account_email_change_mail
+             WHERE recipient=ANY($2::text[])) AS mail`,
+    [account.id, [account.email, nextEmail, mismatchedEmail]],
+  )).toEqual([{ changes: 0, mail: 0 }]);
+
+  await page.setViewportSize(viewport);
+  await submit(page, 'main form', changeInput);
   const [change] = await query('SELECT id FROM account_email_changes WHERE account_id=$1', [account.id]);
   expect(Boolean(change)).toBe(true);
   const [poison] = await query(
@@ -118,6 +139,14 @@ test('email change mail backs off, quarantines poison and drains a concurrent SM
     await waitForJob(retry, 'done', 1);
     await waitForJob(overlap, 'done', 1);
     expect(accepted.flatMap(message => message.to).sort()).toEqual([account.email, nextEmail].sort());
+    expect(await query(
+      `SELECT recipient, delivered_at IS NOT NULL AS delivered, body='' AS erased, delivery_attempts,
+              delivered_at BETWEEN next_attempt_at AND updated_at AS delivered_after_backoff
+       FROM account_email_change_mail WHERE change_id=$1 AND id<>$2 ORDER BY recipient`,
+      [change.id, poison.id],
+    )).toEqual([account.email, nextEmail].sort().map(recipient => ({
+      recipient, delivered: true, erased: true, delivery_attempts: 1, delivered_after_backoff: true,
+    })));
     expect(await poisonState()).toEqual([quarantine]);
 
     const mail = accepted.find(message => message.to.includes(nextEmail));

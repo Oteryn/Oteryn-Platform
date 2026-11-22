@@ -1,5 +1,8 @@
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 import { seededPlayer } from '../outbox-helpers.mjs';
-import { login } from '../helpers.mjs';
+import { login, pool } from '../helpers.mjs';
 import { blockedBy, enqueue, expect, query, test, waitForJob } from './worker.mjs';
 
 const recurring = [
@@ -30,21 +33,65 @@ const recurring = [
 ].sort();
 
 test('two real workers schedule and claim every locally configured recurring job', async ({ jobs }) => {
-  const workers = [jobs.start(), jobs.start()];
-  await Promise.all(workers.map(worker => worker.ready));
-  await expect.poll(async () => (await query(
-    "SELECT DISTINCT kind FROM outbox WHERE schedule_slot IS NOT NULL AND state='done' ORDER BY kind",
-  )).map(row => row.kind)).toEqual(recurring);
-  expect(await query(
-    `SELECT kind,schedule_slot FROM outbox WHERE schedule_slot IS NOT NULL
-     GROUP BY kind,schedule_slot HAVING count(*)<>1`,
-  )).toEqual([]);
-  // League uses a bounded 100 ms advisory lock across adjacent one-second
-  // slots. Same-slot uniqueness holds even if those distinct jobs retry.
-  expect(await query(
-    `SELECT kind,schedule_slot FROM outbox
-     WHERE schedule_slot IS NOT NULL AND kind<>'league.retention' AND attempts<>1 AND state='done'`,
-  )).toEqual([]);
+  const database = `portal_e2e_schedule_${randomUUID().replaceAll('-', '')}`;
+  const url = new URL(jobs.env.OTERYN_DATABASE_URL);
+  url.pathname = `/${database}`;
+  const databaseURL = url.toString();
+  const isolated = pool(databaseURL);
+  await jobs.db.query(`CREATE DATABASE "${database}"`);
+  const workers = [];
+  try {
+    try {
+      await promisify(execFile)(process.env.PORTAL_E2E_OUTBOX_BINARY, ['migrate'], {
+        env: { ...jobs.env, OTERYN_DATABASE_URL: databaseURL },
+      });
+    } catch {
+      throw new Error('Could not migrate the isolated schedule database');
+    }
+    const gate = await isolated.connect();
+    try {
+      await gate.query('BEGIN');
+      await gate.query('LOCK TABLE outbox IN ACCESS EXCLUSIVE MODE');
+      const queued = () => gate.query('SELECT count(*)::int AS jobs FROM outbox');
+      expect((await queued()).rows).toEqual([{ jobs: 0 }]);
+      workers.push(jobs.start({}, databaseURL), jobs.start({}, databaseURL));
+      await Promise.all(workers.map(worker => worker.ready));
+      // One scheduler waits for the isolated table and the other for its
+      // advisory lock. Hold the table until both have reached the database.
+      const names = workers.map(worker => worker.name).sort();
+      await expect.poll(async () => (await query(
+        `SELECT DISTINCT application_name AS name FROM pg_stat_activity
+         WHERE datname=current_database() AND application_name=ANY($1::text[])
+           AND wait_event_type='Lock' ORDER BY application_name`, [names], databaseURL,
+      )).map(row => row.name)).toEqual(names);
+      expect((await queued()).rows).toEqual([{ jobs: 0 }]);
+    } finally {
+      await gate.query('ROLLBACK');
+      gate.release();
+    }
+    await expect.poll(async () => (await query(
+      `SELECT DISTINCT kind FROM outbox
+       WHERE schedule_slot IS NOT NULL AND state='done' AND attempts>0 ORDER BY kind`, [], databaseURL,
+    )).map(row => row.kind)).toEqual(recurring);
+    expect(await query(
+      `SELECT kind,schedule_slot FROM outbox WHERE schedule_slot IS NOT NULL
+       GROUP BY kind,schedule_slot HAVING count(*)<>1`, [], databaseURL,
+    )).toEqual([]);
+    // League uses a bounded 100 ms advisory lock across adjacent one-second
+    // slots. Same-slot uniqueness holds even if those distinct jobs retry.
+    expect(await query(
+      `SELECT kind,schedule_slot FROM outbox
+       WHERE schedule_slot IS NOT NULL AND kind<>'league.retention' AND attempts<>1 AND state='done'`, [], databaseURL,
+    )).toEqual([]);
+  } finally {
+    for (const worker of workers) worker.child.kill('SIGTERM');
+    try {
+      await Promise.all(workers.map(async worker => expect(await worker.exited).toEqual([0, null])));
+    } finally {
+      await isolated.end();
+      await jobs.db.query(`DROP DATABASE "${database}"`);
+    }
+  }
 });
 
 test('expired sessions are retried with database backoff and drained under SIGTERM', async ({ browser, page, jobs }, info) => {
