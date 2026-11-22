@@ -551,12 +551,11 @@ async fn render<P: Permissions, C: Channel>(
         return Err(Error::Invalid);
     }
     s.permissions.navigation(context).await?;
-    let mut allowed = true;
+    let mut operation_grants = Vec::with_capacity(operations.len());
     for op in operations {
-        if s.permissions.check(context, *op).await.is_err() {
-            allowed = false;
-        }
+        operation_grants.push((*op, s.permissions.check(context, *op).await.is_ok()));
     }
+    let allowed = operation_grants.iter().all(|(_, granted)| *granted);
     if !allowed && (q.agent.is_some() || q.target.is_some() || q.request.is_some()) {
         return Err(Error::Denied);
     }
@@ -627,29 +626,54 @@ async fn render<P: Permissions, C: Channel>(
             s.pool.clone(),
             web::PortalIdentity::configured(s.pool.clone()),
         );
-        if auth
-            .check(context, Permission::AdminAnalyticsView)
-            .await
-            .is_ok()
-        {
-            sections.push(dashboard::section(&s.pool, language).await);
+        let platform_metrics = async {
+            if auth
+                .check(context, Permission::AdminAnalyticsView)
+                .await
+                .is_ok()
+            {
+                Some(dashboard::section(&s.pool, language).await)
+            } else {
+                None
+            }
+        };
+        let (metrics, alerts) = tokio::join!(platform_metrics, alerts::section(&s.pool, language));
+        if let Some(metrics) = metrics {
+            sections.push(metrics);
         }
-        sections.push(alerts::section(&s.pool, language).await);
+        sections.push(alerts);
     }
-    let mut nav = Vec::new();
-    for op in [
+    let nav_operations = [
         Operation::Overview,
         Operation::Worlds,
         Operation::Nodes,
         Operation::Database,
-    ] {
-        if s.permissions.check(context, op).await.is_ok() {
-            nav.push((
+    ];
+    let can_navigate = async |operation| {
+        if let Some((_, granted)) = operation_grants.iter().find(|(op, _)| *op == operation) {
+            *granted
+        } else {
+            s.permissions.check(context, operation).await.is_ok()
+        }
+    };
+    let [overview, worlds, nodes, database] = nav_operations;
+    let (show_overview, show_worlds, show_nodes, show_database) = tokio::join!(
+        can_navigate(overview),
+        can_navigate(worlds),
+        can_navigate(nodes),
+        can_navigate(database),
+    );
+    let nav = nav_operations
+        .into_iter()
+        .zip([show_overview, show_worlds, show_nodes, show_database])
+        .filter(|(_, granted)| *granted)
+        .map(|(op, _)| {
+            (
                 format!("/console/{}?lang={language}", op.page()),
                 text(language, op.title()),
-            ));
-        }
-    }
+            )
+        })
+        .collect();
     let op = operations[0];
     let path = format!("/console/{}", op.page());
     let poll = format!(

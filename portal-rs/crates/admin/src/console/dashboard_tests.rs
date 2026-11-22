@@ -310,6 +310,11 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
             assert!(!html.contains("<script>"));
             assert!(html.contains("width=device-width"));
             assert!(html.contains(r#"<nav class="op-tabs" aria-label="#));
+            let positions = ["dashboard", "worlds", "nodes", "database"].map(|tab| {
+                html.find(&format!(r#"href="/console/{tab}?lang={lang}""#))
+                    .expect("granted console tab")
+            });
+            assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
             assert!(!html.contains("<header"));
             assert!(html.contains(r##"<a class="op-skip" href="#main">"##));
             assert!(html.contains(r#"<main id="main" tabindex="-1""#));
