@@ -15,6 +15,8 @@ use oteryn_web::{
 use serde::Deserialize;
 use sqlx::PgPool;
 
+const DISPLAY_NAME_LIMIT: usize = 64;
+
 pub fn configured_router(pool: PgPool) -> Router {
     if !oteryn_identity::navigation::profile_enabled() {
         return Router::new();
@@ -66,6 +68,7 @@ struct Page {
     profile: Profile,
     csrf: String,
     invalid: bool,
+    display_name_limit: usize,
 }
 
 impl Page {
@@ -110,6 +113,7 @@ async fn page(
         profile,
         csrf,
         invalid,
+        display_name_limit: DISPLAY_NAME_LIMIT,
     };
     Ok(if invalid {
         oteryn_web::render_form_refusal(StatusCode::BAD_REQUEST, &page)
@@ -136,7 +140,8 @@ struct ProfileInput {
 
 fn display_name(value: &str) -> Option<&str> {
     let name = value.trim();
-    (name.chars().count() <= 64 && !value.chars().any(char::is_control)).then_some(name)
+    (name.chars().count() <= DISPLAY_NAME_LIMIT && !value.chars().any(char::is_control))
+        .then_some(name)
 }
 
 async fn save(
@@ -208,6 +213,9 @@ mod tests {
     fn allows_unicode_and_clearing_but_refuses_oversized_or_control_input() {
         assert_eq!(display_name(" Żółć "), Some("Żółć"));
         assert_eq!(display_name(""), Some(""));
+        let emoji = "😀".repeat(DISPLAY_NAME_LIMIT);
+        assert_eq!(display_name(&format!(" {emoji} ")), Some(emoji.as_str()));
+        assert_eq!(display_name(&format!("{emoji}😀")), None);
         assert_eq!(display_name(&"ą".repeat(65)), None);
         assert_eq!(display_name("test\n"), None);
         assert!(

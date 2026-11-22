@@ -139,6 +139,18 @@ test('owner edits their profile and the server refuses foreign and invalid edits
     : 'Use up to 64 characters without control characters.';
   expect(invalidPage.includes(message) && invalidPage.includes(`action="${path}"`)).toBe(true);
   expect((await post(page, path, token, { display_name: 'Other', account_id: randomUUID() })).status()).toBe(422);
+  const displayName = page.locator('[name=display_name]');
+  await displayName.fill('😀'.repeat(65));
+  expect(await displayName.evaluate(input => input.validity.patternMismatch)).toBe(true);
+  await displayName.fill('');
+  await displayName.focus();
+  const emojiName = '😀'.repeat(40);
+  await page.keyboard.insertText(emojiName);
+  await expect(displayName).toHaveValue(emojiName);
+  expect(await displayName.evaluate(input => input.validity.valid)).toBe(true);
+  await submit(page, 'main form');
+  await page.reload();
+  await expect(displayName).toHaveValue(emojiName);
   await submit(page, 'main form', { display_name: 'Żółty Lis' });
   await expect(page.locator('[name=display_name]')).toHaveValue('Żółty Lis');
   await page.reload();

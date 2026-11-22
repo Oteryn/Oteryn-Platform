@@ -14,7 +14,9 @@
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   <div class="op-field">
     <label for="display-name">{{ self.text("panel-identity-display-name") }}</label>
-    <input class="op-input" id="display-name" name="display_name" value="{{ profile.display_name }}" maxlength="64" autocomplete="nickname">
+    <input class="op-input" id="display-name" name="display_name" value="{{ profile.display_name }}"
+      pattern="[\p{White_Space}--\p{Cc}]*[^\p{Cc}]{0,{{ display_name_limit }}}[\p{White_Space}--\p{Cc}]*"
+      title="{{ self.text("panel-identity-invalid-name") }}" autocomplete="nickname">
   </div>
   <button class="op-button op-button--primary">{{ self.text("panel-identity-save-profile") }}</button>
 </form>
