@@ -2,7 +2,7 @@ import {test,expect} from '../fixtures.mjs';
 import {assertShell} from '../shell.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import {register,login,csrfRejected,submit,pool} from '../helpers.mjs';
+import {register,login,csrfRejected,submit,pool,exportOptions} from '../helpers.mjs';
 
 function previousWeek(){const d=new Date();d.setUTCHours(0,0,0,0);d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7-7);return Math.floor(d.getTime()/1000);}
 
@@ -50,7 +50,7 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
  if(path.endsWith('/export')) {
    await page.goto(`/${lang}/account/sudo`);
    await submit(page,'main form',{current_password:account.password});
-   const exported=await page.request.get(target);
+   const exported=await page.request.post(target,await exportOptions(page,lang));
    expect(exported.status()).toBe(200);
    expect(exported.headers()['content-type']).toContain('json');
    expect(await exported.text()).toContain(account.email);

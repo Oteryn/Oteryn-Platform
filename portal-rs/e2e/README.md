@@ -31,6 +31,12 @@ automatically, and the main suite keeps its own Store catalogue and character fe
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
+To run just the export and profile quota checks in all four projects, append
+`specs/rate-limits-export-profile.spec.mjs` to that command. The spec uses the
+seed CLI for disposable accounts and the local mTLS producer for character
+ownership. The loopback HTTPS proxy forwards the synthetic client addresses used
+to exhaust the IP quotas across distinct accounts.
+
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
 For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. The Bazaar legacy spec also needs the matching

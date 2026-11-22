@@ -103,6 +103,18 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         off.edit(account, "Aldric", 1000).await,
         Err(Error::NotFound)
     );
+    assert_eq!(
+        service.authorize_update(account, "aldric", 1000).await,
+        Ok(())
+    );
+    assert_eq!(
+        service.authorize_update(other, "Aldric", 1000).await,
+        Err(Error::NotFound)
+    );
+    assert_eq!(
+        service.authorize_update(account, "", 1000).await,
+        Err(Error::BadInput)
+    );
     assert!(!off.guild_visible(one, true, 1000).await);
     assert_eq!(
         service.edit(other, "Aldric", 1000).await,
@@ -262,6 +274,10 @@ async fn postgres_preferences_ownership_privacy_and_audit() -> Result<(), Box<dy
         .bind(account)
         .execute(&pool)
         .await?;
+    assert_eq!(
+        service.authorize_update(account, "Aldric", 1000).await,
+        Err(Error::NotFound)
+    );
     assert_eq!(
         service
             .update(account, "Aldric", selected.clone(), 1000)
@@ -564,6 +580,70 @@ async fn postgres_profile_takes_account_before_feed_like_termination()
 }
 
 #[tokio::test]
+async fn authorization_times_out_behind_a_locked_feed() -> Result<(), Box<dyn std::error::Error>> {
+    let Some(ProfileFixture {
+        admin,
+        schema,
+        pool,
+        account,
+        settings,
+        ..
+    }) = profile_fixture().await?
+    else {
+        return Ok(());
+    };
+    let service = Service::new(pool.clone(), settings, true);
+    assert_eq!(
+        service.authorize_update(account, "Aldric", 1000).await,
+        Ok(())
+    );
+    let mut publisher = pool.begin().await?;
+    sqlx::query("SELECT id FROM account_character_feed WHERE id=1 FOR UPDATE")
+        .execute(&mut *publisher)
+        .await?;
+    assert_eq!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            service.authorize_update(account, "Aldric", 1000),
+        )
+        .await?,
+        Err(Error::Unavailable)
+    );
+    publisher.commit().await?;
+    assert_eq!(
+        service.authorize_update(account, "Aldric", 1000).await,
+        Ok(())
+    );
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    Ok(())
+}
+
+async fn wait_for_profile_lock(
+    pool: &PgPool,
+    holder: i32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(holder)
+            .fetch_one(pool)
+            .await?;
+            if waiting {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    Ok(())
+}
+
+#[tokio::test]
 async fn committed_transfer_blocks_profile_save() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(ProfileFixture {
@@ -580,28 +660,53 @@ async fn committed_transfer_blocks_profile_save() -> Result<(), Box<dyn std::err
         return Ok(());
     };
     let service = Service::new(pool.clone(), settings, true);
-    http::save_form(&service, account, "Belric", b"comment=Original", 1000)
-        .await
-        .map_err(|e| format!("initial save: {e:?}"))?;
+    // Stop the save at its audit write, after the ownership recheck.
+    let mut audit_lock = pool.begin().await?;
+    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *audit_lock)
+        .await?;
+    sqlx::query("LOCK TABLE character_profile_events IN SHARE MODE")
+        .execute(&mut *audit_lock)
+        .await?;
+    let initial = tokio::spawn({
+        let service = service.clone();
+        async move { http::save_form(&service, account, "Belric", b"comment=Original", 1000).await }
+    });
+    wait_for_profile_lock(&admin, holder).await?;
+    let available: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(22005160000)")
+        .fetch_one(&mut *audit_lock)
+        .await?;
+    assert!(!available, "receipt publication must wait through the save");
+    audit_lock.commit().await?;
+    initial.await?.map_err(|e| format!("initial save: {e:?}"))?;
     let receipt = serde_json::json!({
         "character_id": character,
         "outcome": "COMMITTED",
         "projection_epoch": "1",
         "from_projection_revision": "2"
     });
+    let mut publication = pool.begin().await?;
+    let publisher: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *publication)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
+        .execute(&mut *publication)
+        .await?;
     sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$2,'sale','TransferCharacterOwnership',$3,$4,'{}','{}',$5,'TERMINAL')")
-        .bind(Uuid::now_v7()).bind(Uuid::now_v7()).bind(account).bind(other).bind(receipt.to_string()).execute(&pool).await?;
-    assert_eq!(
+        .bind(Uuid::now_v7()).bind(Uuid::now_v7()).bind(account).bind(other).bind(receipt.to_string()).execute(&mut *publication).await?;
+    let update = tokio::spawn(async move {
         http::save_form(
             &service,
             account,
             "Belric",
             b"comment=Changed&hidden=1",
-            1000
+            1000,
         )
-        .await,
-        Err(Error::NotFound)
-    );
+        .await
+    });
+    wait_for_profile_lock(&admin, publisher).await?;
+    publication.commit().await?;
+    assert_eq!(update.await?, Err(Error::NotFound));
     let stored = sqlx::query_as::<_, (String, bool)>(
         "SELECT comment,hidden FROM character_profiles WHERE account_id=$1 AND character_id=$2",
     )

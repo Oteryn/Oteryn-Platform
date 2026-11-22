@@ -35,7 +35,7 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 | `OTERYN_ACCOUNT_CONSENTS_ENABLED` | `GP:/{lang}/account/consents` | — | account_consents, web_rate_limits |
 | `OTERYN_ACCOUNT_CREDENTIALS` | `GPU:/{prefix}/password/change` `GP:/{prefix}/account/sudo` `G:/{prefix}/account/security` | — | accounts, credential_security_events, web_sessions |
 | `OTERYN_ACCOUNT_EMAIL_CHANGE` | `GP:/{prefix}/account/security/email` `GP:/{lang}/email-change/confirm/{token}` `GP301:/email-change/confirm/{token}>/pl/account/security` `GP:/{prefix}/email-change/revert/{token}` | identity.email-change | account_email_changes, account_backup_emails, account_email_change_mail, account_recovery_keys, accounts, web_sessions |
-| `OTERYN_ACCOUNT_EXPORT_ENABLED` | `G:/{lang}/account/privacy/export` | — | web_rate_limits |
+| `OTERYN_ACCOUNT_EXPORT_ENABLED` | `GP:/{lang}/account/privacy/export` | — | web_rate_limits |
 | `OTERYN_ACCOUNT_LOGIN` | `GP:/{lang}/login` `GP301:/login>/pl/login` `P:/{prefix}/logout` | — | accounts, security_events, web_sessions, web_known_devices, web_rate_limits, outbox |
 | `OTERYN_ACCOUNT_MFA` | `G:/{prefix}/mfa` `GP:/{prefix}/mfa/login` `GP:/{lang}/mfa/challenge` `GP301:/mfa/challenge>/pl/mfa/challenge` `P:/{prefix}/mfa/email` `P:/{prefix}/mfa/enroll` `P:/{prefix}/mfa/confirm` `P:/{prefix}/mfa/devices` | cleanup.mfa stays on | account_mfa_totp, account_mfa_tokens, account_recovery_codes, accounts, web_sessions, native_admissions, outbox |
 | `OTERYN_ACCOUNT_OVERVIEW_ENABLED` | `G:/account` | — | Read-only overview |
