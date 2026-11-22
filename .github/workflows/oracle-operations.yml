@@ -46,20 +46,37 @@ jobs:
           python3 - <<'PYTHON'
           import json
           import os
+          from datetime import datetime, timedelta, timezone
+          from urllib.parse import urlencode
           from urllib.request import Request, urlopen
 
           api = os.environ["GITHUB_API_URL"]
           repo = os.environ["GITHUB_REPOSITORY"]
-          workflow = "portal-rs-e2e-nightly.yml"
-          url = f"{api}/repos/{repo}/actions/workflows/{workflow}/runs?branch=main&status=completed&per_page=1"
+          now = datetime.now(timezone.utc)
+          window = now.replace(hour=2, minute=17, second=0, microsecond=0)
+          if now < window:
+              window -= timedelta(days=1)
+          since = window.strftime("%Y-%m-%dT%H:%M:%SZ")
+          query = urlencode({
+              "branch": "main",
+              "event": "schedule",
+              "created": f">={since}",
+              "per_page": 1,
+          })
+          url = f"{api}/repos/{repo}/actions/workflows/portal-rs-e2e.yml/runs?{query}"
           request = Request(url, headers={
               "Authorization": "Bearer " + os.environ["GH_TOKEN"],
               "Accept": "application/vnd.github+json",
           })
           with urlopen(request, timeout=20) as response:
               runs = json.load(response)["workflow_runs"]
-          if not runs or runs[0]["conclusion"] != "success":
-              raise SystemExit("Deploy requires the latest completed nightly E2E on main to be successful.")
+          # The runs endpoint returns newest first. Keep queued and in-progress
+          # runs in the query so an earlier success cannot mask the current run.
+          if not runs or runs[0]["display_title"] != "Portal RS E2E Nightly":
+              raise SystemExit(f"No scheduled nightly E2E on main for the window starting {since}.")
+          latest = runs[0]
+          if latest["status"] != "completed" or latest["conclusion"] != "success":
+              raise SystemExit(f"Nightly E2E on main for the window starting {since} must complete successfully.")
           PYTHON
       - name: Validate target and bounded operation
         env:

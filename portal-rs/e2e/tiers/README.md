@@ -26,7 +26,10 @@ split the remaining sorted spec filenames. Each shard gets separate databases
 and browser state. Its HTML artifact includes source locations and outcomes.
 Raw browser output and harness logs stay in the private scratch directory.
 
-When `ledger/report.mjs` is present, its exit status is the PR coverage gate.
-The ledger entry point must compare coverage to its committed baseline and
-return a nonzero status on regression. Without the ledger, coverage emits a
-GitHub Actions notice.
+The registered `portal-rs-e2e.yml` workflow runs smoke for PRs and the full
+matrix on schedule or dispatch. Deploy requires the newest scheduled run on
+`main` for the current nightly window to complete successfully. Each window
+starts at 02:17 UTC. Manual runs can qualify the suite on demand.
+
+Add the PR coverage gate when the ledger lands, with its entry point and
+committed baseline both required.
