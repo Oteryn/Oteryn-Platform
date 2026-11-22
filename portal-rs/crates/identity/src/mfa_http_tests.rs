@@ -854,21 +854,46 @@ async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dy
         StatusCode::FORBIDDEN
     );
 
+    sqlx::raw_sql(
+        "CREATE SEQUENCE rotation_delete_attempts;
+         CREATE FUNCTION forbid_second_session_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+             IF nextval('rotation_delete_attempts') > 1 THEN
+                 RAISE EXCEPTION 'session deletion already committed';
+             END IF;
+             RETURN NULL;
+         END $$;
+         CREATE TRIGGER forbid_second_session_delete BEFORE DELETE ON web_sessions
+           FOR EACH STATEMENT EXECUTE FUNCTION forbid_second_session_delete();",
+    )
+    .execute(&db.pool)
+    .await?;
     let cookie = "c".repeat(64);
     let csrf = "d".repeat(64);
     create_session(cookie.clone(), csrf.clone()).await?;
-    assert_eq!(
-        send(
-            manage,
-            cookie,
-            csrf,
-            action("rotate_codes", password, replacement.generate(now))
-        )
-        .await?
-        .status(),
-        StatusCode::OK
+    let response = send(
+        manage,
+        cookie,
+        csrf,
+        action("rotate_codes", password, replacement.generate(now)),
+    )
+    .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers()[header::SET_COOKIE]
+            .to_str()?
+            .contains("Max-Age=0")
     );
+    let html = axum::body::to_bytes(response.into_body(), 32768).await?;
+    assert_eq!(std::str::from_utf8(&html)?.matches("<textarea ").count(), 8);
+    let attempts: i64 = sqlx::query_scalar("SELECT last_value FROM rotation_delete_attempts")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(attempts, 1);
     assert_eq!(mfa.remaining_codes(account).await?, 8);
+    sqlx::query("DROP TRIGGER forbid_second_session_delete ON web_sessions")
+        .execute(&db.pool)
+        .await?;
     let cookie = "e".repeat(64);
     let csrf = "f".repeat(64);
     create_session(cookie.clone(), csrf.clone()).await?;

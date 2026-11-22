@@ -296,15 +296,18 @@ impl BrowserSession {
             .map(|record| hash(&record.id))
     }
 }
+/// Clear request-local identity after the caller has durably revoked its session.
+pub async fn clear_revoked_session(session: &BrowserSession) {
+    let mut inner = session.inner.lock().await;
+    expire_cookie(&mut inner);
+}
+
 pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result<(), sqlx::Error> {
     let mut inner = session.inner.lock().await;
     if matches!(change, PrivilegeChange::Logout) {
         let previous = inner.record.as_ref().map(|record| record.session_id);
-        // Withhold any newly rotated identity even when durable deletion is unavailable.
-        inner.record = None;
-        inner.cookie = Some(format!(
-            "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
-        ));
+        // Withhold the identity even when durable deletion is unavailable.
+        expire_cookie(&mut inner);
         if let Some(previous) = previous {
             sqlx::query("DELETE FROM web_sessions WHERE session_id=$1")
                 .bind(previous)
@@ -369,6 +372,13 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
     });
     Ok(())
 }
+fn expire_cookie(inner: &mut Inner) {
+    inner.record = None;
+    inner.cookie = Some(format!(
+        "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+    ));
+}
+
 fn cookie(id: &str) -> String {
     format!("{COOKIE_NAME}={id}; Secure; HttpOnly; SameSite=Lax; Path=/")
 }

@@ -275,19 +275,21 @@ async fn page_data(
     codes: Vec<String>,
     devices: Vec<String>,
 ) -> Result<Page, StatusCode> {
-    let failed = failed
-        || session
+    let (failed, csrf) = if mode == "codes" {
+        (false, String::new())
+    } else {
+        let flash = session
             .get(FAILED)
             .await
             .map_err(unavailable)?
             .unwrap_or(false);
-    if failed {
-        session.set(FAILED, &false).await.map_err(unavailable)?;
-    }
-    let csrf = if mode == "codes" {
-        String::new()
-    } else {
-        session.csrf_token().await.map_err(unavailable)?
+        if flash {
+            session.set(FAILED, &false).await.map_err(unavailable)?;
+        }
+        (
+            failed || flash,
+            session.csrf_token().await.map_err(unavailable)?,
+        )
     };
     Ok(Page {
         lang: language.code(),
@@ -899,9 +901,7 @@ async fn confirm(
         .await
         .map_err(unavailable)?
     {
-        session::rotate(&session, PrivilegeChange::Logout)
-            .await
-            .map_err(unavailable)?;
+        session::clear_revoked_session(&session).await;
         return page(
             language,
             &session,
@@ -1049,9 +1049,7 @@ impl SecurityRequest {
     }
 
     async fn codes(&self, codes: Vec<String>) -> Result<Response, StatusCode> {
-        session::rotate(&self.session, PrivilegeChange::Logout)
-            .await
-            .map_err(unavailable)?;
+        session::clear_revoked_session(&self.session).await;
         page(
             self.language,
             &self.session,
@@ -1107,9 +1105,7 @@ async fn manage(
             .await
         }
         ManagementResult::Removed => {
-            session::rotate(&request.session, PrivilegeChange::Logout)
-                .await
-                .map_err(unavailable)?;
+            session::clear_revoked_session(&request.session).await;
             Ok(redirect(request.language, "/login"))
         }
         ManagementResult::Codes(codes) => request.codes(codes).await,
