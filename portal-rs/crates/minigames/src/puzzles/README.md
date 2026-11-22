@@ -55,8 +55,9 @@ bilingual clues and labels, correct entity, and its correspondence to any image.
 For monster media, use `{"kind":"monster","manifest":"sprites/manifest.json","request":{"kind":"creature","appearance_id":1,"pattern":null}}`
 with the sprite pipeline's immutable manifest. The portal verifies the thumbnail
 and stores a silhouette. For Atlas media, use
-`{"kind":"atlas","manifest":"atlas/manifest.json","tile":"tiles/0/0.webp"}`
-with the immutable public tile pipeline manifest for the supplied world version.
+`{"kind":"atlas","manifest":"atlas/manifest.json","tile":"0/0/0.webp"}`
+with the immutable public tile pipeline manifest for the supplied world version's
+source commit.
 Relative manifest paths resolve next to the publication JSON. Asset paths resolve
 inside the manifest directory and the portal checks their digests against that
 manifest. Quiz entries omit media. The portal fails closed if an asset or approved

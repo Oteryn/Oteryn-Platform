@@ -112,17 +112,14 @@ impl Puzzles {
         match (&media, definition.kind) {
             (None, Kind::Quiz) => {}
             (Some(media), Kind::Monster | Kind::Atlas) if media.kind == definition.kind => {
-                let expected = match definition.kind {
-                    Kind::Monster => {
-                        self.world
-                            .import_report_on(&mut **tx, definition.world_version)
-                            .await
-                            .map_err(|_| Error::Unavailable)?
-                            .ok_or(Error::Unavailable)?
-                            .source_commit
-                    }
-                    _ => definition.world_version.to_string(),
-                };
+                // The public Atlas viewer and sprite builds use the source commit.
+                let expected = self
+                    .world
+                    .import_report_on(&mut **tx, definition.world_version)
+                    .await
+                    .map_err(|_| Error::Unavailable)?
+                    .ok_or(Error::Unavailable)?
+                    .source_commit;
                 if media.version != expected || !(1..=1_048_576).contains(&media.bytes.len()) {
                     return Err(Error::Unavailable);
                 }

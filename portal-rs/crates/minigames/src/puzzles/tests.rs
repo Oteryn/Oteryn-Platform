@@ -61,17 +61,12 @@ fn webp() -> Vec<u8> {
         .unwrap();
     bytes
 }
-fn media(version: Uuid, kind: Kind) -> Option<Media> {
+fn media(kind: Kind) -> Option<Media> {
     match kind {
         Kind::Quiz => None,
-        Kind::Monster => Some(Media {
+        Kind::Monster | Kind::Atlas => Some(Media {
             kind,
             version: COMMIT.into(),
-            bytes: webp(),
-        }),
-        Kind::Atlas => Some(Media {
-            kind,
-            version: version.to_string(),
             bytes: webp(),
         }),
     }
@@ -161,18 +156,14 @@ impl Database {
     }
     async fn publish(&self, kind: Kind) -> Result<Uuid, Error> {
         self.service
-            .publish(
-                self.today,
-                definition(self.version, kind),
-                media(self.version, kind),
-            )
+            .publish(self.today, definition(self.version, kind), media(kind))
             .await
     }
     async fn seed(&self, day: Date, kind: Kind) -> Result<Uuid, Error> {
         let id = Uuid::now_v7();
         sqlx::query("INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image) VALUES ($1,$2,$3,$4,$5,$6)")
             .bind(id).bind(day).bind(kind.key()).bind(self.version).bind(sqlx::types::Json(definition(self.version,kind)))
-            .bind(media(self.version,kind).map(|media|media.bytes)).execute(&self.pool).await?;
+            .bind(media(kind).map(|media|media.bytes)).execute(&self.pool).await?;
         Ok(id)
     }
     async fn close(self) -> TestResult {
@@ -361,7 +352,7 @@ fn media_are_verified_and_monster_pixels_are_silhouettes() -> TestResult {
     };
     let mut atlas = oteryn_atlas::tiles::Manifest {
         format_version: 1,
-        world_version: Uuid::now_v7().to_string(),
+        world_version: COMMIT.into(),
         floor: 7,
         tile_size: 256,
         bounds: oteryn_atlas::tiles::Bounds {
@@ -392,7 +383,7 @@ async fn postgres_publication_is_immutable_and_validates_media_and_sources() -> 
             .await,
         Err(Error::Invalid)
     ));
-    let mut stale = media(db.version, Kind::Monster).unwrap();
+    let mut stale = media(Kind::Monster).unwrap();
     stale.version = "b".repeat(40);
     assert!(matches!(
         db.service
@@ -1129,26 +1120,57 @@ async fn postgres_publication_is_atomic_and_replays_by_id() -> TestResult {
     };
     let dir = tempfile::tempdir()?;
     let bytes = webp();
-    std::fs::write(dir.path().join("tile.webp"), &bytes)?;
-    std::fs::write(
-        dir.path().join("tiles.json"),
-        serde_json::to_vec(&serde_json::json!({
-            "format_version": 1, "world_version": db.version, "floor": 7, "tile_size": 256,
-            "bounds": {"min_x": 0, "min_y": 0, "max_x": 256, "max_y": 256},
-            "levels": [],
-            "tiles": [{"path": "tile.webp", "sha256": format!("{:x}", Sha256::digest(&bytes))}]
-        }))?,
-    )?;
+    let floor = format!("{COMMIT}/7");
+    let tile = "0/0/0.webp";
+    let manifest_path = format!("{floor}/manifest.json");
+    std::fs::create_dir_all(dir.path().join(&floor).join("0/0"))?;
+    std::fs::write(dir.path().join(&floor).join(tile), &bytes)?;
+    let manifest = serde_json::json!({
+        "format_version": 1, "world_version": COMMIT, "floor": 7, "tile_size": 256,
+        "bounds": {"min_x": 0, "min_y": 0, "max_x": 256, "max_y": 256},
+        "levels": [{"z": 0, "width": 256, "height": 256, "columns": 1, "rows": 1}],
+        "tiles": [{"path": tile, "sha256": format!("{:x}", Sha256::digest(&bytes))}]
+    });
+    let manifest_file = dir.path().join(&manifest_path);
+    std::fs::write(&manifest_file, serde_json::to_vec(&manifest)?)?;
+    let tile_response = oteryn_atlas::web::router(oteryn_atlas::web::Viewer {
+        enabled: true,
+        directory: dir.path().into(),
+        world: db.world.clone(),
+    })
+    .oneshot(Request::get(format!("/atlas/tiles/{floor}/{tile}")).body(Body::empty())?)
+    .await?;
+    assert_eq!(tile_response.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(tile_response.into_body(), 1_048_576).await?,
+        bytes.as_slice()
+    );
     let id = Uuid::now_v7();
     let mut document = serde_json::json!({
         "publication_id": id,
         "day": db.today.to_string(),
         "puzzles": [
             {"definition": definition(db.version, Kind::Atlas),
-             "media": {"kind": "atlas", "manifest": "tiles.json", "tile": "tile.webp"}},
+             "media": {"kind": "atlas", "manifest": manifest_path, "tile": tile}},
             {"definition": definition(db.version, Kind::Quiz)}
         ]
     });
+    let mut wrong_version = manifest.clone();
+    wrong_version["world_version"] = db.version.to_string().into();
+    std::fs::write(&manifest_file, serde_json::to_vec(&wrong_version)?)?;
+    let prepared = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert!(matches!(
+        db.service.activate_publication(&mut tx, prepared).await,
+        Err(Error::Unavailable)
+    ));
+    tx.rollback().await?;
+    assert!(db.service.today(db.account).await?.is_empty());
+    std::fs::write(&manifest_file, serde_json::to_vec(&manifest)?)?;
+
     document["puzzles"][1]["definition"]["choices"][0]["source"]["key"] = "hidden".into();
 
     let prepared = db
@@ -1299,7 +1321,7 @@ async fn postgres_publication_rejects_mixed_catalogues_on_the_same_utc_day() -> 
             .publish(
                 tomorrow,
                 definition(db.version, Kind::Atlas),
-                media(db.version, Kind::Atlas)
+                media(Kind::Atlas)
             )
             .await,
         Err(Error::Conflict)
