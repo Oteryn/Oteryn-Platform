@@ -700,11 +700,17 @@ impl Service {
             Command::RevokeSanction { .. } => {
                 let row = current.as_ref().ok_or(StaffError::NotFound)?;
                 command.transition(&row.0)?;
-                sqlx::query("UPDATE sanctions SET status='revoked',lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1")
-                    .bind(id)
-                    .execute(&mut **tx)
-                    .await
-                    .map_err(|_| StaffError::Unavailable)?;
+                let revoked = sqlx::query(
+                    "UPDATE sanctions SET status='revoked',lock_version=lock_version+1,updated_at=clock_timestamp()
+                     WHERE id=$1 AND (expires_at IS NULL OR expires_at>clock_timestamp())",
+                )
+                .bind(id)
+                .execute(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+                if revoked.rows_affected() != 1 {
+                    return Err(StaffError::Conflict);
+                }
                 "revoked".to_owned()
             }
             Command::Appeal {

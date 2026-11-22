@@ -584,6 +584,45 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .fetch_one(&pool)
         .await?
     );
+    let lapsed = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO sanctions(id,account_id,category,status,public_reason,effective_at,expires_at,created_by)
+         VALUES ($1,$2,'warning','active','Lapsed sanction',now()-interval '2 hours',now()-interval '1 hour',$3)",
+    )
+    .bind(lapsed)
+    .bind(owner)
+    .bind(staff)
+    .execute(&pool)
+    .await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/admin/moderation/enforcement/{lapsed}"))
+                .header("host", &host)
+                .header("accept-language", "en")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("<p>Expired</p>"));
+    assert!(!html.contains("value=\"revoke_sanction\""));
+    assert_eq!(
+        post(
+            "moderation/enforcement",
+            lapsed,
+            "lock_version=1&action=revoke_sanction&public_reason=Reviewed".into(),
+        )
+        .await?,
+        StatusCode::CONFLICT
+    );
+    let row: (String, i64) =
+        sqlx::query_as("SELECT status,lock_version FROM sanctions WHERE id=$1")
+            .bind(lapsed)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(row, ("active".into(), 1));
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)

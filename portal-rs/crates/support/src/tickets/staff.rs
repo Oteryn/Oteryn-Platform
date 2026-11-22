@@ -258,7 +258,9 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,
+                 CASE WHEN status='active' AND expires_at<=statement_timestamp() THEN 'expired' ELSE status END
+                 FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
         };
         let query =
@@ -364,7 +366,9 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message FROM player_reports WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,
+                 CASE WHEN status='active' AND expires_at<=statement_timestamp() THEN 'expired' ELSE status END AS status,
+                 (SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
