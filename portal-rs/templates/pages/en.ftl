@@ -12,3 +12,4 @@ locale = Language
 create = Create or edit
 
 not-published = This page has not been published yet.
+operator-draft = Draft — operator data will be replaced.

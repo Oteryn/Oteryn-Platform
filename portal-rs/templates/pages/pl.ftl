@@ -12,3 +12,4 @@ locale = Język
 create = Utwórz lub edytuj
 
 not-published = Ta strona nie została jeszcze opublikowana.
+operator-draft = Wersja robocza — dane operatora zostaną zastąpione.

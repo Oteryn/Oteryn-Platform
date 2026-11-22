@@ -5,6 +5,35 @@ use std::net::IpAddr;
 /// Version of the repository's bilingual placeholder package.
 pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
 
+/// Detect the bundled operator placeholders even if staff change the version or remove a notice.
+pub fn is_placeholder_edition(version: &str, body: &str) -> bool {
+    let body = body.to_lowercase();
+    let compact: String = body
+        .chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, '-' | '–' | '—' | '*' | '_' | '`'))
+        .collect();
+    version
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("placeholder")
+        || [
+            "draft — operator details are placeholders.",
+            "wersja robocza — dane operatora są tymczasowe.",
+            "[dane tymczasowe",
+            "placeholder details",
+        ]
+        .iter()
+        .any(|marker| body.contains(marker))
+        || [
+            "przykładowafirma",
+            "przykładowa1",
+            "00000warszawa",
+            "0000000000",
+        ]
+        .iter()
+        .any(|marker| compact.contains(marker))
+}
+
 #[derive(Debug, Clone)]
 pub struct ConsentConfig {
     pub terms_version: String,
@@ -83,10 +112,7 @@ impl ConsentConfig {
                 None => "published legal document missing for signup locale",
                 Some((_, version, body))
                     if matches!(policy, PublicationPolicy::FinalOnly)
-                        && (version.to_ascii_lowercase().starts_with("placeholder")
-                            || body.contains("Draft — operator details are placeholders.")
-                            || body.contains("Wersja robocza — dane operatora są tymczasowe.")
-                            || body.contains("[DANE TYMCZASOWE")) =>
+                        && is_placeholder_edition(version, body) =>
                 {
                     "placeholder legal document must be replaced before live signup"
                 }

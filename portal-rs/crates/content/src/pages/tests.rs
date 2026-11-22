@@ -51,6 +51,38 @@ async fn drop_pages_schema(root: PgPool, pool: PgPool, schema: &str) -> Result<(
 }
 
 #[tokio::test]
+async fn relabeled_placeholder_pages_show_localized_draft_notice()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some((root, pool, schema)) = pages_database().await? else {
+        return Ok(());
+    };
+    assert_eq!(legal::install(&pool).await?, 3);
+    sqlx::query("UPDATE editorial_pages SET legal_version='relabeled-v1', body='KRS 0000000000'")
+        .execute(&pool)
+        .await?;
+    let app = router(pool.clone());
+    for (locale, notice) in [
+        ("en", "Draft — operator data will be replaced."),
+        ("pl", "Wersja robocza — dane operatora zostaną zastąpione."),
+    ] {
+        for path in ["terms", "privacy", "cookies"] {
+            let response = app
+                .clone()
+                .oneshot(Request::get(format!("/{locale}/legal/{path}")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
+            assert!(html.contains("role=\"note\""));
+            assert!(html.contains(notice));
+            assert!(html.contains("KRS 0000000000"));
+        }
+    }
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_installer_preserves_preexisting_draft_and_history_and_audits_once()
 -> Result<(), Box<dyn std::error::Error>> {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;

@@ -3,12 +3,14 @@ import { password, pool, register, seedPasswordRange } from '../helpers.mjs';
 
 const editions = {
   pl: {
+    draftNotice: 'Wersja robocza — dane operatora zostaną zastąpione.',
     note: 'Wersja robocza — dane operatora są tymczasowe.',
     titles: ['Regulamin Oteryn', 'Polityka prywatności', 'Polityka plików cookie'],
     terms: ['ustawieniach, możesz tam złożyć wniosek', 'poważnego lub uporczywego naruszenia', 'funkcji przekazywania monet w portalu'],
     breach: ['pięć pierwszych znaków szesnastkowych skrótu SHA-1', 'na 30 dni'],
   },
   en: {
+    draftNotice: 'Draft — operator data will be replaced.',
     note: 'Draft — operator details are placeholders.',
     titles: ['Terms of Service', 'Privacy Policy', 'Cookie Policy'],
     terms: ['account settings when the feature is enabled', 'serious or persistent violations', 'portal’s coin transfer feature'],
@@ -19,11 +21,12 @@ const editions = {
 for (const [index, slug] of ['terms', 'privacy', 'cookies'].entries()) {
   test(`legal page shows the default ${slug} text`, async ({ page }, testInfo) => {
     const { locale } = testInfo.project.metadata;
-    const { note, titles, terms, breach } = editions[locale];
+    const { draftNotice, note, titles, terms, breach } = editions[locale];
     const response = await page.goto(`/${locale}/legal/${slug}`);
 
     expect(response?.status()).toBe(200);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(titles[index]);
+    await expect(page.getByRole('note').getByText(draftNotice, { exact: true })).toBeVisible();
     const article = page.locator('main article');
     await expect(article.getByText(note, { exact: true })).toBeVisible();
     await expect(article.getByRole('heading', { level: 2 }).first()).toBeVisible();

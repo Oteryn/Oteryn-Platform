@@ -24,6 +24,21 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
     }
 }
 
+fn permits_legal_install(profile: Option<&str>) -> bool {
+    matches!(profile, Some("local" | "testing"))
+}
+
+#[cfg(test)]
+#[test]
+fn legal_install_requires_an_explicit_disposable_profile() {
+    for profile in [None, Some("production"), Some("preprod"), Some("unknown")] {
+        assert!(!permits_legal_install(profile));
+    }
+    for profile in ["local", "testing"] {
+        assert!(permits_legal_install(Some(profile)));
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("check-image") {
@@ -90,6 +105,13 @@ async fn main() -> ExitCode {
 }
 
 async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
+    if role == Role::InstallLegalPages
+        && !permits_legal_install(std::env::var("OTERYN_ENV").ok().as_deref())
+    {
+        return Err(
+            "install-legal-pages requires explicit OTERYN_ENV=local or OTERYN_ENV=testing".into(),
+        );
+    }
     let config = Config::from_env()?;
     let db = oteryn_web::session::configured_pool(config.database_url())?;
     if matches!(role, Role::Worker) {
