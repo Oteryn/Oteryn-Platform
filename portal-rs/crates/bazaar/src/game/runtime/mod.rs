@@ -378,6 +378,16 @@ impl Runtime {
         crate::locking::listing_gate(&mut tx).await?;
         let replay =
             check_bid_request(&mut tx, key, listing, actor, buyer_character, maximum).await?;
+        if replay == Some(Currency::Coins) {
+            // The binding is append-only and committed with the funded bid.
+            // Release its exclusive lock before revalidating current account policy.
+            tx.commit().await?;
+            return self
+                .core(None)
+                .replay_coin_bid(listing, actor, maximum, &key.to_string())
+                .await
+                .map_err(core_error);
+        }
         crate::locking::listing_gate(&mut tx).await?;
         let row: Listing = sqlx::query_as("SELECT * FROM bazaar_listings WHERE id=$1 FOR UPDATE")
             .bind(listing)
@@ -397,13 +407,8 @@ impl Runtime {
             return Ok(());
         }
 
-        if replay {
-            self.core(None)
-                .bid_in(&mut tx, listing, actor, maximum, &key.to_string())
-                .await
-                .map_err(core_error)?;
-            tx.commit().await?;
-            return Ok(());
+        if replay.is_some() {
+            return Err(Error::Conflict);
         }
         if row.kind == Kind::Item {
             let owned: bool = sqlx::query_scalar(
@@ -617,12 +622,13 @@ pub(super) async fn check_bid_request(
     buyer: Uuid,
     character: Uuid,
     maximum: i64,
-) -> Result<bool, Error> {
+) -> Result<Option<Currency>, Error> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,64004))")
         .bind(key.to_string())
         .execute(&mut *db)
         .await?;
-    let rows = sqlx::query("SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_bid_requests WHERE request_id=$1 UNION ALL SELECT listing_id,buyer,character_id,maximum FROM bazaar_authority_gold_bids WHERE request_id=$1").bind(key).fetch_all(&mut *db).await?;
+    let rows = sqlx::query("SELECT listing_id,buyer,character_id,maximum,'coins'::bazaar_currency AS currency FROM bazaar_authority_bid_requests WHERE request_id=$1 UNION ALL SELECT listing_id,buyer,character_id,maximum,'gold'::bazaar_currency FROM bazaar_authority_gold_bids WHERE request_id=$1").bind(key).fetch_all(&mut *db).await?;
+    let mut currency = None;
     for row in &rows {
         if row.try_get::<Uuid, _>("listing_id")? != listing
             || row.try_get::<Uuid, _>("buyer")? != buyer
@@ -631,8 +637,12 @@ pub(super) async fn check_bid_request(
         {
             return Err(Error::Conflict);
         }
+        let kind = row.try_get::<Currency, _>("currency")?;
+        if currency.replace(kind).is_some() {
+            return Err(Error::Conflict);
+        }
     }
-    Ok(!rows.is_empty())
+    Ok(currency)
 }
 #[cfg(test)]
 mod request_key_tests {
@@ -652,7 +662,10 @@ mod request_key_tests {
         let buyer = Uuid::now_v7();
         let character = Uuid::now_v7();
         let mut first = pool.begin().await?;
-        assert!(!check_bid_request(&mut first, key, listing, buyer, character, 100).await?);
+        assert_eq!(
+            check_bid_request(&mut first, key, listing, buyer, character, 100).await?,
+            None
+        );
         let pool2 = pool.clone();
         let (ready, waiting) = tokio::sync::oneshot::channel();
         let mut second = tokio::spawn(async move {

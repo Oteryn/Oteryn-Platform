@@ -5841,3 +5841,67 @@ mod worker_tests {
 
 #[path = "lifecycle_table_tests.rs"]
 mod lifecycle_table_tests;
+
+#[tokio::test]
+async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = BrowserFixture::new().await;
+    let buyer = uid("13");
+    let listing = uid("20");
+    let destination = uid("14");
+    let credit = Uuid::now_v7();
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES($1)")
+        .bind(buyer)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES($1,'adjustment',$2,20000)",
+    )
+    .bind(credit)
+    .bind(buyer)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES($1,$2,$3,20000,0)")
+        .bind(Uuid::now_v7()).bind(credit).bind(buyer).execute(&db.pool).await.unwrap();
+
+    let request = Uuid::now_v7();
+    db.runtime
+        .bid(buyer, listing, 15000, destination, request)
+        .await
+        .unwrap();
+    let mut reader = db.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM bazaar_listings WHERE id=$1 FOR SHARE")
+        .bind(listing)
+        .execute(&mut *reader)
+        .await
+        .unwrap();
+    // The listing is available to readers. Replays and conflicts must finish
+    // while a would-be writer is unable to acquire the listing lock.
+    let (a, b, conflict) = tokio::join!(
+        db.runtime.bid(buyer, listing, 15000, destination, request),
+        db.runtime.bid(buyer, listing, 15000, destination, request),
+        db.runtime.bid(buyer, listing, 16000, destination, request),
+    );
+    assert!(a.is_ok() && b.is_ok(), "{a:?}, {b:?}");
+    assert!(matches!(conflict, Err(Error::Conflict)));
+    reader.rollback().await.unwrap();
+
+    oteryn_db::test_support::coin_chargeback_hold(&db.pool, buyer)
+        .await
+        .unwrap();
+    assert!(matches!(
+        db.runtime
+            .bid(buyer, listing, 15000, destination, request)
+            .await,
+        Err(Error::Denied)
+    ));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_bids WHERE listing_id=$1")
+        .bind(listing)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    db.end().await;
+}
