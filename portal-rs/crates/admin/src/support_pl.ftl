@@ -35,3 +35,6 @@ warning = Ostrzeżenie
 restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
+requested = Oczekuje na rozpatrzenie
+overturn = Uchylenie sankcji
+uphold = Utrzymanie sankcji

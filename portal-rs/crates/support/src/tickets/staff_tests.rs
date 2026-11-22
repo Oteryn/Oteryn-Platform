@@ -117,6 +117,14 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
     };
     let app =
         configured_staff_router_from(pool.clone(), &lookup).map_err(|error| error.to_string())?;
+    if scenario == Some("appeals") {
+        browser_appeals(&pool, app.clone(), owner, staff, &cookie, &csrf).await?;
+        pool.close().await;
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&root)
+            .await?;
+        return Ok(());
+    }
     if scenario == Some("locks") {
         let path = schema.clone();
         let concurrent_pool = sqlx::postgres::PgPoolOptions::new().max_connections(8)
@@ -766,5 +774,156 @@ async fn postgres_ticket_preparation_and_player_note_share_account_order() -> Te
         "postgres_ticket_preparation_and_player_note_share_account_order duration={:?}",
         started.elapsed()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_browser_appeals() -> TestResult {
+    configured_staff_fixture("postgres_browser_appeals", Some("appeals")).await
+}
+
+async fn browser_appeals(
+    pool: &PgPool,
+    staff_app: Router,
+    owner: Uuid,
+    staff: Uuid,
+    staff_cookie: &str,
+    csrf: &str,
+) -> TestResult {
+    use axum::extract::ConnectInfo;
+    use std::net::SocketAddr;
+
+    let host = "staff.test";
+    let origin = format!("https://{host}");
+    let player_app = crate::appeals::web::router(pool.clone(), &origin);
+    let bearer = oteryn_identity::mfa::random_token()?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,authorization_generation) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 hour','test',$3,(SELECT native_security_generation FROM accounts WHERE id=$2))")
+        .bind(oteryn_identity::mfa::digest(&bearer)).bind(owner).bind(csrf).execute(pool).await?;
+    let owner_cookie = format!("__Host-oteryn_session={bearer}");
+    // Existing sanctions can predate workflow registration.
+    let sanction: Uuid = sqlx::query_scalar("INSERT INTO sanctions(account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) VALUES($1,'suspension','active','Restriction','Private note',now()-interval '1 minute',now()+interval '1 hour',$2) RETURNING id")
+        .bind(owner).bind(staff).fetch_one(pool).await?;
+    let game_features = crate::sanctions::Features {
+        game_access: true,
+        ..Default::default()
+    };
+    assert!(matches!(
+        crate::sanctions::require_game_access(&mut *pool.acquire().await?, owner, game_features)
+            .await,
+        Err(crate::sanctions::Error::Denied)
+    ));
+    let path = format!("/en/support/appeals/{sanction}");
+
+    let get = |cookie: &str| {
+        let request = Request::get(&path)
+            .header("cookie", cookie)
+            .body(Body::empty());
+        let app = player_app.clone();
+        async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?) }
+    };
+    assert_eq!(get(staff_cookie).await?.status(), StatusCode::NOT_FOUND);
+    assert_eq!(get("").await?.status(), StatusCode::FORBIDDEN);
+    let page = get(&owner_cookie).await?;
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(page.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("Submit appeal"));
+    assert!(!html.contains("Private note"));
+
+    let send = |cookie: &str, form: &str| {
+        let origin = origin.clone();
+        let app = player_app.clone();
+        let request = Request::post(&path)
+            .header("host", host)
+            .header("cookie", cookie)
+            .header("origin", origin)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))))
+            .body(Body::from(form.to_owned()));
+        async move {
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?.status())
+        }
+    };
+    let valid = format!("_csrf={csrf}&version=1&message=Please+review");
+    assert_eq!(
+        send(&owner_cookie, "version=1&message=Please+review").await?,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(send(staff_cookie, &valid).await?, StatusCode::NOT_FOUND);
+    assert_eq!(
+        send(
+            &owner_cookie,
+            &format!("_csrf={csrf}&version=1&message=+++")
+        )
+        .await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(send(&owner_cookie, &valid).await?, StatusCode::SEE_OTHER);
+    assert_eq!(send(&owner_cookie, &valid).await?, StatusCode::CONFLICT);
+    assert_eq!(
+        send(&owner_cookie, &valid).await?,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+
+    let decide = |cookie: &str, form: String| {
+        let app = staff_app.clone();
+        let cookie = cookie.to_owned();
+        async move {
+            staff_post(
+                app,
+                host,
+                &cookie,
+                csrf,
+                "moderation/enforcement",
+                sanction,
+                &form,
+            )
+            .await
+        }
+    };
+    let decision = "lock_version=2&action=appeal&appeal_status=accepted&appeal_outcome=Overturned";
+    assert_eq!(
+        decide(&owner_cookie, decision.into()).await?,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        decide(
+            staff_cookie,
+            "lock_version=2&action=appeal&appeal_status=accepted&appeal_outcome=+".into()
+        )
+        .await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        decide(staff_cookie, decision.into()).await?,
+        StatusCode::SEE_OTHER
+    );
+    // Even a fresh lock version cannot reopen or reverse a terminal decision.
+    assert_eq!(
+        decide(
+            staff_cookie,
+            "lock_version=4&action=appeal&appeal_status=rejected&appeal_outcome=Different".into()
+        )
+        .await?,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT status FROM sanctions WHERE id=$1")
+            .bind(sanction)
+            .fetch_one(pool)
+            .await?,
+        "revoked"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1 AND action IN ('support.enforcement_appeal_submitted','support.enforcement_appeal_updated')")
+            .bind(sanction.to_string()).fetch_one(pool).await?,
+        2
+    );
+    crate::sanctions::require_game_access(&mut *pool.acquire().await?, owner, game_features)
+        .await?;
+    let page = get(&owner_cookie).await?;
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(page.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("Overturned"));
+    assert!(!html.contains("Submit appeal"));
     Ok(())
 }

@@ -228,11 +228,23 @@ async fn list<A: AccountStateReader, B: Backend>(
     }
     for record in records {
         body.push_str(&format!(
-            "<li><a href=\"{}/{}\">{}</a></li>",
+            "<li><a href=\"{}/{}\">{}</a>",
             base(area),
             record.id,
             escape(&record.title)
         ));
+        if let Some(appeal) = record
+            .appeal_status
+            .as_deref()
+            .filter(|status| *status != "none")
+        {
+            body.push_str(&format!(
+                " · {} · {}",
+                text(lang, "appeal_status"),
+                text(lang, appeal)
+            ));
+        }
+        body.push_str("</li>");
     }
     body.push_str("</ul>");
     if has_next {
@@ -275,6 +287,7 @@ async fn create_page(
         title: text(language(&headers), "create"),
         status: "active".into(),
         messages: vec![],
+        appeal_status: None,
         next_message: None,
     };
     render_record(Area::Enforcement, record, session, headers, true).await
@@ -296,6 +309,17 @@ async fn render_record(
         escape(&record.title),
         escape(&text(lang, &record.status))
     );
+    if let Some(appeal) = record
+        .appeal_status
+        .as_deref()
+        .filter(|status| *status != "none")
+    {
+        body.push_str(&format!(
+            "<p>{} · {}</p>",
+            text(lang, "appeal_status"),
+            text(lang, appeal)
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",
@@ -342,7 +366,13 @@ async fn render_record(
         ],
     };
     for (action, fields) in actions {
-        if create && *action != "sanction" {
+        if (create && *action != "sanction")
+            || (*action == "appeal"
+                && !matches!(
+                    record.appeal_status.as_deref(),
+                    Some("requested" | "reviewing")
+                ))
+        {
             continue;
         }
         body.push_str(&format!("<form method=\"post\" action=\"{}/{}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"lock_version\" value=\"{}\"><input type=\"hidden\" name=\"action\" value=\"{action}\">",base(area),record.id,escape(&csrf),record.version));
@@ -364,7 +394,7 @@ async fn render_record(
                     &["submitted", "reviewing", "actioned", "rejected", "closed"]
                 }
                 ("status", Area::Enforcement) => &["active", "expired", "revoked"],
-                ("appeal_status", _) => &["reviewing", "accepted", "rejected"],
+                ("appeal_status", _) => &["accepted", "rejected"],
                 ("category", _) => &["warning", "restriction", "suspension"],
                 _ => &[],
             };
@@ -378,7 +408,16 @@ async fn render_record(
                 for choice in choices {
                     body.push_str(&format!(
                         "<option value=\"{choice}\">{}</option>",
-                        text(lang, choice)
+                        text(
+                            lang,
+                            if *field == "appeal_status" && *choice == "accepted" {
+                                "overturn"
+                            } else if *field == "appeal_status" {
+                                "uphold"
+                            } else {
+                                choice
+                            }
+                        )
                     ));
                 }
                 body.push_str("</select></label></p>");

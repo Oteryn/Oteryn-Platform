@@ -182,6 +182,7 @@ pub struct Record {
     pub title: String,
     pub status: String,
     pub messages: Vec<Message>,
+    pub appeal_status: Option<String>,
     pub next_message: Option<Uuid>,
 }
 #[derive(Debug, Clone)]

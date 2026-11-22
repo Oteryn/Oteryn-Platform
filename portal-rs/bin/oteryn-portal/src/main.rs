@@ -233,6 +233,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready.clone()),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
+            let app = app.merge(oteryn_support::appeals::web::router(db.clone(), &origin));
             let app = app.merge(credentials_http::configured_router(db.clone()));
             let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
             let app = app.merge(oteryn_content::today::router(db.clone()));

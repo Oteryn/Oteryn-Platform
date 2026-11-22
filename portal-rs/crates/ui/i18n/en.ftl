@@ -187,6 +187,7 @@ shell-items = Items
 shell-logins = Login history
 shell-places = Places
 shell-tickets = Support tickets
+shell-appeals = Sanction appeals
 
 shell-guilds = Guilds
 shell-houses = Houses

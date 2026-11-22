@@ -39,6 +39,7 @@ impl Backend for Queue {
                     }
                     .into(),
                     messages: vec![],
+                    appeal_status: None,
                     next_message: None,
                 })
                 .collect()

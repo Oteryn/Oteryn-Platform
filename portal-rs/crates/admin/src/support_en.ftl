@@ -35,3 +35,6 @@ warning = Warning
 restriction = Restriction
 suspension = Suspension
 create = Create temporary sanction
+requested = Awaiting review
+overturn = Overturn sanction
+uphold = Uphold sanction

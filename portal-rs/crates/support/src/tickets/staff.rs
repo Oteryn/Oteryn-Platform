@@ -217,28 +217,35 @@ impl Backend for StaffSupport {
         self.available(area)?;
         let query = match area {
             Area::Tickets => {
-                "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,subject,status,NULL::text FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Reports => {
-                "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,target_reference,status,NULL::text FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT s.id,s.lock_version+coalesce(a.version,1)-1,s.public_reason,s.status,a.status
+                 FROM sanctions s
+                 LEFT JOIN support_appeal_workflows a ON a.sanction_id=s.id AND a.owner_id=s.account_id
+                 WHERE s.status<>'pending'
+                 ORDER BY coalesce(a.status IN ('requested','reviewing'),false) DESC,
+                          s.created_at DESC,s.id DESC LIMIT 30 OFFSET $1"
             }
         };
-        let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
-            .bind(i64::from(page.saturating_sub(1)) * 30)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|_| StaffError::Unavailable)?;
+        let rows: Vec<(Uuid, i64, String, String, Option<String>)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(query))
+                .bind(i64::from(page.saturating_sub(1)) * 30)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(id, version, title, status)| Record {
+            .map(|(id, version, title, status, appeal_status)| Record {
                 id,
                 version,
                 title,
                 status,
                 messages: vec![],
+                appeal_status,
                 next_message: None,
             })
             .collect())
@@ -261,6 +268,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                appeal_status: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -277,10 +285,16 @@ impl Backend for StaffSupport {
         }
         let query = match area {
             Area::Reports => {
-                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message FROM player_reports WHERE id=$1"
+                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message, NULL::text AS appeal_status FROM player_reports WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT s.id,s.lock_version+coalesce(a.version,1)-1 AS lock_version,
+                        s.public_reason AS title,s.status,
+                        CASE WHEN a.status<>'none' THEN concat_ws(E'\n',a.message,a.outcome) END AS public_message,
+                        s.moderator_notes AS private_message,a.status AS appeal_status
+                 FROM sanctions s
+                 LEFT JOIN support_appeal_workflows a ON a.sanction_id=s.id AND a.owner_id=s.account_id
+                 WHERE s.id=$1 AND s.status<>'pending'"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
@@ -306,6 +320,7 @@ impl Backend for StaffSupport {
                 title: row.try_get("title")?,
                 status: row.try_get("status")?,
                 messages,
+                appeal_status: row.try_get("appeal_status")?,
                 next_message: None,
             })
         };
