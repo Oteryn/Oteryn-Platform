@@ -357,7 +357,19 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         return Redirect::to("/login").into_response();
     };
     if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
+        let lang = language(request.headers());
+        let title = text(lang, "mfa");
+        let html = format!(
+            concat!(
+                r#"<!doctype html><html lang="{lang}"><head><meta charset="utf-8">"#,
+                r#"<meta name="viewport" content="width=device-width, initial-scale=1">"#,
+                "<title>{title} · Oteryn</title></head>",
+                "<body><main><h1>{title}</h1></main></body></html>"
+            ),
+            lang = lang,
+            title = title
+        );
+        return (StatusCode::FORBIDDEN, axum::response::Html(html)).into_response();
     }
     let proof = match (
         session.identity_hash().await,

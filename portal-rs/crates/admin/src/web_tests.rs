@@ -105,28 +105,40 @@ async fn host_flag_session_and_mfa_boundaries() {
     let response = request(app(pool.clone(), None, true), "/admin", "staff.test").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(response.headers()[header::LOCATION], "/login");
-    let response = request(
-        app(
-            pool,
-            Some(StaffIdentity {
-                account: Uuid::now_v7(),
-                mfa_satisfied: false,
-            }),
-            true,
-        ),
-        "/admin",
-        "staff.test",
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = String::from_utf8(
-        to_bytes(response.into_body(), 10000)
+    let staff = app(
+        pool,
+        Some(StaffIdentity {
+            account: Uuid::now_v7(),
+            mfa_satisfied: false,
+        }),
+        true,
+    );
+    for (lang, title) in [
+        ("pl", "Wymagane uwierzytelnianie wieloskładnikowe"),
+        ("en", "Multi-factor authentication required"),
+    ] {
+        let response = staff
+            .clone()
+            .oneshot(
+                Request::get("/admin")
+                    .header(header::HOST, "staff.test")
+                    .header(header::ACCEPT_LANGUAGE, lang)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
-            .unwrap()
-            .to_vec(),
-    )
-    .unwrap();
-    assert!(body.contains("wieloskładnikowe"));
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = String::from_utf8(
+            to_bytes(response.into_body(), 10000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(body.contains(&format!("<title>{title} · Oteryn</title>")));
+        assert!(body.contains(&format!("<h1>{title}</h1>")));
+    }
 }
 #[test]
 fn localized_responsive_labelled_template() {
