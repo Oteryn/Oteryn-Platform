@@ -727,9 +727,6 @@ impl Service {
                         super::enforcement::lock_ownership(tx)
                             .await
                             .map_err(|_| StaffError::Unavailable)?;
-                        super::enforcement::prove_ownership(tx, target, *character)
-                            .await
-                            .map_err(|_| StaffError::Unavailable)?;
                         super::enforcement::prepare_appeal_revoke(
                             tx, id, target, *character, profile,
                         )
@@ -741,6 +738,9 @@ impl Service {
                     if !self.game_enforcement.enabled(command.profile) {
                         return Err(StaffError::Unavailable);
                     }
+                    super::enforcement::prove_ownership(tx, target, command.character_id)
+                        .await
+                        .map_err(|_| StaffError::Unavailable)?;
                     if !oteryn_admin::console::enforcement::appeal_step_up_current(tx, context)
                         .await
                         .map_err(|_| StaffError::Unavailable)?

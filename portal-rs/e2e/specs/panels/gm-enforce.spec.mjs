@@ -582,6 +582,10 @@ test('An accepted appeal needs fresh step-up through the Game revoke audit write
 test('GM rejects a stale seller until transfer receipt and both projections agree', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   const gm = await staffActor(page, lang, 'game_master_senior');
+  expect(await query(
+    "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' RETURNING role_id",
+    [gm.account.id],
+  )).toHaveLength(1);
   const seller = await seededAccount(lang);
   const buyer = await seededAccount(lang);
   const character = uuid7();
@@ -608,6 +612,26 @@ test('GM rejects a stale seller until transfer receipt and both projections agre
   expect((await page.goto(`${path}?lang=${lang}&character=${character}`)).status()).toBe(200);
   await browserSubmit(page, page.locator('form[action*="/step-up?"]'),
     { code: gm.totp.generate() }, `${path}/step-up`);
+  // A closed historical sanction stays appealable by its original owner.
+  const readGame = enforcementGame();
+  const jail = page.locator('[data-profile=JAIL]');
+  const jailApply = await formPayload(jail.locator('[data-action=apply]'));
+  await watermark();
+  await browserSubmit(page, jail.locator('[data-action=apply]'), { minutes: '15', reason: 'rule_violation' }, path);
+  const jailed = await readGame(jailApply.fields.operation, {
+    account_id: seller.id, character_id: character, profile: 'JAIL', intent: 'APPLY',
+  });
+  await jailed.publish({ state: 'APPLIED' });
+  await watermark();
+  expect((await page.reload()).status()).toBe(200);
+  const jailRevoke = await formPayload(jail.locator('[data-action=revoke]'));
+  await browserSubmit(page, jail.locator('[data-action=revoke]'), { reason: 'rule_violation' }, path);
+  const closed = await readGame(jailRevoke.fields.operation, {
+    account_id: seller.id, character_id: character, profile: 'JAIL', intent: 'REVOKE',
+  });
+  await closed.publish({ state: 'REVOKED', stream_state: 'REVOKED' });
+  const history = jailed.command.sanction_stream_id;
+
   const apply = () => page.locator('[data-profile=MUTE] [data-action=apply]');
   const stale = await formPayload(apply());
   const transfer = uuid7();
@@ -632,9 +656,11 @@ test('GM rejects a stale seller until transfer receipt and both projections agre
     await watermark();
     expect((await post(page, stale.target, decision)).status()).toBe(503);
     expect(await query('SELECT id FROM audit_log WHERE request_id=$1', [stale.fields.operation])).toEqual([]);
-    expect(await query('SELECT position FROM support_enforcement_commands WHERE character_id=$1', [character])).toEqual([]);
-    expect(await query('SELECT id FROM sanctions WHERE enforcement_character_id=$1', [character])).toEqual([]);
-    expect(await query('SELECT sanction_stream_id FROM support_sanction_export_revisions WHERE character_id=$1', [character])).toEqual([]);
+    expect(await query('SELECT operation_id FROM support_enforcement_commands WHERE character_id=$1 ORDER BY position', [character]))
+      .toEqual([{ operation_id: jailApply.fields.operation }, { operation_id: jailRevoke.fields.operation }]);
+    expect(await query('SELECT id FROM sanctions WHERE enforcement_character_id=$1', [character])).toEqual([{ id: history }]);
+    expect(await query('SELECT sanction_stream_id FROM support_sanction_export_revisions WHERE character_id=$1', [character]))
+      .toEqual([{ sanction_stream_id: history }, { sanction_stream_id: history }]);
   };
   await refusedSeller();
   const receipt = JSON.parse(await readFile(new URL(
@@ -655,10 +681,24 @@ test('GM rejects a stale seller until transfer receipt and both projections agre
   expect((await page.reload()).status()).toBe(200);
   const accepted = await formPayload(apply());
   await browserSubmit(page, apply(), { minutes: '15', reason: 'rule_violation' }, path);
-  const applied = await enforcementGame()(accepted.fields.operation, {
+  const applied = await readGame(accepted.fields.operation, {
     account_id: buyer.id, character_id: character, profile: 'MUTE', intent: 'APPLY',
   });
   await applied.publish({ state: 'APPLIED' });
   expect(await query('SELECT owner_id FROM support_appeal_workflows WHERE sanction_id=$1',
     [applied.command.sanction_stream_id])).toEqual([{ owner_id: buyer.id }]);
+  expect(await query(
+    `UPDATE support_appeal_workflows SET status='requested',message='Please review',version=version+1
+     WHERE sanction_id=$1 AND owner_id=$2 RETURNING status`,
+    [history, seller.id],
+  )).toEqual([{ status: 'requested' }]);
+  expect((await page.goto(`/admin/moderation/enforcement/${history}`)).status()).toBe(200);
+  const appeal = await formPayload(page.locator('form').filter({ has: page.locator('[name=appeal_status]') }));
+  expect((await post(page, appeal.target, {
+    ...appeal.fields, appeal_status: 'accepted', appeal_outcome: 'Appeal granted',
+  })).status()).toBe(303);
+  expect(await query('SELECT status,owner_id FROM support_appeal_workflows WHERE sanction_id=$1', [history]))
+    .toEqual([{ status: 'accepted', owner_id: seller.id }]);
+  expect(await query('SELECT operation_id FROM support_enforcement_commands WHERE sanction_stream_id=$1 ORDER BY position', [history]))
+    .toEqual([{ operation_id: jailApply.fields.operation }, { operation_id: jailRevoke.fields.operation }]);
 });

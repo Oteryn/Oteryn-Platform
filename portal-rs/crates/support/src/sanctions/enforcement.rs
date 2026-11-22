@@ -1322,6 +1322,13 @@ pub(super) async fn lock_ownership(
     {
         return Err(BrowserError::Unavailable);
     }
+    if sqlx::query("SELECT 1 FROM account_character_feed WHERE id=1 FOR SHARE NOWAIT")
+        .fetch_optional(&mut *connection)
+        .await?
+        .is_none()
+    {
+        return Err(BrowserError::Unavailable);
+    }
     Ok(())
 }
 
@@ -1361,11 +1368,7 @@ impl Backend for BrowserJournal {
         &self,
         connection: &mut sqlx::PgConnection,
     ) -> Result<(), BrowserError> {
-        lock_ownership(connection).await?;
-        sqlx::query("SELECT 1 FROM account_character_feed WHERE id=1 FOR SHARE")
-            .execute(connection)
-            .await?;
-        Ok(())
+        lock_ownership(connection).await
     }
 
     async fn target(
