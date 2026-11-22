@@ -79,9 +79,12 @@ fn mail_transport() -> Result<Option<MailTransport>, Box<dyn std::error::Error>>
     }))
 }
 
-pub fn staff_invite_key() -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
+pub fn staff_invite_key(pool: &PgPool) -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
     let panel_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
-    let smtp_ready = panel_enabled && mail_transport().is_ok_and(|transport| transport.is_some());
+    // The worker also initializes the shared security sender when SMTP is set.
+    let smtp_ready = panel_enabled
+        && mail_transport().is_ok_and(|transport| transport.is_some())
+        && crate::sessions_http::delivery(pool.clone()).is_ok_and(|delivery| delivery.is_some());
     staff_invite_key_from(panel_enabled, smtp_ready, invite_key_env)
 }
 
