@@ -16,6 +16,12 @@ is `codex/feat-gm-character`, based on
 `33145d6ec7662cd01f91e304ba09fa904edeaf37`. Retain it for coordinator review.
 No PR was requested.
 
+The independent review fixes bind sanction rows to the requested character when
+the result supplies an ID, localize known sanction values, and require explicit
+retry for refused dossier and child queries. Browser coverage includes a senior
+GM without MFA, result isolation between two MFA-verified senior GMs, signed
+sanction mismatch, nullable sanction ID, and dossier and inventory retries.
+
 - Qualify search, dossier, inventory and sanctions in both languages and viewport
   sizes through the authenticated Admin Agent.
 - Refuse a dossier whose verified payload names a different character.
@@ -31,8 +37,8 @@ separate Support enforcement implementation, outside this GM read scenario.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T15:23:52Z
-head: e7bc1f4dbfe43ec00077d10d95dee44f77d384d8
+updated_at: 2026-11-22T16:21:47Z
+head: 75dd880336700456d24a4cf5d9f91cb98ab3edd4
 branch: codex/feat-gm-character
 pr: none
 status: ready
@@ -70,8 +76,11 @@ validation:
     result: PASS
     evidence: Built the portal binary exercised by the harness.
   - command: cargo test --locked -p oteryn-admin --lib
+    result: FAIL
+    evidence: PostgreSQL 18.6, 231 passed and three unrelated Bazaar or Commerce concurrency tests timed out during the browser run. All console tests passed.
+  - command: cargo test --locked -p oteryn-admin --lib with exact filters for the three timed-out cases
     result: PASS
-    evidence: PostgreSQL 18.6, 232 passed and zero failed or ignored. The dossier regression and default-off catalogue checks passed.
+    evidence: Both Bazaar cases and the Commerce case passed exact reruns after the browser harness stopped.
   - command: Playwright gm-player-console.spec.mjs
     result: PASS
     evidence: pl-1440, pl-390, en-1440 and en-390 each passed on the first attempt. No runner errors.
