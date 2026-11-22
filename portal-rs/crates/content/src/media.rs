@@ -316,8 +316,9 @@ async fn upload(
                     .file_name()
                     .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?
                     .to_owned();
+                let declared_type = field.headers().get(header::CONTENT_TYPE).cloned();
                 let bytes = field.bytes().await.map_err(invalid)?;
-                image = Some((name, bytes));
+                image = Some((name, declared_type, bytes));
             }
             Some("_csrf") => {
                 let _ = field.text().await.map_err(invalid)?;
@@ -332,8 +333,15 @@ async fn upload(
     if alt.trim().is_empty() || alt.chars().count() > 500 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let (name, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+    let (name, declared_type, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
     let processed = tokio_process(name, bytes.to_vec()).await?;
+    if declared_type.is_some_and(|value| {
+        !value
+            .as_bytes()
+            .eq_ignore_ascii_case(processed.mime.as_bytes())
+    }) {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     // Persist only after processing, with fresh transactional authorization.
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(

@@ -278,8 +278,8 @@ async fn browser_lifecycle(pool: &PgPool) {
         .split('"')
         .next()
         .unwrap();
-    let make = |token: &str, alt: &str| {
-        let mut body = format!("--boundary\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{token}\r\n--boundary\r\nContent-Disposition: form-data; name=\"alt_text\"\r\n\r\n{alt}\r\n--boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"x.png\"\r\nContent-Type: image/png\r\n\r\n").into_bytes();
+    let make = |token: &str, alt: &str, mime: &str| {
+        let mut body = format!("--boundary\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{token}\r\n--boundary\r\nContent-Disposition: form-data; name=\"alt_text\"\r\n\r\n{alt}\r\n--boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"x.png\"\r\nContent-Type: {mime}\r\n\r\n").into_bytes();
         body.extend(fixture(ImageFormat::Png, 640, 160));
         body.extend_from_slice(b"\r\n--boundary--\r\n");
         Request::post("/admin/media")
@@ -295,19 +295,39 @@ async fn browser_lifecycle(pool: &PgPool) {
     };
     assert_eq!(
         app.clone()
-            .oneshot(make("wrong", "Image"))
+            .oneshot(make("wrong", "Image", "image/png"))
             .await
             .unwrap()
             .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        app.clone().oneshot(make(csrf, " ")).await.unwrap().status(),
+        app.clone()
+            .oneshot(make(csrf, " ", "image/png"))
+            .await
+            .unwrap()
+            .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
         app.clone()
-            .oneshot(make(csrf, "Image"))
+            .oneshot(make(csrf, "Mismatched MIME", "image/jpeg"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM media WHERE alt_text='Mismatched MIME')"
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(make(csrf, "Image", "image/png"))
             .await
             .unwrap()
             .status(),
@@ -331,7 +351,7 @@ async fn browser_lifecycle(pool: &PgPool) {
     sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT $1,'editorial_media.uploaded','test','null'::jsonb,'null'::jsonb,uuidv7() FROM generate_series(1,9)").bind(actor).execute(pool).await.unwrap();
     assert_eq!(
         app.clone()
-            .oneshot(make(csrf, "Image"))
+            .oneshot(make(csrf, "Image", "image/png"))
             .await
             .unwrap()
             .status(),
