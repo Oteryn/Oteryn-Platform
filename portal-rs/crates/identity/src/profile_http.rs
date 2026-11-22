@@ -7,7 +7,6 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_identity::mutation_actor::MutationActor;
 use oteryn_web::{
     Language,
     ratelimit::{ClientSource, Keys, NamedPolicy, RateLimiter},
@@ -164,13 +163,22 @@ async fn save(
     let Some(name) = display_name(&input.display_name) else {
         return page(&pool, &session, language, true).await;
     };
-    let actor = MutationActor::browser(owner, session.csrf_token().await.map_err(unavailable)?);
+    let session_hash = session.identity_hash().await.ok_or(StatusCode::FORBIDDEN)?;
     let mut tx = pool.begin().await.map_err(unavailable)?;
     let old: String = sqlx::query_scalar("SELECT profile_display_name FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR UPDATE")
         .bind(owner).fetch_optional(&mut *tx).await.map_err(unavailable)?.ok_or(StatusCode::FORBIDDEN)?;
-    if !actor.live(&mut tx).await.map_err(unavailable)? {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    // Keep the initiating browser session locked until the profile and audit commit.
+    sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT id_hash FROM web_sessions WHERE id_hash=$1 AND account_id=$2
+         AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()
+         FOR UPDATE",
+    )
+    .bind(session_hash)
+    .bind(owner)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(unavailable)?
+    .ok_or(StatusCode::FORBIDDEN)?;
     if old != name {
         sqlx::query(
             "UPDATE accounts SET profile_display_name=$2,updated_at=clock_timestamp() WHERE id=$1",
@@ -281,6 +289,88 @@ mod tests {
                 .fetch_one(&db.pool)
                 .await?;
         assert_eq!(name, "Saved");
+        db.close().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn profile_save_cannot_overtake_logout() -> Result<(), Box<dyn std::error::Error>> {
+        use axum::{body::Body, extract::ConnectInfo, http::Request};
+        use sqlx::Connection;
+        use std::{net::SocketAddr, time::Duration};
+        use tower::ServiceExt;
+
+        let db = database::Database::open()
+            .await?
+            .ok_or("PostgreSQL required")?;
+        let owner: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('profile-logout@example.test','unused','active','en',now()) RETURNING id")
+            .fetch_one(&db.pool).await?;
+        let cookie = "a".repeat(64);
+        let csrf = "b".repeat(64);
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES(sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
+            .bind(cookie.as_bytes()).bind(owner).bind(&csrf).execute(&db.pool).await?;
+
+        let schema: String = sqlx::query_scalar("SELECT current_schema()")
+            .fetch_one(&db.pool)
+            .await?;
+        let options = db
+            .pool
+            .connect_options()
+            .as_ref()
+            .clone()
+            .options([("search_path", schema)]);
+        let mut account_connection = sqlx::PgConnection::connect_with(&options).await?;
+        let mut logout_connection = sqlx::PgConnection::connect_with(&options).await?;
+        let mut account_lock = account_connection.begin().await?;
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+            .bind(owner)
+            .fetch_one(&mut *account_lock)
+            .await?;
+        let request = Request::post("/en/account/profile")
+            .header(header::COOKIE, format!("{}={cookie}", session::COOKIE_NAME))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .extension(ConnectInfo("127.0.0.1:4324".parse::<SocketAddr>()?))
+            .body(Body::from(format!("display_name=Stale&_csrf={csrf}")))?;
+        let save = tokio::spawn(router(db.pool.clone()).oneshot(request));
+
+        let waiting_on_this_connection = "SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+            WHERE pg_backend_pid()=ANY(pg_blocking_pids(pid)))";
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !sqlx::query_scalar::<_, bool>(waiting_on_this_connection)
+                .fetch_one(&mut *account_lock)
+                .await?
+            {}
+            Ok::<_, sqlx::Error>(())
+        })
+        .await??;
+        // The browser middleware finished before save waited on the account lock.
+        let mut logout = logout_connection.begin().await?;
+        sqlx::query("DELETE FROM web_sessions WHERE id_hash=sha256($1::bytea)")
+            .bind(cookie.as_bytes())
+            .execute(&mut *logout)
+            .await?;
+        account_lock.commit().await?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !save.is_finished()
+                && !sqlx::query_scalar::<_, bool>(waiting_on_this_connection)
+                    .fetch_one(&mut *logout)
+                    .await?
+            {}
+            Ok::<_, sqlx::Error>(())
+        })
+        .await??;
+        logout.commit().await?;
+
+        assert_eq!(save.await??.status(), StatusCode::FORBIDDEN);
+        let state: (String, bool) = sqlx::query_as(
+            "SELECT profile_display_name,
+            EXISTS(SELECT 1 FROM audit_log WHERE actor=$1 AND action='account.profile.updated')
+            FROM accounts WHERE id=$1",
+        )
+        .bind(owner)
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(state, (String::new(), false));
         db.close().await?;
         Ok(())
     }
