@@ -4,6 +4,7 @@ import {cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} fro
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
+import {inventoryDigest} from './capture.mjs';
 
 test('coverage requires a response from the matching passing attempt', t => {
   const directory = mkdtempSync(join(tmpdir(), 'portal-ledger-report-'));
@@ -24,7 +25,9 @@ test('coverage requires a response from the matching passing attempt', t => {
     ]),
     spec('expected failure', [run('pl-1440', 'failed', [result('failed', 1, 0)])]),
   ]}]}];
-  const baselineCapture = {revision: 'a'.repeat(40), runId: '10000000-0000-4000-8000-000000000000', clean: true};
+  const baselineCapture = {
+    revision: 'a'.repeat(40), runId: '10000000-0000-4000-8000-000000000000', clean: true, inventory: inventoryDigest(),
+  };
   const candidateCapture = {...baselineCapture, runId: '20000000-0000-4000-8000-000000000000'};
   const config = {configFile: join(directory, 'playwright.config.mjs'), rootDir: directory};
   const results = join(directory, 'test-results/results.json');
@@ -93,4 +96,9 @@ test('coverage requires a response from the matching passing attempt', t => {
   saveResults(dirty);
   saveCaptures([loot], dirty);
   rejects('Ledger evidence requires a clean checkout at capture time.');
+
+  const otherInventory = {...candidateCapture, inventory: '0'.repeat(64)};
+  saveResults(otherInventory);
+  saveCaptures([loot], otherInventory);
+  rejects('The route and form inventory does not match the Playwright capture.');
 });

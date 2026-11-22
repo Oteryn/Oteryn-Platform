@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sameCapture, validateCapture } from './capture.mjs';
+import { inventoryDigest, sameCapture, validateCapture } from './capture.mjs';
 
 const inventory = JSON.parse(readFileSync(new URL('../inventory.json', import.meta.url)));
 const forms = JSON.parse(readFileSync(new URL('./forms.json', import.meta.url)));
@@ -22,6 +22,9 @@ const key = (...parts) => JSON.stringify(parts);
 const evidenceRules = 3;
 const results = JSON.parse(readFileSync(join(resultsDirectory, 'results.json')));
 const capture = validateCapture(results.config.metadata?.ledger);
+if (capture.inventory !== inventoryDigest()) {
+  throw new Error('The route and form inventory does not match the Playwright capture.');
+}
 const configDirectory = dirname(results.config.configFile);
 const passing = new Set();
 function collectPassing(suite, parents = []) {
@@ -161,7 +164,8 @@ if (process.argv.includes('--delta')) {
     throw new Error('The baseline must be a separate Playwright run of the same captured revision.');
   }
   const baselineRowIds = new Set(baseline.rows.map(row => row.id));
-  if (baseline.rows.length !== result.length || baselineRowIds.size !== ids.size ||
+  if (baselineCapture.inventory !== capture.inventory ||
+      baseline.rows.length !== result.length || baselineRowIds.size !== ids.size ||
       [...baselineRowIds].some(id => !ids.has(id))) {
     throw new Error('The baseline row inventory does not match the current ledger rules and inventory.');
   }
