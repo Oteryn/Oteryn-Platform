@@ -330,6 +330,11 @@ mod flag_boundary {
         run_case("staff_invite_returns_503_when_shared_smtp_sender_is_missing", false)
     }
 
+    #[test]
+    fn staff_invite_returns_503_when_delivery_key_is_malformed() -> TestResult {
+        run_case("staff_invite_returns_503_when_delivery_key_is_malformed", false)
+    }
+
     fn run_case(test: &str, referrals_enabled: bool) -> TestResult {
         if std::env::var_os(CHILD).is_some() {
             return tokio::runtime::Builder::new_current_thread()
@@ -451,6 +456,7 @@ mod flag_boundary {
             "staff_invite_returns_503_when_smtp_password_is_missing"
                 | "staff_invite_returns_503_when_smtp_password_is_empty"
                 | "staff_invite_returns_503_when_shared_smtp_sender_is_missing"
+                | "staff_invite_returns_503_when_delivery_key_is_malformed"
         ) {
             command
                 .env("OTERYN_ADMIN_PANEL", "true")
@@ -468,6 +474,13 @@ mod flag_boundary {
                     command
                         .env("OTERYN_SMTP_FROM", "portal@example.test")
                         .env("OTERYN_SMTP_PASSWORD", "");
+                }
+                "staff_invite_returns_503_when_delivery_key_is_malformed" => {
+                    command
+                        .env("OTERYN_ACCOUNT_PASSWORD_RESET", "false")
+                        .env("OTERYN_SMTP_FROM", "portal@example.test")
+                        .env("OTERYN_SMTP_PASSWORD", "flag-boundary-fixture")
+                        .env("OTERYN_RESET_DELIVERY_KEY", "invalid");
                 }
                 _ => {
                     command.env("OTERYN_SMTP_PASSWORD", "flag-boundary-fixture");
@@ -705,7 +718,10 @@ mod flag_boundary {
                 "staff_invite_returns_503_when_smtp_password_is_missing"
                 | "staff_invite_returns_503_when_smtp_password_is_empty"
                 | "staff_invite_returns_503_when_shared_smtp_sender_is_missing" => {
-                    exercise_unavailable_staff_invite_delivery(&pool).await
+                    exercise_unavailable_staff_invite_delivery(&pool, false).await
+                }
+                "staff_invite_returns_503_when_delivery_key_is_malformed" => {
+                    exercise_unavailable_staff_invite_delivery(&pool, true).await
                 }
                 "paused_intake_keeps_authenticated_cancellation" => {
                     exercise_cancellation(&pool).await
@@ -758,20 +774,25 @@ mod flag_boundary {
         Ok((account, staff))
     }
 
-    async fn exercise_unavailable_staff_invite_delivery(pool: &PgPool) -> TestResult {
+    async fn exercise_unavailable_staff_invite_delivery(pool: &PgPool, malformed_key: bool) -> TestResult {
         seed_browser_accounts(pool).await?;
-        let error = configured(pool.clone()).await
-            .expect_err("worker refuses incomplete SMTP settings");
-        if std::env::var_os("OTERYN_SMTP_PASSWORD").is_none() {
-            assert_eq!(
-                error.to_string(),
-                "OTERYN_SMTP_PASSWORD is required and must be valid UTF-8"
-            );
-        } else if std::env::var("OTERYN_SMTP_PASSWORD").as_deref() == Ok("") {
-            assert_eq!(error.to_string(), "SMTP configuration invalid");
+        let worker = configured(pool.clone()).await;
+        let worker = if malformed_key {
+            Some(worker?)
         } else {
-            assert_eq!(error.downcast_ref::<std::env::VarError>(), Some(&std::env::VarError::NotPresent));
-        }
+            let error = worker.expect_err("worker refuses incomplete SMTP settings");
+            if std::env::var_os("OTERYN_SMTP_PASSWORD").is_none() {
+                assert_eq!(
+                    error.to_string(),
+                    "OTERYN_SMTP_PASSWORD is required and must be valid UTF-8"
+                );
+            } else if std::env::var("OTERYN_SMTP_PASSWORD").as_deref() == Ok("") {
+                assert_eq!(error.to_string(), "SMTP configuration invalid");
+            } else {
+                assert_eq!(error.downcast_ref::<std::env::VarError>(), Some(&std::env::VarError::NotPresent));
+            }
+            None
+        };
         let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
             .fetch_one(pool)
             .await?;
@@ -794,6 +815,31 @@ mod flag_boundary {
             .fetch_one(pool)
             .await?;
             assert_eq!(counts, (0, 0));
+            if let Some(worker) = worker {
+                let resend = exchange(address, None, "POST", "/en/verify-email/resend").await?;
+                assert_eq!(resend.split_whitespace().nth(1), Some("303"));
+                assert!(worker.handlers.contains_key("email.verify"));
+                assert!(worker.handlers.contains_key("email.account_exists"));
+                let kind = oteryn_admin::staff_invites::MAIL_KIND;
+                assert!(worker.disabled.iter().any(|disabled| disabled == kind));
+                let mut tx = pool.begin().await?;
+                let job = oteryn_db::outbox::enqueue(
+                    &mut tx,
+                    kind,
+                    "{}",
+                    "invite-queued-before-key-change",
+                    time::OffsetDateTime::now_utc(),
+                    5,
+                )
+                .await?;
+                tx.commit().await?;
+                worker.batch(pool).await?;
+                let state: (String, i32) = sqlx::query_as("SELECT state,attempts FROM outbox WHERE id=$1")
+                    .bind(job)
+                    .fetch_one(pool)
+                    .await?;
+                assert_eq!(state, ("pending".into(), 0));
+            }
             Ok(())
         }
         .await;

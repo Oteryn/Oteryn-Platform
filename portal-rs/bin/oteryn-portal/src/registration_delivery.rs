@@ -79,7 +79,7 @@ fn mail_transport() -> Result<Option<MailTransport>, Box<dyn std::error::Error>>
     }))
 }
 
-pub fn staff_invite_key(pool: &PgPool) -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
+pub fn staff_invite_key(pool: &PgPool) -> Option<DeliveryKey> {
     let panel_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
     // The worker also initializes the shared security sender when SMTP is set.
     let smtp_ready = panel_enabled
@@ -96,13 +96,11 @@ fn staff_invite_key_from(
     panel_enabled: bool,
     mail_configured: bool,
     key: impl FnOnce() -> Option<String>,
-) -> Result<Option<DeliveryKey>, Box<dyn std::error::Error>> {
+) -> Option<DeliveryKey> {
     if !panel_enabled || !mail_configured {
-        return Ok(None);
+        return None;
     }
-    key()
-        .map(|value| DeliveryKey::parse(&value).ok_or_else(|| "invalid mail delivery key".into()))
-        .transpose()
+    key().and_then(|value| DeliveryKey::parse(&value))
 }
 
 struct StaffInviteMailer {
@@ -171,7 +169,7 @@ pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std
         origin,
     });
     let panel_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
-    if let Some(key) = staff_invite_key_from(panel_enabled, true, invite_key_env)? {
+    if let Some(key) = staff_invite_key_from(panel_enabled, true, invite_key_env) {
         registry.register(
             staff_invites::MAIL_KIND,
             Arc::new(StaffInviteMailer {
@@ -437,8 +435,8 @@ mod account_exists_tests {
 
 /// Freeze delivery readiness at startup, before registration body/session work.
 /// Serve and worker use the identical validated configuration.
-pub fn admission(app: axum::Router, pool: PgPool) -> axum::Router {
-    let ready = mail_settings_present() && register(&mut Registry::default(), pool).is_ok();
+pub fn admission(app: axum::Router) -> axum::Router {
+    let ready = mail_transport().is_ok_and(|transport| transport.is_some());
     admission_with_readiness(app, ready)
 }
 fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
@@ -473,11 +471,11 @@ fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
 
 #[cfg(test)]
 #[test]
-fn staff_invite_delivery_requires_panel_mail_and_key() -> Result<(), Box<dyn std::error::Error>> {
+fn staff_invite_delivery_requires_panel_mail_and_key() {
     let configured_key = || Some("ab".repeat(32));
-    assert!(staff_invite_key_from(false, true, configured_key)?.is_none());
-    assert!(staff_invite_key_from(true, false, configured_key)?.is_none());
-    assert!(staff_invite_key_from(true, true, || None)?.is_none());
-    assert!(staff_invite_key_from(true, true, configured_key)?.is_some());
-    Ok(())
+    assert!(staff_invite_key_from(false, true, configured_key).is_none());
+    assert!(staff_invite_key_from(true, false, configured_key).is_none());
+    assert!(staff_invite_key_from(true, true, || None).is_none());
+    assert!(staff_invite_key_from(true, true, || Some("invalid".into())).is_none());
+    assert!(staff_invite_key_from(true, true, configured_key).is_some());
 }
