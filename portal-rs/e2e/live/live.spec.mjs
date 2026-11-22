@@ -197,6 +197,7 @@ async function openPage(context, source, report, request, responseNote) {
   const documentResponses = new Map();
   const pending = new Set();
   const policyBlocks = new Set();
+  let closing = false;
   const requestFailure = (url, reason) => report('console/CSP', source, `${url}: ${reason}`);
   page.on('console', message => {
     const value = message.text();
@@ -239,6 +240,10 @@ async function openPage(context, source, report, request, responseNote) {
           responseCode: response.status,
           responseHeaders,
           body: response.body.toString('base64'),
+        }).catch(error => {
+          if (!closing || !error.message.includes('Target page, context or browser has been closed')) {
+            throw error;
+          }
         });
       } catch (error) {
         policyBlocks.add(url.href);
@@ -253,6 +258,8 @@ async function openPage(context, source, report, request, responseNote) {
     page,
     documentResponses,
     async close() {
+      await Promise.allSettled(pending);
+      closing = true;
       await page.close();
       await Promise.allSettled(pending);
     },
