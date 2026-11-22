@@ -179,7 +179,32 @@ await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password
 // only in this disposable qualification database (the deployment flag is also required).
 await bazaarSeed.query("UPDATE referral_campaign_settings SET enabled=true WHERE singleton");
 await bazaarSeed.end();
-const bazaarGame=startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
+const bazaarGame=startBazaarProducer({...bazaarConfig,async publishCharacter(character){
+ await gameProducer.publishCharacter(character);
+ // This disposable Game fixture represents an existing character. Its accepted
+ // ownership baseline must accompany the mTLS portfolio for the player overview.
+ const client=new pg.Client({connectionString:databaseURL(dbName)});
+ await client.connect();
+ try{
+  const baseline=await client.query(
+   `INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,
+      from_projection_revision,to_projection_revision,projection_epoch,recovery_generation)
+    SELECT c.character_id,c.account_id,c.world_id,1,s.projection_revision::numeric,
+           s.projection_revision::numeric,s.projection_epoch::numeric,3
+    FROM account_characters c JOIN account_character_snapshots s USING(account_id)
+    WHERE c.character_id=$1 AND c.account_id=$2 AND c.world_id=$3 AND NOT s.invalid
+    ON CONFLICT(character_id) DO NOTHING`,
+   [character.character_id,character.account_id,character.world_id],
+  );
+  if(baseline.rowCount!==1){
+   const existing=await client.query(
+    'SELECT 1 FROM pd_ownership_baselines WHERE character_id=$1 AND account_id=$2 AND world_id=$3',
+    [character.character_id,character.account_id,character.world_id],
+   );
+   if(existing.rowCount!==1)throw new Error('Game fixture ownership baseline unavailable');
+  }
+ }finally{await client.end();}
+}});
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
 const mail={tls,username:env.OTERYN_SMTP_USERNAME,password:env.OTERYN_SMTP_PASSWORD,messages};
