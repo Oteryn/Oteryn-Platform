@@ -1223,6 +1223,11 @@ async fn lifecycle_active_bid_gold() {
     assert_eq!(holds, 1);
 }
 
+#[tokio::test]
+async fn gold_activity_uses_refusal_receipt_time() {
+    lifecycle_gold_pending_refuse_hold().await;
+}
+
 async fn lifecycle_gold_pending_refuse_hold() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = item_in(State::Active).await;
