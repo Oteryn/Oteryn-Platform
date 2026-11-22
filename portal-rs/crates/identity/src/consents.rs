@@ -6,20 +6,16 @@ use uuid::Uuid;
 /// Version of the repository's bilingual placeholder package.
 pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
 
-/// Detect the bundled placeholders in the same Markdown text the public page renders.
-pub fn is_placeholder_edition(version: &str, title: &str, body: &str) -> bool {
+/// Properties of the text the public renderer exposes.
+pub struct LegalEditionText {
+    pub has_visible_body: bool,
+    pub has_placeholder: bool,
+}
+
+pub fn inspect_legal_edition(version: &str, title: &str, body: &str) -> LegalEditionText {
     use html5ever::tokenizer::{BufferQueue, Token, TokenSink, TokenSinkResult, Tokenizer};
     use std::cell::RefCell;
     use unicode_general_category::{GeneralCategory, get_general_category};
-    use unicode_normalization::UnicodeNormalization;
-
-    if version
-        .trim_start()
-        .to_ascii_lowercase()
-        .starts_with("placeholder")
-    {
-        return true;
-    }
 
     struct Text(RefCell<String>);
     impl TokenSink for Text {
@@ -42,7 +38,26 @@ pub fn is_placeholder_edition(version: &str, title: &str, body: &str) -> bool {
     tokenizer.end();
     let body = tokenizer.sink.0.into_inner();
 
-    [title, body.as_str()].into_iter().any(|text| {
+    LegalEditionText {
+        has_visible_body: body.chars().any(|c| {
+            !c.is_whitespace()
+                && !matches!(
+                    get_general_category(c),
+                    GeneralCategory::Control | GeneralCategory::Format
+                )
+        }),
+        has_placeholder: version
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("placeholder")
+            || contains_legal_placeholder(title, &body),
+    }
+}
+
+fn contains_legal_placeholder(title: &str, body: &str) -> bool {
+    use unicode_general_category::{GeneralCategory, get_general_category};
+    use unicode_normalization::UnicodeNormalization;
+    [title, body].into_iter().any(|text| {
         let compact: String = text
             .nfkc()
             .flat_map(char::to_lowercase)
@@ -52,6 +67,10 @@ pub fn is_placeholder_edition(version: &str, title: &str, body: &str) -> bool {
                         get_general_category(c),
                         GeneralCategory::ConnectorPunctuation
                             | GeneralCategory::DashPunctuation
+                            | GeneralCategory::OpenPunctuation
+                            | GeneralCategory::ClosePunctuation
+                            | GeneralCategory::InitialPunctuation
+                            | GeneralCategory::FinalPunctuation
                             | GeneralCategory::OtherPunctuation
                             | GeneralCategory::Format
                     )
@@ -171,24 +190,32 @@ impl ConsentConfig {
 
         let checked = |slug: &str, expected: &str| {
             let document = documents.iter().find(|row| row.slug == slug);
-            let reason = match document {
+            let reason = match document.map(|row| {
+                (
+                    row,
+                    inspect_legal_edition(&row.version, &row.title, &row.body),
+                )
+            }) {
                 None => "published legal document missing for signup locale",
-                Some(row)
+                Some((_, text)) if !text.has_visible_body => {
+                    "published legal document has no visible body text"
+                }
+                Some((_, text))
                     if matches!(self.publication, PublicationPolicy::FinalOnly)
-                        && is_placeholder_edition(&row.version, &row.title, &row.body) =>
+                        && text.has_placeholder =>
                 {
                     "placeholder legal document must be replaced before live signup"
                 }
-                Some(row)
+                Some((row, _))
                     if matches!(self.publication, PublicationPolicy::FinalOnly)
                         && !row.final_approved =>
                 {
                     "published legal edition requires explicit final approval"
                 }
-                Some(row) if row.version != expected => {
+                Some((row, _)) if row.version != expected => {
                     "configured consent version does not match published legal document"
                 }
-                Some(row) => {
+                Some((row, _)) => {
                     if let Some(page_id) = row.page_id {
                         return Ok(EditionKey {
                             page_id,

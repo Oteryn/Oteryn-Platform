@@ -93,14 +93,14 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
         && form.legal_version.len() <= 80
         && matches!(form.action.as_str(), "save" | "delete")
         && (form.final_approved.is_empty()
-            || (form.final_approved == "yes"
-                && legal(slug)
-                && !form.published_at.is_empty()
-                && !oteryn_identity::consents::is_placeholder_edition(
+            || (form.final_approved == "yes" && legal(slug) && !form.published_at.is_empty() && {
+                let text = oteryn_identity::consents::inspect_legal_edition(
                     &form.legal_version,
                     &form.title,
                     &form.body,
-                )))
+                );
+                text.has_visible_body && !text.has_placeholder
+            }))
         && (!legal(slug)
             || form.published_at.is_empty()
             || (!form.legal_version.trim().is_empty() && !form.legal_effective_date.is_empty()))

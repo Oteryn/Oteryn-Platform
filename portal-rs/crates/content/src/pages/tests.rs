@@ -74,6 +74,11 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
     for (english, polish, visible) in [
         ("KRS 0000000000", "KRS 0000000000", "KRS 0000000000"),
         (
+            "Tax ID (NIP) (000) 000-00-00",
+            "NIP (000) 000-00-00",
+            "(000) 000-00-00",
+        ),
+        (
             "Tax ID (NIP) <strong>000</strong>&#8209;000&#x2011;00‑00",
             "NIP 000‑000‑00‑00",
             "‑00",
@@ -462,6 +467,10 @@ Updated English source",
         ("en", "Tax ID (NIP) **000**&#8209;000&#x2011;00‑00"),
         ("pl", "NIP 000‑000‑00‑00"),
         ("en", "KRS 0000000000"),
+        ("en", "Tax ID (NIP) (000) 000-00-00"),
+        ("pl", "NIP (000) 000-00-00"),
+        ("en", "<!-- Terms draft -->"),
+        ("pl", "<!-- Projekt regulaminu -->"),
     ] {
         form.body = body.into();
         assert!(matches!(
